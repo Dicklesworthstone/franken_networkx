@@ -1270,7 +1270,7 @@ The `fnx.community` submodule mirrors `nx.algorithms.community`. Most algorithms
 
 ### Planarity
 
-- **`is_planar` / `check_planarity`.** `is_planar` runs Euler and degree bounds and then the native left-right planarity kernel (`is_planar_lr`, `br-r37-c1-native-is-planar-boolean-zuxh1`), so K5, K3,3 and Petersen are decided in Rust. `check_planarity` still builds its `PlanarEmbedding` / Kuratowski certificate through NetworkX; a native embedding is the remaining roadmap item.
+- **`is_planar` / `check_planarity`.** `is_planar` runs Euler and degree bounds and then the native left-right planarity kernel (`is_planar_lr`), so K5, K3,3 and Petersen are decided in Rust. `check_planarity` builds native `PlanarEmbedding` clockwise rotation orders (Boyer-Myrvold edge-addition) and extracts native Kuratowski subgraph counterexamples without NetworkX.
 
 ### DAG
 
@@ -2354,7 +2354,7 @@ For Rust-side `tracing` output, point `RUST_LOG=fnx=info` at any process that lo
 FrankenNetworkX is honest about what it does not do today:
 
 - **Drawing is delegated.** `draw`, `draw_*`, and the matplotlib-backed layout functions delegate to NetworkX/matplotlib. Layout *math* (`spring_layout`, `kamada_kawai_layout`, etc.) is also delegated. We do not own matplotlib rendering.
-- **`check_planarity` certificates are delegated.** The boolean `is_planar` is native (Euler and degree bounds, then the left-right planarity kernel `is_planar_lr`, which rejects K5, K3,3 and Petersen in Rust). The `PlanarEmbedding` and Kuratowski-subgraph certificate returned by `check_planarity` still come from NetworkX; a native embedding is on the roadmap.
+- **`check_planarity` certificates are native.** Both the boolean `is_planar` and `check_planarity` certificates (`PlanarEmbedding` rotation orders for planar graphs and Kuratowski subgraph counterexamples for non-planar graphs) are computed natively in Rust; the Python PlanarEmbedding container preserves NetworkX structure checks.
 - **71 nx-fallback + 61 mixed-route exports** retain a NetworkX path. These are not bugs; they are the documented set in `delegation_ledger.md` where unusual argument shapes (callable arguments, exotic format variants, deprecated API forms) defer to NetworkX. The native fast path runs for the common case.
 - **Release status.** `v0.2.0` is tagged on GitHub, but its wheel jobs failed on an absolute-path dependency (fixed on main afterwards; the originally cited fix hash is unreachable from history, so it is not repeated here). No wheel or sdist has been uploaded to PyPI yet. A wheel built from HEAD installs and runs in a fresh venv (verified 2026-09-02); the next tag is expected to publish — tracked in `br-r37-c1-rc-pypi-first-publication-3yi49`.
 - **No Windows/macOS performance SLO yet.** The performance gate (G6) currently runs only on Linux. Correctness gates (G1–G3) cover all three platforms.
@@ -2649,9 +2649,9 @@ The security doctrine in `AGENTS.md` covers four threat surfaces:
 
 In rough priority order (`bv --robot-triage` shows the current bead backlog):
 
-1. **Finish strict/hardened exposure** (open bead `br-r37-c1-9a8bo`). `RuntimePolicy` is already wired through `fnx-readwrite`'s engine layer; the remaining scope is the 46 hardcoded Strict call sites, a Python-level mode toggle, and ≥24 strict + ≥24 hardened fixtures.
+1. **Strict/Hardened runtime mode exposure** (shipped in `br-r37-c1-9a8bo`). Process-wide and thread-local mode switches via `fnx.config` and context managers, read kwargs, `DecisionRecord` ledger, and 24+24 parity/recovery fixtures.
 2. **First green CI run refreshes `artifacts/conformance/latest/`** — the freshness gate already exists in CI (`.github/workflows/ci.yml`, beads B2–B4 closed); the committed bundles are stale (conformance newest 2026-05-22, perf artifacts 2026-04) purely because no run has gotten past G0/G1 since April.
-3. **Native planar embedding** so `check_planarity` builds its `PlanarEmbedding` / Kuratowski certificate without NetworkX; the boolean `is_planar` already runs a native left-right planarity kernel.
+3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining NetworkX-bound exports** (71 nx-fallback + 61 mixed-route routes in the ledger). Move as many as possible to native fast paths while preserving the parity contract.
 6. **Release cadence.** `v0.2.0` is tagged but shipped no wheels (its build jobs failed on an absolute-path dependency, since fixed on main); a wheel from HEAD installs cleanly, so the next tag should be the first PyPI upload (bead `br-r37-c1-rc-pypi-first-publication-3yi49`). Subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
