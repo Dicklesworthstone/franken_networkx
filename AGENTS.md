@@ -150,19 +150,31 @@ consequences worth knowing before you trust a build:
 Use `rch exec -- cargo ...` for `check` / `clippy` / `test`, which RCH does
 offload, and plain local `maturin` for the extension itself.
 
-**Testing Python bindings:**
+**Testing Python bindings (STRICT MACHINE PROTECTION RULES):**
+
+> [!CAUTION]
+> **CRITICAL HARD BAN ON BARE MONOLITHIC SWEEPS:**
+> Never run bare unbounded sweeps such as `pytest tests/python/` or `pytest -m "not slow"`.
+> In an earlier incident, an unconstrained sweep coupled with a native dictionary leak consumed 148 GB RSS, drove ts1 to load 721, and pegged memory PSI at 100%.
+>
+> All test runs must be guarded by memory limits and timeouts, and executed against targeted modules.
+
+The codebase now enforces multi-layered machine protection:
+1. **In-process memory guardrail (`tests/python/conftest.py`):**
+   Monitors process resident memory (`VmRSS`) on every test setup, teardown, and call. If RSS exceeds `FNX_TEST_MAX_RSS_MB` (default 4096 MB / 4 GB), pytest aborts immediately with a fatal exit (`returncode=2`).
+2. **Guarded execution script (`scripts/run_pytest_guarded.sh`):**
+   Enforces a 16 GB virtual address space ceiling (`ulimit -v 16777216`), a 600s execution timeout, pre-flight host memory PSI inspection, and invokes pytest with in-process RSS limits.
+
 ```bash
-# Run all Python tests
-pytest tests/python/ -v --tb=long
+# RECOMMENDED: Run specific test files via the guarded runner
+./scripts/run_pytest_guarded.sh tests/python/test_instance_dict_memory_leak.py -v
+./scripts/run_pytest_guarded.sh tests/python/test_error_messages.py -v
+./scripts/run_pytest_guarded.sh tests/python/test_thread_safety.py -v
+./scripts/run_pytest_guarded.sh tests/python/test_coverage_gaps.py -v
+./scripts/run_pytest_guarded.sh tests/python/test_hypothesis.py -v
 
-# Run specific test files
-pytest tests/python/test_coverage_gaps.py -v
-pytest tests/python/test_error_messages.py -v
-pytest tests/python/test_hypothesis.py -v
-pytest tests/python/test_thread_safety.py -v
-
-# Skip slow tests
-pytest tests/python/ -v -m "not slow"
+# Run targeted test subsets with custom memory limit (e.g. 2 GB)
+FNX_TEST_MAX_RSS_MB=2048 ./scripts/run_pytest_guarded.sh tests/python/test_error_messages.py
 ```
 
 **Building wheels:**
