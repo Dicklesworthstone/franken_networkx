@@ -1982,6 +1982,301 @@ def _make_flattened_weighted_shortest_path_router(_name):
 for _name in _FNX_FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES:
     globals()[_name] = _make_flattened_weighted_shortest_path_router(_name)
 
+
+def all_pairs_shortest_path(G, cutoff=None, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.all_pairs_shortest_path(
+        G, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def all_pairs_shortest_path_length(
+    G, cutoff=None, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.all_pairs_shortest_path_length(
+        G, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def bidirectional_shortest_path(
+    G, source, target, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bidirectional_shortest_path(
+        G, source, target, backend=backend, **backend_kwargs
+    )
+
+
+def predecessor(
+    G,
+    source,
+    target=None,
+    cutoff=None,
+    return_seen=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.predecessor(
+        G,
+        source,
+        target=target,
+        cutoff=cutoff,
+        return_seen=return_seen,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def single_source_shortest_path(
+    G, source, cutoff=None, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.single_source_shortest_path(
+        G, source, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def single_source_shortest_path_length(
+    G, source, cutoff=None, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.single_source_shortest_path_length(
+        G, source, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def single_target_shortest_path(
+    G, target, cutoff=None, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.single_target_shortest_path(
+        G, target, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def single_target_shortest_path_length(
+    G, target, cutoff=None, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.single_target_shortest_path_length(
+        G, target, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def all_pairs_all_shortest_paths(
+    G, weight=None, method="dijkstra", *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.all_pairs_all_shortest_paths(
+        G, weight=weight, method=method, backend=backend, **backend_kwargs
+    )
+
+
+def all_shortest_paths(
+    G,
+    source,
+    target,
+    weight=None,
+    method="dijkstra",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.all_shortest_paths(
+        G,
+        source,
+        target,
+        weight=weight,
+        method=method,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def average_shortest_path_length(
+    G, weight=None, method=None, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.average_shortest_path_length(
+        G, weight=weight, method=method, backend=backend, **backend_kwargs
+    )
+
+
+def has_path(G, source, target, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.has_path(
+        G, source, target, backend=backend, **backend_kwargs
+    )
+
+
+def shortest_path(
+    G,
+    source=None,
+    target=None,
+    weight=None,
+    method="dijkstra",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.shortest_path(
+        G,
+        source=source,
+        target=target,
+        weight=weight,
+        method=method,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def shortest_path_length(
+    G,
+    source=None,
+    target=None,
+    weight=None,
+    method="dijkstra",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.shortest_path_length(
+        G,
+        source=source,
+        target=target,
+        weight=weight,
+        method=method,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def single_source_all_shortest_paths(
+    G, source, weight=None, method="dijkstra", *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.single_source_all_shortest_paths(
+        G, source, weight=weight, method=method, backend=backend, **backend_kwargs
+    )
+
+
+def floyd_warshall(G, weight="weight", *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.floyd_warshall(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def floyd_warshall_numpy(
+    G, nodelist=None, weight="weight", *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.floyd_warshall_numpy(
+        G,
+        nodelist=nodelist,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def floyd_warshall_predecessor_and_distance(
+    G, weight="weight", *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.floyd_warshall_predecessor_and_distance(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def reconstruct_path(
+    source, target, predecessors, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.reconstruct_path(
+        source,
+        target,
+        predecessors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def astar_path(
+    G,
+    source,
+    target,
+    heuristic=None,
+    weight="weight",
+    *,
+    cutoff=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.astar_path(
+        G,
+        source,
+        target,
+        heuristic=heuristic,
+        weight=weight,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def astar_path_length(
+    G,
+    source,
+    target,
+    heuristic=None,
+    weight="weight",
+    *,
+    cutoff=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.astar_path_length(
+        G,
+        source,
+        target,
+        heuristic=heuristic,
+        weight=weight,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 _FNX_FLATTENED_DAG_NAMES = (
     "all_topological_sorts",
     "ancestors",

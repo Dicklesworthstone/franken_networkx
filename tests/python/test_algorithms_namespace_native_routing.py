@@ -3810,3 +3810,148 @@ def test_flattened_other_namespace_routes_to_fnx(monkeypatch, name):
         assert getattr(fnx_algorithms, name)("g", 0, 1) is marker
     else:
         assert getattr(fnx_algorithms, name)("emb") is marker
+
+
+_FLATTENED_SHORTEST_PATHS_NAMES = [
+    "all_pairs_shortest_path",
+    "all_pairs_shortest_path_length",
+    "bidirectional_shortest_path",
+    "predecessor",
+    "single_source_shortest_path",
+    "single_source_shortest_path_length",
+    "single_target_shortest_path",
+    "single_target_shortest_path_length",
+    "all_pairs_all_shortest_paths",
+    "all_shortest_paths",
+    "average_shortest_path_length",
+    "has_path",
+    "shortest_path",
+    "shortest_path_length",
+    "single_source_all_shortest_paths",
+    "floyd_warshall",
+    "floyd_warshall_numpy",
+    "floyd_warshall_predecessor_and_distance",
+    "reconstruct_path",
+    "astar_path",
+    "astar_path_length",
+]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_SHORTEST_PATHS_NAMES)
+def test_flattened_shortest_paths_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    ug = fnx.path_graph(4)
+    lug = legacy.path_graph(4)
+
+    if name in ("all_pairs_shortest_path", "all_pairs_shortest_path_length"):
+        assert dict(actual(ug)) == dict(expected(lug))
+        with pytest.raises(ImportError):
+            dict(actual(ug, backend="missing"))
+        with pytest.raises(TypeError):
+            dict(actual(ug, unexpected=True))
+    elif name in ("bidirectional_shortest_path", "has_path", "shortest_path", "shortest_path_length"):
+        assert actual(ug, 0, 3) == expected(lug, 0, 3)
+        with pytest.raises(ImportError):
+            actual(ug, 0, 3, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, 0, 3, unexpected=True)
+    elif name == "predecessor":
+        assert actual(ug, 0) == expected(lug, 0)
+        with pytest.raises(ImportError):
+            actual(ug, 0, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, 0, unexpected=True)
+    elif name in ("single_source_shortest_path", "single_source_shortest_path_length"):
+        assert actual(ug, 0) == expected(lug, 0)
+        with pytest.raises(ImportError):
+            actual(ug, 0, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, 0, unexpected=True)
+    elif name in ("single_target_shortest_path", "single_target_shortest_path_length"):
+        assert actual(ug, 3) == expected(lug, 3)
+        with pytest.raises(ImportError):
+            actual(ug, 3, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, 3, unexpected=True)
+    elif name == "all_pairs_all_shortest_paths":
+        assert dict(actual(ug)) == dict(expected(lug))
+        with pytest.raises(ImportError):
+            dict(actual(ug, backend="missing"))
+        with pytest.raises(TypeError):
+            dict(actual(ug, unexpected=True))
+    elif name == "all_shortest_paths":
+        assert list(actual(ug, 0, 3)) == list(expected(lug, 0, 3))
+        with pytest.raises(ImportError):
+            list(actual(ug, 0, 3, backend="missing"))
+        with pytest.raises(TypeError):
+            list(actual(ug, 0, 3, unexpected=True))
+    elif name == "single_source_all_shortest_paths":
+        assert dict(actual(ug, 0)) == dict(expected(lug, 0))
+        with pytest.raises(ImportError):
+            dict(actual(ug, 0, backend="missing"))
+        with pytest.raises(TypeError):
+            dict(actual(ug, 0, unexpected=True))
+    elif name == "average_shortest_path_length":
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "floyd_warshall":
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "floyd_warshall_numpy":
+        import numpy as np
+
+        assert np.allclose(actual(ug), expected(lug))
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "floyd_warshall_predecessor_and_distance":
+        act_p, act_d = actual(ug)
+        exp_p, exp_d = expected(lug)
+        assert act_d == exp_d
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "reconstruct_path":
+        act_p, _ = fnx_algorithms.floyd_warshall_predecessor_and_distance(ug)
+        exp_p, _ = legacy.algorithms.floyd_warshall_predecessor_and_distance(lug)
+        assert actual(0, 3, act_p) == expected(0, 3, exp_p)
+        with pytest.raises(ImportError):
+            actual(0, 3, act_p, backend="missing")
+        with pytest.raises(TypeError):
+            actual(0, 3, act_p, unexpected=True)
+    elif name in ("astar_path", "astar_path_length"):
+        assert actual(ug, 0, 3) == expected(lug, 0, 3)
+        with pytest.raises(ImportError):
+            actual(ug, 0, 3, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, 0, 3, unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_SHORTEST_PATHS_NAMES)
+def test_flattened_shortest_paths_namespace_routes_to_fnx(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx, name, sentinel)
+    if name in ("bidirectional_shortest_path", "has_path", "reconstruct_path"):
+        assert getattr(fnx_algorithms, name)("g", 0, 1) is marker
+    elif name in ("all_shortest_paths", "astar_path", "astar_path_length"):
+        assert getattr(fnx_algorithms, name)("g", 0, 1) is marker
+    elif name in ("predecessor", "single_source_shortest_path", "single_source_shortest_path_length", "single_target_shortest_path", "single_target_shortest_path_length", "single_source_all_shortest_paths"):
+        assert getattr(fnx_algorithms, name)("g", 0) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("g") is marker
