@@ -130,7 +130,8 @@ def test_no_path_message_never_leaks_the_canonical_key(cls_name, nodes, label):
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
-def test_flow_value_residue_is_still_exactly_as_recorded(cls_name):
+@pytest.mark.parametrize("fn_name", ["maximum_flow_value", "minimum_cut_value"])
+def test_flow_value_residue_is_still_exactly_as_recorded(cls_name, fn_name):
     """br-r37-c1-7aymx: flow values were float 0.0 where networkx gives int 0.
 
     This was pinned as a known residue (value agrees, type differs). On
@@ -138,15 +139,17 @@ def test_flow_value_residue_is_still_exactly_as_recorded(cls_name):
     DiGraph, so the pin is now the strict assertion: value AND type must match.
     """
     want_graph, got_graph = _build(nx, cls_name), _build(fnx, cls_name)
+    want_fn, got_fn = getattr(nx, fn_name), getattr(fnx, fn_name)
     try:
-        want = nx.maximum_flow_value(want_graph, "a", "z")
-        got = fnx.maximum_flow_value(got_graph, "a", "z")
+        want = want_fn(want_graph, "a", "z")
+        got = got_fn(got_graph, "a", "z")
     except Exception:  # noqa: BLE001
-        pytest.skip(f"maximum_flow_value unsupported for {cls_name}")
-    assert got == want, "the flow VALUE must agree"
+        pytest.skip(f"{fn_name} unsupported for {cls_name}")
+    assert got == want, f"{fn_name}: the flow VALUE must agree"
     assert type(got) is type(want), (
-        f"{cls_name}: networkx returned {type(want).__name__}, fnx {type(got).__name__}"
+        f"{cls_name} {fn_name}: networkx returned {type(want).__name__}, fnx {type(got).__name__}"
     )
+
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
