@@ -48,7 +48,12 @@ def test_resistance_matches_laplacian_pseudoinverse(size, source, target):
 def test_tree_and_complete_graph_closed_forms(size, source, target):
     target = size - 1 if target == -1 else target
     tree = fnx.path_graph(size)
-    assert fnx.resistance_distance(tree, source, target) == abs(source - target)
+    assert math.isclose(
+        fnx.resistance_distance(tree, source, target),
+        abs(source - target),
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    )
 
     complete = fnx.complete_graph(size)
     assert math.isclose(
