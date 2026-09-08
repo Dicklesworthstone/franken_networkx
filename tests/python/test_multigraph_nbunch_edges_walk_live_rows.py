@@ -219,15 +219,6 @@ def test_an_attribute_edited_in_place_is_seen_by_a_data_key_view(cls_name):
     assert any(edge[2] == 99 for edge in iterator)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-u5tyh: fnx UNDER-RAISES on a SINGLE-ROW nbunch. On "
-    "MultiDiGraph `['n1']` yields one out-edge, so after one `next()` the walk "
-    "has drained the row and the guard has no `previous` row left to ask about; "
-    "networkx is still suspended inside the captured row dict and raises when it "
-    "resizes. A two-element nbunch gets this right, which is what makes it a gap "
-    "in the guard's row bookkeeping rather than in the rebuild.",
-)
 def test_growing_a_single_row_nbunch_on_multidigraph_matches_networkx():
     actual, expected = _both("MultiDiGraph", ["n1"], {}, lambda g: g.add_edge("n1", "zz"))
     assert actual == expected

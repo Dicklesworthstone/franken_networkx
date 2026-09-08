@@ -157,17 +157,6 @@ def test_the_undirected_no_nbunch_form_reads_through_a_re_added_edge():
     assert list(iterator)  # must not raise
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-8c7m5 residue 2, the NO-NBUNCH form. This is a different "
-    "return — `_DiGraphEdgeView.__call__`'s `nbunch is None and data is not "
-    "False/True` branch — which passes `guard_edge_count=True` unconditionally, "
-    "so it raises on ANY edge change. networkx's no-nbunch view iterates the "
-    "adjacency dict itself, and neither re-adding an existing edge nor removing "
-    "one resizes THAT dict, so nx completes. Pre-existing: fails identically on "
-    "the arm before this bead's fix. Not touched here because it is a different "
-    "code path from the nbunch rows this change is about.",
-)
 def test_the_directed_no_nbunch_form_reads_through_a_re_added_edge():
     graph = _build(fnx, "DiGraph")
     iterator = iter(graph.edges(data="w"))

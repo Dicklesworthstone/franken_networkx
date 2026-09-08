@@ -984,21 +984,12 @@ def _FailFastEdgeIterator(
     # does not re-arm it for every remaining item.
     if nbunch_rows is not None and use_seq_guard:
         try:
-            degree_of = graph.degree
-            # br-r37-c1-brjpz: ONE raw native call where the class offers it.
-            # `_native_degree_pairs_subset` returns the same numbers as `degree`
-            # (asserted below by the parity tests) for 0 freshness tokens and
-            # about half the time of the per-node loop - 11.58us vs 17.33us for a
-            # 50-node nbunch on MultiGraph.
-            #
-            # NOT the batched `graph.degree(list)` spelling: that builds a
-            # DegreeView and reads TWO tokens on MultiGraph, which
-            # test_edges_nbunch_freshness_token_budget correctly caught as a
-            # regression when I tried it.
-            #
-            # MultiDiGraph does not expose the raw helper, so it keeps the
-            # per-node loop - N crossings, but still token-free.
-            pairs = getattr(graph, "_native_degree_pairs_subset", None)
+            if graph.is_directed():
+                degree_of = graph.out_degree
+                pairs = getattr(graph, "_native_out_degree_pairs_subset", None)
+            else:
+                degree_of = graph.degree
+                pairs = getattr(graph, "_native_degree_pairs_subset", None)
             if pairs is not None:
                 row_sizes = dict(pairs(list(nbunch_rows)))
             else:
@@ -1127,6 +1118,34 @@ def _FailFastEdgeIterator(
                                         break
                         previous = item
                         yield item
+                    if restart is None and (
+                        graph.nodes_seq != exp_nodes
+                        or (exp_edges is not None and graph.edges_seq != exp_edges)
+                    ):
+                        try:
+                            owner = previous[0] if previous is not None else None
+                        except (TypeError, IndexError, KeyError):
+                            owner = None
+                        if owner in row_sizes:
+                            if not (
+                                ignore_removed_nbunch_row and owner not in graph
+                            ):
+                                if degree_of(owner) != row_sizes[owner]:
+                                    raise RuntimeError(_err)
+                        exp_nodes = graph.nodes_seq
+                        if exp_edges is not None:
+                            exp_edges = graph.edges_seq
+                        if (
+                            refresh_rows is not None
+                            and (owner is None or owner in graph)
+                        ):
+                            fresh = refresh_rows()
+                            if fresh is not None:
+                                emitted = offset + (source_len if source_len >= 0 else 0)
+                                if emitted < len(fresh):
+                                    restart = iter(fresh[emitted:])
+                                    source_len = len(fresh) - emitted
+                                    offset = emitted
                     source = restart
 
             return _gen_rows()
@@ -4305,7 +4324,7 @@ class _DiGraphEdgeView:
                 return _guarded_edge_list(
                     _wrap_edge_data_view(native(data, default), _OutEdgeDataView),
                     self._graph,
-                    guard_edge_count=True,
+                    guard_edge_count=False,
                 )
         # br-r37-c1-lfpma: directed ``edges(nbunch, ...)`` is out-edge
         # iteration, but this call form still walked Python succ rows while
