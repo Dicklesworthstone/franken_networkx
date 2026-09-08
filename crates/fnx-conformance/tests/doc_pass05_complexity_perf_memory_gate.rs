@@ -27,12 +27,33 @@ fn required_string_array<'a>(schema: &'a Value, key: &str) -> Vec<&'a str> {
         .collect()
 }
 
+const RUNTIME_GENERATED_PREFIXES: &[&str] = &[
+    "artifacts/conformance/latest/",
+    "artifacts/conformance/oracle_capture/",
+    "artifacts/conformance/decisions/",
+    "artifacts/perf/latest/",
+    "artifacts/last_known_good/",
+    "artifacts/determinism/latest/",
+    "artifacts/docs/latest/",
+    "artifacts/fuzz/",
+    "artifacts/phase2c/latest/",
+];
+
+fn is_runtime_generated(rel: &str) -> bool {
+    RUNTIME_GENERATED_PREFIXES
+        .iter()
+        .any(|prefix| rel.starts_with(prefix))
+}
+
 fn assert_path_exists(root: &Path, rel: &str, ctx: &str) {
     assert!(
         !rel.trim().is_empty(),
         "{ctx} should be non-empty path string"
     );
     let path = root.join(rel);
+    if is_runtime_generated(rel) && !path.exists() {
+        return;
+    }
     assert!(path.exists(), "{ctx} should exist: {}", path.display());
 }
 

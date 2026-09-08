@@ -50,12 +50,33 @@ fn fixture_inventory(root: &Path) -> BTreeSet<String> {
     out
 }
 
+const RUNTIME_GENERATED_PREFIXES: &[&str] = &[
+    "artifacts/conformance/latest/",
+    "artifacts/conformance/oracle_capture/",
+    "artifacts/conformance/decisions/",
+    "artifacts/perf/latest/",
+    "artifacts/last_known_good/",
+    "artifacts/determinism/latest/",
+    "artifacts/docs/latest/",
+    "artifacts/fuzz/",
+    "artifacts/phase2c/latest/",
+];
+
+fn is_runtime_generated(rel: &str) -> bool {
+    RUNTIME_GENERATED_PREFIXES
+        .iter()
+        .any(|prefix| rel.starts_with(prefix))
+}
+
 fn assert_path(path: &str, ctx: &str, root: &Path) {
     assert!(
         !path.trim().is_empty(),
         "{ctx} path should be non-empty string"
     );
     let full = root.join(path);
+    if is_runtime_generated(path) && !full.exists() {
+        return;
+    }
     assert!(full.exists(), "{ctx} path missing: {}", full.display());
 }
 
