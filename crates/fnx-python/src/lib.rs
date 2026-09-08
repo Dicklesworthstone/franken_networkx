@@ -2907,10 +2907,7 @@ impl DictOfDictsCache {
     }
 }
 
-#[allow(unsafe_code)]
-unsafe extern "C" {
-    fn _PyObject_GetDictPtr(obj: *mut pyo3::ffi::PyObject) -> *mut *mut pyo3::ffi::PyObject;
-}
+
 
 /// Makes a ``#[pyclass(dict)]`` instance's Python dictionary visible to CPython GC.
 ///
@@ -2980,15 +2977,29 @@ impl InstanceDictGc {
         }
     }
 
-    #[allow(unsafe_code)]
-    pub(crate) fn register(&mut self, slf_ptr: *mut pyo3::ffi::PyObject, dict: &Bound<'_, PyDict>) {
+    pub(crate) fn register_dict(&mut self, dict: &Bound<'_, PyDict>) {
         if self.dict.is_none() {
             self.dict = Some(dict.clone().unbind());
         }
-        if self.dict_slot.is_none() && !slf_ptr.is_null() {
-            unsafe {
-                let slot = _PyObject_GetDictPtr(slf_ptr);
-                if !slot.is_null() {
+    }
+
+    #[allow(unsafe_code)]
+    pub(crate) fn register<T: pyo3::PyClass>(
+        &mut self,
+        slf: &Bound<'_, T>,
+        dict: &Bound<'_, PyDict>,
+    ) {
+        self.register_dict(dict);
+        if self.dict_slot.is_none() {
+            let offset = match pyo3::impl_::pyclass::dict_offset::<T>() {
+                pyo3::impl_::pyclass::PyObjectOffset::Absolute(off) => off,
+                #[allow(unreachable_patterns)]
+                _ => 0,
+            };
+            if offset > 0 {
+                unsafe {
+                    let slot = (slf.as_ptr() as *mut u8).offset(offset as isize)
+                        as *mut *mut pyo3::ffi::PyObject;
                     self.dict_slot = Some(slot as usize);
                 }
             }
@@ -3341,8 +3352,7 @@ pub(crate) struct PyGraph {
 #[pymethods]
 impl PyGraph {
     fn _fnx_register_gc_dict(slf: &Bound<'_, Self>, dict: &Bound<'_, PyDict>) {
-        let slf_ptr = slf.as_ptr();
-        slf.borrow_mut().instance_dict_gc.register(slf_ptr, dict);
+        slf.borrow_mut().instance_dict_gc.register(slf, dict);
     }
 
     fn _fnx_set_private_node_override(&mut self) {
@@ -6386,8 +6396,7 @@ pub(crate) struct PyMultiGraph {
 #[pymethods]
 impl PyMultiGraph {
     fn _fnx_register_gc_dict(slf: &Bound<'_, Self>, dict: &Bound<'_, PyDict>) {
-        let slf_ptr = slf.as_ptr();
-        slf.borrow_mut().instance_dict_gc.register(slf_ptr, dict);
+        slf.borrow_mut().instance_dict_gc.register(slf, dict);
     }
 
     fn _fnx_set_private_node_override(&mut self) {
@@ -21850,7 +21859,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 .expect("private override setup should succeed");
 
             let mut state = InstanceDictGc::new();
-            state.register(std::ptr::null_mut(), &storage);
+            state.register_dict(&storage);
             state.set_private_node_override();
 
             let present = "private"
@@ -21898,7 +21907,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 .expect("private override setup should succeed");
 
             let mut state = InstanceDictGc::new();
-            state.register(std::ptr::null_mut(), &storage);
+            state.register_dict(&storage);
 
             // Registered but NOT marked: an ordinary graph must be told
             // nothing, so its own node count answers.

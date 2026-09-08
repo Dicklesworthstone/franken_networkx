@@ -326,8 +326,7 @@ pub(crate) fn mixed_combine(
 #[pymethods]
 impl PyDiGraph {
     fn _fnx_register_gc_dict(slf: &Bound<'_, Self>, dict: &Bound<'_, PyDict>) {
-        let slf_ptr = slf.as_ptr();
-        slf.borrow_mut().instance_dict_gc.register(slf_ptr, dict);
+        slf.borrow_mut().instance_dict_gc.register(slf, dict);
     }
 
     fn _fnx_set_private_node_override(&mut self) {
@@ -705,8 +704,7 @@ pub struct PyMultiDiGraph {
 #[pymethods]
 impl PyMultiDiGraph {
     fn _fnx_register_gc_dict(slf: &Bound<'_, Self>, dict: &Bound<'_, PyDict>) {
-        let slf_ptr = slf.as_ptr();
-        slf.borrow_mut().instance_dict_gc.register(slf_ptr, dict);
+        slf.borrow_mut().instance_dict_gc.register(slf, dict);
     }
 
     fn _fnx_set_private_node_override(&mut self) {
