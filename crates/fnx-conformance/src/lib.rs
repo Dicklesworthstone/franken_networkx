@@ -1644,7 +1644,7 @@ fn fixture_name_for_path(path: &Path, fixture_root: &Path) -> String {
     path.strip_prefix(fixture_root)
         .unwrap_or(path)
         .to_string_lossy()
-        .to_string()
+        .replace('\\', "/")
 }
 
 fn fixture_paths_recursive(root: &Path) -> Vec<PathBuf> {

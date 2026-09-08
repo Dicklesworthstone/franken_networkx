@@ -38,7 +38,7 @@ fn load_regression_fixture_topology(
         .strip_prefix(regressions_root)
         .expect("fixture should be under regressions root")
         .to_string_lossy()
-        .to_string();
+        .replace('\\', "/");
 
     let mut provenance_bead_ids = fixture["provenance_bead_ids"]
         .as_array()
@@ -195,7 +195,7 @@ fn historical_regression_corpus_has_provenance_and_passes_smoke() {
                     .strip_prefix(&regressions_root)
                     .expect("fixture should be under regressions root")
                     .to_string_lossy()
-                    .to_string(),
+                    .replace('\\', "/"),
             );
             regression_topologies.push(load_regression_fixture_topology(
                 &regressions_root,
