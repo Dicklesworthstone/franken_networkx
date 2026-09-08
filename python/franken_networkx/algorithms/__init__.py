@@ -408,6 +408,76 @@ _alias_nx_child_modules(
     "networkx.algorithms.distance_measures", f"{__name__}.distance_measures"
 )
 
+
+def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.barycenter(
+        G, weight=weight, attr=attr, sp=sp, backend=backend, **backend_kwargs
+    )
+
+
+def center(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.center(
+        G, e=e, usebounds=usebounds, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def diameter(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.diameter(
+        G, e=e, usebounds=usebounds, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def eccentricity(G, v=None, sp=None, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.eccentricity(
+        G, v=v, sp=sp, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def effective_graph_resistance(
+    G, weight=None, invert_weight=True, *, backend=None, **backend_kwargs
+):
+    return _fnx_distance_measures.effective_graph_resistance(
+        G, weight=weight, invert_weight=invert_weight, backend=backend, **backend_kwargs
+    )
+
+
+def harmonic_diameter(G, sp=None, *, weight=None, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.harmonic_diameter(
+        G, sp=sp, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def kemeny_constant(G, *, weight=None, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.kemeny_constant(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def periphery(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.periphery(
+        G, e=e, usebounds=usebounds, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def radius(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_distance_measures.radius(
+        G, e=e, usebounds=usebounds, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def resistance_distance(
+    G, nodeA=None, nodeB=None, weight=None, invert_weight=True, *, backend=None, **backend_kwargs
+):
+    return _fnx_distance_measures.resistance_distance(
+        G,
+        nodeA=nodeA,
+        nodeB=nodeB,
+        weight=weight,
+        invert_weight=invert_weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 # br-r37-c1-muhsi: route nx.algorithms.link_analysis through fnx-native
 # top-level (google_matrix ~1.4x; pagerank/hits already dispatch, neutral).
 import franken_networkx.link_analysis as _fnx_link_analysis
@@ -620,6 +690,38 @@ def is_chordal(G, *, backend=None, **backend_kwargs):
 import franken_networkx.core as _fnx_core
 _sys.modules[f"{__name__}.core"] = _fnx_core
 core = _fnx_core  # Override in module globals
+
+
+def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
+    return _fnx_core.k_core(
+        G, k=k, core_number=core_number, backend=backend, **backend_kwargs
+    )
+
+
+def k_corona(G, k, core_number=None, *, backend=None, **backend_kwargs):
+    return _fnx_core.k_corona(
+        G, k, core_number=core_number, backend=backend, **backend_kwargs
+    )
+
+
+def k_crust(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
+    return _fnx_core.k_crust(
+        G, k=k, core_number=core_number, backend=backend, **backend_kwargs
+    )
+
+
+def k_shell(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
+    return _fnx_core.k_shell(
+        G, k=k, core_number=core_number, backend=backend, **backend_kwargs
+    )
+
+
+def k_truss(G, k, *, backend=None, **backend_kwargs):
+    return _fnx_core.k_truss(G, k, backend=backend, **backend_kwargs)
+
+
+def onion_layers(G, *, backend=None, **backend_kwargs):
+    return _fnx_core.onion_layers(G, backend=backend, **backend_kwargs)
 
 import franken_networkx.hybrid as _fnx_hybrid
 _sys.modules[f"{__name__}.hybrid"] = _fnx_hybrid
@@ -1016,6 +1118,42 @@ _fnx_cycles = _importlib.import_module("franken_networkx.cycles")
 _sys.modules[f"{__name__}.cycles"] = _fnx_cycles
 cycles = _fnx_cycles  # Override in module globals
 
+
+def chordless_cycles(G, length_bound=None, *, backend=None, **backend_kwargs):
+    return _fnx_cycles.chordless_cycles(
+        G, length_bound=length_bound, backend=backend, **backend_kwargs
+    )
+
+
+def cycle_basis(G, root=None, *, backend=None, **backend_kwargs):
+    return _fnx_cycles.cycle_basis(G, root=root, backend=backend, **backend_kwargs)
+
+
+def find_cycle(G, source=None, orientation=None, *, backend=None, **backend_kwargs):
+    return _fnx_cycles.find_cycle(
+        G, source=source, orientation=orientation, backend=backend, **backend_kwargs
+    )
+
+
+def girth(G, *, backend=None, **backend_kwargs):
+    return _fnx_cycles.girth(G, backend=backend, **backend_kwargs)
+
+
+def minimum_cycle_basis(G, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_cycles.minimum_cycle_basis(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def recursive_simple_cycles(G, *, backend=None, **backend_kwargs):
+    return _fnx_cycles.recursive_simple_cycles(G, backend=backend, **backend_kwargs)
+
+
+def simple_cycles(G, length_bound=None, *, backend=None, **backend_kwargs):
+    return _fnx_cycles.simple_cycles(
+        G, length_bound=length_bound, backend=backend, **backend_kwargs
+    )
+
 _fnx_dominance = _importlib.import_module("franken_networkx.dominance")
 _sys.modules[f"{__name__}.dominance"] = _fnx_dominance
 dominance = _fnx_dominance  # Override in module globals
@@ -1311,9 +1449,76 @@ _fnx_lowest_common_ancestors = _importlib.import_module(
 _sys.modules[f"{__name__}.lowest_common_ancestors"] = _fnx_lowest_common_ancestors
 lowest_common_ancestors = _fnx_lowest_common_ancestors  # Override in module globals
 
+
+def all_pairs_lowest_common_ancestor(
+    G, pairs=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_lowest_common_ancestors.all_pairs_lowest_common_ancestor(
+        G, pairs=pairs, backend=backend, **backend_kwargs
+    )
+
+
+def lowest_common_ancestor(
+    G, node1, node2, default=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_lowest_common_ancestors.lowest_common_ancestor(
+        G, node1, node2, default=default, backend=backend, **backend_kwargs
+    )
+
+
+def tree_all_pairs_lowest_common_ancestor(
+    G, root=None, pairs=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_lowest_common_ancestors.tree_all_pairs_lowest_common_ancestor(
+        G, root=root, pairs=pairs, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_matching = _importlib.import_module("franken_networkx.matching")
 _sys.modules[f"{__name__}.matching"] = _fnx_matching
 matching = _fnx_matching  # Override in module globals
+
+
+def is_matching(G, matching, *, backend=None, **backend_kwargs):
+    return _fnx_matching.is_matching(
+        G, matching, backend=backend, **backend_kwargs
+    )
+
+
+def is_maximal_matching(G, matching, *, backend=None, **backend_kwargs):
+    return _fnx_matching.is_maximal_matching(
+        G, matching, backend=backend, **backend_kwargs
+    )
+
+
+def is_perfect_matching(G, matching, *, backend=None, **backend_kwargs):
+    return _fnx_matching.is_perfect_matching(
+        G, matching, backend=backend, **backend_kwargs
+    )
+
+
+def max_weight_matching(
+    G, maxcardinality=False, weight="weight", *, backend=None, **backend_kwargs
+):
+    return _fnx_matching.max_weight_matching(
+        G,
+        maxcardinality=maxcardinality,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def maximal_matching(G, *, backend=None, **backend_kwargs):
+    return _fnx_matching.maximal_matching(G, backend=backend, **backend_kwargs)
+
+
+def min_weight_matching(
+    G, weight="weight", *, backend=None, **backend_kwargs
+):
+    return _fnx_matching.min_weight_matching(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
 
 _fnx_mis = _importlib.import_module("franken_networkx.mis")
 _sys.modules[f"{__name__}.mis"] = _fnx_mis
@@ -1360,7 +1565,18 @@ def tutte_polynomial(G, *, backend=None, **backend_kwargs):
 
 _fnx_reciprocity = _importlib.import_module("franken_networkx.reciprocity")
 _sys.modules[f"{__name__}.reciprocity"] = _fnx_reciprocity
-reciprocity = _fnx_reciprocity.reciprocity  # Match nx: function attr
+
+
+def reciprocity(G, nodes=None, *, backend=None, **backend_kwargs):
+    return _fnx_reciprocity.reciprocity(
+        G, nodes=nodes, backend=backend, **backend_kwargs
+    )
+
+
+def overall_reciprocity(G, *, backend=None, **backend_kwargs):
+    return _fnx_reciprocity.overall_reciprocity(
+        G, backend=backend, **backend_kwargs
+    )
 
 _fnx_richclub = _importlib.import_module("franken_networkx.richclub")
 _sys.modules[f"{__name__}.richclub"] = _fnx_richclub
@@ -1387,6 +1603,36 @@ similarity = _fnx_similarity  # Override in module globals
 _fnx_simple_paths = _importlib.import_module("franken_networkx.simple_paths")
 _sys.modules[f"{__name__}.simple_paths"] = _fnx_simple_paths
 simple_paths = _fnx_simple_paths  # Override in module globals
+
+
+def all_simple_edge_paths(
+    G, source, target, cutoff=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_simple_paths.all_simple_edge_paths(
+        G, source, target, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def all_simple_paths(
+    G, source, target, cutoff=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_simple_paths.all_simple_paths(
+        G, source, target, cutoff=cutoff, backend=backend, **backend_kwargs
+    )
+
+
+def is_simple_path(G, nodes, *, backend=None, **backend_kwargs):
+    return _fnx_simple_paths.is_simple_path(
+        G, nodes, backend=backend, **backend_kwargs
+    )
+
+
+def shortest_simple_paths(
+    G, source, target, weight=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_simple_paths.shortest_simple_paths(
+        G, source, target, weight=weight, backend=backend, **backend_kwargs
+    )
 
 _fnx_smetric = _importlib.import_module("franken_networkx.smetric")
 _sys.modules[f"{__name__}.smetric"] = _fnx_smetric
