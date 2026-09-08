@@ -42,7 +42,7 @@ def is_bipartite(G, *, backend=None, **backend_kwargs):
     """
     import franken_networkx as _fnx_top
 
-    return _fnx_top.is_bipartite(G)
+    return _fnx_top.is_bipartite(G, backend=backend, **backend_kwargs)
 
 
 def _matching_nx_view(B):

@@ -3539,3 +3539,274 @@ def test_flattened_traversal_bfs_routes_to_leaf_module(monkeypatch, name):
         assert getattr(fnx_algorithms, name)("g", [0]) is marker
     else:
         assert getattr(fnx_algorithms, name)("g", 0) is marker
+
+
+_FLATTENED_BIPARTITE_NAMES = [
+    "complete_bipartite_graph",
+    "is_bipartite",
+    "projected_graph",
+]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_BIPARTITE_NAMES)
+def test_flattened_bipartite_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    if name == "complete_bipartite_graph":
+        act = actual(2, 3)
+        exp = expected(2, 3)
+        assert sorted(act.edges()) == sorted(exp.edges())
+        with pytest.raises(ImportError):
+            actual(2, 3, backend="missing")
+        with pytest.raises(TypeError):
+            actual(2, 3, unexpected=True)
+    elif name == "is_bipartite":
+        ug = fnx.path_graph(4)
+        lug = legacy.path_graph(4)
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "projected_graph":
+        bg = fnx.Graph([(0, 10), (1, 10)])
+        lbg = legacy.Graph([(0, 10), (1, 10)])
+        assert sorted(actual(bg, [0, 1]).edges()) == sorted(
+            expected(lbg, [0, 1]).edges()
+        )
+        with pytest.raises(ImportError):
+            actual(bg, [0, 1], backend="missing")
+        with pytest.raises(TypeError):
+            actual(bg, [0, 1], unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_BIPARTITE_NAMES)
+def test_flattened_bipartite_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.bipartite, name, sentinel)
+    if name == "complete_bipartite_graph":
+        assert getattr(fnx_algorithms, name)(1, 2) is marker
+    elif name == "projected_graph":
+        assert getattr(fnx_algorithms, name)("B", ["nodes"]) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("graph") is marker
+
+
+_FLATTENED_CONNECTIVITY_NAMES = [
+    "all_pairs_node_connectivity",
+    "average_node_connectivity",
+    "edge_connectivity",
+    "node_connectivity",
+    "edge_disjoint_paths",
+    "node_disjoint_paths",
+    "is_k_edge_connected",
+    "k_edge_augmentation",
+    "k_edge_components",
+    "k_edge_subgraphs",
+    "minimum_edge_cut",
+    "minimum_node_cut",
+    "all_node_cuts",
+    "k_components",
+    "stoer_wagner",
+]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CONNECTIVITY_NAMES)
+def test_flattened_connectivity_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    ug = fnx.path_graph(4)
+    lug = legacy.path_graph(4)
+
+    if name in (
+        "average_node_connectivity",
+        "edge_connectivity",
+        "node_connectivity",
+        "minimum_edge_cut",
+        "minimum_node_cut",
+    ):
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "all_pairs_node_connectivity":
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name in ("edge_disjoint_paths", "node_disjoint_paths"):
+        assert list(actual(ug, 0, 3)) == list(expected(lug, 0, 3))
+        with pytest.raises(ImportError):
+            list(actual(ug, 0, 3, backend="missing"))
+        with pytest.raises(TypeError):
+            actual(ug, 0, 3, unexpected=True)
+    elif name == "is_k_edge_connected":
+        assert actual(ug, 1) == expected(lug, 1)
+        with pytest.raises(ImportError):
+            actual(ug, 1, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, 1, unexpected=True)
+    elif name == "k_edge_augmentation":
+        assert sorted(actual(ug, k=1)) == sorted(expected(lug, k=1))
+        with pytest.raises(ImportError):
+            actual(ug, k=1, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, k=1, unexpected=True)
+    elif name in ("k_edge_components", "k_edge_subgraphs"):
+        assert len(list(actual(ug, 1))) == len(list(expected(lug, 1)))
+        with pytest.raises(ImportError):
+            list(actual(ug, 1, backend="missing"))
+        with pytest.raises(TypeError):
+            actual(ug, 1, unexpected=True)
+    elif name == "all_node_cuts":
+        assert list(actual(ug)) == list(expected(lug))
+        with pytest.raises(ImportError):
+            list(actual(ug, backend="missing"))
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "k_components":
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "stoer_wagner":
+        cut_act, part_act = actual(ug)
+        cut_exp, part_exp = expected(lug)
+        assert cut_act == cut_exp
+        assert {frozenset(part_act[0]), frozenset(part_act[1])} == {
+            frozenset(part_exp[0]),
+            frozenset(part_exp[1]),
+        }
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CONNECTIVITY_NAMES)
+def test_flattened_connectivity_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.connectivity, name, sentinel)
+    if name in ("edge_disjoint_paths", "node_disjoint_paths"):
+        assert getattr(fnx_algorithms, name)("g", 0, 1) is marker
+    elif name in ("is_k_edge_connected", "k_edge_augmentation", "k_edge_components", "k_edge_subgraphs"):
+        assert getattr(fnx_algorithms, name)("g", 1) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("g") is marker
+
+
+_FLATTENED_LINK_ANALYSIS_NAMES = ["google_matrix", "pagerank", "hits"]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_LINK_ANALYSIS_NAMES)
+def test_flattened_link_analysis_namespace_matches_legacy_oracle(name):
+    import numpy as np
+
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    ug = fnx.path_graph(3)
+    lug = legacy.path_graph(3)
+
+    if name == "google_matrix":
+        assert np.allclose(actual(ug), expected(lug))
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "pagerank":
+        assert actual(ug) == pytest.approx(expected(lug))
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "hits":
+        tg = fnx.Graph([(0, 1), (1, 2), (0, 2)])
+        ltg = legacy.Graph([(0, 1), (1, 2), (0, 2)])
+        h_act, a_act = actual(tg)
+        h_exp, a_exp = expected(ltg)
+        assert {k: round(v, 6) for k, v in h_act.items()} == {
+            k: round(v, 6) for k, v in h_exp.items()
+        }
+        assert {k: round(v, 6) for k, v in a_act.items()} == {
+            k: round(v, 6) for k, v in a_exp.items()
+        }
+        with pytest.raises(ImportError):
+            actual(tg, backend="missing")
+        with pytest.raises(TypeError):
+            actual(tg, unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_LINK_ANALYSIS_NAMES)
+def test_flattened_link_analysis_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.link_analysis, name, sentinel)
+    assert getattr(fnx_algorithms, name)("g") is marker
+
+
+@pytest.mark.parametrize("name", ["cd_index", "combinatorial_embedding_to_pos"])
+def test_flattened_other_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    if name == "cd_index":
+        dg = fnx.DiGraph([(0, 1), (1, 2)])
+        dg.nodes[0]["time"] = 1
+        dg.nodes[1]["time"] = 2
+        dg.nodes[2]["time"] = 3
+        ldg = legacy.DiGraph([(0, 1), (1, 2)])
+        ldg.nodes[0]["time"] = 1
+        ldg.nodes[1]["time"] = 2
+        ldg.nodes[2]["time"] = 3
+        assert actual(dg, 1, 10) == expected(ldg, 1, 10)
+        with pytest.raises(ImportError):
+            actual(dg, 1, 10, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, 1, 10, unexpected=True)
+    elif name == "combinatorial_embedding_to_pos":
+        g = fnx.path_graph(3)
+        lg = legacy.path_graph(3)
+        _, emb = fnx.check_planarity(g)
+        _, lemb = legacy.check_planarity(lg)
+        assert actual(emb) == expected(lemb)
+        with pytest.raises(TypeError):
+            actual(emb, unexpected=True)
+
+
+@pytest.mark.parametrize("name", ["cd_index", "combinatorial_embedding_to_pos"])
+def test_flattened_other_namespace_routes_to_fnx(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx, name, sentinel)
+    if name == "cd_index":
+        assert getattr(fnx_algorithms, name)("g", 0, 1) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("emb") is marker

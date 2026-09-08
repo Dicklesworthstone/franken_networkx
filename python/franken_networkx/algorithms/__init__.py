@@ -209,6 +209,27 @@ _alias_nx_child_modules(
     "networkx.algorithms.bipartite", f"{__name__}.bipartite"
 )
 
+
+def complete_bipartite_graph(
+    n1, n2, create_using=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_bipartite.complete_bipartite_graph(
+        n1, n2, create_using=create_using, backend=backend, **backend_kwargs
+    )
+
+
+def is_bipartite(G, *, backend=None, **backend_kwargs):
+    return _fnx_bipartite.is_bipartite(G, backend=backend, **backend_kwargs)
+
+
+def projected_graph(
+    B, nodes, multigraph=False, *, backend=None, **backend_kwargs
+):
+    return _fnx_bipartite.projected_graph(
+        B, nodes, multigraph=multigraph, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_approximation = _importlib.import_module("franken_networkx.approximation")
 _sys.modules[f"{__name__}.approximation"] = _fnx_approximation
 approximation = _fnx_approximation  # Override in module globals
@@ -425,12 +446,173 @@ def number_of_cliques(G, nodes=None, cliques=None):
 # (fnx.community / fnx.connectivity / fnx.isomorphism) but were missing from the
 # override set, so fnx.algorithms.<one> resolved to nx's. Map them to the fnx
 # submodules like the 60+ others above.
+from networkx.utils.heaps import BinaryHeap as _BinaryHeap
+
 import franken_networkx.connectivity as _fnx_connectivity
 _sys.modules[f"{__name__}.connectivity"] = _fnx_connectivity
 connectivity = _fnx_connectivity  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.connectivity", f"{__name__}.connectivity"
 )
+
+
+def all_pairs_node_connectivity(
+    G, nbunch=None, flow_func=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.all_pairs_node_connectivity(
+        G, nbunch=nbunch, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def average_node_connectivity(
+    G, flow_func=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.average_node_connectivity(
+        G, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def edge_connectivity(
+    G, s=None, t=None, flow_func=None, cutoff=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.edge_connectivity(
+        G,
+        s=s,
+        t=t,
+        flow_func=flow_func,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def node_connectivity(
+    G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.node_connectivity(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def edge_disjoint_paths(
+    G,
+    s,
+    t,
+    flow_func=None,
+    cutoff=None,
+    auxiliary=None,
+    residual=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_connectivity.edge_disjoint_paths(
+        G,
+        s,
+        t,
+        flow_func=flow_func,
+        cutoff=cutoff,
+        auxiliary=auxiliary,
+        residual=residual,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def node_disjoint_paths(
+    G,
+    s,
+    t,
+    flow_func=None,
+    cutoff=None,
+    auxiliary=None,
+    residual=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_connectivity.node_disjoint_paths(
+        G,
+        s,
+        t,
+        flow_func=flow_func,
+        cutoff=cutoff,
+        auxiliary=auxiliary,
+        residual=residual,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def is_k_edge_connected(G, k, *, backend=None, **backend_kwargs):
+    return _fnx_connectivity.is_k_edge_connected(
+        G, k, backend=backend, **backend_kwargs
+    )
+
+
+def k_edge_augmentation(
+    G, k, avail=None, weight=None, partial=False, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.k_edge_augmentation(
+        G,
+        k,
+        avail=avail,
+        weight=weight,
+        partial=partial,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def k_edge_components(G, k, *, backend=None, **backend_kwargs):
+    return _fnx_connectivity.k_edge_components(
+        G, k, backend=backend, **backend_kwargs
+    )
+
+
+def k_edge_subgraphs(G, k, *, backend=None, **backend_kwargs):
+    return _fnx_connectivity.k_edge_subgraphs(
+        G, k, backend=backend, **backend_kwargs
+    )
+
+
+def minimum_edge_cut(
+    G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.minimum_edge_cut(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def minimum_node_cut(
+    G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.minimum_node_cut(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def all_node_cuts(
+    G, k=None, flow_func=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.all_node_cuts(
+        G, k=k, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def k_components(G, flow_func=None, *, backend=None, **backend_kwargs):
+    return _fnx_connectivity.k_components(
+        G, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def stoer_wagner(
+    G, weight="weight", heap=_BinaryHeap, *, backend=None, **backend_kwargs
+):
+    return _fnx_connectivity.stoer_wagner(
+        G, weight=weight, heap=heap, backend=backend, **backend_kwargs
+    )
+
 
 import franken_networkx.community as _fnx_community
 _sys.modules[f"{__name__}.community"] = _fnx_community
@@ -604,6 +786,78 @@ link_analysis = _fnx_link_analysis  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.link_analysis", f"{__name__}.link_analysis"
 )
+
+
+def google_matrix(
+    G,
+    alpha=0.85,
+    personalization=None,
+    nodelist=None,
+    weight="weight",
+    dangling=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_link_analysis.google_matrix(
+        G,
+        alpha=alpha,
+        personalization=personalization,
+        nodelist=nodelist,
+        weight=weight,
+        dangling=dangling,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def pagerank(
+    G,
+    alpha=0.85,
+    personalization=None,
+    max_iter=100,
+    tol=1e-06,
+    nstart=None,
+    weight="weight",
+    dangling=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_link_analysis.pagerank(
+        G,
+        alpha=alpha,
+        personalization=personalization,
+        max_iter=max_iter,
+        tol=tol,
+        nstart=nstart,
+        weight=weight,
+        dangling=dangling,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def hits(
+    G,
+    max_iter=100,
+    tol=1e-08,
+    nstart=None,
+    normalized=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_link_analysis.hits(
+        G,
+        max_iter=max_iter,
+        tol=tol,
+        nstart=nstart,
+        normalized=normalized,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 
 # br-r37-c1-asrt: route nx.algorithms.assortativity through fnx-native top-level
 # (degree_pearson 5.8x, attribute/degree mixing matrices 4-7x — these did not
@@ -3185,6 +3439,37 @@ def descendants_at_distance(
         distance,
         backend=backend,
         **backend_kwargs,
+    )
+
+
+def cd_index(
+    G,
+    node,
+    time_delta,
+    *,
+    time="time",
+    weight=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.cd_index(
+        G,
+        node,
+        time_delta,
+        time=time,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.combinatorial_embedding_to_pos(
+        embedding, fully_triangulate=fully_triangulate
     )
 
 
