@@ -25,7 +25,7 @@ def test_algorithms_reciprocity_import_routes_to_same_module():
     via_algorithms = importlib.import_module("franken_networkx.algorithms.reciprocity")
 
     assert via_algorithms is direct
-    assert fnx.algorithms.reciprocity is direct.reciprocity
+    assert via_algorithms.reciprocity is direct.reciprocity
 
 
 def test_reciprocity_module_public_surface_matches_networkx():
