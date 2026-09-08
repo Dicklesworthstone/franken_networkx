@@ -3955,3 +3955,200 @@ def test_flattened_shortest_paths_namespace_routes_to_fnx(monkeypatch, name):
         assert getattr(fnx_algorithms, name)("g", 0) is marker
     else:
         assert getattr(fnx_algorithms, name)("g") is marker
+
+
+_FLATTENED_CENTRALITY_NAMES = [
+    "approximate_current_flow_betweenness_centrality",
+    "betweenness_centrality",
+    "betweenness_centrality_subset",
+    "closeness_centrality",
+    "communicability_betweenness_centrality",
+    "current_flow_betweenness_centrality",
+    "current_flow_betweenness_centrality_subset",
+    "current_flow_closeness_centrality",
+    "degree_centrality",
+    "dispersion",
+    "edge_betweenness_centrality",
+    "edge_betweenness_centrality_subset",
+    "edge_current_flow_betweenness_centrality",
+    "edge_current_flow_betweenness_centrality_subset",
+    "edge_load_centrality",
+    "eigenvector_centrality",
+    "eigenvector_centrality_numpy",
+    "estrada_index",
+    "global_reaching_centrality",
+    "group_betweenness_centrality",
+    "group_closeness_centrality",
+    "group_degree_centrality",
+    "group_in_degree_centrality",
+    "group_out_degree_centrality",
+    "harmonic_centrality",
+    "in_degree_centrality",
+    "incremental_closeness_centrality",
+    "information_centrality",
+    "katz_centrality",
+    "katz_centrality_numpy",
+    "laplacian_centrality",
+    "load_centrality",
+    "local_reaching_centrality",
+    "out_degree_centrality",
+    "percolation_centrality",
+    "prominent_group",
+    "second_order_centrality",
+    "subgraph_centrality",
+    "subgraph_centrality_exp",
+    "trophic_differences",
+    "trophic_incoherence_parameter",
+    "trophic_levels",
+    "voterank",
+]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CENTRALITY_NAMES)
+def test_flattened_centrality_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    ug = fnx.path_graph(4)
+    lug = legacy.path_graph(4)
+    dg = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    ldg = legacy.DiGraph([(0, 1), (1, 2), (2, 3)])
+    sg = fnx.star_graph(4)
+    lsg = legacy.star_graph(4)
+
+    if name in ("group_in_degree_centrality", "group_out_degree_centrality"):
+        assert actual(dg, [0, 1]) == expected(ldg, [0, 1])
+        with pytest.raises(ImportError):
+            actual(dg, [0, 1], backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, [0, 1], unexpected=True)
+    elif name in ("in_degree_centrality", "out_degree_centrality", "global_reaching_centrality"):
+        assert actual(dg) == expected(ldg)
+        with pytest.raises(ImportError):
+            actual(dg, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, unexpected=True)
+    elif name == "local_reaching_centrality":
+        assert actual(dg, 0) == expected(ldg, 0)
+        with pytest.raises(ImportError):
+            actual(dg, 0, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, 0, unexpected=True)
+    elif name in ("trophic_differences", "trophic_incoherence_parameter", "trophic_levels"):
+        tdg = fnx.DiGraph([(0, 1), (1, 2)])
+        ltdg = legacy.DiGraph([(0, 1), (1, 2)])
+        res_act = actual(tdg)
+        res_exp = expected(ltdg)
+        if isinstance(res_act, dict):
+            for k in res_act:
+                assert math.isclose(res_act[k], res_exp[k], rel_tol=1e-5, abs_tol=1e-5)
+        else:
+            assert math.isclose(res_act, res_exp, rel_tol=1e-5, abs_tol=1e-5)
+        with pytest.raises(ImportError):
+            actual(tdg, backend="missing")
+        with pytest.raises(TypeError):
+            actual(tdg, unexpected=True)
+    elif name in (
+        "betweenness_centrality_subset",
+        "current_flow_betweenness_centrality_subset",
+        "edge_betweenness_centrality_subset",
+        "edge_current_flow_betweenness_centrality_subset",
+    ):
+        res_act = actual(ug, [0], [3])
+        res_exp = expected(lug, [0], [3])
+        for k in res_act:
+            assert math.isclose(res_act[k], res_exp[k], rel_tol=1e-5, abs_tol=1e-5)
+        with pytest.raises(ImportError):
+            actual(ug, [0], [3], backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, [0], [3], unexpected=True)
+    elif name in ("group_betweenness_centrality", "group_closeness_centrality", "group_degree_centrality"):
+        assert math.isclose(actual(ug, [0, 1]), expected(lug, [0, 1]), rel_tol=1e-5, abs_tol=1e-5)
+        with pytest.raises(ImportError):
+            actual(ug, [0, 1], backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, [0, 1], unexpected=True)
+    elif name == "incremental_closeness_centrality":
+        res_act = actual(ug, (0, 3))
+        res_exp = expected(lug, (0, 3))
+        for k in res_act:
+            assert math.isclose(res_act[k], res_exp[k], rel_tol=1e-5, abs_tol=1e-5)
+        with pytest.raises(ImportError):
+            actual(ug, (0, 3), backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, (0, 3), unexpected=True)
+    elif name == "prominent_group":
+        score_act, group_act = actual(sg, 1)
+        score_exp, group_exp = expected(lsg, 1)
+        assert math.isclose(score_act, score_exp, rel_tol=1e-5, abs_tol=1e-5)
+        assert group_act == group_exp
+        with pytest.raises(ImportError):
+            actual(sg, 1, backend="missing")
+        with pytest.raises(TypeError):
+            actual(sg, 1, unexpected=True)
+    elif name == "approximate_current_flow_betweenness_centrality":
+        res_act = actual(ug, seed=42)
+        res_exp = expected(lug, seed=42)
+        for k in res_act:
+            assert math.isclose(res_act[k], res_exp[k], rel_tol=1e-5, abs_tol=1e-5)
+        with pytest.raises(ImportError):
+            actual(ug, seed=42, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, seed=42, unexpected=True)
+    elif name == "dispersion":
+        res_act = actual(ug)
+        res_exp = expected(lug)
+        for k in res_act:
+            for k2 in res_act[k]:
+                assert math.isclose(res_act[k][k2], res_exp[k][k2], rel_tol=1e-5, abs_tol=1e-5)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    else:
+        res_act = actual(ug)
+        res_exp = expected(lug)
+        if isinstance(res_act, dict):
+            for k in res_act:
+                assert math.isclose(res_act[k], res_exp[k], rel_tol=1e-5, abs_tol=1e-5)
+        elif isinstance(res_act, float):
+            assert math.isclose(res_act, res_exp, rel_tol=1e-5, abs_tol=1e-5)
+        elif isinstance(res_act, list):
+            assert res_act == res_exp
+        else:
+            assert res_act == res_exp
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CENTRALITY_NAMES)
+def test_flattened_centrality_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.centrality, name, sentinel)
+    if name in (
+        "group_betweenness_centrality",
+        "group_closeness_centrality",
+        "group_degree_centrality",
+        "group_in_degree_centrality",
+        "group_out_degree_centrality",
+    ):
+        assert getattr(fnx_algorithms, name)("g", ["c"]) is marker
+    elif name in (
+        "betweenness_centrality_subset",
+        "current_flow_betweenness_centrality_subset",
+        "edge_betweenness_centrality_subset",
+        "edge_current_flow_betweenness_centrality_subset",
+    ):
+        assert getattr(fnx_algorithms, name)("g", ["s"], ["t"]) is marker
+    elif name in ("incremental_closeness_centrality", "local_reaching_centrality", "prominent_group"):
+        assert getattr(fnx_algorithms, name)("g", 0) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("g") is marker

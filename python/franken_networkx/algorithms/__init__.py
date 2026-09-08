@@ -698,6 +698,799 @@ _alias_nx_child_modules(
     "networkx.algorithms.centrality", f"{__name__}.centrality"
 )
 
+
+# Preserve the public signatures of the flattened centrality helpers while
+# delegating at call time to the native leaf module, including its backend
+# dispatch validation.
+
+
+def approximate_current_flow_betweenness_centrality(
+    G,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver='full',
+    epsilon=0.5,
+    kmax=10000,
+    seed=None,
+    *,
+    sample_weight=1,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.approximate_current_flow_betweenness_centrality(
+        G=G,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        epsilon=epsilon,
+        kmax=kmax,
+        seed=seed,
+        sample_weight=sample_weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def betweenness_centrality(
+    G,
+    k=None,
+    normalized=True,
+    weight=None,
+    endpoints=False,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.betweenness_centrality(
+        G=G,
+        k=k,
+        normalized=normalized,
+        weight=weight,
+        endpoints=endpoints,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def betweenness_centrality_subset(
+    G,
+    sources,
+    targets,
+    normalized=False,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.betweenness_centrality_subset(
+        G=G,
+        sources=sources,
+        targets=targets,
+        normalized=normalized,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def closeness_centrality(
+    G,
+    u=None,
+    distance=None,
+    wf_improved=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.closeness_centrality(
+        G=G,
+        u=u,
+        distance=distance,
+        wf_improved=wf_improved,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs):
+    return _fnx_centrality.communicability_betweenness_centrality(
+        G=G,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def current_flow_betweenness_centrality(
+    G,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver='full',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.current_flow_betweenness_centrality(
+        G=G,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def current_flow_betweenness_centrality_subset(
+    G,
+    sources,
+    targets,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver='lu',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.current_flow_betweenness_centrality_subset(
+        G=G,
+        sources=sources,
+        targets=targets,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def current_flow_closeness_centrality(
+    G,
+    weight=None,
+    dtype=float,
+    solver='lu',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.current_flow_closeness_centrality(
+        G=G,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def degree_centrality(G, *, backend=None, **backend_kwargs):
+    return _fnx_centrality.degree_centrality(
+        G=G,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dispersion(
+    G,
+    u=None,
+    v=None,
+    normalized=True,
+    alpha=1.0,
+    b=0.0,
+    c=0.0,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.dispersion(
+        G=G,
+        u=u,
+        v=v,
+        normalized=normalized,
+        alpha=alpha,
+        b=b,
+        c=c,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_betweenness_centrality(
+    G,
+    k=None,
+    normalized=True,
+    weight=None,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.edge_betweenness_centrality(
+        G=G,
+        k=k,
+        normalized=normalized,
+        weight=weight,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_betweenness_centrality_subset(
+    G,
+    sources,
+    targets,
+    normalized=False,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.edge_betweenness_centrality_subset(
+        G=G,
+        sources=sources,
+        targets=targets,
+        normalized=normalized,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_current_flow_betweenness_centrality(
+    G,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver='full',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.edge_current_flow_betweenness_centrality(
+        G=G,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_current_flow_betweenness_centrality_subset(
+    G,
+    sources,
+    targets,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver='lu',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.edge_current_flow_betweenness_centrality_subset(
+        G=G,
+        sources=sources,
+        targets=targets,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_load_centrality(
+    G,
+    cutoff=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.edge_load_centrality(
+        G=G,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def eigenvector_centrality(
+    G,
+    max_iter=100,
+    tol=1e-06,
+    nstart=None,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.eigenvector_centrality(
+        G=G,
+        max_iter=max_iter,
+        tol=tol,
+        nstart=nstart,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def eigenvector_centrality_numpy(
+    G,
+    weight=None,
+    max_iter=50,
+    tol=0,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.eigenvector_centrality_numpy(
+        G=G,
+        weight=weight,
+        max_iter=max_iter,
+        tol=tol,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def estrada_index(G, *, backend=None, **backend_kwargs):
+    return _fnx_centrality.estrada_index(
+        G=G,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def global_reaching_centrality(
+    G,
+    weight=None,
+    normalized=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.global_reaching_centrality(
+        G=G,
+        weight=weight,
+        normalized=normalized,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def group_betweenness_centrality(
+    G,
+    C,
+    normalized=True,
+    weight=None,
+    endpoints=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.group_betweenness_centrality(
+        G=G,
+        C=C,
+        normalized=normalized,
+        weight=weight,
+        endpoints=endpoints,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def group_closeness_centrality(
+    G,
+    S,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.group_closeness_centrality(
+        G=G,
+        S=S,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def group_degree_centrality(
+    G,
+    S,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.group_degree_centrality(
+        G=G,
+        S=S,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def group_in_degree_centrality(
+    G,
+    S,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.group_in_degree_centrality(
+        G=G,
+        S=S,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def group_out_degree_centrality(
+    G,
+    S,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.group_out_degree_centrality(
+        G=G,
+        S=S,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def harmonic_centrality(
+    G,
+    nbunch=None,
+    distance=None,
+    sources=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.harmonic_centrality(
+        G=G,
+        nbunch=nbunch,
+        distance=distance,
+        sources=sources,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def in_degree_centrality(G, *, backend=None, **backend_kwargs):
+    return _fnx_centrality.in_degree_centrality(
+        G=G,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def incremental_closeness_centrality(
+    G,
+    edge,
+    prev_cc=None,
+    insertion=True,
+    wf_improved=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.incremental_closeness_centrality(
+        G=G,
+        edge=edge,
+        prev_cc=prev_cc,
+        insertion=insertion,
+        wf_improved=wf_improved,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def information_centrality(
+    G,
+    weight=None,
+    dtype=float,
+    solver='lu',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.information_centrality(
+        G=G,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def katz_centrality(
+    G,
+    alpha=0.1,
+    beta=1.0,
+    max_iter=1000,
+    tol=1e-06,
+    nstart=None,
+    normalized=True,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.katz_centrality(
+        G=G,
+        alpha=alpha,
+        beta=beta,
+        max_iter=max_iter,
+        tol=tol,
+        nstart=nstart,
+        normalized=normalized,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def katz_centrality_numpy(
+    G,
+    alpha=0.1,
+    beta=1.0,
+    normalized=True,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.katz_centrality_numpy(
+        G=G,
+        alpha=alpha,
+        beta=beta,
+        normalized=normalized,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def laplacian_centrality(
+    G,
+    normalized=True,
+    nodelist=None,
+    weight='weight',
+    walk_type=None,
+    alpha=0.95,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.laplacian_centrality(
+        G=G,
+        normalized=normalized,
+        nodelist=nodelist,
+        weight=weight,
+        walk_type=walk_type,
+        alpha=alpha,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def load_centrality(
+    G,
+    v=None,
+    cutoff=None,
+    normalized=True,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.load_centrality(
+        G=G,
+        v=v,
+        cutoff=cutoff,
+        normalized=normalized,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def local_reaching_centrality(
+    G,
+    v,
+    paths=None,
+    weight=None,
+    normalized=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.local_reaching_centrality(
+        G=G,
+        v=v,
+        paths=paths,
+        weight=weight,
+        normalized=normalized,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def out_degree_centrality(G, *, backend=None, **backend_kwargs):
+    return _fnx_centrality.out_degree_centrality(
+        G=G,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def percolation_centrality(
+    G,
+    attribute='percolation',
+    states=None,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.percolation_centrality(
+        G=G,
+        attribute=attribute,
+        states=states,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def prominent_group(
+    G,
+    k,
+    weight=None,
+    C=None,
+    endpoints=False,
+    normalized=True,
+    greedy=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.prominent_group(
+        G=G,
+        k=k,
+        weight=weight,
+        C=C,
+        endpoints=endpoints,
+        normalized=normalized,
+        greedy=greedy,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def second_order_centrality(
+    G,
+    weight='weight',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.second_order_centrality(
+        G=G,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def subgraph_centrality(
+    G,
+    *,
+    normalized=False,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.subgraph_centrality(
+        G=G,
+        normalized=normalized,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def subgraph_centrality_exp(
+    G,
+    *,
+    normalized=False,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.subgraph_centrality_exp(
+        G=G,
+        normalized=normalized,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def trophic_differences(
+    G,
+    weight='weight',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.trophic_differences(
+        G=G,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def trophic_incoherence_parameter(
+    G,
+    weight='weight',
+    cannibalism=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.trophic_incoherence_parameter(
+        G=G,
+        weight=weight,
+        cannibalism=cannibalism,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def trophic_levels(
+    G,
+    weight='weight',
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.trophic_levels(
+        G=G,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def voterank(
+    G,
+    number_of_nodes=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_centrality.voterank(
+        G=G,
+        number_of_nodes=number_of_nodes,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 # br-r37-c1-muhsi: route nx.algorithms.distance_measures through fnx-native
 # top-level (harmonic_diameter ran nx pure-Python on fnx views — 7.6x slower;
 # the rest are 14-16x faster than genuine nx).
