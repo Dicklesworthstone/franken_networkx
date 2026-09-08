@@ -131,8 +131,29 @@ def seeded_randoms() -> dict[str, tuple[list[str], list[list[str]]]]:
     return out
 
 
+def gnp_fixtures() -> dict[str, tuple[list[str], list[list[str]]]]:
+    """The `nx.gnp_random_graph` fixtures shared with
+    tests/python/test_planarity_conformance.py::_random_fixtures (same
+    (n, p, seed) triples, same node/edge order). GH#3: three of the planar
+    ones (n12/p0.3/s6, n20/p0.15/s11, n25/p0.1/s13) drove the native
+    embedding assembly into an unbounded rotation walk, so they live in the
+    byte-parity oracle to pin both the verdict and the rotation orders."""
+    out: dict[str, tuple[list[str], list[list[str]]]] = {}
+    for n, p, seed in [
+        (8, 0.2, 1), (8, 0.3, 2), (10, 0.2, 3), (10, 0.3, 4),
+        (12, 0.2, 5), (12, 0.3, 6), (15, 0.15, 7), (15, 0.2, 8),
+        (15, 0.3, 9), (20, 0.1, 10), (20, 0.15, 11), (20, 0.2, 12),
+        (25, 0.1, 13), (25, 0.15, 14), (30, 0.08, 15), (30, 0.12, 16),
+    ]:
+        gnp = nx.gnp_random_graph(n, p, seed=seed)
+        nodes = [str(i) for i in range(n)]
+        edges = [[str(u), str(v)] for u, v in gnp.edges()]
+        out[f"gnp_n{n}_p{p}_s{seed}"] = (nodes, edges)
+    return out
+
+
 def main() -> int:
-    corpus_all = {**corpus(), **seeded_randoms()}
+    corpus_all = {**corpus(), **seeded_randoms(), **gnp_fixtures()}
     fixtures = {"schema_version": 1, "graphs": {}}
     planar_count = 0
     for name in sorted(corpus_all):

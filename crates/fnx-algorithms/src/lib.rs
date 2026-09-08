@@ -31712,6 +31712,14 @@ impl EmbeddingBuilder {
                 self.cw[start].insert(end, reference);
                 self.ccw[start].insert(end, ref_ccw);
                 self.cw[start].insert(ref_ccw, end);
+                // nx: `succs[cw]["ccw"] = end_node`. GH#3: this back-pointer
+                // was missing, so a later cw-insertion next to `reference`
+                // read a stale `ccw[reference]`, rewired `cw[stale] = end`,
+                // and split the rotation into two cw cycles; `cw_order` then
+                // walked the cycle that never returns to its start and grew
+                // its Vec until the allocator gave out (1.5-2 GiB on a
+                // 12-node graph).
+                self.ccw[start].insert(reference, end);
                 if reference != anchor_before {
                     // move the pre-append dict-LAST (leftmost) to dict end
                     let pos = self.dict[start].len() - 2;
@@ -31748,17 +31756,27 @@ impl EmbeddingBuilder {
     /// nx `neighbors_cw_order` — start at the dict-last key (the leftmost
     /// neighbour) and follow cw pointers around the circle.
     fn cw_order(&self, v: usize) -> Vec<usize> {
-        let mut out = Vec::with_capacity(self.dict[v].len());
-        if self.dict[v].is_empty() {
+        let degree = self.dict[v].len();
+        let mut out = Vec::with_capacity(degree);
+        if degree == 0 {
             return out;
         }
         let start = *self.dict[v].last().unwrap();
         out.push(start);
         let mut current = self.cw[v][&start];
-        while current != start {
+        // The cw pointers of a well-formed rotation form ONE cycle through
+        // every neighbour, so the walk returns to `start` after exactly
+        // `degree` steps. Bound the walk by that (GH#3): a broken rotation
+        // must surface as an invariant failure, never as an unbounded walk
+        // that grows `out` until the allocator aborts the process.
+        while current != start && out.len() < degree {
             out.push(current);
             current = self.cw[v][&current];
         }
+        assert!(
+            current == start,
+            "planar embedding rotation at node index {v} is not a single closed cw cycle"
+        );
         out
     }
 }
@@ -76669,6 +76687,82 @@ mod tests {
         let _ = g.add_edge("v0", "v0");
         let _ = g.add_edge("v2", "v2");
         assert!(!is_planar_lr(&g));
+    }
+
+    /// GH#3: a cw-insertion must update the reference's ccw back-pointer
+    /// (nx `succs[cw]["ccw"] = end_node`). Three cw-insertions against the
+    /// same reference previously read a stale `ccw[reference]` on the third
+    /// and split the rotation into two cycles.
+    #[test]
+    fn embedding_builder_cw_insert_updates_reference_ccw_pointer() {
+        let mut emb = super::EmbeddingBuilder::new(4);
+        emb.add_first_edge(0, 1);
+        emb.add_half_edge(0, 2, Some(1), None);
+        assert_eq!(emb.ccw[0][&1], 2, "ccw[1] must point at the new neighbour");
+        emb.add_half_edge(0, 3, Some(1), None);
+        assert_eq!(emb.ccw[0][&1], 3);
+        assert_eq!(emb.cw[0][&3], 1);
+        assert_eq!(emb.ccw[0][&3], 2);
+        assert_eq!(emb.cw[0][&2], 3);
+        // nx: dict order [1, 3, 2], neighbors_cw_order starts at the dict-last
+        // key (2) and follows cw pointers: 2 -> 3 -> 1.
+        assert_eq!(emb.dict[0], vec![1, 3, 2]);
+        assert_eq!(emb.cw_order(0), vec![2, 3, 1]);
+    }
+
+    /// GH#3 regression: the 12-node / 18-edge `gnp_random_graph(12, 0.3,
+    /// seed=6)` planar graph whose embedding assembly walked an unclosed
+    /// rotation and grew a Vec to 1.5 GiB. Every rotation must be a
+    /// permutation of the node's neighbour set; the byte-exact nx parity for
+    /// this graph is pinned by the fnx-conformance oracle gate.
+    #[test]
+    fn planar_embedding_rotations_are_closed_cycles_gh3() {
+        let edges = [
+            (0, 4),
+            (0, 5),
+            (0, 11),
+            (1, 7),
+            (1, 10),
+            (2, 6),
+            (2, 10),
+            (2, 11),
+            (3, 5),
+            (3, 8),
+            (4, 11),
+            (5, 10),
+            (6, 8),
+            (6, 11),
+            (7, 9),
+            (7, 10),
+            (8, 10),
+            (9, 10),
+        ];
+        let mut g = Graph::strict();
+        for i in 0..12 {
+            let _ = g.add_node(i.to_string());
+        }
+        for (u, v) in edges {
+            g.add_edge(u.to_string(), v.to_string())
+                .expect("edge insert");
+        }
+        assert!(is_planar_lr(&g));
+        let data = super::planar_embedding_data(&g).expect("graph is planar");
+        assert_eq!(data.order.len(), 12);
+        for (node, rotation) in &data.order {
+            let mut expected: Vec<String> = g
+                .neighbors(node)
+                .expect("node exists")
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            expected.sort();
+            let mut got = rotation.clone();
+            got.sort();
+            assert_eq!(
+                got, expected,
+                "rotation at {node} is not a permutation of its neighbours: {rotation:?}"
+            );
+        }
     }
 
     #[test]
