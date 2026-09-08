@@ -4,9 +4,11 @@ These tests compare FrankenNetworkX output against NetworkX oracle values
 to verify algorithm correctness across the Python binding layer.
 """
 
+import gc
 import hashlib
 import json
 import logging
+import os
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -194,12 +196,69 @@ def pytest_runtest_logstart(nodeid: str, location: tuple) -> None:
         _emitter.test_started(nodeid)
 
 
+# ---------------------------------------------------------------------------
+# Machine Protection & Memory Guardrails
+# ---------------------------------------------------------------------------
+
+_DEFAULT_MAX_RSS_MB = 4096.0  # 4 GB safety ceiling per test process
+
+
+def _get_process_rss_mb() -> float:
+    """Read current VmRSS in MB from /proc/self/status or resource.getrusage."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024.0
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        import resource
+
+        return float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0
+    except Exception:
+        return 0.0
+
+
+def _get_max_rss_mb() -> float:
+    raw = os.environ.get("FNX_TEST_MAX_RSS_MB")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_MAX_RSS_MB
+
+
+def _enforce_memory_guardrail(context: str) -> None:
+    rss_mb = _get_process_rss_mb()
+    max_rss = _get_max_rss_mb()
+    if max_rss > 0.0 and rss_mb > max_rss:
+        pytest.exit(
+            f"\n\n[FATAL MACHINE PROTECTION GUARD] {context} exceeded "
+            f"memory safety ceiling: current RSS is {rss_mb:.1f} MB (limit: {max_rss:.1f} MB).\n"
+            "Aborting pytest immediately to protect the host machine from memory exhaustion / livelock.\n",
+            returncode=2,
+        )
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    _enforce_memory_guardrail(f"Before test '{item.nodeid}'")
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> Any:
     outcome = yield
     report = outcome.get_result()
     if _emitter and call.when == "call":
         _emitter.test_finished(item, report.outcome, report)
+    if call.when == "call":
+        _enforce_memory_guardrail(f"After test '{item.nodeid}'")
+
+
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> None:
+    gc.collect()
+    _enforce_memory_guardrail(f"Teardown of '{item.nodeid}'")
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
