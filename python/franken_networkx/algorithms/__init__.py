@@ -703,6 +703,283 @@ _alias_nx_child_modules(
     "networkx.algorithms.tree", f"{__name__}.tree"
 )
 
+
+def maximum_spanning_edges(
+    G,
+    algorithm="kruskal",
+    weight="weight",
+    keys=True,
+    data=True,
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.maximum_spanning_edges(
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def maximum_spanning_tree(
+    G,
+    weight="weight",
+    algorithm="kruskal",
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.maximum_spanning_tree(
+        G,
+        weight=weight,
+        algorithm=algorithm,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def minimum_spanning_edges(
+    G,
+    algorithm="kruskal",
+    weight="weight",
+    keys=True,
+    data=True,
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.minimum_spanning_edges(
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def minimum_spanning_tree(
+    G,
+    weight="weight",
+    algorithm="kruskal",
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.minimum_spanning_tree(
+        G,
+        weight=weight,
+        algorithm=algorithm,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def number_of_spanning_trees(
+    G, *, root=None, weight=None, backend=None, **backend_kwargs
+):
+    return _fnx_tree.number_of_spanning_trees(
+        G, root=root, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def partition_spanning_tree(
+    G,
+    minimum=True,
+    weight="weight",
+    partition="partition",
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.partition_spanning_tree(
+        G,
+        minimum=minimum,
+        weight=weight,
+        partition=partition,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def random_spanning_tree(
+    G, weight=None, *, multiplicative=True, seed=None, backend=None, **backend_kwargs
+):
+    return _fnx_tree.random_spanning_tree(
+        G,
+        weight=weight,
+        multiplicative=multiplicative,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def from_nested_tuple(
+    sequence, sensible_relabeling=False, *, backend=None, **backend_kwargs
+):
+    return _fnx_tree.from_nested_tuple(
+        sequence,
+        sensible_relabeling=sensible_relabeling,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def from_prufer_sequence(sequence, *, backend=None, **backend_kwargs):
+    return _fnx_tree.from_prufer_sequence(
+        sequence, backend=backend, **backend_kwargs
+    )
+
+
+def to_nested_tuple(
+    T, root, canonical_form=False, *, backend=None, **backend_kwargs
+):
+    return _fnx_tree.to_nested_tuple(
+        T, root, canonical_form=canonical_form, backend=backend, **backend_kwargs
+    )
+
+
+def to_prufer_sequence(T, *, backend=None, **backend_kwargs):
+    return _fnx_tree.to_prufer_sequence(T, backend=backend, **backend_kwargs)
+
+
+def is_arborescence(G, *, backend=None, **backend_kwargs):
+    return _fnx_tree.is_arborescence(G, backend=backend, **backend_kwargs)
+
+
+def is_branching(G, *, backend=None, **backend_kwargs):
+    return _fnx_tree.is_branching(G, backend=backend, **backend_kwargs)
+
+
+def is_forest(G, *, backend=None, **backend_kwargs):
+    return _fnx_tree.is_forest(G, backend=backend, **backend_kwargs)
+
+
+def is_tree(G, *, backend=None, **backend_kwargs):
+    return _fnx_tree.is_tree(G, backend=backend, **backend_kwargs)
+
+
+def maximum_branching(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.maximum_branching(
+        G,
+        attr=attr,
+        default=default,
+        preserve_attrs=preserve_attrs,
+        partition=partition,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def maximum_spanning_arborescence(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.maximum_spanning_arborescence(
+        G,
+        attr=attr,
+        default=default,
+        preserve_attrs=preserve_attrs,
+        partition=partition,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def minimum_branching(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.minimum_branching(
+        G,
+        attr=attr,
+        default=default,
+        preserve_attrs=preserve_attrs,
+        partition=partition,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def minimum_spanning_arborescence(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.minimum_spanning_arborescence(
+        G,
+        attr=attr,
+        default=default,
+        preserve_attrs=preserve_attrs,
+        partition=partition,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def join_trees(
+    rooted_trees,
+    *,
+    label_attribute=None,
+    first_label=0,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_tree.join_trees(
+        rooted_trees,
+        label_attribute=label_attribute,
+        first_label=first_label,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def junction_tree(G, *, backend=None, **backend_kwargs):
+    return _fnx_tree.junction_tree(G, backend=backend, **backend_kwargs)
+
+
 import franken_networkx.flow as _fnx_flow
 _sys.modules[f"{__name__}.flow"] = _fnx_flow
 flow = _fnx_flow  # Override in module globals
@@ -710,12 +987,143 @@ _alias_nx_child_modules(
     "networkx.algorithms.flow", f"{__name__}.flow"
 )
 
+
+def cost_of_flow(G, flowDict, weight="weight", *, backend=None, **backend_kwargs):
+    return _fnx_flow.cost_of_flow(
+        G, flowDict, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def max_flow_min_cost(
+    G, s, t, capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
+    return _fnx_flow.max_flow_min_cost(
+        G, s, t, capacity=capacity, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def min_cost_flow(
+    G, demand="demand", capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
+    return _fnx_flow.min_cost_flow(
+        G, demand=demand, capacity=capacity, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def min_cost_flow_cost(
+    G, demand="demand", capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
+    return _fnx_flow.min_cost_flow_cost(
+        G, demand=demand, capacity=capacity, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def maximum_flow(
+    flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs
+):
+    return _fnx_flow.maximum_flow(
+        flowG, _s, _t, capacity=capacity, flow_func=flow_func, backend=backend, **kwargs
+    )
+
+
+def maximum_flow_value(
+    flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs
+):
+    return _fnx_flow.maximum_flow_value(
+        flowG, _s, _t, capacity=capacity, flow_func=flow_func, backend=backend, **kwargs
+    )
+
+
+def minimum_cut(
+    flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs
+):
+    return _fnx_flow.minimum_cut(
+        flowG, _s, _t, capacity=capacity, flow_func=flow_func, backend=backend, **kwargs
+    )
+
+
+def minimum_cut_value(
+    flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs
+):
+    return _fnx_flow.minimum_cut_value(
+        flowG, _s, _t, capacity=capacity, flow_func=flow_func, backend=backend, **kwargs
+    )
+
+
+from networkx.utils.heaps import BinaryHeap as _BinaryHeap
+
+
+def capacity_scaling(
+    G,
+    demand="demand",
+    capacity="capacity",
+    weight="weight",
+    heap=_BinaryHeap,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_flow.capacity_scaling(
+        G,
+        demand=demand,
+        capacity=capacity,
+        weight=weight,
+        heap=heap,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def gomory_hu_tree(
+    G, capacity="capacity", flow_func=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_flow.gomory_hu_tree(
+        G, capacity=capacity, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def network_simplex(
+    G, demand="demand", capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
+    return _fnx_flow.network_simplex(
+        G, demand=demand, capacity=capacity, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
 import franken_networkx.traversal as _fnx_traversal
 _sys.modules[f"{__name__}.traversal"] = _fnx_traversal
 traversal = _fnx_traversal  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.traversal", f"{__name__}.traversal"
 )
+
+
+def bfs_beam_edges(
+    G, source, value, width=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_traversal.bfs_beam_edges(
+        G, source, value, width=width, backend=backend, **backend_kwargs
+    )
+
+
+def bfs_labeled_edges(G, sources, *, backend=None, **backend_kwargs):
+    return _fnx_traversal.bfs_labeled_edges(
+        G, sources, backend=backend, **backend_kwargs
+    )
+
+
+def generic_bfs_edges(
+    G, source, neighbors=None, depth_limit=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_traversal.generic_bfs_edges(
+        G,
+        source,
+        neighbors=neighbors,
+        depth_limit=depth_limit,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 
 import franken_networkx.euler as _fnx_euler
 _sys.modules[f"{__name__}.euler"] = _fnx_euler

@@ -3232,3 +3232,310 @@ def test_flattened_similarity_namespace_routes_to_leaf_module(monkeypatch, name)
         assert getattr(fnx_algorithms, name)("g", 0) is marker
     else:
         assert getattr(fnx_algorithms, name)("g") is marker
+
+
+_FLATTENED_TREE_NAMES = [
+    "maximum_spanning_edges",
+    "maximum_spanning_tree",
+    "minimum_spanning_edges",
+    "minimum_spanning_tree",
+    "number_of_spanning_trees",
+    "partition_spanning_tree",
+    "random_spanning_tree",
+    "from_nested_tuple",
+    "from_prufer_sequence",
+    "to_nested_tuple",
+    "to_prufer_sequence",
+    "is_arborescence",
+    "is_branching",
+    "is_forest",
+    "is_tree",
+    "maximum_branching",
+    "maximum_spanning_arborescence",
+    "minimum_branching",
+    "minimum_spanning_arborescence",
+    "join_trees",
+    "junction_tree",
+]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_TREE_NAMES)
+def test_flattened_tree_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    ug = fnx.path_graph(4)
+    lug = legacy.path_graph(4)
+    dg = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    ldg = legacy.DiGraph([(0, 1), (1, 2), (2, 3)])
+
+    if name in ("maximum_spanning_edges", "minimum_spanning_edges"):
+        assert list(actual(ug)) == list(expected(lug))
+        with pytest.raises(ImportError):
+            list(actual(ug, backend="missing"))
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name in ("maximum_spanning_tree", "minimum_spanning_tree"):
+        assert sorted(actual(ug).edges()) == sorted(expected(lug).edges())
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "number_of_spanning_trees":
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "partition_spanning_tree":
+        assert sorted(actual(ug).edges()) == sorted(expected(lug).edges())
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "random_spanning_tree":
+        assert actual(ug, seed=42).number_of_nodes() == expected(lug, seed=42).number_of_nodes()
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name == "from_nested_tuple":
+        seq = ((), ((), ()))
+        assert sorted(actual(seq).edges()) == sorted(expected(seq).edges())
+        with pytest.raises(ImportError):
+            actual(seq, backend="missing")
+        with pytest.raises(TypeError):
+            actual(seq, unexpected=True)
+    elif name == "from_prufer_sequence":
+        seq = [0, 1]
+        assert sorted(actual(seq).edges()) == sorted(expected(seq).edges())
+        with pytest.raises(ImportError):
+            actual(seq, backend="missing")
+        with pytest.raises(TypeError):
+            actual(seq, unexpected=True)
+    elif name == "to_nested_tuple":
+        t = fnx.path_graph(3)
+        lt = legacy.path_graph(3)
+        assert actual(t, 1) == expected(lt, 1)
+        with pytest.raises(ImportError):
+            actual(t, 1, backend="missing")
+        with pytest.raises(TypeError):
+            actual(t, 1, unexpected=True)
+    elif name == "to_prufer_sequence":
+        t = fnx.path_graph(4)
+        lt = legacy.path_graph(4)
+        assert actual(t) == expected(lt)
+        with pytest.raises(ImportError):
+            actual(t, backend="missing")
+        with pytest.raises(TypeError):
+            actual(t, unexpected=True)
+    elif name in ("is_arborescence", "is_branching"):
+        assert actual(dg) == expected(ldg)
+        with pytest.raises(ImportError):
+            actual(dg, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, unexpected=True)
+    elif name in ("is_forest", "is_tree"):
+        assert actual(ug) == expected(lug)
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+    elif name in (
+        "maximum_branching",
+        "maximum_spanning_arborescence",
+        "minimum_branching",
+        "minimum_spanning_arborescence",
+    ):
+        assert sorted(actual(dg).edges()) == sorted(expected(ldg).edges())
+        with pytest.raises(ImportError):
+            actual(dg, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, unexpected=True)
+    elif name == "join_trees":
+        t1 = (fnx.path_graph(2), 0)
+        lt1 = (legacy.path_graph(2), 0)
+        t2 = (fnx.path_graph(2), 0)
+        lt2 = (legacy.path_graph(2), 0)
+        assert actual([t1, t2]).number_of_nodes() == expected([lt1, lt2]).number_of_nodes()
+        with pytest.raises(ImportError):
+            actual([t1, t2], backend="missing")
+        with pytest.raises(TypeError):
+            actual([t1, t2], unexpected=True)
+    elif name == "junction_tree":
+        assert actual(ug).number_of_nodes() == expected(lug).number_of_nodes()
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_TREE_NAMES)
+def test_flattened_tree_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.tree, name, sentinel)
+    if name in ("from_nested_tuple", "from_prufer_sequence", "to_prufer_sequence"):
+        assert getattr(fnx_algorithms, name)([0]) is marker
+    elif name == "to_nested_tuple":
+        assert getattr(fnx_algorithms, name)("T", "root") is marker
+    elif name == "join_trees":
+        assert getattr(fnx_algorithms, name)([]) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("graph") is marker
+
+
+_FLATTENED_FLOW_NAMES = [
+    "cost_of_flow",
+    "max_flow_min_cost",
+    "min_cost_flow",
+    "min_cost_flow_cost",
+    "maximum_flow",
+    "maximum_flow_value",
+    "minimum_cut",
+    "minimum_cut_value",
+    "capacity_scaling",
+    "gomory_hu_tree",
+    "network_simplex",
+]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_FLOW_NAMES)
+def test_flattened_flow_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    dg = fnx.DiGraph()
+    ldg = legacy.DiGraph()
+    for u, v, c in [(0, 1, 4), (0, 2, 2), (1, 2, 1), (1, 3, 2), (2, 3, 4)]:
+        dg.add_edge(u, v, capacity=c)
+        ldg.add_edge(u, v, capacity=c)
+
+    ug = fnx.Graph()
+    lug = legacy.Graph()
+    for u, v, c in [(0, 1, 4), (0, 2, 2), (1, 2, 1), (1, 3, 2), (2, 3, 4)]:
+        ug.add_edge(u, v, capacity=c)
+        lug.add_edge(u, v, capacity=c)
+
+    if name in ("maximum_flow", "maximum_flow_value"):
+        assert actual(dg, 0, 3) == expected(ldg, 0, 3)
+        with pytest.raises(ImportError):
+            actual(dg, 0, 3, backend="missing")
+        with pytest.raises(fnx.NetworkXError):
+            actual(dg, 0, 3, unexpected=True)
+    elif name in ("minimum_cut", "minimum_cut_value"):
+        assert actual(dg, 0, 3) == expected(ldg, 0, 3)
+        with pytest.raises(ImportError):
+            actual(dg, 0, 3, backend="missing")
+        with pytest.raises(fnx.NetworkXError):
+            actual(dg, 0, 3, unexpected=True)
+    elif name == "cost_of_flow":
+        _, flow_dict = fnx_algorithms.maximum_flow(dg, 0, 3)
+        _, exp_flow_dict = legacy.algorithms.maximum_flow(ldg, 0, 3)
+        assert actual(dg, flow_dict) == expected(ldg, exp_flow_dict)
+        with pytest.raises(ImportError):
+            actual(dg, flow_dict, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, flow_dict, unexpected=True)
+    elif name == "max_flow_min_cost":
+        assert actual(dg, 0, 3) == expected(ldg, 0, 3)
+        with pytest.raises(ImportError):
+            actual(dg, 0, 3, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, 0, 3, unexpected=True)
+    elif name in ("min_cost_flow", "min_cost_flow_cost", "capacity_scaling", "network_simplex"):
+        dg_d = fnx.DiGraph()
+        ldg_d = legacy.DiGraph()
+        dg_d.add_node(0, demand=-2)
+        ldg_d.add_node(0, demand=-2)
+        dg_d.add_node(1, demand=2)
+        ldg_d.add_node(1, demand=2)
+        dg_d.add_edge(0, 1, capacity=4, weight=1)
+        ldg_d.add_edge(0, 1, capacity=4, weight=1)
+
+        assert actual(dg_d) == expected(ldg_d)
+        with pytest.raises(ImportError):
+            actual(dg_d, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg_d, unexpected=True)
+    elif name == "gomory_hu_tree":
+        assert sorted(actual(ug).edges()) == sorted(expected(lug).edges())
+        with pytest.raises(ImportError):
+            actual(ug, backend="missing")
+        with pytest.raises(TypeError):
+            actual(ug, unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_FLOW_NAMES)
+def test_flattened_flow_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.flow, name, sentinel)
+    if name in ("maximum_flow", "maximum_flow_value", "minimum_cut", "minimum_cut_value", "max_flow_min_cost"):
+        assert getattr(fnx_algorithms, name)("g", 0, 1) is marker
+    elif name == "cost_of_flow":
+        assert getattr(fnx_algorithms, name)("g", {}) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("g") is marker
+
+
+@pytest.mark.parametrize(
+    "name", ["bfs_beam_edges", "bfs_labeled_edges", "generic_bfs_edges"]
+)
+def test_flattened_traversal_bfs_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    g = fnx.path_graph(4)
+    lg = legacy.path_graph(4)
+
+    if name == "bfs_beam_edges":
+        assert list(actual(g, 0, lambda n: n, width=2)) == list(
+            expected(lg, 0, lambda n: n, width=2)
+        )
+        with pytest.raises(ImportError):
+            list(actual(g, 0, lambda n: n, backend="missing"))
+        with pytest.raises(TypeError):
+            actual(g, 0, lambda n: n, unexpected=True)
+    elif name == "bfs_labeled_edges":
+        assert list(actual(g, [0])) == list(expected(lg, [0]))
+        with pytest.raises(ImportError):
+            list(actual(g, [0], backend="missing"))
+        with pytest.raises(TypeError):
+            actual(g, [0], unexpected=True)
+    elif name == "generic_bfs_edges":
+        assert list(actual(g, 0)) == list(expected(lg, 0))
+        with pytest.raises(ImportError):
+            list(actual(g, 0, backend="missing"))
+        with pytest.raises(TypeError):
+            actual(g, 0, unexpected=True)
+
+
+@pytest.mark.parametrize(
+    "name", ["bfs_beam_edges", "bfs_labeled_edges", "generic_bfs_edges"]
+)
+def test_flattened_traversal_bfs_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.traversal, name, sentinel)
+    if name == "bfs_beam_edges":
+        assert getattr(fnx_algorithms, name)("g", 0, "val") is marker
+    elif name == "bfs_labeled_edges":
+        assert getattr(fnx_algorithms, name)("g", [0]) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("g", 0) is marker
