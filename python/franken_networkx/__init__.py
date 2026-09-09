@@ -27666,6 +27666,8 @@ from franken_networkx.readwrite import (
 
 
 def _edgelist_native_writer_preserves_node_labels(G):
+    if getattr(G, "lazy_int_node_stop", 0) > 0:
+        return True
     return not any(isinstance(node, str) for node in G.nodes())
 
 

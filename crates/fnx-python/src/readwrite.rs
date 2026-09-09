@@ -94,11 +94,11 @@ fn write_output_bytes(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) ->
         std::fs::write(path_str, content.as_bytes())?;
         return Ok(());
     }
-    if let Ok(fspath) = dest.call_method0("__fspath__") {
-        if let Ok(path_str) = fspath.extract::<&str>() {
-            std::fs::write(path_str, content.as_bytes())?;
-            return Ok(());
-        }
+    if let Ok(fspath) = dest.call_method0("__fspath__")
+        && let Ok(path_str) = fspath.extract::<&str>()
+    {
+        std::fs::write(path_str, content.as_bytes())?;
+        return Ok(());
     }
     let pathlib = py.import("pathlib")?;
     let path_cls = pathlib.getattr("Path")?;
@@ -987,11 +987,11 @@ fn parse_edgelist_chunk<'a>(chunk: &'a str, mode: EdgelistMode) -> Option<Edgeli
         let mut weight = None;
         match mode {
             EdgelistMode::DataTrue => {
-                if let Some(extra_str) = extra {
-                    if extra_str != "{}" || fields.next().is_some() {
-                        // nx: TypeError("Failed to convert edge data ...").
-                        return None;
-                    }
+                if let Some(extra_str) = extra
+                    && (extra_str != "{}" || fields.next().is_some())
+                {
+                    // nx: TypeError("Failed to convert edge data ...").
+                    return None;
                 }
             }
             EdgelistMode::DataFalse => {
@@ -1074,8 +1074,9 @@ fn parse_edgelist_simple_content(
     // edge list, 8-16 chunks ran 85 ms while one-chunk-per-core (64) ran 97 ms.
     // Giving every chunk at least CHUNK_TARGET_BYTES keeps the default at that
     // optimum and still falls back to a single serial chunk for small payloads.
-    const CHUNK_TARGET_BYTES: usize = 1 << 19;
-    let target = (content.len() / CHUNK_TARGET_BYTES).clamp(1, rayon::current_num_threads().max(1));
+    const CHUNK_TARGET_BYTES: usize = 64 * 1024;
+    let target =
+        (content.len() / CHUNK_TARGET_BYTES).clamp(1, 16.min(rayon::current_num_threads().max(1)));
     let bounds = edgelist_chunk_bounds(content, target);
 
     // The scan is pure `&str` work that touches no Python object, so chunks fan

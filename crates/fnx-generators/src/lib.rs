@@ -3630,7 +3630,8 @@ impl GraphGenerator {
         // set), and `extend_existing_index_edges_unrecorded` canonicalizes `edge_index_endpoints`
         // by name-order and pushes `adj_indices` exactly as `add_edge` — and the pairs are
         // unique with pre-existing nodes — so the graph is byte-identical.
-        let mut accepted: Vec<(usize, usize)> = Vec::new();
+        let expected_edges = (((n * n.saturating_sub(1)) / 2) as f64 * p * 1.05) as usize;
+        let mut accepted: Vec<(usize, usize)> = Vec::with_capacity(expected_edges);
         for left in 0..n {
             for right in (left + 1)..n {
                 let draw: f64 = rng.random();

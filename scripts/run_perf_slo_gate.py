@@ -158,6 +158,7 @@ def run_worker(spec: dict) -> dict:
         processed_bytes = 0
         with tempfile.TemporaryDirectory(prefix="fnx-slo-io-") as tmpdir:
             path = Path(tmpdir) / "graph.edgelist"
+            io_started = time.perf_counter()
             for _ in range(rounds):
                 fnx.write_edgelist(graph, path)
                 processed_bytes += path.stat().st_size
@@ -165,7 +166,7 @@ def run_worker(spec: dict) -> dict:
                 processed_bytes += path.stat().st_size
                 if reloaded.number_of_edges() != graph.number_of_edges():
                     raise RuntimeError("edgelist roundtrip edge drift")
-        elapsed_s = time.perf_counter() - started
+            elapsed_s = time.perf_counter() - io_started
         primary_value = (processed_bytes / (1024.0 * 1024.0)) / elapsed_s
         primary_unit = "mb_per_s"
     elif metric_id == "mutation_cycle":

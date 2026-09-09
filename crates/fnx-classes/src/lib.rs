@@ -2370,25 +2370,18 @@ impl Graph {
         // edge_index_endpoints; zero String hashing in the loop. Walk
         // order (u-major over adj_indices rows) is identical to the
         // String-row walk (rows are order-faithful mirrors).
-        let mut pair_attrs: rustc_hash::FxHashMap<(usize, usize), &AttrMap> =
-            rustc_hash::FxHashMap::with_capacity_and_hasher(self.edges.len(), Default::default());
-        for ((l, r), attrs) in self.edge_index_endpoints.iter().zip(self.edges.values()) {
-            // endpoints are stored STRING-canonical; normalize to
-            // index-canonical (min, max) for the walk's dedup pairs.
-            let pair = if l <= r { (*l, *r) } else { (*r, *l) };
-            pair_attrs.insert(pair, attrs);
-        }
+        let node_labels: Vec<&str> = self.nodes.keys().map(|s| s.as_str()).collect();
         let mut ordered = Vec::with_capacity(self.edges.len());
         let mut seen = vec![false; self.nodes.len()];
         for (u, row) in self.adj_indices.iter().enumerate() {
             for &v in row {
                 if !seen[v] {
                     let pair = if u <= v { (u, v) } else { (v, u) };
-                    if let Some(attrs) = pair_attrs.get(&pair) {
+                    if let Some(attrs) = self.edges.get(&pair) {
                         ordered.push(EdgeSnapshot {
-                            left: self.nodes.get_index(u).expect("valid node index").0.clone(),
-                            right: self.nodes.get_index(v).expect("valid node index").0.clone(),
-                            attrs: (*attrs).clone(),
+                            left: node_labels[u].to_owned(),
+                            right: node_labels[v].to_owned(),
+                            attrs: attrs.clone(),
                         });
                     }
                 }
@@ -2402,24 +2395,15 @@ impl Graph {
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         // br-r37-c1-d58s8 P2(b): index-native (see edges_ordered).
-        let mut pair_attrs: rustc_hash::FxHashMap<(usize, usize), &AttrMap> =
-            rustc_hash::FxHashMap::with_capacity_and_hasher(self.edges.len(), Default::default());
-        for ((l, r), attrs) in self.edge_index_endpoints.iter().zip(self.edges.values()) {
-            // endpoints are stored STRING-canonical; normalize to
-            // index-canonical (min, max) for the walk's dedup pairs.
-            let pair = if l <= r { (*l, *r) } else { (*r, *l) };
-            pair_attrs.insert(pair, attrs);
-        }
+        let node_labels: Vec<&str> = self.nodes.keys().map(|s| s.as_str()).collect();
         let mut ordered = Vec::with_capacity(self.edges.len());
         let mut seen = vec![false; self.nodes.len()];
         for (u, row) in self.adj_indices.iter().enumerate() {
             for &v in row {
                 if !seen[v] {
                     let pair = if u <= v { (u, v) } else { (v, u) };
-                    if let Some(attrs) = pair_attrs.get(&pair) {
-                        let left = self.nodes.get_index(u).expect("valid node index").0;
-                        let right = self.nodes.get_index(v).expect("valid node index").0;
-                        ordered.push((left.as_str(), right.as_str(), *attrs));
+                    if let Some(attrs) = self.edges.get(&pair) {
+                        ordered.push((node_labels[u], node_labels[v], attrs));
                     }
                 }
             }

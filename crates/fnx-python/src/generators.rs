@@ -20,22 +20,32 @@ const MAX_NATIVE_RARY_N: usize = 100_000;
 /// Converts string node keys ("0", "1", ...) to Python int keys so that
 /// `G.nodes()` yields `[0, 1, 2, ...]` matching NetworkX.
 fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGraph> {
-    let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
+    let node_count = graph.node_count();
+    let is_contiguous_int = graph
+        .nodes_ordered()
+        .iter()
+        .enumerate()
+        .all(|(idx, name)| name.parse::<usize>().map(|i| i == idx).unwrap_or(false));
 
-    // Map string keys to Python int keys.
-    for canonical in graph.nodes_ordered() {
-        if let Ok(i) = canonical.parse::<i64>() {
-            node_key_map.insert(
-                canonical.to_owned(),
-                unwrap_infallible(i.into_pyobject(py)).into_any().unbind(),
-            );
+    let (node_key_map, lazy_int_node_stop) = if is_contiguous_int {
+        (PyNodeKeyMap::default(), node_count as i64)
+    } else {
+        let mut map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
+        for canonical in graph.nodes_ordered() {
+            if let Ok(i) = canonical.parse::<i64>() {
+                map.insert(
+                    canonical.to_owned(),
+                    unwrap_infallible(i.into_pyobject(py)).into_any().unbind(),
+                );
+            }
         }
-    }
+        (map, 0)
+    };
 
     Ok(PyGraph {
         inner: graph,
         node_key_map,
-        lazy_int_node_stop: 0,
+        lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
