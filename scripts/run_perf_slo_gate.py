@@ -90,8 +90,8 @@ def run_worker(spec: dict) -> dict:
         width = int(params["width"])
         height = int(params["height"])
         graph = fnx.grid_2d_graph(width, height)
-        start = "0,0"
-        target = f"{width - 1},{height - 1}"
+        start = (0, 0) if (0, 0) in graph else "0,0"
+        target = (width - 1, height - 1) if (0, 0) in graph else f"{width - 1},{height - 1}"
         path = fnx.shortest_path(graph, start, target)
         if len(path) != width + height - 1:
             raise RuntimeError("unexpected shortest path length")
