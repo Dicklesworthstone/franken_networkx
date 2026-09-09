@@ -60,6 +60,7 @@ artifacts/docs/latest/
 
 # Build output directories
 dist/
+dist-*/
 fuzz/target/
 .venv/
 venv/

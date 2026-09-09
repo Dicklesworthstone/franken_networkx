@@ -67,6 +67,27 @@ success** — one line, revert, next lever, no retraction narrative.
 
 ---
 
+## Build, Quality, and Release Authority: DSR Only
+
+**NEVER use GitHub Actions for this repository, for any reason.** Do not enable,
+dispatch, rerun, cancel, or cite a GitHub Actions workflow as evidence. Workflow
+files may remain in the tree as historical reference, but they are permanently
+non-authoritative and must stay disabled.
+
+- Doodlestein Self-Releaser (`dsr`) is the exclusive quality, cross-platform
+  build, packaging, signing, and release authority.
+- Use `dsr quality --tool franken_networkx`, `dsr build franken_networkx`, and
+  `dsr release franken_networkx <version>` (or the corresponding fail-closed DSR
+  operation) instead of any Actions workflow or ad hoc release upload.
+- RCH is an implementation detail that DSR may use to offload compilation.
+  Agents must not invoke Cargo or RCH directly as an alternate quality path.
+- A tag, local binary, RCH result, or source build is not a release. A release
+  exists only after DSR publishes the expected artifacts and DSR verification
+  succeeds against the public release.
+
+---
+
+
 ## Toolchain: Rust & Cargo
 
 We only use **Cargo** in this project, NEVER any other package manager.

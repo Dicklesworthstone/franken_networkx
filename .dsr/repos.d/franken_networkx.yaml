@@ -1,0 +1,43 @@
+# Portable DSR build authority for franken_networkx.
+#
+# Release proof and artifacts go through dsr only.
+# We do NOT use GitHub Actions for ANYTHING, ONLY /dsr.
+tool_name: franken_networkx
+repo: Dicklesworthstone/franken_networkx
+local_path: /data/projects/franken_networkx
+language: rust
+build_profile: release
+targets:
+  - linux/amd64
+  - linux/arm64
+  - darwin/arm64
+  - darwin/amd64
+  - windows/amd64
+act_job_map:
+  linux/amd64: null
+  linux/arm64: null
+  darwin/arm64: null
+  darwin/amd64: null
+  windows/amd64: null
+host_paths:
+  trj: /data/release-work/franken_networkx_buildroot/franken_networkx
+  mmini: /Users/jemanuel/release-work/franken_networkx_buildroot/franken_networkx
+  wlap: C:/Users/jeffr/release-work/franken_networkx_buildroot/franken_networkx
+sync_excludes:
+  - target
+  - .rch-target
+  - .beads
+include_files:
+  - README.md
+  - LICENSE
+checks:
+  - cargo fmt --all -- --check
+  - cargo check --workspace --all-targets
+  - cargo clippy --workspace --all-targets -- -D warnings
+  - cargo test -p fnx-classes -p fnx-views -p fnx-dispatch -p fnx-convert -p fnx-algorithms -p fnx-generators -p fnx-readwrite -p fnx-durability -p fnx-runtime
+  - .venv/bin/python scripts/verify_docs.py
+  - ./scripts/run_pytest_guarded.sh tests/python/test_instance_dict_memory_leak.py tests/python/test_error_messages.py tests/python/test_thread_safety.py tests/python/test_coverage_gaps.py
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  CARGO_INCREMENTAL: "0"
