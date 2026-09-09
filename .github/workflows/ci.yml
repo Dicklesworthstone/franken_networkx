@@ -118,7 +118,7 @@ jobs:
     name: G4 canonical python parity
     needs: g3-rust-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -132,11 +132,13 @@ jobs:
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install maturin and test dependencies
-        run: pip install maturin pytest hypothesis networkx numpy scipy pandas
+        run: pip install maturin pytest pytest-xdist hypothesis networkx numpy scipy pandas
       - name: Build and install
-        run: maturin develop --features pyo3/abi3-py310
+        run: maturin develop --release --features pyo3/abi3-py310
       - name: Run canonical Python parity suite
-        run: pytest tests/python/ -v --tb=long
+        env:
+          FNX_TEST_MAX_RSS_MB: "2500"
+        run: pytest tests/python/ -n auto -q --tb=short
 
   g4b-e2e:
     name: G4b e2e integration
@@ -158,7 +160,7 @@ jobs:
       - name: Install maturin and E2E dependencies
         run: pip install maturin networkx numpy scipy
       - name: Build and install
-        run: maturin develop --features pyo3/abi3-py310
+        run: maturin develop --release --features pyo3/abi3-py310
       - name: Run structured E2E integration script
         run: python3 scripts/e2e_integration_test.py
 
@@ -182,7 +184,7 @@ jobs:
       - name: Install docs gate dependencies
         run: pip install maturin networkx numpy scipy
       - name: Build and install
-        run: maturin develop --features pyo3/abi3-py310
+        run: maturin develop --release --features pyo3/abi3-py310
       - name: Verify docs and examples
         run: python3 scripts/verify_docs.py
 
@@ -206,7 +208,7 @@ jobs:
       - name: Install example dependencies
         run: pip install maturin networkx numpy scipy
       - name: Build and install
-        run: maturin develop --features pyo3/abi3-py310
+        run: maturin develop --release --features pyo3/abi3-py310
       - name: Run examples
         shell: bash
         env:
