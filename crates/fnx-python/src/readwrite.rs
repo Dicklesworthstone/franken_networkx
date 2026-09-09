@@ -90,6 +90,16 @@ fn write_output_bytes(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) ->
             Err(err) => return Err(err),
         }
     }
+    if let Ok(path_str) = dest.extract::<&str>() {
+        std::fs::write(path_str, content.as_bytes())?;
+        return Ok(());
+    }
+    if let Ok(fspath) = dest.call_method0("__fspath__") {
+        if let Ok(path_str) = fspath.extract::<&str>() {
+            std::fs::write(path_str, content.as_bytes())?;
+            return Ok(());
+        }
+    }
     let pathlib = py.import("pathlib")?;
     let path_cls = pathlib.getattr("Path")?;
     let path = path_cls.call1((dest,))?;
@@ -631,13 +641,17 @@ fn edge_attr_dict_repr(py: Python<'_>, attrs: &fnx_classes::AttrMap) -> PyResult
 }
 
 fn graph_networkx_edgelist(py: Python<'_>, graph: &fnx_classes::Graph) -> PyResult<String> {
-    let mut content = String::new();
+    let mut content = String::with_capacity(graph.edge_count() * 16);
     for (left, right, attrs) in graph.edges_ordered_borrowed() {
         content.push_str(left);
         content.push(' ');
         content.push_str(right);
         content.push(' ');
-        content.push_str(&edge_attr_dict_repr(py, attrs)?);
+        if attrs.is_empty() {
+            content.push_str("{}");
+        } else {
+            content.push_str(&edge_attr_dict_repr(py, attrs)?);
+        }
         content.push('\n');
     }
     Ok(content)
@@ -647,13 +661,17 @@ fn digraph_networkx_edgelist(
     py: Python<'_>,
     graph: &fnx_classes::digraph::DiGraph,
 ) -> PyResult<String> {
-    let mut content = String::new();
+    let mut content = String::with_capacity(graph.edge_count() * 16);
     for (source, target, attrs) in graph.edges_ordered_borrowed() {
         content.push_str(source);
         content.push(' ');
         content.push_str(target);
         content.push(' ');
-        content.push_str(&edge_attr_dict_repr(py, attrs)?);
+        if attrs.is_empty() {
+            content.push_str("{}");
+        } else {
+            content.push_str(&edge_attr_dict_repr(py, attrs)?);
+        }
         content.push('\n');
     }
     Ok(content)
@@ -1114,12 +1132,11 @@ fn parse_edgelist_simple_content(
     // ENDPOINT, i.e. 2|E| heap allocations where |V| are needed.
     let mut node_key_map: PyNodeKeyMap<String, PyObject> =
         PyNodeKeyMap::with_capacity_and_hasher(token_order.len(), rustc_hash::FxBuildHasher);
-    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::with_capacity(token_order.len());
+    let node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
     let mut nodes_order: Vec<String> = Vec::with_capacity(token_order.len());
     for &token in &token_order {
-        let canon = format!("str:{}:{token}", token.len());
+        let canon = crate::owned_canonical_str_key(token);
         node_key_map.insert(canon.clone(), PyString::new(py, token).into_any().unbind());
-        node_py_attrs.insert(canon.clone(), PyDict::new(py).unbind());
         nodes_order.push(canon);
     }
 

@@ -522,7 +522,7 @@ fn push_usize_decimal(out: &mut String, n: usize) {
 /// measured to change the count by 57 Ir in 8.0e6 (0.0007%, i.e. nothing) - so it
 /// is NOT call overhead, and the annotation was dropped rather than left in
 /// asserting a saving it does not make.
-fn owned_canonical_str_key(s: &str) -> String {
+pub(crate) fn owned_canonical_str_key(s: &str) -> String {
     let len = s.len();
     let mut out = String::with_capacity(4 + decimal_width(len) + 1 + len);
     out.push_str("str:");

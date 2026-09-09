@@ -27825,6 +27825,17 @@ def read_edgelist(
         and encoding == "utf-8"
         and (isinstance(path, str) or hasattr(path, "__fspath__"))
     ):
+        p_str = path if isinstance(path, str) else str(path.__fspath__())
+        if not p_str.endswith((".gz", ".bz2")):
+            try:
+                native = _fnx.read_edgelist_simple(
+                    p_str,
+                    "data_true" if data is True else "data_false",
+                )
+                if native is not None:
+                    return native
+            except Exception:
+                pass
         native = _read_edgelist_simple_via_open_file(
             path,
             encoding,
