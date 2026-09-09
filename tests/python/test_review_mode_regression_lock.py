@@ -5014,12 +5014,15 @@ def test_write_gexf_classified_as_py_wrapper_not_nx_delegated():
     Lock: write_gexf classifies as PY_WRAPPER (not NX_DELEGATED),
     NX_DELEGATED count remains 0 across the full export surface,
     and the byte output still matches nx exactly."""
+    from pathlib import Path as _Path
     import sys as _sys
-    _sys.path.insert(0, "/data/projects/franken_networkx/scripts")
+    _scripts_dir = str(_Path(__file__).resolve().parents[2] / "scripts")
+    _sys.path.insert(0, _scripts_dir)
     try:
         import generate_coverage_matrix as _gcm
     finally:
-        _sys.path.pop(0)
+        if _sys.path and _sys.path[0] == _scripts_dir:
+            _sys.path.pop(0)
 
     # write_gexf must be classified as PY_WRAPPER
     assert _gcm.classify_export(fnx.write_gexf) == "PY_WRAPPER"

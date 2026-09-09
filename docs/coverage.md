@@ -4989,11 +4989,11 @@ The FeatureUniverse above measures NetworkX-qualified import and signature surfa
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 1 | 0% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 741 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
+| PY_WRAPPER | 741 | 88% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 28 | 3% | public classes, exceptions, iterators |
-| CONSTANT | 30 | 3% | public non-callable values |
-| **Total public exports** | **800** | | unique names from `franken_networkx.__all__` |
+| CONSTANT | 69 | 8% | public non-callable values |
+| **Total public exports** | **839** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -5008,7 +5008,7 @@ This ledger separates the broad public-export category from source-visible runti
 | NETWORKX_HELPER | 124 | 180 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
-| CONSTANT | 30 | 0 | public non-callable values |
+| CONSTANT | 69 | 0 | public non-callable values |
 
 `NETWORKX_HELPER` currently covers 124 public export(s) and 180 parity-helper call site(s).
 
@@ -5199,8 +5199,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | Module | Count |
 |--------|-------|
 | `franken_networkx` | 687 |
+| `builtins` | 68 |
 | `franken_networkx.readwrite` | 32 |
-| `builtins` | 29 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
@@ -5991,35 +5991,74 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `TimeRespectingDiGraphMatcher`
 - `TimeRespectingGraphMatcher`
 
-## CONSTANT exports (30)
+## CONSTANT exports (69)
 
 - `__version__`
+- `algorithms`
 - `approximation`
+- `assortativity`
+- `asteroidal`
 - `bipartite`
+- `boundary`
+- `broadcasting`
+- `centrality`
+- `chains`
 - `chordal`
 - `clique`
+- `cluster`
+- `communicability_alg`
 - `community`
 - `components`
+- `connectivity`
 - `convert_matrix`
 - `core`
+- `covering`
+- `cuts`
+- `cycles`
+- `d_separation`
 - `dag`
+- `distance_measures`
+- `distance_regular`
+- `dominance`
+- `dominating`
 - `drawing`
+- `efficiency_measures`
 - `euler`
 - `flow`
+- `graph_hashing`
+- `graphical`
+- `hierarchy`
 - `hybrid`
+- `isolate`
 - `isomorphism`
+- `link_analysis`
+- `link_prediction`
+- `lowest_common_ancestors`
+- `matching`
 - `minors`
+- `mis`
 - `moral`
 - `node_classification`
 - `operators`
+- `perfect_graph`
 - `planarity`
+- `polynomials`
 - `readwrite`
 - `regular`
+- `richclub`
+- `similarity`
+- `simple_paths`
 - `smallworld`
+- `smetric`
 - `sparsifiers`
+- `structuralholes`
 - `summarization`
 - `swap`
 - `tournament`
 - `traversal`
 - `tree`
 - `triads`
+- `vitality`
+- `voronoi`
+- `walks`
+- `wiener`
