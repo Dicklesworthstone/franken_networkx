@@ -17,10 +17,24 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PYTHON = REPO_ROOT / "python"
-for path in (REPO_PYTHON, REPO_ROOT):
-    path_text = str(path)
-    if path_text not in sys.path:
-        sys.path.insert(0, path_text)
+
+# If franken_networkx is already importable with its compiled native extension
+# (e.g. wheel testing in CI/release from site-packages), avoid shadowing it with
+# the uncompiled repository python/ source directory.
+try:
+    import franken_networkx._fnx  # noqa: F401
+    _has_installed_fnx = True
+except ImportError:
+    _has_installed_fnx = False
+
+if _has_installed_fnx:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.append(str(REPO_ROOT))
+else:
+    for path in (REPO_PYTHON, REPO_ROOT):
+        path_text = str(path)
+        if path_text not in sys.path:
+            sys.path.insert(0, path_text)
 
 import pytest
 
