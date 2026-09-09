@@ -11676,6 +11676,7 @@ pub fn stochastic_graph_copy_multidigraph(
     }
 
     let new_graph = PyMultiDiGraph {
+        graph_id: crate::digraph::next_multidigraph_id(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
@@ -16026,6 +16027,7 @@ pub fn multidigraph_transitive_closure(
     inner.extend_keyed_edges_with_attrs_unrecorded(closure_edges);
 
     let mut result = PyMultiDiGraph {
+        graph_id: crate::digraph::next_multidigraph_id(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
@@ -21375,7 +21377,7 @@ enum MultiDiDijkstraSourceLengths {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct MultiDiDijkstraRowsCacheKey {
-    graph_addr: usize,
+    graph_id: u64,
     revision: u64,
     nodes_seq: u64,
     edges_seq: u64,
@@ -21550,7 +21552,7 @@ fn multidigraph_dijkstra_rows_cache_key(
     weight_attr: &str,
 ) -> MultiDiDijkstraRowsCacheKey {
     MultiDiDijkstraRowsCacheKey {
-        graph_addr: std::ptr::from_ref(mdg).addr(),
+        graph_id: mdg.graph_id,
         revision: mdg.inner.revision(),
         nodes_seq: mdg.nodes_seq,
         edges_seq: mdg.edges_seq,

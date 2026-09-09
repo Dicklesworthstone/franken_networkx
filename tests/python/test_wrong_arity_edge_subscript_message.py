@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import collections
 import collections.abc
+import sys
 
 import networkx as nx
 import pytest
@@ -145,10 +146,15 @@ def test_the_count_rule_is_cpythons_not_ours(shape):
     live = _live_unpack_two(make(3))
     assert live[0] == "ValueError", (shape, live)
     counted = ", got 3)" in live[1]
-    assert counted is (shape in {"tuple", "list", "dict"}), (
-        f"CPython changed which shapes carry the unpack count: {shape} now says "
-        f"{live[1]!r}. Update fnx's `too_many_values_to_unpack` to match."
-    )
+    if sys.version_info >= (3, 14):
+        assert counted is (shape in {"tuple", "list", "dict"}), (
+            f"CPython changed which shapes carry the unpack count: {shape} now says "
+            f"{live[1]!r}. Update fnx's `too_many_values_to_unpack` to match."
+        )
+    else:
+        assert not counted, (
+            f"CPython < 3.14 does not report got-count in unpack: {shape} says {live[1]!r}"
+        )
 
 
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])

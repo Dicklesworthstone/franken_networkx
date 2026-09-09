@@ -190,6 +190,11 @@ TRIAGE = {
         "br-r37-c1-y5y7i: wrapper uses scipy.sparse matvec for 2x+ "
         "speedup over pure-Rust scalar iteration on dense graphs.  Raw "
         "Rust kernel kept as direct API for callers who want Rust-only."),
+    "_raw_group_in_degree_centrality": ("keep-public-api",
+        "exposed for direct callers; wrapper routes group degree centrality "
+        "via reverse-graph transformation"),
+    "_raw_group_out_degree_centrality": ("keep-public-api",
+        "exposed for direct callers; wrapper routes group degree centrality"),
 }
 
 

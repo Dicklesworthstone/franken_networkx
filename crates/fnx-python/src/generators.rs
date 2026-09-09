@@ -122,6 +122,7 @@ fn report_to_pymultidigraph(
     graph: fnx_classes::digraph::MultiDiGraph,
 ) -> PyResult<PyMultiDiGraph> {
     let mut pg = PyMultiDiGraph {
+        graph_id: crate::digraph::next_multidigraph_id(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
         pred_key_rows: None,

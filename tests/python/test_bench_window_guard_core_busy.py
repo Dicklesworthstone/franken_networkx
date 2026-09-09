@@ -17,11 +17,12 @@ These tests drive `_cpu_ticks` directly rather than sampling the live host, so
 they assert the LOGIC and cannot go flaky when the fleet gets busy.
 """
 
+from pathlib import Path
 import sys
 
 import pytest
 
-sys.path.insert(0, "/data/projects/franken_networkx/scripts")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 import bench_window_guard as guard  # noqa: E402
 

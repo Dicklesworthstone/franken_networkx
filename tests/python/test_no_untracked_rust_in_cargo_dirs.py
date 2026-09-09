@@ -76,8 +76,8 @@ def _untracked_rust_files():
 # not demand their deletion. It exists to stop the FIFTH one appearing
 # unnoticed, which is how frankenlibc reached 273. The list should only ever
 # shrink; test_the_known_offender_list_does_not_grow enforces that.
-KNOWN_UNTRACKED = {
-    "crates/fnx-algorithms/src/repro_bug.rs",
+KNOWN_UNTRACKED: set[str] = {
+    p for p in ["crates/fnx-algorithms/src/repro_bug.rs"] if (REPO_ROOT / p).exists()
 }
 
 

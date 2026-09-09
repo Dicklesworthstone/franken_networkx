@@ -23,7 +23,13 @@ use pyo3::types::{
     PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+static MULTIDIGRAPH_ID_GEN: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) fn next_multidigraph_id() -> u64 {
+    MULTIDIGRAPH_ID_GEN.fetch_add(1, Ordering::Relaxed)
+}
 
 #[cfg(test)]
 static FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES: AtomicBool = AtomicBool::new(false);
@@ -494,6 +500,7 @@ impl PyDiGraph {
     subclass
 )]
 pub struct PyMultiDiGraph {
+    pub(crate) graph_id: u64,
     pub(crate) inner: MultiDiGraph,
     pub(crate) node_key_map: HashMap<String, PyObject>,
     /// br-r37-c1-z6uka: per-SUCC-row display objects (see PyDiGraph).
@@ -3050,6 +3057,7 @@ impl PyMultiDiGraph {
         runtime_policy: RuntimePolicy,
     ) -> PyResult<Self> {
         Ok(Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -8644,6 +8652,7 @@ impl PyMultiDiGraph {
         // edge_dirty_keys clean. (We also drop the rebuild's eager empty edge attr
         // PyDicts — lazy materialize is identity-preserving, br-r37-c1-aab122464.)
         let mut new_graph = Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -8703,6 +8712,7 @@ impl PyMultiDiGraph {
     fn _native_to_directed_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         let mut new_graph = Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -9051,6 +9061,7 @@ impl PyMultiDiGraph {
         // insertion order exactly; only the deep-copy of the Python attr dicts /
         // key objects remains.
         let mut new_graph = Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -9153,6 +9164,7 @@ impl PyMultiDiGraph {
         // dicts are clone_ref'd so attrs stay SHARED (shallow-copy
         // semantics); row-key override maps clone exactly.
         Ok(Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -9268,6 +9280,7 @@ impl PyMultiDiGraph {
         }
 
         let mut new_graph = Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -9361,6 +9374,7 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(edges)?;
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -9571,6 +9585,7 @@ impl PyMultiDiGraph {
             Some(HashSet::new())
         };
         let mut new_graph = Self {
+            graph_id: next_multidigraph_id(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,

@@ -2250,9 +2250,12 @@ pub(crate) fn weighted_edge_triplet<'py>(
         // Same rule as `views::too_many_values_to_unpack`, kept local because
         // this crate module cannot see that one: CPython supplies the count for
         // an exact tuple / list / dict and omits it for everything else.
-        let cpython_counts = item.is_exact_instance_of::<PyTuple>()
-            || item.is_exact_instance_of::<PyList>()
-            || item.is_exact_instance_of::<PyDict>();
+        let py = item.py();
+        let version = py.version_info();
+        let cpython_counts = (version.major > 3 || (version.major == 3 && version.minor >= 14))
+            && (item.is_exact_instance_of::<PyTuple>()
+                || item.is_exact_instance_of::<PyList>()
+                || item.is_exact_instance_of::<PyDict>());
         return Err(match cpython_counts.then(|| item.len().ok()).flatten() {
             Some(got) => {
                 PyValueError::new_err(format!("too many values to unpack (expected 3, got {got})"))
@@ -13583,6 +13586,7 @@ impl PyMultiGraph {
         // old loop allocated an empty PyDict per attr-less node/edge —
         // the bindings tolerate absent entries throughout).
         let mut mdg = crate::digraph::PyMultiDiGraph {
+            graph_id: crate::digraph::next_multidigraph_id(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             succ_key_rows: None,
             pred_key_rows: None,
@@ -14110,6 +14114,7 @@ impl PyMultiGraph {
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<crate::digraph::PyMultiDiGraph> {
         let mut mdg = crate::digraph::PyMultiDiGraph {
+            graph_id: crate::digraph::next_multidigraph_id(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             succ_key_rows: None,
             pred_key_rows: None,

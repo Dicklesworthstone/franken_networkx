@@ -69,9 +69,12 @@ fn missing_edge_key_error(edge: &Bound<'_, PyAny>) -> PyErr {
 /// `deque`, a `collections.abc.Sequence` and any plain iterator. Reporting it
 /// everywhere would trade one divergence for nine.
 fn too_many_values_to_unpack(source: &Bound<'_, PyAny>, expected: usize) -> PyErr {
-    let cpython_counts = source.is_exact_instance_of::<PyTuple>()
-        || source.is_exact_instance_of::<PyList>()
-        || source.is_exact_instance_of::<PyDict>();
+    let py = source.py();
+    let version = py.version_info();
+    let cpython_counts = (version.major > 3 || (version.major == 3 && version.minor >= 14))
+        && (source.is_exact_instance_of::<PyTuple>()
+            || source.is_exact_instance_of::<PyList>()
+            || source.is_exact_instance_of::<PyDict>());
     match cpython_counts.then(|| source.len().ok()).flatten() {
         Some(got) => PyValueError::new_err(format!(
             "too many values to unpack (expected {expected}, got {got})"

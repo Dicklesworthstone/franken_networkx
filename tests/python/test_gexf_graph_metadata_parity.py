@@ -26,7 +26,8 @@ def _cmp(gn, tmp, label, **wkw):
 
 @pytest.fixture()
 def tmp():
-    return tempfile.mkdtemp(dir="/data/tmp")
+    d = "/data/tmp" if os.path.isdir("/data/tmp") else None
+    return tempfile.mkdtemp(dir=d)
 
 
 def test_plain_graph_metadata(tmp):
