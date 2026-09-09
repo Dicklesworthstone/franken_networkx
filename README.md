@@ -20,7 +20,7 @@
 pip install franken-networkx
 ```
 
-No Rust toolchain is needed once wheels are on PyPI: the release workflow builds ABI3 wheels for Linux, macOS, and Windows (Python 3.10+). As of 2026-09-02 no version has been uploaded to PyPI yet, so until the first upload lands install from source (see [Development](#development)); a wheel built from HEAD installs and runs in a fresh venv.
+No Rust toolchain is needed: prebuilt ABI3 wheels are published on PyPI for Linux (`x86_64`, `aarch64`, `musllinux`), macOS (`x86_64`, `arm64`), and Windows (`x86_64`) for Python 3.10+. Source builds remain available for developers modifying Rust internals (see [Development](#development)).
 
 ---
 
@@ -2357,7 +2357,7 @@ FrankenNetworkX is honest about what it does not do today:
 - **Drawing is delegated.** `draw`, `draw_*`, and the matplotlib-backed layout functions delegate to NetworkX/matplotlib. Layout *math* (`spring_layout`, `kamada_kawai_layout`, etc.) is also delegated. We do not own matplotlib rendering.
 - **`check_planarity` certificates are native.** Both the boolean `is_planar` and `check_planarity` certificates (`PlanarEmbedding` rotation orders for planar graphs and Kuratowski subgraph counterexamples for non-planar graphs) are computed natively in Rust; the Python PlanarEmbedding container preserves NetworkX structure checks.
 - **71 nx-fallback + 61 mixed-route exports** retain a NetworkX path. These are not bugs; they are the documented set in `delegation_ledger.md` where unusual argument shapes (callable arguments, exotic format variants, deprecated API forms) defer to NetworkX. The native fast path runs for the common case.
-- **Release status.** `v0.2.0` is tagged on GitHub, but its wheel jobs failed on an absolute-path dependency (fixed on main afterwards; the originally cited fix hash is unreachable from history, so it is not repeated here). No wheel or sdist has been uploaded to PyPI yet. A wheel built from HEAD installs and runs in a fresh venv (verified 2026-09-02); the next tag is expected to publish — tracked in `br-r37-c1-rc-pypi-first-publication-3yi49`.
+- **Release status.** `v0.2.1` is published on PyPI with pre-built ABI3 wheels across Linux (`x86_64`, `aarch64`, `musllinux`), macOS (`x86_64`, `aarch64`), and Windows (`x86_64`) supporting Python 3.10 through 3.14+.
 - **No Windows/macOS performance SLO yet.** The performance gate (G6) currently runs only on Linux. Correctness gates (G1–G3) cover all three platforms.
 - **No 3rd-party graph DB integration.** This is a graph *algorithms* library; it does not connect to Neo4j, JanusGraph, etc. Use it on in-memory graphs.
 
@@ -2372,10 +2372,10 @@ Not across all of NetworkX today. Against the pinned 3.6.1 declared import-and-s
 NetworkX users often write code that implicitly depends on `dict` insertion order or BFS visit order or `connected_components` set ordering. If a "faster NetworkX" returns the same set of correct answers but in a different order, downstream code breaks subtly. CGSE + the parity tests + the iteration-order audit ledger collectively make iteration order a first-class API contract.
 
 **Do I need a Rust toolchain?**
-Not once wheels are on PyPI: the release workflow builds them for Linux, macOS, and Windows, and only contributors building from source need `rustup` and the nightly toolchain pinned in `rust-toolchain.toml`. Until the first upload lands (none as of 2026-09-02), everyone builds from source.
+No: prebuilt ABI3 wheels on PyPI support Linux, macOS, and Windows for Python 3.10+. Only contributors developing Rust internals or building from source need `rustup` and the nightly toolchain pinned in `rust-toolchain.toml`.
 
 **What's the ABI3 story?**
-The native extension uses `pyo3/abi3-py310`. One wheel works for Python 3.10, 3.11, 3.12, and 3.13. No per-Python-version build matrix is needed.
+The native extension uses `pyo3/abi3-py310`. One wheel works for Python 3.10, 3.11, 3.12, 3.13, and 3.14+. No per-Python-version build matrix is needed.
 
 **Is it thread-safe?**
 Algorithm calls release the GIL at hundreds of call sites and operate on borrowed adjacency. Concurrent reads are safe. Concurrent writes are not. `Graph` mutation is `&mut self` in Rust, and `_sync_rust_edge_attrs` tolerates concurrent borrow with bounded retry but is not a substitute for application-level synchronization on shared graphs. The `tests/python/test_thread_safety.py` suite exercises the concurrent-read contract.
@@ -2655,7 +2655,7 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining NetworkX-bound exports** (71 nx-fallback + 61 mixed-route routes in the ledger). Move as many as possible to native fast paths while preserving the parity contract.
-6. **Release cadence.** `v0.2.0` is tagged but shipped no wheels (its build jobs failed on an absolute-path dependency, since fixed on main); a wheel from HEAD installs cleanly, so the next tag should be the first PyPI upload (bead `br-r37-c1-rc-pypi-first-publication-3yi49`). Subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
+6. **Release cadence.** `v0.2.1` is published on PyPI with multi-platform ABI3 wheels across Linux, macOS, and Windows. Subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
 
 ---
 
