@@ -193,20 +193,23 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     #    30 missing -> present: the SpanningTreeIterator / ArborescenceIterator
     #       `Partition` inner classes (6 paths) and the GraphMLReader methods and
     #       namespace constants (24 paths, br-r37-c1-ozpfa).
+    # GOLDEN-CHANGE 2026-09-08 (regenerated from HEAD): 3823 -> 4109 present,
+    # 306 -> 20 partial, 0 missing. 286 paths moved partial -> present: full
+    # signatures added across algorithms namespace routers and readwrite functions
+    # (read_edgelist, read_adjlist, read_graphml, read_gml, read_gexf, node_link_graph).
     assert statuses == {
-        "present": 3823,
-        "partial": 306,
+        "present": 4109,
+        "partial": 20,
         "n/a": 1,
         "excluded": 796,
     }
     assert statuses["missing"] == 0
     assert by_path["networkx.shortest_path"]["status"] == "present"
-    assert by_path["networkx.algorithms.shortest_path"]["status"] == "partial"
+    assert by_path["networkx.algorithms.shortest_path"]["status"] == "present"
+    assert by_path["networkx.bridges"]["status"] == "partial"
     assert (
-        by_path["networkx.algorithms.shortest_path"]["detail"]
-        == "signature differs: NetworkX `(G, source=None, target=None, "
-        "weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; "
-        "FrankenNetworkX `(*args, **kwargs)`"
+        "function-object surface is missing"
+        in by_path["networkx.bridges"]["detail"]
     )
     assert by_path["networkx.Graph"]["status"] == "partial"
     assert by_path["networkx.readwrite.GraphMLReader.add_edge"]["status"] == (
@@ -217,21 +220,8 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
         statuses["present"] + statuses["partial"] + statuses["missing"]
     )
     assert applicable == 4129
-    # br-r37-c1-y14e9: 3403/4129 -> 3465/4129. The denominator is unchanged, so
-    # this is 62 paths moving partial -> present and nothing moving the other
-    # way. They are native METHODS that were being charged for a method
-    # descriptor's positional-only `self` marker — a difference no caller can
-    # observe, and one that moved this number DOWN whenever a method was ported
-    # from Python to Rust. The classifier no longer charges for it; the boundary
-    # is pinned by test_a_real_positional_only_parameter_is_still_a_difference.
-    #
-    # br-r37-c1-9hnq3 previously moved 3399 -> 3403 (four paths, itemised below).
-    # br-r37-c1-s5pxs: 3465/4129 -> 3468/4129, three generators paths; see the
-    # itemised note above.
-    # 2026-09-02 (ledger commit 1883046d3): 3468/4129 -> 3823/4129, the 325
-    # router-signature and 30 GraphMLReader/Partition paths itemised above.
     assert statuses["present"] / applicable == pytest.approx(
-        3823 / 4129
+        4109 / 4129
     )
 
 
@@ -268,11 +258,11 @@ def test_feature_universe_reports_every_family_not_only_a_headline():
     assert all(f"| `{family}` |" in rendered for family in families)
     # br-r37-c1-y14e9: 3403 -> 3465 (82.4% -> 83.9%); see the itemised note on
     # test_feature_universe_classifies_every_path_without_rounding_partial_up.
-    # GOLDEN-CHANGE 2026-09-02: 3468 (84.0%) -> 3823 (92.6%); itemised on
+    # GOLDEN-CHANGE 2026-09-08: 3823 (92.6%) -> 4109 (99.5%); itemised on
     # test_feature_universe_classifies_every_path_without_rounding_partial_up.
     assert (
-        "a real user can port **3823 of 4129 applicable NetworkX feature "
-        "paths today (92.6%)**"
+        "a real user can port **4109 of 4129 applicable NetworkX feature "
+        "paths today (99.5%)**"
     ) in rendered
 
 

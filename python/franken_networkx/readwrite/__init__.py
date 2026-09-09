@@ -2662,7 +2662,7 @@ def _apply_gexf_node_type(graph, node_type):
     return fnx.relabel_nodes(graph, mapping, copy=True)
 
 
-def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backend=None, mode=None, **backend_kwargs):
+def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backend=None, **backend_kwargs):
     """Read GEXF into an fnx graph.
 
     Simple-graph inputs go through the native Rust parser. Multigraph
@@ -2674,6 +2674,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     import franken_networkx as fnx
     from franken_networkx import _fnx
 
+    mode = backend_kwargs.pop("mode", None)
     fnx._validate_backend_dispatch_keywords("read_gexf", backend, backend_kwargs)
     _validate_gexf_version(version)
     if hasattr(path, "read"):

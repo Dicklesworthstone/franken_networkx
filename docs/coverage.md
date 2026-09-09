@@ -18,21 +18,21 @@
 |--------|--------:|--------:|--------:|----:|---------:|-----------:|---------------:|
 | `algorithms.approximation` | 56 | 0 | 0 | 0 | 31 | 56 | 100.0% |
 | `algorithms.assortativity` | 52 | 0 | 0 | 0 | 22 | 52 | 100.0% |
-| `algorithms.bipartite` | 87 | 3 | 0 | 0 | 29 | 90 | 96.7% |
-| `algorithms.centrality` | 158 | 43 | 0 | 0 | 83 | 201 | 78.6% |
+| `algorithms.bipartite` | 90 | 0 | 0 | 0 | 29 | 90 | 100.0% |
+| `algorithms.centrality` | 201 | 0 | 0 | 0 | 83 | 201 | 100.0% |
 | `algorithms.coloring` | 16 | 0 | 0 | 0 | 6 | 16 | 100.0% |
 | `algorithms.community` | 44 | 0 | 0 | 0 | 29 | 44 | 100.0% |
-| `algorithms.components` | 60 | 20 | 0 | 0 | 27 | 80 | 75.0% |
-| `algorithms.connectivity` | 69 | 15 | 0 | 0 | 20 | 84 | 82.1% |
-| `algorithms.flow` | 58 | 11 | 0 | 0 | 19 | 69 | 84.1% |
-| `algorithms.isomorphism` | 270 | 2 | 0 | 0 | 19 | 272 | 99.3% |
-| `algorithms.link_analysis` | 9 | 3 | 0 | 0 | 11 | 12 | 75.0% |
+| `algorithms.components` | 80 | 0 | 0 | 0 | 27 | 80 | 100.0% |
+| `algorithms.connectivity` | 84 | 0 | 0 | 0 | 20 | 84 | 100.0% |
+| `algorithms.flow` | 69 | 0 | 0 | 0 | 19 | 69 | 100.0% |
+| `algorithms.isomorphism` | 272 | 0 | 0 | 0 | 19 | 272 | 100.0% |
+| `algorithms.link_analysis` | 12 | 0 | 0 | 0 | 11 | 12 | 100.0% |
 | `algorithms.minors` | 20 | 0 | 0 | 0 | 3 | 20 | 100.0% |
-| `algorithms.operators` | 63 | 21 | 0 | 0 | 19 | 84 | 75.0% |
-| `algorithms.other` | 511 | 126 | 0 | 0 | 164 | 637 | 80.2% |
-| `algorithms.shortest_paths` | 163 | 21 | 0 | 0 | 24 | 184 | 88.6% |
-| `algorithms.traversal` | 69 | 3 | 0 | 0 | 23 | 72 | 95.8% |
-| `algorithms.tree` | 100 | 30 | 0 | 0 | 17 | 130 | 76.9% |
+| `algorithms.operators` | 84 | 0 | 0 | 0 | 19 | 84 | 100.0% |
+| `algorithms.other` | 634 | 3 | 0 | 0 | 164 | 637 | 99.5% |
+| `algorithms.shortest_paths` | 184 | 0 | 0 | 0 | 24 | 184 | 100.0% |
+| `algorithms.traversal` | 72 | 0 | 0 | 0 | 23 | 72 | 100.0% |
+| `algorithms.tree` | 121 | 9 | 0 | 0 | 17 | 130 | 93.1% |
 | `classes` | 918 | 8 | 0 | 0 | 35 | 926 | 99.1% |
 | `configuration` | 1 | 0 | 0 | 0 | 0 | 1 | 100.0% |
 | `conversion` | 34 | 0 | 0 | 0 | 3 | 34 | 100.0% |
@@ -45,9 +45,9 @@
 | `readwrite` | 260 | 0 | 0 | 0 | 54 | 260 | 100.0% |
 | `runtime` | 2 | 0 | 0 | 0 | 1 | 2 | 100.0% |
 | `utils` | 150 | 0 | 0 | 0 | 21 | 150 | 100.0% |
-| **All families** | **3823** | **306** | **0** | **1** | **796** | **4129** | **92.6%** |
+| **All families** | **4109** | **20** | **0** | **1** | **796** | **4129** | **99.5%** |
 
-At the declared import-and-signature surface measured here, a real user can port **3823 of 4129 applicable NetworkX feature paths today (92.6%)**; the 306 partial and 0 missing paths are not counted as portable, and this is not a behavioral-conformance score.
+At the declared import-and-signature surface measured here, a real user can port **4109 of 4129 applicable NetworkX feature paths today (99.5%)**; the 20 partial and 0 missing paths are not counted as portable, and this is not a behavioral-conformance score.
 
 ## Exhaustive FeatureUniverse
 
@@ -326,17 +326,17 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.bipartite` | `networkx.algorithms.bipartite.to_vertex_cover` | `callable` | `present` | `franken_networkx.algorithms.bipartite.to_vertex_cover` | binding kind and signature match |
 | `algorithms.bipartite` | `networkx.algorithms.bipartite.weighted_projected_graph` | `callable` | `present` | `franken_networkx.algorithms.bipartite.weighted_projected_graph` | binding kind and signature match |
 | `algorithms.bipartite` | `networkx.algorithms.bipartite.write_edgelist` | `callable` | `present` | `franken_networkx.algorithms.bipartite.write_edgelist` | binding kind and signature match |
-| `algorithms.bipartite` | `networkx.algorithms.complete_bipartite_graph` | `callable` | `partial` | `franken_networkx.algorithms.complete_bipartite_graph` | signature differs: NetworkX `(n1, n2, create_using=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.bipartite` | `networkx.algorithms.is_bipartite` | `callable` | `partial` | `franken_networkx.algorithms.is_bipartite` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.bipartite` | `networkx.algorithms.projected_graph` | `callable` | `partial` | `franken_networkx.algorithms.projected_graph` | signature differs: NetworkX `(B, nodes, multigraph=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.bipartite` | `networkx.algorithms.complete_bipartite_graph` | `callable` | `present` | `franken_networkx.algorithms.complete_bipartite_graph` | binding kind and signature match |
+| `algorithms.bipartite` | `networkx.algorithms.is_bipartite` | `callable` | `present` | `franken_networkx.algorithms.is_bipartite` | binding kind and signature match |
+| `algorithms.bipartite` | `networkx.algorithms.projected_graph` | `callable` | `present` | `franken_networkx.algorithms.projected_graph` | binding kind and signature match |
 | `algorithms.bipartite` | `networkx.bipartite` | `module` | `excluded` | `franken_networkx.bipartite` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.bipartite` | `networkx.complete_bipartite_graph` | `callable` | `present` | `franken_networkx.complete_bipartite_graph` | binding kind and signature match |
 | `algorithms.bipartite` | `networkx.is_bipartite` | `callable` | `present` | `franken_networkx.is_bipartite` | binding kind and signature match |
 | `algorithms.bipartite` | `networkx.projected_graph` | `callable` | `present` | `franken_networkx.projected_graph` | binding kind and signature match |
-| `algorithms.centrality` | `networkx.algorithms.approximate_current_flow_betweenness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.approximate_current_flow_betweenness_centrality` | signature differs: NetworkX `(G, normalized=True, weight=None, dtype=<class 'float'>, solver='full', epsilon=0.5, kmax=10000, seed=None, *, sample_weight=1, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.approximate_current_flow_betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.approximate_current_flow_betweenness_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.betweenness` | `module` | `excluded` | `franken_networkx.algorithms.betweenness` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.betweenness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.betweenness_centrality` | signature differs: NetworkX `(G, k=None, normalized=True, weight=None, endpoints=False, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.betweenness_centrality_subset` | `callable` | `partial` | `franken_networkx.algorithms.betweenness_centrality_subset` | signature differs: NetworkX `(G, sources, targets, normalized=False, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.betweenness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.betweenness_centrality_subset` | `callable` | `present` | `franken_networkx.algorithms.betweenness_centrality_subset` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.betweenness_subset` | `module` | `excluded` | `franken_networkx.algorithms.betweenness_subset` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.centrality` | `networkx.algorithms.centrality` | `module` | `excluded` | `franken_networkx.algorithms.centrality` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.centrality` | `networkx.algorithms.centrality.approximate_current_flow_betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.centrality.approximate_current_flow_betweenness_centrality` | binding kind and signature match |
@@ -496,62 +496,62 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.centrality` | `networkx.algorithms.centrality.voterank_alg` | `module` | `excluded` | `franken_networkx.algorithms.centrality.voterank_alg` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.centrality` | `networkx.algorithms.centrality.voterank_alg.voterank` | `callable` | `present` | `franken_networkx.algorithms.centrality.voterank_alg.voterank` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.closeness` | `module` | `excluded` | `franken_networkx.algorithms.closeness` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.closeness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.closeness_centrality` | signature differs: NetworkX `(G, u=None, distance=None, wf_improved=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.communicability_betweenness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.communicability_betweenness_centrality` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.closeness_centrality` | `callable` | `present` | `franken_networkx.algorithms.closeness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.communicability_betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.communicability_betweenness_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.current_flow_betweenness` | `module` | `excluded` | `franken_networkx.algorithms.current_flow_betweenness` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.current_flow_betweenness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.current_flow_betweenness_centrality` | signature differs: NetworkX `(G, normalized=True, weight=None, dtype=<class 'float'>, solver='full', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.current_flow_betweenness_centrality_subset` | `callable` | `partial` | `franken_networkx.algorithms.current_flow_betweenness_centrality_subset` | signature differs: NetworkX `(G, sources, targets, normalized=True, weight=None, dtype=<class 'float'>, solver='lu', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.current_flow_betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.current_flow_betweenness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.current_flow_betweenness_centrality_subset` | `callable` | `present` | `franken_networkx.algorithms.current_flow_betweenness_centrality_subset` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.current_flow_betweenness_subset` | `module` | `excluded` | `franken_networkx.algorithms.current_flow_betweenness_subset` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.centrality` | `networkx.algorithms.current_flow_closeness` | `module` | `excluded` | `franken_networkx.algorithms.current_flow_closeness` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.current_flow_closeness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.current_flow_closeness_centrality` | signature differs: NetworkX `(G, weight=None, dtype=<class 'float'>, solver='lu', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.current_flow_closeness_centrality` | `callable` | `present` | `franken_networkx.algorithms.current_flow_closeness_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.degree_alg` | `module` | `excluded` | `franken_networkx.algorithms.degree_alg` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.degree_centrality` | `callable` | `partial` | `franken_networkx.algorithms.degree_centrality` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.dispersion` | `callable` | `partial` | `franken_networkx.algorithms.dispersion` | signature differs: NetworkX `(G, u=None, v=None, normalized=True, alpha=1.0, b=0.0, c=0.0, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.edge_betweenness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.edge_betweenness_centrality` | signature differs: NetworkX `(G, k=None, normalized=True, weight=None, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.edge_betweenness_centrality_subset` | `callable` | `partial` | `franken_networkx.algorithms.edge_betweenness_centrality_subset` | signature differs: NetworkX `(G, sources, targets, normalized=False, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.edge_current_flow_betweenness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.edge_current_flow_betweenness_centrality` | signature differs: NetworkX `(G, normalized=True, weight=None, dtype=<class 'float'>, solver='full', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.edge_current_flow_betweenness_centrality_subset` | `callable` | `partial` | `franken_networkx.algorithms.edge_current_flow_betweenness_centrality_subset` | signature differs: NetworkX `(G, sources, targets, normalized=True, weight=None, dtype=<class 'float'>, solver='lu', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.edge_load_centrality` | `callable` | `partial` | `franken_networkx.algorithms.edge_load_centrality` | signature differs: NetworkX `(G, cutoff=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.degree_centrality` | `callable` | `present` | `franken_networkx.algorithms.degree_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.dispersion` | `callable` | `present` | `franken_networkx.algorithms.dispersion` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.edge_betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.edge_betweenness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.edge_betweenness_centrality_subset` | `callable` | `present` | `franken_networkx.algorithms.edge_betweenness_centrality_subset` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.edge_current_flow_betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.edge_current_flow_betweenness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.edge_current_flow_betweenness_centrality_subset` | `callable` | `present` | `franken_networkx.algorithms.edge_current_flow_betweenness_centrality_subset` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.edge_load_centrality` | `callable` | `present` | `franken_networkx.algorithms.edge_load_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.eigenvector` | `module` | `excluded` | `franken_networkx.algorithms.eigenvector` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.eigenvector_centrality` | `callable` | `partial` | `franken_networkx.algorithms.eigenvector_centrality` | signature differs: NetworkX `(G, max_iter=100, tol=1e-06, nstart=None, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.eigenvector_centrality_numpy` | `callable` | `partial` | `franken_networkx.algorithms.eigenvector_centrality_numpy` | signature differs: NetworkX `(G, weight=None, max_iter=50, tol=0, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.estrada_index` | `callable` | `partial` | `franken_networkx.algorithms.estrada_index` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.eigenvector_centrality` | `callable` | `present` | `franken_networkx.algorithms.eigenvector_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.eigenvector_centrality_numpy` | `callable` | `present` | `franken_networkx.algorithms.eigenvector_centrality_numpy` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.estrada_index` | `callable` | `present` | `franken_networkx.algorithms.estrada_index` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.flow_matrix` | `module` | `excluded` | `franken_networkx.algorithms.flow_matrix` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.global_reaching_centrality` | `callable` | `partial` | `franken_networkx.algorithms.global_reaching_centrality` | signature differs: NetworkX `(G, weight=None, normalized=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.global_reaching_centrality` | `callable` | `present` | `franken_networkx.algorithms.global_reaching_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.group` | `module` | `excluded` | `franken_networkx.algorithms.group` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.group_betweenness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.group_betweenness_centrality` | signature differs: NetworkX `(G, C, normalized=True, weight=None, endpoints=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.group_closeness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.group_closeness_centrality` | signature differs: NetworkX `(G, S, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.group_degree_centrality` | `callable` | `partial` | `franken_networkx.algorithms.group_degree_centrality` | signature differs: NetworkX `(G, S, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.group_in_degree_centrality` | `callable` | `partial` | `franken_networkx.algorithms.group_in_degree_centrality` | signature differs: NetworkX `(G, S, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.group_out_degree_centrality` | `callable` | `partial` | `franken_networkx.algorithms.group_out_degree_centrality` | signature differs: NetworkX `(G, S, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.group_betweenness_centrality` | `callable` | `present` | `franken_networkx.algorithms.group_betweenness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.group_closeness_centrality` | `callable` | `present` | `franken_networkx.algorithms.group_closeness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.group_degree_centrality` | `callable` | `present` | `franken_networkx.algorithms.group_degree_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.group_in_degree_centrality` | `callable` | `present` | `franken_networkx.algorithms.group_in_degree_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.group_out_degree_centrality` | `callable` | `present` | `franken_networkx.algorithms.group_out_degree_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.harmonic` | `module` | `excluded` | `franken_networkx.algorithms.harmonic` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.harmonic_centrality` | `callable` | `partial` | `franken_networkx.algorithms.harmonic_centrality` | signature differs: NetworkX `(G, nbunch=None, distance=None, sources=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.in_degree_centrality` | `callable` | `partial` | `franken_networkx.algorithms.in_degree_centrality` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.incremental_closeness_centrality` | `callable` | `partial` | `franken_networkx.algorithms.incremental_closeness_centrality` | signature differs: NetworkX `(G, edge, prev_cc=None, insertion=True, wf_improved=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.information_centrality` | `callable` | `partial` | `franken_networkx.algorithms.information_centrality` | signature differs: NetworkX `(G, weight=None, dtype=<class 'float'>, solver='lu', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.harmonic_centrality` | `callable` | `present` | `franken_networkx.algorithms.harmonic_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.in_degree_centrality` | `callable` | `present` | `franken_networkx.algorithms.in_degree_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.incremental_closeness_centrality` | `callable` | `present` | `franken_networkx.algorithms.incremental_closeness_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.information_centrality` | `callable` | `present` | `franken_networkx.algorithms.information_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.katz` | `module` | `excluded` | `franken_networkx.algorithms.katz` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.katz_centrality` | `callable` | `partial` | `franken_networkx.algorithms.katz_centrality` | signature differs: NetworkX `(G, alpha=0.1, beta=1.0, max_iter=1000, tol=1e-06, nstart=None, normalized=True, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.katz_centrality_numpy` | `callable` | `partial` | `franken_networkx.algorithms.katz_centrality_numpy` | signature differs: NetworkX `(G, alpha=0.1, beta=1.0, normalized=True, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.katz_centrality` | `callable` | `present` | `franken_networkx.algorithms.katz_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.katz_centrality_numpy` | `callable` | `present` | `franken_networkx.algorithms.katz_centrality_numpy` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.laplacian` | `module` | `excluded` | `franken_networkx.algorithms.laplacian` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.laplacian_centrality` | `callable` | `partial` | `franken_networkx.algorithms.laplacian_centrality` | signature differs: NetworkX `(G, normalized=True, nodelist=None, weight='weight', walk_type=None, alpha=0.95, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.laplacian_centrality` | `callable` | `present` | `franken_networkx.algorithms.laplacian_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.load` | `module` | `excluded` | `franken_networkx.algorithms.load` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.load_centrality` | `callable` | `partial` | `franken_networkx.algorithms.load_centrality` | signature differs: NetworkX `(G, v=None, cutoff=None, normalized=True, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.local_reaching_centrality` | `callable` | `partial` | `franken_networkx.algorithms.local_reaching_centrality` | signature differs: NetworkX `(G, v, paths=None, weight=None, normalized=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.out_degree_centrality` | `callable` | `partial` | `franken_networkx.algorithms.out_degree_centrality` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.load_centrality` | `callable` | `present` | `franken_networkx.algorithms.load_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.local_reaching_centrality` | `callable` | `present` | `franken_networkx.algorithms.local_reaching_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.out_degree_centrality` | `callable` | `present` | `franken_networkx.algorithms.out_degree_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.percolation` | `module` | `excluded` | `franken_networkx.algorithms.percolation` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.percolation_centrality` | `callable` | `partial` | `franken_networkx.algorithms.percolation_centrality` | signature differs: NetworkX `(G, attribute='percolation', states=None, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.prominent_group` | `callable` | `partial` | `franken_networkx.algorithms.prominent_group` | signature differs: NetworkX `(G, k, weight=None, C=None, endpoints=False, normalized=True, greedy=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.percolation_centrality` | `callable` | `present` | `franken_networkx.algorithms.percolation_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.prominent_group` | `callable` | `present` | `franken_networkx.algorithms.prominent_group` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.reaching` | `module` | `excluded` | `franken_networkx.algorithms.reaching` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.centrality` | `networkx.algorithms.second_order` | `module` | `excluded` | `franken_networkx.algorithms.second_order` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.second_order_centrality` | `callable` | `partial` | `franken_networkx.algorithms.second_order_centrality` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.second_order_centrality` | `callable` | `present` | `franken_networkx.algorithms.second_order_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.subgraph_alg` | `module` | `excluded` | `franken_networkx.algorithms.subgraph_alg` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.subgraph_centrality` | `callable` | `partial` | `franken_networkx.algorithms.subgraph_centrality` | signature differs: NetworkX `(G, *, normalized=False, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.subgraph_centrality_exp` | `callable` | `partial` | `franken_networkx.algorithms.subgraph_centrality_exp` | signature differs: NetworkX `(G, *, normalized=False, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.subgraph_centrality` | `callable` | `present` | `franken_networkx.algorithms.subgraph_centrality` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.subgraph_centrality_exp` | `callable` | `present` | `franken_networkx.algorithms.subgraph_centrality_exp` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.trophic` | `module` | `excluded` | `franken_networkx.algorithms.trophic` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.centrality` | `networkx.algorithms.trophic_differences` | `callable` | `partial` | `franken_networkx.algorithms.trophic_differences` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.trophic_incoherence_parameter` | `callable` | `partial` | `franken_networkx.algorithms.trophic_incoherence_parameter` | signature differs: NetworkX `(G, weight='weight', cannibalism=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.trophic_levels` | `callable` | `partial` | `franken_networkx.algorithms.trophic_levels` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.centrality` | `networkx.algorithms.voterank` | `callable` | `partial` | `franken_networkx.algorithms.voterank` | signature differs: NetworkX `(G, number_of_nodes=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.centrality` | `networkx.algorithms.trophic_differences` | `callable` | `present` | `franken_networkx.algorithms.trophic_differences` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.trophic_incoherence_parameter` | `callable` | `present` | `franken_networkx.algorithms.trophic_incoherence_parameter` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.trophic_levels` | `callable` | `present` | `franken_networkx.algorithms.trophic_levels` | binding kind and signature match |
+| `algorithms.centrality` | `networkx.algorithms.voterank` | `callable` | `present` | `franken_networkx.algorithms.voterank` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.algorithms.voterank_alg` | `module` | `excluded` | `franken_networkx.algorithms.voterank_alg` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.centrality` | `networkx.approximate_current_flow_betweenness_centrality` | `callable` | `present` | `franken_networkx.approximate_current_flow_betweenness_centrality` | binding kind and signature match |
 | `algorithms.centrality` | `networkx.betweenness` | `module` | `excluded` | `franken_networkx.betweenness` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
@@ -712,12 +712,12 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.community` | `networkx.algorithms.community.tests.test_quality` | `module` | `excluded` | `franken_networkx.algorithms.community.tests.test_quality` | test-only module; not part of NetworkX's installed user API contract |
 | `algorithms.community` | `networkx.algorithms.community.tests.test_utils` | `module` | `excluded` | `franken_networkx.algorithms.community.tests.test_utils` | test-only module; not part of NetworkX's installed user API contract |
 | `algorithms.community` | `networkx.community` | `module` | `excluded` | `franken_networkx.community` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.components` | `networkx.algorithms.articulation_points` | `callable` | `partial` | `franken_networkx.algorithms.articulation_points` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.components` | `networkx.algorithms.articulation_points` | `callable` | `present` | `franken_networkx.algorithms.articulation_points` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.attracting` | `module` | `excluded` | `franken_networkx.algorithms.attracting` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.components` | `networkx.algorithms.attracting_components` | `callable` | `partial` | `franken_networkx.algorithms.attracting_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.components` | `networkx.algorithms.attracting_components` | `callable` | `present` | `franken_networkx.algorithms.attracting_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.biconnected` | `module` | `excluded` | `franken_networkx.algorithms.biconnected` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.components` | `networkx.algorithms.biconnected_component_edges` | `callable` | `partial` | `franken_networkx.algorithms.biconnected_component_edges` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.biconnected_components` | `callable` | `partial` | `franken_networkx.algorithms.biconnected_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.components` | `networkx.algorithms.biconnected_component_edges` | `callable` | `present` | `franken_networkx.algorithms.biconnected_component_edges` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.biconnected_components` | `callable` | `present` | `franken_networkx.algorithms.biconnected_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.components` | `module` | `excluded` | `franken_networkx.algorithms.components` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.components` | `networkx.algorithms.components.articulation_points` | `callable` | `present` | `franken_networkx.algorithms.components.articulation_points` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.components.attracting` | `module` | `excluded` | `franken_networkx.algorithms.components.attracting` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
@@ -772,26 +772,26 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.components` | `networkx.algorithms.components.weakly_connected.number_weakly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.components.weakly_connected.number_weakly_connected_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.components.weakly_connected.weakly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.components.weakly_connected.weakly_connected_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.components.weakly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.components.weakly_connected_components` | binding kind and signature match |
-| `algorithms.components` | `networkx.algorithms.condensation` | `callable` | `partial` | `franken_networkx.algorithms.condensation` | signature differs: NetworkX `(G, scc=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.components` | `networkx.algorithms.condensation` | `callable` | `present` | `franken_networkx.algorithms.condensation` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.connected` | `module` | `excluded` | `franken_networkx.algorithms.connected` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.components` | `networkx.algorithms.connected_components` | `callable` | `partial` | `franken_networkx.algorithms.connected_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.is_attracting_component` | `callable` | `partial` | `franken_networkx.algorithms.is_attracting_component` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.is_biconnected` | `callable` | `partial` | `franken_networkx.algorithms.is_biconnected` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.is_connected` | `callable` | `partial` | `franken_networkx.algorithms.is_connected` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.is_semiconnected` | `callable` | `partial` | `franken_networkx.algorithms.is_semiconnected` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.is_strongly_connected` | `callable` | `partial` | `franken_networkx.algorithms.is_strongly_connected` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.is_weakly_connected` | `callable` | `partial` | `franken_networkx.algorithms.is_weakly_connected` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.kosaraju_strongly_connected_components` | `callable` | `partial` | `franken_networkx.algorithms.kosaraju_strongly_connected_components` | signature differs: NetworkX `(G, source=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.node_connected_component` | `callable` | `partial` | `franken_networkx.algorithms.node_connected_component` | signature differs: NetworkX `(G, n, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.number_attracting_components` | `callable` | `partial` | `franken_networkx.algorithms.number_attracting_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.number_connected_components` | `callable` | `partial` | `franken_networkx.algorithms.number_connected_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.number_strongly_connected_components` | `callable` | `partial` | `franken_networkx.algorithms.number_strongly_connected_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.components` | `networkx.algorithms.number_weakly_connected_components` | `callable` | `partial` | `franken_networkx.algorithms.number_weakly_connected_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.components` | `networkx.algorithms.connected_components` | `callable` | `present` | `franken_networkx.algorithms.connected_components` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.is_attracting_component` | `callable` | `present` | `franken_networkx.algorithms.is_attracting_component` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.is_biconnected` | `callable` | `present` | `franken_networkx.algorithms.is_biconnected` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.is_connected` | `callable` | `present` | `franken_networkx.algorithms.is_connected` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.is_semiconnected` | `callable` | `present` | `franken_networkx.algorithms.is_semiconnected` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.is_strongly_connected` | `callable` | `present` | `franken_networkx.algorithms.is_strongly_connected` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.is_weakly_connected` | `callable` | `present` | `franken_networkx.algorithms.is_weakly_connected` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.kosaraju_strongly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.kosaraju_strongly_connected_components` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.node_connected_component` | `callable` | `present` | `franken_networkx.algorithms.node_connected_component` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.number_attracting_components` | `callable` | `present` | `franken_networkx.algorithms.number_attracting_components` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.number_connected_components` | `callable` | `present` | `franken_networkx.algorithms.number_connected_components` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.number_strongly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.number_strongly_connected_components` | binding kind and signature match |
+| `algorithms.components` | `networkx.algorithms.number_weakly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.number_weakly_connected_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.semiconnected` | `module` | `excluded` | `franken_networkx.algorithms.semiconnected` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.components` | `networkx.algorithms.strongly_connected` | `module` | `excluded` | `franken_networkx.algorithms.strongly_connected` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.components` | `networkx.algorithms.strongly_connected_components` | `callable` | `partial` | `franken_networkx.algorithms.strongly_connected_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.components` | `networkx.algorithms.strongly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.strongly_connected_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.algorithms.weakly_connected` | `module` | `excluded` | `franken_networkx.algorithms.weakly_connected` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.components` | `networkx.algorithms.weakly_connected_components` | `callable` | `partial` | `franken_networkx.algorithms.weakly_connected_components` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.components` | `networkx.algorithms.weakly_connected_components` | `callable` | `present` | `franken_networkx.algorithms.weakly_connected_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.articulation_points` | `callable` | `present` | `franken_networkx.articulation_points` | binding kind and signature match |
 | `algorithms.components` | `networkx.attracting` | `module` | `excluded` | `franken_networkx.attracting` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.components` | `networkx.attracting_components` | `callable` | `present` | `franken_networkx.attracting_components` | binding kind and signature match |
@@ -819,9 +819,9 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.components` | `networkx.strongly_connected_components` | `callable` | `present` | `franken_networkx.strongly_connected_components` | binding kind and signature match |
 | `algorithms.components` | `networkx.weakly_connected` | `module` | `excluded` | `franken_networkx.weakly_connected` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.components` | `networkx.weakly_connected_components` | `callable` | `present` | `franken_networkx.weakly_connected_components` | binding kind and signature match |
-| `algorithms.connectivity` | `networkx.algorithms.all_node_cuts` | `callable` | `partial` | `franken_networkx.algorithms.all_node_cuts` | signature differs: NetworkX `(G, k=None, flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.all_pairs_node_connectivity` | `callable` | `partial` | `franken_networkx.algorithms.all_pairs_node_connectivity` | signature differs: NetworkX `(G, nbunch=None, flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.average_node_connectivity` | `callable` | `partial` | `franken_networkx.algorithms.average_node_connectivity` | signature differs: NetworkX `(G, flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.connectivity` | `networkx.algorithms.all_node_cuts` | `callable` | `present` | `franken_networkx.algorithms.all_node_cuts` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.all_pairs_node_connectivity` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_node_connectivity` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.average_node_connectivity` | `callable` | `present` | `franken_networkx.algorithms.average_node_connectivity` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.algorithms.connectivity` | `module` | `excluded` | `franken_networkx.algorithms.connectivity` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.connectivity` | `networkx.algorithms.connectivity.EdgeComponentAuxGraph` | `class` | `present` | `franken_networkx.algorithms.connectivity.EdgeComponentAuxGraph` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.algorithms.connectivity.EdgeComponentAuxGraph.construct` | `method` | `present` | `franken_networkx.algorithms.connectivity.EdgeComponentAuxGraph.construct` | class-member kind and signature match |
@@ -895,18 +895,18 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.connectivity` | `networkx.algorithms.connectivity.utils` | `module` | `excluded` | `franken_networkx.algorithms.connectivity.utils` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.connectivity` | `networkx.algorithms.connectivity.utils.build_auxiliary_edge_connectivity` | `callable` | `present` | `franken_networkx.algorithms.connectivity.utils.build_auxiliary_edge_connectivity` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.algorithms.connectivity.utils.build_auxiliary_node_connectivity` | `callable` | `present` | `franken_networkx.algorithms.connectivity.utils.build_auxiliary_node_connectivity` | binding kind and signature match |
-| `algorithms.connectivity` | `networkx.algorithms.edge_connectivity` | `callable` | `partial` | `franken_networkx.algorithms.edge_connectivity` | signature differs: NetworkX `(G, s=None, t=None, flow_func=None, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.edge_disjoint_paths` | `callable` | `partial` | `franken_networkx.algorithms.edge_disjoint_paths` | signature differs: NetworkX `(G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.is_k_edge_connected` | `callable` | `partial` | `franken_networkx.algorithms.is_k_edge_connected` | signature differs: NetworkX `(G, k, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.k_components` | `callable` | `partial` | `franken_networkx.algorithms.k_components` | signature differs: NetworkX `(G, flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.k_edge_augmentation` | `callable` | `partial` | `franken_networkx.algorithms.k_edge_augmentation` | signature differs: NetworkX `(G, k, avail=None, weight=None, partial=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.k_edge_components` | `callable` | `partial` | `franken_networkx.algorithms.k_edge_components` | signature differs: NetworkX `(G, k, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.k_edge_subgraphs` | `callable` | `partial` | `franken_networkx.algorithms.k_edge_subgraphs` | signature differs: NetworkX `(G, k, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.minimum_edge_cut` | `callable` | `partial` | `franken_networkx.algorithms.minimum_edge_cut` | signature differs: NetworkX `(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.minimum_node_cut` | `callable` | `partial` | `franken_networkx.algorithms.minimum_node_cut` | signature differs: NetworkX `(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.node_connectivity` | `callable` | `partial` | `franken_networkx.algorithms.node_connectivity` | signature differs: NetworkX `(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.node_disjoint_paths` | `callable` | `partial` | `franken_networkx.algorithms.node_disjoint_paths` | signature differs: NetworkX `(G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.connectivity` | `networkx.algorithms.stoer_wagner` | `callable` | `partial` | `franken_networkx.algorithms.stoer_wagner` | signature differs: NetworkX `(G, weight='weight', heap=<class 'networkx.utils.heaps.BinaryHeap'>, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.connectivity` | `networkx.algorithms.edge_connectivity` | `callable` | `present` | `franken_networkx.algorithms.edge_connectivity` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.edge_disjoint_paths` | `callable` | `present` | `franken_networkx.algorithms.edge_disjoint_paths` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.is_k_edge_connected` | `callable` | `present` | `franken_networkx.algorithms.is_k_edge_connected` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.k_components` | `callable` | `present` | `franken_networkx.algorithms.k_components` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.k_edge_augmentation` | `callable` | `present` | `franken_networkx.algorithms.k_edge_augmentation` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.k_edge_components` | `callable` | `present` | `franken_networkx.algorithms.k_edge_components` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.k_edge_subgraphs` | `callable` | `present` | `franken_networkx.algorithms.k_edge_subgraphs` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.minimum_edge_cut` | `callable` | `present` | `franken_networkx.algorithms.minimum_edge_cut` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.minimum_node_cut` | `callable` | `present` | `franken_networkx.algorithms.minimum_node_cut` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.node_connectivity` | `callable` | `present` | `franken_networkx.algorithms.node_connectivity` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.node_disjoint_paths` | `callable` | `present` | `franken_networkx.algorithms.node_disjoint_paths` | binding kind and signature match |
+| `algorithms.connectivity` | `networkx.algorithms.stoer_wagner` | `callable` | `present` | `franken_networkx.algorithms.stoer_wagner` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.all_node_cuts` | `callable` | `present` | `franken_networkx.all_node_cuts` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.all_pairs_node_connectivity` | `callable` | `present` | `franken_networkx.all_pairs_node_connectivity` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.average_node_connectivity` | `callable` | `present` | `franken_networkx.average_node_connectivity` | binding kind and signature match |
@@ -923,8 +923,8 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.connectivity` | `networkx.node_connectivity` | `callable` | `present` | `franken_networkx.node_connectivity` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.node_disjoint_paths` | `callable` | `present` | `franken_networkx.node_disjoint_paths` | binding kind and signature match |
 | `algorithms.connectivity` | `networkx.stoer_wagner` | `callable` | `present` | `franken_networkx.stoer_wagner` | binding kind and signature match |
-| `algorithms.flow` | `networkx.algorithms.capacity_scaling` | `callable` | `partial` | `franken_networkx.algorithms.capacity_scaling` | signature differs: NetworkX `(G, demand='demand', capacity='capacity', weight='weight', heap=<class 'networkx.utils.heaps.BinaryHeap'>, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.cost_of_flow` | `callable` | `partial` | `franken_networkx.algorithms.cost_of_flow` | signature differs: NetworkX `(G, flowDict, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.flow` | `networkx.algorithms.capacity_scaling` | `callable` | `present` | `franken_networkx.algorithms.capacity_scaling` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.cost_of_flow` | `callable` | `present` | `franken_networkx.algorithms.cost_of_flow` | binding kind and signature match |
 | `algorithms.flow` | `networkx.algorithms.flow` | `module` | `excluded` | `franken_networkx.algorithms.flow` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.flow` | `networkx.algorithms.flow.boykov_kolmogorov` | `callable` | `present` | `franken_networkx.algorithms.flow.boykov_kolmogorov` | binding kind and signature match |
 | `algorithms.flow` | `networkx.algorithms.flow.boykovkolmogorov` | `module` | `excluded` | `franken_networkx.algorithms.flow.boykovkolmogorov` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
@@ -990,15 +990,15 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.flow` | `networkx.algorithms.flow.utils.build_flow_dict` | `callable` | `present` | `franken_networkx.algorithms.flow.utils.build_flow_dict` | binding kind and signature match |
 | `algorithms.flow` | `networkx.algorithms.flow.utils.build_residual_network` | `callable` | `present` | `franken_networkx.algorithms.flow.utils.build_residual_network` | binding kind and signature match |
 | `algorithms.flow` | `networkx.algorithms.flow.utils.detect_unboundedness` | `callable` | `present` | `franken_networkx.algorithms.flow.utils.detect_unboundedness` | binding kind and signature match |
-| `algorithms.flow` | `networkx.algorithms.gomory_hu_tree` | `callable` | `partial` | `franken_networkx.algorithms.gomory_hu_tree` | signature differs: NetworkX `(G, capacity='capacity', flow_func=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.max_flow_min_cost` | `callable` | `partial` | `franken_networkx.algorithms.max_flow_min_cost` | signature differs: NetworkX `(G, s, t, capacity='capacity', weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.maximum_flow` | `callable` | `partial` | `franken_networkx.algorithms.maximum_flow` | signature differs: NetworkX `(flowG, _s, _t, capacity='capacity', flow_func=None, *, backend=None, **kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.maximum_flow_value` | `callable` | `partial` | `franken_networkx.algorithms.maximum_flow_value` | signature differs: NetworkX `(flowG, _s, _t, capacity='capacity', flow_func=None, *, backend=None, **kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.min_cost_flow` | `callable` | `partial` | `franken_networkx.algorithms.min_cost_flow` | signature differs: NetworkX `(G, demand='demand', capacity='capacity', weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.min_cost_flow_cost` | `callable` | `partial` | `franken_networkx.algorithms.min_cost_flow_cost` | signature differs: NetworkX `(G, demand='demand', capacity='capacity', weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.minimum_cut` | `callable` | `partial` | `franken_networkx.algorithms.minimum_cut` | signature differs: NetworkX `(flowG, _s, _t, capacity='capacity', flow_func=None, *, backend=None, **kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.minimum_cut_value` | `callable` | `partial` | `franken_networkx.algorithms.minimum_cut_value` | signature differs: NetworkX `(flowG, _s, _t, capacity='capacity', flow_func=None, *, backend=None, **kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.flow` | `networkx.algorithms.network_simplex` | `callable` | `partial` | `franken_networkx.algorithms.network_simplex` | signature differs: NetworkX `(G, demand='demand', capacity='capacity', weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.flow` | `networkx.algorithms.gomory_hu_tree` | `callable` | `present` | `franken_networkx.algorithms.gomory_hu_tree` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.max_flow_min_cost` | `callable` | `present` | `franken_networkx.algorithms.max_flow_min_cost` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.maximum_flow` | `callable` | `present` | `franken_networkx.algorithms.maximum_flow` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.maximum_flow_value` | `callable` | `present` | `franken_networkx.algorithms.maximum_flow_value` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.min_cost_flow` | `callable` | `present` | `franken_networkx.algorithms.min_cost_flow` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.min_cost_flow_cost` | `callable` | `present` | `franken_networkx.algorithms.min_cost_flow_cost` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.minimum_cut` | `callable` | `present` | `franken_networkx.algorithms.minimum_cut` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.minimum_cut_value` | `callable` | `present` | `franken_networkx.algorithms.minimum_cut_value` | binding kind and signature match |
+| `algorithms.flow` | `networkx.algorithms.network_simplex` | `callable` | `present` | `franken_networkx.algorithms.network_simplex` | binding kind and signature match |
 | `algorithms.flow` | `networkx.capacity_scaling` | `callable` | `present` | `franken_networkx.capacity_scaling` | binding kind and signature match |
 | `algorithms.flow` | `networkx.cost_of_flow` | `callable` | `present` | `franken_networkx.cost_of_flow` | binding kind and signature match |
 | `algorithms.flow` | `networkx.flow` | `module` | `excluded` | `franken_networkx.flow` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
@@ -1179,7 +1179,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.numerical_edge_match` | `callable` | `present` | `franken_networkx.algorithms.isomorphism.numerical_edge_match` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.numerical_multiedge_match` | `callable` | `present` | `franken_networkx.algorithms.isomorphism.numerical_multiedge_match` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.numerical_node_match` | `callable` | `present` | `franken_networkx.algorithms.isomorphism.numerical_node_match` | binding kind and signature match |
-| `algorithms.isomorphism` | `networkx.algorithms.isomorphism.rooted_tree_isomorphism` | `callable` | `partial` | `franken_networkx.algorithms.isomorphism.rooted_tree_isomorphism` | signature differs: NetworkX `(t1, root1, t2, root2, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(t1, root1, t2, root2)` |
+| `algorithms.isomorphism` | `networkx.algorithms.isomorphism.rooted_tree_isomorphism` | `callable` | `present` | `franken_networkx.algorithms.isomorphism.rooted_tree_isomorphism` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.temporalisomorphvf2` | `module` | `excluded` | `franken_networkx.algorithms.isomorphism.temporalisomorphvf2` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.temporalisomorphvf2.TimeRespectingDiGraphMatcher` | `class` | `present` | `franken_networkx.algorithms.isomorphism.temporalisomorphvf2.TimeRespectingDiGraphMatcher` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.temporalisomorphvf2.TimeRespectingDiGraphMatcher.candidate_pairs_iter` | `method` | `present` | `franken_networkx.algorithms.isomorphism.temporalisomorphvf2.TimeRespectingDiGraphMatcher.candidate_pairs_iter` | class-member kind and signature match |
@@ -1228,7 +1228,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.tests.test_vf2pp` | `module` | `excluded` | `franken_networkx.algorithms.isomorphism.tests.test_vf2pp` | test-only module; not part of NetworkX's installed user API contract |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.tests.test_vf2pp_helpers` | `module` | `excluded` | `franken_networkx.algorithms.isomorphism.tests.test_vf2pp_helpers` | test-only module; not part of NetworkX's installed user API contract |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.tests.test_vf2userfunc` | `module` | `excluded` | `franken_networkx.algorithms.isomorphism.tests.test_vf2userfunc` | test-only module; not part of NetworkX's installed user API contract |
-| `algorithms.isomorphism` | `networkx.algorithms.isomorphism.tree_isomorphism` | `callable` | `partial` | `franken_networkx.algorithms.isomorphism.tree_isomorphism` | signature differs: NetworkX `(t1, t2, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(t1, t2)` |
+| `algorithms.isomorphism` | `networkx.algorithms.isomorphism.tree_isomorphism` | `callable` | `present` | `franken_networkx.algorithms.isomorphism.tree_isomorphism` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.tree_isomorphism.rooted_tree_isomorphism` | `callable` | `present` | `franken_networkx.algorithms.isomorphism.tree_isomorphism.rooted_tree_isomorphism` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.tree_isomorphism.tree_isomorphism` | `callable` | `present` | `franken_networkx.algorithms.isomorphism.tree_isomorphism.tree_isomorphism` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.algorithms.isomorphism.vf2pp` | `module` | `excluded` | `franken_networkx.algorithms.isomorphism.vf2pp` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
@@ -1302,8 +1302,8 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.isomorphism` | `networkx.vf2pp_all_isomorphisms` | `callable` | `present` | `franken_networkx.vf2pp_all_isomorphisms` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.vf2pp_is_isomorphic` | `callable` | `present` | `franken_networkx.vf2pp_is_isomorphic` | binding kind and signature match |
 | `algorithms.isomorphism` | `networkx.vf2pp_isomorphism` | `callable` | `present` | `franken_networkx.vf2pp_isomorphism` | binding kind and signature match |
-| `algorithms.link_analysis` | `networkx.algorithms.google_matrix` | `callable` | `partial` | `franken_networkx.algorithms.google_matrix` | signature differs: NetworkX `(G, alpha=0.85, personalization=None, nodelist=None, weight='weight', dangling=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.link_analysis` | `networkx.algorithms.hits` | `callable` | `partial` | `franken_networkx.algorithms.hits` | signature differs: NetworkX `(G, max_iter=100, tol=1e-08, nstart=None, normalized=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.link_analysis` | `networkx.algorithms.google_matrix` | `callable` | `present` | `franken_networkx.algorithms.google_matrix` | binding kind and signature match |
+| `algorithms.link_analysis` | `networkx.algorithms.hits` | `callable` | `present` | `franken_networkx.algorithms.hits` | binding kind and signature match |
 | `algorithms.link_analysis` | `networkx.algorithms.hits_alg` | `module` | `excluded` | `franken_networkx.algorithms.hits_alg` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.link_analysis` | `networkx.algorithms.link_analysis` | `module` | `excluded` | `franken_networkx.algorithms.link_analysis` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.link_analysis` | `networkx.algorithms.link_analysis.google_matrix` | `callable` | `present` | `franken_networkx.algorithms.link_analysis.google_matrix` | binding kind and signature match |
@@ -1317,7 +1317,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.link_analysis` | `networkx.algorithms.link_analysis.tests` | `module` | `excluded` | `franken_networkx.algorithms.link_analysis.tests` | test-only module; not part of NetworkX's installed user API contract |
 | `algorithms.link_analysis` | `networkx.algorithms.link_analysis.tests.test_hits` | `module` | `excluded` | `franken_networkx.algorithms.link_analysis.tests.test_hits` | test-only module; not part of NetworkX's installed user API contract |
 | `algorithms.link_analysis` | `networkx.algorithms.link_analysis.tests.test_pagerank` | `module` | `excluded` | `franken_networkx.algorithms.link_analysis.tests.test_pagerank` | test-only module; not part of NetworkX's installed user API contract |
-| `algorithms.link_analysis` | `networkx.algorithms.pagerank` | `callable` | `partial` | `franken_networkx.algorithms.pagerank` | signature differs: NetworkX `(G, alpha=0.85, personalization=None, max_iter=100, tol=1e-06, nstart=None, weight='weight', dangling=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.link_analysis` | `networkx.algorithms.pagerank` | `callable` | `present` | `franken_networkx.algorithms.pagerank` | binding kind and signature match |
 | `algorithms.link_analysis` | `networkx.algorithms.pagerank_alg` | `module` | `excluded` | `franken_networkx.algorithms.pagerank_alg` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.link_analysis` | `networkx.google_matrix` | `callable` | `present` | `franken_networkx.google_matrix` | binding kind and signature match |
 | `algorithms.link_analysis` | `networkx.hits` | `callable` | `present` | `franken_networkx.hits` | binding kind and signature match |
@@ -1350,19 +1350,19 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.minors` | `networkx.quotient_graph` | `callable` | `present` | `franken_networkx.quotient_graph` | binding kind and signature match |
 | `algorithms.operators` | `networkx.algorithms.all` | `module` | `excluded` | `franken_networkx.algorithms.all` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.operators` | `networkx.algorithms.binary` | `module` | `excluded` | `franken_networkx.algorithms.binary` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.operators` | `networkx.algorithms.cartesian_product` | `callable` | `partial` | `franken_networkx.algorithms.cartesian_product` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.complement` | `callable` | `partial` | `franken_networkx.algorithms.complement` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.compose` | `callable` | `partial` | `franken_networkx.algorithms.compose` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.compose_all` | `callable` | `partial` | `franken_networkx.algorithms.compose_all` | signature differs: NetworkX `(graphs, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.corona_product` | `callable` | `partial` | `franken_networkx.algorithms.corona_product` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.difference` | `callable` | `partial` | `franken_networkx.algorithms.difference` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.disjoint_union` | `callable` | `partial` | `franken_networkx.algorithms.disjoint_union` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.disjoint_union_all` | `callable` | `partial` | `franken_networkx.algorithms.disjoint_union_all` | signature differs: NetworkX `(graphs, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.full_join` | `callable` | `partial` | `franken_networkx.algorithms.full_join` | signature differs: NetworkX `(G, H, rename=(None, None), *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.intersection` | `callable` | `partial` | `franken_networkx.algorithms.intersection` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.intersection_all` | `callable` | `partial` | `franken_networkx.algorithms.intersection_all` | signature differs: NetworkX `(graphs, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.lexicographic_product` | `callable` | `partial` | `franken_networkx.algorithms.lexicographic_product` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.modular_product` | `callable` | `partial` | `franken_networkx.algorithms.modular_product` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.operators` | `networkx.algorithms.cartesian_product` | `callable` | `present` | `franken_networkx.algorithms.cartesian_product` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.complement` | `callable` | `present` | `franken_networkx.algorithms.complement` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.compose` | `callable` | `present` | `franken_networkx.algorithms.compose` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.compose_all` | `callable` | `present` | `franken_networkx.algorithms.compose_all` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.corona_product` | `callable` | `present` | `franken_networkx.algorithms.corona_product` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.difference` | `callable` | `present` | `franken_networkx.algorithms.difference` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.disjoint_union` | `callable` | `present` | `franken_networkx.algorithms.disjoint_union` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.disjoint_union_all` | `callable` | `present` | `franken_networkx.algorithms.disjoint_union_all` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.full_join` | `callable` | `present` | `franken_networkx.algorithms.full_join` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.intersection` | `callable` | `present` | `franken_networkx.algorithms.intersection` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.intersection_all` | `callable` | `present` | `franken_networkx.algorithms.intersection_all` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.lexicographic_product` | `callable` | `present` | `franken_networkx.algorithms.lexicographic_product` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.modular_product` | `callable` | `present` | `franken_networkx.algorithms.modular_product` | binding kind and signature match |
 | `algorithms.operators` | `networkx.algorithms.operators` | `module` | `excluded` | `franken_networkx.algorithms.operators` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.operators` | `networkx.algorithms.operators.all` | `module` | `excluded` | `franken_networkx.algorithms.operators.all` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.operators` | `networkx.algorithms.operators.all.compose_all` | `callable` | `present` | `franken_networkx.algorithms.operators.all.compose_all` | binding kind and signature match |
@@ -1415,16 +1415,16 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.operators` | `networkx.algorithms.operators.unary.reverse` | `callable` | `present` | `franken_networkx.algorithms.operators.unary.reverse` | binding kind and signature match |
 | `algorithms.operators` | `networkx.algorithms.operators.union` | `callable` | `present` | `franken_networkx.algorithms.operators.union` | binding kind and signature match |
 | `algorithms.operators` | `networkx.algorithms.operators.union_all` | `callable` | `present` | `franken_networkx.algorithms.operators.union_all` | binding kind and signature match |
-| `algorithms.operators` | `networkx.algorithms.power` | `callable` | `partial` | `franken_networkx.algorithms.power` | signature differs: NetworkX `(G, k, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.operators` | `networkx.algorithms.power` | `callable` | `present` | `franken_networkx.algorithms.power` | binding kind and signature match |
 | `algorithms.operators` | `networkx.algorithms.product` | `module` | `excluded` | `franken_networkx.algorithms.product` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.operators` | `networkx.algorithms.reverse` | `callable` | `partial` | `franken_networkx.algorithms.reverse` | signature differs: NetworkX `(G, copy=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.rooted_product` | `callable` | `partial` | `franken_networkx.algorithms.rooted_product` | signature differs: NetworkX `(G, H, root, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.strong_product` | `callable` | `partial` | `franken_networkx.algorithms.strong_product` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.symmetric_difference` | `callable` | `partial` | `franken_networkx.algorithms.symmetric_difference` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.tensor_product` | `callable` | `partial` | `franken_networkx.algorithms.tensor_product` | signature differs: NetworkX `(G, H, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.operators` | `networkx.algorithms.reverse` | `callable` | `present` | `franken_networkx.algorithms.reverse` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.rooted_product` | `callable` | `present` | `franken_networkx.algorithms.rooted_product` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.strong_product` | `callable` | `present` | `franken_networkx.algorithms.strong_product` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.symmetric_difference` | `callable` | `present` | `franken_networkx.algorithms.symmetric_difference` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.tensor_product` | `callable` | `present` | `franken_networkx.algorithms.tensor_product` | binding kind and signature match |
 | `algorithms.operators` | `networkx.algorithms.unary` | `module` | `excluded` | `franken_networkx.algorithms.unary` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.operators` | `networkx.algorithms.union` | `callable` | `partial` | `franken_networkx.algorithms.union` | signature differs: NetworkX `(G, H, rename=(), *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.operators` | `networkx.algorithms.union_all` | `callable` | `partial` | `franken_networkx.algorithms.union_all` | signature differs: NetworkX `(graphs, rename=(), *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.operators` | `networkx.algorithms.union` | `callable` | `present` | `franken_networkx.algorithms.union` | binding kind and signature match |
+| `algorithms.operators` | `networkx.algorithms.union_all` | `callable` | `present` | `franken_networkx.algorithms.union_all` | binding kind and signature match |
 | `algorithms.operators` | `networkx.all` | `module` | `excluded` | `franken_networkx.all` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.operators` | `networkx.binary` | `module` | `excluded` | `franken_networkx.binary` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.operators` | `networkx.cartesian_product` | `callable` | `present` | `franken_networkx.cartesian_product` | binding kind and signature match |
@@ -1494,11 +1494,11 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.PlanarEmbedding.to_undirected` | `method` | `present` | `franken_networkx.algorithms.PlanarEmbedding.to_undirected` | class-member kind and signature match |
 | `algorithms.other` | `networkx.algorithms.PlanarEmbedding.traverse_face` | `method` | `present` | `franken_networkx.algorithms.PlanarEmbedding.traverse_face` | class-member kind and signature match |
 | `algorithms.other` | `networkx.algorithms.adamic_adar_index` | `callable` | `present` | `franken_networkx.algorithms.adamic_adar_index` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.all_pairs_lowest_common_ancestor` | `callable` | `partial` | `franken_networkx.algorithms.all_pairs_lowest_common_ancestor` | signature differs: NetworkX `(G, pairs=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.all_simple_edge_paths` | `callable` | `partial` | `franken_networkx.algorithms.all_simple_edge_paths` | signature differs: NetworkX `(G, source, target, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.all_simple_paths` | `callable` | `partial` | `franken_networkx.algorithms.all_simple_paths` | signature differs: NetworkX `(G, source, target, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.all_pairs_lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_lowest_common_ancestor` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.all_simple_edge_paths` | `callable` | `present` | `franken_networkx.algorithms.all_simple_edge_paths` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.all_simple_paths` | `callable` | `present` | `franken_networkx.algorithms.all_simple_paths` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.all_topological_sorts` | `callable` | `present` | `franken_networkx.algorithms.all_topological_sorts` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.all_triads` | `callable` | `partial` | `franken_networkx.algorithms.all_triads` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.all_triads` | `callable` | `present` | `franken_networkx.algorithms.all_triads` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.all_triangles` | `callable` | `present` | `franken_networkx.algorithms.all_triangles` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.ancestors` | `callable` | `present` | `franken_networkx.algorithms.ancestors` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.antichains` | `callable` | `present` | `franken_networkx.algorithms.antichains` | binding kind and signature match |
@@ -1506,7 +1506,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.asteroidal.find_asteroidal_triple` | `callable` | `present` | `franken_networkx.algorithms.asteroidal.find_asteroidal_triple` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.asteroidal.is_at_free` | `callable` | `present` | `franken_networkx.algorithms.asteroidal.is_at_free` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.average_clustering` | `callable` | `present` | `franken_networkx.algorithms.average_clustering` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.barycenter` | `callable` | `partial` | `franken_networkx.algorithms.barycenter` | signature differs: NetworkX `(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.barycenter` | `callable` | `present` | `franken_networkx.algorithms.barycenter` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.boundary` | `module` | `excluded` | `franken_networkx.algorithms.boundary` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.boundary.edge_boundary` | `callable` | `present` | `franken_networkx.algorithms.boundary.edge_boundary` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.boundary.node_boundary` | `callable` | `present` | `franken_networkx.algorithms.boundary.node_boundary` | binding kind and signature match |
@@ -1518,12 +1518,12 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.broadcasting` | `module` | `excluded` | `franken_networkx.algorithms.broadcasting` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.broadcasting.tree_broadcast_center` | `callable` | `present` | `franken_networkx.algorithms.broadcasting.tree_broadcast_center` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.broadcasting.tree_broadcast_time` | `callable` | `present` | `franken_networkx.algorithms.broadcasting.tree_broadcast_time` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.cd_index` | `callable` | `partial` | `franken_networkx.algorithms.cd_index` | signature differs: NetworkX `(G, node, time_delta, *, time='time', weight=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.center` | `callable` | `partial` | `franken_networkx.algorithms.center` | signature differs: NetworkX `(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.chain_decomposition` | `callable` | `partial` | `franken_networkx.algorithms.chain_decomposition` | signature differs: NetworkX `(G, root=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.cd_index` | `callable` | `present` | `franken_networkx.algorithms.cd_index` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.center` | `callable` | `present` | `franken_networkx.algorithms.center` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.chain_decomposition` | `callable` | `present` | `franken_networkx.algorithms.chain_decomposition` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.chains` | `module` | `excluded` | `franken_networkx.algorithms.chains` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.chains.chain_decomposition` | `callable` | `present` | `franken_networkx.algorithms.chains.chain_decomposition` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.check_planarity` | `callable` | `partial` | `franken_networkx.algorithms.check_planarity` | signature differs: NetworkX `(G, counterexample=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.check_planarity` | `callable` | `present` | `franken_networkx.algorithms.check_planarity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.chordal` | `module` | `excluded` | `franken_networkx.algorithms.chordal` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.chordal.NetworkXTreewidthBoundExceeded` | `class` | `present` | `franken_networkx.algorithms.chordal.NetworkXTreewidthBoundExceeded` | binding kind matches; NetworkX exposes no inspectable signature |
 | `algorithms.other` | `networkx.algorithms.chordal.chordal_graph_cliques` | `callable` | `present` | `franken_networkx.algorithms.chordal.chordal_graph_cliques` | binding kind and signature match |
@@ -1533,8 +1533,8 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.chordal.is_chordal` | `callable` | `present` | `franken_networkx.algorithms.chordal.is_chordal` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.chordal_graph_cliques` | `callable` | `present` | `franken_networkx.algorithms.chordal_graph_cliques` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.chordal_graph_treewidth` | `callable` | `present` | `franken_networkx.algorithms.chordal_graph_treewidth` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.chordless_cycles` | `callable` | `partial` | `franken_networkx.algorithms.chordless_cycles` | signature differs: NetworkX `(G, length_bound=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.chromatic_polynomial` | `callable` | `partial` | `franken_networkx.algorithms.chromatic_polynomial` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.chordless_cycles` | `callable` | `present` | `franken_networkx.algorithms.chordless_cycles` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.chromatic_polynomial` | `callable` | `present` | `franken_networkx.algorithms.chromatic_polynomial` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.clique` | `module` | `excluded` | `franken_networkx.algorithms.clique` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.clique.enumerate_all_cliques` | `callable` | `present` | `franken_networkx.algorithms.clique.enumerate_all_cliques` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.clique.find_cliques` | `callable` | `present` | `franken_networkx.algorithms.clique.find_cliques` | binding kind and signature match |
@@ -1544,7 +1544,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.clique.max_weight_clique` | `callable` | `present` | `franken_networkx.algorithms.clique.max_weight_clique` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.clique.node_clique_number` | `callable` | `present` | `franken_networkx.algorithms.clique.node_clique_number` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.clique.number_of_cliques` | `callable` | `present` | `franken_networkx.algorithms.clique.number_of_cliques` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.closeness_vitality` | `callable` | `partial` | `franken_networkx.algorithms.closeness_vitality` | signature differs: NetworkX `(G, node=None, weight=None, wiener_index=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.closeness_vitality` | `callable` | `present` | `franken_networkx.algorithms.closeness_vitality` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.cluster` | `module` | `excluded` | `franken_networkx.algorithms.cluster` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.cluster.all_triangles` | `callable` | `present` | `franken_networkx.algorithms.cluster.all_triangles` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.cluster.average_clustering` | `callable` | `present` | `franken_networkx.algorithms.cluster.average_clustering` | binding kind and signature match |
@@ -1555,18 +1555,18 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.cluster.triangles` | `callable` | `present` | `franken_networkx.algorithms.cluster.triangles` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.clustering` | `callable` | `present` | `franken_networkx.algorithms.clustering` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.cn_soundarajan_hopcroft` | `callable` | `present` | `franken_networkx.algorithms.cn_soundarajan_hopcroft` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.combinatorial_embedding_to_pos` | `callable` | `partial` | `franken_networkx.algorithms.combinatorial_embedding_to_pos` | signature differs: NetworkX `(embedding, fully_triangulate=False)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.combinatorial_embedding_to_pos` | `callable` | `present` | `franken_networkx.algorithms.combinatorial_embedding_to_pos` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.common_neighbor_centrality` | `callable` | `present` | `franken_networkx.algorithms.common_neighbor_centrality` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.communicability` | `callable` | `partial` | `franken_networkx.algorithms.communicability` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.communicability` | `callable` | `present` | `franken_networkx.algorithms.communicability` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.communicability_alg` | `module` | `excluded` | `franken_networkx.algorithms.communicability_alg` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.communicability_alg.communicability` | `callable` | `present` | `franken_networkx.algorithms.communicability_alg.communicability` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.communicability_alg.communicability_exp` | `callable` | `present` | `franken_networkx.algorithms.communicability_alg.communicability_exp` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.communicability_exp` | `callable` | `partial` | `franken_networkx.algorithms.communicability_exp` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.complete_to_chordal_graph` | `callable` | `partial` | `franken_networkx.algorithms.complete_to_chordal_graph` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.communicability_exp` | `callable` | `present` | `franken_networkx.algorithms.communicability_exp` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.complete_to_chordal_graph` | `callable` | `present` | `franken_networkx.algorithms.complete_to_chordal_graph` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.conductance` | `callable` | `present` | `franken_networkx.algorithms.conductance` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.connected_dominating_set` | `callable` | `partial` | `franken_networkx.algorithms.connected_dominating_set` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.connected_double_edge_swap` | `callable` | `partial` | `franken_networkx.algorithms.connected_double_edge_swap` | signature differs: NetworkX `(G, nswap=1, _window_threshold=3, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.constraint` | `callable` | `partial` | `franken_networkx.algorithms.constraint` | signature differs: NetworkX `(G, nodes=None, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.connected_dominating_set` | `callable` | `present` | `franken_networkx.algorithms.connected_dominating_set` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.connected_double_edge_swap` | `callable` | `present` | `franken_networkx.algorithms.connected_double_edge_swap` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.constraint` | `callable` | `present` | `franken_networkx.algorithms.constraint` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.core` | `module` | `excluded` | `franken_networkx.algorithms.core` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.core.core_number` | `callable` | `present` | `franken_networkx.algorithms.core.core_number` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.core.k_core` | `callable` | `present` | `franken_networkx.algorithms.core.k_core` | binding kind and signature match |
@@ -1589,7 +1589,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.cuts.node_expansion` | `callable` | `present` | `franken_networkx.algorithms.cuts.node_expansion` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.cuts.normalized_cut_size` | `callable` | `present` | `franken_networkx.algorithms.cuts.normalized_cut_size` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.cuts.volume` | `callable` | `present` | `franken_networkx.algorithms.cuts.volume` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.cycle_basis` | `callable` | `partial` | `franken_networkx.algorithms.cycle_basis` | signature differs: NetworkX `(G, root=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.cycle_basis` | `callable` | `present` | `franken_networkx.algorithms.cycle_basis` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.cycles` | `module` | `excluded` | `franken_networkx.algorithms.cycles` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.cycles.chordless_cycles` | `callable` | `present` | `franken_networkx.algorithms.cycles.chordless_cycles` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.cycles.cycle_basis` | `callable` | `present` | `franken_networkx.algorithms.cycles.cycle_basis` | binding kind and signature match |
@@ -1621,10 +1621,10 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.dag_longest_path` | `callable` | `present` | `franken_networkx.algorithms.dag_longest_path` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.dag_longest_path_length` | `callable` | `present` | `franken_networkx.algorithms.dag_longest_path_length` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.dag_to_branching` | `callable` | `present` | `franken_networkx.algorithms.dag_to_branching` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.dedensify` | `callable` | `partial` | `franken_networkx.algorithms.dedensify` | signature differs: NetworkX `(G, threshold, prefix=None, copy=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.dedensify` | `callable` | `present` | `franken_networkx.algorithms.dedensify` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.descendants` | `callable` | `present` | `franken_networkx.algorithms.descendants` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.diameter` | `callable` | `partial` | `franken_networkx.algorithms.diameter` | signature differs: NetworkX `(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.directed_edge_swap` | `callable` | `partial` | `franken_networkx.algorithms.directed_edge_swap` | signature differs: NetworkX `(G, *, nswap=1, max_tries=100, seed=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.diameter` | `callable` | `present` | `franken_networkx.algorithms.diameter` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.directed_edge_swap` | `callable` | `present` | `franken_networkx.algorithms.directed_edge_swap` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.distance_measures` | `module` | `excluded` | `franken_networkx.algorithms.distance_measures` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.distance_measures.barycenter` | `callable` | `present` | `franken_networkx.algorithms.distance_measures.barycenter` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.distance_measures.center` | `callable` | `present` | `franken_networkx.algorithms.distance_measures.center` | binding kind and signature match |
@@ -1644,25 +1644,25 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.dominance` | `module` | `excluded` | `franken_networkx.algorithms.dominance` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.dominance.dominance_frontiers` | `callable` | `present` | `franken_networkx.algorithms.dominance.dominance_frontiers` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.dominance.immediate_dominators` | `callable` | `present` | `franken_networkx.algorithms.dominance.immediate_dominators` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.dominance_frontiers` | `callable` | `partial` | `franken_networkx.algorithms.dominance_frontiers` | signature differs: NetworkX `(G, start, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.dominance_frontiers` | `callable` | `present` | `franken_networkx.algorithms.dominance_frontiers` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.dominating` | `module` | `excluded` | `franken_networkx.algorithms.dominating` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.dominating.connected_dominating_set` | `callable` | `present` | `franken_networkx.algorithms.dominating.connected_dominating_set` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.dominating.dominating_set` | `callable` | `present` | `franken_networkx.algorithms.dominating.dominating_set` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.dominating.is_connected_dominating_set` | `callable` | `present` | `franken_networkx.algorithms.dominating.is_connected_dominating_set` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.dominating.is_dominating_set` | `callable` | `present` | `franken_networkx.algorithms.dominating.is_dominating_set` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.dominating_set` | `callable` | `partial` | `franken_networkx.algorithms.dominating_set` | signature differs: NetworkX `(G, start_with=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.double_edge_swap` | `callable` | `partial` | `franken_networkx.algorithms.double_edge_swap` | signature differs: NetworkX `(G, nswap=1, max_tries=100, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.eccentricity` | `callable` | `partial` | `franken_networkx.algorithms.eccentricity` | signature differs: NetworkX `(G, v=None, sp=None, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.dominating_set` | `callable` | `present` | `franken_networkx.algorithms.dominating_set` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.double_edge_swap` | `callable` | `present` | `franken_networkx.algorithms.double_edge_swap` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.eccentricity` | `callable` | `present` | `franken_networkx.algorithms.eccentricity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.edge_boundary` | `callable` | `present` | `franken_networkx.algorithms.edge_boundary` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.edge_expansion` | `callable` | `present` | `franken_networkx.algorithms.edge_expansion` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.effective_graph_resistance` | `callable` | `partial` | `franken_networkx.algorithms.effective_graph_resistance` | signature differs: NetworkX `(G, weight=None, invert_weight=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.effective_size` | `callable` | `partial` | `franken_networkx.algorithms.effective_size` | signature differs: NetworkX `(G, nodes=None, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.effective_graph_resistance` | `callable` | `present` | `franken_networkx.algorithms.effective_graph_resistance` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.effective_size` | `callable` | `present` | `franken_networkx.algorithms.effective_size` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.efficiency` | `callable` | `present` | `franken_networkx.algorithms.efficiency` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.efficiency_measures` | `module` | `excluded` | `franken_networkx.algorithms.efficiency_measures` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.efficiency_measures.efficiency` | `callable` | `present` | `franken_networkx.algorithms.efficiency_measures.efficiency` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.efficiency_measures.global_efficiency` | `callable` | `present` | `franken_networkx.algorithms.efficiency_measures.global_efficiency` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.efficiency_measures.local_efficiency` | `callable` | `present` | `franken_networkx.algorithms.efficiency_measures.local_efficiency` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.enumerate_all_cliques` | `callable` | `partial` | `franken_networkx.algorithms.enumerate_all_cliques` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.enumerate_all_cliques` | `callable` | `present` | `franken_networkx.algorithms.enumerate_all_cliques` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.euler` | `module` | `excluded` | `franken_networkx.algorithms.euler` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.euler.eulerian_circuit` | `callable` | `present` | `franken_networkx.algorithms.euler.eulerian_circuit` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.euler.eulerian_path` | `callable` | `present` | `franken_networkx.algorithms.euler.eulerian_path` | binding kind and signature match |
@@ -1670,22 +1670,22 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.euler.has_eulerian_path` | `callable` | `present` | `franken_networkx.algorithms.euler.has_eulerian_path` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.euler.is_eulerian` | `callable` | `present` | `franken_networkx.algorithms.euler.is_eulerian` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.euler.is_semieulerian` | `callable` | `present` | `franken_networkx.algorithms.euler.is_semieulerian` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.eulerian_circuit` | `callable` | `partial` | `franken_networkx.algorithms.eulerian_circuit` | signature differs: NetworkX `(G, source=None, keys=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.eulerian_path` | `callable` | `partial` | `franken_networkx.algorithms.eulerian_path` | signature differs: NetworkX `(G, source=None, keys=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.eulerize` | `callable` | `partial` | `franken_networkx.algorithms.eulerize` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.find_asteroidal_triple` | `callable` | `partial` | `franken_networkx.algorithms.find_asteroidal_triple` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.find_cliques` | `callable` | `partial` | `franken_networkx.algorithms.find_cliques` | signature differs: NetworkX `(G, nodes=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.find_cliques_recursive` | `callable` | `partial` | `franken_networkx.algorithms.find_cliques_recursive` | signature differs: NetworkX `(G, nodes=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.find_cycle` | `callable` | `partial` | `franken_networkx.algorithms.find_cycle` | signature differs: NetworkX `(G, source=None, orientation=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.find_induced_nodes` | `callable` | `partial` | `franken_networkx.algorithms.find_induced_nodes` | signature differs: NetworkX `(G, s, t, treewidth_bound=9223372036854775807, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.find_minimal_d_separator` | `callable` | `partial` | `franken_networkx.algorithms.find_minimal_d_separator` | signature differs: NetworkX `(G, x, y, *, included=None, restricted=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.flow_hierarchy` | `callable` | `partial` | `franken_networkx.algorithms.flow_hierarchy` | signature differs: NetworkX `(G, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.eulerian_circuit` | `callable` | `present` | `franken_networkx.algorithms.eulerian_circuit` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.eulerian_path` | `callable` | `present` | `franken_networkx.algorithms.eulerian_path` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.eulerize` | `callable` | `present` | `franken_networkx.algorithms.eulerize` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.find_asteroidal_triple` | `callable` | `present` | `franken_networkx.algorithms.find_asteroidal_triple` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.find_cliques` | `callable` | `present` | `franken_networkx.algorithms.find_cliques` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.find_cliques_recursive` | `callable` | `present` | `franken_networkx.algorithms.find_cliques_recursive` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.find_cycle` | `callable` | `present` | `franken_networkx.algorithms.find_cycle` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.find_induced_nodes` | `callable` | `present` | `franken_networkx.algorithms.find_induced_nodes` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.find_minimal_d_separator` | `callable` | `present` | `franken_networkx.algorithms.find_minimal_d_separator` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.flow_hierarchy` | `callable` | `present` | `franken_networkx.algorithms.flow_hierarchy` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.generalized_degree` | `callable` | `present` | `franken_networkx.algorithms.generalized_degree` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.generate_random_paths` | `callable` | `partial` | `franken_networkx.algorithms.generate_random_paths` | signature differs: NetworkX `(G, sample_size, path_length=5, index_map=None, weight='weight', seed=None, *, source=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.girth` | `callable` | `partial` | `franken_networkx.algorithms.girth` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.generate_random_paths` | `callable` | `present` | `franken_networkx.algorithms.generate_random_paths` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.girth` | `callable` | `present` | `franken_networkx.algorithms.girth` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.global_efficiency` | `callable` | `present` | `franken_networkx.algorithms.global_efficiency` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.global_parameters` | `callable` | `partial` | `franken_networkx.algorithms.global_parameters` | signature differs: NetworkX `(b, c)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.graph_edit_distance` | `callable` | `partial` | `franken_networkx.algorithms.graph_edit_distance` | signature differs: NetworkX `(G1, G2, node_match=None, edge_match=None, node_subst_cost=None, node_del_cost=None, node_ins_cost=None, edge_subst_cost=None, edge_del_cost=None, edge_ins_cost=None, roots=None, upper_bound=None, timeout=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.global_parameters` | `callable` | `present` | `franken_networkx.algorithms.global_parameters` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.graph_edit_distance` | `callable` | `present` | `franken_networkx.algorithms.graph_edit_distance` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.graph_hashing` | `module` | `excluded` | `franken_networkx.algorithms.graph_hashing` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.graph_hashing.weisfeiler_lehman_graph_hash` | `callable` | `present` | `franken_networkx.algorithms.graph_hashing.weisfeiler_lehman_graph_hash` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.graph_hashing.weisfeiler_lehman_subgraph_hashes` | `callable` | `present` | `franken_networkx.algorithms.graph_hashing.weisfeiler_lehman_subgraph_hashes` | binding kind and signature match |
@@ -1697,63 +1697,63 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.graphical.is_valid_degree_sequence_erdos_gallai` | `callable` | `present` | `franken_networkx.algorithms.graphical.is_valid_degree_sequence_erdos_gallai` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.graphical.is_valid_degree_sequence_havel_hakimi` | `callable` | `present` | `franken_networkx.algorithms.graphical.is_valid_degree_sequence_havel_hakimi` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.gutman_index` | `callable` | `present` | `franken_networkx.algorithms.gutman_index` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.harmonic_diameter` | `callable` | `partial` | `franken_networkx.algorithms.harmonic_diameter` | signature differs: NetworkX `(G, sp=None, *, weight=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.harmonic_diameter` | `callable` | `present` | `franken_networkx.algorithms.harmonic_diameter` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.has_bridges` | `callable` | `present` | `franken_networkx.algorithms.has_bridges` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.has_eulerian_path` | `callable` | `partial` | `franken_networkx.algorithms.has_eulerian_path` | signature differs: NetworkX `(G, source=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.has_eulerian_path` | `callable` | `present` | `franken_networkx.algorithms.has_eulerian_path` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.hierarchy` | `module` | `excluded` | `franken_networkx.algorithms.hierarchy` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.hierarchy.flow_hierarchy` | `callable` | `present` | `franken_networkx.algorithms.hierarchy.flow_hierarchy` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.hybrid` | `module` | `excluded` | `franken_networkx.algorithms.hybrid` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.hybrid.is_kl_connected` | `callable` | `present` | `franken_networkx.algorithms.hybrid.is_kl_connected` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.hybrid.kl_connected_subgraph` | `callable` | `present` | `franken_networkx.algorithms.hybrid.kl_connected_subgraph` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.hyper_wiener_index` | `callable` | `present` | `franken_networkx.algorithms.hyper_wiener_index` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.immediate_dominators` | `callable` | `partial` | `franken_networkx.algorithms.immediate_dominators` | signature differs: NetworkX `(G, start, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.intersection_array` | `callable` | `partial` | `franken_networkx.algorithms.intersection_array` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.immediate_dominators` | `callable` | `present` | `franken_networkx.algorithms.immediate_dominators` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.intersection_array` | `callable` | `present` | `franken_networkx.algorithms.intersection_array` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.is_aperiodic` | `callable` | `present` | `franken_networkx.algorithms.is_aperiodic` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.is_at_free` | `callable` | `partial` | `franken_networkx.algorithms.is_at_free` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_chordal` | `callable` | `partial` | `franken_networkx.algorithms.is_chordal` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_connected_dominating_set` | `callable` | `partial` | `franken_networkx.algorithms.is_connected_dominating_set` | signature differs: NetworkX `(G, nbunch, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_d_separator` | `callable` | `partial` | `franken_networkx.algorithms.is_d_separator` | signature differs: NetworkX `(G, x, y, z, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.is_at_free` | `callable` | `present` | `franken_networkx.algorithms.is_at_free` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_chordal` | `callable` | `present` | `franken_networkx.algorithms.is_chordal` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_connected_dominating_set` | `callable` | `present` | `franken_networkx.algorithms.is_connected_dominating_set` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_d_separator` | `callable` | `present` | `franken_networkx.algorithms.is_d_separator` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.is_digraphical` | `callable` | `present` | `franken_networkx.algorithms.is_digraphical` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.is_directed_acyclic_graph` | `callable` | `present` | `franken_networkx.algorithms.is_directed_acyclic_graph` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.is_distance_regular` | `callable` | `partial` | `franken_networkx.algorithms.is_distance_regular` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_dominating_set` | `callable` | `partial` | `franken_networkx.algorithms.is_dominating_set` | signature differs: NetworkX `(G, nbunch, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_edge_cover` | `callable` | `partial` | `franken_networkx.algorithms.is_edge_cover` | signature differs: NetworkX `(G, cover, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_eulerian` | `callable` | `partial` | `franken_networkx.algorithms.is_eulerian` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.is_distance_regular` | `callable` | `present` | `franken_networkx.algorithms.is_distance_regular` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_dominating_set` | `callable` | `present` | `franken_networkx.algorithms.is_dominating_set` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_edge_cover` | `callable` | `present` | `franken_networkx.algorithms.is_edge_cover` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_eulerian` | `callable` | `present` | `franken_networkx.algorithms.is_eulerian` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.is_graphical` | `callable` | `present` | `franken_networkx.algorithms.is_graphical` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.is_isolate` | `callable` | `present` | `franken_networkx.algorithms.is_isolate` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.is_k_regular` | `callable` | `partial` | `franken_networkx.algorithms.is_k_regular` | signature differs: NetworkX `(G, k, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_kl_connected` | `callable` | `partial` | `franken_networkx.algorithms.is_kl_connected` | signature differs: NetworkX `(G, k, l, low_memory=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_matching` | `callable` | `partial` | `franken_networkx.algorithms.is_matching` | signature differs: NetworkX `(G, matching, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_maximal_matching` | `callable` | `partial` | `franken_networkx.algorithms.is_maximal_matching` | signature differs: NetworkX `(G, matching, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_minimal_d_separator` | `callable` | `partial` | `franken_networkx.algorithms.is_minimal_d_separator` | signature differs: NetworkX `(G, x, y, z, *, included=None, restricted=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_multigraphical` | `callable` | `partial` | `franken_networkx.algorithms.is_multigraphical` | signature differs: NetworkX `(sequence, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_perfect_graph` | `callable` | `partial` | `franken_networkx.algorithms.is_perfect_graph` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_perfect_matching` | `callable` | `partial` | `franken_networkx.algorithms.is_perfect_matching` | signature differs: NetworkX `(G, matching, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_planar` | `callable` | `partial` | `franken_networkx.algorithms.is_planar` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_pseudographical` | `callable` | `partial` | `franken_networkx.algorithms.is_pseudographical` | signature differs: NetworkX `(sequence, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_regular` | `callable` | `partial` | `franken_networkx.algorithms.is_regular` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_semieulerian` | `callable` | `partial` | `franken_networkx.algorithms.is_semieulerian` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_simple_path` | `callable` | `partial` | `franken_networkx.algorithms.is_simple_path` | signature differs: NetworkX `(G, nodes, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_strongly_regular` | `callable` | `partial` | `franken_networkx.algorithms.is_strongly_regular` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_tournament` | `callable` | `partial` | `franken_networkx.algorithms.is_tournament` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_triad` | `callable` | `partial` | `franken_networkx.algorithms.is_triad` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_valid_degree_sequence_erdos_gallai` | `callable` | `partial` | `franken_networkx.algorithms.is_valid_degree_sequence_erdos_gallai` | signature differs: NetworkX `(deg_sequence, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.is_valid_degree_sequence_havel_hakimi` | `callable` | `partial` | `franken_networkx.algorithms.is_valid_degree_sequence_havel_hakimi` | signature differs: NetworkX `(deg_sequence, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.is_k_regular` | `callable` | `present` | `franken_networkx.algorithms.is_k_regular` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_kl_connected` | `callable` | `present` | `franken_networkx.algorithms.is_kl_connected` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_matching` | `callable` | `present` | `franken_networkx.algorithms.is_matching` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_maximal_matching` | `callable` | `present` | `franken_networkx.algorithms.is_maximal_matching` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_minimal_d_separator` | `callable` | `present` | `franken_networkx.algorithms.is_minimal_d_separator` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_multigraphical` | `callable` | `present` | `franken_networkx.algorithms.is_multigraphical` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_perfect_graph` | `callable` | `present` | `franken_networkx.algorithms.is_perfect_graph` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_perfect_matching` | `callable` | `present` | `franken_networkx.algorithms.is_perfect_matching` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_planar` | `callable` | `present` | `franken_networkx.algorithms.is_planar` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_pseudographical` | `callable` | `present` | `franken_networkx.algorithms.is_pseudographical` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_regular` | `callable` | `present` | `franken_networkx.algorithms.is_regular` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_semieulerian` | `callable` | `present` | `franken_networkx.algorithms.is_semieulerian` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_simple_path` | `callable` | `present` | `franken_networkx.algorithms.is_simple_path` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_strongly_regular` | `callable` | `present` | `franken_networkx.algorithms.is_strongly_regular` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_tournament` | `callable` | `present` | `franken_networkx.algorithms.is_tournament` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_triad` | `callable` | `present` | `franken_networkx.algorithms.is_triad` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_valid_degree_sequence_erdos_gallai` | `callable` | `present` | `franken_networkx.algorithms.is_valid_degree_sequence_erdos_gallai` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.is_valid_degree_sequence_havel_hakimi` | `callable` | `present` | `franken_networkx.algorithms.is_valid_degree_sequence_havel_hakimi` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.isolate` | `module` | `excluded` | `franken_networkx.algorithms.isolate` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.isolate.is_isolate` | `callable` | `present` | `franken_networkx.algorithms.isolate.is_isolate` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.isolate.isolates` | `callable` | `present` | `franken_networkx.algorithms.isolate.isolates` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.isolate.number_of_isolates` | `callable` | `present` | `franken_networkx.algorithms.isolate.number_of_isolates` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.isolates` | `callable` | `present` | `franken_networkx.algorithms.isolates` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.jaccard_coefficient` | `callable` | `present` | `franken_networkx.algorithms.jaccard_coefficient` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.k_core` | `callable` | `partial` | `franken_networkx.algorithms.k_core` | signature differs: NetworkX `(G, k=None, core_number=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.k_corona` | `callable` | `partial` | `franken_networkx.algorithms.k_corona` | signature differs: NetworkX `(G, k, core_number=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.k_crust` | `callable` | `partial` | `franken_networkx.algorithms.k_crust` | signature differs: NetworkX `(G, k=None, core_number=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.k_factor` | `callable` | `partial` | `franken_networkx.algorithms.k_factor` | signature differs: NetworkX `(G, k, matching_weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.k_shell` | `callable` | `partial` | `franken_networkx.algorithms.k_shell` | signature differs: NetworkX `(G, k=None, core_number=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.k_truss` | `callable` | `partial` | `franken_networkx.algorithms.k_truss` | signature differs: NetworkX `(G, k, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.kemeny_constant` | `callable` | `partial` | `franken_networkx.algorithms.kemeny_constant` | signature differs: NetworkX `(G, *, weight=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.kl_connected_subgraph` | `callable` | `partial` | `franken_networkx.algorithms.kl_connected_subgraph` | signature differs: NetworkX `(G, k, l, low_memory=False, same_as_graph=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.lattice_reference` | `callable` | `partial` | `franken_networkx.algorithms.lattice_reference` | signature differs: NetworkX `(G, niter=5, D=None, connectivity=True, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.k_core` | `callable` | `present` | `franken_networkx.algorithms.k_core` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.k_corona` | `callable` | `present` | `franken_networkx.algorithms.k_corona` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.k_crust` | `callable` | `present` | `franken_networkx.algorithms.k_crust` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.k_factor` | `callable` | `present` | `franken_networkx.algorithms.k_factor` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.k_shell` | `callable` | `present` | `franken_networkx.algorithms.k_shell` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.k_truss` | `callable` | `present` | `franken_networkx.algorithms.k_truss` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.kemeny_constant` | `callable` | `present` | `franken_networkx.algorithms.kemeny_constant` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.kl_connected_subgraph` | `callable` | `present` | `franken_networkx.algorithms.kl_connected_subgraph` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.lattice_reference` | `callable` | `present` | `franken_networkx.algorithms.lattice_reference` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.lexicographical_topological_sort` | `callable` | `present` | `franken_networkx.algorithms.lexicographical_topological_sort` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.link_prediction` | `module` | `excluded` | `franken_networkx.algorithms.link_prediction` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.link_prediction.adamic_adar_index` | `callable` | `present` | `franken_networkx.algorithms.link_prediction.adamic_adar_index` | binding kind and signature match |
@@ -1765,14 +1765,14 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.link_prediction.resource_allocation_index` | `callable` | `present` | `franken_networkx.algorithms.link_prediction.resource_allocation_index` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.link_prediction.within_inter_cluster` | `callable` | `present` | `franken_networkx.algorithms.link_prediction.within_inter_cluster` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.local_bridges` | `callable` | `present` | `franken_networkx.algorithms.local_bridges` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.local_constraint` | `callable` | `partial` | `franken_networkx.algorithms.local_constraint` | signature differs: NetworkX `(G, u, v, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.local_constraint` | `callable` | `present` | `franken_networkx.algorithms.local_constraint` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.local_efficiency` | `callable` | `present` | `franken_networkx.algorithms.local_efficiency` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.lowest_common_ancestor` | `callable` | `partial` | `franken_networkx.algorithms.lowest_common_ancestor` | signature differs: NetworkX `(G, node1, node2, default=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.lowest_common_ancestor` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.lowest_common_ancestors` | `module` | `excluded` | `franken_networkx.algorithms.lowest_common_ancestors` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.lowest_common_ancestors.all_pairs_lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.lowest_common_ancestors.all_pairs_lowest_common_ancestor` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.lowest_common_ancestors.lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.lowest_common_ancestors.lowest_common_ancestor` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.lowest_common_ancestors.tree_all_pairs_lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.lowest_common_ancestors.tree_all_pairs_lowest_common_ancestor` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.make_clique_bipartite` | `callable` | `partial` | `franken_networkx.algorithms.make_clique_bipartite` | signature differs: NetworkX `(G, fpos=None, create_using=None, name=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.make_clique_bipartite` | `callable` | `present` | `franken_networkx.algorithms.make_clique_bipartite` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.make_max_clique_graph` | `callable` | `present` | `franken_networkx.algorithms.make_max_clique_graph` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.matching` | `module` | `excluded` | `franken_networkx.algorithms.matching` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.matching.is_matching` | `callable` | `present` | `franken_networkx.algorithms.matching.is_matching` | binding kind and signature match |
@@ -1781,42 +1781,42 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.matching.max_weight_matching` | `callable` | `present` | `franken_networkx.algorithms.matching.max_weight_matching` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.matching.maximal_matching` | `callable` | `present` | `franken_networkx.algorithms.matching.maximal_matching` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.matching.min_weight_matching` | `callable` | `present` | `franken_networkx.algorithms.matching.min_weight_matching` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.max_weight_clique` | `callable` | `partial` | `franken_networkx.algorithms.max_weight_clique` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.max_weight_matching` | `callable` | `partial` | `franken_networkx.algorithms.max_weight_matching` | signature differs: NetworkX `(G, maxcardinality=False, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.maximal_independent_set` | `callable` | `partial` | `franken_networkx.algorithms.maximal_independent_set` | signature differs: NetworkX `(G, nodes=None, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.maximal_matching` | `callable` | `partial` | `franken_networkx.algorithms.maximal_matching` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.min_edge_cover` | `callable` | `partial` | `franken_networkx.algorithms.min_edge_cover` | signature differs: NetworkX `(G, matching_algorithm=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.min_weight_matching` | `callable` | `partial` | `franken_networkx.algorithms.min_weight_matching` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.minimum_cycle_basis` | `callable` | `partial` | `franken_networkx.algorithms.minimum_cycle_basis` | signature differs: NetworkX `(G, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.max_weight_clique` | `callable` | `present` | `franken_networkx.algorithms.max_weight_clique` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.max_weight_matching` | `callable` | `present` | `franken_networkx.algorithms.max_weight_matching` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.maximal_independent_set` | `callable` | `present` | `franken_networkx.algorithms.maximal_independent_set` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.maximal_matching` | `callable` | `present` | `franken_networkx.algorithms.maximal_matching` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.min_edge_cover` | `callable` | `present` | `franken_networkx.algorithms.min_edge_cover` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.min_weight_matching` | `callable` | `present` | `franken_networkx.algorithms.min_weight_matching` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.minimum_cycle_basis` | `callable` | `present` | `franken_networkx.algorithms.minimum_cycle_basis` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.mis` | `module` | `excluded` | `franken_networkx.algorithms.mis` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.mis.maximal_independent_set` | `callable` | `present` | `franken_networkx.algorithms.mis.maximal_independent_set` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.mixing_expansion` | `callable` | `present` | `franken_networkx.algorithms.mixing_expansion` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.moral` | `module` | `excluded` | `franken_networkx.algorithms.moral` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.moral.moral_graph` | `callable` | `present` | `franken_networkx.algorithms.moral.moral_graph` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.moral_graph` | `callable` | `partial` | `franken_networkx.algorithms.moral_graph` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.moral_graph` | `callable` | `present` | `franken_networkx.algorithms.moral_graph` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.node_boundary` | `callable` | `present` | `franken_networkx.algorithms.node_boundary` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.node_classification` | `module` | `excluded` | `franken_networkx.algorithms.node_classification` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.node_classification.harmonic_function` | `callable` | `present` | `franken_networkx.algorithms.node_classification.harmonic_function` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.node_classification.local_and_global_consistency` | `callable` | `present` | `franken_networkx.algorithms.node_classification.local_and_global_consistency` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.node_clique_number` | `callable` | `partial` | `franken_networkx.algorithms.node_clique_number` | signature differs: NetworkX `(G, nodes=None, cliques=None, separate_nodes=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.node_clique_number` | `callable` | `present` | `franken_networkx.algorithms.node_clique_number` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.node_expansion` | `callable` | `present` | `franken_networkx.algorithms.node_expansion` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.non_randomness` | `callable` | `present` | `franken_networkx.algorithms.non_randomness` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.non_randomness.non_randomness` | `callable` | `present` | `franken_networkx.algorithms.non_randomness.non_randomness` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.normalized_cut_size` | `callable` | `present` | `franken_networkx.algorithms.normalized_cut_size` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.number_of_cliques` | `callable` | `partial` | `franken_networkx.algorithms.number_of_cliques` | signature differs: NetworkX `(G, nodes=None, cliques=None)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.number_of_cliques` | `callable` | `present` | `franken_networkx.algorithms.number_of_cliques` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.number_of_isolates` | `callable` | `present` | `franken_networkx.algorithms.number_of_isolates` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.number_of_walks` | `callable` | `partial` | `franken_networkx.algorithms.number_of_walks` | signature differs: NetworkX `(G, walk_length, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.omega` | `callable` | `partial` | `franken_networkx.algorithms.omega` | signature differs: NetworkX `(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.onion_layers` | `callable` | `partial` | `franken_networkx.algorithms.onion_layers` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.optimal_edit_paths` | `callable` | `partial` | `franken_networkx.algorithms.optimal_edit_paths` | signature differs: NetworkX `(G1, G2, node_match=None, edge_match=None, node_subst_cost=None, node_del_cost=None, node_ins_cost=None, edge_subst_cost=None, edge_del_cost=None, edge_ins_cost=None, upper_bound=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.optimize_edit_paths` | `callable` | `partial` | `franken_networkx.algorithms.optimize_edit_paths` | signature differs: NetworkX `(G1, G2, node_match=None, edge_match=None, node_subst_cost=None, node_del_cost=None, node_ins_cost=None, edge_subst_cost=None, edge_del_cost=None, edge_ins_cost=None, upper_bound=None, strictly_decreasing=True, roots=None, timeout=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.optimize_graph_edit_distance` | `callable` | `partial` | `franken_networkx.algorithms.optimize_graph_edit_distance` | signature differs: NetworkX `(G1, G2, node_match=None, edge_match=None, node_subst_cost=None, node_del_cost=None, node_ins_cost=None, edge_subst_cost=None, edge_del_cost=None, edge_ins_cost=None, upper_bound=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.overall_reciprocity` | `callable` | `partial` | `franken_networkx.algorithms.overall_reciprocity` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.panther_similarity` | `callable` | `partial` | `franken_networkx.algorithms.panther_similarity` | signature differs: NetworkX `(G, source, k=5, path_length=5, c=0.5, delta=0.1, eps=None, weight='weight', seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.panther_vector_similarity` | `callable` | `partial` | `franken_networkx.algorithms.panther_vector_similarity` | signature differs: NetworkX `(G, source, *, D=10, k=5, path_length=5, c=0.5, delta=0.1, eps=None, weight='weight', seed=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.number_of_walks` | `callable` | `present` | `franken_networkx.algorithms.number_of_walks` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.omega` | `callable` | `present` | `franken_networkx.algorithms.omega` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.onion_layers` | `callable` | `present` | `franken_networkx.algorithms.onion_layers` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.optimal_edit_paths` | `callable` | `present` | `franken_networkx.algorithms.optimal_edit_paths` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.optimize_edit_paths` | `callable` | `present` | `franken_networkx.algorithms.optimize_edit_paths` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.optimize_graph_edit_distance` | `callable` | `present` | `franken_networkx.algorithms.optimize_graph_edit_distance` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.overall_reciprocity` | `callable` | `present` | `franken_networkx.algorithms.overall_reciprocity` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.panther_similarity` | `callable` | `present` | `franken_networkx.algorithms.panther_similarity` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.panther_vector_similarity` | `callable` | `present` | `franken_networkx.algorithms.panther_vector_similarity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.perfect_graph` | `module` | `excluded` | `franken_networkx.algorithms.perfect_graph` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.perfect_graph.is_perfect_graph` | `callable` | `present` | `franken_networkx.algorithms.perfect_graph.is_perfect_graph` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.periphery` | `callable` | `partial` | `franken_networkx.algorithms.periphery` | signature differs: NetworkX `(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.periphery` | `callable` | `present` | `franken_networkx.algorithms.periphery` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.planar_drawing` | `module` | `excluded` | `franken_networkx.algorithms.planar_drawing` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.planar_drawing.combinatorial_embedding_to_pos` | `callable` | `present` | `franken_networkx.algorithms.planar_drawing.combinatorial_embedding_to_pos` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.planarity` | `module` | `excluded` | `franken_networkx.algorithms.planarity` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
@@ -1846,25 +1846,25 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.polynomials.tutte_polynomial` | `callable` | `present` | `franken_networkx.algorithms.polynomials.tutte_polynomial` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.preferential_attachment` | `callable` | `present` | `franken_networkx.algorithms.preferential_attachment` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.ra_index_soundarajan_hopcroft` | `callable` | `present` | `franken_networkx.algorithms.ra_index_soundarajan_hopcroft` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.radius` | `callable` | `partial` | `franken_networkx.algorithms.radius` | signature differs: NetworkX `(G, e=None, usebounds=False, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.random_reference` | `callable` | `partial` | `franken_networkx.algorithms.random_reference` | signature differs: NetworkX `(G, niter=1, connectivity=True, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.radius` | `callable` | `present` | `franken_networkx.algorithms.radius` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.random_reference` | `callable` | `present` | `franken_networkx.algorithms.random_reference` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.reciprocity` | `callable` | `present` | `franken_networkx.algorithms.reciprocity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.reciprocity.overall_reciprocity` | `callable` | `present` | `franken_networkx.algorithms.reciprocity.overall_reciprocity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.reciprocity.reciprocity` | `callable` | `present` | `franken_networkx.algorithms.reciprocity.reciprocity` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.recursive_simple_cycles` | `callable` | `partial` | `franken_networkx.algorithms.recursive_simple_cycles` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.recursive_simple_cycles` | `callable` | `present` | `franken_networkx.algorithms.recursive_simple_cycles` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.regular` | `module` | `excluded` | `franken_networkx.algorithms.regular` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.regular.is_k_regular` | `callable` | `present` | `franken_networkx.algorithms.regular.is_k_regular` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.regular.is_regular` | `callable` | `present` | `franken_networkx.algorithms.regular.is_regular` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.regular.k_factor` | `callable` | `present` | `franken_networkx.algorithms.regular.k_factor` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.resistance_distance` | `callable` | `partial` | `franken_networkx.algorithms.resistance_distance` | signature differs: NetworkX `(G, nodeA=None, nodeB=None, weight=None, invert_weight=True, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.resistance_distance` | `callable` | `present` | `franken_networkx.algorithms.resistance_distance` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.resource_allocation_index` | `callable` | `present` | `franken_networkx.algorithms.resource_allocation_index` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.rich_club_coefficient` | `callable` | `partial` | `franken_networkx.algorithms.rich_club_coefficient` | signature differs: NetworkX `(G, normalized=True, Q=100, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.rich_club_coefficient` | `callable` | `present` | `franken_networkx.algorithms.rich_club_coefficient` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.richclub` | `module` | `excluded` | `franken_networkx.algorithms.richclub` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.richclub.rich_club_coefficient` | `callable` | `present` | `franken_networkx.algorithms.richclub.rich_club_coefficient` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.s_metric` | `callable` | `partial` | `franken_networkx.algorithms.s_metric` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.s_metric` | `callable` | `present` | `franken_networkx.algorithms.s_metric` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.schultz_index` | `callable` | `present` | `franken_networkx.algorithms.schultz_index` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.shortest_simple_paths` | `callable` | `partial` | `franken_networkx.algorithms.shortest_simple_paths` | signature differs: NetworkX `(G, source, target, weight=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.sigma` | `callable` | `partial` | `franken_networkx.algorithms.sigma` | signature differs: NetworkX `(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.shortest_simple_paths` | `callable` | `present` | `franken_networkx.algorithms.shortest_simple_paths` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.sigma` | `callable` | `present` | `franken_networkx.algorithms.sigma` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.similarity` | `module` | `excluded` | `franken_networkx.algorithms.similarity` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.similarity.generate_random_paths` | `callable` | `present` | `franken_networkx.algorithms.similarity.generate_random_paths` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.similarity.graph_edit_distance` | `callable` | `present` | `franken_networkx.algorithms.similarity.graph_edit_distance` | binding kind and signature match |
@@ -1874,13 +1874,13 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.similarity.panther_similarity` | `callable` | `present` | `franken_networkx.algorithms.similarity.panther_similarity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.similarity.panther_vector_similarity` | `callable` | `present` | `franken_networkx.algorithms.similarity.panther_vector_similarity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.similarity.simrank_similarity` | `callable` | `present` | `franken_networkx.algorithms.similarity.simrank_similarity` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.simple_cycles` | `callable` | `partial` | `franken_networkx.algorithms.simple_cycles` | signature differs: NetworkX `(G, length_bound=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.simple_cycles` | `callable` | `present` | `franken_networkx.algorithms.simple_cycles` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.simple_paths` | `module` | `excluded` | `franken_networkx.algorithms.simple_paths` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.simple_paths.all_simple_edge_paths` | `callable` | `present` | `franken_networkx.algorithms.simple_paths.all_simple_edge_paths` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.simple_paths.all_simple_paths` | `callable` | `present` | `franken_networkx.algorithms.simple_paths.all_simple_paths` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.simple_paths.is_simple_path` | `callable` | `present` | `franken_networkx.algorithms.simple_paths.is_simple_path` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.simple_paths.shortest_simple_paths` | `callable` | `present` | `franken_networkx.algorithms.simple_paths.shortest_simple_paths` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.simrank_similarity` | `callable` | `partial` | `franken_networkx.algorithms.simrank_similarity` | signature differs: NetworkX `(G, source=None, target=None, importance_factor=0.9, max_iterations=1000, tolerance=0.0001, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.simrank_similarity` | `callable` | `present` | `franken_networkx.algorithms.simrank_similarity` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.smallworld` | `module` | `excluded` | `franken_networkx.algorithms.smallworld` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.smallworld.lattice_reference` | `callable` | `present` | `franken_networkx.algorithms.smallworld.lattice_reference` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.smallworld.omega` | `callable` | `present` | `franken_networkx.algorithms.smallworld.omega` | binding kind and signature match |
@@ -1888,8 +1888,8 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.smallworld.sigma` | `callable` | `present` | `franken_networkx.algorithms.smallworld.sigma` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.smetric` | `module` | `excluded` | `franken_networkx.algorithms.smetric` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.smetric.s_metric` | `callable` | `present` | `franken_networkx.algorithms.smetric.s_metric` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.snap_aggregation` | `callable` | `partial` | `franken_networkx.algorithms.snap_aggregation` | signature differs: NetworkX `(G, node_attributes, edge_attributes=(), prefix='Supernode-', supernode_attribute='group', superedge_attribute='types', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.spanner` | `callable` | `partial` | `franken_networkx.algorithms.spanner` | signature differs: NetworkX `(G, stretch, weight=None, seed=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.snap_aggregation` | `callable` | `present` | `franken_networkx.algorithms.snap_aggregation` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.spanner` | `callable` | `present` | `franken_networkx.algorithms.spanner` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.sparsifiers` | `module` | `excluded` | `franken_networkx.algorithms.sparsifiers` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.sparsifiers.spanner` | `callable` | `present` | `franken_networkx.algorithms.sparsifiers.spanner` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.square_clustering` | `callable` | `present` | `franken_networkx.algorithms.square_clustering` | binding kind and signature match |
@@ -1981,7 +1981,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.transitive_closure_dag` | `callable` | `present` | `franken_networkx.algorithms.transitive_closure_dag` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.transitive_reduction` | `callable` | `present` | `franken_networkx.algorithms.transitive_reduction` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.transitivity` | `callable` | `present` | `franken_networkx.algorithms.transitivity` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.tree_all_pairs_lowest_common_ancestor` | `callable` | `partial` | `franken_networkx.algorithms.tree_all_pairs_lowest_common_ancestor` | signature differs: NetworkX `(G, root=None, pairs=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.tree_all_pairs_lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.tree_all_pairs_lowest_common_ancestor` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.tree_broadcast_center` | `callable` | `present` | `franken_networkx.algorithms.tree_broadcast_center` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.tree_broadcast_time` | `callable` | `present` | `franken_networkx.algorithms.tree_broadcast_time` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.triad_type` | `callable` | `present` | `franken_networkx.algorithms.triad_type` | binding kind and signature match |
@@ -1994,17 +1994,17 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.triads.triads_by_type` | `callable` | `present` | `franken_networkx.algorithms.triads.triads_by_type` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.triads_by_type` | `callable` | `present` | `franken_networkx.algorithms.triads_by_type` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.triangles` | `callable` | `present` | `franken_networkx.algorithms.triangles` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.tutte_polynomial` | `callable` | `partial` | `franken_networkx.algorithms.tutte_polynomial` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.tutte_polynomial` | `callable` | `present` | `franken_networkx.algorithms.tutte_polynomial` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.vitality` | `module` | `excluded` | `franken_networkx.algorithms.vitality` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.vitality.closeness_vitality` | `callable` | `present` | `franken_networkx.algorithms.vitality.closeness_vitality` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.volume` | `callable` | `present` | `franken_networkx.algorithms.volume` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.voronoi` | `module` | `excluded` | `franken_networkx.algorithms.voronoi` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.voronoi.voronoi_cells` | `callable` | `present` | `franken_networkx.algorithms.voronoi.voronoi_cells` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.voronoi_cells` | `callable` | `partial` | `franken_networkx.algorithms.voronoi_cells` | signature differs: NetworkX `(G, center_nodes, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.voronoi_cells` | `callable` | `present` | `franken_networkx.algorithms.voronoi_cells` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.walks` | `module` | `excluded` | `franken_networkx.algorithms.walks` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.walks.number_of_walks` | `callable` | `present` | `franken_networkx.algorithms.walks.number_of_walks` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.weisfeiler_lehman_graph_hash` | `callable` | `partial` | `franken_networkx.algorithms.weisfeiler_lehman_graph_hash` | signature differs: NetworkX `(G, edge_attr=None, node_attr=None, iterations=3, digest_size=16, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.weisfeiler_lehman_subgraph_hashes` | `callable` | `partial` | `franken_networkx.algorithms.weisfeiler_lehman_subgraph_hashes` | signature differs: NetworkX `(G, edge_attr=None, node_attr=None, iterations=3, digest_size=16, include_initial_labels=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.weisfeiler_lehman_graph_hash` | `callable` | `present` | `franken_networkx.algorithms.weisfeiler_lehman_graph_hash` | binding kind and signature match |
+| `algorithms.other` | `networkx.algorithms.weisfeiler_lehman_subgraph_hashes` | `callable` | `present` | `franken_networkx.algorithms.weisfeiler_lehman_subgraph_hashes` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.wiener` | `module` | `excluded` | `franken_networkx.algorithms.wiener` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.wiener.gutman_index` | `callable` | `present` | `franken_networkx.algorithms.wiener.gutman_index` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.wiener.hyper_wiener_index` | `callable` | `present` | `franken_networkx.algorithms.wiener.hyper_wiener_index` | binding kind and signature match |
@@ -2252,44 +2252,44 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.wiener` | `module` | `excluded` | `franken_networkx.wiener` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.wiener_index` | `callable` | `present` | `franken_networkx.wiener_index` | binding kind and signature match |
 | `algorithms.other` | `networkx.within_inter_cluster` | `callable` | `present` | `franken_networkx.within_inter_cluster` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_all_shortest_paths` | `callable` | `partial` | `franken_networkx.algorithms.all_pairs_all_shortest_paths` | signature differs: NetworkX `(G, weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_all_shortest_paths` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_all_shortest_paths` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_bellman_ford_path` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_bellman_ford_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_bellman_ford_path_length` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_bellman_ford_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_dijkstra` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_dijkstra` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_dijkstra_path` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_dijkstra_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_dijkstra_path_length` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_dijkstra_path_length` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_shortest_path` | `callable` | `partial` | `franken_networkx.algorithms.all_pairs_shortest_path` | signature differs: NetworkX `(G, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_shortest_path_length` | `callable` | `partial` | `franken_networkx.algorithms.all_pairs_shortest_path_length` | signature differs: NetworkX `(G, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.all_shortest_paths` | `callable` | `partial` | `franken_networkx.algorithms.all_shortest_paths` | signature differs: NetworkX `(G, source, target, weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_shortest_path` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_shortest_path` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.all_pairs_shortest_path_length` | `callable` | `present` | `franken_networkx.algorithms.all_pairs_shortest_path_length` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.all_shortest_paths` | `callable` | `present` | `franken_networkx.algorithms.all_shortest_paths` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.astar` | `module` | `excluded` | `franken_networkx.algorithms.astar` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.shortest_paths` | `networkx.algorithms.astar_path` | `callable` | `partial` | `franken_networkx.algorithms.astar_path` | signature differs: NetworkX `(G, source, target, heuristic=None, weight='weight', *, cutoff=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.astar_path_length` | `callable` | `partial` | `franken_networkx.algorithms.astar_path_length` | signature differs: NetworkX `(G, source, target, heuristic=None, weight='weight', *, cutoff=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.average_shortest_path_length` | `callable` | `partial` | `franken_networkx.algorithms.average_shortest_path_length` | signature differs: NetworkX `(G, weight=None, method=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.astar_path` | `callable` | `present` | `franken_networkx.algorithms.astar_path` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.astar_path_length` | `callable` | `present` | `franken_networkx.algorithms.astar_path_length` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.average_shortest_path_length` | `callable` | `present` | `franken_networkx.algorithms.average_shortest_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.bellman_ford_path` | `callable` | `present` | `franken_networkx.algorithms.bellman_ford_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.bellman_ford_path_length` | `callable` | `present` | `franken_networkx.algorithms.bellman_ford_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.bellman_ford_predecessor_and_distance` | `callable` | `present` | `franken_networkx.algorithms.bellman_ford_predecessor_and_distance` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.bidirectional_dijkstra` | `callable` | `present` | `franken_networkx.algorithms.bidirectional_dijkstra` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.bidirectional_shortest_path` | `callable` | `partial` | `franken_networkx.algorithms.bidirectional_shortest_path` | signature differs: NetworkX `(G, source, target, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.bidirectional_shortest_path` | `callable` | `present` | `franken_networkx.algorithms.bidirectional_shortest_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.dense` | `module` | `excluded` | `franken_networkx.algorithms.dense` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.shortest_paths` | `networkx.algorithms.dijkstra_path` | `callable` | `present` | `franken_networkx.algorithms.dijkstra_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.dijkstra_path_length` | `callable` | `present` | `franken_networkx.algorithms.dijkstra_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.dijkstra_predecessor_and_distance` | `callable` | `present` | `franken_networkx.algorithms.dijkstra_predecessor_and_distance` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.find_negative_cycle` | `callable` | `present` | `franken_networkx.algorithms.find_negative_cycle` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.floyd_warshall` | `callable` | `partial` | `franken_networkx.algorithms.floyd_warshall` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.floyd_warshall_numpy` | `callable` | `partial` | `franken_networkx.algorithms.floyd_warshall_numpy` | signature differs: NetworkX `(G, nodelist=None, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.floyd_warshall_predecessor_and_distance` | `callable` | `partial` | `franken_networkx.algorithms.floyd_warshall_predecessor_and_distance` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.floyd_warshall` | `callable` | `present` | `franken_networkx.algorithms.floyd_warshall` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.floyd_warshall_numpy` | `callable` | `present` | `franken_networkx.algorithms.floyd_warshall_numpy` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.floyd_warshall_predecessor_and_distance` | `callable` | `present` | `franken_networkx.algorithms.floyd_warshall_predecessor_and_distance` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.generic` | `module` | `excluded` | `franken_networkx.algorithms.generic` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.shortest_paths` | `networkx.algorithms.goldberg_radzik` | `callable` | `present` | `franken_networkx.algorithms.goldberg_radzik` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.has_path` | `callable` | `partial` | `franken_networkx.algorithms.has_path` | signature differs: NetworkX `(G, source, target, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.has_path` | `callable` | `present` | `franken_networkx.algorithms.has_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.johnson` | `callable` | `present` | `franken_networkx.algorithms.johnson` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.multi_source_dijkstra` | `callable` | `present` | `franken_networkx.algorithms.multi_source_dijkstra` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.multi_source_dijkstra_path` | `callable` | `present` | `franken_networkx.algorithms.multi_source_dijkstra_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.multi_source_dijkstra_path_length` | `callable` | `present` | `franken_networkx.algorithms.multi_source_dijkstra_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.negative_edge_cycle` | `callable` | `present` | `franken_networkx.algorithms.negative_edge_cycle` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.predecessor` | `callable` | `partial` | `franken_networkx.algorithms.predecessor` | signature differs: NetworkX `(G, source, target=None, cutoff=None, return_seen=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.reconstruct_path` | `callable` | `partial` | `franken_networkx.algorithms.reconstruct_path` | signature differs: NetworkX `(source, target, predecessors, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.shortest_path` | `callable` | `partial` | `franken_networkx.algorithms.shortest_path` | signature differs: NetworkX `(G, source=None, target=None, weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.shortest_path_length` | `callable` | `partial` | `franken_networkx.algorithms.shortest_path_length` | signature differs: NetworkX `(G, source=None, target=None, weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.predecessor` | `callable` | `present` | `franken_networkx.algorithms.predecessor` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.reconstruct_path` | `callable` | `present` | `franken_networkx.algorithms.reconstruct_path` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.shortest_path` | `callable` | `present` | `franken_networkx.algorithms.shortest_path` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.shortest_path_length` | `callable` | `present` | `franken_networkx.algorithms.shortest_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.shortest_paths` | `module` | `excluded` | `franken_networkx.algorithms.shortest_paths` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.shortest_paths` | `networkx.algorithms.shortest_paths.all_pairs_all_shortest_paths` | `callable` | `present` | `franken_networkx.algorithms.shortest_paths.all_pairs_all_shortest_paths` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.shortest_paths.all_pairs_bellman_ford_path` | `callable` | `present` | `franken_networkx.algorithms.shortest_paths.all_pairs_bellman_ford_path` | binding kind and signature match |
@@ -2395,17 +2395,17 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.shortest_paths` | `networkx.algorithms.shortest_paths.weighted.single_source_dijkstra` | `callable` | `present` | `franken_networkx.algorithms.shortest_paths.weighted.single_source_dijkstra` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.shortest_paths.weighted.single_source_dijkstra_path` | `callable` | `present` | `franken_networkx.algorithms.shortest_paths.weighted.single_source_dijkstra_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.shortest_paths.weighted.single_source_dijkstra_path_length` | `callable` | `present` | `franken_networkx.algorithms.shortest_paths.weighted.single_source_dijkstra_path_length` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.single_source_all_shortest_paths` | `callable` | `partial` | `franken_networkx.algorithms.single_source_all_shortest_paths` | signature differs: NetworkX `(G, source, weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.single_source_all_shortest_paths` | `callable` | `present` | `franken_networkx.algorithms.single_source_all_shortest_paths` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.single_source_bellman_ford` | `callable` | `present` | `franken_networkx.algorithms.single_source_bellman_ford` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.single_source_bellman_ford_path` | `callable` | `present` | `franken_networkx.algorithms.single_source_bellman_ford_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.single_source_bellman_ford_path_length` | `callable` | `present` | `franken_networkx.algorithms.single_source_bellman_ford_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.single_source_dijkstra` | `callable` | `present` | `franken_networkx.algorithms.single_source_dijkstra` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.single_source_dijkstra_path` | `callable` | `present` | `franken_networkx.algorithms.single_source_dijkstra_path` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.single_source_dijkstra_path_length` | `callable` | `present` | `franken_networkx.algorithms.single_source_dijkstra_path_length` | binding kind and signature match |
-| `algorithms.shortest_paths` | `networkx.algorithms.single_source_shortest_path` | `callable` | `partial` | `franken_networkx.algorithms.single_source_shortest_path` | signature differs: NetworkX `(G, source, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.single_source_shortest_path_length` | `callable` | `partial` | `franken_networkx.algorithms.single_source_shortest_path_length` | signature differs: NetworkX `(G, source, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.single_target_shortest_path` | `callable` | `partial` | `franken_networkx.algorithms.single_target_shortest_path` | signature differs: NetworkX `(G, target, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.shortest_paths` | `networkx.algorithms.single_target_shortest_path_length` | `callable` | `partial` | `franken_networkx.algorithms.single_target_shortest_path_length` | signature differs: NetworkX `(G, target, cutoff=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.shortest_paths` | `networkx.algorithms.single_source_shortest_path` | `callable` | `present` | `franken_networkx.algorithms.single_source_shortest_path` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.single_source_shortest_path_length` | `callable` | `present` | `franken_networkx.algorithms.single_source_shortest_path_length` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.single_target_shortest_path` | `callable` | `present` | `franken_networkx.algorithms.single_target_shortest_path` | binding kind and signature match |
+| `algorithms.shortest_paths` | `networkx.algorithms.single_target_shortest_path_length` | `callable` | `present` | `franken_networkx.algorithms.single_target_shortest_path_length` | binding kind and signature match |
 | `algorithms.shortest_paths` | `networkx.algorithms.unweighted` | `module` | `excluded` | `franken_networkx.algorithms.unweighted` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.shortest_paths` | `networkx.algorithms.weighted` | `module` | `excluded` | `franken_networkx.algorithms.weighted` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.shortest_paths` | `networkx.all_pairs_all_shortest_paths` | `callable` | `present` | `franken_networkx.all_pairs_all_shortest_paths` | binding kind and signature match |
@@ -2461,9 +2461,9 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.shortest_paths` | `networkx.unweighted` | `module` | `excluded` | `franken_networkx.unweighted` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.shortest_paths` | `networkx.weighted` | `module` | `excluded` | `franken_networkx.weighted` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.traversal` | `networkx.algorithms.beamsearch` | `module` | `excluded` | `franken_networkx.algorithms.beamsearch` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.traversal` | `networkx.algorithms.bfs_beam_edges` | `callable` | `partial` | `franken_networkx.algorithms.bfs_beam_edges` | signature differs: NetworkX `(G, source, value, width=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.traversal` | `networkx.algorithms.bfs_beam_edges` | `callable` | `present` | `franken_networkx.algorithms.bfs_beam_edges` | binding kind and signature match |
 | `algorithms.traversal` | `networkx.algorithms.bfs_edges` | `callable` | `present` | `franken_networkx.algorithms.bfs_edges` | binding kind and signature match |
-| `algorithms.traversal` | `networkx.algorithms.bfs_labeled_edges` | `callable` | `partial` | `franken_networkx.algorithms.bfs_labeled_edges` | signature differs: NetworkX `(G, sources, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.traversal` | `networkx.algorithms.bfs_labeled_edges` | `callable` | `present` | `franken_networkx.algorithms.bfs_labeled_edges` | binding kind and signature match |
 | `algorithms.traversal` | `networkx.algorithms.bfs_layers` | `callable` | `present` | `franken_networkx.algorithms.bfs_layers` | binding kind and signature match |
 | `algorithms.traversal` | `networkx.algorithms.bfs_predecessors` | `callable` | `present` | `franken_networkx.algorithms.bfs_predecessors` | binding kind and signature match |
 | `algorithms.traversal` | `networkx.algorithms.bfs_successors` | `callable` | `present` | `franken_networkx.algorithms.bfs_successors` | binding kind and signature match |
@@ -2482,7 +2482,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.traversal` | `networkx.algorithms.edge_dfs` | `callable` | `present` | `franken_networkx.algorithms.edge_dfs` | binding kind and signature match |
 | `algorithms.traversal` | `networkx.algorithms.edgebfs` | `module` | `excluded` | `franken_networkx.algorithms.edgebfs` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.traversal` | `networkx.algorithms.edgedfs` | `module` | `excluded` | `franken_networkx.algorithms.edgedfs` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `algorithms.traversal` | `networkx.algorithms.generic_bfs_edges` | `callable` | `partial` | `franken_networkx.algorithms.generic_bfs_edges` | signature differs: NetworkX `(G, source, neighbors=None, depth_limit=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.traversal` | `networkx.algorithms.generic_bfs_edges` | `callable` | `present` | `franken_networkx.algorithms.generic_bfs_edges` | binding kind and signature match |
 | `algorithms.traversal` | `networkx.algorithms.traversal` | `module` | `excluded` | `franken_networkx.algorithms.traversal` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.traversal` | `networkx.algorithms.traversal.beamsearch` | `module` | `excluded` | `franken_networkx.algorithms.traversal.beamsearch` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.traversal` | `networkx.algorithms.traversal.beamsearch.bfs_beam_edges` | `callable` | `present` | `franken_networkx.algorithms.traversal.beamsearch.bfs_beam_edges` | binding kind and signature match |
@@ -2573,27 +2573,27 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.tree` | `networkx.algorithms.NotATree` | `class` | `present` | `franken_networkx.algorithms.NotATree` | binding kind matches; NetworkX exposes no inspectable signature |
 | `algorithms.tree` | `networkx.algorithms.SpanningTreeIterator` | `class` | `present` | `franken_networkx.algorithms.SpanningTreeIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.SpanningTreeIterator.Partition` | `method` | `present` | `franken_networkx.algorithms.SpanningTreeIterator.Partition` | class-member kind and signature match |
-| `algorithms.tree` | `networkx.algorithms.from_nested_tuple` | `callable` | `partial` | `franken_networkx.algorithms.from_nested_tuple` | signature differs: NetworkX `(sequence, sensible_relabeling=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.from_prufer_sequence` | `callable` | `partial` | `franken_networkx.algorithms.from_prufer_sequence` | signature differs: NetworkX `(sequence, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.is_arborescence` | `callable` | `partial` | `franken_networkx.algorithms.is_arborescence` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.is_branching` | `callable` | `partial` | `franken_networkx.algorithms.is_branching` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.is_forest` | `callable` | `partial` | `franken_networkx.algorithms.is_forest` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.is_tree` | `callable` | `partial` | `franken_networkx.algorithms.is_tree` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.join_trees` | `callable` | `partial` | `franken_networkx.algorithms.join_trees` | signature differs: NetworkX `(rooted_trees, *, label_attribute=None, first_label=0, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.junction_tree` | `callable` | `partial` | `franken_networkx.algorithms.junction_tree` | signature differs: NetworkX `(G, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.maximum_branching` | `callable` | `partial` | `franken_networkx.algorithms.maximum_branching` | signature differs: NetworkX `(G, attr='weight', default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.maximum_spanning_arborescence` | `callable` | `partial` | `franken_networkx.algorithms.maximum_spanning_arborescence` | signature differs: NetworkX `(G, attr='weight', default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.maximum_spanning_edges` | `callable` | `partial` | `franken_networkx.algorithms.maximum_spanning_edges` | signature differs: NetworkX `(G, algorithm='kruskal', weight='weight', keys=True, data=True, ignore_nan=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.maximum_spanning_tree` | `callable` | `partial` | `franken_networkx.algorithms.maximum_spanning_tree` | signature differs: NetworkX `(G, weight='weight', algorithm='kruskal', ignore_nan=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.minimum_branching` | `callable` | `partial` | `franken_networkx.algorithms.minimum_branching` | signature differs: NetworkX `(G, attr='weight', default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.minimum_spanning_arborescence` | `callable` | `partial` | `franken_networkx.algorithms.minimum_spanning_arborescence` | signature differs: NetworkX `(G, attr='weight', default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.minimum_spanning_edges` | `callable` | `partial` | `franken_networkx.algorithms.minimum_spanning_edges` | signature differs: NetworkX `(G, algorithm='kruskal', weight='weight', keys=True, data=True, ignore_nan=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.minimum_spanning_tree` | `callable` | `partial` | `franken_networkx.algorithms.minimum_spanning_tree` | signature differs: NetworkX `(G, weight='weight', algorithm='kruskal', ignore_nan=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.number_of_spanning_trees` | `callable` | `partial` | `franken_networkx.algorithms.number_of_spanning_trees` | signature differs: NetworkX `(G, *, root=None, weight=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.partition_spanning_tree` | `callable` | `partial` | `franken_networkx.algorithms.partition_spanning_tree` | signature differs: NetworkX `(G, minimum=True, weight='weight', partition='partition', ignore_nan=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.random_spanning_tree` | `callable` | `partial` | `franken_networkx.algorithms.random_spanning_tree` | signature differs: NetworkX `(G, weight=None, *, multiplicative=True, seed=None, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.to_nested_tuple` | `callable` | `partial` | `franken_networkx.algorithms.to_nested_tuple` | signature differs: NetworkX `(T, root, canonical_form=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.tree` | `networkx.algorithms.to_prufer_sequence` | `callable` | `partial` | `franken_networkx.algorithms.to_prufer_sequence` | signature differs: NetworkX `(T, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.tree` | `networkx.algorithms.from_nested_tuple` | `callable` | `present` | `franken_networkx.algorithms.from_nested_tuple` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.from_prufer_sequence` | `callable` | `present` | `franken_networkx.algorithms.from_prufer_sequence` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.is_arborescence` | `callable` | `present` | `franken_networkx.algorithms.is_arborescence` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.is_branching` | `callable` | `present` | `franken_networkx.algorithms.is_branching` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.is_forest` | `callable` | `present` | `franken_networkx.algorithms.is_forest` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.is_tree` | `callable` | `present` | `franken_networkx.algorithms.is_tree` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.join_trees` | `callable` | `present` | `franken_networkx.algorithms.join_trees` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.junction_tree` | `callable` | `present` | `franken_networkx.algorithms.junction_tree` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.maximum_branching` | `callable` | `present` | `franken_networkx.algorithms.maximum_branching` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.maximum_spanning_arborescence` | `callable` | `present` | `franken_networkx.algorithms.maximum_spanning_arborescence` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.maximum_spanning_edges` | `callable` | `present` | `franken_networkx.algorithms.maximum_spanning_edges` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.maximum_spanning_tree` | `callable` | `present` | `franken_networkx.algorithms.maximum_spanning_tree` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.minimum_branching` | `callable` | `present` | `franken_networkx.algorithms.minimum_branching` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.minimum_spanning_arborescence` | `callable` | `present` | `franken_networkx.algorithms.minimum_spanning_arborescence` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.minimum_spanning_edges` | `callable` | `present` | `franken_networkx.algorithms.minimum_spanning_edges` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.minimum_spanning_tree` | `callable` | `present` | `franken_networkx.algorithms.minimum_spanning_tree` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.number_of_spanning_trees` | `callable` | `present` | `franken_networkx.algorithms.number_of_spanning_trees` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.partition_spanning_tree` | `callable` | `present` | `franken_networkx.algorithms.partition_spanning_tree` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.random_spanning_tree` | `callable` | `present` | `franken_networkx.algorithms.random_spanning_tree` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.to_nested_tuple` | `callable` | `present` | `franken_networkx.algorithms.to_nested_tuple` | binding kind and signature match |
+| `algorithms.tree` | `networkx.algorithms.to_prufer_sequence` | `callable` | `present` | `franken_networkx.algorithms.to_prufer_sequence` | binding kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.tree` | `module` | `excluded` | `franken_networkx.algorithms.tree` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.tree` | `networkx.algorithms.tree.ArborescenceIterator` | `class` | `present` | `franken_networkx.algorithms.tree.ArborescenceIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.tree.ArborescenceIterator.Partition` | `method` | `present` | `franken_networkx.algorithms.tree.ArborescenceIterator.Partition` | class-member kind and signature match |
@@ -4989,11 +4989,11 @@ The FeatureUniverse above measures NetworkX-qualified import and signature surfa
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 1 | 0% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 735 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
+| PY_WRAPPER | 741 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 28 | 3% | public classes, exceptions, iterators |
-| CONSTANT | 29 | 3% | public non-callable values |
-| **Total public exports** | **793** | | unique names from `franken_networkx.__all__` |
+| CONSTANT | 30 | 3% | public non-callable values |
+| **Total public exports** | **800** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -5004,13 +5004,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 610 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 125 | 181 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 617 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 124 | 180 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
-| CONSTANT | 29 | 0 | public non-callable values |
+| CONSTANT | 30 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 125 public export(s) and 181 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 124 public export(s) and 180 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -5020,7 +5020,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 125 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 124 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -5108,7 +5108,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `dominating_set` | 1 | `dominating_set` |
 | `eccentricity` | 2 | `eccentricity` |
 | `edge_betweenness_centrality` | 2 | `edge_betweenness_centrality` |
-| `edge_boundary` | 1 | `edge_boundary` |
 | `edge_connectivity` | 4 | `edge_connectivity` |
 | `edge_disjoint_paths` | 2 | `edge_disjoint_paths` |
 | `effective_size` | 2 | `effective_size` |
@@ -5199,9 +5198,9 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 680 |
+| `franken_networkx` | 687 |
 | `franken_networkx.readwrite` | 32 |
-| `builtins` | 28 |
+| `builtins` | 29 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
@@ -5209,13 +5208,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `franken_networkx.bridges` | 1 |
 | `franken_networkx.reciprocity` | 1 |
 | `networkx.algorithms.tree.coding` | 1 |
-| `networkx.utils.configs` | 1 |
 
 ## RUST_NATIVE exports (1)
 
 - `is_empty`
 
-## PY_WRAPPER exports (735)
+## PY_WRAPPER exports (741)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -5320,6 +5318,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `communicability`
 - `communicability_betweenness_centrality`
 - `communicability_exp`
+- `compatibility_mode`
 - `complement`
 - `complete_bipartite_graph`
 - `complete_graph`
@@ -5358,6 +5357,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `dag_longest_path_length`
 - `dag_to_branching`
 - `davis_southern_women_graph`
+- `decision_records`
 - `dedensify`
 - `degree`
 - `degree_assortativity_coefficient`
@@ -5402,6 +5402,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `dominating_set`
 - `dorogovtsev_goltsev_mendes_graph`
 - `double_edge_swap`
+- `drain_decision_records`
 - `draw`
 - `draw_bipartite`
 - `draw_circular`
@@ -5500,6 +5501,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `geographical_threshold_graph`
 - `geometric_edges`
 - `geometric_soft_configuration_graph`
+- `get_compatibility_mode`
 - `get_edge_attributes`
 - `get_node_attributes`
 - `girth`
@@ -5801,6 +5803,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `read_gml`
 - `read_graph6`
 - `read_graphml`
+- `read_json_graph`
 - `read_leda`
 - `read_multiline_adjlist`
 - `read_pajek`
@@ -5830,6 +5833,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `second_order_centrality`
 - `sedgewick_maze_graph`
 - `selfloop_edges`
+- `set_compatibility_mode`
 - `set_edge_attributes`
 - `set_node_attributes`
 - `shell_layout`
@@ -5987,7 +5991,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `TimeRespectingDiGraphMatcher`
 - `TimeRespectingGraphMatcher`
 
-## CONSTANT exports (29)
+## CONSTANT exports (30)
 
 - `__version__`
 - `approximation`
@@ -6006,6 +6010,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `isomorphism`
 - `minors`
 - `moral`
+- `node_classification`
 - `operators`
 - `planarity`
 - `readwrite`

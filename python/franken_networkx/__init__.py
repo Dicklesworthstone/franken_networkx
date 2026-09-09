@@ -27795,7 +27795,6 @@ def read_edgelist(
     encoding="utf-8",
     *,
     backend=None,
-    mode=None,
     **backend_kwargs,
 ):
     """Read a graph from a list of edges.
@@ -27804,6 +27803,7 @@ def read_edgelist(
     and all nx kwargs (``nodetype``, ``create_using``, ``data``, ...) are
     honoured. The Rust-native ``read_edgelist`` only accepts ``(path,)``.
     """
+    mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         if (
@@ -27903,7 +27903,8 @@ def read_adjlist(
     nodetype=None,
     encoding="utf-8",
     *,
-    mode=None,
+    backend=None,
+    **backend_kwargs,
 ):
     """Read a graph from an adjacency list.
 
@@ -27914,6 +27915,8 @@ def read_adjlist(
     ``open_file`` still handles the path / gzip / bz2 / encoding edge cases, so
     behaviour is unchanged; only the parser + builder become native.
     """
+    mode = backend_kwargs.pop("mode", None)
+    _validate_backend_dispatch_keywords("read_adjlist", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         if (
             comments == "#"
@@ -28049,7 +28052,8 @@ def read_graphml(
     edge_key_type=int,
     force_multigraph=False,
     *,
-    mode=None,
+    backend=None,
+    **backend_kwargs,
 ):
     """Read a graph in GraphML format.
 
@@ -28057,6 +28061,8 @@ def read_graphml(
     ``edge_key_type``, and ``force_multigraph`` kwargs are honoured.
     The Rust-native reader only accepts ``(path,)``.
     """
+    mode = backend_kwargs.pop("mode", None)
+    _validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         return _rust_read_graphml(path, mode=mode)
     # br-cc-graphml: for the DEFAULT case, read a FILENAME/Path into memory and
@@ -28098,13 +28104,22 @@ def write_gml(G, path, stringizer=None):
     return _write_gml_via_nx(G, path, stringizer=stringizer)
 
 
-def read_gml(path, label="label", destringizer=None, *, mode=None):
+def read_gml(
+    path,
+    label="label",
+    destringizer=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Read a graph in GML format.
 
     Delegates to NetworkX's parser (br-rgmlnx) so typed scalar
     attributes, ``label``, and ``destringizer`` preserve upstream
     semantics. The raw Rust parser remains available as ``_fnx.read_gml``.
     """
+    mode = backend_kwargs.pop("mode", None)
+    _validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         return _rust_read_gml(path, label=label, destringizer=destringizer, mode=mode)
     return _read_gml_via_nx(path, label=label, destringizer=destringizer)
@@ -37071,7 +37086,8 @@ def node_link_graph(
     key="key",
     edges="edges",
     nodes="nodes",
-    mode=None,
+    backend=None,
+    **backend_kwargs,
 ):
     """Build a graph from node-link data.
 
@@ -37080,6 +37096,8 @@ def node_link_graph(
     public signature. ``directed``/``multigraph`` flags remain
     positional for backwards compat with both libraries.
     """
+    mode = backend_kwargs.pop("mode", None)
+    _validate_backend_dispatch_keywords("node_link_graph", backend, backend_kwargs)
     if mode is not None:
         with compatibility_mode(mode):
             return node_link_graph(
@@ -37092,6 +37110,8 @@ def node_link_graph(
                 key=key,
                 edges=edges,
                 nodes=nodes,
+                backend=backend,
+                **backend_kwargs,
             )
     multigraph = data.get("multigraph", multigraph)
     directed = data.get("directed", directed)
