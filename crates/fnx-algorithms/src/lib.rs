@@ -1060,36 +1060,48 @@ struct WeightedEdgeCandidate {
 /// Returns the shortest path between source and target using BFS.
 #[must_use]
 pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> ShortestPathResult {
-    let path = shortest_path_unweighted_fast(graph, source, target);
-    ShortestPathResult {
-        path,
-        witness: ComplexityWitness {
-            algorithm: "bfs_shortest_path".to_owned(),
-            complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched: 0,
-            edges_scanned: 0,
-            queue_peak: 0,
-        },
-    }
-}
-
-/// Fast internal implementation using integer indices.
-fn shortest_path_unweighted_fast(graph: &Graph, source: &str, target: &str) -> Option<Vec<String>> {
-    let source_idx = graph.get_node_index(source)?;
-    let target_idx = graph.get_node_index(target)?;
+    let source_idx = match graph.get_node_index(source) {
+        Some(idx) => idx,
+        None => {
+            return ShortestPathResult {
+                path: None,
+                witness: ComplexityWitness {
+                    algorithm: "bfs_shortest_path".to_owned(),
+                    complexity_claim: "O(|V| + |E|)".to_owned(),
+                    nodes_touched: 0,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
+            };
+        }
+    };
+    let target_idx = match graph.get_node_index(target) {
+        Some(idx) => idx,
+        None => {
+            return ShortestPathResult {
+                path: None,
+                witness: ComplexityWitness {
+                    algorithm: "bfs_shortest_path".to_owned(),
+                    complexity_claim: "O(|V| + |E|)".to_owned(),
+                    nodes_touched: 0,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
+            };
+        }
+    };
 
     if source_idx == target_idx {
-        return Some(vec![source.to_owned()]);
-    }
-
-    // Avoid an independent edge-map probe on path/cycle-like rows, where the
-    // non-edge case remains dominated by the full BFS.
-    if graph
-        .neighbors_indices(source_idx)
-        .is_some_and(|neighbors| neighbors.len() > 2)
-        && graph.has_edge_by_indices(source_idx, target_idx)
-    {
-        return Some(vec![source.to_owned(), target.to_owned()]);
+        return ShortestPathResult {
+            path: Some(vec![source.to_owned()]),
+            witness: ComplexityWitness {
+                algorithm: "bfs_shortest_path".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        };
     }
 
     let n = graph.node_count();
@@ -1100,33 +1112,61 @@ fn shortest_path_unweighted_fast(graph: &Graph, source: &str, target: &str) -> O
     visited[source_idx] = true;
     queue.push_back(source_idx);
 
+    let mut nodes_touched = 1;
+    let mut edges_scanned = 0;
+    let mut queue_peak = 1;
+
     while let Some(current) = queue.pop_front() {
         if let Some(neighbors) = graph.neighbors_indices(current) {
             for &nbr in neighbors {
+                edges_scanned += 1;
                 if !visited[nbr] {
                     visited[nbr] = true;
                     predecessor[nbr] = Some(current);
                     queue.push_back(nbr);
+                    nodes_touched += 1;
+                    queue_peak = queue_peak.max(queue.len());
 
                     if nbr == target_idx {
                         let mut path = Vec::new();
                         let mut cur = nbr;
-                        loop {
-                            path.push(graph.get_node_name(cur)?.to_owned());
+                        while let Some(node_name) = graph.get_node_name(cur) {
+                            path.push(node_name.to_owned());
                             if cur == source_idx {
                                 break;
                             }
-                            cur = predecessor[cur]?;
+                            match predecessor[cur] {
+                                Some(p) => cur = p,
+                                None => break,
+                            }
                         }
                         path.reverse();
-                        return Some(path);
+                        return ShortestPathResult {
+                            path: Some(path),
+                            witness: ComplexityWitness {
+                                algorithm: "bfs_shortest_path".to_owned(),
+                                complexity_claim: "O(|V| + |E|)".to_owned(),
+                                nodes_touched,
+                                edges_scanned,
+                                queue_peak,
+                            },
+                        };
                     }
                 }
             }
         }
     }
 
-    None
+    ShortestPathResult {
+        path: None,
+        witness: ComplexityWitness {
+            algorithm: "bfs_shortest_path".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
 }
 
 /// Returns the shortest path between source and target in a directed graph using BFS.
@@ -65669,8 +65709,8 @@ mod tests {
             for source in &nodes {
                 for target in &nodes {
                     assert_eq!(
-                        shortest_path_unweighted(graph, source, target),
-                        expected(source, target)
+                        shortest_path_unweighted(graph, source, target).path,
+                        expected(source, target).path
                     );
                 }
             }
@@ -65681,8 +65721,8 @@ mod tests {
                 ("missing", "missing"),
             ] {
                 assert_eq!(
-                    shortest_path_unweighted(graph, source, target),
-                    expected(source, target)
+                    shortest_path_unweighted(graph, source, target).path,
+                    expected(source, target).path
                 );
             }
         }
