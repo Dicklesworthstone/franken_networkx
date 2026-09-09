@@ -920,13 +920,15 @@ impl EdgeView {
         Ok(g.inner.has_edge(u.as_str(), v.as_str()))
     }
 
-    /// networkx's `EdgeView.__contains__`, natively (br-r37-c1-dtrpe)::
+    /// networkx's `EdgeView.__contains__`, natively (br-r37-c1-dtrpe):
     ///
-    ///     try:
-    ///         u, v = e[:2]
-    ///         return v in self._adjdict[u] or u in self._adjdict[v]
-    ///     except (KeyError, ValueError):
-    ///         return False
+    /// ```python
+    /// try:
+    ///     u, v = e[:2]
+    ///     return v in self._adjdict[u] or u in self._adjdict[v]
+    /// except (KeyError, ValueError):
+    ///     return False
+    /// ```
     ///
     /// This used to raise `TypeError("edge must be a (u, v) tuple")` for every
     /// non-tuple spec, and `python/franken_networkx/__init__.py` rebound the
@@ -1266,12 +1268,14 @@ impl EdgeView {
         .map(|iterator| iterator.into_any())
     }
 
-    /// networkx's `EdgeView.__getitem__`, natively (br-r37-c1-ef8rt)::
+    /// networkx's `EdgeView.__getitem__`, natively (br-r37-c1-ef8rt):
     ///
-    ///     if isinstance(e, slice): raise nx.NetworkXError(...)
-    ///     u, v = e
-    ///     try: return self._adjdict[u][v]
-    ///     except KeyError: raise KeyError(f"The edge {e} is not in the graph.")
+    /// ```python
+    /// if isinstance(e, slice): raise nx.NetworkXError(...)
+    /// u, v = e
+    /// try: return self._adjdict[u][v]
+    /// except KeyError: raise KeyError(f"The edge {e} is not in the graph.")
+    /// ```
     ///
     /// `G.edges[u, v]` was the worst read probe on the surface at 0.25x, and
     /// this slot was DEAD: `python/franken_networkx/__init__.py` rebound

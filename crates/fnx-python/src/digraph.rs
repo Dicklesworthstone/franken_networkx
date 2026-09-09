@@ -15113,11 +15113,12 @@ impl PyDiGraph {
     /// gap is exactly the shape of that omission (harness A, 41 rounds, dual A/A
     /// nulls, two agreeing runs, worst bound quoted; nx 3.6.1, 400 nodes,
     /// 1200 edges, ratio t_networkx/t_fnx):
-    ///
-    ///     attrs   Graph (has kernel)   DiGraph (no kernel)
-    ///     0            1.9852x               0.7668x
-    ///     3            0.9758x               0.5521x
-    ///     8            0.7436x               0.4228x
+    /// ```text
+    /// attrs   Graph (has kernel)   DiGraph (no kernel)
+    /// 0            1.9852x               0.7668x
+    /// 3            0.9758x               0.5521x
+    /// 8            0.7436x               0.4228x
+    /// ```
     ///
     /// Without the kernel the Python path does a full attributed ROUND-TRIP —
     /// `nodes(data=True)` / `edges(data=True)` materialise every store `AttrMap`

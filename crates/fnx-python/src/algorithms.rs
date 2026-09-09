@@ -21413,8 +21413,10 @@ struct MultiDiDijkstraTargetScratch {
     /// `distances`, `all_int_paths` and finalisation are each read through a stamp
     /// check so a stale value reads as absent. `predecessors` was read RAW:
     ///
-    ///     let predecessor = (scratch.predecessors[node_idx] != usize::MAX)
-    ///         .then_some(scratch.predecessors[node_idx]);
+    /// ```rust,ignore
+    /// let predecessor = (scratch.predecessors[node_idx] != usize::MAX)
+    ///     .then_some(scratch.predecessors[node_idx]);
+    /// ```
     ///
     /// so after a 30-node graph left `predecessors[1] = 22`, a later 3-node graph
     /// reported node 1's predecessor as 22, and the caller's

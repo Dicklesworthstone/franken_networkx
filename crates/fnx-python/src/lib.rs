@@ -264,9 +264,10 @@ pub(crate) fn require_hashable_node_key(key: &Bound<'_, PyAny>) -> PyResult<()> 
 ///
 /// br-r37-c1-q32e6: CPython 3.14 gives a dict subscript a longer `TypeError`
 /// than a bare hash does —
-///
-///     d[k]      cannot use 'X' as a dict key (unhashable type: 'X')
-///     hash(k)   unhashable type: 'X'
+/// ```text
+/// d[k]      cannot use 'X' as a dict key (unhashable type: 'X')
+/// hash(k)   unhashable type: 'X'
+/// ```
 ///
 /// networkx reaches every node and edge key through a real dict, so it always
 /// produces the first. fnx pre-checks hashability with `hash()` — deliberately,
