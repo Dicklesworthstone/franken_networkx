@@ -1,6 +1,7 @@
 /target
 /target-codex
 target-codex-*/
+/target-ci
 **/*.rs.bk
 
 # rch (remote cargo helper) per-job artifact directories — accidentally

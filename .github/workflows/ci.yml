@@ -249,7 +249,7 @@ jobs:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
       - name: Install oracle capture dependencies
-        run: pip install networkx
+        run: pip install networkx numpy scipy
       - name: Capture oracle fixtures
         run: python3 scripts/capture_oracle_fixtures.py
       - name: Run curated conformance evidence harness
@@ -303,7 +303,7 @@ jobs:
       - name: Install UBS
         run: |
           mkdir -p "$HOME/.local/bin"
-          curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/ubs \
+          curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/ubs \
             -o "$HOME/.local/bin/ubs"
           chmod +x "$HOME/.local/bin/ubs"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
