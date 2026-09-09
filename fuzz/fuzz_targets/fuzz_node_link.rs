@@ -1,6 +1,7 @@
 #![no_main]
 
 use fnx_python::{parse_raw_node_link_json, RawNodeLinkReport};
+use fnx_runtime::CompatibilityMode;
 use libfuzzer_sys::fuzz_target;
 
 fn sanitized_identifier(data: &[u8], fallback: &str) -> String {
@@ -54,7 +55,12 @@ fuzz_target!(|data: &[u8]| {
 
     // Free-form payload: just exercise the parser; corrupted input is
     // expected to fail closed.
-    let _ = parse_raw_node_link_json(raw_input);
+    let mode = if data.first().copied().unwrap_or(0) % 2 == 0 {
+        CompatibilityMode::Strict
+    } else {
+        CompatibilityMode::Hardened
+    };
+    let _ = parse_raw_node_link_json(raw_input, mode);
 
     let split = (data.len() / 4).max(1);
     let node_a = sanitized_identifier(&data[..data.len().min(split)], "a");
@@ -92,7 +98,7 @@ fuzz_target!(|data: &[u8]| {
     // they may collapse to 1 if both sanitize to the same identifier)
     // and the |E| ≤ 1 we requested. Catches any drift in the parser
     // that silently drops or duplicates the structural envelope.
-    if let Ok(report) = parse_raw_node_link_json(&payload) {
+    if let Ok(report) = parse_raw_node_link_json(&payload, CompatibilityMode::Strict) {
         let (nodes, edges) = match report {
             RawNodeLinkReport::Undirected(r) => {
                 (r.graph.node_count(), r.graph.edge_count())

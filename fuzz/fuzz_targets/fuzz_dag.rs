@@ -184,8 +184,13 @@ fuzz_target!(|input: DagInput| {
         DagInput::TopologicalGenerations(dag) => {
             assert_valid_topological_generations(
                 &dag.graph,
-                fnx_algorithms::topological_generations(&dag.graph)
-                    .map(|result| result.generations),
+                fnx_algorithms::topological_generations(&dag.graph).map(|result| {
+                    result
+                        .generations
+                        .into_iter()
+                        .map(|generation| generation.into_iter().map(|(node, _)| node).collect())
+                        .collect()
+                }),
             );
         }
         DagInput::AllTopologicalSorts(dag) => {
