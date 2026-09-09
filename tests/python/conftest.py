@@ -229,7 +229,10 @@ def _get_process_rss_mb() -> float:
     try:
         import resource
 
-        return float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0
+        raw_rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if sys.platform == "darwin":
+            return raw_rss / (1024.0 * 1024.0)
+        return raw_rss / 1024.0
     except Exception:
         return 0.0
 

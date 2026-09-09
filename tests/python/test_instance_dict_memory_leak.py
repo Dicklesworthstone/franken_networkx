@@ -22,8 +22,15 @@ def _get_rss_mb() -> float:
                     return int(line.split()[1]) / 1024.0
     except (OSError, ValueError, IndexError):
         pass
-    import resource
-    return float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0
+    try:
+        import resource
+
+        raw_rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if sys.platform == "darwin":
+            return raw_rss / (1024.0 * 1024.0)
+        return raw_rss / 1024.0
+    except Exception:
+        return 0.0
 
 
 @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph])
