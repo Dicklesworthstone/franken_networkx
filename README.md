@@ -358,7 +358,8 @@ Two compatibility doctrines, both available at runtime:
 
 The mode is configured via `fnx.config`, scoped context managers, or per-call reader arguments:
 
-```python
+<!-- skip-verify: illustrative snippet demonstrating hypothetical input files -->
+```python skip-verify
 import franken_networkx as fnx
 
 # 1. Process-wide configuration (mirrors nx.config):
