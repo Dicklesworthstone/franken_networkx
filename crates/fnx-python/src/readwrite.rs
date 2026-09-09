@@ -969,9 +969,11 @@ fn parse_edgelist_chunk<'a>(chunk: &'a str, mode: EdgelistMode) -> Option<Edgeli
         let mut weight = None;
         match mode {
             EdgelistMode::DataTrue => {
-                if extra.is_some() {
-                    // nx: TypeError("Failed to convert edge data ...").
-                    return None;
+                if let Some(extra_str) = extra {
+                    if extra_str != "{}" || fields.next().is_some() {
+                        // nx: TypeError("Failed to convert edge data ...").
+                        return None;
+                    }
                 }
             }
             EdgelistMode::DataFalse => {

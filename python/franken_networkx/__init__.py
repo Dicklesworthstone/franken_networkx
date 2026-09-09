@@ -27823,7 +27823,7 @@ def read_edgelist(
         and (data is True or data is False)
         and edgetype is None
         and encoding == "utf-8"
-        and isinstance(path, str)
+        and (isinstance(path, str) or hasattr(path, "__fspath__"))
     ):
         native = _read_edgelist_simple_via_open_file(
             path,
