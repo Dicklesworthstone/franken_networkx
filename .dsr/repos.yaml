@@ -21,8 +21,8 @@ tools:
       - windows/amd64
     checks:
       - cargo fmt --all -- --check
-      - cargo check --workspace --all-targets
-      - cargo clippy --workspace --all-targets -- -D warnings
-      - cargo test -p fnx-classes -p fnx-views -p fnx-dispatch -p fnx-convert -p fnx-algorithms -p fnx-generators -p fnx-readwrite -p fnx-durability -p fnx-runtime
+      - RCH_QUEUE_WHEN_BUSY=1 cargo check --workspace --all-targets
+      - RCH_QUEUE_WHEN_BUSY=1 cargo clippy --workspace --all-targets -- -D warnings
+      - RCH_QUEUE_WHEN_BUSY=1 cargo test -p fnx-classes -p fnx-views -p fnx-dispatch -p fnx-convert -p fnx-algorithms -p fnx-generators -p fnx-readwrite -p fnx-durability -p fnx-runtime
       - .venv/bin/python scripts/verify_docs.py
       - ./scripts/run_pytest_guarded.sh tests/python/test_instance_dict_memory_leak.py tests/python/test_error_messages.py tests/python/test_thread_safety.py tests/python/test_coverage_gaps.py
