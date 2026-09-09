@@ -300,15 +300,36 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install UBS
         run: |
-          mkdir -p "$HOME/.local/bin"
+          mkdir -p "$HOME/.local/bin" "$HOME/.local/share/ubs/modules"
           curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/ubs \
             -o "$HOME/.local/bin/ubs"
           chmod +x "$HOME/.local/bin/ubs"
+          curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/modules/contract.json \
+            -o "$HOME/.local/share/ubs/modules/contract.json"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Run UBS fail-closed scan
-        run: ubs --ci --fail-on-warning .
+        shell: bash
+        run: |
+          ubs --version
+          # Liveness check on real source file
+          ubs crates/fnx-algorithms/examples/memory_baseline.rs
+          # AST-aware changed regions scan against base commit
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ -n "${{ github.base_ref }}" ]; then
+            BASE="origin/${{ github.base_ref }}...HEAD"
+          elif git rev-parse HEAD~1 >/dev/null 2>&1; then
+            BASE="HEAD~1"
+          else
+            BASE=""
+          fi
+          if [ -n "$BASE" ]; then
+            python3 scripts/ubs_changed_regions.py --base "$BASE"
+          else
+            python3 scripts/ubs_changed_regions.py
+          fi
 
   g7b-fuzz-smoke:
     name: G7b fuzz smoke

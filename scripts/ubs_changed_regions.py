@@ -83,9 +83,13 @@ def _git(*args: str) -> str:
     ).stdout
 
 
-def changed_source_files(staged: bool) -> list[pathlib.Path]:
+def changed_source_files(
+    staged: bool, base: str | None = None
+) -> list[pathlib.Path]:
     args = ["diff", "--name-only", "--diff-filter=ACMR"]
-    if staged:
+    if base:
+        args.append(base)
+    elif staged:
         args.append("--cached")
     names = _git(*args).split()
     return [
@@ -95,10 +99,14 @@ def changed_source_files(staged: bool) -> list[pathlib.Path]:
     ]
 
 
-def changed_line_numbers(path: pathlib.Path, staged: bool) -> set[int]:
+def changed_line_numbers(
+    path: pathlib.Path, staged: bool, base: str | None = None
+) -> set[int]:
     """1-based line numbers touched in `path`, from the unified diff hunks."""
     args = ["diff", "-U0"]
-    if staged:
+    if base:
+        args.append(base)
+    elif staged:
         args.append("--cached")
     diff = _git(*args, "--", str(path.relative_to(REPO)))
     touched: set[int] = set()
@@ -218,13 +226,17 @@ def build_slice(path: pathlib.Path, touched: set[int]) -> pathlib.Path | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--staged", action="store_true", help="use the git index")
+    parser.add_argument(
+        "--base",
+        help="git revision or range to diff against (e.g. HEAD~1, origin/main...HEAD)",
+    )
     parser.add_argument("paths", nargs="*", help="explicit files (default: changed)")
     args = parser.parse_args()
 
     if args.paths:
         targets = [pathlib.Path(p).resolve() for p in args.paths]
     else:
-        targets = changed_source_files(args.staged)
+        targets = changed_source_files(args.staged, args.base)
     if not targets:
         print("no changed Python or Rust files; nothing to scan")
         return 0
@@ -235,7 +247,7 @@ def main() -> int:
         if line_count <= WHOLE_FILE_LINE_LIMIT:
             to_scan.append(path)
             continue
-        touched = changed_line_numbers(path, args.staged)
+        touched = changed_line_numbers(path, args.staged, args.base)
         if not touched:
             print(f"{path.name}: {line_count} lines, no diff hunks — skipped")
             continue

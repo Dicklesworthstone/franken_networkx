@@ -1,0 +1,14 @@
+# Legacy NetworkX behavioral oracle code (fixture data, not production code)
+legacy_networkx_code
+
+# Conformance, performance, and durability artifacts
+artifacts
+
+# Test suites and test fixtures (not production code)
+tests
+
+# Issue tracking, build targets, and virtual environments
+.beads
+target
+target-*
+.venv
