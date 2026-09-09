@@ -1,6 +1,6 @@
 [package]
 name = "fnx-durability"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "RaptorQ sidecar durability artifacts for FrankenNetworkX"
 license-file = "../../LICENSE"

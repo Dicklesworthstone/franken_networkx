@@ -8,12 +8,26 @@ INDEX_URL="${INDEX_URL:-}"
 EXTRA_INDEX_URL="${EXTRA_INDEX_URL:-}"
 DIST_DIR="${DIST_DIR:-}"
 PACKAGE_NAME="${PACKAGE_NAME:-franken-networkx}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN" ]]; then
+  if command -v python3 &>/dev/null; then
+    PYTHON_BIN="python3"
+  else
+    PYTHON_BIN="python"
+  fi
+fi
 VENV_DIR="${VENV_DIR:-.venv-pypi-smoke}"
 
 rm -rf "$VENV_DIR"
 "$PYTHON_BIN" -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
+if [[ -f "$VENV_DIR/bin/activate" ]]; then
+  source "$VENV_DIR/bin/activate"
+elif [[ -f "$VENV_DIR/Scripts/activate" ]]; then
+  source "$VENV_DIR/Scripts/activate"
+else
+  echo "Error: cannot find venv activation script"
+  exit 1
+fi
 
 python -m pip install --upgrade pip
 

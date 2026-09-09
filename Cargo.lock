@@ -811,7 +811,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "fnx-algorithms"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "criterion",
  "dhat",
@@ -832,7 +832,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-cgse"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "blake3",
  "hex",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-classes"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fnx-runtime",
  "indexmap",
@@ -853,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-conformance"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fnx-algorithms",
  "fnx-cgse",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-convert"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fnx-classes",
  "fnx-dispatch",
@@ -884,7 +884,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-dispatch"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fnx-runtime",
  "serde",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-durability"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64",
  "blake3",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-generators"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fnx-classes",
  "fnx-runtime",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-python"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "arrayvec",
  "criterion",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-readwrite"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fnx-classes",
  "fnx-dispatch",
@@ -954,7 +954,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-runtime"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "asupersync",
  "ftui",
@@ -965,7 +965,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-views"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fnx-classes",
 ]

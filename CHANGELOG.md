@@ -8,7 +8,7 @@ Scope window: project inception on 2026-02-13 through HEAD on 2026-08-19.
 
 | Version | Kind | Date | Summary |
 |---------|------|------|---------|
-| Unreleased | commits on `main` | 2026-06-21 → 2026-08-19 | vs-NetworkX native-store/views campaign + 2026-08-19 janitor docs-reorg |
+| [`v0.2.1`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.1) | Release | 2026-09-08 | First PyPI publication release; 8-way CI parity matrix, multi-OS wheels, runtime numpy dependency |
 | [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0) | Release | 2026-06-21 | First tagged GitHub Release |
 
 `v0.2.0` is the first tagged release **and** the only GitHub Release
@@ -208,6 +208,20 @@ MultiDiGraph `add_edge` auto-key `O(N²) → O(N)`, cached MultiGraph
   the Rust API and the Python binding run identical code and produce byte-identical numeric results.
   Determinism (block/Dantzig+Bland entering-edge search, first-minimiser leaving-edge tie-break matching
   Python's `min`) is preserved and covered by `fnx-algorithms` unit tests.
+
+---
+
+## 0.2.1 - 2026-09-08
+
+Workspace version: **0.2.1** (`Cargo.toml`).
+PyPI package name: `franken-networkx` (Development Status :: 4 - Beta, `pip install franken-networkx`).
+First PyPI binary wheel publication release across Linux (x86_64, aarch64, musllinux), macOS (x86_64, aarch64), and Windows (x86_64).
+
+Key updates:
+- **PyPI Release Automation**: Full multi-OS wheel and sdist deployment through `.github/workflows/release.yml` with trusted OIDC publishing.
+- **CI Pipeline Optimization**: 8-way matrix sharding for Gate G4 canonical python parity tests, release native extension builds, and parallel execution.
+- **Runtime Dependency Hardening**: Added `numpy>=1.24` to core dependencies and guarded drawing module imports for clean out-of-the-box installation across Python 3.10 through 3.14.
+- **Multi-OS Gate Green Traversal**: End-to-end multi-platform compilation, clippy linting, and Rust test suite verification across Ubuntu, macOS, and Windows (Gates G0 through G3).
 
 ---
 

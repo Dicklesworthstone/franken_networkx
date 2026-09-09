@@ -8,7 +8,7 @@ dynamic = ["version"]
 requires-python = ">=3.10"
 readme = "README.md"
 description = "High-performance Rust-backed graph library with standalone and NetworkX backend modes"
-dependencies = ["networkx>=3.0"]
+dependencies = ["networkx>=3.0", "numpy>=1.24"]
 license = { text = "MIT" }
 authors = [
     { name = "FrankenNetworkX Contributors" },

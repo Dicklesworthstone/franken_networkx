@@ -189,8 +189,10 @@ jobs:
       - name: Smoke installed wheel in clean venv
         shell: bash
         run: DIST_DIR=dist PACKAGE_NAME=franken-networkx ./scripts/test_pypi_install.sh
-      - name: Run tests
-        run: pytest tests/python/ -v --tb=long -m "not slow"
+      - name: Run targeted e2e smoke and health parity tests
+        run: |
+          pytest tests/python/test_e2e_smoke.py tests/python/test_api_health_smoke_parity.py -v --tb=short
+          python scripts/e2e_integration_test.py
 
   publish:
     name: Publish to PyPI

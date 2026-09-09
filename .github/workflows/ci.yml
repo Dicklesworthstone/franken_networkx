@@ -115,10 +115,14 @@ jobs:
         run: cargo test --workspace
 
   g4-python-tests:
-    name: G4 canonical python parity
+    name: G4 canonical python parity (${{ matrix.shard }}/8)
     needs: g3-rust-tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -135,10 +139,12 @@ jobs:
         run: pip install maturin pytest pytest-xdist hypothesis networkx numpy scipy pandas
       - name: Build and install
         run: maturin develop --release --features pyo3/abi3-py310
-      - name: Run canonical Python parity suite
+      - name: Run canonical Python parity suite shard
         env:
           FNX_TEST_MAX_RSS_MB: "2500"
-        run: pytest tests/python/ -n auto -q --tb=short
+        run: |
+          SHARD_FILES=$(python3 -c "import sys, pathlib; files = sorted(p.as_posix() for p in pathlib.Path('tests/python').glob('test_*.py')); print(' '.join(files[int(sys.argv[1])::int(sys.argv[2])]))" ${{ matrix.shard }} 8)
+          pytest $SHARD_FILES -n auto -q --tb=short
 
   g4b-e2e:
     name: G4b e2e integration
