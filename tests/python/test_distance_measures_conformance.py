@@ -585,3 +585,41 @@ def test_periphery_is_argmax_of_eccentricity(name, edges, nodes):
     d = fnx.diameter(fg)
     expected = {n for n, e in ecc.items() if e == d}
     assert set(fnx.periphery(fg)) == expected
+
+
+def test_mean_geodesic_giant_component_workflow_matches_networkx():
+    """Verify the real whole-job pipeline: read_edgelist -> connected_components -> giant -> average_shortest_path_length.
+
+    Pins exact bit-for-bit parity against NetworkX on the bundled hartford_drug fixture.
+    """
+    import os
+
+    path = os.path.join(
+        os.path.dirname(__file__),
+        "../../legacy_networkx_code/networkx/examples/algorithms/hartford_drug.edgelist",
+    )
+    if not os.path.exists(path):
+        pytest.skip("hartford_drug.edgelist not available")
+
+    g_nx = nx.read_edgelist(path)
+    g_fnx = fnx.read_edgelist(path)
+
+    assert g_fnx.number_of_nodes() == g_nx.number_of_nodes() == 212
+    assert g_fnx.number_of_edges() == g_nx.number_of_edges() == 284
+
+    comps_nx = sorted(nx.connected_components(g_nx), key=len, reverse=True)
+    comps_fnx = sorted(fnx.connected_components(g_fnx), key=len, reverse=True)
+    assert len(comps_fnx) == len(comps_nx) == 9
+
+    giant_nx = g_nx.subgraph(comps_nx[0]).copy()
+    giant_fnx = g_fnx.subgraph(comps_fnx[0]).copy()
+
+    assert giant_fnx.number_of_nodes() == giant_nx.number_of_nodes() == 193
+    assert giant_fnx.number_of_edges() == giant_nx.number_of_edges() == 273
+
+    aspl_nx = nx.average_shortest_path_length(giant_nx)
+    aspl_fnx = fnx.average_shortest_path_length(giant_fnx)
+
+    assert aspl_fnx == aspl_nx
+    assert abs(aspl_fnx - 7.034002590673575) < 1e-12
+
