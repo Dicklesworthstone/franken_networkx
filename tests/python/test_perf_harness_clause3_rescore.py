@@ -145,6 +145,54 @@ def test_claim_incumbent_single_source_shortest_path_has_complete_oracle(monkeyp
     )
 
 
+@pytest.mark.parametrize(
+    "job_name",
+    [
+        "erdos_renyi_graph",
+        "k_corona",
+        "k_crust",
+        "kosaraju_strongly_connected_components",
+        "minimum_branching",
+        "partition_spanning_tree",
+        "to_scipy_sparse_array",
+        "label_propagation_communities",
+        "bidirectional_dijkstra",
+        "shortest_path_weighted",
+    ],
+)
+def test_claim_incumbent_retry_jobs_match_networkx_oracle(monkeypatch, job_name):
+    """The 10 retry claim jobs must keep paired, oracle-matching rows."""
+    import os
+    import numpy as np
+
+    if job_name in ("k_corona", "k_crust") and os.environ.get("PYTHONHASHSEED") != "0":
+        pytest.skip(
+            f"{job_name} claim fixture requires interpreter started with PYTHONHASHSEED=0"
+        )
+
+    monkeypatch.setenv("PYTHONHASHSEED", "0")
+    monkeypatch.setenv("FNX_CLAIM_INCUMBENT_JOBS", job_name)
+    perf_harness.EXTRA_PROVENANCE.clear()
+
+    rows = perf_harness.suite_claim_incumbent()
+    assert len(rows) == 1
+    _label, nx_arm, fnx_arm = rows[0]
+    nx_res = nx_arm()
+    fnx_res = fnx_arm()
+
+    if isinstance(nx_res, np.ndarray):
+        assert np.array_equal(nx_res, fnx_res)
+    elif hasattr(nx_res, "shape") and hasattr(nx_res, "nnz"):
+        assert (nx_res != fnx_res).nnz == 0
+    elif isinstance(nx_res, dict):
+        assert nx_res == fnx_res
+    elif hasattr(nx_res, "nodes") and hasattr(nx_res, "edges"):
+        assert list(nx_res.nodes()) == list(fnx_res.nodes())
+        assert list(nx_res.edges()) == list(fnx_res.edges())
+    else:
+        assert nx_res == fnx_res
+
+
 def test_node_primitives_covers_the_exact_int_absent_has_node_path():
     """The public contract suite must time the negative exact-int miss directly."""
     rows = {
