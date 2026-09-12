@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use fnx_classes::digraph::{DiGraph, DiGraphSnapshot};
-use fnx_classes::{EdgeSnapshot, Graph, GraphSnapshot};
+use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +28,11 @@ impl<'a> GraphView<'a> {
     #[must_use]
     pub fn edges(&self) -> Vec<EdgeSnapshot> {
         self.graph.edges_ordered()
+    }
+
+    #[must_use]
+    pub fn edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.graph.edges_ordered_borrowed()
     }
 
     #[must_use]
@@ -65,6 +70,11 @@ impl<'a> DiGraphView<'a> {
     #[must_use]
     pub fn edges(&self) -> Vec<EdgeSnapshot> {
         self.graph.edges_ordered()
+    }
+
+    #[must_use]
+    pub fn edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.graph.edges_ordered_borrowed()
     }
 
     #[must_use]
@@ -489,5 +499,37 @@ mod tests {
         digraph.remove_edge("a", "b");
         let r2 = digraph.revision();
         assert!(r2 > r1);
+    }
+
+    #[test]
+    fn graph_view_edges_borrowed_matches_edges() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add");
+        graph.add_edge("b", "c").expect("edge add");
+        let view = GraphView::new(&graph);
+        let owned = view.edges();
+        let borrowed = view.edges_borrowed();
+        assert_eq!(owned.len(), borrowed.len());
+        for (o, &(bl, br, b_attrs)) in owned.iter().zip(&borrowed) {
+            assert_eq!(o.left, bl);
+            assert_eq!(o.right, br);
+            assert_eq!(&o.attrs, b_attrs);
+        }
+    }
+
+    #[test]
+    fn digraph_view_edges_borrowed_matches_edges() {
+        let mut digraph = DiGraph::strict();
+        digraph.add_edge("x", "y").expect("edge add");
+        digraph.add_edge("y", "z").expect("edge add");
+        let view = DiGraphView::new(&digraph);
+        let owned = view.edges();
+        let borrowed = view.edges_borrowed();
+        assert_eq!(owned.len(), borrowed.len());
+        for (o, &(bl, br, b_attrs)) in owned.iter().zip(&borrowed) {
+            assert_eq!(o.left, bl);
+            assert_eq!(o.right, br);
+            assert_eq!(&o.attrs, b_attrs);
+        }
     }
 }

@@ -130,21 +130,21 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
     }
 
     let mut edge_py_attrs = HashMap::new();
-    for es in g.edges_ordered() {
+    for (es_left, es_right, es_attrs) in g.edges_ordered_borrowed() {
         let left = raw_to_canonical
-            .get(&es.left)
+            .get(es_left)
             .cloned()
-            .unwrap_or_else(|| es.left.clone());
+            .unwrap_or_else(|| (*es_left).to_owned());
         let right = raw_to_canonical
-            .get(&es.right)
+            .get(es_right)
             .cloned()
-            .unwrap_or_else(|| es.right.clone());
+            .unwrap_or_else(|| (*es_right).to_owned());
         inner
-            .add_edge_with_attrs(left.clone(), right.clone(), es.attrs.clone())
+            .add_edge_with_attrs(left.clone(), right.clone(), es_attrs.clone())
             .map_err(|err| PyRuntimeError::new_err(format!("failed to import edge: {err}")))?;
         let key = PyGraph::edge_key(&left, &right);
         let d = PyDict::new(py);
-        for (k, v) in &es.attrs {
+        for (k, v) in es_attrs {
             d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
         }
         edge_py_attrs.insert(key, d.unbind());
@@ -208,21 +208,21 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
     }
 
     let mut edge_py_attrs = HashMap::new();
-    for es in g.edges_ordered() {
+    for (es_left, es_right, es_attrs) in g.edges_ordered_borrowed() {
         let left = raw_to_canonical
-            .get(&es.left)
+            .get(es_left)
             .cloned()
-            .unwrap_or_else(|| es.left.clone());
+            .unwrap_or_else(|| (*es_left).to_owned());
         let right = raw_to_canonical
-            .get(&es.right)
+            .get(es_right)
             .cloned()
-            .unwrap_or_else(|| es.right.clone());
+            .unwrap_or_else(|| (*es_right).to_owned());
         inner
-            .add_edge_with_attrs(left.clone(), right.clone(), es.attrs.clone())
+            .add_edge_with_attrs(left.clone(), right.clone(), es_attrs.clone())
             .map_err(|err| PyRuntimeError::new_err(format!("failed to import edge: {err}")))?;
         let key = PyDiGraph::edge_key(&left, &right);
         let d = PyDict::new(py);
-        for (k, v) in &es.attrs {
+        for (k, v) in es_attrs {
             d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
         }
         edge_py_attrs.insert(key, d.unbind());
@@ -3365,9 +3365,7 @@ pub fn to_edgelist_simple(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Opti
     let result = PyList::empty(py);
     match &gr {
         GraphRef::Undirected(pg) => {
-            for edge in pg.inner.edges_ordered() {
-                let u = edge.left.as_str();
-                let v = edge.right.as_str();
+            for (u, v, _attrs) in pg.inner.edges_ordered_borrowed() {
                 let ek = PyGraph::edge_key(u, v);
                 let attrs = pg
                     .edge_py_attrs
@@ -3377,9 +3375,7 @@ pub fn to_edgelist_simple(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Opti
             }
         }
         GraphRef::Directed { dg, .. } => {
-            for edge in dg.inner.edges_ordered() {
-                let u = edge.left.as_str();
-                let v = edge.right.as_str();
+            for (u, v, _attrs) in dg.inner.edges_ordered_borrowed() {
                 let ek = PyDiGraph::edge_key(u, v);
                 let attrs = dg
                     .edge_py_attrs

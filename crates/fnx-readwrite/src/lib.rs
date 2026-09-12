@@ -1099,9 +1099,9 @@ impl EdgeListEngine {
             node_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
         }
 
-        let edges = graph.edges_ordered();
-        for edge in &edges {
-            for (key, value) in &edge.attrs {
+        let edges = graph.edges_ordered_borrowed();
+        for &(_left, _right, attrs) in &edges {
+            for (key, value) in attrs {
                 edge_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
             }
         }
@@ -1286,17 +1286,17 @@ impl EdgeListEngine {
         }
 
         // Emit <edge> elements.
-        for edge in &edges {
-            let has_data = !edge.attrs.is_empty();
+        for &(left, right, attrs) in &edges {
+            let has_data = !attrs.is_empty();
             let mut edge_elem = BytesStart::new("edge");
-            edge_elem.push_attribute(("source", edge.left.as_str()));
-            edge_elem.push_attribute(("target", edge.right.as_str()));
+            edge_elem.push_attribute(("source", left));
+            edge_elem.push_attribute(("target", right));
 
             if has_data {
                 writer
                     .write_event(Event::Start(edge_elem))
                     .map_err(|e| xml_write_err("edge_start", e))?;
-                for (attr_name, attr_value) in &edge.attrs {
+                for (attr_name, attr_value) in attrs {
                     let attr_type = GraphmlValueType::from_value(attr_value);
                     let key = (attr_name.clone(), attr_type);
                     let key_id =
@@ -2642,9 +2642,9 @@ impl EdgeListEngine {
                 }
             }
         }
-        let edges = graph.edges_ordered();
-        for edge in &edges {
-            for (key, value) in &edge.attrs {
+        let edges = graph.edges_ordered_borrowed();
+        for &(_left, _right, attrs) in &edges {
+            for (key, value) in attrs {
                 if key == "id" || key == "weight" {
                     continue;
                 }
@@ -2730,22 +2730,20 @@ impl EdgeListEngine {
         writer
             .write_event(Event::Start(BytesStart::new("edges")))
             .map_err(|e| xml_write_err_for("write_gexf", "edges_start", e))?;
-        for (idx, edge) in edges.iter().enumerate() {
+        for (idx, &(left, right, attrs)) in edges.iter().enumerate() {
             let mut edge_elem = BytesStart::new("edge");
-            edge_elem.push_attribute(("source", edge.left.as_str()));
-            edge_elem.push_attribute(("target", edge.right.as_str()));
-            let edge_id = edge
-                .attrs
+            edge_elem.push_attribute(("source", left));
+            edge_elem.push_attribute(("target", right));
+            let edge_id = attrs
                 .get("id")
                 .map(gexf_value_str)
                 .unwrap_or_else(|| idx.to_string());
             edge_elem.push_attribute(("id", edge_id.as_str()));
-            let weight = edge.attrs.get("weight").map(gexf_value_str);
+            let weight = attrs.get("weight").map(gexf_value_str);
             if let Some(weight) = weight.as_ref() {
                 edge_elem.push_attribute(("weight", weight.as_str()));
             }
-            let gexf_attrs = edge
-                .attrs
+            let gexf_attrs = attrs
                 .iter()
                 .filter(|(key, _)| key.as_str() != "id" && key.as_str() != "weight")
                 .collect::<Vec<_>>();
@@ -4907,7 +4905,7 @@ fn gml_unescape(s: &str) -> String {
 trait GraphLikeRead {
     fn nodes_ordered(&self) -> Vec<&str>;
     fn node_attrs(&self, node: &str) -> Option<&AttrMap>;
-    fn edges_ordered(&self) -> Vec<fnx_classes::EdgeSnapshot>;
+    fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)>;
     fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)>;
 }
 
@@ -4918,8 +4916,8 @@ impl GraphLikeRead for Graph {
     fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
         self.node_attrs(node)
     }
-    fn edges_ordered(&self) -> Vec<fnx_classes::EdgeSnapshot> {
-        self.edges_ordered()
+    fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_ordered_borrowed()
     }
     fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         self.edges_storage_order_borrowed()
@@ -4933,8 +4931,8 @@ impl GraphLikeRead for DiGraph {
     fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
         self.node_attrs(node)
     }
-    fn edges_ordered(&self) -> Vec<fnx_classes::EdgeSnapshot> {
-        self.edges_ordered()
+    fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_ordered_borrowed()
     }
     fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         self.edges_ordered_borrowed()

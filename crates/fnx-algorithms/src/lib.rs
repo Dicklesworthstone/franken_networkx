@@ -47830,11 +47830,7 @@ pub fn union_all(graphs: &[&Graph]) -> Result<Graph, String> {
             let _ = result.add_node(node.to_owned());
         }
         for (u, v, attrs) in g.edges_ordered_borrowed() {
-            let _ = result.add_edge_with_attrs(
-                u,
-                v,
-                attrs.clone(),
-            );
+            let _ = result.add_edge_with_attrs(u, v, attrs.clone());
         }
     }
     Ok(result)
@@ -47864,10 +47860,7 @@ pub fn intersection_all(graphs: &[&Graph]) -> Graph {
         if !common.contains(u) || !common.contains(v) {
             continue;
         }
-        if graphs[1..]
-            .iter()
-            .all(|g| g.has_edge(u, v))
-        {
+        if graphs[1..].iter().all(|g| g.has_edge(u, v)) {
             let _ = result.add_edge(u, v);
         }
     }
@@ -53250,8 +53243,8 @@ pub fn trophic_differences(digraph: &DiGraph) -> std::collections::HashMap<(Stri
     }
     let mut result = std::collections::HashMap::new();
     for (left, right, _attrs) in digraph.edges_ordered_borrowed() {
-        let diff = levels.get(right).copied().unwrap_or(0.0)
-            - levels.get(left).copied().unwrap_or(0.0);
+        let diff =
+            levels.get(right).copied().unwrap_or(0.0) - levels.get(left).copied().unwrap_or(0.0);
         result.insert((left.to_owned(), right.to_owned()), diff);
     }
     result
