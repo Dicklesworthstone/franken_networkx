@@ -8,6 +8,7 @@ Scope window: project inception on 2026-02-13 through HEAD on 2026-08-19.
 
 | Version | Kind | Date | Summary |
 |---------|------|------|---------|
+| [`v0.2.2`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.2) | Release | 2026-09-11 | DSR authority release; dependency updates, security advisory resolutions, giant-component mean geodesic parity tests |
 | [`v0.2.1`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.1) | Release | 2026-09-08 | First PyPI publication release; 8-way CI parity matrix, multi-OS wheels, runtime numpy dependency |
 | [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0) | Release | 2026-06-21 | First tagged GitHub Release |
 
@@ -208,6 +209,19 @@ MultiDiGraph `add_edge` auto-key `O(N²) → O(N)`, cached MultiGraph
   the Rust API and the Python binding run identical code and produce byte-identical numeric results.
   Determinism (block/Dantzig+Bland entering-edge search, first-minimiser leaving-edge tie-break matching
   Python's `min`) is preserved and covered by `fnx-algorithms` unit tests.
+
+---
+
+## 0.2.2 - 2026-09-11
+
+Workspace version: **0.2.2** (`Cargo.toml`).
+Release and Quality Authority: DSR (Doodlestein Self-Releaser).
+
+Key updates:
+- **Dependency Upgrades & Security Advisory Resolutions**: Updated 128 dependencies across workspace closure via `library-updater`, fixing security advisories for `lru` (RUSTSEC-2026-0253) and `memmap2` (RUSTSEC-2026-0186), as well as replacing yanked crates `chacha20` and `spin`.
+- **DSR Exclusive Authority**: Fully configured portable release infrastructure in `.dsr/repos.d/franken_networkx.yaml` with fail-closed quality certification across 5 target platforms.
+- **Whole-Job Parity Verification**: Added whole-job giant component mean geodesic parity tests and locked claim retry jobs against live NetworkX 3.6.1 oracle.
+- **RCH Queue Hardening**: Wired `RCH_QUEUE_WHEN_BUSY=1` into DSR quality checks for robust remote compilation queueing.
 
 ---
 

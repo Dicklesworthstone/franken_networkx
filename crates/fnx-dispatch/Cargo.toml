@@ -1,11 +1,11 @@
 [package]
 name = "fnx-dispatch"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "Dispatch policy and routing support for FrankenNetworkX algorithms"
 license-file = "../../LICENSE"
 repository.workspace = true
 
 [dependencies]
-fnx-runtime = { version = "0.2.1", path = "../fnx-runtime" }
+fnx-runtime = { version = "0.2.2", path = "../fnx-runtime" }
 serde = { version = "1.0.228", features = ["derive"] }
