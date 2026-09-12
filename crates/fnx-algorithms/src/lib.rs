@@ -9495,27 +9495,10 @@ fn dfs_connectivity_analysis(graph: &Graph) -> DfsConnectivityAnalysis {
         .collect();
     let mut bridge_edges: Vec<(String, String)> = Vec::new();
     if !bridge_set.is_empty() {
-        // br-r37-c1-articidx: the name->index map is only needed to re-orient
-        // bridge endpoints, so build it lazily here instead of up front (a
-        // biconnected / bridgeless graph never pays for it).
-        let index_of: HashMap<&str, usize> = ordered_nodes
-            .iter()
-            .enumerate()
-            .map(|(i, name)| (*name, i))
-            .collect();
-        for edge in graph.edges_ordered_borrowed() {
-            let (lhs, rhs, _) = edge;
-            let li = match index_of.get(lhs) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let ri = match index_of.get(rhs) {
-                Some(&i) => i,
-                None => continue,
-            };
+        for (li, ri) in graph.edges_ordered_indices() {
             let canonical = if li <= ri { (li, ri) } else { (ri, li) };
             if bridge_set.contains(&canonical) {
-                bridge_edges.push((lhs.to_owned(), rhs.to_owned()));
+                bridge_edges.push((ordered_nodes[li].to_owned(), ordered_nodes[ri].to_owned()));
             }
         }
     }
