@@ -1036,6 +1036,11 @@ impl Graph {
             .map_or(0, |idx| self.adj_indices[idx].len())
     }
 
+    #[must_use]
+    pub fn neighbor_count_by_index(&self, idx: usize) -> usize {
+        self.adj_indices.get(idx).map_or(0, |row| row.len())
+    }
+
     /// Return the degree of a node.
     /// Self-loops contribute 2 to the degree (NetworkX convention).
     #[must_use]
@@ -1071,6 +1076,12 @@ impl Graph {
     #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
         self.nodes.get(node)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn node_attrs_by_index(&self, idx: usize) -> Option<&AttrMap> {
+        self.nodes.get_index(idx).map(|(_, attrs)| attrs)
     }
 
     #[must_use]
@@ -2393,9 +2404,7 @@ impl Graph {
     }
 
     #[must_use]
-    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
-        // br-r37-c1-d58s8 P2(b): index-native (see edges_ordered).
-        let node_labels: Vec<&str> = self.nodes.keys().map(|s| s.as_str()).collect();
+    pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edges.len());
         let mut seen = vec![false; self.nodes.len()];
         for (u, row) in self.adj_indices.iter().enumerate() {
@@ -2403,7 +2412,7 @@ impl Graph {
                 if !seen[v] {
                     let pair = if u <= v { (u, v) } else { (v, u) };
                     if let Some(attrs) = self.edges.get(&pair) {
-                        ordered.push((node_labels[u], node_labels[v], attrs));
+                        ordered.push((u, v, attrs));
                     }
                 }
             }
@@ -2411,6 +2420,16 @@ impl Graph {
         }
 
         ordered
+    }
+
+    #[must_use]
+    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        // br-r37-c1-d58s8 P2(b): index-native (see edges_ordered).
+        let node_labels = self.nodes_ordered();
+        self.edges_ordered_indices_borrowed()
+            .into_iter()
+            .map(|(u, v, attrs)| (node_labels[u], node_labels[v], attrs))
+            .collect()
     }
 
     /// br-r37-c1-wsize (cc): integer `size(weight)` straight from the CgseValue

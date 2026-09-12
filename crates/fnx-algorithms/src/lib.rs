@@ -10569,10 +10569,7 @@ fn signed_edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_
 /// overhead on BA5000.
 #[must_use]
 pub fn graph_has_negative_edge_weight(graph: &Graph, weight_attr: &str) -> bool {
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
-        // edges_ordered_borrowed yields each undirected edge once;
-        // checking the attrs map directly avoids a second hash lookup.
-        let _ = (left, right);
+    for (_, _, attrs) in graph.edges_storage_order_index_iter() {
         if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
             && value.is_finite()
             && value < 0.0
@@ -10586,8 +10583,7 @@ pub fn graph_has_negative_edge_weight(graph: &Graph, weight_attr: &str) -> bool 
 /// Like [`graph_has_negative_edge_weight`] but for `DiGraph`.
 #[must_use]
 pub fn digraph_has_negative_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
-    for (source, target, attrs) in digraph.edges_ordered_borrowed() {
-        let _ = (source, target);
+    for (_, attrs) in digraph.edges_indexed() {
         if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
             && value.is_finite()
             && value < 0.0
@@ -10608,7 +10604,7 @@ pub fn digraph_has_negative_edge_weight(digraph: &DiGraph, weight_attr: &str) ->
 /// pass over every edge on EVERY weighted shortest-path call while the simple classes
 /// were served natively.
 ///
-/// PARALLEL EDGES ARE THE POINT. `edges_ordered_borrowed` yields one tuple per
+/// PARALLEL EDGES ARE THE POINT. `edges_ordered_indices_borrowed` yields one tuple per
 /// PARALLEL edge (u, v, key, attrs), so a negative weight hiding on the second edge of
 /// a pair is found. A scan that looked at one edge per (u, v) would miss it and let
 /// dijkstra run where networkx delegates — a silent wrong answer, not a slow one.
@@ -10619,8 +10615,7 @@ pub fn digraph_has_negative_edge_weight(digraph: &DiGraph, weight_attr: &str) ->
 /// here would change which graphs get delegated to networkx.
 #[must_use]
 pub fn multigraph_has_negative_edge_weight(graph: &MultiGraph, weight_attr: &str) -> bool {
-    for (left, right, key, attrs) in graph.edges_ordered_borrowed() {
-        let _ = (left, right, key);
+    for (_, _, _, attrs) in graph.edges_ordered_indices_borrowed() {
         if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
             && value.is_finite()
             && value < 0.0
@@ -10634,8 +10629,7 @@ pub fn multigraph_has_negative_edge_weight(graph: &MultiGraph, weight_attr: &str
 /// `MultiDiGraph` counterpart to [`multigraph_has_negative_edge_weight`].
 #[must_use]
 pub fn multidigraph_has_negative_edge_weight(digraph: &MultiDiGraph, weight_attr: &str) -> bool {
-    for (source, target, key, attrs) in digraph.edges_ordered_borrowed() {
-        let _ = (source, target, key);
+    for (_, _, _, attrs) in digraph.edges_ordered_borrowed() {
         if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
             && value.is_finite()
             && value < 0.0
@@ -10654,8 +10648,7 @@ pub fn multidigraph_has_negative_edge_weight(digraph: &MultiDiGraph, weight_attr
 /// `-inf` sweep in place even once the negative scan was native.
 #[must_use]
 pub fn multigraph_has_nonfinite_edge_weight(graph: &MultiGraph, weight_attr: &str) -> bool {
-    for (left, right, key, attrs) in graph.edges_ordered_borrowed() {
-        let _ = (left, right, key);
+    for (_, _, _, attrs) in graph.edges_ordered_indices_borrowed() {
         if let Some(raw) = attrs.get(weight_attr) {
             match raw.as_f64() {
                 Some(v) if v.is_finite() => continue,
@@ -10669,8 +10662,7 @@ pub fn multigraph_has_nonfinite_edge_weight(graph: &MultiGraph, weight_attr: &st
 /// `MultiDiGraph` counterpart to [`multigraph_has_nonfinite_edge_weight`].
 #[must_use]
 pub fn multidigraph_has_nonfinite_edge_weight(digraph: &MultiDiGraph, weight_attr: &str) -> bool {
-    for (source, target, key, attrs) in digraph.edges_ordered_borrowed() {
-        let _ = (source, target, key);
+    for (_, _, _, attrs) in digraph.edges_ordered_borrowed() {
         if let Some(raw) = attrs.get(weight_attr) {
             match raw.as_f64() {
                 Some(v) if v.is_finite() => continue,
@@ -10694,8 +10686,7 @@ pub fn multidigraph_has_nonfinite_edge_weight(digraph: &MultiDiGraph, weight_att
 /// AND the value can't be losslessly cast to a finite f64.
 #[must_use]
 pub fn graph_has_nonfinite_edge_weight(graph: &Graph, weight_attr: &str) -> bool {
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
-        let _ = (left, right);
+    for (_, _, attrs) in graph.edges_storage_order_index_iter() {
         if let Some(raw) = attrs.get(weight_attr) {
             match raw.as_f64() {
                 Some(v) if v.is_finite() => continue,
@@ -10709,8 +10700,7 @@ pub fn graph_has_nonfinite_edge_weight(graph: &Graph, weight_attr: &str) -> bool
 /// `DiGraph` counterpart to [`graph_has_nonfinite_edge_weight`].
 #[must_use]
 pub fn digraph_has_nonfinite_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
-    for (source, target, attrs) in digraph.edges_ordered_borrowed() {
-        let _ = (source, target);
+    for (_, attrs) in digraph.edges_indexed() {
         if let Some(raw) = attrs.get(weight_attr) {
             match raw.as_f64() {
                 Some(v) if v.is_finite() => continue,
@@ -10723,7 +10713,7 @@ pub fn digraph_has_nonfinite_edge_weight(digraph: &DiGraph, weight_attr: &str) -
 
 #[must_use]
 pub fn graph_has_nonnumeric_edge_weight(graph: &Graph, weight_attr: &str) -> bool {
-    for (_, _, attrs) in graph.edges_ordered_borrowed() {
+    for (_, _, attrs) in graph.edges_storage_order_index_iter() {
         if let Some(raw) = attrs.get(weight_attr)
             && !raw.is_strictly_numeric()
         {
@@ -10735,7 +10725,7 @@ pub fn graph_has_nonnumeric_edge_weight(graph: &Graph, weight_attr: &str) -> boo
 
 #[must_use]
 pub fn digraph_has_nonnumeric_edge_weight(digraph: &DiGraph, weight_attr: &str) -> bool {
-    for (_, _, attrs) in digraph.edges_ordered_borrowed() {
+    for (_, attrs) in digraph.edges_indexed() {
         if let Some(raw) = attrs.get(weight_attr)
             && !raw.is_strictly_numeric()
         {
@@ -17593,16 +17583,21 @@ pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
 
     let invalid_labels = "tree must have node labels {0, ..., n - 1}";
     let mut seen = vec![false; n];
-    for node in graph.nodes_ordered() {
-        let idx = node
+    let mut node_int = Vec::with_capacity(n);
+    for idx in 0..n {
+        let node_name = graph
+            .get_node_name(idx)
+            .ok_or_else(|| invalid_labels.to_owned())?;
+        let val = node_name
             .parse::<usize>()
             .map_err(|_| invalid_labels.to_owned())?;
-        if idx >= n || seen[idx] {
+        if val >= n || seen[val] {
             return Err(invalid_labels.to_owned());
         }
-        seen[idx] = true;
+        seen[val] = true;
+        node_int.push(val);
     }
-    if seen.iter().any(|seen| !seen) {
+    if seen.iter().any(|&s| !s) {
         return Err(invalid_labels.to_owned());
     }
 
@@ -17610,22 +17605,12 @@ pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
         return Ok(Vec::new());
     }
 
-    // Build mutable adjacency for integer-labeled tree. The borrowed edge view preserves the exact
-    // `edges_ordered()` walk and endpoint text while avoiding two owned String clones plus an unused
-    // AttrMap clone per tree edge (br-r37-c1-8vjja).
-    let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
-        let u = left
-            .parse::<usize>()
-            .map_err(|_| invalid_labels.to_owned())?;
-        let v = right
-            .parse::<usize>()
-            .map_err(|_| invalid_labels.to_owned())?;
-        if u >= n || v >= n {
-            return Err(invalid_labels.to_owned());
-        }
-        adj[u].insert(v);
-        adj[v].insert(u);
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (left_idx, right_idx, _attrs) in graph.edges_ordered_indices_borrowed() {
+        let u = node_int[left_idx];
+        let v = node_int[right_idx];
+        adj[u].push(v);
+        adj[v].push(u);
     }
 
     // O(|V|) Prüfer encoding (cc): the previous loop rescanned 0..n for the
@@ -17635,7 +17620,7 @@ pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
     // node. Each leaf's single remaining neighbour is the lone degree>0 entry in
     // its adjacency (total neighbour scans = O(sum deg) = O(|V|) for a tree).
     // Output is byte-identical (still smallest-leaf-first) to the old kernel.
-    let mut degree: Vec<usize> = adj.iter().map(std::collections::HashSet::len).collect();
+    let mut degree: Vec<usize> = adj.iter().map(Vec::len).collect();
     let mut seq: Vec<usize> = Vec::with_capacity(n - 2);
     let mut ptr = (0..n)
         .find(|&v| degree[v] == 1)
@@ -17950,14 +17935,20 @@ fn voterank_generic<G: GraphView>(graph: &G, number_of_nodes: Option<usize>) -> 
     // (O(|V| log|V|)) just to take `.first()`; replaced with a single O(|V|) `max_by` with the same key
     // (max score, ties by min node name). Byte-identical: same per-node score (accumulated in the same
     // node-index order → same f64 sum), same (score, name) winner, same decay update, same edges_scanned.
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut adj: Vec<Vec<usize>> = Vec::with_capacity(n);
     for i in 0..n {
-        if let Some(neighbors) = graph.neighbors_iter(nodes[i]) {
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            adj.push(nbrs.to_vec());
+        } else if let Some(neighbors) = graph.neighbors_iter(nodes[i]) {
+            let mut row = Vec::new();
             for nb in neighbors {
-                adj[i].push(node_to_idx[nb]);
+                if let Some(j) = graph.get_node_index(nb) {
+                    row.push(j);
+                }
             }
+            adj.push(row);
+        } else {
+            adj.push(Vec::new());
         }
     }
 
@@ -18069,16 +18060,12 @@ pub fn find_cliques(graph: &Graph) -> FindCliquesResult {
     }
 
     // Build adjacency sets for fast neighbor lookup
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
     for i in 0..n {
-        if let Some(nbrs) = graph.neighbors_iter(nodes[i]) {
-            for nb in nbrs {
-                if let Some(&j) = node_to_idx.get(nb) {
-                    adj[i].insert(j);
-                    edges_scanned += 1;
-                }
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &j in nbrs {
+                adj[i].insert(j);
+                edges_scanned += 1;
             }
         }
     }
@@ -20298,43 +20285,31 @@ pub fn minimum_cycle_basis_with_chord_order(
     weight_attr: Option<&str>,
     chord_order: Option<&[usize]>,
 ) -> Result<CycleBasisResult, MinimumCycleBasisError> {
-    let node_names = graph.nodes_ordered();
-    let node_to_idx: HashMap<&str, usize> = node_names
-        .iter()
-        .enumerate()
-        .map(|(idx, &node)| (node, idx))
-        .collect();
-
+    let node_count = graph.node_count();
     let mut indexed_edges = Vec::with_capacity(graph.edge_count());
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+    for (u, v, attrs) in graph.edges_ordered_indices_borrowed() {
         let weight = minimum_cycle_basis_edge_weight(attrs, weight_attr);
         if weight < 0.0 {
             return Err(MinimumCycleBasisError::NegativeWeight {
-                left: left.to_owned(),
-                right: right.to_owned(),
+                left: graph.get_node_name(u).unwrap_or("").to_owned(),
+                right: graph.get_node_name(v).unwrap_or("").to_owned(),
                 weight_attr: weight_attr.unwrap_or("weight").to_owned(),
                 weight,
             });
         }
-
-        let Some(&left_idx) = node_to_idx.get(left) else {
-            continue;
-        };
-        let Some(&right_idx) = node_to_idx.get(right) else {
-            continue;
-        };
-        indexed_edges.push((left_idx, right_idx, weight));
+        indexed_edges.push((u, v, weight));
     }
 
     let MinimumCycleBasisCoreResult {
         cycles: index_cycles,
         witness,
     } = if let Some(chord_order) = chord_order {
-        minimum_cycle_basis_core_with_chord_order(node_names.len(), &indexed_edges, chord_order)
+        minimum_cycle_basis_core_with_chord_order(node_count, &indexed_edges, chord_order)
     } else {
-        minimum_cycle_basis_core(node_names.len(), &indexed_edges)
+        minimum_cycle_basis_core(node_count, &indexed_edges)
     };
 
+    let node_names = graph.nodes_ordered();
     let cycles = index_cycles
         .into_iter()
         .map(|cycle| {
@@ -27579,34 +27554,22 @@ fn louvain_shuffle(node_order: &mut [usize], rng: &mut MT19937) {
 }
 
 fn build_louvain_level_graph(graph: &Graph, weight_attr: &str) -> (LouvainLevelGraph, Vec<String>) {
-    let node_names: Vec<String> = graph
-        .nodes_ordered()
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    let node_to_idx: HashMap<&str, usize> = node_names
-        .iter()
-        .enumerate()
-        .map(|(index, name)| (name.as_str(), index))
-        .collect();
-
     let mut edges = Vec::with_capacity(graph.edge_count());
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+    for (u, v, attrs) in graph.edges_ordered_indices_borrowed() {
         let weight = attrs
             .get(weight_attr)
             .and_then(|value| value.as_f64())
             .filter(|value| value.is_finite() && *value >= 0.0)
             .unwrap_or(1.0);
-        let left_idx = node_to_idx[left];
-        let right_idx = node_to_idx[right];
-        let (left_idx, right_idx) = if left_idx <= right_idx {
-            (left_idx, right_idx)
-        } else {
-            (right_idx, left_idx)
-        };
+        let (left_idx, right_idx) = if u <= v { (u, v) } else { (v, u) };
         edges.push((left_idx, right_idx, weight));
     }
 
+    let node_names: Vec<String> = graph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
     let members = (0..node_names.len()).map(|index| vec![index]).collect();
     (LouvainLevelGraph { members, edges }, node_names)
 }
@@ -27930,15 +27893,14 @@ pub fn modularity(
     // (the per-node weighted degree) once, and derive m2 = k.iter().sum() — the identical left-fold in
     // nodes_ordered order, so ULP-identical. Halves the neighbour iteration + edge_weight lookups in
     // setup and drops two redundant Vec<&str> rebuilds.
-    let nodes = graph.nodes_ordered();
-    let k: Vec<f64> = nodes
-        .iter()
-        .map(|&nd| {
+    let n = graph.node_count();
+    let k: Vec<f64> = (0..n)
+        .map(|u| {
             graph
-                .neighbors(nd)
+                .neighbors_indices(u)
                 .unwrap_or_default()
                 .iter()
-                .map(|nbr| edge_weight_or_default(graph, nd, nbr, weight_attr))
+                .map(|&nbr| edge_weight_or_default_idx(graph, u, nbr, weight_attr))
                 .sum()
         })
         .collect();
@@ -27948,36 +27910,22 @@ pub fn modularity(
         return Ok(0.0);
     }
 
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-
-    // br-r37-c1-modwmap (cc): precompute the edge weights into an index-keyed map ONCE (O(|E|)) so the
-    // community double-loop reads a_uv with an O(1) integer lookup instead of a per-pair String has_edge
-    // + edge_weight_or_default. For large communities the double-loop is O(Σ|comm|²) >> |E|, so this
-    // replaces the dominant String work. Byte-identical: w_map[canon(ui,vi)] holds exactly
-    // edge_weight_or_default for each undirected (symmetric-weight) edge, so a_uv is the same f64 for
-    // every pair (edge → weight, non-edge → 0.0), summed in the identical (comm, u, v) order.
-    // br-r37-c1-modwborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
-    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap
-    // per edge into an EdgeSnapshot. This loop only reads the endpoint NAMES (node_to_idx probe +
-    // edge_weight_or_default re-lookup) and never keeps the owned data, so the borrow is byte-
-    // identical (same edges, same walk order, same names → same w_map).
-    let mut w_map: HashMap<(usize, usize), f64> = HashMap::with_capacity(k.len());
-    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
-        if let (Some(&li), Some(&ri)) = (node_to_idx.get(left), node_to_idx.get(right)) {
-            let key = if li <= ri { (li, ri) } else { (ri, li) };
-            w_map.insert(key, edge_weight_or_default(graph, left, right, weight_attr));
-        }
+    let mut w_map: HashMap<(usize, usize), f64> = HashMap::with_capacity(graph.edge_count());
+    for (u, v, attrs) in graph.edges_ordered_indices_borrowed() {
+        let w = attrs
+            .get(weight_attr)
+            .and_then(|val| val.as_f64())
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .unwrap_or(1.0);
+        let key = if u <= v { (u, v) } else { (v, u) };
+        w_map.insert(key, w);
     }
 
-    // Resolve each community's nodes to indices ONCE (dropping the per-pair node_to_idx.get String hash
-    // from the O(Σ|comm|²) double-loop); the in-graph nodes are kept in the same order, so the (ui, vi)
-    // pairs — and the q summation order — are identical to the per-name loop → ULP-identical.
     let mut q = 0.0;
     for comm in communities {
         let comm_idx: Vec<usize> = comm
             .iter()
-            .filter_map(|nd| node_to_idx.get(nd.as_str()).copied())
+            .filter_map(|nd| graph.get_node_index(nd.as_str()))
             .collect();
         for &ui in &comm_idx {
             for &vi in &comm_idx {
@@ -28233,26 +28181,35 @@ fn greedy_modularity_communities_impl(
     }
 
     let nodes = graph.nodes_ordered();
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
     let unweighted = weight_attr.is_empty();
+    let edge_weight = |attrs: &AttrMap| -> f64 {
+        if unweighted {
+            1.0
+        } else {
+            attrs
+                .get(weight_attr)
+                .and_then(|val| val.as_f64())
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .unwrap_or(1.0)
+        }
+    };
 
     // Materialize the edge list ONCE when single_materialize; otherwise each setup pass
     // rebuilds it (the old behaviour). `edges_pass!()` yields the cached slice or a fresh
     // rebuild bound to a per-pass temporary.
     let cached_edges = if single_materialize {
-        Some(graph.edges_ordered_borrowed())
+        Some(graph.edges_ordered_indices_borrowed())
     } else {
         None
     };
     macro_rules! for_each_edge {
-        (|$left:ident, $right:ident| $body:block) => {{
+        (|$u:ident, $v:ident, $attrs:ident| $body:block) => {{
             match cached_edges.as_deref() {
                 Some(__e) => {
-                    for &($left, $right, _) in __e $body
+                    for &($u, $v, $attrs) in __e $body
                 }
                 None => {
-                    for ($left, $right, _) in graph.edges_ordered_borrowed() $body
+                    for ($u, $v, $attrs) in graph.edges_ordered_indices_borrowed() $body
                 }
             }
         }};
@@ -28260,12 +28217,8 @@ fn greedy_modularity_communities_impl(
 
     // Compute m (total edge weight)
     let mut m = 0.0;
-    for_each_edge!(|left, right| {
-        m += if unweighted {
-            1.0
-        } else {
-            edge_weight_or_default(graph, left, right, weight_attr)
-        };
+    for_each_edge!(|_left, _right, attrs| {
+        m += edge_weight(attrs);
     });
 
     if m == 0.0 {
@@ -28274,14 +28227,8 @@ fn greedy_modularity_communities_impl(
 
     // Weighted degree (a_i = k_i / (2m))
     let mut degree = vec![0.0; n];
-    for_each_edge!(|left, right| {
-        let w = if unweighted {
-            1.0
-        } else {
-            edge_weight_or_default(graph, left, right, weight_attr)
-        };
-        let left_idx = node_to_idx[left];
-        let right_idx = node_to_idx[right];
+    for_each_edge!(|left_idx, right_idx, attrs| {
+        let w = edge_weight(attrs);
         if left_idx == right_idx {
             degree[left_idx] += 2.0 * w;
         } else {
@@ -28305,15 +28252,9 @@ fn greedy_modularity_communities_impl(
 
     // Initialize delta-Q for each non-self edge. NetworkX scales undirected
     // weights as w / m and subtracts both directed degree-product terms.
-    for_each_edge!(|left, right| {
-        let u = node_to_idx[left];
-        let v = node_to_idx[right];
+    for_each_edge!(|u, v, attrs| {
         if u != v {
-            let w = if unweighted {
-                1.0
-            } else {
-                edge_weight_or_default(graph, left, right, weight_attr)
-            };
+            let w = edge_weight(attrs);
             let delta = (w / m) - (2.0 * resolution * a[u] * a[v]);
             *dq[u].entry(v).or_insert(0.0) += delta;
             *dq[v].entry(u).or_insert(0.0) += delta;
@@ -28437,32 +28378,36 @@ fn greedy_modularity_communities_impl(
     }
 
     // Collect final communities
-    let mut result = Vec::new();
+    let mut intermediate: Vec<(usize, Vec<usize>)> = Vec::new();
     for rep in 0..n {
         if alive[rep] {
-            let mut comm = Vec::new();
+            let mut comm_indices = Vec::new();
             for (idx, &c) in community.iter().enumerate() {
                 if c == rep {
-                    comm.push(nodes[idx].to_owned());
+                    comm_indices.push(idx);
                 }
             }
-            comm.sort();
-            result.push(comm);
+            let min_idx = comm_indices.first().copied().unwrap_or(usize::MAX);
+            intermediate.push((min_idx, comm_indices));
         }
     }
-    result.sort_by(|a, b| {
-        let a_min = a
-            .iter()
-            .filter_map(|node| node_to_idx.get(node.as_str()).copied())
-            .min()
-            .unwrap_or(usize::MAX);
-        let b_min = b
-            .iter()
-            .filter_map(|node| node_to_idx.get(node.as_str()).copied())
-            .min()
-            .unwrap_or(usize::MAX);
-        b.len().cmp(&a.len()).then_with(|| a_min.cmp(&b_min))
+    // Sort communities by size descending, ties broken by min node index ascending
+    intermediate.sort_by(|(a_min, a_indices), (b_min, b_indices)| {
+        b_indices
+            .len()
+            .cmp(&a_indices.len())
+            .then_with(|| a_min.cmp(b_min))
     });
+
+    let mut result = Vec::with_capacity(intermediate.len());
+    for (_, comm_indices) in intermediate {
+        let mut comm: Vec<String> = comm_indices
+            .into_iter()
+            .map(|idx| nodes[idx].to_owned())
+            .collect();
+        comm.sort();
+        result.push(comm);
+    }
     result
 }
 
@@ -28478,29 +28423,33 @@ fn greedy_modularity_communities_impl(
 pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // Add all nodes and edges from G1
-    for node in g1.nodes_ordered() {
-        if let Some(attrs) = g1.node_attrs(node) {
+    let g1_nodes = g1.nodes_ordered();
+    for (idx, &node) in g1_nodes.iter().enumerate() {
+        if let Some(attrs) = g1.node_attrs_by_index(idx) {
             result.add_node_with_attrs(node, attrs.clone());
         } else {
             result.add_node(node);
         }
     }
-    for edge in g1.edges_ordered() {
-        let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
+    for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
+        let _ = result.add_edge_with_attrs(g1_nodes[left], g1_nodes[right], attrs.clone());
     }
     // Add all nodes and edges from G2
-    for node in g2.nodes_ordered() {
+    let g2_nodes = g2.nodes_ordered();
+    for (idx, &node) in g2_nodes.iter().enumerate() {
         if !result.has_node(node) {
-            if let Some(attrs) = g2.node_attrs(node) {
+            if let Some(attrs) = g2.node_attrs_by_index(idx) {
                 result.add_node_with_attrs(node, attrs.clone());
             } else {
                 result.add_node(node);
             }
         }
     }
-    for edge in g2.edges_ordered() {
-        if !result.has_edge(&edge.left, &edge.right) {
-            let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
+    for (left, right, attrs) in g2.edges_ordered_indices_borrowed() {
+        let l = g2_nodes[left];
+        let r = g2_nodes[right];
+        if !result.has_edge(l, r) {
+            let _ = result.add_edge_with_attrs(l, r, attrs.clone());
         }
     }
     result
@@ -28513,10 +28462,11 @@ pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
 #[must_use]
 pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let g1_nodes = g1.nodes_ordered();
     // Nodes in both
-    for node in g1.nodes_ordered() {
+    for (idx, &node) in g1_nodes.iter().enumerate() {
         if g2.has_node(node) {
-            if let Some(attrs) = g1.node_attrs(node) {
+            if let Some(attrs) = g1.node_attrs_by_index(idx) {
                 result.add_node_with_attrs(node, attrs.clone());
             } else {
                 result.add_node(node);
@@ -28524,9 +28474,11 @@ pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
         }
     }
     // Edges in both
-    for edge in g1.edges_ordered() {
-        if g2.has_edge(&edge.left, &edge.right) {
-            let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
+    for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
+        let l = g1_nodes[left];
+        let r = g1_nodes[right];
+        if g2.has_edge(l, r) {
+            let _ = result.add_edge_with_attrs(l, r, attrs.clone());
         }
     }
     result
@@ -28542,8 +28494,9 @@ pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
 pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // Start with all of G2
-    for node in g2.nodes_ordered() {
-        if let Some(attrs) = g2.node_attrs(node) {
+    let g2_nodes = g2.nodes_ordered();
+    for (idx, &node) in g2_nodes.iter().enumerate() {
+        if let Some(attrs) = g2.node_attrs_by_index(idx) {
             result.add_node_with_attrs(node, attrs.clone());
         } else {
             result.add_node(node);
@@ -28555,20 +28508,30 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
     // unrecorded, which dedups on the canonical pair and merges attrs via the same `extend`
     // (later g1 wins). The g1 node loop stays in place, so all endpoints are pre-added and
     // resolve to existing indices; the g2/g1 edge relative order is preserved → byte-identical.
-    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    for edge in g2.edges_ordered() {
-        edges.push((edge.left, edge.right, edge.attrs));
+    let mut edges: Vec<(String, String, AttrMap)> =
+        Vec::with_capacity(g1.edge_count() + g2.edge_count());
+    for (left, right, attrs) in g2.edges_ordered_indices_borrowed() {
+        edges.push((
+            g2_nodes[left].to_owned(),
+            g2_nodes[right].to_owned(),
+            attrs.clone(),
+        ));
     }
     // Layer G1 on top (G1 attrs overwrite G2)
-    for node in g1.nodes_ordered() {
-        if let Some(attrs) = g1.node_attrs(node) {
+    let g1_nodes = g1.nodes_ordered();
+    for (idx, &node) in g1_nodes.iter().enumerate() {
+        if let Some(attrs) = g1.node_attrs_by_index(idx) {
             result.add_node_with_attrs(node, attrs.clone());
         } else {
             result.add_node(node);
         }
     }
-    for edge in g1.edges_ordered() {
-        edges.push((edge.left, edge.right, edge.attrs));
+    for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
+        edges.push((
+            g1_nodes[left].to_owned(),
+            g1_nodes[right].to_owned(),
+            attrs.clone(),
+        ));
     }
     let _ = result.extend_edges_with_attrs_unrecorded(edges);
     result
@@ -28581,18 +28544,25 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
 #[must_use]
 pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let g1_nodes = g1.nodes_ordered();
     // All nodes from G1
-    for node in g1.nodes_ordered() {
-        if let Some(attrs) = g1.node_attrs(node) {
+    for (idx, &node) in g1_nodes.iter().enumerate() {
+        if let Some(attrs) = g1.node_attrs_by_index(idx) {
             result.add_node_with_attrs(node, attrs.clone());
         } else {
             result.add_node(node);
         }
     }
+    // Pre-resolve g1 nodes in g2 by index to avoid string hash lookups per edge
+    let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
     // Edges from G1 not in G2
-    for edge in g1.edges_ordered() {
-        if !g2.has_edge(&edge.left, &edge.right) {
-            let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
+    for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
+        let in_g2 = match (g1_to_g2[left], g1_to_g2[right]) {
+            (Some(l2), Some(r2)) => g2.has_edge_by_indices(l2, r2),
+            _ => false,
+        };
+        if !in_g2 {
+            let _ = result.add_edge_with_attrs(g1_nodes[left], g1_nodes[right], attrs.clone());
         }
     }
     result
@@ -28606,33 +28576,45 @@ pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
 #[must_use]
 pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
+    let g1_nodes = g1.nodes_ordered();
     // All nodes from both
-    for node in g1.nodes_ordered() {
-        if let Some(attrs) = g1.node_attrs(node) {
+    for (idx, &node) in g1_nodes.iter().enumerate() {
+        if let Some(attrs) = g1.node_attrs_by_index(idx) {
             result.add_node_with_attrs(node, attrs.clone());
         } else {
             result.add_node(node);
         }
     }
-    for node in g2.nodes_ordered() {
+    let g2_nodes = g2.nodes_ordered();
+    for (idx, &node) in g2_nodes.iter().enumerate() {
         if !result.has_node(node) {
-            if let Some(attrs) = g2.node_attrs(node) {
+            if let Some(attrs) = g2.node_attrs_by_index(idx) {
                 result.add_node_with_attrs(node, attrs.clone());
             } else {
                 result.add_node(node);
             }
         }
     }
+    let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
     // Edges in G1 but not G2
-    for edge in g1.edges_ordered() {
-        if !g2.has_edge(&edge.left, &edge.right) {
-            let _ = result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs);
+    for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
+        let in_g2 = match (g1_to_g2[left], g1_to_g2[right]) {
+            (Some(l2), Some(r2)) => g2.has_edge_by_indices(l2, r2),
+            _ => false,
+        };
+        if !in_g2 {
+            let _ = result.add_edge_with_attrs(g1_nodes[left], g1_nodes[right], attrs.clone());
         }
     }
+    let g2_to_g1: Vec<Option<usize>> = g2_nodes.iter().map(|&n| g1.get_node_index(n)).collect();
     // Edges in G2 but not G1
-    for edge in g2.edges_ordered() {
-        if !g1.has_edge(&edge.left, &edge.right) {
-            let _ = result.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
+    for (left, right, attrs) in g2.edges_ordered_indices_borrowed() {
+        let in_g1 = match (g2_to_g1[left], g2_to_g1[right]) {
+            (Some(l1), Some(r1)) => g1.has_edge_by_indices(l1, r1),
+            _ => false,
+        };
+        if !in_g1 {
+            let _ = result.add_edge_with_attrs(g2_nodes[left], g2_nodes[right], attrs.clone());
         }
     }
     result
@@ -29393,7 +29375,9 @@ pub fn spanner(
     let k = (((stretch + 1.0) / 2.0).floor() as usize).max(1);
     if k <= 1 {
         let mut bulk_edges = Vec::with_capacity(graph.edge_count());
-        for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        for (left_idx, right_idx, attrs) in graph.edges_ordered_indices_borrowed() {
+            let left = nodes[left_idx];
+            let right = nodes[right_idx];
             if spanner_attrs_can_use_bulk_insert(attrs) {
                 bulk_edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
             } else {
@@ -29406,13 +29390,7 @@ pub fn spanner(
 
     let mut residual_edges = Vec::with_capacity(graph.edge_count());
     let mut residual_adj = vec![Vec::<usize>::new(); nodes.len()];
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
-        let Some(left_idx) = graph.get_node_index(left) else {
-            continue;
-        };
-        let Some(right_idx) = graph.get_node_index(right) else {
-            continue;
-        };
+    for (left_idx, right_idx, attrs) in graph.edges_ordered_indices_borrowed() {
         let edge_id = residual_edges.len();
         residual_edges.push(SpannerResidualEdge {
             left: left_idx,
@@ -31005,8 +30983,7 @@ pub fn fast_could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
 ///
 /// NetworkX equivalent: `networkx.algorithms.planarity.is_planar`
 pub fn is_planar(graph: &Graph) -> bool {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
     let m = graph.edge_count();
 
@@ -31037,11 +31014,8 @@ pub fn is_planar(graph: &Graph) -> bool {
     // via NetworkX's LR planarity test until a Boyer-Myrvold port lands.
 
     // Build adjacency for the planarity algorithm
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut adj = vec![vec![]; n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    for (i, j, _) in graph.edges_ordered_indices_borrowed() {
         adj[i].push(j);
         adj[j].push(i);
     }
@@ -33077,18 +33051,10 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
         return Vec::new();
     }
 
-    // Map node names to indices
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
-    for &node in &nodes {
-        let i = node_to_idx[node];
-        if let Some(succs) = graph.successors(node) {
-            for &s in &succs {
-                if let Some(&j) = node_to_idx.get(s) {
-                    adj[i].push(j);
-                }
-            }
+    for i in 0..n {
+        if let Some(succs) = graph.successors_indices(i) {
+            adj[i].extend_from_slice(succs);
             adj[i].sort_unstable();
         }
     }
@@ -33524,30 +33490,24 @@ pub fn girth(graph: &Graph) -> Option<usize> {
 /// Matches `networkx.find_negative_cycle(G, source, weight)`.
 #[must_use]
 pub fn find_negative_cycle(graph: &Graph, source: &str, weight_attr: &str) -> Option<Vec<String>> {
-    if !graph.has_node(source) {
-        return None;
-    }
+    let source_idx = graph.get_node_index(source)?;
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
         return None;
     }
 
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut dist = vec![f64::INFINITY; n];
     let mut pred = vec![usize::MAX; n];
-    dist[node_to_idx[source]] = 0.0;
+    dist[source_idx] = 0.0;
 
     // Collect all edges (undirected, so both directions)
     let mut edges: Vec<(usize, usize, f64)> = Vec::new();
-    for &u_str in &nodes {
-        let u = node_to_idx[u_str];
-        if let Some(neighbors) = graph.neighbors_iter(u_str) {
-            for v_str in neighbors {
-                let v = node_to_idx[v_str];
+    for u in 0..n {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
                 let w = graph
-                    .edge_attrs(u_str, v_str)
+                    .edge_attrs_by_indices(u, v)
                     .and_then(|attrs| attrs.get(weight_attr).and_then(|v| v.as_f64()))
                     .unwrap_or(1.0);
                 edges.push((u, v, w));
@@ -38601,15 +38561,11 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
     if n == 0 {
         return vec![];
     }
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-
     // Build adjacency bitsets
     let mut adj = vec![HashSet::new(); n];
-    for (i, &u) in nodes.iter().enumerate() {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
-                let j = node_to_idx[v];
+    for i in 0..n {
+        if let Some(neighbors) = graph.neighbors_indices(i) {
+            for &j in neighbors {
                 adj[i].insert(j);
             }
         }
@@ -41217,15 +41173,11 @@ pub fn max_weight_clique(graph: &Graph, weight_attr: &str) -> (Vec<String>, f64)
         return (vec![], 0.0);
     }
 
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-
     // Build adjacency matrix
     let mut adj = vec![vec![false; n]; n];
-    for (i, &u) in nodes.iter().enumerate() {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
-                let j = node_to_idx[v];
+    for i in 0..n {
+        if let Some(neighbors) = graph.neighbors_indices(i) {
+            for &j in neighbors {
                 adj[i][j] = true;
             }
         }
@@ -41443,19 +41395,18 @@ pub fn antichains(digraph: &DiGraph) -> Vec<Vec<String>> {
     }
 
     // Compute transitive closure as reachability matrix
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
     let mut reachable = vec![vec![false; n]; n];
-    for (i, &node) in nodes.iter().enumerate() {
+    for i in 0..n {
         reachable[i][i] = true;
-        let mut stack = vec![node];
-        let mut visited = HashSet::new();
-        visited.insert(node);
+        let mut stack = vec![i];
+        let mut visited = vec![false; n];
+        visited[i] = true;
         while let Some(u) = stack.pop() {
-            if let Some(succs) = digraph.successors(u) {
-                for s in succs {
-                    if visited.insert(s) {
-                        reachable[i][node_to_idx[s]] = true;
+            if let Some(succs) = digraph.successors_indices(u) {
+                for &s in succs {
+                    if !visited[s] {
+                        visited[s] = true;
+                        reachable[i][s] = true;
                         stack.push(s);
                     }
                 }
@@ -41465,35 +41416,26 @@ pub fn antichains(digraph: &DiGraph) -> Vec<Vec<String>> {
 
     // Enumerate all antichains: subsets where no two nodes are comparable
     let mut result = vec![vec![]]; // Empty set
-    enumerate_antichains(
-        &nodes,
-        &reachable,
-        &node_to_idx,
-        &mut vec![],
-        0,
-        &mut result,
-    );
+    enumerate_antichains(&nodes, &reachable, &mut vec![], 0, &mut result);
     result
 }
 
 fn enumerate_antichains(
     nodes: &[&str],
     reachable: &[Vec<bool>],
-    node_to_idx: &HashMap<&str, usize>,
     current: &mut Vec<usize>,
     start: usize,
     result: &mut Vec<Vec<String>>,
 ) {
     for i in start..nodes.len() {
-        let idx = node_to_idx[nodes[i]];
-        // Check if idx is comparable with any node in current
+        // Check if i is comparable with any node in current
         let compatible = current
             .iter()
-            .all(|&c| !reachable[c][idx] && !reachable[idx][c]);
+            .all(|&c| !reachable[c][i] && !reachable[i][c]);
         if compatible {
-            current.push(idx);
+            current.push(i);
             result.push(current.iter().map(|&j| nodes[j].to_string()).collect());
-            enumerate_antichains(nodes, reachable, node_to_idx, current, i + 1, result);
+            enumerate_antichains(nodes, reachable, current, i + 1, result);
             current.pop();
         }
     }
@@ -41504,15 +41446,11 @@ fn enumerate_antichains(
 /// Returns a map from node -> its immediate dominator.
 #[must_use]
 pub fn immediate_dominators(digraph: &DiGraph, start: &str) -> HashMap<String, String> {
+    let Some(start_idx) = digraph.get_node_index(start) else {
+        return HashMap::new();
+    };
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-
-    if !node_to_idx.contains_key(start) {
-        return HashMap::new();
-    }
-    let start_idx = node_to_idx[start];
 
     // Compute reverse postorder via DFS
     let mut visited = vec![false; n];
@@ -41619,34 +41557,33 @@ pub fn dominance_frontiers(digraph: &DiGraph, start: &str) -> HashMap<String, Ve
     }
 
     // For each node with multiple predecessors, walk up dominator tree
-    for &node in &nodes {
-        let node_s = node.to_string();
-        if !idom.contains_key(&node_s) {
+    for (node_idx, &node) in nodes.iter().enumerate() {
+        if !idom.contains_key(node) {
             continue;
         }
-        if let Some(preds) = digraph.predecessors(node) {
-            let pred_list: Vec<&str> = preds.iter().map(|s| s as &str).collect();
-            if pred_list.len() >= 2 {
-                for &pred in &pred_list {
-                    let pred_s = pred.to_string();
-                    if !idom.contains_key(&pred_s) {
-                        continue;
+        let node_s = node.to_string();
+        if let Some(preds) = digraph.predecessors_indices(node_idx)
+            && preds.len() >= 2
+        {
+            for &pred_idx in preds {
+                let pred_str = nodes[pred_idx];
+                if !idom.contains_key(pred_str) {
+                    continue;
+                }
+                let mut runner = pred_str.to_string();
+                while runner != idom[&node_s] {
+                    if let Some(frontier) = frontiers.get_mut(&runner)
+                        && !frontier.contains(&node_s)
+                    {
+                        frontier.push(node_s.clone());
                     }
-                    let mut runner = pred_s.clone();
-                    while runner != idom[&node_s] {
-                        if let Some(frontier) = frontiers.get_mut(&runner)
-                            && !frontier.contains(&node_s)
-                        {
-                            frontier.push(node_s.clone());
-                        }
-                        if let Some(dom) = idom.get(&runner) {
-                            if *dom == runner {
-                                break;
-                            }
-                            runner = dom.clone();
-                        } else {
+                    if let Some(dom) = idom.get(&runner) {
+                        if *dom == runner {
                             break;
                         }
+                        runner = dom.clone();
+                    } else {
+                        break;
                     }
                 }
             }
@@ -41701,23 +41638,12 @@ pub fn stoer_wagner_nx(
 ) -> Result<StoerWagnerNxTrace, &'static str> {
     // --- working copy: u-major first-touch edge stream (nx G.edges(data=True)) ---
     let mut pair_weight: HashMap<(usize, usize), f64> = HashMap::new();
-    {
-        let node_idx: HashMap<&str, usize> = graph
-            .nodes_ordered()
-            .iter()
-            .enumerate()
-            .map(|(i, n)| (*n, i))
-            .collect();
-        for edge in graph.edges_ordered() {
-            let i = node_idx[edge.left.as_str()];
-            let j = node_idx[edge.right.as_str()];
-            let wt = edge
-                .attrs
-                .get(weight_attr)
-                .and_then(|val| val.as_f64())
-                .unwrap_or(1.0);
-            pair_weight.insert((i.min(j), i.max(j)), wt);
-        }
+    for (i, j, attrs) in graph.edges_ordered_indices_borrowed() {
+        let wt = attrs
+            .get(weight_attr)
+            .and_then(|val| val.as_f64())
+            .unwrap_or(1.0);
+        pair_weight.insert((i.min(j), i.max(j)), wt);
     }
     let nodes = graph.nodes_ordered();
     let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
@@ -41903,15 +41829,10 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
     }
 
     // Build adjacency with weights
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
     let mut w: std::collections::HashMap<(usize, usize), f64> = std::collections::HashMap::new();
     let mut adj = vec![std::collections::HashSet::new(); n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
-        let wt = edge
-            .attrs
+    for (i, j, attrs) in graph.edges_ordered_indices_borrowed() {
+        let wt = attrs
             .get(weight_attr)
             .and_then(|val| val.as_f64())
             .filter(|value| value.is_finite() && *value >= 0.0)
@@ -42041,35 +41962,29 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
 /// The caller is responsible for random index selection (keeps this crate
 /// free of the `rand` dependency).
 pub fn try_double_edge_swap(graph: &mut Graph, e1_idx: usize, e2_idx: usize) -> bool {
-    let edges: Vec<(String, String)> = graph
-        .edges_ordered()
-        .iter()
-        .map(|e| (e.left.clone(), e.right.clone()))
-        .collect();
-    let m = edges.len();
+    let m = graph.edge_count();
     if e1_idx >= m || e2_idx >= m || e1_idx == e2_idx {
         return false;
     }
-
-    let (ref u, ref v) = edges[e1_idx];
-    let (ref x, ref y) = edges[e2_idx];
+    let edges = graph.edges_ordered_borrowed();
+    let (u, v, _) = edges[e1_idx];
+    let (x, y, _) = edges[e2_idx];
 
     // Need 4 distinct nodes
-    let mut set = std::collections::HashSet::new();
-    set.insert(u.as_str());
-    set.insert(v.as_str());
-    set.insert(x.as_str());
-    set.insert(y.as_str());
-    if set.len() < 4 {
+    if u == v || u == x || u == y || v == x || v == y || x == y {
         return false;
     }
 
     // Try swap: (u,v), (x,y) → (u,x), (v,y)
     if !graph.has_edge(u, x) && !graph.has_edge(v, y) {
-        let _ = graph.remove_edge(u, v);
-        let _ = graph.remove_edge(x, y);
-        let _ = graph.add_edge(u.clone(), x.clone());
-        let _ = graph.add_edge(v.clone(), y.clone());
+        let u_s = u.to_owned();
+        let v_s = v.to_owned();
+        let x_s = x.to_owned();
+        let y_s = y.to_owned();
+        let _ = graph.remove_edge(&u_s, &v_s);
+        let _ = graph.remove_edge(&x_s, &y_s);
+        let _ = graph.add_edge(u_s, x_s);
+        let _ = graph.add_edge(v_s, y_s);
         true
     } else {
         false
@@ -42201,14 +42116,10 @@ pub fn all_topological_sorts(digraph: &DiGraph) -> Vec<Vec<String>> {
     if n == 0 {
         return vec![vec![]];
     }
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
     let mut in_deg = vec![0usize; n];
     for i in 0..n {
-        if let Some(preds) = digraph.predecessors(nodes[i]) {
-            in_deg[i] = preds.len();
-        }
+        in_deg[i] = digraph.in_degree_by_index(i);
     }
 
     let mut results = Vec::new();
@@ -42217,7 +42128,6 @@ pub fn all_topological_sorts(digraph: &DiGraph) -> Vec<Vec<String>> {
     all_topo_backtrack(
         digraph,
         &nodes,
-        &idx,
         &mut in_deg,
         &mut used,
         &mut current,
@@ -42230,7 +42140,6 @@ pub fn all_topological_sorts(digraph: &DiGraph) -> Vec<Vec<String>> {
 fn all_topo_backtrack(
     digraph: &DiGraph,
     nodes: &[&str],
-    idx: &std::collections::HashMap<&str, usize>,
     in_deg: &mut [usize],
     used: &mut [bool],
     current: &mut Vec<String>,
@@ -42247,15 +42156,13 @@ fn all_topo_backtrack(
             current.push(nodes[i].to_owned());
             // Decrease in-degree of successors
             let mut decremented = Vec::new();
-            if let Some(succs) = digraph.successors(nodes[i]) {
-                for s in succs {
-                    if let Some(&si) = idx.get(s) {
-                        in_deg[si] -= 1;
-                        decremented.push(si);
-                    }
+            if let Some(succs) = digraph.successors_indices(i) {
+                for &si in succs {
+                    in_deg[si] -= 1;
+                    decremented.push(si);
                 }
             }
-            all_topo_backtrack(digraph, nodes, idx, in_deg, used, current, results, n);
+            all_topo_backtrack(digraph, nodes, in_deg, used, current, results, n);
             // Undo
             for si in decremented {
                 in_deg[si] += 1;
@@ -42286,14 +42193,9 @@ pub fn constraint(graph: &Graph) -> std::collections::HashMap<String, f64> {
     // identical to the old kernel, so the float results are unchanged.
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &s)| (s, i)).collect();
-    // adjacency in `graph.neighbors()` order (preserved for bit-exact sums)
-    let mut adj: Vec<Vec<usize>> = Vec::with_capacity(n);
-    for &u in &nodes {
-        let nb = graph.neighbors(u).unwrap_or_default();
-        adj.push(nb.iter().map(|w| idx[w]).collect());
-    }
+    let adj: Vec<&[usize]> = (0..n)
+        .map(|ui| graph.neighbors_indices(ui).unwrap_or(&[]))
+        .collect();
     let inv_deg: Vec<f64> = adj
         .iter()
         .map(|a| {
@@ -42315,7 +42217,7 @@ pub fn constraint(graph: &Graph) -> std::collections::HashMap<String, f64> {
 
     let mut result = std::collections::HashMap::with_capacity(n);
     for ui in 0..n {
-        let u_nbrs = &adj[ui];
+        let u_nbrs = adj[ui];
         if u_nbrs.is_empty() {
             result.insert(nodes[ui].to_owned(), 0.0);
             continue;
@@ -42332,7 +42234,7 @@ pub fn constraint(graph: &Graph) -> std::collections::HashMap<String, f64> {
         // the float result is byte-identical.
         for &wi in u_nbrs {
             let term = p * inv_deg[wi];
-            for &vi in &adj[wi] {
+            for &vi in adj[wi] {
                 if vi == wi {
                     continue; // old skipped w == v
                 }
@@ -42365,37 +42267,32 @@ pub fn constraint(graph: &Graph) -> std::collections::HashMap<String, f64> {
 /// Local constraint of node u with respect to neighbor v.
 #[must_use]
 pub fn local_constraint(graph: &Graph, u: &str, v: &str) -> f64 {
-    let u_nbrs: Vec<&str> = graph.neighbors(u).unwrap_or_default();
-    local_constraint_inner(graph, u, v, &u_nbrs)
-}
-
-fn local_constraint_inner(graph: &Graph, u: &str, v: &str, u_nbrs: &[&str]) -> f64 {
-    // p_uv = proportion of u's network invested in v
+    let Some(u_idx) = graph.get_node_index(u) else {
+        return 0.0;
+    };
+    let Some(u_nbrs) = graph.neighbors_indices(u_idx) else {
+        return 0.0;
+    };
     let deg_u = u_nbrs.len() as f64;
     if deg_u == 0.0 {
         return 0.0;
     }
     let p_uv = 1.0 / deg_u;
-
-    // Sum indirect investment through mutual neighbors
-    let v_nbrs: Vec<&str> = graph.neighbors(v).unwrap_or_default();
-    let v_set: std::collections::HashSet<&str> = v_nbrs.iter().copied().collect();
+    let v_idx = graph.get_node_index(v);
 
     let mut indirect = 0.0;
     for &w in u_nbrs {
-        if w == v || w == u {
+        if Some(w) == v_idx || w == u_idx {
             continue;
         }
-        // p_uw * p_wv
         let p_uw = 1.0 / deg_u;
-        if v_set.contains(w) {
-            // `w` came from `u_nbrs`, so it is an existing node.  Counting its
-            // neighbors through the graph avoids allocating a temporary Vec only
-            // to discard it after taking its length.
-            let deg_w = graph.neighbor_count(w) as f64;
-            if deg_w > 0.0 {
-                let p_wv = 1.0 / deg_w;
-                indirect += p_uw * p_wv;
+        if let Some(vi) = v_idx {
+            if graph.has_edge_by_indices(vi, w) {
+                let deg_w = graph.neighbor_count_by_index(w) as f64;
+                if deg_w > 0.0 {
+                    let p_wv = 1.0 / deg_w;
+                    indirect += p_uw * p_wv;
+                }
             }
         }
     }
@@ -42428,18 +42325,14 @@ pub fn effective_size(graph: &Graph) -> std::collections::HashMap<String, f64> {
     // integer as before, so `deg - 2*ties/deg` is byte-for-byte identical.
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &s)| (s, i)).collect();
-    let mut adj: Vec<Vec<usize>> = Vec::with_capacity(n);
-    for &u in &nodes {
-        let nb = graph.neighbors(u).unwrap_or_default();
-        adj.push(nb.iter().map(|w| idx[w]).collect());
-    }
+    let adj: Vec<&[usize]> = (0..n)
+        .map(|ui| graph.neighbors_indices(ui).unwrap_or(&[]))
+        .collect();
 
     let mut in_nu = vec![false; n];
     let mut result = std::collections::HashMap::with_capacity(n);
     for ui in 0..n {
-        let u_nbrs = &adj[ui];
+        let u_nbrs = adj[ui];
         let deg = u_nbrs.len();
         if deg == 0 {
             result.insert(nodes[ui].to_owned(), 0.0);
@@ -42451,7 +42344,7 @@ pub fn effective_size(graph: &Graph) -> std::collections::HashMap<String, f64> {
         // total = sum over w in N(u) of |N(w) ∩ N(u)| = 2 * (ties among N(u))
         let mut total = 0usize;
         for &wi in u_nbrs {
-            for &vi in &adj[wi] {
+            for &vi in adj[wi] {
                 if in_nu[vi] {
                     total += 1;
                 }
@@ -42913,25 +42806,15 @@ pub fn voronoi_cells(
 ) -> std::collections::HashMap<String, Vec<String>> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    // br-r37-c1-voronoi (cc): the multi-source BFS walked `graph.neighbors(nodes[v])`
-    // (a fresh `Vec<&str>` alloc per pop) and re-hashed each neighbour name through
-    // `idx` to recover its index. Walk `graph.neighbors_indices(v)` directly (integer
-    // neighbours, no alloc, no hash) — `idx` never rejected a neighbour (every
-    // neighbour is a node), so every neighbour index is visited exactly as before.
-    // `idx` is still used to resolve the `center_nodes` names to indices.
-    // Byte-identical: `neighbors_indices(v)` yields the same neighbour set in the
-    // same adjacency order as `neighbors(nodes[v])`, so the FIFO BFS traversal order
-    // — and thus the nearest-center tie-break on equidistant nodes — is unchanged;
-    // `dist`/`nearest` are integer-indexed already.
+    // br-r37-c1-voronoi (cc): the multi-source BFS walks graph.neighbors_indices(v) directly.
+    // Center nodes are resolved via graph.get_node_index without allocating an idx map for all nodes.
     let mut nearest: Vec<Option<usize>> = vec![None; n];
     let mut dist = vec![usize::MAX; n];
     let mut queue = std::collections::VecDeque::new();
 
     for (ci, &center) in center_nodes.iter().enumerate() {
-        if let Some(&node_idx) = idx.get(center) {
+        if let Some(node_idx) = graph.get_node_index(center) {
             nearest[node_idx] = Some(ci);
             dist[node_idx] = 0;
             queue.push_back(node_idx);
@@ -43265,9 +43148,6 @@ pub fn min_cost_flow(
         });
     }
 
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
     // Parse demands and negate to convert from NetworkX convention
     // (negative=supply, positive=demand) to internal convention (positive=supply, negative=demand)
     let mut demand = vec![0.0f64; n];
@@ -43291,16 +43171,12 @@ pub fn min_cost_flow(
         std::collections::HashMap::new();
     let mut adj = vec![std::collections::HashSet::new(); n];
 
-    for edge in digraph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
-        let c = edge
-            .attrs
+    for (i, j, attrs) in digraph.edges_ordered_indices_borrowed() {
+        let c = attrs
             .get(capacity_attr)
             .and_then(|v| v.as_f64())
             .unwrap_or(f64::MAX);
-        let w = edge
-            .attrs
+        let w = attrs
             .get(weight_attr)
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
@@ -43388,13 +43264,11 @@ pub fn min_cost_flow(
 
     // Build result
     let mut flow = std::collections::HashMap::new();
-    for edge in digraph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    for (i, j, _) in digraph.edges_ordered_indices_borrowed() {
         if i != j {
             let f = *flow_mat.get(&(i, j)).unwrap_or(&0.0);
             if f > FLOW_EPSILON {
-                flow.insert((edge.left.clone(), edge.right.clone()), f);
+                flow.insert((nodes[i].to_string(), nodes[j].to_string()), f);
             }
         }
     }
@@ -43566,9 +43440,7 @@ pub fn edge_disjoint_paths_directed(
     let mut cap = std::collections::HashMap::new();
     let mut initial_cap = std::collections::HashMap::new();
     let mut adj = vec![std::collections::HashSet::new(); n];
-    for edge in digraph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    for (i, j) in digraph.edges_ordered_indices() {
         if i != j {
             *cap.entry((i, j)).or_insert(0) += 1;
             *initial_cap.entry((i, j)).or_insert(0) += 1;
@@ -43702,9 +43574,7 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
     }
 
     // Graph edges: u_out → v_in and v_out → u_in (undirected)
-    for edge in graph.edges_ordered() {
-        let u = idx[edge.left.as_str()];
-        let v = idx[edge.right.as_str()];
+    for (u, v) in graph.edges_ordered_indices() {
         if u != v {
             cap.insert((u + n, v), 1);
             cap.insert((v + n, u), 1);
@@ -43845,9 +43715,7 @@ pub fn node_disjoint_paths_directed(
     }
 
     // Graph edges: u_out → v_in (directed)
-    for edge in digraph.edges_ordered() {
-        let u = idx[edge.left.as_str()];
-        let v = idx[edge.right.as_str()];
+    for (u, v) in digraph.edges_ordered_indices() {
         if u != v {
             *cap.entry((u + n, v)).or_insert(0) += 1;
             *initial_cap.entry((u + n, v)).or_insert(0) += 1;
@@ -44105,15 +43973,11 @@ pub enum DfsEdgeLabel {
 /// Each result is (u, v, label) where label classifies the edge type.
 #[must_use]
 pub fn dfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, DfsEdgeLabel)> {
+    let Some(s) = graph.get_node_index(source) else {
+        return Vec::new();
+    };
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
-    let s = match idx.get(source) {
-        Some(&i) => i,
-        None => return Vec::new(),
-    };
 
     let mut result = Vec::new();
     let mut visited = vec![false; n];
@@ -44122,14 +43986,10 @@ pub fn dfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, Df
 
     visited[s] = true;
     // Push neighbors in reverse for consistent ordering
-    let nbrs: Vec<usize> = graph
-        .neighbors(nodes[s])
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|nb| idx.get(nb).copied())
-        .collect();
-    for &nb in nbrs.iter().rev() {
-        stack.push((s, nb, true));
+    if let Some(nbrs) = graph.neighbors_indices(s) {
+        for &nb in nbrs.iter().rev() {
+            stack.push((s, nb, true));
+        }
     }
 
     while let Some((parent, node, is_entry)) = stack.pop() {
@@ -44159,15 +44019,12 @@ pub fn dfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, Df
         stack.push((parent, node, false));
 
         // Push neighbors
-        let nbrs: Vec<usize> = graph
-            .neighbors(nodes[node])
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|nb| idx.get(nb).copied())
-            .filter(|&nb| nb != parent)
-            .collect();
-        for &nb in nbrs.iter().rev() {
-            stack.push((node, nb, true));
+        if let Some(nbrs) = graph.neighbors_indices(node) {
+            for &nb in nbrs.iter().rev() {
+                if nb != parent {
+                    stack.push((node, nb, true));
+                }
+            }
         }
     }
 
@@ -44516,8 +44373,6 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
 pub fn power(graph: &Graph, k: usize) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for &node in &nodes {
@@ -44542,11 +44397,9 @@ pub fn power(graph: &Graph, k: usize) -> Graph {
             if d >= k {
                 continue;
             }
-            if let Some(nbrs) = graph.neighbors(nodes[v]) {
-                for nb in nbrs {
-                    if let Some(&ni) = idx.get(nb)
-                        && dist[ni] == usize::MAX
-                    {
+            if let Some(nbrs) = graph.neighbors_indices(v) {
+                for &ni in nbrs {
+                    if dist[ni] == usize::MAX {
                         dist[ni] = d + 1;
                         queue.push_back(ni);
                         if ni > s {
@@ -44712,15 +44565,11 @@ pub fn square_clustering_pairs_for(graph: &Graph, targets: &[usize]) -> Vec<(u64
 /// nodes within *radius* hops.
 #[must_use]
 pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
+    let Some(center_idx) = graph.get_node_index(center) else {
+        return Graph::with_runtime_policy(graph.runtime_policy().clone());
+    };
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
-    let center_idx = match idx.get(center) {
-        Some(&i) => i,
-        None => return Graph::with_runtime_policy(graph.runtime_policy().clone()),
-    };
 
     // BFS from center up to radius
     let mut dist = vec![usize::MAX; n];
@@ -44734,11 +44583,9 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
         if d >= radius {
             continue;
         }
-        if let Some(nbrs) = graph.neighbors(nodes[v]) {
-            for nb in nbrs {
-                if let Some(&ni) = idx.get(nb)
-                    && dist[ni] == usize::MAX
-                {
+        if let Some(nbrs) = graph.neighbors_indices(v) {
+            for &ni in nbrs {
+                if dist[ni] == usize::MAX {
                     dist[ni] = d + 1;
                     ego_nodes.push(ni);
                     queue.push_back(ni);
@@ -44748,26 +44595,20 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
     }
 
     // Build subgraph
-    let ego_set: std::collections::HashSet<usize> = ego_nodes.iter().copied().collect();
+    let mut in_ego = vec![false; n];
+    for &i in &ego_nodes {
+        in_ego[i] = true;
+    }
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for &i in &ego_nodes {
         let _ = result.add_node(nodes[i].to_owned());
     }
-    // br-r37-c1-egographbatch (cc): collect the induced edges (both endpoints in the ego set) in the
-    // same order + one batch insert instead of per-edge add_edge_with_attrs (a policy record each). The
-    // input edges are distinct and this loop never reads `result`, so every collected edge is unique
-    // with no self-loop → extend_edges_with_attrs_unrecorded is byte-identical to the per-edge add.
+    // Collect the induced edges (both endpoints in the ego set) in the same order
+    // + one batch insert instead of per-edge add_edge_with_attrs.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    // br-r37-c1-vngrp: borrow the input edge snapshot instead of cloning every endpoint and AttrMap
-    // into an intermediate `EdgeSnapshot`, only to clone the selected induced edges once more into
-    // the result batch. `edges_ordered_borrowed()` preserves the exact edge walk order and exposes the
-    // same endpoint names and attributes, so ego-node membership and result insertion are unchanged.
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
-        if let (Some(&ui), Some(&vi)) = (idx.get(left), idx.get(right))
-            && ego_set.contains(&ui)
-            && ego_set.contains(&vi)
-        {
-            edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
+    for (ui, vi, attrs) in graph.edges_ordered_indices_borrowed() {
+        if in_ego[ui] && in_ego[vi] {
+            edges.push((nodes[ui].to_owned(), nodes[vi].to_owned(), attrs.clone()));
         }
     }
     let _ = result.extend_edges_with_attrs_unrecorded(edges);
@@ -44778,15 +44619,11 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
 /// Ego graph for a directed graph.
 #[must_use]
 pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiGraph {
+    let Some(center_idx) = digraph.get_node_index(center) else {
+        return DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
+    };
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
-    let center_idx = match idx.get(center) {
-        Some(&i) => i,
-        None => return DiGraph::with_runtime_policy(digraph.runtime_policy().clone()),
-    };
 
     let mut dist = vec![usize::MAX; n];
     dist[center_idx] = 0;
@@ -44799,22 +44636,18 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
         if d >= radius {
             continue;
         }
-        if let Some(succs) = digraph.successors(nodes[v]) {
-            for s in succs {
-                if let Some(&si) = idx.get(s)
-                    && dist[si] == usize::MAX
-                {
+        if let Some(succs) = digraph.successors_indices(v) {
+            for &si in succs {
+                if dist[si] == usize::MAX {
                     dist[si] = d + 1;
                     ego_nodes.push(si);
                     queue.push_back(si);
                 }
             }
         }
-        if let Some(preds) = digraph.predecessors(nodes[v]) {
-            for p in preds {
-                if let Some(&pi) = idx.get(p)
-                    && dist[pi] == usize::MAX
-                {
+        if let Some(preds) = digraph.predecessors_indices(v) {
+            for &pi in preds {
+                if dist[pi] == usize::MAX {
                     dist[pi] = d + 1;
                     ego_nodes.push(pi);
                     queue.push_back(pi);
@@ -44823,22 +44656,18 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
         }
     }
 
-    let ego_set: std::collections::HashSet<usize> = ego_nodes.iter().copied().collect();
+    let mut in_ego = vec![false; n];
+    for &i in &ego_nodes {
+        in_ego[i] = true;
+    }
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for &i in &ego_nodes {
         result.add_node(nodes[i].to_owned());
     }
-    // br-r37-c1-egographdirbatch (cc): collect the induced directed edges (both endpoints in the ego
-    // set) in the same order + one batch insert instead of per-edge add_edge_with_attrs (a policy record
-    // each). The input edges are distinct and this loop never reads `result`, so every collected edge is
-    // a unique directed pair with no self-loop → extend_edges_with_attrs_unrecorded is byte-identical.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    for edge in digraph.edges_ordered() {
-        if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
-            && ego_set.contains(&ui)
-            && ego_set.contains(&vi)
-        {
-            edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+    for (ui, vi, attrs) in digraph.edges_ordered_indices_borrowed() {
+        if in_ego[ui] && in_ego[vi] {
+            edges.push((nodes[ui].to_owned(), nodes[vi].to_owned(), attrs.clone()));
         }
     }
     let _ = result.extend_edges_with_attrs_unrecorded(edges);
@@ -45312,26 +45141,25 @@ pub fn attribute_mixing_dict(
     attribute: &str,
 ) -> std::collections::HashMap<(String, String), usize> {
     let mut mixing = std::collections::HashMap::new();
-    // br-r37-c1-attrmixborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
-    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
-    // edge. This loop only reads the endpoint NAMES (node_attrs lookup + the self-loop name comparison)
-    // and never keeps the owned edge data, so the borrow is byte-identical (same edges, same walk order,
-    // same names → same mixing counts).
-    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
-        let u_val = graph
-            .node_attrs(left)
-            .and_then(|a| a.get(attribute))
-            .map(|v| v.as_str())
-            .unwrap_or_default();
-        let v_val = graph
-            .node_attrs(right)
-            .and_then(|a| a.get(attribute))
-            .map(|v| v.as_str())
-            .unwrap_or_default();
+    let nodes = graph.nodes_ordered();
+    let node_vals: Vec<String> = nodes
+        .iter()
+        .map(|node| {
+            graph
+                .node_attrs(node)
+                .and_then(|a| a.get(attribute))
+                .map(|v| v.as_str())
+                .unwrap_or_default()
+        })
+        .collect();
+
+    for (left, right, _attrs) in graph.edges_ordered_indices_borrowed() {
+        let u_val = &node_vals[left];
+        let v_val = &node_vals[right];
         // Undirected: count both directions for every edge
         *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
         if left != right {
-            *mixing.entry((v_val, u_val)).or_insert(0) += 1;
+            *mixing.entry((v_val.clone(), u_val.clone())).or_insert(0) += 1;
         }
     }
     mixing
@@ -45448,36 +45276,26 @@ pub fn attribute_assortativity(graph: &Graph, attribute: &str) -> f64 {
 /// from one pair that uses a neighbor of the third.
 #[must_use]
 pub fn is_at_free(graph: &Graph) -> bool {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n < 3 {
         return true;
     }
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    // br-r37-c1-atfree-cs (cc): networkx's component-structure algorithm, replacing
-    // the old O(n^4) per-triple BFS search (one bfs_avoiding per (i,j,k) triple =
-    // 564ms on an AT-free path(80)). Build cs[v][u] = the component label of u in
-    // G - N[v] (0 if u is in v's closed neighbourhood) with ONE BFS-labelling per
-    // node (O(n*(n+m))); then test pairwise-non-adjacent triples against the
-    // precomputed structure (O(n^3), early-exit). is_at_free is a boolean
-    // (order-invariant) so the result is byte-identical to nx for any order.
-    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (i, &nm) in nodes.iter().enumerate() {
-        for nb in graph.neighbors(nm).unwrap_or_default() {
-            if let Some(&ni) = idx.get(nb) {
-                adj[i].push(ni);
-            }
-        }
-    }
+    // br-r37-c1-atfree-cs (cc): networkx's component-structure algorithm.
+    // cs[v][u] = component label of u in G - N[v] (0 if u is in v's closed neighbourhood)
+    // with ONE BFS-labelling per node; then test pairwise-non-adjacent triples against the
+    // precomputed structure. Direct slice access on neighbors_indices avoids all string and vector allocations.
+    let adj: Vec<&[usize]> = (0..n)
+        .map(|i| graph.neighbors_indices(i).unwrap_or(&[]))
+        .collect();
+
     // cs[v][u] == 0  iff  u is in N[v] ∪ {v}; otherwise it is the (>=1) label of u's
     // connected component in G - N[v].
     let mut cs: Vec<Vec<usize>> = vec![vec![0usize; n]; n];
     for v in 0..n {
         let mut visited = vec![false; n];
         visited[v] = true;
-        for &nb in &adj[v] {
+        for &nb in adj[v] {
             visited[nb] = true; // closed neighbourhood -> component label 0 (left 0)
         }
         let mut label = 0usize;
@@ -45491,7 +45309,7 @@ pub fn is_at_free(graph: &Graph) -> bool {
             let mut queue = std::collections::VecDeque::new();
             queue.push_back(start);
             while let Some(x) = queue.pop_front() {
-                for &w in &adj[x] {
+                for &w in adj[x] {
                     if !visited[w] {
                         visited[w] = true;
                         cs[v][w] = label;
@@ -45537,7 +45355,8 @@ pub fn double_edge_swap_seeded(
     max_tries: usize,
     seed: u64,
 ) -> usize {
-    if graph.edge_count() < 2 {
+    let mut m = graph.edge_count();
+    if m < 2 {
         return 0;
     }
 
@@ -45551,17 +45370,16 @@ pub fn double_edge_swap_seeded(
 
     let mut swaps_done = 0usize;
     let total_tries = nswap.saturating_mul(max_tries);
+    let mut edges: Vec<(String, String)> = graph
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+        .collect();
 
     for _ in 0..total_tries {
         if swaps_done >= nswap {
             break;
         }
-        let edges: Vec<(String, String)> = graph
-            .edges_ordered()
-            .iter()
-            .map(|e| (e.left.clone(), e.right.clone()))
-            .collect();
-        let m = edges.len();
         if m < 2 {
             break;
         }
@@ -45574,12 +45392,7 @@ pub fn double_edge_swap_seeded(
         let (ref u, ref v) = edges[i1];
         let (ref x, ref y) = edges[i2];
 
-        let mut nodes = std::collections::HashSet::new();
-        nodes.insert(u.as_str());
-        nodes.insert(v.as_str());
-        nodes.insert(x.as_str());
-        nodes.insert(y.as_str());
-        if nodes.len() < 4 {
+        if u == v || u == x || u == y || v == x || v == y || x == y {
             continue;
         }
 
@@ -45589,6 +45402,12 @@ pub fn double_edge_swap_seeded(
             let _ = graph.add_edge(u.clone(), x.clone());
             let _ = graph.add_edge(v.clone(), y.clone());
             swaps_done += 1;
+            edges = graph
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+                .collect();
+            m = edges.len();
         }
     }
     swaps_done
@@ -45601,7 +45420,8 @@ pub fn directed_edge_swap_seeded(
     max_tries: usize,
     seed: u64,
 ) -> usize {
-    if digraph.edge_count() < 2 {
+    let mut m = digraph.edge_count();
+    if m < 2 {
         return 0;
     }
 
@@ -45615,17 +45435,16 @@ pub fn directed_edge_swap_seeded(
 
     let mut swaps_done = 0usize;
     let total_tries = nswap.saturating_mul(max_tries);
+    let mut edges: Vec<(String, String)> = digraph
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+        .collect();
 
     for _ in 0..total_tries {
         if swaps_done >= nswap {
             break;
         }
-        let edges: Vec<(String, String)> = digraph
-            .edges_ordered()
-            .iter()
-            .map(|e| (e.left.clone(), e.right.clone()))
-            .collect();
-        let m = edges.len();
         if m < 2 {
             break;
         }
@@ -45648,6 +45467,12 @@ pub fn directed_edge_swap_seeded(
             let _ = digraph.add_edge(u.clone(), y.clone());
             let _ = digraph.add_edge(x.clone(), v.clone());
             swaps_done += 1;
+            edges = digraph
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+                .collect();
+            m = edges.len();
         }
     }
     swaps_done
@@ -45989,11 +45814,19 @@ pub fn full_join(g1: &Graph, g2: &Graph) -> Graph {
     // same `extend` as add_edge_with_attrs (and add_edge is just add_edge_with_attrs with an
     // empty AttrMap), in the identical order → byte-identical.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    for edge in g1.edges_ordered() {
-        edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+    for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
+        edges.push((
+            g1_nodes[left].to_owned(),
+            g1_nodes[right].to_owned(),
+            attrs.clone(),
+        ));
     }
-    for edge in g2.edges_ordered() {
-        edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+    for (left, right, attrs) in g2.edges_ordered_indices_borrowed() {
+        edges.push((
+            g2_nodes[left].to_owned(),
+            g2_nodes[right].to_owned(),
+            attrs.clone(),
+        ));
     }
     // Cross-edges
     for &u in &g1_nodes {
@@ -46026,21 +45859,21 @@ pub fn line_graph(graph: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     // Collect edges with canonical ordering (sorted endpoints)
-    let edges: Vec<(String, String)> = graph
-        .edges_ordered()
+    let edges: Vec<(&str, &str)> = graph
+        .edges_ordered_borrowed()
         .into_iter()
-        .map(|e| {
-            if e.left <= e.right {
-                (e.left.clone(), e.right.clone())
+        .map(|(left, right, _)| {
+            if left <= right {
+                (left, right)
             } else {
-                (e.right.clone(), e.left.clone())
+                (right, left)
             }
         })
         .collect();
 
     // Create a node for each edge, named as "(u, v)"
-    for (u, v) in &edges {
-        let node_name = pair_label(u, v);
+    let node_labels: Vec<String> = edges.iter().map(|(u, v)| pair_label(u, v)).collect();
+    for node_name in &node_labels {
         let _ = result.add_node(node_name);
     }
 
@@ -46052,13 +45885,13 @@ pub fn line_graph(graph: &Graph) -> Graph {
     // Two edges are adjacent in L(G) if they share a vertex in G
     let mut result_edges: Vec<(String, String)> = Vec::new();
     for i in 0..edges.len() {
-        let (u1, v1) = &edges[i];
-        let node_i = pair_label(u1, v1);
+        let (u1, v1) = edges[i];
+        let node_i = &node_labels[i];
         for j in (i + 1)..edges.len() {
-            let (u2, v2) = &edges[j];
+            let (u2, v2) = edges[j];
             // Check if edges share a vertex
             if u1 == u2 || u1 == v2 || v1 == u2 || v1 == v2 {
-                result_edges.push((node_i.clone(), pair_label(u2, v2)));
+                result_edges.push((node_i.clone(), node_labels[j].clone()));
             }
         }
     }
@@ -46079,15 +45912,15 @@ pub fn line_graph_directed(digraph: &DiGraph) -> DiGraph {
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
 
     // Collect all edges
-    let edges: Vec<(String, String)> = digraph
-        .edges_ordered()
+    let edges: Vec<(&str, &str)> = digraph
+        .edges_ordered_borrowed()
         .into_iter()
-        .map(|e| (e.left.clone(), e.right.clone()))
+        .map(|(left, right, _)| (left, right))
         .collect();
 
     // Create a node for each edge, named as "(u, v)"
-    for (u, v) in &edges {
-        let node_name = pair_label(u, v);
+    let node_labels: Vec<String> = edges.iter().map(|(u, v)| pair_label(u, v)).collect();
+    for node_name in &node_labels {
         let _ = result.add_node(node_name);
     }
 
@@ -46098,12 +45931,12 @@ pub fn line_graph_directed(digraph: &DiGraph) -> DiGraph {
     // → byte-identical.
     // In directed line graph: edge (u,v) → (v,w) exists iff head of first = tail of second
     let mut result_edges: Vec<(String, String)> = Vec::new();
-    for (u, v) in &edges {
-        let from_node = pair_label(u, v);
+    for (i, &(_u, v)) in edges.iter().enumerate() {
+        let from_node = &node_labels[i];
         // Find all edges that start from v
-        for (u2, v2) in &edges {
+        for (j, &(u2, _v2)) in edges.iter().enumerate() {
             if v == u2 {
-                result_edges.push((from_node.clone(), pair_label(u2, v2)));
+                result_edges.push((from_node.clone(), node_labels[j].clone()));
             }
         }
     }
@@ -46145,20 +45978,20 @@ pub fn cartesian_product(g: &Graph, h: &Graph) -> Graph {
     // blocks (same-G/adjacent-H, then same-H/adjacent-G) are disjoint, and g/h edges are non-self-loop,
     // so every product edge is unique with no self-loop → collecting in the same order and using
     // extend_edges_unrecorded is byte-identical to the per-edge add_edge.
-    let h_edges = h.edges_ordered();
-    let g_edges = g.edges_ordered();
+    let h_edges = h.edges_ordered_borrowed();
+    let g_edges = g.edges_ordered_borrowed();
     let mut edges: Vec<(String, String)> =
         Vec::with_capacity(g_nodes.len() * h_edges.len() + h_nodes.len() * g_edges.len());
     // Add edges: same G-node, adjacent H-nodes
     for gn in &g_nodes {
-        for edge in &h_edges {
-            edges.push((pair_label(gn, &edge.left), pair_label(gn, &edge.right)));
+        for &(h_left, h_right, _) in &h_edges {
+            edges.push((pair_label(gn, h_left), pair_label(gn, h_right)));
         }
     }
     // Add edges: same H-node, adjacent G-nodes
     for hn in &h_nodes {
-        for edge in &g_edges {
-            edges.push((pair_label(&edge.left, hn), pair_label(&edge.right, hn)));
+        for &(g_left, g_right, _) in &g_edges {
+            edges.push((pair_label(g_left, hn), pair_label(g_right, hn)));
         }
     }
     let _ = result.extend_edges_unrecorded(edges);
@@ -46187,18 +46020,18 @@ pub fn cartesian_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
     // (same-G/adjacent-H, then same-H/adjacent-G) are disjoint and g/h edges are non-self-loop, so
     // every product edge is a unique directed pair with no self-loop → extend_edges_unrecorded in the
     // same order is byte-identical to the per-edge add_edge.
-    let h_edges = h.edges_ordered();
-    let g_edges = g.edges_ordered();
+    let h_edges = h.edges_ordered_borrowed();
+    let g_edges = g.edges_ordered_borrowed();
     let mut edges: Vec<(String, String)> =
         Vec::with_capacity(g_nodes.len() * h_edges.len() + h_nodes.len() * g_edges.len());
     for gn in &g_nodes {
-        for edge in &h_edges {
-            edges.push((pair_label(gn, &edge.left), pair_label(gn, &edge.right)));
+        for &(h_left, h_right, _) in &h_edges {
+            edges.push((pair_label(gn, h_left), pair_label(gn, h_right)));
         }
     }
     for hn in &h_nodes {
-        for edge in &g_edges {
-            edges.push((pair_label(&edge.left, hn), pair_label(&edge.right, hn)));
+        for &(g_left, g_right, _) in &g_edges {
+            edges.push((pair_label(g_left, hn), pair_label(g_right, hn)));
         }
     }
     let _ = result.extend_edges_unrecorded(edges);
@@ -46228,16 +46061,8 @@ pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
     }
 
     // Collect edges for iteration
-    let g_edges: Vec<(String, String)> = g
-        .edges_ordered()
-        .into_iter()
-        .map(|e| (e.left.clone(), e.right.clone()))
-        .collect();
-    let h_edges: Vec<(String, String)> = h
-        .edges_ordered()
-        .into_iter()
-        .map(|e| (e.left.clone(), e.right.clone()))
-        .collect();
+    let g_edges = g.edges_ordered_borrowed();
+    let h_edges = h.edges_ordered_borrowed();
 
     // br-r37-c1-tensorprodbatch (cc): collect the product edges (same emission order) and batch-insert
     // once instead of per-edge add_edge (a policy record each). extend_edges_unrecorded DEDUPS on the
@@ -46245,8 +46070,8 @@ pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
     // duplicates are handled identically → byte-identical.
     let mut edges: Vec<(String, String)> = Vec::new();
     // For each pair of edges (one from G, one from H), add edges
-    for (gu, gv) in &g_edges {
-        for (hu, hv) in &h_edges {
+    for &(gu, gv, _) in &g_edges {
+        for &(hu, hv, _) in &h_edges {
             // (gu, hu) -- (gv, hv)
             let node1 = pair_label(gu, hu);
             let node2 = pair_label(gv, hv);
@@ -46283,16 +46108,8 @@ pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
         }
     }
 
-    let g_edges: Vec<(String, String)> = g
-        .edges_ordered()
-        .into_iter()
-        .map(|e| (e.left.clone(), e.right.clone()))
-        .collect();
-    let h_edges: Vec<(String, String)> = h
-        .edges_ordered()
-        .into_iter()
-        .map(|e| (e.left.clone(), e.right.clone()))
-        .collect();
+    let g_edges = g.edges_ordered_borrowed();
+    let h_edges = h.edges_ordered_borrowed();
 
     // br-r37-c1-tensorproddirbatch (cc): collect the directed product edges (same emission order) and
     // batch-insert once instead of per-edge add_edge (a policy record each). Each (g-edge, h-edge) pair
@@ -46300,8 +46117,8 @@ pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
     // extend_edges_unrecorded dedups on the directed key anyway and handles self-loops → byte-identical.
     let mut edges: Vec<(String, String)> = Vec::with_capacity(g_edges.len() * h_edges.len());
     // For directed: only (gu, hu) -> (gv, hv)
-    for (gu, gv) in &g_edges {
-        for (hu, hv) in &h_edges {
+    for &(gu, gv, _) in &g_edges {
+        for &(hu, hv, _) in &h_edges {
             edges.push((pair_label(gu, hu), pair_label(gv, hv)));
         }
     }
@@ -46323,13 +46140,16 @@ pub fn relabel_nodes(graph: &Graph, mapping: &std::collections::HashMap<String, 
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     // Add nodes with new labels
-    for node in graph.nodes_ordered() {
+    let nodes = graph.nodes_ordered();
+    let mut mapped_nodes: Vec<String> = Vec::with_capacity(nodes.len());
+    for &node in &nodes {
         let new_label = mapping
             .get(node)
             .cloned()
             .unwrap_or_else(|| node.to_owned());
         let attrs = graph.node_attrs(node).cloned().unwrap_or_default();
-        let _ = result.add_node_with_attrs(new_label, attrs);
+        let _ = result.add_node_with_attrs(new_label.clone(), attrs);
+        mapped_nodes.push(new_label);
     }
 
     // br-r37-c1-relabelbatch (cc): collect the remapped edges (same order) + one batch insert instead
@@ -46337,17 +46157,13 @@ pub fn relabel_nodes(graph: &Graph, mapping: &std::collections::HashMap<String, 
     // on the canonical endpoint pair AND merges attrs (existing.extend) exactly as add_edge_with_attrs,
     // so a node-merging mapping (two labels → one) that collapses edges to a duplicate — or to a
     // self-loop — is handled byte-identically. Nodes are already added above.
-    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    for edge in graph.edges_ordered() {
-        let new_left = mapping
-            .get(&edge.left)
-            .cloned()
-            .unwrap_or_else(|| edge.left.clone());
-        let new_right = mapping
-            .get(&edge.right)
-            .cloned()
-            .unwrap_or_else(|| edge.right.clone());
-        edges.push((new_left, new_right, edge.attrs.clone()));
+    let mut edges: Vec<(String, String, AttrMap)> = Vec::with_capacity(graph.edge_count());
+    for (left, right, attrs) in graph.edges_ordered_indices_borrowed() {
+        edges.push((
+            mapped_nodes[left].clone(),
+            mapped_nodes[right].clone(),
+            attrs.clone(),
+        ));
     }
     let _ = result.extend_edges_with_attrs_unrecorded(edges);
 
@@ -46362,30 +46178,29 @@ pub fn relabel_nodes_directed(
 ) -> DiGraph {
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
 
-    for node in digraph.nodes_ordered() {
+    let nodes = digraph.nodes_ordered();
+    let mut mapped_nodes: Vec<String> = Vec::with_capacity(nodes.len());
+    for &node in &nodes {
         let new_label = mapping
             .get(node)
             .cloned()
             .unwrap_or_else(|| node.to_owned());
         let attrs = digraph.node_attrs(node).cloned().unwrap_or_default();
-        let _ = result.add_node_with_attrs(new_label, attrs);
+        let _ = result.add_node_with_attrs(new_label.clone(), attrs);
+        mapped_nodes.push(new_label);
     }
 
     // br-r37-c1-relabeldirbatch (cc): collect the remapped edges (same order) + one batch insert instead
     // of per-edge add_edge_with_attrs (a policy record each). The DiGraph inserter dedups on the directed
     // (src,tgt) key AND merges attrs exactly as add_edge_with_attrs, so a node-merging mapping that
     // collapses distinct directed edges into a duplicate — or into a self-loop — is byte-identical.
-    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    for edge in digraph.edges_ordered() {
-        let new_left = mapping
-            .get(&edge.left)
-            .cloned()
-            .unwrap_or_else(|| edge.left.clone());
-        let new_right = mapping
-            .get(&edge.right)
-            .cloned()
-            .unwrap_or_else(|| edge.right.clone());
-        edges.push((new_left, new_right, edge.attrs.clone()));
+    let mut edges: Vec<(String, String, AttrMap)> = Vec::with_capacity(digraph.edge_count());
+    for (left, right, attrs) in digraph.edges_ordered_indices_borrowed() {
+        edges.push((
+            mapped_nodes[left].clone(),
+            mapped_nodes[right].clone(),
+            attrs.clone(),
+        ));
     }
     let _ = result.extend_edges_with_attrs_unrecorded(edges);
 
@@ -46419,30 +46234,28 @@ pub fn convert_node_labels_to_integers(
 #[must_use]
 pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
+    let nodes = graph.nodes_ordered();
+    let v_idx = graph.get_node_index(v);
 
     // Add all nodes except v
-    for node in graph.nodes_ordered() {
-        if node != v {
-            let attrs = graph.node_attrs(node).cloned().unwrap_or_default();
+    for (idx, &node) in nodes.iter().enumerate() {
+        if Some(idx) != v_idx {
+            let attrs = graph.node_attrs_by_index(idx).cloned().unwrap_or_default();
             let _ = result.add_node_with_attrs(node.to_owned(), attrs);
         }
     }
 
     // Add edges, redirecting v → u
-    for edge in graph.edges_ordered() {
-        let new_left = if edge.left == v {
-            u.to_owned()
+    for (left, right, attrs) in graph.edges_ordered_indices_borrowed() {
+        let left_name = if Some(left) == v_idx { u } else { nodes[left] };
+        let right_name = if Some(right) == v_idx {
+            u
         } else {
-            edge.left.clone()
-        };
-        let new_right = if edge.right == v {
-            u.to_owned()
-        } else {
-            edge.right.clone()
+            nodes[right]
         };
         // Skip self-loops created by contraction
-        if new_left != new_right && !result.has_edge(&new_left, &new_right) {
-            let _ = result.add_edge_with_attrs(new_left, new_right, edge.attrs.clone());
+        if left_name != right_name && !result.has_edge(left_name, right_name) {
+            let _ = result.add_edge_with_attrs(left_name, right_name, attrs.clone());
         }
     }
 
@@ -46458,7 +46271,8 @@ pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
 /// After each swap, checks if the graph remains connected and reverts
 /// if not. Returns the number of successful swaps.
 pub fn connected_double_edge_swap_seeded(graph: &mut Graph, nswap: usize, seed: u64) -> usize {
-    if graph.edge_count() < 2 {
+    let mut m = graph.edge_count();
+    if m < 2 {
         return 0;
     }
 
@@ -46472,17 +46286,16 @@ pub fn connected_double_edge_swap_seeded(graph: &mut Graph, nswap: usize, seed: 
 
     let mut swaps_done = 0usize;
     let max_tries = nswap.saturating_mul(100);
+    let mut edges: Vec<(String, String)> = graph
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+        .collect();
 
     for _ in 0..max_tries {
         if swaps_done >= nswap {
             break;
         }
-        let edges: Vec<(String, String)> = graph
-            .edges_ordered()
-            .iter()
-            .map(|e| (e.left.clone(), e.right.clone()))
-            .collect();
-        let m = edges.len();
         if m < 2 {
             break;
         }
@@ -46495,12 +46308,10 @@ pub fn connected_double_edge_swap_seeded(graph: &mut Graph, nswap: usize, seed: 
         let (ref u, ref v) = edges[i1];
         let (ref x, ref y) = edges[i2];
 
-        let mut nodes = std::collections::HashSet::new();
-        nodes.insert(u.as_str());
-        nodes.insert(v.as_str());
-        nodes.insert(x.as_str());
-        nodes.insert(y.as_str());
-        if nodes.len() < 4 || graph.has_edge(u, x) || graph.has_edge(v, y) {
+        if u == v || u == x || u == y || v == x || v == y || x == y {
+            continue;
+        }
+        if graph.has_edge(u, x) || graph.has_edge(v, y) {
             continue;
         }
 
@@ -46520,6 +46331,12 @@ pub fn connected_double_edge_swap_seeded(graph: &mut Graph, nswap: usize, seed: 
         } else {
             swaps_done += 1;
         }
+        edges = graph
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+            .collect();
+        m = edges.len();
     }
 
     swaps_done
@@ -46541,14 +46358,9 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
         return Vec::new();
     }
 
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-
     let mut succ_set: Vec<std::collections::HashSet<usize>> =
         vec![std::collections::HashSet::new(); n];
-    for edge in digraph.edges_ordered() {
-        let u = idx[edge.left.as_str()];
-        let v = idx[edge.right.as_str()];
+    for (u, v) in digraph.edges_ordered_indices() {
         succ_set[u].insert(v);
     }
 
@@ -46616,17 +46428,9 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
 /// and `y` controls target degree type.
 pub fn node_degree_xy(graph: &Graph) -> Vec<(usize, usize)> {
     let mut result = Vec::with_capacity(graph.edge_count());
-    // br-r37-c1-ndxyborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero per-edge
-    // allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per edge into an
-    // EdgeSnapshot. This loop only reads the endpoint NAMES (neighbor_count) and never keeps the owned
-    // data, so the borrow is byte-identical (same edges, same walk order, same names → same (du, dv)).
-    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
-        // br-r37-c1-ra004 (cc): no-alloc degree, matching the already-optimised
-        // `node_degree_xy_directed` twin. `neighbor_count(x)` == the length of the
-        // `Vec<&str>` `neighbors(x)` builds (both are `adj_indices[idx].len()`), so
-        // this is byte-identical and drops two per-edge `Vec<&str>` allocations.
-        let du = graph.neighbor_count(left);
-        let dv = graph.neighbor_count(right);
+    for (left, right, _attrs) in graph.edges_ordered_indices_borrowed() {
+        let du = graph.neighbor_count_by_index(left);
+        let dv = graph.neighbor_count_by_index(right);
         result.push((du, dv));
     }
     result
@@ -46652,30 +46456,17 @@ pub fn node_degree_xy_directed(
     x_type: &str,
     y_type: &str,
 ) -> Vec<(usize, usize)> {
-    // br-r37-c1-ndxydir (cc): the "in"/"both" degree arms called
-    // `digraph.predecessors(x)` (a `Vec<&str>` allocation) just to take `.len()`;
-    // use the no-alloc `digraph.in_degree(x)` instead. The "out" arm already used
-    // no-alloc `neighbor_count`. Byte-identical: `in_degree(x) == pred_indices[i].len()
-    // == predecessors(x).len()` (simple DiGraph), and `neighbor_count(x) ==
-    // succ_indices[i].len()`, so every `(du, dv)` pair is the same integer. (The
-    // undirected `node_degree_xy` twin's comment claimed this was already done — it
-    // was only done for the "out" arm.)
     let mut result = Vec::with_capacity(digraph.edge_count());
-    // br-r37-c1-ndxydirborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
-    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
-    // edge into an EdgeSnapshot. This loop only reads the endpoint NAMES (in_degree/neighbor_count) and
-    // never keeps the owned data, so the borrow is byte-identical (same edges, same walk order, same
-    // names → same (du, dv) pairs). Directed twin of br-r37-c1-ndxyborrow.
-    for (left, right, _attrs) in digraph.edges_ordered_borrowed() {
+    for (left, right, _attrs) in digraph.edges_ordered_indices_borrowed() {
         let du = match x_type {
-            "in" => digraph.in_degree(left),
-            "out" => digraph.neighbor_count(left),
-            _ => digraph.neighbor_count(left) + digraph.in_degree(left),
+            "in" => digraph.in_degree_by_index(left),
+            "out" => digraph.out_degree_by_index(left),
+            _ => digraph.degree_by_index(left),
         };
         let dv = match y_type {
-            "in" => digraph.in_degree(right),
-            "out" => digraph.neighbor_count(right),
-            _ => digraph.neighbor_count(right) + digraph.in_degree(right),
+            "in" => digraph.in_degree_by_index(right),
+            "out" => digraph.out_degree_by_index(right),
+            _ => digraph.degree_by_index(right),
         };
         result.push((du, dv));
     }
@@ -46733,8 +46524,8 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
         let _ = result.add_node(node.to_owned());
     }
     // Copy all edges initially
-    for edge in graph.edges_ordered() {
-        let _ = result.add_edge(edge.left.clone(), edge.right.clone());
+    for (u, v) in graph.edges_ordered_indices() {
+        let _ = result.add_edge(nodes[u], nodes[v]);
     }
 
     let mut compressor_names = Vec::new();
@@ -46817,14 +46608,19 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
 #[must_use]
 pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 {
     // Newman (2003) Eq. (21): Pearson correlation via mixing matrix marginals.
-    // Collect unique numeric attribute values
+    // Collect unique numeric attribute values using direct index scan (0 heap allocs, 0 string hashes).
+    let n = graph.node_count();
     let mut val_set = std::collections::BTreeSet::new();
-    for node in graph.nodes_ordered() {
-        if let Some(attrs) = graph.node_attrs(node)
-            && let Some(v) = attrs.get(attribute)
-        {
-            val_set.insert(v.as_f64().unwrap_or(0.0).to_bits());
+    let mut node_bits = Vec::with_capacity(n);
+    for idx in 0..n {
+        let opt_b = graph
+            .node_attrs_by_index(idx)
+            .and_then(|attrs| attrs.get(attribute))
+            .map(|v| v.as_f64().unwrap_or(0.0).to_bits());
+        if let Some(b) = opt_b {
+            val_set.insert(b);
         }
+        node_bits.push(opt_b);
     }
     let values: Vec<f64> = val_set.iter().map(|&b| f64::from_bits(b)).collect();
     let k = values.len();
@@ -46833,28 +46629,18 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 
     }
     let val_idx: std::collections::HashMap<u64, usize> =
         val_set.iter().enumerate().map(|(i, &b)| (b, i)).collect();
+    let node_val_idx: Vec<Option<usize>> = node_bits
+        .into_iter()
+        .map(|opt_b| val_idx.get(&opt_b.unwrap_or(0u64)).copied())
+        .collect();
 
-    // Build mixing matrix (normalized) — count both directions for undirected
+    // Build mixing matrix (normalized) — count both directions for undirected.
+    // Direct index iteration via edges_ordered_indices_borrowed() drops 2|E| string lookups,
+    // 2|E| attr map lookups, and 2|E| val_idx hash probes to O(1) slice indexing.
     let mut counts = vec![vec![0usize; k]; k];
     let mut total = 0usize;
-    // br-r37-c1-numassortborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
-    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
-    // edge. This loop only reads the endpoint NAMES (node_attrs lookups) and never keeps the owned edge
-    // data, so the borrow is byte-identical (same edges, same walk order, same names → same x/y_bits →
-    // same counts → ULP-identical coefficient). Cheap per-edge work (u64 map lookup + array increment),
-    // so the clone saving is undiluted.
-    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
-        let x_bits = graph
-            .node_attrs(left)
-            .and_then(|a| a.get(attribute))
-            .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
-            .unwrap_or(0u64);
-        let y_bits = graph
-            .node_attrs(right)
-            .and_then(|a| a.get(attribute))
-            .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
-            .unwrap_or(0u64);
-        if let (Some(&xi), Some(&yi)) = (val_idx.get(&x_bits), val_idx.get(&y_bits)) {
+    for (left, right, _attrs) in graph.edges_ordered_indices_borrowed() {
+        if let (Some(xi), Some(yi)) = (node_val_idx[left], node_val_idx[right]) {
             counts[xi][yi] += 1;
             counts[yi][xi] += 1;
             total += 2;
@@ -46911,35 +46697,33 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 
 /// Uses multi-source BFS from the group.
 #[must_use]
 pub fn group_closeness_centrality(graph: &Graph, group: &[&str]) -> f64 {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n == 0 || group.is_empty() {
         return 0.0;
     }
 
-    let idx: std::collections::HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let group_set: std::collections::HashSet<&str> = group.iter().copied().collect();
+    let non_group_count = n.saturating_sub(group_set.len());
+    if non_group_count == 0 {
+        return 1.0;
+    }
 
     // Multi-source BFS from group
     let mut dist = vec![usize::MAX; n];
     let mut queue = std::collections::VecDeque::new();
-    let group_set: std::collections::HashSet<&str> = group.iter().copied().collect();
+    let mut in_group = vec![false; n];
 
     for &g in group {
-        if let Some(&gi) = idx.get(g) {
+        if let Some(gi) = graph.get_node_index(g) {
+            in_group[gi] = true;
             dist[gi] = 0;
             queue.push_back(gi);
         }
     }
 
     // br-r37-c1-gcmark (cc): walk `graph.neighbors_indices(v)` (zero-alloc `&[usize]`)
-    // instead of `graph.neighbors(nodes[v])` (a `Vec<&str>` alloc per pop) + an
-    // `idx.get(nb)` String hash per neighbour. `idx.get` never rejected a neighbour
-    // (every neighbour is a node), so every neighbour index is visited as before.
-    // Byte-identical: `neighbors_indices(v)` yields the same neighbour set in the
-    // same adjacency order, so the BFS distances are identical; the final
-    // `non_group_count / total_dist` is one division over the same exact integers.
-    // `idx` is still used to seed the group and `group_set`/`nodes` for the filter.
+    // Center/group lookup uses `get_node_index` and `in_group` bitset, avoiding
+    // `nodes_ordered()` and `idx: HashMap<&str, usize>` allocations entirely.
     while let Some(v) = queue.pop_front() {
         if let Some(nbrs) = graph.neighbors_indices(v) {
             for &ni in nbrs {
@@ -46952,15 +46736,10 @@ pub fn group_closeness_centrality(graph: &Graph, group: &[&str]) -> f64 {
     }
 
     // Sum of distances from non-group nodes
-    let non_group_count = n - group_set.len();
-    if non_group_count == 0 {
-        return 1.0;
-    }
-
     let total_dist: usize = dist
         .iter()
         .enumerate()
-        .filter(|(i, _)| !group_set.contains(nodes[*i]))
+        .filter(|(i, _)| !in_group[*i])
         .map(|(_, &d)| if d == usize::MAX { 0 } else { d })
         .sum();
 
@@ -47032,9 +46811,11 @@ fn group_closeness_centrality_orig_string(graph: &Graph, group: &[&str]) -> f64 
 #[must_use]
 pub fn get_node_attributes(graph: &Graph, name: &str) -> std::collections::HashMap<String, String> {
     let mut result = std::collections::HashMap::new();
-    for node in graph.nodes_ordered() {
-        if let Some(attrs) = graph.node_attrs(node)
+    let n = graph.node_count();
+    for i in 0..n {
+        if let Some(attrs) = graph.node_attrs_by_index(i)
             && let Some(value) = attrs.get(name)
+            && let Some(node) = graph.get_node_name(i)
         {
             result.insert(node.to_owned(), value.as_str());
         }
@@ -47049,9 +46830,9 @@ pub fn get_edge_attributes(
     name: &str,
 ) -> std::collections::HashMap<(String, String), String> {
     let mut result = std::collections::HashMap::new();
-    for edge in graph.edges_ordered() {
-        if let Some(value) = edge.attrs.get(name) {
-            result.insert((edge.left.clone(), edge.right.clone()), value.as_str());
+    for (u, v, attrs) in graph.edges_ordered_borrowed() {
+        if let Some(value) = attrs.get(name) {
+            result.insert((u.to_owned(), v.to_owned()), value.as_str());
         }
     }
     result
