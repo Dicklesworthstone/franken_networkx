@@ -61,7 +61,12 @@ def _make_fnx_connectivity_router(_fn_name):
         f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
         f"``networkx.algorithms.connectivity.{_fn_name}`` for semantics."
     )
-    _routed.__signature__ = _inspect.signature(getattr(_nx_connectivity, _fn_name))
+    _target = getattr(_nx_connectivity, _fn_name, None) or getattr(_fnx, _fn_name, None)
+    if _target is not None:
+        try:
+            _routed.__signature__ = _inspect.signature(_target)
+        except (ValueError, TypeError):
+            pass
     return _routed
 
 

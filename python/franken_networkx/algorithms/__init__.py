@@ -643,13 +643,28 @@ _FNX_FLATTENED_ISOMORPHISM_NAMES = (
 )
 
 
+def _resolve_signature(*candidates):
+    for candidate in candidates:
+        if candidate is not None:
+            try:
+                return _inspect.signature(candidate)
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
 def _make_flattened_isomorphism_router(_name):
     def _routed(*args, **kwargs):
         return getattr(_fnx_isomorphism, _name)(*args, **kwargs)
 
     _routed.__name__ = _name
     _routed.__qualname__ = _name
-    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    sig = _resolve_signature(
+        getattr(_nx_algorithms, _name, None),
+        getattr(_fnx_isomorphism, _name, None),
+    )
+    if sig is not None:
+        _routed.__signature__ = sig
     return _routed
 
 
@@ -680,7 +695,12 @@ def _make_flattened_cluster_router(_name):
 
     _routed.__name__ = _name
     _routed.__qualname__ = _name
-    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    sig = _resolve_signature(
+        getattr(_nx_algorithms, _name, None),
+        getattr(_fnx_cluster, _name, None),
+    )
+    if sig is not None:
+        _routed.__signature__ = sig
     return _routed
 
 
@@ -1690,7 +1710,12 @@ def _make_flattened_assortativity_router(_name):
 
     _routed.__name__ = _name
     _routed.__qualname__ = _name
-    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    sig = _resolve_signature(
+        getattr(_nx_algorithms, _name, None),
+        getattr(_fnx_assortativity, _name, None),
+    )
+    if sig is not None:
+        _routed.__signature__ = sig
     return _routed
 
 
@@ -2724,7 +2749,12 @@ def _make_flattened_cuts_router(_name):
 
     _routed.__name__ = _name
     _routed.__qualname__ = _name
-    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    sig = _resolve_signature(
+        getattr(_nx_algorithms, _name, None),
+        getattr(_fnx_cuts, _name, None),
+    )
+    if sig is not None:
+        _routed.__signature__ = sig
     return _routed
 
 
@@ -2768,7 +2798,14 @@ def _make_flattened_weighted_shortest_path_router(_name):
 
     _routed.__name__ = _name
     _routed.__qualname__ = _name
-    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    import franken_networkx as _fnx_call
+
+    sig = _resolve_signature(
+        getattr(_nx_algorithms, _name, None),
+        getattr(_fnx_call, _name, None),
+    )
+    if sig is not None:
+        _routed.__signature__ = sig
     return _routed
 
 
@@ -3097,7 +3134,14 @@ def _make_flattened_dag_router(_name):
 
     _routed.__name__ = _name
     _routed.__qualname__ = _name
-    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    import franken_networkx as _fnx_call
+
+    sig = _resolve_signature(
+        getattr(_nx_algorithms, _name, None),
+        getattr(_fnx_call, _name, None),
+    )
+    if sig is not None:
+        _routed.__signature__ = sig
     return _routed
 
 
@@ -3426,7 +3470,12 @@ def _make_flattened_link_prediction_router(_name):
 
     _routed.__name__ = _name
     _routed.__qualname__ = _name
-    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    sig = _resolve_signature(
+        getattr(_nx_algorithms, _name, None),
+        getattr(_fnx_link_prediction, _name, None),
+    )
+    if sig is not None:
+        _routed.__signature__ = sig
     return _routed
 
 
