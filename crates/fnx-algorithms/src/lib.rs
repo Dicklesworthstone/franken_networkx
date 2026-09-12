@@ -13743,19 +13743,19 @@ fn build_contracted_undirected_graph(
     }
 
     let mut prepared = ContractedUndirectedGraph::new(nodes);
-    for edge in graph.edges_ordered() {
-        let original_edge = canonical_contracted_edge_key(&edge.left, &edge.right);
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let original_edge = canonical_contracted_edge_key(left, right);
         if !available_edges.contains(&original_edge) {
             continue;
         }
 
-        let left_rep = merged_node_representative(&mut merged_nodes, &edge.left);
-        let right_rep = merged_node_representative(&mut merged_nodes, &edge.right);
+        let left_rep = merged_node_representative(&mut merged_nodes, left);
+        let right_rep = merged_node_representative(&mut merged_nodes, right);
         if left_rep == right_rep {
             continue;
         }
 
-        let weight = spanning_tree_edge_weight_from_attrs(Some(&edge.attrs), weight_attr);
+        let weight = spanning_tree_edge_weight_from_attrs(Some(attrs), weight_attr);
         let key = canonical_contracted_edge_key(&left_rep, &right_rep);
         let entry = prepared
             .edges
@@ -14343,9 +14343,9 @@ fn number_of_spanning_trees_direct(graph: &Graph, weight_attr: Option<&str>) -> 
 /// Frozen pre-jhxvq implementation for exact parity and same-binary A/B tests.
 fn number_of_spanning_trees_contracted_baseline(graph: &Graph, weight_attr: Option<&str>) -> f64 {
     let available_edges = graph
-        .edges_ordered()
+        .edges_ordered_borrowed()
         .into_iter()
-        .map(|edge| canonical_contracted_edge_key(&edge.left, &edge.right))
+        .map(|(left, right, _)| canonical_contracted_edge_key(left, right))
         .collect::<HashSet<_>>();
     let (_, contracted) =
         build_contracted_undirected_graph(graph, weight_attr, &available_edges, &[]);
@@ -14359,48 +14359,47 @@ pub fn number_of_spanning_arborescences(
     root: &str,
     weight_attr: Option<&str>,
 ) -> f64 {
-    if digraph.node_count() == 0 {
+    let n = digraph.node_count();
+    if n == 0 {
         return 0.0;
     }
-    if digraph.node_count() == 1 {
+    if n == 1 {
         return 1.0;
     }
     if !is_weakly_connected(digraph) {
         return 0.0;
     }
 
-    let mut nodes = Vec::with_capacity(digraph.node_count());
-    nodes.push(root.to_owned());
-    nodes.extend(
-        digraph
-            .nodes_ordered()
-            .into_iter()
-            .filter(|node| *node != root)
-            .map(str::to_owned),
-    );
-    let node_index: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| (node.as_str(), index))
-        .collect();
-    let mut laplacian = vec![vec![0.0; nodes.len()]; nodes.len()];
+    let Some(root_idx) = digraph.get_node_index(root) else {
+        return 0.0;
+    };
 
-    for edge in digraph.edges_ordered() {
-        if edge.left == edge.right {
+    let m = n - 1;
+    let mut minor = vec![vec![0.0; m]; m];
+
+    let to_minor = |idx: usize| -> Option<usize> {
+        if idx == root_idx {
+            None
+        } else if idx < root_idx {
+            Some(idx)
+        } else {
+            Some(idx - 1)
+        }
+    };
+
+    for (left, right, attrs) in digraph.edges_ordered_indices_borrowed() {
+        if left == right {
             continue;
         }
-        let weight = spanning_tree_edge_weight_from_attrs(Some(&edge.attrs), weight_attr);
-        let source_index = node_index[edge.left.as_str()];
-        let target_index = node_index[edge.right.as_str()];
-        laplacian[target_index][target_index] += weight;
-        laplacian[source_index][target_index] -= weight;
+        let weight = spanning_tree_edge_weight_from_attrs(Some(attrs), weight_attr);
+        if let Some(target_idx) = to_minor(right) {
+            minor[target_idx][target_idx] += weight;
+            if let Some(source_idx) = to_minor(left) {
+                minor[source_idx][target_idx] -= weight;
+            }
+        }
     }
 
-    let minor = laplacian
-        .iter()
-        .skip(1)
-        .map(|row| row.iter().skip(1).copied().collect::<Vec<_>>())
-        .collect::<Vec<_>>();
     determinant(minor)
 }
 
@@ -14440,9 +14439,9 @@ pub fn random_spanning_tree_from_samples(
     }
 
     let mut available_edges = graph
-        .edges_ordered()
+        .edges_ordered_borrowed()
         .into_iter()
-        .map(|edge| canonical_contracted_edge_key(&edge.left, &edge.right))
+        .map(|(left, right, _)| canonical_contracted_edge_key(left, right))
         .collect::<HashSet<_>>();
     let mut chosen_edges = Vec::<(String, String)>::new();
     let mut chosen_weight_sum = 0.0;
@@ -15058,20 +15057,18 @@ fn collect_directed_branching_edges_with_keys(
     default_weight: f64,
 ) -> Vec<DirectedWeightedKeyEdge> {
     digraph
-        .edges_ordered()
+        .edges_ordered_borrowed()
         .into_iter()
         .enumerate()
-        .map(|(key, edge)| DirectedWeightedKeyEdge {
+        .map(|(key, (left, right, attrs))| DirectedWeightedKeyEdge {
             key,
-            source: edge.left.clone(),
-            target: edge.right.clone(),
-            weight: directed_edge_weight_with_default(
-                digraph,
-                &edge.left,
-                &edge.right,
-                weight_attr,
-                default_weight,
-            ),
+            source: left.to_owned(),
+            target: right.to_owned(),
+            weight: attrs
+                .get(weight_attr)
+                .and_then(|val| val.as_f64())
+                .filter(|value| value.is_finite())
+                .unwrap_or(default_weight),
             partition: PartitionState::Open,
         })
         .collect()
@@ -15084,22 +15081,20 @@ fn collect_directed_branching_edges_with_partition(
     partition: &PartitionDict,
 ) -> Vec<DirectedWeightedKeyEdge> {
     digraph
-        .edges_ordered()
+        .edges_ordered_borrowed()
         .into_iter()
         .enumerate()
-        .map(|(key, edge)| DirectedWeightedKeyEdge {
+        .map(|(key, (left, right, attrs))| DirectedWeightedKeyEdge {
             key,
-            source: edge.left.clone(),
-            target: edge.right.clone(),
-            weight: directed_edge_weight_with_default(
-                digraph,
-                &edge.left,
-                &edge.right,
-                weight_attr,
-                default_weight,
-            ),
+            source: left.to_owned(),
+            target: right.to_owned(),
+            weight: attrs
+                .get(weight_attr)
+                .and_then(|val| val.as_f64())
+                .filter(|value| value.is_finite())
+                .unwrap_or(default_weight),
             partition: partition
-                .get(&(edge.left.clone(), edge.right.clone()))
+                .get(&(left.to_owned(), right.to_owned()))
                 .copied()
                 .unwrap_or(PartitionState::Open),
         })
@@ -15147,19 +15142,20 @@ fn normalize_arborescence_partition(
 ) -> Option<PartitionDict> {
     let mut effective = partition.clone();
     for node in digraph.nodes_ordered() {
-        let incoming = digraph
-            .edges_ordered()
+        let Some(preds) = digraph.predecessors(node) else {
+            continue;
+        };
+        let incoming: Vec<(String, String)> = preds
             .into_iter()
-            .filter(|edge| edge.right == node)
-            .map(|edge| (edge.left.clone(), edge.right.clone()))
-            .collect::<Vec<_>>();
+            .map(|pred| (pred.to_owned(), node.to_owned()))
+            .collect();
         let included_count = incoming
             .iter()
-            .filter(|edge| matches!(effective.get(*edge), Some(PartitionState::Included)))
+            .filter(|edge| matches!(effective.get(edge), Some(PartitionState::Included)))
             .count();
         let excluded_count = incoming
             .iter()
-            .filter(|edge| matches!(effective.get(*edge), Some(PartitionState::Excluded)))
+            .filter(|edge| matches!(effective.get(edge), Some(PartitionState::Excluded)))
             .count();
 
         if included_count == 1 && excluded_count != incoming.len().saturating_sub(1) {
@@ -17308,9 +17304,9 @@ pub fn k_truss(graph: &Graph, k: usize) -> KTrussResult {
             },
             edges: if k < 2 {
                 graph
-                    .edges_ordered()
-                    .iter()
-                    .map(|e| (e.left.clone(), e.right.clone()))
+                    .edges_ordered_borrowed()
+                    .into_iter()
+                    .map(|(u, v, _)| ((*u).to_owned(), (*v).to_owned()))
                     .collect()
             } else {
                 Vec::new()
@@ -30518,15 +30514,15 @@ fn is_isomorphic_with_adjacency<const INDEX_ROWS: bool>(g1: &Graph, g2: &Graph) 
     } else {
         let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
         let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-        for edge in g1.edges_ordered() {
-            let i = idx1[edge.left.as_str()];
-            let j = idx1[edge.right.as_str()];
+        for (left, right, _) in g1.edges_ordered_borrowed() {
+            let i = idx1[left];
+            let j = idx1[right];
             adj1[i][j] = true;
             adj1[j][i] = true;
         }
-        for edge in g2.edges_ordered() {
-            let i = idx2[edge.left.as_str()];
-            let j = idx2[edge.right.as_str()];
+        for (left, right, _) in g2.edges_ordered_borrowed() {
+            let i = idx2[left];
+            let j = idx2[right];
             adj2[i][j] = true;
             adj2[j][i] = true;
         }
@@ -30667,48 +30663,40 @@ pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
         return false;
     }
 
-    // Check in/out degree sequences match
-    let mut deg1: Vec<(usize, usize)> = nodes1
-        .iter()
-        .map(|n| (g1.in_degree(n), g1.out_degree(n)))
+    // Group nodes by degree for pruning and check degree sequences match
+    let deg1_map: Vec<(usize, usize)> = (0..n)
+        .map(|i| (g1.in_degree_by_index(i), g1.out_degree_by_index(i)))
         .collect();
-    let mut deg2: Vec<(usize, usize)> = nodes2
-        .iter()
-        .map(|n| (g2.in_degree(n), g2.out_degree(n)))
+    let deg2_map: Vec<(usize, usize)> = (0..n)
+        .map(|i| (g2.in_degree_by_index(i), g2.out_degree_by_index(i)))
         .collect();
+
+    let mut deg1 = deg1_map.clone();
+    let mut deg2 = deg2_map.clone();
     deg1.sort_unstable();
     deg2.sort_unstable();
     if deg1 != deg2 {
         return false;
     }
 
-    // Build directed adjacency matrices for fast lookup
-    let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-    let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-
+    // Build directed adjacency matrices for fast lookup directly from successor indices
     let mut adj1 = vec![vec![false; n]; n];
     let mut adj2 = vec![vec![false; n]; n];
 
-    for edge in g1.edges_ordered() {
-        let i = idx1[edge.left.as_str()];
-        let j = idx1[edge.right.as_str()];
-        adj1[i][j] = true;
+    for (node, row) in adj1.iter_mut().enumerate() {
+        if let Some(succs) = g1.successors_indices(node) {
+            for &succ in succs {
+                row[succ] = true;
+            }
+        }
     }
-    for edge in g2.edges_ordered() {
-        let i = idx2[edge.left.as_str()];
-        let j = idx2[edge.right.as_str()];
-        adj2[i][j] = true;
+    for (node, row) in adj2.iter_mut().enumerate() {
+        if let Some(succs) = g2.successors_indices(node) {
+            for &succ in succs {
+                row[succ] = true;
+            }
+        }
     }
-
-    // Group nodes by degree for pruning
-    let deg1_map: Vec<(usize, usize)> = nodes1
-        .iter()
-        .map(|n| (g1.in_degree(n), g1.out_degree(n)))
-        .collect();
-    let deg2_map: Vec<(usize, usize)> = nodes2
-        .iter()
-        .map(|n| (g2.in_degree(n), g2.out_degree(n)))
-        .collect();
 
     // br-r37-c1-vf2-isolates: walk g1 by descending (in_deg+out_deg)
     // so constrained nodes anchor the search before isolates fan out
@@ -39884,9 +39872,9 @@ pub fn dorogovtsev_goltsev_mendes_graph(n: usize) -> Result<Graph, String> {
     for _gen in 0..n {
         // Get all current edges (we'll add new nodes for each)
         let current_edges: Vec<(String, String)> = g
-            .edges_ordered()
+            .edges_ordered_borrowed()
             .into_iter()
-            .map(|e| (e.left, e.right))
+            .map(|(u, v, _)| ((*u).to_owned(), (*v).to_owned()))
             .collect();
 
         for (u, v) in current_edges {
@@ -46995,8 +46983,8 @@ pub fn moral_graph(digraph: &DiGraph) -> Graph {
     // first occurrence — exactly as add_edge on a simple Graph — and handles self-loops → byte-identical.
     let mut edges: Vec<(String, String)> = Vec::new();
     // Add undirected edges for all directed edges
-    for edge in digraph.edges_ordered() {
-        edges.push((edge.left.clone(), edge.right.clone()));
+    for (u, v, _) in digraph.edges_ordered_borrowed() {
+        edges.push((u.to_owned(), v.to_owned()));
     }
     // Moralize: connect co-parents
     for node in digraph.nodes_ordered() {
@@ -47405,10 +47393,10 @@ fn harmonic_diameter_orig_string(graph: &Graph) -> f64 {
 #[must_use]
 pub fn selfloop_edges(graph: &Graph) -> Vec<(String, String)> {
     graph
-        .edges_ordered()
-        .iter()
-        .filter(|e| e.left == e.right)
-        .map(|e| (e.left.clone(), e.right.clone()))
+        .edges_ordered_borrowed()
+        .into_iter()
+        .filter(|(left, right, _)| left == right)
+        .map(|(left, right, _)| ((*left).to_owned(), (*right).to_owned()))
         .collect()
 }
 
@@ -47456,15 +47444,14 @@ pub fn to_edgelist(
     graph: &Graph,
 ) -> Vec<(String, String, std::collections::BTreeMap<String, String>)> {
     graph
-        .edges_ordered()
-        .iter()
-        .map(|e| {
-            let attrs: std::collections::BTreeMap<String, String> = e
-                .attrs
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, attrs_map)| {
+            let attrs: std::collections::BTreeMap<String, String> = attrs_map
                 .iter()
                 .map(|(k, v)| (k.clone(), v.as_str()))
                 .collect();
-            (e.left.clone(), e.right.clone(), attrs)
+            ((*left).to_owned(), (*right).to_owned(), attrs)
         })
         .collect()
 }
@@ -47842,11 +47829,11 @@ pub fn union_all(graphs: &[&Graph]) -> Result<Graph, String> {
             }
             let _ = result.add_node(node.to_owned());
         }
-        for edge in g.edges_ordered() {
+        for (u, v, attrs) in g.edges_ordered_borrowed() {
             let _ = result.add_edge_with_attrs(
-                edge.left.clone(),
-                edge.right.clone(),
-                edge.attrs.clone(),
+                u.to_owned(),
+                v.to_owned(),
+                attrs.clone(),
             );
         }
     }
@@ -47873,15 +47860,15 @@ pub fn intersection_all(graphs: &[&Graph]) -> Graph {
     for n in &common {
         let _ = result.add_node(n.clone());
     }
-    for edge in graphs[0].edges_ordered() {
-        if !common.contains(&edge.left) || !common.contains(&edge.right) {
+    for (u, v, _) in graphs[0].edges_ordered_borrowed() {
+        if !common.contains(u) || !common.contains(v) {
             continue;
         }
         if graphs[1..]
             .iter()
-            .all(|g| g.has_edge(&edge.left, &edge.right))
+            .all(|g| g.has_edge(u, v))
         {
-            let _ = result.add_edge(edge.left.clone(), edge.right.clone());
+            let _ = result.add_edge(u.to_owned(), v.to_owned());
         }
     }
     result
@@ -48323,9 +48310,9 @@ pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
         }
     }
     let edges: Vec<(String, String)> = g
-        .edges_ordered()
-        .iter()
-        .map(|e| (e.left.clone(), e.right.clone()))
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
         .collect();
     for (u, v) in edges {
         rng = rng
@@ -48633,25 +48620,17 @@ pub fn tree_all_pairs_lowest_common_ancestor(
 /// Generate edgelist string representation.
 pub fn generate_edgelist(graph: &Graph, delimiter: &str) -> Vec<String> {
     graph
-        .edges_ordered()
-        .iter()
-        .map(|e| {
-            if e.attrs.is_empty() {
-                format!("{}{}{}", e.left, delimiter, e.right)
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, attrs)| {
+            if attrs.is_empty() {
+                format!("{left}{delimiter}{right}")
             } else {
-                let attrs: Vec<String> = e
-                    .attrs
+                let attrs_str: Vec<String> = attrs
                     .iter()
-                    .map(|(k, v)| format!("{}={}", k, v.as_str()))
+                    .map(|(k, v)| format!("{k}={}", v.as_str()))
                     .collect();
-                format!(
-                    "{}{}{}{}{}",
-                    e.left,
-                    delimiter,
-                    e.right,
-                    delimiter,
-                    attrs.join(";")
-                )
+                format!("{left}{delimiter}{right}{delimiter}{}", attrs_str.join(";"))
             }
         })
         .collect()
@@ -49181,9 +49160,9 @@ fn build_partitioned_graph(
     for node in graph.nodes_ordered() {
         let _ = g.add_node(node.to_owned());
     }
-    for edge in graph.edges_ordered() {
-        let key = canonical_contracted_edge_key(&edge.left, &edge.right);
-        let mut attrs = edge.attrs.clone();
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let key = canonical_contracted_edge_key(left, right);
+        let mut attrs = attrs.clone();
         match partition.get(&key) {
             Some(PartitionState::Included) => {
                 attrs.insert(
@@ -49201,7 +49180,7 @@ fn build_partitioned_graph(
                 attrs.remove(partition_attr);
             }
         }
-        let _ = g.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), attrs);
+        let _ = g.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs);
     }
     g
 }
@@ -49647,9 +49626,9 @@ fn build_initial_arborescence_partition(
     excluded_edges: &[(String, String)],
 ) -> PartitionDict {
     let graph_edges: HashSet<(String, String)> = digraph
-        .edges_ordered()
-        .iter()
-        .map(|edge| (edge.left.clone(), edge.right.clone()))
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
         .collect();
     let excluded: HashSet<(String, String)> = excluded_edges
         .iter()
@@ -49709,17 +49688,23 @@ fn order_directed_edges_like_graph(
     digraph: &DiGraph,
     edges: &[(String, String)],
 ) -> Vec<(String, String)> {
-    let edge_rank = digraph
-        .edges_ordered()
-        .into_iter()
+    let borrowed = digraph.edges_ordered_borrowed();
+    let edge_rank: HashMap<(&str, &str), usize> = borrowed
+        .iter()
         .enumerate()
-        .map(|(idx, edge)| ((edge.left, edge.right), idx))
-        .collect::<HashMap<_, _>>();
+        .map(|(idx, &(left, right, _))| ((left, right), idx))
+        .collect();
 
     let mut ordered = edges.to_vec();
     ordered.sort_by(|left, right| {
-        let left_rank = edge_rank.get(left).copied().unwrap_or(usize::MAX);
-        let right_rank = edge_rank.get(right).copied().unwrap_or(usize::MAX);
+        let left_rank = edge_rank
+            .get(&(left.0.as_str(), left.1.as_str()))
+            .copied()
+            .unwrap_or(usize::MAX);
+        let right_rank = edge_rank
+            .get(&(right.0.as_str(), right.1.as_str()))
+            .copied()
+            .unwrap_or(usize::MAX);
         left_rank.cmp(&right_rank).then_with(|| left.cmp(right))
     });
     ordered
@@ -49815,19 +49800,18 @@ impl Iterator for ArborescenceIteratorState {
             let ordered_arb_edges = order_directed_edges_like_graph(&self.digraph, &arb_edges);
             let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
             let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, &self.runtime_policy);
-            let ordered_edges = arb.edges_ordered();
 
             let mut p1 = entry.partition.clone();
             let mut p2 = entry.partition.clone();
 
-            for edge in ordered_edges {
-                let key = (edge.left.clone(), edge.right.clone());
+            for (left, right, _) in arb.edges_ordered_borrowed() {
+                let key = (left.to_owned(), right.to_owned());
                 if entry.partition.contains_key(&key) {
                     continue;
                 }
 
                 p1.insert(key.clone(), PartitionState::Excluded);
-                p2.insert(key.clone(), PartitionState::Included);
+                p2.insert(key, PartitionState::Included);
 
                 if let Some((p1_weight, _)) =
                     find_arborescence(&self.digraph, &p1, self.minimum, &self.weight_attr)
@@ -49910,20 +49894,18 @@ pub fn arborescence_iterator_ordered_with_partition(
 
         let ordered_arb_edges = order_directed_edges_like_graph(digraph, &arb_edges);
         let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, &runtime_policy);
-        let ordered_edges = arb.edges_ordered();
-        results.push(arb);
 
         let mut p1 = entry.partition.clone();
         let mut p2 = entry.partition.clone();
 
-        for edge in ordered_edges {
-            let key = (edge.left.clone(), edge.right.clone());
+        for (left, right, _) in arb.edges_ordered_borrowed() {
+            let key = (left.to_owned(), right.to_owned());
             if entry.partition.contains_key(&key) {
                 continue;
             }
 
             p1.insert(key.clone(), PartitionState::Excluded);
-            p2.insert(key.clone(), PartitionState::Included);
+            p2.insert(key, PartitionState::Included);
 
             if let Some((p1_weight, _)) = find_arborescence(digraph, &p1, minimum, weight_attr) {
                 partition_heap_push(
@@ -49937,6 +49919,8 @@ pub fn arborescence_iterator_ordered_with_partition(
 
             p1 = p2.clone();
         }
+
+        results.push(arb);
     }
 
     results
@@ -50168,15 +50152,12 @@ pub fn edge_current_flow_betweenness_centrality(
     if n <= 1 {
         return HashMap::new();
     }
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let edge_indices = graph.edges_ordered_indices_borrowed();
 
     // Build Laplacian
     let mut l_mat = vec![0.0_f64; n * n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
-        let w = edge
-            .attrs
+    for &(i, j, attrs) in &edge_indices {
+        let w = attrs
             .get(weight_attr)
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
@@ -50243,22 +50224,33 @@ pub fn edge_current_flow_betweenness_centrality(
         }
     }
 
+    // Pre-calculate canonical keys for edges
+    let edge_keys: Vec<(usize, usize, (String, String))> = edge_indices
+        .iter()
+        .map(|&(i, j, _)| {
+            let key = canonical_contracted_edge_key(nodes[i], nodes[j]);
+            (i, j, key)
+        })
+        .collect();
+
     // Compute edge current-flow betweenness
-    let mut ebc: HashMap<(String, String), f64> = HashMap::new();
+    let mut edge_flows = vec![0.0_f64; edge_keys.len()];
     for s in 0..n {
         for t in (s + 1)..n {
             // p[i] = L_pinv[i][s] - L_pinv[i][t]
-            for edge in graph.edges_ordered() {
-                let i = idx[edge.left.as_str()];
-                let j = idx[edge.right.as_str()];
+            for (edge_idx, &(i, j, _)) in edge_keys.iter().enumerate() {
                 let flow = (l_pinv[i * n + s]
                     - l_pinv[i * n + t]
                     - (l_pinv[j * n + s] - l_pinv[j * n + t]))
                     .abs();
-                let key = canonical_contracted_edge_key(&edge.left, &edge.right);
-                *ebc.entry(key).or_insert(0.0) += flow;
+                edge_flows[edge_idx] += flow;
             }
         }
+    }
+
+    let mut ebc: HashMap<(String, String), f64> = HashMap::with_capacity(edge_keys.len());
+    for ((_, _, key), flow) in edge_keys.into_iter().zip(edge_flows) {
+        *ebc.entry(key).or_insert(0.0) += flow;
     }
 
     if normalized && n > 1 {
@@ -50459,15 +50451,11 @@ pub fn google_matrix(graph: &Graph, alpha: f64, weight_attr: &str) -> (Vec<f64>,
     if n == 0 {
         return (Vec::new(), Vec::new());
     }
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     // Build adjacency matrix
     let mut a = vec![0.0_f64; n * n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
-        let w = edge
-            .attrs
+    for (i, j, attrs) in graph.edges_ordered_indices_borrowed() {
+        let w = attrs
             .get(weight_attr)
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
@@ -50516,14 +50504,10 @@ pub fn google_matrix_directed(
     if n == 0 {
         return (Vec::new(), Vec::new());
     }
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     let mut a = vec![0.0_f64; n * n];
-    for edge in digraph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
-        let w = edge
-            .attrs
+    for (i, j, attrs) in digraph.edges_ordered_indices_borrowed() {
+        let w = attrs
             .get(weight_attr)
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
@@ -50981,11 +50965,8 @@ pub fn subgraph_centrality_expdiag(graph: &Graph) -> Vec<CentralityScore> {
         return Vec::new();
     }
 
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
     let mut a = vec![0.0_f64; n * n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    for (i, j, _) in graph.edges_ordered_indices_borrowed() {
         a[i * n + j] = 1.0;
         a[j * n + i] = 1.0;
     }
@@ -51846,13 +51827,9 @@ pub fn communicability_betweenness_centrality(
     if n <= 2 {
         return nodes.iter().map(|&nd| (nd.to_owned(), 0.0)).collect();
     }
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-
     // Build adjacency matrix (unweighted)
     let mut a = vec![0.0_f64; n * n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    for (i, j, _) in graph.edges_ordered_indices_borrowed() {
         a[i * n + j] = 1.0;
         a[j * n + i] = 1.0;
     }
@@ -51953,11 +51930,10 @@ pub fn current_flow_betweenness_centrality(
 
     // Build Laplacian matrix
     let mut l_mat = vec![0.0_f64; n * n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
-        let w = edge
-            .attrs
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let i = idx[left];
+        let j = idx[right];
+        let w = attrs
             .get(weight_attr)
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
@@ -52140,14 +52116,14 @@ fn grounded_laplacian_inverse_ordered(
         .collect();
     let reduced_n = n - 1;
     let mut laplacian = vec![0.0_f64; reduced_n * reduced_n];
-    for edge in graph.edges_ordered() {
-        let i = *relabel.get(edge.left.as_str())?;
-        let j = *relabel.get(edge.right.as_str())?;
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let i = *relabel.get(left)?;
+        let j = *relabel.get(right)?;
         if i == j {
             continue;
         }
         let weight = weight_attr
-            .and_then(|attr| edge.attrs.get(attr))
+            .and_then(|attr| attrs.get(attr))
             .and_then(|value| value.as_f64())
             .unwrap_or(1.0);
         if i > 0 {
@@ -52187,18 +52163,18 @@ fn sorted_current_flow_edges_ordered(
         .map(|(idx, node)| (node.as_str(), idx))
         .collect();
     let mut edges = Vec::with_capacity(graph.edge_count());
-    for edge in graph.edges_ordered() {
-        let i = *relabel.get(edge.left.as_str())?;
-        let j = *relabel.get(edge.right.as_str())?;
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let i = *relabel.get(left)?;
+        let j = *relabel.get(right)?;
         if i == j {
             continue;
         }
         let weight = weight_attr
-            .and_then(|attr| edge.attrs.get(attr))
+            .and_then(|attr| attrs.get(attr))
             .and_then(|value| value.as_f64())
             .unwrap_or(1.0);
-        let (left, right) = if i <= j { (i, j) } else { (j, i) };
-        edges.push((left, right, weight));
+        let (u, v) = if i <= j { (i, j) } else { (j, i) };
+        edges.push((u, v, weight));
     }
     // NetworkX walks the relabelled graph's edges in the original graph's
     // traversal order, only orienting each key by its RCM rank.  The numerical
@@ -52442,14 +52418,14 @@ pub fn current_flow_closeness_centrality_ordered(
         .collect();
     let reduced_n = n - 1;
     let mut laplacian = vec![0.0_f64; reduced_n * reduced_n];
-    for edge in graph.edges_ordered() {
-        let i = relabel[edge.left.as_str()];
-        let j = relabel[edge.right.as_str()];
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let i = relabel[left];
+        let j = relabel[right];
         if i == j {
             continue;
         }
         let weight = weight_attr
-            .and_then(|attr| edge.attrs.get(attr))
+            .and_then(|attr| attrs.get(attr))
             .and_then(|value| value.as_f64())
             .unwrap_or(1.0);
         if i > 0 {
@@ -52663,8 +52639,8 @@ pub fn write_graphml_string_config_with_graph_attrs(
     }
 
     // Scan edge attributes
-    for edge in graph.edges_ordered() {
-        for (k, v) in &edge.attrs {
+    for (_left, _right, attrs) in graph.edges_ordered_borrowed() {
+        for (k, v) in attrs {
             let t = if config.infer_numeric_types {
                 GraphMLType::from_cgse_value(v)
             } else {
@@ -52761,36 +52737,36 @@ pub fn write_graphml_string_config_with_graph_attrs(
     }
 
     // Edges
-    for edge in graph.edges_ordered() {
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
         let edge_id_str = config
             .edge_id_from_attribute
             .as_ref()
-            .and_then(|attr| edge.attrs.get(attr).map(|v| v.as_str()));
+            .and_then(|attr| attrs.get(attr).map(|v| v.as_str()));
 
         let edge_open = if let Some(eid) = &edge_id_str {
             format!(
                 "{}<edge source=\"{}\" target=\"{}\" id=\"{}\"",
                 ind.i2,
-                xml_escape(&edge.left),
-                xml_escape(&edge.right),
+                xml_escape(left),
+                xml_escape(right),
                 xml_escape(eid)
             )
         } else {
             format!(
                 "{}<edge source=\"{}\" target=\"{}\"",
                 ind.i2,
-                xml_escape(&edge.left),
-                xml_escape(&edge.right)
+                xml_escape(left),
+                xml_escape(right)
             )
         };
 
-        if edge.attrs.is_empty() {
+        if attrs.is_empty() {
             xml.push_str(&edge_open);
             xml.push_str(&format!("/>{}", ind.nl));
         } else {
             xml.push_str(&edge_open);
             xml.push_str(&format!(">{}", ind.nl));
-            for (k, v) in &edge.attrs {
+            for (k, v) in attrs {
                 if let Some((key_id, _)) = key_registry.get(&(k.clone(), GraphMLScope::Edge)) {
                     xml.push_str(&format!(
                         "{}<data key=\"{}\">{}</data>{}",
@@ -52878,8 +52854,8 @@ pub fn write_graphml_string_directed_config_with_graph_attrs(
             }
         }
     }
-    for edge in digraph.edges_ordered() {
-        for (k, v) in &edge.attrs {
+    for (_left, _right, attrs) in digraph.edges_ordered_borrowed() {
+        for (k, v) in attrs {
             let t = if config.infer_numeric_types {
                 GraphMLType::from_cgse_value(v)
             } else {
@@ -52973,36 +52949,36 @@ pub fn write_graphml_string_directed_config_with_graph_attrs(
     }
 
     // Edges
-    for edge in digraph.edges_ordered() {
+    for (left, right, attrs) in digraph.edges_ordered_borrowed() {
         let edge_id_str = config
             .edge_id_from_attribute
             .as_ref()
-            .and_then(|attr| edge.attrs.get(attr).map(|v| v.as_str()));
+            .and_then(|attr| attrs.get(attr).map(|v| v.as_str()));
 
         let edge_open = if let Some(eid) = &edge_id_str {
             format!(
                 "{}<edge source=\"{}\" target=\"{}\" id=\"{}\"",
                 ind.i2,
-                xml_escape(&edge.left),
-                xml_escape(&edge.right),
+                xml_escape(left),
+                xml_escape(right),
                 xml_escape(eid)
             )
         } else {
             format!(
                 "{}<edge source=\"{}\" target=\"{}\"",
                 ind.i2,
-                xml_escape(&edge.left),
-                xml_escape(&edge.right)
+                xml_escape(left),
+                xml_escape(right)
             )
         };
 
-        if edge.attrs.is_empty() {
+        if attrs.is_empty() {
             xml.push_str(&edge_open);
             xml.push_str(&format!("/>{}", ind.nl));
         } else {
             xml.push_str(&edge_open);
             xml.push_str(&format!(">{}", ind.nl));
-            for (k, v) in &edge.attrs {
+            for (k, v) in attrs {
                 if let Some((key_id, _)) = key_registry.get(&(k.clone(), GraphMLScope::Edge)) {
                     xml.push_str(&format!(
                         "{}<data key=\"{}\">{}</data>{}",
@@ -53273,10 +53249,10 @@ pub fn trophic_differences(digraph: &DiGraph) -> std::collections::HashMap<(Stri
         levels.insert(node.to_owned(), in_deg as f64);
     }
     let mut result = std::collections::HashMap::new();
-    for edge in digraph.edges_ordered() {
-        let diff = levels.get(&edge.right).copied().unwrap_or(0.0)
-            - levels.get(&edge.left).copied().unwrap_or(0.0);
-        result.insert((edge.left.clone(), edge.right.clone()), diff);
+    for (left, right, _attrs) in digraph.edges_ordered_borrowed() {
+        let diff = levels.get(right).copied().unwrap_or(0.0)
+            - levels.get(left).copied().unwrap_or(0.0);
+        result.insert((left.to_owned(), right.to_owned()), diff);
     }
     result
 }
@@ -53356,15 +53332,14 @@ pub fn lexicographical_topological_sort(digraph: &DiGraph) -> Option<Vec<String>
 /// Generate weighted edgelist lines: "u v weight".
 pub fn write_weighted_edgelist(graph: &Graph, weight_attr: &str, delimiter: &str) -> Vec<String> {
     graph
-        .edges_ordered()
-        .iter()
-        .map(|e| {
-            let w = e
-                .attrs
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, attrs)| {
+            let w = attrs
                 .get(weight_attr)
                 .map(|v| v.as_str())
                 .unwrap_or_else(|| "1".to_owned());
-            format!("{}{}{}{}{}", e.left, delimiter, e.right, delimiter, w)
+            format!("{left}{delimiter}{right}{delimiter}{w}")
         })
         .collect()
 }
@@ -53389,9 +53364,9 @@ pub fn remove_node_attributes(graph: &Graph, name: &str) -> Graph {
             let _ = result.add_node(node.to_owned());
         }
     }
-    for edge in graph.edges_ordered() {
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
         let _ =
-            result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
+            result.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs.clone());
     }
     result
 }
