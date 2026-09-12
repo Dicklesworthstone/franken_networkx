@@ -5048,18 +5048,38 @@ fn attr_escape(s: &str) -> String {
 }
 
 fn attr_unescape(s: &str) -> String {
-    s.replace("%0D", "\r")
-        .replace("%0d", "\r")
-        .replace("%0A", "\n")
-        .replace("%0a", "\n")
-        .replace("%09", "\t")
-        .replace("%20", " ")
-        .replace("%23", "#")
-        .replace("%3B", ";")
-        .replace("%3b", ";")
-        .replace("%3D", "=")
-        .replace("%3d", "=")
-        .replace("%25", "%")
+    if !s.contains('%') {
+        return s.to_owned();
+    }
+    let mut unescaped = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    let mut literal_start = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let repl = match (bytes[i + 1], bytes[i + 2]) {
+                (b'0', b'D') | (b'0', b'd') => Some("\r"),
+                (b'0', b'A') | (b'0', b'a') => Some("\n"),
+                (b'0', b'9') => Some("\t"),
+                (b'2', b'0') => Some(" "),
+                (b'2', b'3') => Some("#"),
+                (b'3', b'B') | (b'3', b'b') => Some(";"),
+                (b'3', b'D') | (b'3', b'd') => Some("="),
+                (b'2', b'5') => Some("%"),
+                _ => None,
+            };
+            if let Some(r) = repl {
+                unescaped.push_str(&s[literal_start..i]);
+                unescaped.push_str(r);
+                i += 3;
+                literal_start = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    unescaped.push_str(&s[literal_start..]);
+    unescaped
 }
 
 fn encode_attrs(attrs: &AttrMap) -> String {
@@ -6035,6 +6055,33 @@ mod tests {
             ),
         ]);
         assert_eq!(super::encode_attrs(&attrs), encode_attrs_frozen(&attrs));
+    }
+
+    #[test]
+    fn attr_unescape_roundtrip_and_edge_cases() {
+        let exhaustive_ascii = String::from_utf8((0u8..=127).collect())
+            .expect("the exhaustive ASCII fixture is valid UTF-8");
+        for input in [
+            "",
+            "plain",
+            "%20",
+            "%2520",
+            "#=; \t\n\r",
+            "café-東京-🦀",
+            "%0D%0d%0A%0a%09%20%23%3B%3b%3D%3d%25",
+            "trailing%",
+            "incomplete%2",
+            "nonhex%zz",
+            exhaustive_ascii.as_str(),
+        ] {
+            let escaped = super::attr_escape(input);
+            let unescaped = super::attr_unescape(&escaped);
+            assert_eq!(unescaped, input, "roundtrip failed for {input:?}");
+        }
+        assert_eq!(super::attr_unescape("%0d%0a%3b%3d"), "\r\n;=");
+        assert_eq!(super::attr_unescape("%0D%0A%3B%3D"), "\r\n;=");
+        assert_eq!(super::attr_unescape("100% pure"), "100% pure");
+        assert_eq!(super::attr_unescape("bad%9"), "bad%9");
     }
 
     /// Same-binary paired A/B for edge-list attribute encoding. The frozen

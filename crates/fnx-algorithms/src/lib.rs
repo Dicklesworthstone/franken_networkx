@@ -9495,27 +9495,10 @@ fn dfs_connectivity_analysis(graph: &Graph) -> DfsConnectivityAnalysis {
         .collect();
     let mut bridge_edges: Vec<(String, String)> = Vec::new();
     if !bridge_set.is_empty() {
-        // br-r37-c1-articidx: the name->index map is only needed to re-orient
-        // bridge endpoints, so build it lazily here instead of up front (a
-        // biconnected / bridgeless graph never pays for it).
-        let index_of: HashMap<&str, usize> = ordered_nodes
-            .iter()
-            .enumerate()
-            .map(|(i, name)| (*name, i))
-            .collect();
-        for edge in graph.edges_ordered_borrowed() {
-            let (lhs, rhs, _) = edge;
-            let li = match index_of.get(lhs) {
-                Some(&i) => i,
-                None => continue,
-            };
-            let ri = match index_of.get(rhs) {
-                Some(&i) => i,
-                None => continue,
-            };
+        for (li, ri) in graph.edges_ordered_indices() {
             let canonical = if li <= ri { (li, ri) } else { (ri, li) };
             if bridge_set.contains(&canonical) {
-                bridge_edges.push((lhs.to_owned(), rhs.to_owned()));
+                bridge_edges.push((ordered_nodes[li].to_owned(), ordered_nodes[ri].to_owned()));
             }
         }
     }
@@ -21609,8 +21592,8 @@ pub fn min_edge_cover(graph: &Graph) -> Option<MinEdgeCoverResult> {
 
 /// Checks whether an undirected graph has an Eulerian circuit.
 ///
-/// An Eulerian circuit exists iff the graph is connected (ignoring isolated nodes)
-/// and every node has even degree.
+/// An Eulerian circuit exists iff the graph is connected and every node has even degree.
+/// Graphs with isolated vertices are not considered Eulerian (matching NetworkX).
 #[must_use]
 pub fn is_eulerian(graph: &Graph) -> IsEulerianResult {
     let nodes = graph.nodes_ordered();
@@ -21619,7 +21602,7 @@ pub fn is_eulerian(graph: &Graph) -> IsEulerianResult {
 
     if n == 0 {
         return IsEulerianResult {
-            is_eulerian: true,
+            is_eulerian: false,
             witness: ComplexityWitness {
                 algorithm: "is_eulerian".to_owned(),
                 complexity_claim: "O(|V| + |E|)".to_owned(),
@@ -21654,33 +21637,25 @@ pub fn is_eulerian(graph: &Graph) -> IsEulerianResult {
         }
     }
 
-    // Check connectivity among non-isolated nodes
-    let non_isolated: Vec<&str> = nodes
-        .iter()
-        .filter(|&&node| graph.degree(node) > 0)
-        .copied()
-        .collect();
-
-    if non_isolated.is_empty() {
-        // All nodes isolated => vacuously Eulerian (no edges)
+    if n == 1 {
         return IsEulerianResult {
             is_eulerian: true,
             witness: ComplexityWitness {
                 algorithm: "is_eulerian".to_owned(),
                 complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: n,
+                nodes_touched: 1,
                 edges_scanned,
                 queue_peak: 0,
             },
         };
     }
 
-    // BFS from first non-isolated node
+    // BFS from first node to verify the graph is connected
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
     let mut queue_peak = 0usize;
-    visited.insert(non_isolated[0]);
-    queue.push_back(non_isolated[0]);
+    visited.insert(nodes[0]);
+    queue.push_back(nodes[0]);
 
     while let Some(current) = queue.pop_front() {
         if let Some(neighbors) = graph.neighbors_iter(current) {
@@ -21696,7 +21671,7 @@ pub fn is_eulerian(graph: &Graph) -> IsEulerianResult {
         }
     }
 
-    let connected = non_isolated.iter().all(|n| visited.contains(n));
+    let connected = visited.len() == n;
 
     IsEulerianResult {
         is_eulerian: connected,
@@ -21712,9 +21687,8 @@ pub fn is_eulerian(graph: &Graph) -> IsEulerianResult {
 
 /// Checks whether an undirected graph has an Eulerian path.
 ///
-/// An Eulerian path exists iff the graph is connected (ignoring isolated nodes)
-/// and has exactly 0 or 2 nodes of odd degree. (0 odd-degree nodes means an
-/// Eulerian circuit exists, which is a special case of Eulerian path.)
+/// An Eulerian path exists iff the graph is connected and has exactly 0 or 2 nodes of odd degree.
+/// Graphs with isolated vertices are not considered to have an Eulerian path (matching NetworkX).
 #[must_use]
 pub fn has_eulerian_path(graph: &Graph) -> HasEulerianPathResult {
     let nodes = graph.nodes_ordered();
@@ -21723,7 +21697,7 @@ pub fn has_eulerian_path(graph: &Graph) -> HasEulerianPathResult {
 
     if n == 0 {
         return HasEulerianPathResult {
-            has_eulerian_path: true,
+            has_eulerian_path: false,
             witness: ComplexityWitness {
                 algorithm: "has_eulerian_path".to_owned(),
                 complexity_claim: "O(|V| + |E|)".to_owned(),
@@ -21763,31 +21737,25 @@ pub fn has_eulerian_path(graph: &Graph) -> HasEulerianPathResult {
         };
     }
 
-    // Check connectivity among non-isolated nodes
-    let non_isolated: Vec<&str> = nodes
-        .iter()
-        .filter(|&&node| graph.degree(node) > 0)
-        .copied()
-        .collect();
-
-    if non_isolated.is_empty() {
+    if n == 1 {
         return HasEulerianPathResult {
             has_eulerian_path: true,
             witness: ComplexityWitness {
                 algorithm: "has_eulerian_path".to_owned(),
                 complexity_claim: "O(|V| + |E|)".to_owned(),
-                nodes_touched: n,
+                nodes_touched: 1,
                 edges_scanned,
                 queue_peak: 0,
             },
         };
     }
 
+    // BFS from first node to verify connectivity
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
     let mut queue_peak = 0usize;
-    visited.insert(non_isolated[0]);
-    queue.push_back(non_isolated[0]);
+    visited.insert(nodes[0]);
+    queue.push_back(nodes[0]);
 
     while let Some(current) = queue.pop_front() {
         if let Some(neighbors) = graph.neighbors_iter(current) {
@@ -21803,7 +21771,7 @@ pub fn has_eulerian_path(graph: &Graph) -> HasEulerianPathResult {
         }
     }
 
-    let connected = non_isolated.iter().all(|n| visited.contains(n));
+    let connected = visited.len() == n;
 
     HasEulerianPathResult {
         has_eulerian_path: connected,
@@ -71927,7 +71895,9 @@ mod tests {
     fn is_eulerian_empty_graph() {
         let graph = Graph::strict();
         let result = is_eulerian(&graph);
-        assert!(result.is_eulerian);
+        assert!(!result.is_eulerian);
+        let path_result = has_eulerian_path(&graph);
+        assert!(!path_result.has_eulerian_path);
     }
 
     #[test]
@@ -72121,8 +72091,9 @@ mod tests {
     fn eulerian_circuit_empty_graph() {
         let graph = Graph::strict();
         let result = eulerian_circuit(&graph, None);
-        assert!(result.is_some());
-        assert!(result.unwrap().edges.is_empty());
+        assert!(result.is_none());
+        let path_result = eulerian_path(&graph, None);
+        assert!(path_result.is_none());
     }
 
     #[test]
@@ -72312,14 +72283,27 @@ mod tests {
 
     #[test]
     fn is_eulerian_with_isolated_node() {
-        // Triangle + isolated node: isolated nodes are ignored for connectivity
+        // Triangle + isolated node: not connected, so not Eulerian (matches NetworkX)
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add");
         graph.add_edge("b", "c").expect("edge add");
         graph.add_edge("a", "c").expect("edge add");
         graph.add_node("z");
         let result = is_eulerian(&graph);
-        assert!(result.is_eulerian);
+        assert!(!result.is_eulerian);
+        let path_result = has_eulerian_path(&graph);
+        assert!(!path_result.has_eulerian_path);
+    }
+
+    #[test]
+    fn is_eulerian_two_isolated_nodes() {
+        let mut graph = Graph::strict();
+        graph.add_node("a");
+        graph.add_node("b");
+        let result = is_eulerian(&graph);
+        assert!(!result.is_eulerian);
+        let path_result = has_eulerian_path(&graph);
+        assert!(!path_result.has_eulerian_path);
     }
 
     // -----------------------------------------------------------------------
