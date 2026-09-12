@@ -47831,8 +47831,8 @@ pub fn union_all(graphs: &[&Graph]) -> Result<Graph, String> {
         }
         for (u, v, attrs) in g.edges_ordered_borrowed() {
             let _ = result.add_edge_with_attrs(
-                u.to_owned(),
-                v.to_owned(),
+                u,
+                v,
                 attrs.clone(),
             );
         }
@@ -47868,7 +47868,7 @@ pub fn intersection_all(graphs: &[&Graph]) -> Graph {
             .iter()
             .all(|g| g.has_edge(u, v))
         {
-            let _ = result.add_edge(u.to_owned(), v.to_owned());
+            let _ = result.add_edge(u, v);
         }
     }
     result
@@ -49180,7 +49180,7 @@ fn build_partitioned_graph(
                 attrs.remove(partition_attr);
             }
         }
-        let _ = g.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs);
+        let _ = g.add_edge_with_attrs(left, right, attrs);
     }
     g
 }
@@ -53365,8 +53365,7 @@ pub fn remove_node_attributes(graph: &Graph, name: &str) -> Graph {
         }
     }
     for (left, right, attrs) in graph.edges_ordered_borrowed() {
-        let _ =
-            result.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs.clone());
+        let _ = result.add_edge_with_attrs(left, right, attrs.clone());
     }
     result
 }
