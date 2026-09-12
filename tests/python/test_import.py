@@ -3,7 +3,7 @@
 
 def test_import_version():
     import franken_networkx as fnx
-    assert fnx.__version__ in ("0.2.0", "0.2.1")
+    assert fnx.__version__ in ("0.2.0", "0.2.1", "0.2.2")
 
 
 def test_multigraph_classes_import():
