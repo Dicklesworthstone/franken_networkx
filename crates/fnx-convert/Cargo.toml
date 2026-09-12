@@ -7,9 +7,9 @@ license-file = "../../LICENSE"
 repository.workspace = true
 
 [dependencies]
-fnx-classes = { version = "0.2.2", path = "../fnx-classes" }
+fnx-classes = { version = "0.3.0", path = "../fnx-classes" }
 fnx-dispatch = { version = "0.2.2", path = "../fnx-dispatch" }
-fnx-runtime = { version = "0.2.2", path = "../fnx-runtime" }
+fnx-runtime = { version = "0.3.0", path = "../fnx-runtime" }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
