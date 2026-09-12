@@ -795,6 +795,12 @@ impl DiGraph {
         self.nodes.get(node)
     }
 
+    #[must_use]
+    #[inline]
+    pub fn node_attrs_by_index(&self, idx: usize) -> Option<&AttrMap> {
+        self.nodes.get_index(idx).map(|(_, attrs)| attrs)
+    }
+
     /// Attributes of directed edge source→target.
     #[must_use]
     pub fn edge_attrs(&self, source: &str, target: &str) -> Option<&AttrMap> {
@@ -1966,20 +1972,27 @@ impl DiGraph {
     }
 
     #[must_use]
-    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+    pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edges.len());
 
         for (u, row) in self.succ_indices.iter().enumerate() {
-            let node = self.nodes.get_index(u).expect("valid index").0;
             for &t in row {
-                let target = self.nodes.get_index(t).expect("valid index").0;
                 if let Some(attrs) = self.edges.get(&(u, t)) {
-                    ordered.push((node.as_str(), target.as_str(), attrs));
+                    ordered.push((u, t, attrs));
                 }
             }
         }
 
         ordered
+    }
+
+    #[must_use]
+    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        let node_labels = self.nodes_ordered();
+        self.edges_ordered_indices_borrowed()
+            .into_iter()
+            .map(|(u, t, attrs)| (node_labels[u], node_labels[t], attrs))
+            .collect()
     }
 
     /// br-r37-c1-wsize (cc): integer `size(weight)` from the store — directed
