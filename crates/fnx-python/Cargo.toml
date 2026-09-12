@@ -12,14 +12,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 arrayvec = "0.7.6"
-fnx-classes = { version = "0.2.2", path = "../fnx-classes" }
-fnx-algorithms = { version = "0.2.2", path = "../fnx-algorithms" }
+fnx-classes = { version = "0.3.0", path = "../fnx-classes" }
+fnx-algorithms = { version = "0.3.0", path = "../fnx-algorithms" }
 fnx-cgse = { version = "0.2.2", path = "../fnx-cgse" }
 fnx-generators = { version = "0.2.2", path = "../fnx-generators" }
 fnx-readwrite = { version = "0.2.2", path = "../fnx-readwrite" }
 fnx-convert = { version = "0.2.2", path = "../fnx-convert" }
 fnx-views = { version = "0.2.2", path = "../fnx-views" }
-fnx-runtime = { version = "0.2.2", path = "../fnx-runtime" }
+fnx-runtime = { version = "0.3.0", path = "../fnx-runtime" }
 hex = "0.4.3"
 pyo3 = { version = "0.28.3", features = ["abi3-py310", "multiple-pymethods"] }
 pyo3-log = "0.13.3"
