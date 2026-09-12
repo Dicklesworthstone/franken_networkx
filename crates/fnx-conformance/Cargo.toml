@@ -1,21 +1,21 @@
 [package]
 name = "fnx-conformance"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "Differential conformance harnesses for FrankenNetworkX"
 license-file = "../../LICENSE"
 repository.workspace = true
 
 [dependencies]
-fnx-algorithms = { version = "0.2.1", path = "../fnx-algorithms" }
-fnx-cgse = { version = "0.2.1", path = "../fnx-cgse" }
-fnx-classes = { version = "0.2.1", path = "../fnx-classes" }
-fnx-convert = { version = "0.2.1", path = "../fnx-convert" }
-fnx-dispatch = { version = "0.2.1", path = "../fnx-dispatch" }
-fnx-generators = { version = "0.2.1", path = "../fnx-generators" }
-fnx-readwrite = { version = "0.2.1", path = "../fnx-readwrite" }
-fnx-runtime = { version = "0.2.1", path = "../fnx-runtime" }
-fnx-views = { version = "0.2.1", path = "../fnx-views" }
+fnx-algorithms = { version = "0.2.2", path = "../fnx-algorithms" }
+fnx-cgse = { version = "0.2.2", path = "../fnx-cgse" }
+fnx-classes = { version = "0.2.2", path = "../fnx-classes" }
+fnx-convert = { version = "0.2.2", path = "../fnx-convert" }
+fnx-dispatch = { version = "0.2.2", path = "../fnx-dispatch" }
+fnx-generators = { version = "0.2.2", path = "../fnx-generators" }
+fnx-readwrite = { version = "0.2.2", path = "../fnx-readwrite" }
+fnx-runtime = { version = "0.2.2", path = "../fnx-runtime" }
+fnx-views = { version = "0.2.2", path = "../fnx-views" }
 pyo3 = { version = "0.28.3", features = ["auto-initialize"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"

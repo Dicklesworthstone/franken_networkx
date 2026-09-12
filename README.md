@@ -2357,7 +2357,7 @@ FrankenNetworkX is honest about what it does not do today:
 - **Drawing is delegated.** `draw`, `draw_*`, and the matplotlib-backed layout functions delegate to NetworkX/matplotlib. Layout *math* (`spring_layout`, `kamada_kawai_layout`, etc.) is also delegated. We do not own matplotlib rendering.
 - **`check_planarity` certificates are native.** Both the boolean `is_planar` and `check_planarity` certificates (`PlanarEmbedding` rotation orders for planar graphs and Kuratowski subgraph counterexamples for non-planar graphs) are computed natively in Rust; the Python PlanarEmbedding container preserves NetworkX structure checks.
 - **71 nx-fallback + 61 mixed-route exports** retain a NetworkX path. These are not bugs; they are the documented set in `delegation_ledger.md` where unusual argument shapes (callable arguments, exotic format variants, deprecated API forms) defer to NetworkX. The native fast path runs for the common case.
-- **Release status.** `v0.2.1` is published on PyPI with pre-built ABI3 wheels across Linux (`x86_64`, `aarch64`, `musllinux`), macOS (`x86_64`, `aarch64`), and Windows (`x86_64`) supporting Python 3.10 through 3.14+.
+- **Release status.** `v0.2.2` is published with pre-built ABI3 wheels across Linux (`x86_64`, `aarch64`, `musllinux`), macOS (`x86_64`, `aarch64`), and Windows (`x86_64`) supporting Python 3.10 through 3.14+.
 - **No Windows/macOS performance SLO yet.** The performance gate (G6) currently runs only on Linux. Correctness gates (G1–G3) cover all three platforms.
 - **No 3rd-party graph DB integration.** This is a graph *algorithms* library; it does not connect to Neo4j, JanusGraph, etc. Use it on in-memory graphs.
 
@@ -2655,7 +2655,7 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining NetworkX-bound exports** (71 nx-fallback + 61 mixed-route routes in the ledger). Move as many as possible to native fast paths while preserving the parity contract.
-6. **Release cadence.** `v0.2.1` is published on PyPI with multi-platform ABI3 wheels across Linux, macOS, and Windows. Subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
+6. **Release cadence.** `v0.2.2` is published with multi-platform ABI3 wheels across Linux, macOS, and Windows. Subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
 
 ---
 
