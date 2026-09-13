@@ -350,54 +350,19 @@ impl GraphGenerator {
             }
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, node_count);
-        let left_label = node_labels
-            .first()
-            .ok_or_else(|| GenerationError::FailClosed {
-                operation,
-                reason: "base edge source index 0 is outside n=2".to_owned(),
-            })?;
-        let right_label = node_labels
-            .get(1)
-            .ok_or_else(|| GenerationError::FailClosed {
-                operation,
-                reason: "base edge target index 1 is outside n=2".to_owned(),
-            })?;
-        graph
-            .add_edge(left_label.clone(), right_label.clone())
-            .map_err(|err| GenerationError::FailClosed {
-                operation,
-                reason: err.to_string(),
-            })?;
+        let (mut graph, _) = graph_with_n_nodes(self.mode, node_count);
+        let _ = graph.extend_existing_index_edges_unrecorded([(0, 1)]);
 
         let mut next_node = 2usize;
         for _ in 0..n {
-            let current_edges = graph.edges_ordered();
-
-            for edge in current_edges {
-                let new_node =
-                    node_labels
-                        .get(next_node)
-                        .ok_or_else(|| GenerationError::FailClosed {
-                            operation,
-                            reason: format!(
-                                "generated node index {next_node} is outside n={node_count}"
-                            ),
-                        })?;
-                graph.add_edge(edge.left, new_node.clone()).map_err(|err| {
-                    GenerationError::FailClosed {
-                        operation,
-                        reason: err.to_string(),
-                    }
-                })?;
-                graph
-                    .add_edge(edge.right, new_node.clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation,
-                        reason: err.to_string(),
-                    })?;
+            let current_edges = graph.edges_ordered_indices();
+            let mut new_edges = Vec::with_capacity(current_edges.len() * 2);
+            for (u, v) in current_edges {
+                new_edges.push((u, next_node));
+                new_edges.push((v, next_node));
                 next_node += 1;
             }
+            let _ = graph.extend_existing_index_edges_unrecorded(new_edges);
         }
 
         self.record(
