@@ -39851,40 +39851,32 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
 ///
 /// After n transitions: (3/2)(3^(n-1)+1) nodes, 3^n edges.
 pub fn dorogovtsev_goltsev_mendes_graph(n: usize) -> Result<Graph, String> {
-    // DGM graph construction:
-    // - Start with single edge (nodes 0, 1)
-    // - For each generation, for each edge, add a new node connected to both endpoints
-
-    let mut g = Graph::strict();
-
-    // Base case: single edge
-    g.add_node("0");
-    g.add_node("1");
-    let _ = g.add_edge("0", "1");
-
-    if n == 0 {
-        return Ok(g);
+    let mut node_count = 2usize;
+    let mut edge_count = 1usize;
+    for _ in 0..n {
+        node_count = node_count
+            .checked_add(edge_count)
+            .ok_or_else(|| format!("node count overflow for generation n={n}"))?;
+        edge_count = edge_count
+            .checked_mul(3)
+            .ok_or_else(|| format!("edge count overflow for generation n={n}"))?;
     }
 
-    // Track edges to process at each generation
-    let mut next_node_id = 2usize;
+    let mut g = Graph::strict();
+    let node_labels: Vec<String> = (0..node_count).map(|i| i.to_string()).collect();
+    let _ = g.extend_nodes_unrecorded(node_labels.iter().cloned());
+    let _ = g.extend_existing_index_edges_unrecorded([(0, 1)]);
 
-    for _gen in 0..n {
-        // Get all current edges (we'll add new nodes for each)
-        let current_edges: Vec<(String, String)> = g
-            .edges_ordered_borrowed()
-            .into_iter()
-            .map(|(u, v, _)| ((*u).to_owned(), (*v).to_owned()))
-            .collect();
-
+    let mut next_node = 2usize;
+    for _ in 0..n {
+        let current_edges = g.edges_ordered_indices();
+        let mut new_edges = Vec::with_capacity(current_edges.len() * 2);
         for (u, v) in current_edges {
-            // Add new node connected to both endpoints
-            let new_node = next_node_id.to_string();
-            g.add_node(&new_node);
-            let _ = g.add_edge(&new_node, &u);
-            let _ = g.add_edge(&new_node, &v);
-            next_node_id += 1;
+            new_edges.push((u, next_node));
+            new_edges.push((v, next_node));
+            next_node += 1;
         }
+        let _ = g.extend_existing_index_edges_unrecorded(new_edges);
     }
 
     Ok(g)
@@ -81289,6 +81281,25 @@ mod tests {
         let g = binomial_tree(3);
         assert_eq!(g.node_count(), 8);
         assert_eq!(g.edge_count(), 7); // tree
+    }
+
+    #[test]
+    fn test_dorogovtsev_goltsev_mendes_graph() {
+        let g0 = crate::dorogovtsev_goltsev_mendes_graph(0).expect("dgm 0");
+        assert_eq!(g0.node_count(), 2);
+        assert_eq!(g0.edge_count(), 1);
+
+        let g1 = crate::dorogovtsev_goltsev_mendes_graph(1).expect("dgm 1");
+        assert_eq!(g1.node_count(), 3);
+        assert_eq!(g1.edge_count(), 3);
+
+        let g2 = crate::dorogovtsev_goltsev_mendes_graph(2).expect("dgm 2");
+        assert_eq!(g2.node_count(), 6);
+        assert_eq!(g2.edge_count(), 9);
+
+        let g3 = crate::dorogovtsev_goltsev_mendes_graph(3).expect("dgm 3");
+        assert_eq!(g3.node_count(), 15);
+        assert_eq!(g3.edge_count(), 27);
     }
 
     #[test]
