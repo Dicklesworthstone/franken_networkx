@@ -4391,25 +4391,22 @@ impl GraphGenerator {
             });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _) = graph_with_n_nodes(self.mode, n);
         let half_k = k / 2;
         let mut rng = PythonRandom::new(seed);
 
         let ring_edges = ring_lattice_edges(n, half_k);
-        for &(u, v) in &ring_edges {
-            let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
-        }
+        let _ = graph.extend_existing_index_edges_unrecorded(ring_edges);
 
         let edge_order: Vec<(usize, usize)> = (0..n)
             .flat_map(|u| {
                 graph
-                    .neighbors(&node_labels[u])
+                    .neighbors_indices(u)
                     .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |neighbor| {
-                        let v = neighbor.parse::<usize>().ok()?;
-                        (v > u).then_some((u, v))
-                    })
+                    .iter()
+                    .copied()
+                    .filter(move |&v| v > u)
+                    .map(move |v| (u, v))
             })
             .collect();
 
@@ -4417,15 +4414,15 @@ impl GraphGenerator {
             if rng.random() < p {
                 let mut new_target = rng.randrange(n);
                 let mut skip_shortcut = false;
-                while new_target == u || graph.has_edge(&node_labels[u], &node_labels[new_target]) {
+                while new_target == u || graph.has_edge_by_indices(u, new_target) {
                     new_target = rng.randrange(n);
-                    if graph.degree(&node_labels[u]) >= n - 1 {
+                    if graph.degree_by_index(u) >= n - 1 {
                         skip_shortcut = true;
                         break;
                     }
                 }
                 if !skip_shortcut {
-                    let _ = graph.add_edge(node_labels[u].clone(), node_labels[new_target].clone());
+                    let _ = graph.extend_existing_index_edges_unrecorded([(u, new_target)]);
                 }
             }
         }
@@ -4525,7 +4522,6 @@ impl GraphGenerator {
         }
 
         let mut rng = PythonRandom::new(seed);
-        let (_, node_labels) = graph_with_n_nodes(self.mode, n);
         // br-r37-c1-nzo8r: port nx's smarter stub-pairing algorithm.
         // The naive "any duplicate/self-edge → throw away the whole
         // attempt" loop fails for ~20% of seeds at d=4,n=10. nx tracks
@@ -4537,13 +4533,8 @@ impl GraphGenerator {
 
         for _ in 0..max_tries {
             if let Some(edge_pairs) = try_create_random_regular(&mut rng, n, d) {
-                let mut graph = Graph::new(self.mode);
-                for label in &node_labels {
-                    let _ = graph.add_node(label.clone());
-                }
-                for (u, v) in &edge_pairs {
-                    let _ = graph.add_edge(node_labels[*u].clone(), node_labels[*v].clone());
-                }
+                let (mut graph, _) = graph_with_n_nodes(self.mode, n);
+                let _ = graph.extend_existing_index_edges_unrecorded(edge_pairs);
                 self.record(
                     "random_regular_graph",
                     DecisionAction::Allow,
@@ -4585,7 +4576,7 @@ impl GraphGenerator {
             });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _) = graph_with_n_nodes(self.mode, n);
         let mut rng = PythonRandom::new(seed);
 
         let mut repeated_nodes: Vec<usize> = (0..m).collect();
@@ -4617,7 +4608,7 @@ impl GraphGenerator {
             // order), so the set holds raw indices.
             let mut source_neighbors: std::collections::HashSet<usize> =
                 std::collections::HashSet::new();
-            let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+            let _ = graph.extend_existing_index_edges_unrecorded([(source, target)]);
             source_neighbors.insert(target);
             repeated_nodes.push(target);
             repeated_unique.insert(target);
@@ -4645,8 +4636,7 @@ impl GraphGenerator {
                         .unwrap_or_default();
                     if !candidates.is_empty() {
                         let nbr = candidates[rng.choice_index(candidates.len())];
-                        let _ =
-                            graph.add_edge(node_labels[source].clone(), node_labels[nbr].clone());
+                        let _ = graph.extend_existing_index_edges_unrecorded([(source, nbr)]);
                         source_neighbors.insert(nbr);
                         repeated_nodes.push(nbr);
                         repeated_unique.insert(nbr);
@@ -4659,7 +4649,7 @@ impl GraphGenerator {
                     break;
                 };
                 target = next_target;
-                let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+                let _ = graph.extend_existing_index_edges_unrecorded([(source, target)]);
                 source_neighbors.insert(target);
                 repeated_nodes.push(target);
                 repeated_unique.insert(target);
@@ -6183,15 +6173,15 @@ fn watts_strogatz_graph_core(
     // instead of per-edge graph.add_edge (each records a RuntimePolicy decision +
     // does its own reserve). apply_row_orders below fixes each row to the local
     // order, so the bulk-insert order is irrelevant — output is identical.
-    let mut edge_batch: Vec<(String, String)> = Vec::new();
-    for u in 0..n {
-        for &v in &rows[u] {
+    let mut edge_batch: Vec<(usize, usize)> = Vec::new();
+    for (u, row) in rows.iter().enumerate() {
+        for &v in row {
             if u < v {
-                edge_batch.push((node_labels[u].clone(), node_labels[v].clone()));
+                edge_batch.push((u, v));
             }
         }
     }
-    let _ = graph.extend_edges_unrecorded(edge_batch);
+    let _ = graph.extend_existing_index_edges_unrecorded(edge_batch);
     let orders: Vec<(String, Vec<String>)> = (0..n)
         .map(|u| {
             (
