@@ -3964,18 +3964,15 @@ impl GraphGenerator {
         warnings.extend(report.warnings);
 
         let mut repeated_nodes = repeated_nodes_from_graph(&graph);
+        let _ = graph.extend_nodes_unrecorded(((m + 1)..n).map(|i| i.to_string()));
+
         let mut rng = PythonRandom::new(seed);
-        let mut source = graph.node_count();
+        let mut source = m + 1;
         while source < n {
             let targets = random_subset_python(&repeated_nodes, m, &mut rng);
-            for target in &targets {
-                graph
-                    .add_edge(source.to_string(), target.to_string())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "barabasi_albert_graph",
-                        reason: err.to_string(),
-                    })?;
-            }
+            let _ = graph.extend_existing_index_edges_unrecorded(
+                targets.iter().map(|&target| (source, target)),
+            );
             repeated_nodes.extend(targets.iter().copied());
             repeated_nodes.extend(std::iter::repeat_n(source, m));
             source += 1;
@@ -4037,20 +4034,18 @@ impl GraphGenerator {
         let mut graph = report.graph;
         warnings.extend(report.warnings);
 
+        let initial_node_count = graph.node_count();
         let mut repeated_nodes = repeated_nodes_from_graph(&graph);
+        let _ = graph.extend_nodes_unrecorded((initial_node_count..n).map(|i| i.to_string()));
+
         let mut rng = PythonRandom::new(seed);
-        let mut source = graph.node_count();
+        let mut source = initial_node_count;
         while source < n {
             let m = if rng.random() < p { m1 } else { m2 };
             let targets = random_subset_python(&repeated_nodes, m, &mut rng);
-            for target in &targets {
-                graph
-                    .add_edge(source.to_string(), target.to_string())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "dual_barabasi_albert_graph",
-                        reason: err.to_string(),
-                    })?;
-            }
+            let _ = graph.extend_existing_index_edges_unrecorded(
+                targets.iter().map(|&target| (source, target)),
+            );
             repeated_nodes.extend(targets.iter().copied());
             repeated_nodes.extend(std::iter::repeat_n(source, m));
             source += 1;
@@ -4097,6 +4092,7 @@ impl GraphGenerator {
         }
 
         let (mut graph, _) = graph_with_n_nodes(self.mode, m);
+        let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
         let mut attachment_preference = (0..m).collect::<Vec<usize>>();
         let mut rng = PythonRandom::new(seed);
         let mut new_node = m;
@@ -4108,11 +4104,8 @@ impl GraphGenerator {
             let clique_size = node_count.saturating_mul(clique_degree) / 2;
 
             if a_probability < p && clique_size >= m && graph.edge_count() <= clique_size - m {
-                let mut eligible_nodes = graph
-                    .nodes_ordered()
-                    .into_iter()
-                    .filter_map(|node| node.parse::<usize>().ok())
-                    .filter(|node| graph.degree(&node.to_string()) < clique_degree)
+                let mut eligible_nodes = (0..node_count)
+                    .filter(|&node| graph.degree_by_index(node) < clique_degree)
                     .collect::<Vec<usize>>();
 
                 for _ in 0..m {
@@ -4122,10 +4115,10 @@ impl GraphGenerator {
                         "extended_barabasi_albert_graph",
                     )?;
                     let mut prohibited_nodes = graph
-                        .neighbors(&src_node.to_string())
+                        .neighbors_indices(src_node)
                         .unwrap_or_default()
-                        .into_iter()
-                        .filter_map(|node| node.parse::<usize>().ok())
+                        .iter()
+                        .copied()
                         .collect::<std::collections::BTreeSet<usize>>();
                     prohibited_nodes.insert(src_node);
 
@@ -4140,19 +4133,14 @@ impl GraphGenerator {
                         "extended_barabasi_albert_graph",
                     )?;
 
-                    graph
-                        .add_edge(src_node.to_string(), dest_node.to_string())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "extended_barabasi_albert_graph",
-                            reason: err.to_string(),
-                        })?;
+                    let _ = graph.extend_existing_index_edges_unrecorded([(src_node, dest_node)]);
                     attachment_preference.push(src_node);
                     attachment_preference.push(dest_node);
 
-                    if graph.degree(&src_node.to_string()) == clique_degree {
+                    if graph.degree_by_index(src_node) == clique_degree {
                         remove_first_usize(&mut eligible_nodes, src_node);
                     }
-                    if graph.degree(&dest_node.to_string()) == clique_degree {
+                    if graph.degree_by_index(dest_node) == clique_degree {
                         remove_first_usize(&mut eligible_nodes, dest_node);
                     }
                 }
@@ -4161,12 +4149,9 @@ impl GraphGenerator {
                 && m <= graph.edge_count()
                 && graph.edge_count() < clique_size
             {
-                let mut eligible_nodes = graph
-                    .nodes_ordered()
-                    .into_iter()
-                    .filter_map(|node| node.parse::<usize>().ok())
-                    .filter(|node| {
-                        let degree = graph.degree(&node.to_string());
+                let mut eligible_nodes = (0..node_count)
+                    .filter(|&node| {
+                        let degree = graph.degree_by_index(node);
                         degree > 0 && degree < clique_degree
                     })
                     .collect::<Vec<usize>>();
@@ -4177,12 +4162,7 @@ impl GraphGenerator {
                         &mut rng,
                         "extended_barabasi_albert_graph",
                     )?;
-                    let mut nbr_nodes = graph
-                        .neighbors(&node.to_string())
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter_map(|neighbor| neighbor.parse::<usize>().ok())
-                        .collect::<Vec<usize>>();
+                    let mut nbr_nodes = graph.neighbors_indices(node).unwrap_or_default().to_vec();
                     let src_node = choose_existing_node(
                         &nbr_nodes,
                         &mut rng,
@@ -4204,38 +4184,29 @@ impl GraphGenerator {
                         "extended_barabasi_albert_graph",
                     )?;
 
-                    graph.remove_edge(&node.to_string(), &src_node.to_string());
-                    graph
-                        .add_edge(node.to_string(), dest_node.to_string())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "extended_barabasi_albert_graph",
-                            reason: err.to_string(),
-                        })?;
+                    graph.remove_edge(&node_labels[node], &node_labels[src_node]);
+                    let _ = graph.extend_existing_index_edges_unrecorded([(node, dest_node)]);
 
                     remove_first_usize(&mut attachment_preference, src_node);
                     attachment_preference.push(dest_node);
 
-                    if graph.degree(&src_node.to_string()) == 0 {
+                    if graph.degree_by_index(src_node) == 0 {
                         remove_first_usize(&mut eligible_nodes, src_node);
                     }
                     if eligible_nodes.contains(&dest_node) {
-                        if graph.degree(&dest_node.to_string()) == clique_degree {
+                        if graph.degree_by_index(dest_node) == clique_degree {
                             remove_first_usize(&mut eligible_nodes, dest_node);
                         }
-                    } else if graph.degree(&dest_node.to_string()) == 1 {
+                    } else if graph.degree_by_index(dest_node) == 1 {
                         eligible_nodes.push(dest_node);
                     }
                 }
             } else {
                 let targets = random_subset_python(&attachment_preference, m, &mut rng);
-                for target in &targets {
-                    graph
-                        .add_edge(new_node.to_string(), target.to_string())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "extended_barabasi_albert_graph",
-                            reason: err.to_string(),
-                        })?;
-                }
+                let _ = graph.add_node(node_labels[new_node].clone());
+                let _ = graph.extend_existing_index_edges_unrecorded(
+                    targets.iter().map(|&target| (new_node, target)),
+                );
 
                 attachment_preference.extend(targets.iter().copied());
                 attachment_preference.extend(std::iter::repeat_n(new_node, m + 1));
@@ -6219,9 +6190,9 @@ fn graph_is_connected(graph: &Graph) -> bool {
 
 fn repeated_nodes_from_graph(graph: &Graph) -> Vec<usize> {
     let mut repeated = Vec::new();
-    for node in graph.nodes_ordered() {
+    for (idx, node) in graph.nodes_ordered().into_iter().enumerate() {
         if let Ok(index) = node.parse::<usize>() {
-            repeated.extend(std::iter::repeat_n(index, graph.degree(node)));
+            repeated.extend(std::iter::repeat_n(index, graph.degree_by_index(idx)));
         }
     }
     repeated
