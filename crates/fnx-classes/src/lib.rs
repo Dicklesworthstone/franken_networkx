@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod digraph;
+pub mod directed_csr;
 
 use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
