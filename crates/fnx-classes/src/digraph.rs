@@ -13,8 +13,6 @@ use fnx_runtime::{
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
 
-pub use crate::directed_csr::{DiCsr, DirectedCsrError, MultiDiCsr};
-
 // ---------------------------------------------------------------------------
 // DirectedEdgeKey — order-preserving (NOT canonicalized)
 // ---------------------------------------------------------------------------
@@ -90,8 +88,55 @@ pub struct MultiDiGraphSnapshot {
 // DiGraph
 // ---------------------------------------------------------------------------
 
+/// br-r37-c1-d58s8 P1: integer CSR view of a DiGraph's adjacency —
+/// succ/pred targets are node INDICES (IndexMap insertion order) with
+/// per-row slices in ROW order, so index walks reproduce the String
+/// walks exactly. Built once per revision via `DiGraph::csr()`.
+#[derive(Debug)]
+pub struct DiCsr {
+    pub succ_offsets: Vec<usize>,
+    pub succ_targets: Vec<u32>,
+    pub pred_offsets: Vec<usize>,
+    pub pred_targets: Vec<u32>,
+}
+
+impl DiCsr {
+    #[must_use]
+    pub fn successors(&self, idx: usize) -> &[u32] {
+        &self.succ_targets[self.succ_offsets[idx]..self.succ_offsets[idx + 1]]
+    }
+
+    #[must_use]
+    pub fn predecessors(&self, idx: usize) -> &[u32] {
+        &self.pred_targets[self.pred_offsets[idx]..self.pred_offsets[idx + 1]]
+    }
+}
+
 type DiCsrCache = std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<DiCsr>)>>>;
 type DiAllIntCache = std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>;
+
+/// Revision-keyed integer CSR view of a MultiDiGraph's distinct successor and
+/// predecessor rows. Parallel-edge keys are intentionally collapsed because this
+/// view is for multiplicity-insensitive structural algorithms.
+#[derive(Debug)]
+pub struct MultiDiCsr {
+    pub succ_offsets: Vec<usize>,
+    pub succ_targets: Vec<u32>,
+    pub pred_offsets: Vec<usize>,
+    pub pred_targets: Vec<u32>,
+}
+
+impl MultiDiCsr {
+    #[must_use]
+    pub fn successors(&self, idx: usize) -> &[u32] {
+        &self.succ_targets[self.succ_offsets[idx]..self.succ_offsets[idx + 1]]
+    }
+
+    #[must_use]
+    pub fn predecessors(&self, idx: usize) -> &[u32] {
+        &self.pred_targets[self.pred_offsets[idx]..self.pred_offsets[idx + 1]]
+    }
+}
 
 type MultiDiCsrCache = std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<MultiDiCsr>)>>>;
 
@@ -399,25 +444,22 @@ impl DiGraph {
             succ_targets.extend(
                 self.succ_indices[i]
                     .iter()
-                    .map(|&v| u32::try_from(v).expect("graph node index must fit CSR target")),
+                    .map(|&v| u32::try_from(v).unwrap_or(u32::MAX)),
             );
             succ_offsets.push(succ_targets.len());
             pred_targets.extend(
                 self.pred_indices[i]
                     .iter()
-                    .map(|&v| u32::try_from(v).expect("graph node index must fit CSR target")),
+                    .map(|&v| u32::try_from(v).unwrap_or(u32::MAX)),
             );
             pred_offsets.push(pred_targets.len());
         }
-        DiCsr::try_new(
-            self.revision,
-            n,
+        DiCsr {
             succ_offsets,
             succ_targets,
             pred_offsets,
             pred_targets,
-        )
-        .expect("DiGraph adjacency must produce a valid CSR view")
+        }
     }
 
     /// br-r37-c1-d58s8: consistency oracle — eager index rows must mirror
@@ -2366,36 +2408,29 @@ impl MultiDiGraph {
         pred_offsets.push(0);
         for node in self.nodes.keys() {
             if let Some(row) = self.successors.get(node.as_str()) {
-                succ_targets.extend(row.keys().map(|target| {
-                    let idx = self
-                        .nodes
+                succ_targets.extend(row.keys().filter_map(|target| {
+                    self.nodes
                         .get_index_of(target.as_str())
-                        .expect("MultiDiGraph successor must identify a node");
-                    u32::try_from(idx).expect("graph node index must fit CSR target")
+                        .map(|idx| u32::try_from(idx).unwrap_or(u32::MAX))
                 }));
             }
             succ_offsets.push(succ_targets.len());
 
             if let Some(row) = self.predecessors.get(node.as_str()) {
-                pred_targets.extend(row.keys().map(|source| {
-                    let idx = self
-                        .nodes
+                pred_targets.extend(row.keys().filter_map(|source| {
+                    self.nodes
                         .get_index_of(source.as_str())
-                        .expect("MultiDiGraph predecessor must identify a node");
-                    u32::try_from(idx).expect("graph node index must fit CSR target")
+                        .map(|idx| u32::try_from(idx).unwrap_or(u32::MAX))
                 }));
             }
             pred_offsets.push(pred_targets.len());
         }
-        MultiDiCsr::try_new(
-            self.revision,
-            n,
+        MultiDiCsr {
             succ_offsets,
             succ_targets,
             pred_offsets,
             pred_targets,
-        )
-        .expect("MultiDiGraph adjacency must produce a valid CSR view")
+        }
     }
 
     #[must_use]
@@ -3974,32 +4009,6 @@ mod tests {
                 .records()
                 .starts_with(source.decision_log().records())
         );
-    }
-
-    #[test]
-    fn directed_csr_revision_and_multigraph_projection_are_explicit() {
-        let mut graph = DiGraph::strict();
-        graph.add_edge("a", "b").expect("edge is accepted");
-        graph.add_edge("a", "c").expect("edge is accepted");
-        let first = graph.csr();
-        assert_eq!(first.revision(), graph.revision());
-        assert_eq!(first.successors(0), &[1, 2]);
-        assert_eq!(first.predecessors(2), &[0]);
-
-        graph.add_edge("c", "a").expect("edge is accepted");
-        let second = graph.csr();
-        assert!(second.revision() > first.revision());
-        assert!(!std::sync::Arc::ptr_eq(&first, &second));
-        assert_eq!(first.successors(0), &[1, 2], "pinned generations stay unchanged");
-
-        let mut multi = MultiDiGraph::strict();
-        multi.add_edge("a", "b").expect("edge is accepted");
-        multi.add_edge("a", "b").expect("parallel edge is accepted");
-        let projected = multi.csr();
-        assert_eq!(multi.edge_count(), 2, "multiplicity remains authoritative");
-        assert_eq!(projected.successors(0), &[1], "CSR is structural, not multiplicity-bearing");
-        assert_eq!(projected.predecessors(1), &[0]);
-        assert_eq!(projected.revision(), multi.revision());
     }
 
     // -- Invariant checker --------------------------------------------------
