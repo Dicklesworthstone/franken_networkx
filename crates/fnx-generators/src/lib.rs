@@ -2211,12 +2211,7 @@ impl GraphGenerator {
         for start in (0..total_nodes).step_by(k) {
             let _ = graph.remove_edge(&node_labels[start], &node_labels[start + 1]);
             let previous = (start + total_nodes - 1) % total_nodes;
-            graph
-                .add_edge(node_labels[start].clone(), node_labels[previous].clone())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation,
-                    reason: err.to_string(),
-                })?;
+            let _ = graph.extend_existing_index_edges_unrecorded([(start, previous)]);
         }
 
         self.record(
@@ -3776,12 +3771,13 @@ impl GraphGenerator {
             });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _) = graph_with_n_nodes(self.mode, n);
         let mut rng = PythonRandom::new(seed);
         let mut u = 0usize;
         let mut v = 1usize;
         let mut seen = 0usize;
         let mut chosen = 0usize;
+        let mut edges = Vec::with_capacity(m);
 
         while chosen < m {
             let remaining = max_edges.saturating_sub(seen);
@@ -3800,12 +3796,7 @@ impl GraphGenerator {
             }
 
             if rng.randrange(remaining) < m - chosen {
-                graph
-                    .add_edge(node_labels[u].clone(), node_labels[v].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "dense_gnm_random_graph",
-                        reason: err.to_string(),
-                    })?;
+                edges.push((u, v));
                 chosen += 1;
             }
             seen += 1;
@@ -3815,6 +3806,7 @@ impl GraphGenerator {
                 v = u + 1;
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             "dense_gnm_random_graph",
