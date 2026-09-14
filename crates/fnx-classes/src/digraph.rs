@@ -3990,14 +3990,22 @@ mod tests {
         let second = graph.csr();
         assert!(second.revision() > first.revision());
         assert!(!std::sync::Arc::ptr_eq(&first, &second));
-        assert_eq!(first.successors(0), &[1, 2], "pinned generations stay unchanged");
+        assert_eq!(
+            first.successors(0),
+            &[1, 2],
+            "pinned generations stay unchanged"
+        );
 
         let mut multi = MultiDiGraph::strict();
         multi.add_edge("a", "b").expect("edge is accepted");
         multi.add_edge("a", "b").expect("parallel edge is accepted");
         let projected = multi.csr();
         assert_eq!(multi.edge_count(), 2, "multiplicity remains authoritative");
-        assert_eq!(projected.successors(0), &[1], "CSR is structural, not multiplicity-bearing");
+        assert_eq!(
+            projected.successors(0),
+            &[1],
+            "CSR is structural, not multiplicity-bearing"
+        );
         assert_eq!(projected.predecessors(1), &[0]);
         assert_eq!(projected.revision(), multi.revision());
     }
