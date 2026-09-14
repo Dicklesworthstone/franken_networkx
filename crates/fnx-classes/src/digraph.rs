@@ -3003,6 +3003,47 @@ impl MultiDiGraph {
         inserted
     }
 
+    /// Bulk node insert without attrs, one summary ledger record.
+    pub fn extend_nodes_unrecorded<I, N>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = N>,
+        N: Into<String>,
+    {
+        let iterator = nodes.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.nodes.reserve(lower_bound);
+        self.successors.reserve(lower_bound);
+        self.predecessors.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for node in iterator {
+            let node = node.into();
+            if self.nodes.contains_key(&node) {
+                continue;
+            }
+            self.nodes.insert(node.clone(), AttrMap::new());
+            self.successors.entry(node.clone()).or_default();
+            self.predecessors.entry(node).or_default();
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     /// br-r37-c1-l5ve7: bulk KEYED edge insert WITH attrs, one ledger
     /// record — for native copy/convert paths that replicate a source
     /// multigraph's exact internal keys (add_edge_impl pays TWO
