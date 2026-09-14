@@ -3964,18 +3964,15 @@ impl GraphGenerator {
         warnings.extend(report.warnings);
 
         let mut repeated_nodes = repeated_nodes_from_graph(&graph);
+        let _ = graph.extend_nodes_unrecorded(((m + 1)..n).map(|i| i.to_string()));
+
         let mut rng = PythonRandom::new(seed);
-        let mut source = graph.node_count();
+        let mut source = m + 1;
         while source < n {
             let targets = random_subset_python(&repeated_nodes, m, &mut rng);
-            for target in &targets {
-                graph
-                    .add_edge(source.to_string(), target.to_string())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "barabasi_albert_graph",
-                        reason: err.to_string(),
-                    })?;
-            }
+            let _ = graph.extend_existing_index_edges_unrecorded(
+                targets.iter().map(|&target| (source, target)),
+            );
             repeated_nodes.extend(targets.iter().copied());
             repeated_nodes.extend(std::iter::repeat_n(source, m));
             source += 1;
@@ -4037,20 +4034,18 @@ impl GraphGenerator {
         let mut graph = report.graph;
         warnings.extend(report.warnings);
 
+        let initial_node_count = graph.node_count();
         let mut repeated_nodes = repeated_nodes_from_graph(&graph);
+        let _ = graph.extend_nodes_unrecorded((initial_node_count..n).map(|i| i.to_string()));
+
         let mut rng = PythonRandom::new(seed);
-        let mut source = graph.node_count();
+        let mut source = initial_node_count;
         while source < n {
             let m = if rng.random() < p { m1 } else { m2 };
             let targets = random_subset_python(&repeated_nodes, m, &mut rng);
-            for target in &targets {
-                graph
-                    .add_edge(source.to_string(), target.to_string())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "dual_barabasi_albert_graph",
-                        reason: err.to_string(),
-                    })?;
-            }
+            let _ = graph.extend_existing_index_edges_unrecorded(
+                targets.iter().map(|&target| (source, target)),
+            );
             repeated_nodes.extend(targets.iter().copied());
             repeated_nodes.extend(std::iter::repeat_n(source, m));
             source += 1;
@@ -4097,6 +4092,7 @@ impl GraphGenerator {
         }
 
         let (mut graph, _) = graph_with_n_nodes(self.mode, m);
+        let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
         let mut attachment_preference = (0..m).collect::<Vec<usize>>();
         let mut rng = PythonRandom::new(seed);
         let mut new_node = m;
@@ -4108,11 +4104,8 @@ impl GraphGenerator {
             let clique_size = node_count.saturating_mul(clique_degree) / 2;
 
             if a_probability < p && clique_size >= m && graph.edge_count() <= clique_size - m {
-                let mut eligible_nodes = graph
-                    .nodes_ordered()
-                    .into_iter()
-                    .filter_map(|node| node.parse::<usize>().ok())
-                    .filter(|node| graph.degree(&node.to_string()) < clique_degree)
+                let mut eligible_nodes = (0..node_count)
+                    .filter(|&node| graph.degree_by_index(node) < clique_degree)
                     .collect::<Vec<usize>>();
 
                 for _ in 0..m {
@@ -4122,10 +4115,10 @@ impl GraphGenerator {
                         "extended_barabasi_albert_graph",
                     )?;
                     let mut prohibited_nodes = graph
-                        .neighbors(&src_node.to_string())
+                        .neighbors_indices(src_node)
                         .unwrap_or_default()
-                        .into_iter()
-                        .filter_map(|node| node.parse::<usize>().ok())
+                        .iter()
+                        .copied()
                         .collect::<std::collections::BTreeSet<usize>>();
                     prohibited_nodes.insert(src_node);
 
@@ -4140,19 +4133,14 @@ impl GraphGenerator {
                         "extended_barabasi_albert_graph",
                     )?;
 
-                    graph
-                        .add_edge(src_node.to_string(), dest_node.to_string())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "extended_barabasi_albert_graph",
-                            reason: err.to_string(),
-                        })?;
+                    let _ = graph.extend_existing_index_edges_unrecorded([(src_node, dest_node)]);
                     attachment_preference.push(src_node);
                     attachment_preference.push(dest_node);
 
-                    if graph.degree(&src_node.to_string()) == clique_degree {
+                    if graph.degree_by_index(src_node) == clique_degree {
                         remove_first_usize(&mut eligible_nodes, src_node);
                     }
-                    if graph.degree(&dest_node.to_string()) == clique_degree {
+                    if graph.degree_by_index(dest_node) == clique_degree {
                         remove_first_usize(&mut eligible_nodes, dest_node);
                     }
                 }
@@ -4161,12 +4149,9 @@ impl GraphGenerator {
                 && m <= graph.edge_count()
                 && graph.edge_count() < clique_size
             {
-                let mut eligible_nodes = graph
-                    .nodes_ordered()
-                    .into_iter()
-                    .filter_map(|node| node.parse::<usize>().ok())
-                    .filter(|node| {
-                        let degree = graph.degree(&node.to_string());
+                let mut eligible_nodes = (0..node_count)
+                    .filter(|&node| {
+                        let degree = graph.degree_by_index(node);
                         degree > 0 && degree < clique_degree
                     })
                     .collect::<Vec<usize>>();
@@ -4177,12 +4162,7 @@ impl GraphGenerator {
                         &mut rng,
                         "extended_barabasi_albert_graph",
                     )?;
-                    let mut nbr_nodes = graph
-                        .neighbors(&node.to_string())
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter_map(|neighbor| neighbor.parse::<usize>().ok())
-                        .collect::<Vec<usize>>();
+                    let mut nbr_nodes = graph.neighbors_indices(node).unwrap_or_default().to_vec();
                     let src_node = choose_existing_node(
                         &nbr_nodes,
                         &mut rng,
@@ -4204,38 +4184,29 @@ impl GraphGenerator {
                         "extended_barabasi_albert_graph",
                     )?;
 
-                    graph.remove_edge(&node.to_string(), &src_node.to_string());
-                    graph
-                        .add_edge(node.to_string(), dest_node.to_string())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "extended_barabasi_albert_graph",
-                            reason: err.to_string(),
-                        })?;
+                    graph.remove_edge(&node_labels[node], &node_labels[src_node]);
+                    let _ = graph.extend_existing_index_edges_unrecorded([(node, dest_node)]);
 
                     remove_first_usize(&mut attachment_preference, src_node);
                     attachment_preference.push(dest_node);
 
-                    if graph.degree(&src_node.to_string()) == 0 {
+                    if graph.degree_by_index(src_node) == 0 {
                         remove_first_usize(&mut eligible_nodes, src_node);
                     }
                     if eligible_nodes.contains(&dest_node) {
-                        if graph.degree(&dest_node.to_string()) == clique_degree {
+                        if graph.degree_by_index(dest_node) == clique_degree {
                             remove_first_usize(&mut eligible_nodes, dest_node);
                         }
-                    } else if graph.degree(&dest_node.to_string()) == 1 {
+                    } else if graph.degree_by_index(dest_node) == 1 {
                         eligible_nodes.push(dest_node);
                     }
                 }
             } else {
                 let targets = random_subset_python(&attachment_preference, m, &mut rng);
-                for target in &targets {
-                    graph
-                        .add_edge(new_node.to_string(), target.to_string())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "extended_barabasi_albert_graph",
-                            reason: err.to_string(),
-                        })?;
-                }
+                let _ = graph.add_node(node_labels[new_node].clone());
+                let _ = graph.extend_existing_index_edges_unrecorded(
+                    targets.iter().map(|&target| (new_node, target)),
+                );
 
                 attachment_preference.extend(targets.iter().copied());
                 attachment_preference.extend(std::iter::repeat_n(new_node, m + 1));
@@ -4391,25 +4362,22 @@ impl GraphGenerator {
             });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _) = graph_with_n_nodes(self.mode, n);
         let half_k = k / 2;
         let mut rng = PythonRandom::new(seed);
 
         let ring_edges = ring_lattice_edges(n, half_k);
-        for &(u, v) in &ring_edges {
-            let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
-        }
+        let _ = graph.extend_existing_index_edges_unrecorded(ring_edges);
 
         let edge_order: Vec<(usize, usize)> = (0..n)
             .flat_map(|u| {
                 graph
-                    .neighbors(&node_labels[u])
+                    .neighbors_indices(u)
                     .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(move |neighbor| {
-                        let v = neighbor.parse::<usize>().ok()?;
-                        (v > u).then_some((u, v))
-                    })
+                    .iter()
+                    .copied()
+                    .filter(move |&v| v > u)
+                    .map(move |v| (u, v))
             })
             .collect();
 
@@ -4417,15 +4385,15 @@ impl GraphGenerator {
             if rng.random() < p {
                 let mut new_target = rng.randrange(n);
                 let mut skip_shortcut = false;
-                while new_target == u || graph.has_edge(&node_labels[u], &node_labels[new_target]) {
+                while new_target == u || graph.has_edge_by_indices(u, new_target) {
                     new_target = rng.randrange(n);
-                    if graph.degree(&node_labels[u]) >= n - 1 {
+                    if graph.degree_by_index(u) >= n - 1 {
                         skip_shortcut = true;
                         break;
                     }
                 }
                 if !skip_shortcut {
-                    let _ = graph.add_edge(node_labels[u].clone(), node_labels[new_target].clone());
+                    let _ = graph.extend_existing_index_edges_unrecorded([(u, new_target)]);
                 }
             }
         }
@@ -4525,7 +4493,6 @@ impl GraphGenerator {
         }
 
         let mut rng = PythonRandom::new(seed);
-        let (_, node_labels) = graph_with_n_nodes(self.mode, n);
         // br-r37-c1-nzo8r: port nx's smarter stub-pairing algorithm.
         // The naive "any duplicate/self-edge → throw away the whole
         // attempt" loop fails for ~20% of seeds at d=4,n=10. nx tracks
@@ -4537,13 +4504,8 @@ impl GraphGenerator {
 
         for _ in 0..max_tries {
             if let Some(edge_pairs) = try_create_random_regular(&mut rng, n, d) {
-                let mut graph = Graph::new(self.mode);
-                for label in &node_labels {
-                    let _ = graph.add_node(label.clone());
-                }
-                for (u, v) in &edge_pairs {
-                    let _ = graph.add_edge(node_labels[*u].clone(), node_labels[*v].clone());
-                }
+                let (mut graph, _) = graph_with_n_nodes(self.mode, n);
+                let _ = graph.extend_existing_index_edges_unrecorded(edge_pairs);
                 self.record(
                     "random_regular_graph",
                     DecisionAction::Allow,
@@ -4585,7 +4547,7 @@ impl GraphGenerator {
             });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let (mut graph, _) = graph_with_n_nodes(self.mode, n);
         let mut rng = PythonRandom::new(seed);
 
         let mut repeated_nodes: Vec<usize> = (0..m).collect();
@@ -4617,7 +4579,7 @@ impl GraphGenerator {
             // order), so the set holds raw indices.
             let mut source_neighbors: std::collections::HashSet<usize> =
                 std::collections::HashSet::new();
-            let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+            let _ = graph.extend_existing_index_edges_unrecorded([(source, target)]);
             source_neighbors.insert(target);
             repeated_nodes.push(target);
             repeated_unique.insert(target);
@@ -4645,8 +4607,7 @@ impl GraphGenerator {
                         .unwrap_or_default();
                     if !candidates.is_empty() {
                         let nbr = candidates[rng.choice_index(candidates.len())];
-                        let _ =
-                            graph.add_edge(node_labels[source].clone(), node_labels[nbr].clone());
+                        let _ = graph.extend_existing_index_edges_unrecorded([(source, nbr)]);
                         source_neighbors.insert(nbr);
                         repeated_nodes.push(nbr);
                         repeated_unique.insert(nbr);
@@ -4659,7 +4620,7 @@ impl GraphGenerator {
                     break;
                 };
                 target = next_target;
-                let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+                let _ = graph.extend_existing_index_edges_unrecorded([(source, target)]);
                 source_neighbors.insert(target);
                 repeated_nodes.push(target);
                 repeated_unique.insert(target);
@@ -4703,44 +4664,31 @@ impl GraphGenerator {
 
         let mut rng = PythonRandom::new(seed);
         let backbone_len = (2.0 * rng.random() * n as f64 + 0.5) as usize;
-        let mut graph = Graph::new(self.mode);
 
-        for node in 0..backbone_len {
-            graph.add_node(node.to_string());
-        }
+        let mut edges: Vec<(usize, usize)> = Vec::new();
         for node in 0..backbone_len.saturating_sub(1) {
-            graph
-                .add_edge(node.to_string(), (node + 1).to_string())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "random_lobster_graph",
-                    reason: err.to_string(),
-                })?;
+            edges.push((node, node + 1));
         }
 
+        let mut total_nodes = backbone_len;
         if backbone_len > 0 {
             let mut current_node = backbone_len - 1;
             for backbone_node in 0..backbone_len {
                 while rng.random() < p1 {
                     current_node += 1;
-                    graph
-                        .add_edge(backbone_node.to_string(), current_node.to_string())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation: "random_lobster_graph",
-                            reason: err.to_string(),
-                        })?;
+                    edges.push((backbone_node, current_node));
                     let caterpillar_node = current_node;
                     while rng.random() < p2 {
                         current_node += 1;
-                        graph
-                            .add_edge(caterpillar_node.to_string(), current_node.to_string())
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation: "random_lobster_graph",
-                                reason: err.to_string(),
-                            })?;
+                        edges.push((caterpillar_node, current_node));
                     }
                 }
             }
+            total_nodes = current_node + 1;
         }
+
+        let (mut graph, _) = graph_with_n_nodes(self.mode, total_nodes);
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             "random_lobster_graph",
@@ -4772,8 +4720,8 @@ impl GraphGenerator {
         let (_, warnings) = self.validate_n("random_shell_graph", total_nodes, MAX_N_GNP)?;
 
         let mut rng = PythonRandom::new(seed);
-        let mut graph = Graph::new(self.mode);
-        let mut shells = Vec::with_capacity(constructor.len());
+        let (mut graph, _) = graph_with_n_nodes(self.mode, total_nodes);
+        let mut shells: Vec<(usize, usize)> = Vec::with_capacity(constructor.len());
         let mut inter_shell_edge_counts = Vec::with_capacity(constructor.len());
         let mut first_label = 0usize;
 
@@ -4789,28 +4737,22 @@ impl GraphGenerator {
             let inter_shell_edges = m as i128 - intra_shell_edges;
             inter_shell_edge_counts.push(nonnegative_i128_to_usize(inter_shell_edges));
 
-            let shell_nodes = (first_label..first_label + n)
-                .map(|node| node.to_string())
-                .collect::<Vec<String>>();
-            for node in &shell_nodes {
-                graph.add_node(node.clone());
-            }
             add_gnm_edges_with_rng(
                 &mut graph,
-                &shell_nodes,
+                first_label,
+                n,
                 nonnegative_i128_to_usize(intra_shell_edges),
                 &mut rng,
-                "random_shell_graph",
-            )?;
+            );
+            shells.push((first_label, n));
             first_label += n;
-            shells.push(shell_nodes);
         }
 
         for shell_index in 0..shells.len().saturating_sub(1) {
             let total_edges = inter_shell_edge_counts[shell_index];
-            let left_shell = &shells[shell_index];
-            let right_shell = &shells[shell_index + 1];
-            let possible_edges = left_shell.len().saturating_mul(right_shell.len());
+            let (left_start, left_len) = shells[shell_index];
+            let (right_start, right_len) = shells[shell_index + 1];
+            let possible_edges = left_len.saturating_mul(right_len);
             if total_edges > possible_edges {
                 return Err(GenerationError::FailClosed {
                     operation: "random_shell_graph",
@@ -4822,17 +4764,12 @@ impl GraphGenerator {
 
             let mut edge_count = 0usize;
             while edge_count < total_edges {
-                let u = &left_shell[rng.choice_index(left_shell.len())];
-                let v = &right_shell[rng.choice_index(right_shell.len())];
-                if u == v || graph.has_edge(u, v) {
+                let u = left_start + rng.choice_index(left_len);
+                let v = right_start + rng.choice_index(right_len);
+                if u == v || graph.has_edge_by_indices(u, v) {
                     continue;
                 }
-                graph.add_edge(u.clone(), v.clone()).map_err(|err| {
-                    GenerationError::FailClosed {
-                        operation: "random_shell_graph",
-                        reason: err.to_string(),
-                    }
-                })?;
+                let _ = graph.extend_existing_index_edges_unrecorded([(u, v)]);
                 edge_count += 1;
             }
         }
@@ -6183,15 +6120,15 @@ fn watts_strogatz_graph_core(
     // instead of per-edge graph.add_edge (each records a RuntimePolicy decision +
     // does its own reserve). apply_row_orders below fixes each row to the local
     // order, so the bulk-insert order is irrelevant — output is identical.
-    let mut edge_batch: Vec<(String, String)> = Vec::new();
-    for u in 0..n {
-        for &v in &rows[u] {
+    let mut edge_batch: Vec<(usize, usize)> = Vec::new();
+    for (u, row) in rows.iter().enumerate() {
+        for &v in row {
             if u < v {
-                edge_batch.push((node_labels[u].clone(), node_labels[v].clone()));
+                edge_batch.push((u, v));
             }
         }
     }
-    let _ = graph.extend_edges_unrecorded(edge_batch);
+    let _ = graph.extend_existing_index_edges_unrecorded(edge_batch);
     let orders: Vec<(String, Vec<String>)> = (0..n)
         .map(|u| {
             (
@@ -6229,9 +6166,9 @@ fn graph_is_connected(graph: &Graph) -> bool {
 
 fn repeated_nodes_from_graph(graph: &Graph) -> Vec<usize> {
     let mut repeated = Vec::new();
-    for node in graph.nodes_ordered() {
+    for (idx, node) in graph.nodes_ordered().into_iter().enumerate() {
         if let Ok(index) = node.parse::<usize>() {
-            repeated.extend(std::iter::repeat_n(index, graph.degree(node)));
+            repeated.extend(std::iter::repeat_n(index, graph.degree_by_index(idx)));
         }
     }
     repeated
@@ -6402,44 +6339,38 @@ fn nonnegative_i128_to_usize(value: i128) -> usize {
 
 fn add_gnm_edges_with_rng(
     graph: &mut Graph,
-    node_labels: &[String],
+    first_label: usize,
+    n: usize,
     m: usize,
     rng: &mut PythonRandom,
-    operation: &'static str,
-) -> Result<(), GenerationError> {
-    let n = node_labels.len();
+) {
     let max_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
     if m >= max_edges {
+        let mut edges = Vec::with_capacity(max_edges);
         for left in 0..n {
             for right in (left + 1)..n {
-                graph
-                    .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation,
-                        reason: err.to_string(),
-                    })?;
+                edges.push((first_label + left, first_label + right));
             }
         }
-        return Ok(());
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+        return;
     }
 
-    let mut edge_count = 0usize;
-    while edge_count < m {
+    let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    let mut edges: Vec<(usize, usize)> = Vec::with_capacity(m);
+    while edges.len() < m {
         let u = rng.choice_index(n);
         let v = rng.choice_index(n);
-        if u == v || graph.has_edge(&node_labels[u], &node_labels[v]) {
+        if u == v {
             continue;
         }
-        graph
-            .add_edge(node_labels[u].clone(), node_labels[v].clone())
-            .map_err(|err| GenerationError::FailClosed {
-                operation,
-                reason: err.to_string(),
-            })?;
-        edge_count += 1;
+        let key = if u < v { (u, v) } else { (v, u) };
+        if !seen.insert(key) {
+            continue;
+        }
+        edges.push((first_label + u, first_label + v));
     }
-
-    Ok(())
+    let _ = graph.extend_existing_index_edges_unrecorded(edges);
 }
 
 fn uniform_k_out_candidates(n: usize, source: usize, self_loops: bool) -> Vec<usize> {
