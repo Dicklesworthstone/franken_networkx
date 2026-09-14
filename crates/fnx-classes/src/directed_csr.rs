@@ -238,7 +238,7 @@ fn validate_side(
     offsets: &[usize],
     targets: &[u32],
 ) -> Result<(), DirectedCsrError> {
-    let expected = node_count.checked_add(1).unwrap_or(usize::MAX);
+    let expected = node_count.saturating_add(1);
     if offsets.len() != expected {
         return Err(DirectedCsrError::OffsetCountMismatch {
             side,
@@ -325,14 +325,20 @@ mod tests {
         assert!(matches!(err, DirectedCsrError::FirstOffsetNotZero { .. }));
         let err = DirectedCsr::try_new(0, 2, vec![0, 0, 2], vec![1], vec![0, 0, 0], vec![])
             .expect_err("terminal offset must match targets");
-        assert!(matches!(err, DirectedCsrError::TerminalOffsetMismatch { .. }));
+        assert!(matches!(
+            err,
+            DirectedCsrError::TerminalOffsetMismatch { .. }
+        ));
         let err = DirectedCsr::try_new(0, 2, vec![0, 1, 1], vec![2], vec![0, 0, 0], vec![])
             .expect_err("target must be in bounds");
         assert!(matches!(err, DirectedCsrError::TargetOutOfBounds { .. }));
         let err = DirectedCsr::try_new(0, usize::MAX, vec![], vec![], vec![], vec![])
             .expect_err("node count cannot fit u32 targets");
         assert!(matches!(err, DirectedCsrError::NodeCountOverflow { .. }));
-        assert!(matches!(valid().checked_successors(3), Err(DirectedCsrError::NodeIndexOutOfBounds { .. })));
+        assert!(matches!(
+            valid().checked_successors(3),
+            Err(DirectedCsrError::NodeIndexOutOfBounds { .. })
+        ));
     }
 
     #[test]
