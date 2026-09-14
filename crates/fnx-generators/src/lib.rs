@@ -2452,30 +2452,23 @@ impl GraphGenerator {
 
     pub fn triad_graph(&mut self, triad_name: &str) -> Result<DiGenerationReport, GenerationError> {
         let operation = "triad_graph";
-        let edges = match triad_name {
+        let edges: &[(usize, usize)] = match triad_name {
             "003" => &[][..],
-            "012" => &[("a", "b")][..],
-            "102" => &[("a", "b"), ("b", "a")][..],
-            "021D" => &[("b", "a"), ("b", "c")][..],
-            "021U" => &[("a", "b"), ("c", "b")][..],
-            "021C" => &[("a", "b"), ("b", "c")][..],
-            "111D" => &[("a", "c"), ("c", "a"), ("b", "c")][..],
-            "111U" => &[("a", "c"), ("c", "a"), ("c", "b")][..],
-            "030T" => &[("a", "b"), ("c", "b"), ("a", "c")][..],
-            "030C" => &[("b", "a"), ("c", "b"), ("a", "c")][..],
-            "201" => &[("a", "b"), ("b", "a"), ("a", "c"), ("c", "a")][..],
-            "120D" => &[("b", "c"), ("b", "a"), ("a", "c"), ("c", "a")][..],
-            "120U" => &[("a", "b"), ("c", "b"), ("a", "c"), ("c", "a")][..],
-            "120C" => &[("a", "b"), ("b", "c"), ("a", "c"), ("c", "a")][..],
-            "210" => &[("a", "b"), ("b", "c"), ("c", "b"), ("a", "c"), ("c", "a")][..],
-            "300" => &[
-                ("a", "b"),
-                ("b", "a"),
-                ("b", "c"),
-                ("c", "b"),
-                ("a", "c"),
-                ("c", "a"),
-            ][..],
+            "012" => &[(0, 1)][..],
+            "102" => &[(0, 1), (1, 0)][..],
+            "021D" => &[(1, 0), (1, 2)][..],
+            "021U" => &[(0, 1), (2, 1)][..],
+            "021C" => &[(0, 1), (1, 2)][..],
+            "111D" => &[(0, 2), (2, 0), (1, 2)][..],
+            "111U" => &[(0, 2), (2, 0), (2, 1)][..],
+            "030T" => &[(0, 1), (2, 1), (0, 2)][..],
+            "030C" => &[(1, 0), (2, 1), (0, 2)][..],
+            "201" => &[(0, 1), (1, 0), (0, 2), (2, 0)][..],
+            "120D" => &[(1, 2), (1, 0), (0, 2), (2, 0)][..],
+            "120U" => &[(0, 1), (2, 1), (0, 2), (2, 0)][..],
+            "120C" => &[(0, 1), (1, 2), (0, 2), (2, 0)][..],
+            "210" => &[(0, 1), (1, 2), (2, 1), (0, 2), (2, 0)][..],
+            "300" => &[(0, 1), (1, 0), (1, 2), (2, 1), (0, 2), (2, 0)][..],
             _ => {
                 let reason = format!(
                     "unknown triad name \"{triad_name}\"; use one of the triad names in the TRIAD_NAMES constant"
@@ -2487,16 +2480,9 @@ impl GraphGenerator {
 
         let mut graph = DiGraph::new(self.mode);
         for node in ["a", "b", "c"] {
-            let _ = graph.add_node(node.to_owned());
+            let _ = graph.add_node(node);
         }
-        for &(source, target) in edges {
-            graph
-                .add_edge(source, target)
-                .map_err(|err| GenerationError::FailClosed {
-                    operation,
-                    reason: err.to_string(),
-                })?;
-        }
+        let _ = graph.extend_existing_index_edges_unrecorded(edges.iter().copied());
 
         self.record(
             operation,
@@ -2880,7 +2866,7 @@ impl GraphGenerator {
         }
 
         let mut graph = Graph::new(self.mode);
-        let mut labels = Vec::with_capacity(intervals.len());
+        let mut node_indices = Vec::with_capacity(intervals.len());
         for &(left, right) in intervals {
             if left > right {
                 let reason = format!(
@@ -2891,26 +2877,28 @@ impl GraphGenerator {
                 return Err(GenerationError::FailClosed { operation, reason });
             }
             let label = format_interval_label((left, right));
-            graph.add_node(label.clone());
-            labels.push(label);
+            let is_new = graph.add_node(&label);
+            if is_new {
+                node_indices.push(graph.node_count().saturating_sub(1));
+            } else {
+                let idx = graph.get_node_index(&label).expect("node exists");
+                node_indices.push(idx);
+            }
         }
 
-        let mut edge_count = 0usize;
+        let mut edges = Vec::new();
         for right_index in (0..intervals.len()).rev() {
             let (left_min, left_max) = intervals[right_index];
+            let u = node_indices[right_index];
             for left_index in 0..right_index {
                 let (right_min, right_max) = intervals[left_index];
                 if left_max >= right_min && right_max >= left_min {
-                    graph
-                        .add_edge(labels[right_index].clone(), labels[left_index].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        })?;
-                    edge_count = edge_count.saturating_add(1);
+                    let v = node_indices[left_index];
+                    edges.push((u, v));
                 }
             }
         }
+        let edge_count = graph.extend_existing_index_edges_unrecorded(edges);
 
         self.record(
             operation,
@@ -6054,9 +6042,9 @@ fn degree_sequence_tree_graph(
         });
     }
 
-    let mut graph = Graph::new(mode);
+    let n = degree_sequence.len();
+    let (mut graph, _) = graph_with_n_nodes(mode, n);
     if degree_sequence == [0] {
-        graph.add_node("0");
         return Ok(graph);
     }
 
@@ -6068,16 +6056,9 @@ fn degree_sequence_tree_graph(
     degree_backbone.sort_by(|left, right| right.cmp(left));
 
     let backbone_len = degree_backbone.len() + 2;
-    for node in 0..backbone_len {
-        graph.add_node(node.to_string());
-    }
+    let mut edges = Vec::with_capacity(n.saturating_sub(1));
     for node in 0..backbone_len.saturating_sub(1) {
-        graph
-            .add_edge(node.to_string(), (node + 1).to_string())
-            .map_err(|err| GenerationError::FailClosed {
-                operation: "degree_sequence_tree",
-                reason: err.to_string(),
-            })?;
+        edges.push((node, node + 1));
     }
 
     let mut last = backbone_len;
@@ -6087,15 +6068,12 @@ fn degree_sequence_tree_graph(
         };
         let leaf_count = degree.saturating_sub(2);
         for target in last..last + leaf_count {
-            graph
-                .add_edge(source.to_string(), target.to_string())
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "degree_sequence_tree",
-                    reason: err.to_string(),
-                })?;
+            edges.push((source, target));
         }
         last += leaf_count;
     }
+
+    let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
     Ok(graph)
 }
