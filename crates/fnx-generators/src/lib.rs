@@ -2573,9 +2573,8 @@ impl GraphGenerator {
             }
 
             let old_edges = graph.edges_ordered_indices();
-            for node in current_n..projected_nodes {
-                let _ = graph.add_node(node.to_string());
-            }
+            let _ = graph
+                .extend_nodes_unrecorded((current_n..projected_nodes).map(|node| node.to_string()));
 
             let mut iter_edges = Vec::with_capacity(old_edges.len() * 2 + current_n);
             for (source_index, target_index) in old_edges {
@@ -2956,12 +2955,9 @@ impl GraphGenerator {
         }
 
         let mut graph = Graph::new(self.mode);
-        let labels = (0..node_count)
-            .map(|value| format_binary_tuple_label(value, n))
-            .collect::<Vec<String>>();
-        for label in &labels {
-            graph.add_node(label.clone());
-        }
+        let _ = graph.extend_nodes_unrecorded(
+            (0..node_count).map(|value| format_binary_tuple_label(value, n)),
+        );
 
         // br-r37-c1-hypercubebatch (cc): each edge is emitted exactly once (the `node < target`
         // guard), nodes pre-exist by insertion index (labels[i] has index i), and node^mask != node
@@ -3043,11 +3039,9 @@ impl GraphGenerator {
         }
 
         let mut graph = Graph::new(self.mode);
-        for row in 0..m {
-            for col in 0..n {
-                let _ = graph.add_node(format_grid_2d_label(row, col));
-            }
-        }
+        let _ = graph.extend_nodes_unrecorded(
+            (0..m).flat_map(|row| (0..n).map(move |col| format_grid_2d_label(row, col))),
+        );
 
         // br-r37-c1-grid2dbatch (cc): grid vertical + horizontal + optional periodic wraps, all with
         // pre-existing nodes by KNOWN row-major INDEX (row*n+col). Collect the (left, right) index
@@ -3142,11 +3136,10 @@ impl GraphGenerator {
             return Ok(self.finish_graph_report(graph, Vec::new()));
         }
 
-        for index in 0..node_count {
-            let _ = graph.add_node(format_grid_graph_label(&grid_coordinates_from_index(
-                index, &sizes,
-            )));
-        }
+        let _ = graph.extend_nodes_unrecorded(
+            (0..node_count)
+                .map(|index| format_grid_graph_label(&grid_coordinates_from_index(index, &sizes))),
+        );
 
         // br-r37-c1-gridnbatch (cc): n-dimensional grid — collect the (index, target_index) pairs in
         // the SAME (index, axis) emission order and batch-insert instead of per-edge add_edge (2 clones
@@ -4763,14 +4756,7 @@ impl GraphGenerator {
         seed: u64,
     ) -> Result<MultiDiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("random_uniform_k_out_multidigraph", n, MAX_N_GNP)?;
-        let mut graph = MultiDiGraph::new(self.mode);
-        let node_labels = (0..n)
-            .map(|node| {
-                let label = node.to_string();
-                let _ = graph.add_node(label.clone());
-                label
-            })
-            .collect::<Vec<String>>();
+        let (mut graph, node_labels) = multidigraph_with_n_nodes(self.mode, n);
 
         if k == 0 || n == 0 {
             self.record(
@@ -4920,14 +4906,7 @@ impl GraphGenerator {
                 reason: "k * n overflowed".to_owned(),
             })?;
 
-        let mut graph = MultiDiGraph::new(self.mode);
-        let node_labels = (0..n)
-            .map(|node| {
-                let label = node.to_string();
-                let _ = graph.add_node(label.clone());
-                label
-            })
-            .collect::<Vec<String>>();
+        let (mut graph, node_labels) = multidigraph_with_n_nodes(self.mode, n);
 
         if iterations == 0 {
             self.record(
@@ -6422,12 +6401,15 @@ fn shifted_cycle_index(source: usize, shift: isize, n: usize) -> usize {
 
 fn digraph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (DiGraph, Vec<String>) {
     let mut graph = DiGraph::new(mode);
-    let mut node_labels = Vec::with_capacity(n);
-    for i in 0..n {
-        let node_label = i.to_string();
-        let _ = graph.add_node(node_label.clone());
-        node_labels.push(node_label);
-    }
+    let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+    let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
+    (graph, node_labels)
+}
+
+fn multidigraph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (MultiDiGraph, Vec<String>) {
+    let mut graph = MultiDiGraph::new(mode);
+    let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+    let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
     (graph, node_labels)
 }
 

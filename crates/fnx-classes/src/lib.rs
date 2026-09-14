@@ -4752,6 +4752,37 @@ impl MultiGraph {
         inserted
     }
 
+    /// Bulk node insert without attrs, one summary ledger record.
+    pub fn extend_nodes_unrecorded<I, N>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = N>,
+        N: AsRef<str>,
+    {
+        let mut inserted = 0usize;
+        for node in nodes {
+            let (existed, _, _) = self.storage.set_node_attrs(node.as_ref(), AttrMap::new());
+            if !existed {
+                inserted += 1;
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
     /// br-r37-c1-l5ve7: bulk KEYED edge insert WITH attrs, one ledger
     /// record — MultiGraph mirror of
     /// MultiDiGraph::extend_keyed_edges_with_attrs_unrecorded
