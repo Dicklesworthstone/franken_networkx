@@ -3388,72 +3388,42 @@ impl GraphGenerator {
             return Err(GenerationError::FailClosed { operation, reason });
         }
 
-        let mut graph = Graph::new(self.mode);
-        let node_labels = (0..total_nodes)
-            .map(|node| node.to_string())
-            .collect::<Vec<String>>();
-        for label in node_labels.iter().take(initial_clique_size) {
-            graph.add_node(label.clone());
-        }
+        let (mut graph, _) = graph_with_n_nodes(self.mode, total_nodes);
 
-        let mut edge_count = 0usize;
+        let mut edges = Vec::with_capacity(initial_edges);
         for left in 0..initial_clique_size {
             for right in (left + 1)..initial_clique_size {
-                graph
-                    .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation,
-                        reason: err.to_string(),
-                    })?;
-                edge_count += 1;
+                edges.push((left, right));
             }
         }
+        let mut edge_count = edges.len();
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
         let mut rng = PythonRandom::new(seed);
         for new_node in initial_clique_size..total_nodes {
             let source_node = rng.randrange(new_node);
-            let new_label = node_labels[new_node].clone();
-            graph.add_node(new_label.clone());
 
-            let source_neighbors = graph
-                .neighbors(&node_labels[source_node])
-                .unwrap_or_default()
-                .into_iter()
-                .map(str::to_owned)
-                .collect::<Vec<String>>();
-            for neighbor in source_neighbors {
+            let neighbors = graph.neighbors_indices(source_node).unwrap_or(&[]);
+            let mut retained_edges: Vec<(usize, usize)> = Vec::new();
+            for &neighbor in neighbors {
                 if rng.random() < p {
-                    graph.add_edge(new_label.clone(), neighbor).map_err(|err| {
-                        GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        }
-                    })?;
-                    edge_count += 1;
-                    if edge_count > max_dense_edges {
-                        let reason = format!(
-                            "edge count {edge_count} exceeds max_allowed={max_dense_edges}"
-                        );
-                        self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
-                        return Err(GenerationError::FailClosed { operation, reason });
-                    }
+                    retained_edges.push((new_node, neighbor));
                 }
             }
 
             if rng.random() < q {
-                graph
-                    .add_edge(new_label, node_labels[source_node].clone())
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation,
-                        reason: err.to_string(),
-                    })?;
-                edge_count += 1;
+                retained_edges.push((new_node, source_node));
+            }
+
+            if !retained_edges.is_empty() {
+                edge_count += retained_edges.len();
                 if edge_count > max_dense_edges {
                     let reason =
                         format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
                     self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
                     return Err(GenerationError::FailClosed { operation, reason });
                 }
+                let _ = graph.extend_existing_index_edges_unrecorded(retained_edges);
             }
         }
 
@@ -3495,15 +3465,8 @@ impl GraphGenerator {
 
         let (n, warnings) = self.validate_n(operation, n, MAX_N_GENERIC)?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        let mut graph = Graph::new(self.mode);
-        let node_labels = (0..n).map(|node| node.to_string()).collect::<Vec<String>>();
-
-        graph
-            .add_edge(node_labels[0].clone(), node_labels[1].clone())
-            .map_err(|err| GenerationError::FailClosed {
-                operation,
-                reason: err.to_string(),
-            })?;
+        let (mut graph, _) = graph_with_n_nodes(self.mode, n);
+        let _ = graph.extend_existing_index_edges_unrecorded([(0, 1)]);
 
         let mut rng = PythonRandom::new(seed);
         let mut edge_count = 1usize;
@@ -3512,47 +3475,27 @@ impl GraphGenerator {
         let max_failed_replications = n.saturating_mul(1000).max(1000);
 
         while next_node < n {
-            let current_nodes = graph
-                .nodes_ordered()
-                .into_iter()
-                .map(str::to_owned)
-                .collect::<Vec<String>>();
-            let source_node = current_nodes[rng.choice_index(current_nodes.len())].clone();
-            let new_label = node_labels[next_node].clone();
-            graph.add_node(new_label.clone());
-
-            let source_neighbors = graph
-                .neighbors(&source_node)
-                .unwrap_or_default()
-                .into_iter()
-                .map(str::to_owned)
-                .collect::<Vec<String>>();
-            let mut retained_any_edge = false;
-            for neighbor in source_neighbors {
+            let source_node = rng.choice_index(next_node);
+            let neighbors = graph.neighbors_indices(source_node).unwrap_or(&[]);
+            let mut retained_edges: Vec<(usize, usize)> = Vec::new();
+            for &neighbor in neighbors {
                 if rng.random() < p {
-                    graph.add_edge(new_label.clone(), neighbor).map_err(|err| {
-                        GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        }
-                    })?;
-                    retained_any_edge = true;
-                    edge_count += 1;
-                    if edge_count > max_dense_edges {
-                        let reason = format!(
-                            "edge count {edge_count} exceeds max_allowed={max_dense_edges}"
-                        );
-                        self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
-                        return Err(GenerationError::FailClosed { operation, reason });
-                    }
+                    retained_edges.push((next_node, neighbor));
                 }
             }
 
-            if retained_any_edge {
+            if !retained_edges.is_empty() {
+                edge_count += retained_edges.len();
+                if edge_count > max_dense_edges {
+                    let reason =
+                        format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
+                    self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
+                    return Err(GenerationError::FailClosed { operation, reason });
+                }
+                let _ = graph.extend_existing_index_edges_unrecorded(retained_edges);
                 next_node += 1;
                 failed_replications = 0;
             } else {
-                graph.remove_node(&new_label);
                 failed_replications += 1;
                 if failed_replications > max_failed_replications {
                     let reason = format!(
