@@ -46156,6 +46156,9 @@ pub fn convert_node_labels_to_integers(
 /// redirected to `u`. Self-loops from the contraction are discarded.
 #[must_use]
 pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
+    if u == v {
+        return graph.clone();
+    }
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     let nodes = graph.nodes_ordered();
     let v_idx = graph.get_node_index(v);
