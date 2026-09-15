@@ -15125,12 +15125,9 @@ fn build_branching_digraph(
     mode: fnx_runtime::CompatibilityMode,
 ) -> DiGraph {
     let mut graph = DiGraph::new(mode);
-    for node in nodes {
-        graph.add_node(node.clone());
-    }
-    for edge in edges {
-        let _ = graph.add_edge(edge.left.clone(), edge.right.clone());
-    }
+    let _ = graph.extend_nodes_unrecorded(nodes.iter().map(|n| n.as_str()));
+    let _ =
+        graph.extend_edges_unrecorded(edges.iter().map(|e| (e.left.as_str(), e.right.as_str())));
     graph
 }
 
@@ -49114,7 +49111,10 @@ fn build_partitioned_graph(
     let mut g = Graph::with_runtime_policy(graph.runtime_policy().clone());
     let nodes = graph.nodes_ordered();
     let _ = g.extend_nodes_unrecorded(nodes.iter().copied());
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+    let mut edges = Vec::with_capacity(graph.edge_count());
+    for (left_idx, right_idx, attrs) in graph.edges_ordered_indices_borrowed() {
+        let left = nodes[left_idx];
+        let right = nodes[right_idx];
         let key = canonical_contracted_edge_key(left, right);
         let mut attrs = attrs.clone();
         match partition.get(&key) {
@@ -49134,8 +49134,9 @@ fn build_partitioned_graph(
                 attrs.remove(partition_attr);
             }
         }
-        let _ = g.add_edge_with_attrs(left, right, attrs);
+        edges.push((left_idx, right_idx, attrs));
     }
+    let _ = g.extend_existing_index_edges_with_attrs_unrecorded(edges);
     g
 }
 
@@ -49874,14 +49875,12 @@ pub fn random_tree(n: usize, seed: u64) -> Graph {
     if n == 0 {
         return g;
     }
-    for i in 0..n {
-        let _ = g.add_node(i.to_string());
-    }
+    let _ = g.extend_nodes_unrecorded((0..n).map(|i| i.to_string()));
     if n <= 1 {
         return g;
     }
     if n == 2 {
-        let _ = g.add_edge("0", "1");
+        let _ = g.extend_existing_index_edges_unrecorded([(0, 1)]);
         return g;
     }
 
@@ -49901,10 +49900,11 @@ pub fn random_tree(n: usize, seed: u64) -> Graph {
         degree[i] += 1;
     }
 
+    let mut edges = Vec::with_capacity(n - 1);
     for &i in &prufer {
         for j in 0..n {
             if degree[j] == 1 {
-                let _ = g.add_edge(i.to_string(), j.to_string());
+                edges.push((i, j));
                 degree[i] -= 1;
                 degree[j] -= 1;
                 break;
@@ -49914,8 +49914,10 @@ pub fn random_tree(n: usize, seed: u64) -> Graph {
 
     let last_two: Vec<usize> = (0..n).filter(|&j| degree[j] == 1).collect();
     if last_two.len() == 2 {
-        let _ = g.add_edge(last_two[0].to_string(), last_two[1].to_string());
+        edges.push((last_two[0], last_two[1]));
     }
+
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
 
     g
 }
@@ -49933,12 +49935,15 @@ pub fn navigable_small_world_graph(n: usize, p: usize, q: usize, r: f64, seed: u
     let mut g = DiGraph::strict();
     let total = n * n;
 
+    let node_names: Vec<String> = (0..n)
+        .flat_map(|i| (0..n).map(move |j| format!("{i},{j}")))
+        .collect();
+    let _ = g.extend_nodes_unrecorded(node_names.iter().map(|s| s.as_str()));
+
     let mut nodes = Vec::with_capacity(total);
     for i in 0..n {
         for j in 0..n {
-            let name = format!("{i},{j}");
-            g.add_node(name.clone());
-            nodes.push((i, j, name));
+            nodes.push((i, j));
         }
     }
 
@@ -49954,8 +49959,10 @@ pub fn navigable_small_world_graph(n: usize, p: usize, q: usize, r: f64, seed: u
         (rng_state >> 11) as f64 / (1u64 << 53) as f64
     };
 
+    let mut edges = Vec::new();
+
     for idx in 0..total {
-        let (i, j, ref name) = nodes[idx];
+        let (i, j) = nodes[idx];
         let ii = i as isize;
         let ji = j as isize;
 
@@ -49967,8 +49974,8 @@ pub fn navigable_small_world_graph(n: usize, p: usize, q: usize, r: f64, seed: u
                 }
                 let ni_idx = ((ii + di).rem_euclid(ni)) as usize;
                 let nj_idx = ((ji + dj).rem_euclid(ni)) as usize;
-                let target_name = format!("{ni_idx},{nj_idx}");
-                let _ = g.add_edge(name.clone(), target_name);
+                let target_idx = ni_idx * n + nj_idx;
+                edges.push((idx, target_idx));
             }
         }
 
@@ -49976,7 +49983,7 @@ pub fn navigable_small_world_graph(n: usize, p: usize, q: usize, r: f64, seed: u
         for _ in 0..q {
             let mut probs = Vec::with_capacity(total);
             let mut total_prob = 0.0_f64;
-            for &(oi, oj, _) in &nodes {
+            for &(oi, oj) in &nodes {
                 if oi == i && oj == j {
                     probs.push(0.0);
                     continue;
@@ -49993,13 +50000,15 @@ pub fn navigable_small_world_graph(n: usize, p: usize, q: usize, r: f64, seed: u
                 for (k, &prob) in probs.iter().enumerate() {
                     cum += prob;
                     if cum >= threshold {
-                        let _ = g.add_edge(name.clone(), nodes[k].2.clone());
+                        edges.push((idx, k));
                         break;
                     }
                 }
             }
         }
     }
+
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
 
     g
 }
@@ -53161,16 +53170,19 @@ fn is_connected_dominating_set_orig_string(graph: &Graph, nodes: &[&str]) -> boo
 /// For each clique, create a clique-node and connect it to all members.
 pub fn make_clique_bipartite(graph: &Graph, cliques: &[Vec<String>]) -> Graph {
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for node in graph.nodes_ordered() {
-        let _ = result.add_node(node.to_owned());
-    }
+    let g_nodes = graph.nodes_ordered();
+    let _ = result.extend_nodes_unrecorded(g_nodes.iter().copied());
+    let clique_nodes: Vec<String> = (0..cliques.len()).map(|i| format!("clique_{i}")).collect();
+    let _ = result.extend_nodes_unrecorded(clique_nodes.iter().map(|s| s.as_str()));
+
+    let mut edges: Vec<(String, String)> = Vec::new();
     for (i, clique) in cliques.iter().enumerate() {
-        let clique_node = format!("clique_{i}");
-        let _ = result.add_node(clique_node.clone());
+        let clique_node = &clique_nodes[i];
         for member in clique {
-            let _ = result.add_edge(clique_node.clone(), member.clone());
+            edges.push((clique_node.clone(), member.clone()));
         }
     }
+    let _ = result.extend_edges_unrecorded(edges.iter().map(|(u, v)| (u.as_str(), v.as_str())));
     result
 }
 
@@ -53293,18 +53305,23 @@ pub fn write_weighted_edgelist(graph: &Graph, weight_attr: &str, delimiter: &str
 #[must_use]
 pub fn remove_node_attributes(graph: &Graph, name: &str) -> Graph {
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for node in graph.nodes_ordered() {
-        if let Some(attrs) = graph.node_attrs(node) {
-            let mut new_attrs = attrs.clone();
-            new_attrs.remove(name);
-            let _ = result.add_node_with_attrs(node.to_owned(), new_attrs);
-        } else {
-            let _ = result.add_node(node.to_owned());
-        }
-    }
-    for (left, right, attrs) in graph.edges_ordered_borrowed() {
-        let _ = result.add_edge_with_attrs(left, right, attrs.clone());
-    }
+    let nodes = graph.nodes_ordered();
+    let batch_nodes: Vec<(String, AttrMap)> = nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, &node)| {
+            let mut attrs = graph.node_attrs_by_index(idx).cloned().unwrap_or_default();
+            attrs.remove(name);
+            (node.to_owned(), attrs)
+        })
+        .collect();
+    let _ = result.extend_nodes_with_attrs_unrecorded(batch_nodes);
+    let edges: Vec<(usize, usize, AttrMap)> = graph
+        .edges_ordered_indices_borrowed()
+        .into_iter()
+        .map(|(u, v, attrs)| (u, v, attrs.clone()))
+        .collect();
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
     result
 }
 
