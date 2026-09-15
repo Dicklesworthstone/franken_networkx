@@ -24045,9 +24045,7 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
     let add_all_self_loops = reflexive == Some(true);
 
     // Add all nodes
-    for &node in &nodes {
-        let _ = result.add_node(node);
-    }
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
 
     // For each node, find all nodes reachable via a path of length >= 1 and add
     // edges (source, w). br-r37-c1-tc-cyclic: seed the BFS from `source`'s
@@ -24192,9 +24190,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
     let n = nodes.len();
 
     // Add all nodes
-    for &node in &nodes {
-        let _ = result.add_node(node);
-    }
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
 
     // Topological order as node indices + the inverse position map.
     let topo_idx: Vec<usize> = topo
@@ -24214,6 +24210,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
     // Epoch-stamped reachability mark: stamp == current epoch means "reachable via others".
     let mut reach_stamp = vec![0u32; n];
     let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut kept_edges: Vec<(usize, usize)> = Vec::new();
 
     for (epoch, &u) in topo_idx.iter().enumerate() {
         // Direct successors sorted by topological position (matches the old String-keyed sort).
@@ -24230,7 +24227,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
                 continue; // This edge is redundant
             }
             // Keep this edge
-            let _ = result.add_edge(nodes[u], nodes[v]);
+            kept_edges.push((u, v));
 
             // Mark everything reachable from v (BFS in the original graph from v).
             queue.clear();
@@ -24247,6 +24244,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
             }
         }
     }
+    let _ = result.extend_existing_index_edges_unrecorded(kept_edges);
 
     Some(result)
 }
@@ -25269,24 +25267,48 @@ fn build_all_paths_from_preds_index(
 ///
 /// The complement G' has the same nodes as G but has edges where G does not
 /// (and vice versa). Self-loops are not included.
-/// Matches `networkx.complement(G)`.
+/// Like [`complement`] but returns just the list of new (u, v) edge
+/// index pairs (in canonical insertion order) without materializing a
+/// fresh `Graph`.
 #[must_use]
-pub fn complement(graph: &Graph) -> Graph {
-    let nodes: Vec<&str> = graph.nodes_ordered().into_iter().collect();
-    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-
-    for &node in &nodes {
-        result.add_node(node);
+pub fn complement_edges_indices(graph: &Graph) -> Vec<(usize, usize)> {
+    let n = graph.node_count();
+    if n < 2 {
+        return Vec::new();
     }
-
-    for (i, &u) in nodes.iter().enumerate() {
-        for &v in &nodes[i + 1..] {
-            if !graph.has_edge(u, v) {
-                let _ = result.add_edge(u, v);
+    // Integer-index non-edge scan using a reusable boolean row via `neighbors_indices`.
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    let mut is_nbr = vec![false; n];
+    for i in 0..n {
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &nb in nbrs {
+                is_nbr[nb] = true;
+            }
+        }
+        for j in (i + 1)..n {
+            if !is_nbr[j] {
+                edges.push((i, j));
+            }
+        }
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &nb in nbrs {
+                is_nbr[nb] = false;
             }
         }
     }
+    edges
+}
 
+/// The complement G' has the same nodes as G but has edges where G does not
+/// (and vice versa). Self-loops are not included.
+/// Matches `networkx.complement(G)`.
+#[must_use]
+pub fn complement(graph: &Graph) -> Graph {
+    let nodes = graph.nodes_ordered();
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
+    let edges = complement_edges_indices(graph);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
     result
 }
 
@@ -25299,65 +25321,33 @@ pub fn complement(graph: &Graph) -> Graph {
 /// dense complements (BA500: 130 ms in nx, ~860 ms in fnx).
 #[must_use]
 pub fn complement_edges(graph: &Graph) -> Vec<(String, String)> {
-    let nodes: Vec<&str> = graph.nodes_ordered();
-    let n = nodes.len();
-    if n < 2 {
-        return Vec::new();
-    }
-    // br-r37-c1-compedgeidx (cc): the O(V²) non-edge scan called graph.has_edge(u, v) — a String hash of
-    // both endpoints — for EVERY pair. Instead, for each source i mark its neighbours in a reusable
-    // `is_nbr` bool row (via neighbors_indices, zero-alloc) and test membership with an O(1) array read.
-    // Byte-identical: `!is_nbr[j]` ⟺ `!has_edge(nodes[i], nodes[j])` (j is a neighbour index of i iff the
-    // edge exists), and the (i, j>i) pairs are pushed in the identical row-major order with the same names.
-    let mut edges: Vec<(String, String)> = Vec::new();
-    let mut is_nbr = vec![false; n];
-    for (i, &u) in nodes.iter().enumerate() {
-        if let Some(nbrs) = graph.neighbors_indices(i) {
-            for &nb in nbrs {
-                is_nbr[nb] = true;
-            }
-        }
-        for (j, &v) in nodes.iter().enumerate().skip(i + 1) {
-            if !is_nbr[j] {
-                edges.push((u.to_owned(), v.to_owned()));
-            }
-        }
-        if let Some(nbrs) = graph.neighbors_indices(i) {
-            for &nb in nbrs {
-                is_nbr[nb] = false;
-            }
-        }
-    }
-    edges
+    let nodes = graph.nodes_ordered();
+    complement_edges_indices(graph)
+        .into_iter()
+        .map(|(u, v)| (nodes[u].to_owned(), nodes[v].to_owned()))
+        .collect()
 }
 
-/// `DiGraph` counterpart to [`complement_edges`]. Yields every
-/// directed (u, v) pair (u ≠ v) such that the input has no edge
+/// `DiGraph` counterpart to [`complement_edges_indices`]. Yields every
+/// directed (u, v) index pair (u ≠ v) such that the input has no edge
 /// from u to v.
 #[must_use]
-pub fn complement_edges_directed(digraph: &DiGraph) -> Vec<(String, String)> {
-    let nodes: Vec<&str> = digraph.nodes_ordered();
-    let n = nodes.len();
+pub fn complement_edges_directed_indices(digraph: &DiGraph) -> Vec<(usize, usize)> {
+    let n = digraph.node_count();
     if n < 2 {
         return Vec::new();
     }
-    // br-r37-c1-compedgedirint (cc): the O(V²) directed non-edge scan called digraph.has_edge(u, v) — a
-    // String hash of both endpoints — for every ordered pair. Instead, for each source i mark its
-    // SUCCESSORS in a reusable `is_succ` bool row (via successors_indices, zero-alloc) and test with an
-    // O(1) array read. Byte-identical: `!is_succ[j]` ⟺ `!has_edge(nodes[i], nodes[j])` (j is a successor
-    // index of i iff the directed edge exists), and the (i, j != i) ordered pairs are pushed in the
-    // identical row-major order with the same names.
-    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut edges: Vec<(usize, usize)> = Vec::new();
     let mut is_succ = vec![false; n];
-    for (i, &u) in nodes.iter().enumerate() {
+    for i in 0..n {
         if let Some(succs) = digraph.successors_indices(i) {
             for &s in succs {
                 is_succ[s] = true;
             }
         }
-        for (j, &v) in nodes.iter().enumerate() {
+        for j in 0..n {
             if i != j && !is_succ[j] {
-                edges.push((u.to_owned(), v.to_owned()));
+                edges.push((i, j));
             }
         }
         if let Some(succs) = digraph.successors_indices(i) {
@@ -25369,24 +25359,26 @@ pub fn complement_edges_directed(digraph: &DiGraph) -> Vec<(String, String)> {
     edges
 }
 
+/// `DiGraph` counterpart to [`complement_edges`]. Yields every
+/// directed (u, v) pair (u ≠ v) such that the input has no edge
+/// from u to v.
+#[must_use]
+pub fn complement_edges_directed(digraph: &DiGraph) -> Vec<(String, String)> {
+    let nodes = digraph.nodes_ordered();
+    complement_edges_directed_indices(digraph)
+        .into_iter()
+        .map(|(u, v)| (nodes[u].to_owned(), nodes[v].to_owned()))
+        .collect()
+}
+
 /// Return the complement of a directed graph.
 #[must_use]
 pub fn complement_directed(digraph: &DiGraph) -> DiGraph {
-    let nodes: Vec<&str> = digraph.nodes_ordered().into_iter().collect();
+    let nodes = digraph.nodes_ordered();
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
-
-    for &node in &nodes {
-        result.add_node(node);
-    }
-
-    for &u in &nodes {
-        for &v in &nodes {
-            if u != v && !digraph.has_edge(u, v) {
-                let _ = result.add_edge(u, v);
-            }
-        }
-    }
-
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
+    let edges = complement_edges_directed_indices(digraph);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
     result
 }
 
@@ -43860,52 +43852,13 @@ pub fn generate_random_paths(
 /// The complement has the same nodes but edges where the original has none.
 #[must_use]
 pub fn complement_graph(graph: &Graph) -> Graph {
-    let nodes = graph.nodes_ordered();
-    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for &node in &nodes {
-        let _ = result.add_node(node.to_owned());
-    }
-    // br-r37-c1-complementbatch (cc): the complement's edges are exactly the i<j pairs with NO edge in
-    // the INPUT (has_edge reads the input graph, never the result), so every collected pair is unique
-    // with no self-loop. Collect them + one extend_edges_unrecorded instead of per-edge add_edge (a
-    // policy record each) — for a sparse input the complement is dense, so this drops many policy
-    // records. extend_edges_unrecorded canonicalizes + pushes adjacency exactly as add_edge (and dedups,
-    // though there are no dups here) → byte-identical.
-    let mut edges: Vec<(String, String)> = Vec::new();
-    for i in 0..nodes.len() {
-        for j in (i + 1)..nodes.len() {
-            if !graph.has_edge(nodes[i], nodes[j]) {
-                edges.push((nodes[i].to_owned(), nodes[j].to_owned()));
-            }
-        }
-    }
-    let _ = result.extend_edges_unrecorded(edges);
-    result
+    complement(graph)
 }
 
 /// Return the complement of a directed graph.
 #[must_use]
 pub fn complement_digraph(digraph: &DiGraph) -> DiGraph {
-    let nodes = digraph.nodes_ordered();
-    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
-    for &node in &nodes {
-        result.add_node(node.to_owned());
-    }
-    // br-r37-c1-complementdigraphbatch (cc): the directed complement's edges are exactly the ordered
-    // pairs u!=v with NO edge in the INPUT (has_edge reads the input, never the result), so every
-    // collected pair is a unique directed edge with no self-loop. Collect them + one
-    // extend_edges_unrecorded instead of per-edge add_edge (a policy record each) — for a sparse input
-    // the complement is dense → byte-identical (dedups on the directed key, though there are no dups).
-    let mut edges: Vec<(String, String)> = Vec::new();
-    for &u in &nodes {
-        for &v in &nodes {
-            if u != v && !digraph.has_edge(u, v) {
-                edges.push((u.to_owned(), v.to_owned()));
-            }
-        }
-    }
-    let _ = result.extend_edges_unrecorded(edges);
-    result
+    complement_directed(digraph)
 }
 
 // ---------------------------------------------------------------------------
@@ -46470,14 +46423,9 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     let nodes = graph.nodes_ordered();
 
-    // Copy all nodes
-    for &node in &nodes {
-        let _ = result.add_node(node.to_owned());
-    }
-    // Copy all edges initially
-    for (u, v) in graph.edges_ordered_indices() {
-        let _ = result.add_edge(nodes[u], nodes[v]);
-    }
+    // Copy all nodes and initial edges
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
+    let _ = result.extend_existing_index_edges_unrecorded(graph.edges_ordered_indices());
 
     let mut compressor_names = Vec::new();
     let mut compressor_id = 0usize;
@@ -49455,12 +49403,8 @@ pub fn random_spanning_tree(graph: &Graph, seed: u64) -> Option<Graph> {
 
     // Build result graph
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for node in &nodes {
-        let _ = result.add_node((*node).to_owned());
-    }
-    for (u, v) in tree_edges {
-        let _ = result.add_edge(nodes[u], nodes[v]);
-    }
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
+    let _ = result.extend_existing_index_edges_unrecorded(tree_edges);
 
     Some(result)
 }
@@ -49546,12 +49490,8 @@ pub fn random_spanning_tree_directed(digraph: &DiGraph, root: &str, seed: u64) -
     }
 
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
-    for node in &nodes {
-        let _ = result.add_node((*node).to_owned());
-    }
-    for (u, v) in tree_edges {
-        let _ = result.add_edge(nodes[u], nodes[v]);
-    }
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
+    let _ = result.extend_existing_index_edges_unrecorded(tree_edges);
 
     Some(result)
 }
