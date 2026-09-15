@@ -34,7 +34,7 @@ NetworkX is the canonical Python graph library: rich, correct, comprehensive, an
 
 FrankenNetworkX is a Rust port of NetworkX that treats **observable behavior** as a hard constraint. Graph mutation semantics, iteration order, tie-break choices, exception classes, error message wording, and serialization round-trip behavior are all part of the contract. Where pure-Python NetworkX would call `dict[unhashable]`, FrankenNetworkX raises the same `TypeError`. Where NetworkX iterates a `dict_keys` in insertion order, FrankenNetworkX does too. Where NetworkX returns a generator, FrankenNetworkX returns a generator, not a list with a different repr.
 
-That contract is enforced by a 1,085-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if a measured public symbol drifts. The current structural surface result is not 100%: the pinned NetworkX 3.6.1 FeatureUniverse has 3,823 strictly present paths out of 4,129 applicable paths (92.6%), with 306 partial and 0 missing.
+That contract is enforced by a 1,088-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if a measured public symbol drifts. The current structural surface result is not 100%: the pinned NetworkX 3.6.1 FeatureUniverse has 4,109 strictly present paths out of 4,129 applicable paths (99.5%), with 20 partial and 0 missing.
 
 ### Why FrankenNetworkX?
 
@@ -68,7 +68,7 @@ There are several existing approaches to "faster NetworkX." Each has tradeoffs t
 
 The discipline difference is enforced by tooling, not goodwill:
 
-- The Python parity gate (`pytest tests/python/`, 1,085 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording.
+- The Python parity gate (`pytest tests/python/`, 1,088 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording.
 - The auto-generated audit ledgers under `docs/` fail CI if `__all__` drifts or if a wrapper acquires a NetworkX delegation route that isn't documented.
 - The CGSE complexity-witness ledger gives every algorithm execution a reproducible length-prefixed Blake3 receipt, so behavioral parity can be regression-locked, not just spot-checked.
 
@@ -347,7 +347,7 @@ These assignments encode the same tie-break choices a careful reading of the Net
 
 ### Complexity Witnesses
 
-The V1 reference algorithms (Dijkstra, Bellman-Ford, BFS, DFS, max- and min-weight matching, connected and strongly connected components, Kruskal, Prim, Eulerian circuit, topological sort) emit a structured `ComplexityWitness` capturing `n`, `m`, observed operation count, the policy identifier, and a length-prefixed Blake3 hash over the decision path. Witnesses can be drained from a `WitnessLedger` for offline audit, regression-locking, or reproducibility checks. The wider surface (650+ kernels) does not emit witnesses yet; as of 2026-09-02 there are 22 `cgse_begin` sites in `fnx-algorithms`, and wiring proceeds per family.
+The V1 reference algorithms (Dijkstra, Bellman-Ford, BFS, DFS, max- and min-weight matching, connected and strongly connected components, Kruskal, Prim, Eulerian circuit, topological sort) emit a structured `ComplexityWitness` capturing `n`, `m`, observed operation count, the policy identifier, and a length-prefixed Blake3 hash over the decision path. Witnesses can be drained from a `WitnessLedger` for offline audit, regression-locking, or reproducibility checks. The wider surface (650+ kernels) does not emit witnesses yet; as of 2026-09-15 there are 24 `cgse_begin` sites in `fnx-algorithms`, and wiring proceeds per family.
 
 ### Strict vs Hardened Modes
 
@@ -921,7 +921,7 @@ CI is structured as a strict, sequential gate topology in [`.github/workflows/ci
 | **G1** | fmt | `cargo fmt --all -- --check` on nightly. |
 | **G2** | clippy | `cargo clippy --workspace --all-targets -- -D warnings` on Ubuntu + macOS + Windows. |
 | **G3** | rust tests | `cargo test --workspace` on Ubuntu + macOS + Windows. |
-| **G4** | python parity | `pytest tests/python/`, the canonical conformance gate (1,085 test files). |
+| **G4** | python parity | `pytest tests/python/`, the canonical conformance gate (1,088 test files). |
 | **G4b** | e2e | `scripts/e2e_integration_test.py` with NumPy + SciPy. |
 | **G4c** | docs verifier | `scripts/verify_docs.py`; every code example in `docs/*.md` is import-checked and executed. |
 | **G4d** | examples | All four `examples/*.py` scripts must run cleanly. |
@@ -966,7 +966,7 @@ pytest tests/python/ -v -k "shortest_path or dijkstra"
 
 ### Conformance Testing Methodology
 
-The 1,085 Python test files implement five complementary testing strategies, each catching a different class of bug:
+The 1,088 Python test files implement five complementary testing strategies, each catching a different class of bug:
 
 **1. Direct parity (`test_*_parity.py`).** Fix an input graph, call both `fnx.<func>(G)` and `nx.<func>(G_nx)`, assert equality. Catches "I got the wrong answer." The most basic and most numerous family.
 
@@ -2366,7 +2366,7 @@ FrankenNetworkX is honest about what it does not do today:
 ## FAQ
 
 **Is it really a drop-in replacement?**
-Not across all of NetworkX today. Against the pinned 3.6.1 declared import-and-signature FeatureUniverse, 3,823 of 4,129 applicable paths are strictly present (92.6%), while 306 are partial and 0 are missing. The 313 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
+Not across all of NetworkX today. Against the pinned 3.6.1 declared import-and-signature FeatureUniverse, 4,109 of 4,129 applicable paths are strictly present (99.5%), while 20 are partial and 0 are missing. The 313 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
 
 **Why are iteration orders such a big deal?**
 NetworkX users often write code that implicitly depends on `dict` insertion order or BFS visit order or `connected_components` set ordering. If a "faster NetworkX" returns the same set of correct answers but in a different order, downstream code breaks subtly. CGSE + the parity tests + the iteration-order audit ledger collectively make iteration order a first-class API contract.
@@ -2651,7 +2651,7 @@ The security doctrine in `AGENTS.md` covers four threat surfaces:
 In rough priority order (`bv --robot-triage` shows the current bead backlog):
 
 1. **Strict/Hardened runtime mode exposure** (shipped in `br-r37-c1-9a8bo`). Process-wide and thread-local mode switches via `fnx.config` and context managers, read kwargs, `DecisionRecord` ledger, and 24+24 parity/recovery fixtures.
-2. **First green CI run refreshes `artifacts/conformance/latest/`** — the freshness gate already exists in CI (`.github/workflows/ci.yml`, beads B2–B4 closed); the committed bundles are stale (conformance newest 2026-05-22, perf artifacts 2026-04) purely because no run has gotten past G0/G1 since April.
+2. **First green CI runs on `main`** (achieved in run `34406228506`) — the full G0–G8 CI pipeline is verified 100% green on `main` across Linux, macOS, and Windows, generating fresh conformance and determinism receipt bundles.
 3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining NetworkX-bound exports** (71 nx-fallback + 61 mixed-route routes in the ledger). Move as many as possible to native fast paths while preserving the parity contract.
@@ -2713,11 +2713,11 @@ franken_networkx/
 │   ├── fnx-durability/        # RaptorQ sidecars + scrub
 │   └── fnx-python/            # PyO3 bindings (cdylib)
 ├── python/franken_networkx/   # Python package surface
-│   ├── __init__.py            # 793 FNX root exports; not the NetworkX coverage denominator
+│   ├── __init__.py            # 839 FNX root exports; not the NetworkX coverage denominator
 │   ├── backend.py             # 313 algorithms wired into nx dispatch
 │   ├── backend_info.py        # backend metadata for nx registration
 │   └── _fnx.pyi               # type stubs
-├── tests/python/              # 1,085 parity / conformance / metamorphic / fuzz / hypothesis / golden tests
+├── tests/python/              # 1,088 parity / conformance / metamorphic / fuzz / hypothesis / golden tests
 ├── fuzz/fuzz_targets/         # 33 cargo-fuzz binaries (parsers + algorithm harnesses)
 ├── examples/                  # 4 runnable examples
 ├── docs/                      # docs + 5 auto-generated audit ledgers

@@ -26,6 +26,20 @@ Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
+## 2026-09-15 — Documentation Truth Pass
+
+Reality-check audit (`artifacts/reality-check-2026-09-15.md`, bead `br-r37-c1-rc-readme-truth-pass-20260915-6orqw`)
+reconciled documentation metrics with empirical HEAD measurements:
+
+- Python parity suite count: updated 1,085 -> 1,088 test files.
+- FeatureUniverse coverage: updated 3,823 (92.6%) -> 4,109 (99.5%) strictly present paths (20 partial, 0 missing) per `docs/coverage.md`.
+- Root exports: updated 793 -> 839 `__all__` exports.
+- CGSE call sites: updated 22 -> 24 `cgse_begin` sites in `fnx-algorithms`.
+- CI status: updated Roadmap to cite the 100% green G0-G8 CI pipeline on `main` (run 34406228506).
+- Native planarity & hardened mode: updated README limitations and roadmap to reflect native Boyer-Myrvold rotation assembly, Kuratowski counterexample extraction, and `fnx.config.compatibility_mode`.
+
+---
+
 ## 2026-09-03 — Documentation Truth Pass
 
 Reality-check audit (`artifacts/reality-check-2026-09-03.md`) found the code
