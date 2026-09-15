@@ -1240,12 +1240,11 @@ def read_adjlist(
     Wraps ``networkx.read_adjlist`` and converts the result to an fnx
     graph type for drop-in compatibility.
     """
-    import networkx as nx
     import franken_networkx as fnx
 
     fnx._validate_backend_dispatch_keywords("read_adjlist", backend, backend_kwargs)
 
-    nx_graph = nx.read_adjlist(
+    return _read_adjlist_via_nx(
         path,
         comments=comments,
         delimiter=delimiter,
@@ -1253,7 +1252,6 @@ def read_adjlist(
         nodetype=nodetype,
         encoding=encoding,
     )
-    return _from_nx_graph(nx_graph, create_using=create_using)
 
 
 def read_edgelist(
@@ -1274,12 +1272,11 @@ def read_edgelist(
     Wraps ``networkx.read_edgelist`` and converts the result to an fnx
     graph type for drop-in compatibility.
     """
-    import networkx as nx
     import franken_networkx as fnx
 
     fnx._validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
 
-    nx_graph = nx.read_edgelist(
+    return _read_edgelist_via_nx(
         path,
         comments=comments,
         delimiter=delimiter,
@@ -1289,7 +1286,6 @@ def read_edgelist(
         edgetype=edgetype,
         encoding=encoding,
     )
-    return _from_nx_graph(nx_graph, create_using=create_using)
 
 
 def read_gml(
@@ -1305,13 +1301,21 @@ def read_gml(
     Wraps ``networkx.read_gml`` and converts the result to an fnx
     graph type for drop-in compatibility.
     """
-    import networkx as nx
     import franken_networkx as fnx
 
     fnx._validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
 
-    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer)
-    return _from_nx_graph(nx_graph)
+    if label == "label" and destringizer is None:
+        try:
+            if isinstance(path, (str, bytes)) or hasattr(path, "__fspath__"):
+                with open(path, "rb") as _fh:
+                    _head = _fh.read(1024)
+                if b"multigraph 1" not in _head:
+                    return fnx._fnx.read_gml(path, label=label, destringizer=destringizer)
+        except Exception:
+            pass
+
+    return _read_gml_via_nx(path, label=label, destringizer=destringizer)
 
 
 def read_graphml(
@@ -1328,18 +1332,30 @@ def read_graphml(
     Wraps ``networkx.read_graphml`` and converts the result to an fnx
     graph type for drop-in compatibility.
     """
-    import networkx as nx
     import franken_networkx as fnx
 
     fnx._validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
 
-    nx_graph = nx.read_graphml(
+    if (
+        node_type is str
+        and edge_key_type is int
+        and not force_multigraph
+        and (isinstance(path, str) or hasattr(path, "__fspath__"))
+    ):
+        try:
+            with open(path, "rb") as _fh:
+                _content = _fh.read()
+        except Exception:
+            _content = None
+        if _content is not None:
+            return parse_graphml(_content)
+
+    return _read_graphml_via_nx(
         path,
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,
     )
-    return _from_nx_graph(nx_graph)
 
 
 def from_graph6_bytes(bytes_in, *, backend=None, **backend_kwargs):

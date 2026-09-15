@@ -27938,6 +27938,18 @@ def read_adjlist(
             and nodetype is None
         ):
             return _rust_read_adjlist(path, mode=mode)
+    if (
+        comments == "#"
+        and delimiter is None
+        and nodetype is None
+        and encoding == "utf-8"
+        and isinstance(path, str)
+        and not path.endswith((".gz", ".bz2"))
+        and (create_using is None or create_using is Graph)
+    ):
+        native = _fnx.read_adjlist_simple(path)
+        if native is not None:
+            return native
     from .readwrite import parse_adjlist as _parse_adjlist
 
     return _read_decoded_lines_via_open_file(
@@ -28135,6 +28147,15 @@ def read_gml(
     _validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         return _rust_read_gml(path, label=label, destringizer=destringizer, mode=mode)
+    if label == "label" and destringizer is None:
+        try:
+            if isinstance(path, (str, bytes)) or hasattr(path, "__fspath__"):
+                with open(path, "rb") as _fh:
+                    _head = _fh.read(1024)
+                if b"multigraph 1" not in _head:
+                    return _rust_read_gml(path, label=label, destringizer=destringizer)
+        except Exception:
+            pass
     return _read_gml_via_nx(path, label=label, destringizer=destringizer)
 
 
