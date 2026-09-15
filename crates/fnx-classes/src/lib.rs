@@ -2206,12 +2206,28 @@ impl Graph {
         // and cost the SAME whether the node sat at the first index or the
         // last - the fast path simply was not there.
         //
-        // The isolation test reads the integer adjacency row, which is the same
-        // source step 3 below treats as authoritative for incident edges. A
-        // self-loop puts `idx` in its own row, so a looped node is non-empty
-        // here and takes the general path.
-        if idx + 1 == self.nodes.len() && self.adj_indices[idx].is_empty() {
-            self.adj_indices.remove(idx);
+        // br-r37-c1-qxtlj / br-r37-c1-tv8wd: tail removal fast path.
+        // When `idx` IS the last position (`idx + 1 == self.nodes.len()`),
+        // nothing sits above it, so NO node index shifts down.
+        // Rather than rebuilding all element-parallel edge storage (O(|E|))
+        // and decrementing all adjacency rows (O(|V|+|E|)), we only need to:
+        // 1. Drop incident edges in O(degree) via swap_remove_full and swap_remove
+        //    on edge_index_endpoints (same order-faithful technique as remove_edge).
+        // 2. Remove `idx` from each neighbor's adjacency row (no decrements needed
+        //    because all remaining nodes have index < idx).
+        // 3. Pop the tail slots in O(1).
+        if idx + 1 == self.nodes.len() {
+            let nbrs = std::mem::take(&mut self.adj_indices[idx]);
+            for nbr in nbrs {
+                let pair = if nbr <= idx { (nbr, idx) } else { (idx, nbr) };
+                if let Some((edge_pos, _, _)) = self.edges.swap_remove_full(&pair) {
+                    self.edge_index_endpoints.swap_remove(edge_pos);
+                }
+                if nbr != idx {
+                    self.adj_indices[nbr].retain(|&i| i != idx);
+                }
+            }
+            self.adj_indices.pop();
             self.nodes.shift_remove(node);
             self.revision = self.revision.saturating_add(1);
             return true;

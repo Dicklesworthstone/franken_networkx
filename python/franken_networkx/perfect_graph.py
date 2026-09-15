@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import importlib as _importlib
 
-_nx_perfect_graph = _importlib.import_module("networkx.algorithms.perfect_graph")
+try:
+    _nx_perfect_graph = _importlib.import_module("networkx.algorithms.perfect_graph")
+except ModuleNotFoundError:
+    _nx_perfect_graph = None
 
 import franken_networkx as _fnx
 
-__all__ = list(getattr(_nx_perfect_graph, "__all__", ("is_perfect_graph",)))
+__all__ = (
+    list(getattr(_nx_perfect_graph, "__all__", ("is_perfect_graph",)))
+    if _nx_perfect_graph is not None
+    else ["is_perfect_graph"]
+)
 
 
 def is_perfect_graph(G, *, backend=None, **backend_kwargs):
@@ -20,10 +27,12 @@ def is_perfect_graph(G, *, backend=None, **backend_kwargs):
 
 
 def __getattr__(name):
-    try:
-        return getattr(_nx_perfect_graph, name)
-    except AttributeError as exc:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    if _nx_perfect_graph is not None:
+        try:
+            return getattr(_nx_perfect_graph, name)
+        except AttributeError as exc:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__():
