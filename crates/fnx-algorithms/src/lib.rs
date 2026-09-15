@@ -26786,32 +26786,37 @@ pub fn is_strongly_connected(digraph: &DiGraph) -> bool {
 pub fn condensation(digraph: &DiGraph) -> (DiGraph, HashMap<String, usize>) {
     let sccs = strongly_connected_components(digraph);
 
+    let n = digraph.node_count();
+    let mut node_idx_to_scc: Vec<usize> = vec![0; n];
     // Map each node to its SCC index
     let mut node_to_scc: HashMap<String, usize> = HashMap::new();
     for (idx, scc) in sccs.iter().enumerate() {
         for node in scc {
             node_to_scc.insert(node.clone(), idx);
+            if let Some(node_idx) = digraph.get_node_index(node) {
+                node_idx_to_scc[node_idx] = idx;
+            }
         }
     }
 
     // Build the condensation DAG
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
-    for i in 0..sccs.len() {
-        result.add_node(i.to_string());
-    }
+    let _ = result.extend_nodes_unrecorded((0..sccs.len()).map(|i| i.to_string()));
 
     let mut seen_edges: HashSet<(usize, usize)> = HashSet::new();
-    for node in digraph.nodes_ordered() {
-        let u_scc = node_to_scc[node];
-        if let Some(succs) = digraph.successors_iter(node) {
-            for succ in succs {
-                let v_scc = node_to_scc[succ];
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    for u in 0..n {
+        let u_scc = node_idx_to_scc[u];
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                let v_scc = node_idx_to_scc[v];
                 if u_scc != v_scc && seen_edges.insert((u_scc, v_scc)) {
-                    let _ = result.add_edge(u_scc.to_string(), v_scc.to_string());
+                    edges.push((u_scc, v_scc));
                 }
             }
         }
     }
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
 
     (result, node_to_scc)
 }
@@ -48931,29 +48936,35 @@ fn snap_aggregation_impl<const FAST_FORWARD_STABLE: bool>(
 
     // Build summary graph
     let mut summary = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    let mut group_names: std::collections::HashMap<usize, String> =
+    let mut gid_to_summary_idx: std::collections::HashMap<usize, usize> =
         std::collections::HashMap::new();
+    let mut summary_node_names: Vec<String> = Vec::new();
     for i in 0..n {
         let gid = group_of[i];
-        group_names.entry(gid).or_insert_with(|| {
-            let name = format!("Supernode-{gid}");
-            let _ = summary.add_node(name.clone());
-            name
-        });
+        if let std::collections::hash_map::Entry::Vacant(e) = gid_to_summary_idx.entry(gid) {
+            let s_idx = summary_node_names.len();
+            e.insert(s_idx);
+            summary_node_names.push(format!("Supernode-{gid}"));
+        }
     }
+    let _ = summary.extend_nodes_unrecorded(summary_node_names.iter().map(String::as_str));
 
     // Add edges between groups
     let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    let mut edges: Vec<(usize, usize)> = Vec::new();
     for (ui, vi) in graph.edges_ordered_indices() {
         let gi = group_of[ui];
         let gj = group_of[vi];
         if gi != gj {
             let key = if gi < gj { (gi, gj) } else { (gj, gi) };
             if seen.insert(key) {
-                let _ = summary.add_edge(group_names[&key.0].clone(), group_names[&key.1].clone());
+                let su = gid_to_summary_idx[&key.0];
+                let sv = gid_to_summary_idx[&key.1];
+                edges.push((su, sv));
             }
         }
     }
+    let _ = summary.extend_existing_index_edges_unrecorded(edges);
 
     summary
 }
