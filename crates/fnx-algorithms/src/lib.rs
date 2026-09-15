@@ -48203,41 +48203,44 @@ pub fn partial_duplication_graph(n: usize, p: f64, seed: u64) -> Graph {
     if n == 0 {
         return g;
     }
-    let _ = g.add_node("0".to_owned());
     if n == 1 {
+        let _ = g.add_node("0".to_owned());
         return g;
     }
-    let _ = g.add_node("1".to_owned());
-    let _ = g.add_edge("0", "1");
+    let node_names: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+    let _ = g.extend_nodes_unrecorded(node_names.iter().map(|s| s.as_str()));
     let mut rng = seed.wrapping_add(1);
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    adj[0].push(1);
+    adj[1].push(0);
+    let mut edges = vec![(0, 1)];
+
     for i in 2..n {
-        let nn = i.to_string();
-        let _ = g.add_node(nn.clone());
-        let existing = g.nodes_ordered();
         rng = rng
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
-        let ti = ((rng >> 33) as usize) % (existing.len() - 1);
-        let target = existing[ti].to_owned();
-        let nbrs: Vec<String> = g
-            .neighbors(&target)
-            .unwrap_or_default()
-            .iter()
-            .map(|&s| s.to_owned())
-            .collect();
+        let target = ((rng >> 33) as usize) % i;
+        let nbrs = adj[target].clone();
+        let mut added = false;
         for nb in nbrs {
             rng = rng
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
             let r = (rng >> 11) as f64 / (1u64 << 53) as f64;
-            if nb != nn && r < p {
-                let _ = g.add_edge(nn.clone(), nb);
+            if nb != i && r < p {
+                edges.push((i, nb));
+                adj[i].push(nb);
+                adj[nb].push(i);
+                added = true;
             }
         }
-        if g.neighbors(&nn).unwrap_or_default().is_empty() {
-            let _ = g.add_edge(nn, target);
+        if !added {
+            edges.push((i, target));
+            adj[i].push(target);
+            adj[target].push(i);
         }
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     g
 }
 
@@ -48246,7 +48249,8 @@ pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
     let mut g = Graph::strict();
     let mut rng = seed.wrapping_add(1);
     let total = l * k;
-    let _ = g.extend_nodes_unrecorded((0..total).map(|i| i.to_string()));
+    let node_names: Vec<String> = (0..total).map(|i| i.to_string()).collect();
+    let _ = g.extend_nodes_unrecorded(node_names.iter().map(|s| s.as_str()));
     let mut init_edges = Vec::new();
     for c in 0..l {
         let s = c * k;
@@ -48257,10 +48261,10 @@ pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
         }
     }
     let _ = g.extend_existing_index_edges_unrecorded(init_edges);
-    let edges: Vec<(String, String)> = g
-        .edges_ordered_borrowed()
+    let edges: Vec<(usize, usize)> = g
+        .edges_ordered_indices_borrowed()
         .into_iter()
-        .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
+        .map(|(u, v, _)| (u, v))
         .collect();
     for (u, v) in edges {
         rng = rng
@@ -48268,13 +48272,15 @@ pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
             .wrapping_add(1442695040888963407);
         let r = (rng >> 11) as f64 / (1u64 << 53) as f64;
         if r < p {
-            let _ = g.remove_edge(&u, &v);
+            let u_name = &node_names[u];
+            let v_name = &node_names[v];
+            let _ = g.remove_edge(u_name, v_name);
             rng = rng
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
-            let t = (((rng >> 33) as usize) % total).to_string();
-            if t != u && !g.has_edge(&u, &t) {
-                let _ = g.add_edge(u, t);
+            let t = ((rng >> 33) as usize) % total;
+            if t != u && !g.has_edge_by_indices(u, t) {
+                let _ = g.add_edge(u_name, &node_names[t]);
             }
         }
     }
@@ -48296,12 +48302,16 @@ pub fn all_pairs_lowest_common_ancestor(
         return Vec::new();
     }
 
-    // For each node, compute all ancestors via DFS up predecessors
-    let mut ancestor_cache: std::collections::HashMap<usize, std::collections::HashSet<usize>> =
-        std::collections::HashMap::new();
+    let n = digraph.node_count();
+    let mut ancestor_cache: Vec<Option<std::collections::HashSet<usize>>> = vec![None; n];
 
     let compute_ancestors =
-        |node_idx: usize, digraph: &DiGraph| -> std::collections::HashSet<usize> {
+        |node_idx: usize,
+         digraph: &DiGraph,
+         cache: &mut [Option<std::collections::HashSet<usize>>]| {
+            if cache[node_idx].is_some() {
+                return;
+            }
             let mut ancs = std::collections::HashSet::new();
             let mut stack = vec![node_idx];
             ancs.insert(node_idx);
@@ -48314,7 +48324,7 @@ pub fn all_pairs_lowest_common_ancestor(
                     }
                 }
             }
-            ancs
+            cache[node_idx] = Some(ancs);
         };
 
     let mut result = Vec::with_capacity(pairs.len());
@@ -48328,17 +48338,15 @@ pub fn all_pairs_lowest_common_ancestor(
             None => continue,
         };
 
-        let u_ancs = ancestor_cache
-            .entry(ui)
-            .or_insert_with(|| compute_ancestors(ui, digraph))
-            .clone();
-        let v_ancs = ancestor_cache
-            .entry(vi)
-            .or_insert_with(|| compute_ancestors(vi, digraph))
-            .clone();
+        compute_ancestors(ui, digraph, &mut ancestor_cache);
+        compute_ancestors(vi, digraph, &mut ancestor_cache);
 
-        let common: std::collections::HashSet<usize> =
-            u_ancs.intersection(&v_ancs).copied().collect();
+        let common: Vec<usize> = ancestor_cache[ui]
+            .as_ref()
+            .unwrap()
+            .intersection(ancestor_cache[vi].as_ref().unwrap())
+            .copied()
+            .collect();
         if common.is_empty() {
             continue;
         }
@@ -48348,20 +48356,19 @@ pub fn all_pairs_lowest_common_ancestor(
         let mut best: Option<usize> = None;
         for &c in &common {
             let is_lca = !common.iter().any(|&other| {
-                other != c && {
-                    let other_ancs = ancestor_cache
-                        .entry(other)
-                        .or_insert_with(|| compute_ancestors(other, digraph));
-                    other_ancs.contains(&c) && other != c
+                if other == c {
+                    return false;
                 }
+                compute_ancestors(other, digraph, &mut ancestor_cache);
+                ancestor_cache[other].as_ref().unwrap().contains(&c)
             });
             if is_lca {
                 match best {
                     None => best = Some(c),
                     Some(b) => {
                         // Prefer deeper ancestor (more ancestors = deeper)
-                        let c_depth = ancestor_cache.get(&c).map_or(0, |a| a.len());
-                        let b_depth = ancestor_cache.get(&b).map_or(0, |a| a.len());
+                        let c_depth = ancestor_cache[c].as_ref().map_or(0, |a| a.len());
+                        let b_depth = ancestor_cache[b].as_ref().map_or(0, |a| a.len());
                         if c_depth > b_depth {
                             best = Some(c);
                         }
