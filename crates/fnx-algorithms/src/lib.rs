@@ -28427,10 +28427,7 @@ pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
             result.add_node(node);
         }
     }
-    for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
-        let _ = result.add_edge_with_attrs(g1_nodes[left], g1_nodes[right], attrs.clone());
-    }
-    // Add all nodes and edges from G2
+    // Add all nodes from G2
     let g2_nodes = g2.nodes_ordered();
     for (idx, &node) in g2_nodes.iter().enumerate() {
         if !result.has_node(node) {
@@ -28441,13 +28438,28 @@ pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
             }
         }
     }
-    for (left, right, attrs) in g2.edges_ordered_indices_borrowed() {
-        let l = g2_nodes[left];
-        let r = g2_nodes[right];
-        if !result.has_edge(l, r) {
-            let _ = result.add_edge_with_attrs(l, r, attrs.clone());
+    let g1_edges = g1.edges_ordered_indices_borrowed();
+    let g2_edges = g2.edges_ordered_indices_borrowed();
+    let mut edges: Vec<(usize, usize, AttrMap)> =
+        Vec::with_capacity(g1_edges.len() + g2_edges.len());
+    for (left, right, attrs) in g1_edges {
+        edges.push((left, right, attrs.clone()));
+    }
+    let g2_to_result: Vec<usize> = g2_nodes
+        .iter()
+        .map(|&n| result.get_node_index(n).expect("g2 node in result"))
+        .collect();
+    let g2_to_g1: Vec<Option<usize>> = g2_nodes.iter().map(|&n| g1.get_node_index(n)).collect();
+    for (left, right, attrs) in g2_edges {
+        let in_g1 = match (g2_to_g1[left], g2_to_g1[right]) {
+            (Some(l1), Some(r1)) => g1.has_edge_by_indices(l1, r1),
+            _ => false,
+        };
+        if !in_g1 {
+            edges.push((g2_to_result[left], g2_to_result[right], attrs.clone()));
         }
     }
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
     result
 }
 
@@ -28469,14 +28481,23 @@ pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
             }
         }
     }
+    let g1_to_result: Vec<Option<usize>> =
+        g1_nodes.iter().map(|&n| result.get_node_index(n)).collect();
+    let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::new();
     // Edges in both
     for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
-        let l = g1_nodes[left];
-        let r = g1_nodes[right];
-        if g2.has_edge(l, r) {
-            let _ = result.add_edge_with_attrs(l, r, attrs.clone());
+        let in_g2 = match (g1_to_g2[left], g1_to_g2[right]) {
+            (Some(l2), Some(r2)) => g2.has_edge_by_indices(l2, r2),
+            _ => false,
+        };
+        if in_g2 {
+            let u_res = g1_to_result[left].expect("left node in intersection");
+            let v_res = g1_to_result[right].expect("right node in intersection");
+            edges.push((u_res, v_res, attrs.clone()));
         }
     }
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
     result
 }
 
@@ -28498,20 +28519,11 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
             result.add_node(node);
         }
     }
-    // br-r37-c1-composebatch (cc): the g2 and g1 edge loops both add_edge_with_attrs
-    // UNCONDITIONALLY (g1 layered on top overwrites g2 via the attr merge), reading only the
-    // inputs — collect g2 edges then g1 edges (same order) + one extend_edges_with_attrs_
-    // unrecorded, which dedups on the canonical pair and merges attrs via the same `extend`
-    // (later g1 wins). The g1 node loop stays in place, so all endpoints are pre-added and
-    // resolve to existing indices; the g2/g1 edge relative order is preserved → byte-identical.
-    let mut edges: Vec<(String, String, AttrMap)> =
+    let g2_edges = g2.edges_ordered_indices_borrowed();
+    let mut edges: Vec<(usize, usize, AttrMap)> =
         Vec::with_capacity(g1.edge_count() + g2.edge_count());
-    for (left, right, attrs) in g2.edges_ordered_indices_borrowed() {
-        edges.push((
-            g2_nodes[left].to_owned(),
-            g2_nodes[right].to_owned(),
-            attrs.clone(),
-        ));
+    for (left, right, attrs) in g2_edges {
+        edges.push((left, right, attrs.clone()));
     }
     // Layer G1 on top (G1 attrs overwrite G2)
     let g1_nodes = g1.nodes_ordered();
@@ -28522,14 +28534,14 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
             result.add_node(node);
         }
     }
+    let g1_to_result: Vec<usize> = g1_nodes
+        .iter()
+        .map(|&n| result.get_node_index(n).expect("g1 node in result"))
+        .collect();
     for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
-        edges.push((
-            g1_nodes[left].to_owned(),
-            g1_nodes[right].to_owned(),
-            attrs.clone(),
-        ));
+        edges.push((g1_to_result[left], g1_to_result[right], attrs.clone()));
     }
-    let _ = result.extend_edges_with_attrs_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
     result
 }
 
@@ -28552,15 +28564,17 @@ pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
     // Pre-resolve g1 nodes in g2 by index to avoid string hash lookups per edge
     let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
     // Edges from G1 not in G2
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::new();
     for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
         let in_g2 = match (g1_to_g2[left], g1_to_g2[right]) {
             (Some(l2), Some(r2)) => g2.has_edge_by_indices(l2, r2),
             _ => false,
         };
         if !in_g2 {
-            let _ = result.add_edge_with_attrs(g1_nodes[left], g1_nodes[right], attrs.clone());
+            edges.push((left, right, attrs.clone()));
         }
     }
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
     result
 }
 
@@ -28592,6 +28606,7 @@ pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
         }
     }
     let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::new();
     // Edges in G1 but not G2
     for (left, right, attrs) in g1.edges_ordered_indices_borrowed() {
         let in_g2 = match (g1_to_g2[left], g1_to_g2[right]) {
@@ -28599,10 +28614,14 @@ pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
             _ => false,
         };
         if !in_g2 {
-            let _ = result.add_edge_with_attrs(g1_nodes[left], g1_nodes[right], attrs.clone());
+            edges.push((left, right, attrs.clone()));
         }
     }
     let g2_to_g1: Vec<Option<usize>> = g2_nodes.iter().map(|&n| g1.get_node_index(n)).collect();
+    let g2_to_result: Vec<usize> = g2_nodes
+        .iter()
+        .map(|&n| result.get_node_index(n).expect("g2 node in result"))
+        .collect();
     // Edges in G2 but not G1
     for (left, right, attrs) in g2.edges_ordered_indices_borrowed() {
         let in_g1 = match (g2_to_g1[left], g2_to_g1[right]) {
@@ -28610,9 +28629,10 @@ pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
             _ => false,
         };
         if !in_g1 {
-            let _ = result.add_edge_with_attrs(g2_nodes[left], g2_nodes[right], attrs.clone());
+            edges.push((g2_to_result[left], g2_to_result[right], attrs.clone()));
         }
     }
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
     result
 }
 
@@ -45841,30 +45861,21 @@ pub fn line_graph(graph: &Graph) -> Graph {
         .collect();
 
     // Create a node for each edge, named as "(u, v)"
-    let node_labels: Vec<String> = edges.iter().map(|(u, v)| pair_label(u, v)).collect();
-    for node_name in &node_labels {
-        let _ = result.add_node(node_name);
-    }
+    let _ = result.extend_nodes_unrecorded(edges.iter().map(|(u, v)| pair_label(u, v)));
 
-    // br-r37-c1-linegraphbatch (cc): hoist node_i = pair_label(u1,v1) OUT of the inner loop (it was
-    // recomputed for every j) and batch-insert the L(G) edges instead of per-edge add_edge (a policy
-    // record each). Each i<j pair is considered once and the input edges are distinct, so every L(G)
-    // edge is unique with no self-loop → extend_edges_unrecorded (same order) is byte-identical to the
-    // per-edge add_edge.
     // Two edges are adjacent in L(G) if they share a vertex in G
-    let mut result_edges: Vec<(String, String)> = Vec::new();
+    let mut result_edges: Vec<(usize, usize)> = Vec::new();
     for i in 0..edges.len() {
         let (u1, v1) = edges[i];
-        let node_i = &node_labels[i];
         for j in (i + 1)..edges.len() {
             let (u2, v2) = edges[j];
             // Check if edges share a vertex
             if u1 == u2 || u1 == v2 || v1 == u2 || v1 == v2 {
-                result_edges.push((node_i.clone(), node_labels[j].clone()));
+                result_edges.push((i, j));
             }
         }
     }
-    let _ = result.extend_edges_unrecorded(result_edges);
+    let _ = result.extend_existing_index_edges_unrecorded(result_edges);
 
     result
 }
@@ -45888,28 +45899,19 @@ pub fn line_graph_directed(digraph: &DiGraph) -> DiGraph {
         .collect();
 
     // Create a node for each edge, named as "(u, v)"
-    let node_labels: Vec<String> = edges.iter().map(|(u, v)| pair_label(u, v)).collect();
-    for node_name in &node_labels {
-        let _ = result.add_node(node_name);
-    }
+    let _ = result.extend_nodes_unrecorded(edges.iter().map(|(u, v)| pair_label(u, v)));
 
-    // br-r37-c1-linegraphdirbatch (cc): collect the directed L(G) edges (same emission order) and
-    // batch-insert once instead of per-edge add_edge (a policy record each). Each (outer, inner) match
-    // yields a distinct directed L(G) edge (uniquely determined by that pair; input edges are distinct)
-    // → no duplicates; extend_edges_unrecorded dedups on the directed key anyway and handles self-loops
-    // → byte-identical.
     // In directed line graph: edge (u,v) → (v,w) exists iff head of first = tail of second
-    let mut result_edges: Vec<(String, String)> = Vec::new();
+    let mut result_edges: Vec<(usize, usize)> = Vec::new();
     for (i, &(_u, v)) in edges.iter().enumerate() {
-        let from_node = &node_labels[i];
         // Find all edges that start from v
         for (j, &(u2, _v2)) in edges.iter().enumerate() {
             if v == u2 {
-                result_edges.push((from_node.clone(), node_labels[j].clone()));
+                result_edges.push((i, j));
             }
         }
     }
-    let _ = result.extend_edges_unrecorded(result_edges);
+    let _ = result.extend_existing_index_edges_unrecorded(result_edges);
 
     result
 }
@@ -45932,38 +45934,32 @@ pub fn cartesian_product(g: &Graph, h: &Graph) -> Graph {
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
+    let g_slice = g_nodes.as_slice();
+    let h_slice = h_nodes.as_slice();
+    let h_len = h_slice.len();
 
     // Create node for each pair (g_node, h_node)
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    let node_names = (0..g_slice.len())
+        .flat_map(move |gi| (0..h_len).map(move |hi| pair_label(g_slice[gi], h_slice[hi])));
+    let _ = result.extend_nodes_unrecorded(node_names);
 
-    // br-r37-c1-cartprodbatch (cc): materialize the h/g edge lists ONCE (they were rebuilt inside the
-    // outer-node loops — O(|g|*|h_edges| + |h|*|g_edges|) throwaway edge-Vec allocations) and
-    // batch-insert the product edges instead of per-edge add_edge (policy record each). The two edge
-    // blocks (same-G/adjacent-H, then same-H/adjacent-G) are disjoint, and g/h edges are non-self-loop,
-    // so every product edge is unique with no self-loop → collecting in the same order and using
-    // extend_edges_unrecorded is byte-identical to the per-edge add_edge.
-    let h_edges = h.edges_ordered_borrowed();
-    let g_edges = g.edges_ordered_borrowed();
-    let mut edges: Vec<(String, String)> =
+    let h_edges = h.edges_ordered_indices_borrowed();
+    let g_edges = g.edges_ordered_indices_borrowed();
+    let mut edges: Vec<(usize, usize)> =
         Vec::with_capacity(g_nodes.len() * h_edges.len() + h_nodes.len() * g_edges.len());
     // Add edges: same G-node, adjacent H-nodes
-    for gn in &g_nodes {
-        for &(h_left, h_right, _) in &h_edges {
-            edges.push((pair_label(gn, h_left), pair_label(gn, h_right)));
+    for gi in 0..g_nodes.len() {
+        for &(hu, hv, _) in &h_edges {
+            edges.push((gi * h_len + hu, gi * h_len + hv));
         }
     }
     // Add edges: same H-node, adjacent G-nodes
-    for hn in &h_nodes {
-        for &(g_left, g_right, _) in &g_edges {
-            edges.push((pair_label(g_left, hn), pair_label(g_right, hn)));
+    for hi in 0..h_nodes.len() {
+        for &(gu, gv, _) in &g_edges {
+            edges.push((gu * h_len + hi, gv * h_len + hi));
         }
     }
-    let _ = result.extend_edges_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
 
     result
 }
@@ -45975,35 +45971,29 @@ pub fn cartesian_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
+    let g_slice = g_nodes.as_slice();
+    let h_slice = h_nodes.as_slice();
+    let h_len = h_slice.len();
 
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    let node_names = (0..g_slice.len())
+        .flat_map(move |gi| (0..h_len).map(move |hi| pair_label(g_slice[gi], h_slice[hi])));
+    let _ = result.extend_nodes_unrecorded(node_names);
 
-    // br-r37-c1-cartproddirbatch (cc): materialize the h/g edge lists ONCE (they were rebuilt inside
-    // the outer-node loops → O(|g|*|h_edges| + |h|*|g_edges|) throwaway edge-Vec allocations) and
-    // batch-insert the product edges instead of per-edge add_edge. The two directed edge blocks
-    // (same-G/adjacent-H, then same-H/adjacent-G) are disjoint and g/h edges are non-self-loop, so
-    // every product edge is a unique directed pair with no self-loop → extend_edges_unrecorded in the
-    // same order is byte-identical to the per-edge add_edge.
-    let h_edges = h.edges_ordered_borrowed();
-    let g_edges = g.edges_ordered_borrowed();
-    let mut edges: Vec<(String, String)> =
+    let h_edges = h.edges_ordered_indices_borrowed();
+    let g_edges = g.edges_ordered_indices_borrowed();
+    let mut edges: Vec<(usize, usize)> =
         Vec::with_capacity(g_nodes.len() * h_edges.len() + h_nodes.len() * g_edges.len());
-    for gn in &g_nodes {
-        for &(h_left, h_right, _) in &h_edges {
-            edges.push((pair_label(gn, h_left), pair_label(gn, h_right)));
+    for gi in 0..g_nodes.len() {
+        for &(hu, hv, _) in &h_edges {
+            edges.push((gi * h_len + hu, gi * h_len + hv));
         }
     }
-    for hn in &h_nodes {
-        for &(g_left, g_right, _) in &g_edges {
-            edges.push((pair_label(g_left, hn), pair_label(g_right, hn)));
+    for hi in 0..h_nodes.len() {
+        for &(gu, gv, _) in &g_edges {
+            edges.push((gu * h_len + hi, gv * h_len + hi));
         }
     }
-    let _ = result.extend_edges_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
 
     result
 }
@@ -46020,44 +46010,40 @@ pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
+    let g_slice = g_nodes.as_slice();
+    let h_slice = h_nodes.as_slice();
+    let h_len = h_slice.len();
 
     // Create node for each pair
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    let node_names = (0..g_slice.len())
+        .flat_map(move |gi| (0..h_len).map(move |hi| pair_label(g_slice[gi], h_slice[hi])));
+    let _ = result.extend_nodes_unrecorded(node_names);
 
     // Collect edges for iteration
-    let g_edges = g.edges_ordered_borrowed();
-    let h_edges = h.edges_ordered_borrowed();
+    let g_edges = g.edges_ordered_indices_borrowed();
+    let h_edges = h.edges_ordered_indices_borrowed();
 
-    // br-r37-c1-tensorprodbatch (cc): collect the product edges (same emission order) and batch-insert
-    // once instead of per-edge add_edge (a policy record each). extend_edges_unrecorded DEDUPS on the
-    // canonical endpoint pair (edges.contains_key) exactly as add_edge, so the self-loop `add_cross`
-    // duplicates are handled identically → byte-identical.
-    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut edges: Vec<(usize, usize)> = Vec::new();
     // For each pair of edges (one from G, one from H), add edges
     for &(gu, gv, _) in &g_edges {
         for &(hu, hv, _) in &h_edges {
             // (gu, hu) -- (gv, hv)
-            let node1 = pair_label(gu, hu);
-            let node2 = pair_label(gv, hv);
+            let n1 = gu * h_len + hu;
+            let n2 = gv * h_len + hv;
 
             // For undirected graphs, also add the "cross" edge
             // (gu, hv) -- (gv, hu) if different from above
-            let node3 = pair_label(gu, hv);
-            let node4 = pair_label(gv, hu);
-            let add_cross = node3 != node1 || node4 != node2;
+            let n3 = gu * h_len + hv;
+            let n4 = gv * h_len + hu;
+            let add_cross = n3 != n1 || n4 != n2;
 
-            edges.push((node1, node2));
+            edges.push((n1, n2));
             if add_cross {
-                edges.push((node3, node4));
+                edges.push((n3, n4));
             }
         }
     }
-    let _ = result.extend_edges_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
 
     result
 }
@@ -46069,29 +46055,25 @@ pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
+    let g_slice = g_nodes.as_slice();
+    let h_slice = h_nodes.as_slice();
+    let h_len = h_slice.len();
 
-    for gn in &g_nodes {
-        for hn in &h_nodes {
-            let node_name = pair_label(gn, hn);
-            let _ = result.add_node(node_name);
-        }
-    }
+    let node_names = (0..g_slice.len())
+        .flat_map(move |gi| (0..h_len).map(move |hi| pair_label(g_slice[gi], h_slice[hi])));
+    let _ = result.extend_nodes_unrecorded(node_names);
 
-    let g_edges = g.edges_ordered_borrowed();
-    let h_edges = h.edges_ordered_borrowed();
+    let g_edges = g.edges_ordered_indices_borrowed();
+    let h_edges = h.edges_ordered_indices_borrowed();
 
-    // br-r37-c1-tensorproddirbatch (cc): collect the directed product edges (same emission order) and
-    // batch-insert once instead of per-edge add_edge (a policy record each). Each (g-edge, h-edge) pair
-    // yields exactly one directed product edge, uniquely determined by that edge → no duplicates;
-    // extend_edges_unrecorded dedups on the directed key anyway and handles self-loops → byte-identical.
-    let mut edges: Vec<(String, String)> = Vec::with_capacity(g_edges.len() * h_edges.len());
+    let mut edges: Vec<(usize, usize)> = Vec::with_capacity(g_edges.len() * h_edges.len());
     // For directed: only (gu, hu) -> (gv, hv)
     for &(gu, gv, _) in &g_edges {
         for &(hu, hv, _) in &h_edges {
-            edges.push((pair_label(gu, hu), pair_label(gv, hv)));
+            edges.push((gu * h_len + hu, gv * h_len + hv));
         }
     }
-    let _ = result.extend_edges_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
 
     result
 }
@@ -47815,15 +47797,19 @@ pub fn union_all(graphs: &[&Graph]) -> Result<Graph, String> {
     }
     let mut result = Graph::with_runtime_policy(graphs[0].runtime_policy().clone());
     for &g in graphs {
-        for node in g.nodes_ordered() {
+        let offset = result.node_count();
+        let g_nodes = g.nodes_ordered();
+        for &node in &g_nodes {
             if result.has_node(node) {
                 return Err(format!("Node {} in multiple graphs", node));
             }
-            let _ = result.add_node(node.to_owned());
         }
-        for (u, v, attrs) in g.edges_ordered_borrowed() {
-            let _ = result.add_edge_with_attrs(u, v, attrs.clone());
-        }
+        let _ = result.extend_nodes_unrecorded(g_nodes.iter().map(|&n| n.to_owned()));
+        let edges = g
+            .edges_ordered_indices_borrowed()
+            .into_iter()
+            .map(|(u, v, attrs)| (offset + u, offset + v, attrs.clone()));
+        let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
     }
     Ok(result)
 }
