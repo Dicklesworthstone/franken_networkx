@@ -44317,16 +44317,9 @@ pub fn power(graph: &Graph, k: usize) -> Graph {
     let n = nodes.len();
 
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for &node in &nodes {
-        let _ = result.add_node(node.to_owned());
-    }
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
 
-    // br-r37-c1-powerbatch (cc): collect the power edges (s, ni) discovered during each source's BFS in
-    // the SAME order + one batch insert instead of per-edge add_edge (a policy record each). The BFS
-    // reads only the INPUT graph (never `result`); `ni > s` emits each edge once from the smaller
-    // endpoint, and ni != s → every collected pair is unique with no self-loop → extend_edges_unrecorded
-    // is byte-identical. For k >= 2 the power graph is denser than the input, so many edges are batched.
-    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut edges: Vec<(usize, usize)> = Vec::new();
     // BFS from each node up to distance k
     for s in 0..n {
         let mut dist = vec![usize::MAX; n];
@@ -44345,14 +44338,14 @@ pub fn power(graph: &Graph, k: usize) -> Graph {
                         dist[ni] = d + 1;
                         queue.push_back(ni);
                         if ni > s {
-                            edges.push((nodes[s].to_owned(), nodes[ni].to_owned()));
+                            edges.push((s, ni));
                         }
                     }
                 }
             }
         }
     }
-    let _ = result.extend_edges_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
 
     result
 }
@@ -44542,9 +44535,7 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
         in_ego[i] = true;
     }
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for &i in &ego_nodes {
-        let _ = result.add_node(nodes[i].to_owned());
-    }
+    let _ = result.extend_nodes_unrecorded(ego_nodes.iter().map(|&i| nodes[i]));
     // Collect the induced edges (both endpoints in the ego set) in the same order
     // + one batch insert instead of per-edge add_edge_with_attrs.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
@@ -44603,9 +44594,7 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
         in_ego[i] = true;
     }
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
-    for &i in &ego_nodes {
-        result.add_node(nodes[i].to_owned());
-    }
+    let _ = result.extend_nodes_unrecorded(ego_nodes.iter().map(|&i| nodes[i]));
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
     for (ui, vi, attrs) in digraph.edges_ordered_indices_borrowed() {
         if in_ego[ui] && in_ego[vi] {
@@ -45743,12 +45732,7 @@ pub fn full_join(g1: &Graph, g2: &Graph) -> Graph {
     let g1_nodes: Vec<&str> = g1.nodes_ordered();
     let g2_nodes: Vec<&str> = g2.nodes_ordered();
 
-    for &node in &g1_nodes {
-        let _ = result.add_node(node.to_owned());
-    }
-    for &node in &g2_nodes {
-        let _ = result.add_node(node.to_owned());
-    }
+    let _ = result.extend_nodes_unrecorded(g1_nodes.iter().copied().chain(g2_nodes.iter().copied()));
     // br-r37-c1-fulljoinbatch (cc): collect both operands' edges then the |V1|*|V2| cross
     // edges (same order) + one extend_edges_with_attrs_unrecorded instead of per-edge add_edge
     // (a policy record EACH — the cross-edge block alone is O(|V1|*|V2|) inserts). This loop
@@ -46823,9 +46807,7 @@ pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
     }
 
     // Add block nodes (node index i == block i).
-    for i in 0..partition.len() {
-        let _ = result.add_node(i.to_string());
-    }
+    let _ = result.extend_nodes_unrecorded((0..partition.len()).map(|i| i.to_string()));
 
     // Add edges between blocks
     let mut seen_edges: std::collections::HashSet<(usize, usize)> =
