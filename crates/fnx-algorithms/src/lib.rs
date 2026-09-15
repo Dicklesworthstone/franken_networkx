@@ -45732,7 +45732,8 @@ pub fn full_join(g1: &Graph, g2: &Graph) -> Graph {
     let g1_nodes: Vec<&str> = g1.nodes_ordered();
     let g2_nodes: Vec<&str> = g2.nodes_ordered();
 
-    let _ = result.extend_nodes_unrecorded(g1_nodes.iter().copied().chain(g2_nodes.iter().copied()));
+    let _ =
+        result.extend_nodes_unrecorded(g1_nodes.iter().copied().chain(g2_nodes.iter().copied()));
     // br-r37-c1-fulljoinbatch (cc): collect both operands' edges then the |V1|*|V2| cross
     // edges (same order) + one extend_edges_with_attrs_unrecorded instead of per-edge add_edge
     // (a policy record EACH — the cross-edge block alone is O(|V1|*|V2|) inserts). This loop
@@ -46877,31 +46878,30 @@ fn quotient_graph_orig_string(graph: &Graph, partition: &[Vec<String>]) -> Graph
 #[must_use]
 pub fn moral_graph(digraph: &DiGraph) -> Graph {
     let mut result = Graph::with_runtime_policy(digraph.runtime_policy().clone());
-    for node in digraph.nodes_ordered() {
-        let _ = result.add_node(node.to_owned());
-    }
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
     // br-r37-c1-moralbatch (cc): collect the undirected edges (all directed edges, then the co-parent
     // pairs) in the same order + one batch insert instead of per-edge add_edge (a policy record EACH,
     // even for the many DUPLICATE co-parent edges that different children contribute). This loop reads
-    // only the input digraph. extend_edges_unrecorded dedups on the canonical endpoint pair keeping the
+    // only the input digraph. extend_existing_index_edges_unrecorded dedups on the canonical endpoint pair keeping the
     // first occurrence — exactly as add_edge on a simple Graph — and handles self-loops → byte-identical.
-    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut edges: Vec<(usize, usize)> = Vec::new();
     // Add undirected edges for all directed edges
-    for (u, v, _) in digraph.edges_ordered_borrowed() {
-        edges.push((u.to_owned(), v.to_owned()));
+    for (u, v) in digraph.edges_ordered_indices() {
+        edges.push((u, v));
     }
     // Moralize: connect co-parents
-    for node in digraph.nodes_ordered() {
-        if let Some(preds) = digraph.predecessors(node) {
-            let parents: Vec<String> = preds.iter().map(|p| (*p).to_owned()).collect();
-            for i in 0..parents.len() {
-                for j in (i + 1)..parents.len() {
-                    edges.push((parents[i].clone(), parents[j].clone()));
+    for node_idx in 0..n {
+        if let Some(preds) = digraph.predecessors_indices(node_idx) {
+            for i in 0..preds.len() {
+                for j in (i + 1)..preds.len() {
+                    edges.push((preds[i], preds[j]));
                 }
             }
         }
     }
-    let _ = result.extend_edges_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
     result
 }
 
@@ -48705,9 +48705,7 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
     if n == 0 {
         return tree;
     }
-    for &node in &nodes {
-        let _ = tree.add_node(node.to_owned());
-    }
+    let _ = tree.extend_nodes_unrecorded(nodes.iter().copied());
 
     let mut parent: Vec<usize> = vec![0; n]; // tree parent of each node
 
@@ -49058,9 +49056,8 @@ fn build_partitioned_graph(
     partition_attr: &str,
 ) -> Graph {
     let mut g = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for node in graph.nodes_ordered() {
-        let _ = g.add_node(node.to_owned());
-    }
+    let nodes = graph.nodes_ordered();
+    let _ = g.extend_nodes_unrecorded(nodes.iter().copied());
     for (left, right, attrs) in graph.edges_ordered_borrowed() {
         let key = canonical_contracted_edge_key(left, right);
         let mut attrs = attrs.clone();
@@ -49117,12 +49114,8 @@ fn compute_partition_mst(
 
 fn build_tree(nodes: &[&str], edges: &[(String, String)], runtime_policy: &RuntimePolicy) -> Graph {
     let mut tree = Graph::with_runtime_policy(runtime_policy.clone());
-    for &node in nodes {
-        let _ = tree.add_node(node.to_owned());
-    }
-    for (u, v) in edges {
-        let _ = tree.add_edge(u.clone(), v.clone());
-    }
+    let _ = tree.extend_nodes_unrecorded(nodes.iter().copied());
+    let _ = tree.extend_edges_unrecorded(edges.iter().map(|(u, v)| (u.as_str(), v.as_str())));
     tree
 }
 
@@ -49568,12 +49561,8 @@ fn build_arborescence(
     runtime_policy: &RuntimePolicy,
 ) -> DiGraph {
     let mut arb = DiGraph::with_runtime_policy(runtime_policy.clone());
-    for &node in nodes {
-        arb.add_node(node.to_owned());
-    }
-    for (u, v) in edges {
-        let _ = arb.add_edge(u.clone(), v.clone());
-    }
+    let _ = arb.extend_nodes_unrecorded(nodes.iter().copied());
+    let _ = arb.extend_edges_unrecorded(edges.iter().map(|(u, v)| (u.as_str(), v.as_str())));
     arb
 }
 
