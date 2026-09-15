@@ -14431,9 +14431,7 @@ pub fn random_spanning_tree_from_samples(
     random_values: &[f64],
 ) -> Result<Graph, RandomSpanningTreeError> {
     let mut tree = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for &node in &graph.nodes_ordered() {
-        tree.add_node(node);
-    }
+    let _ = tree.extend_nodes_unrecorded(graph.nodes_ordered());
     if graph.node_count() < 2 {
         return Ok(tree);
     }
@@ -28417,24 +28415,28 @@ pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // Add all nodes and edges from G1
     let g1_nodes = g1.nodes_ordered();
-    for (idx, &node) in g1_nodes.iter().enumerate() {
-        if let Some(attrs) = g1.node_attrs_by_index(idx) {
-            result.add_node_with_attrs(node, attrs.clone());
-        } else {
-            result.add_node(node);
-        }
-    }
+    let _ = result.extend_nodes_with_attrs_unrecorded(g1_nodes.iter().enumerate().map(
+        |(idx, &node)| {
+            (
+                node.to_owned(),
+                g1.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        },
+    ));
     // Add all nodes from G2
     let g2_nodes = g2.nodes_ordered();
-    for (idx, &node) in g2_nodes.iter().enumerate() {
-        if !result.has_node(node) {
-            if let Some(attrs) = g2.node_attrs_by_index(idx) {
-                result.add_node_with_attrs(node, attrs.clone());
-            } else {
-                result.add_node(node);
-            }
-        }
-    }
+    let g2_new_nodes: Vec<(String, AttrMap)> = g2_nodes
+        .iter()
+        .enumerate()
+        .filter(|&(_, node)| !result.has_node(node))
+        .map(|(idx, &node)| {
+            (
+                node.to_owned(),
+                g2.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        })
+        .collect();
+    let _ = result.extend_nodes_with_attrs_unrecorded(g2_new_nodes);
     let g1_edges = g1.edges_ordered_indices_borrowed();
     let g2_edges = g2.edges_ordered_indices_borrowed();
     let mut edges: Vec<(usize, usize, AttrMap)> =
@@ -28469,15 +28471,18 @@ pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     let g1_nodes = g1.nodes_ordered();
     // Nodes in both
-    for (idx, &node) in g1_nodes.iter().enumerate() {
-        if g2.has_node(node) {
-            if let Some(attrs) = g1.node_attrs_by_index(idx) {
-                result.add_node_with_attrs(node, attrs.clone());
-            } else {
-                result.add_node(node);
-            }
-        }
-    }
+    let common_nodes: Vec<(String, AttrMap)> = g1_nodes
+        .iter()
+        .enumerate()
+        .filter(|&(_, node)| g2.has_node(node))
+        .map(|(idx, &node)| {
+            (
+                node.to_owned(),
+                g1.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        })
+        .collect();
+    let _ = result.extend_nodes_with_attrs_unrecorded(common_nodes);
     let g1_to_result: Vec<Option<usize>> =
         g1_nodes.iter().map(|&n| result.get_node_index(n)).collect();
     let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
@@ -28509,13 +28514,14 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // Start with all of G2
     let g2_nodes = g2.nodes_ordered();
-    for (idx, &node) in g2_nodes.iter().enumerate() {
-        if let Some(attrs) = g2.node_attrs_by_index(idx) {
-            result.add_node_with_attrs(node, attrs.clone());
-        } else {
-            result.add_node(node);
-        }
-    }
+    let _ = result.extend_nodes_with_attrs_unrecorded(g2_nodes.iter().enumerate().map(
+        |(idx, &node)| {
+            (
+                node.to_owned(),
+                g2.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        },
+    ));
     let g2_edges = g2.edges_ordered_indices_borrowed();
     let mut edges: Vec<(usize, usize, AttrMap)> =
         Vec::with_capacity(g1.edge_count() + g2.edge_count());
@@ -28524,13 +28530,14 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
     }
     // Layer G1 on top (G1 attrs overwrite G2)
     let g1_nodes = g1.nodes_ordered();
-    for (idx, &node) in g1_nodes.iter().enumerate() {
-        if let Some(attrs) = g1.node_attrs_by_index(idx) {
-            result.add_node_with_attrs(node, attrs.clone());
-        } else {
-            result.add_node(node);
-        }
-    }
+    let _ = result.extend_nodes_with_attrs_unrecorded(g1_nodes.iter().enumerate().map(
+        |(idx, &node)| {
+            (
+                node.to_owned(),
+                g1.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        },
+    ));
     let g1_to_result: Vec<usize> = g1_nodes
         .iter()
         .map(|&n| result.get_node_index(n).expect("g1 node in result"))
@@ -28551,13 +28558,14 @@ pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     let g1_nodes = g1.nodes_ordered();
     // All nodes from G1
-    for (idx, &node) in g1_nodes.iter().enumerate() {
-        if let Some(attrs) = g1.node_attrs_by_index(idx) {
-            result.add_node_with_attrs(node, attrs.clone());
-        } else {
-            result.add_node(node);
-        }
-    }
+    let _ = result.extend_nodes_with_attrs_unrecorded(g1_nodes.iter().enumerate().map(
+        |(idx, &node)| {
+            (
+                node.to_owned(),
+                g1.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        },
+    ));
     // Pre-resolve g1 nodes in g2 by index to avoid string hash lookups per edge
     let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
     // Edges from G1 not in G2
@@ -28585,23 +28593,27 @@ pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
     let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     let g1_nodes = g1.nodes_ordered();
     // All nodes from both
-    for (idx, &node) in g1_nodes.iter().enumerate() {
-        if let Some(attrs) = g1.node_attrs_by_index(idx) {
-            result.add_node_with_attrs(node, attrs.clone());
-        } else {
-            result.add_node(node);
-        }
-    }
+    let _ = result.extend_nodes_with_attrs_unrecorded(g1_nodes.iter().enumerate().map(
+        |(idx, &node)| {
+            (
+                node.to_owned(),
+                g1.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        },
+    ));
     let g2_nodes = g2.nodes_ordered();
-    for (idx, &node) in g2_nodes.iter().enumerate() {
-        if !result.has_node(node) {
-            if let Some(attrs) = g2.node_attrs_by_index(idx) {
-                result.add_node_with_attrs(node, attrs.clone());
-            } else {
-                result.add_node(node);
-            }
-        }
-    }
+    let g2_new_nodes: Vec<(String, AttrMap)> = g2_nodes
+        .iter()
+        .enumerate()
+        .filter(|&(_, node)| !result.has_node(node))
+        .map(|(idx, &node)| {
+            (
+                node.to_owned(),
+                g2.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        })
+        .collect();
+    let _ = result.extend_nodes_with_attrs_unrecorded(g2_new_nodes);
     let g1_to_g2: Vec<Option<usize>> = g1_nodes.iter().map(|&n| g2.get_node_index(n)).collect();
     let mut edges: Vec<(usize, usize, AttrMap)> = Vec::new();
     // Edges in G1 but not G2
@@ -29377,9 +29389,7 @@ pub fn spanner(
 
     let nodes = graph.nodes_ordered();
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
-    for node in &nodes {
-        result.add_node(*node);
-    }
+    let _ = result.extend_nodes_unrecorded(nodes.iter().copied());
 
     if graph.edge_count() == 0 {
         return Ok(result);
@@ -29389,15 +29399,14 @@ pub fn spanner(
     if k <= 1 {
         let mut bulk_edges = Vec::with_capacity(graph.edge_count());
         for (left_idx, right_idx, attrs) in graph.edges_ordered_indices_borrowed() {
-            let left = nodes[left_idx];
-            let right = nodes[right_idx];
             if spanner_attrs_can_use_bulk_insert(attrs) {
-                bulk_edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
+                bulk_edges.push((left_idx, right_idx, attrs.clone()));
             } else {
-                let _ = result.add_edge_with_attrs(left, right, attrs.clone());
+                let _ =
+                    result.add_edge_with_attrs(nodes[left_idx], nodes[right_idx], attrs.clone());
             }
         }
-        let _ = result.extend_edges_with_attrs_unrecorded(bulk_edges);
+        let _ = result.extend_existing_index_edges_with_attrs_unrecorded(bulk_edges);
         return Ok(result);
     }
 
@@ -29660,12 +29669,12 @@ pub fn spanner(
             .cloned()
             .unwrap_or_default();
         if spanner_attrs_can_use_bulk_insert(&attrs) {
-            bulk_edges.push(((*left).to_owned(), (*right).to_owned(), attrs));
+            bulk_edges.push((edge.left, edge.right, attrs));
         } else {
             let _ = result.add_edge_with_attrs(*left, *right, attrs);
         }
     }
-    let _ = result.extend_edges_with_attrs_unrecorded(bulk_edges);
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(bulk_edges);
 
     Ok(result)
 }
@@ -38764,19 +38773,19 @@ pub fn make_max_clique_graph(graph: &Graph) -> Graph {
 
     // Each clique becomes a node (named by sorted members joined with ",")
     let clique_names: Vec<String> = cliques.iter().map(|c| c.join(",")).collect();
-    for name in &clique_names {
-        result.add_node(name);
-    }
+    let _ = result.extend_nodes_unrecorded(clique_names);
 
     // Add edges between cliques that share nodes
+    let mut edges = Vec::new();
     for i in 0..cliques.len() {
         let set_i: HashSet<&str> = cliques[i].iter().map(|s| s as &str).collect();
         for j in (i + 1)..cliques.len() {
             if cliques[j].iter().any(|s| set_i.contains(s as &str)) {
-                let _ = result.add_edge(&clique_names[i], &clique_names[j]);
+                edges.push((i, j));
             }
         }
     }
+    let _ = result.extend_existing_index_edges_unrecorded(edges);
 
     result
 }
@@ -38793,14 +38802,17 @@ pub fn ring_of_cliques(num_cliques: usize, clique_size: usize) -> Result<Graph, 
 
     let mut g = Graph::strict();
 
+    let node_names =
+        (0..num_cliques).flat_map(|c| (0..clique_size).map(move |i| format!("{c}_{i}")));
+    let _ = g.extend_nodes_unrecorded(node_names);
+
+    let mut edges = Vec::new();
     // Create cliques
     for c in 0..num_cliques {
+        let base = c * clique_size;
         for i in 0..clique_size {
-            let node_i = format!("{c}_{i}");
-            g.add_node(&node_i);
             for j in (i + 1)..clique_size {
-                let node_j = format!("{c}_{j}");
-                let _ = g.add_edge(&node_i, &node_j);
+                edges.push((base + i, base + j));
             }
         }
     }
@@ -38808,10 +38820,11 @@ pub fn ring_of_cliques(num_cliques: usize, clique_size: usize) -> Result<Graph, 
     // Connect cliques in a ring: last node of clique c to first node of clique (c+1)%n
     for c in 0..num_cliques {
         let next = (c + 1) % num_cliques;
-        let from = format!("{c}_{}", clique_size - 1);
-        let to = format!("{next}_0");
-        let _ = g.add_edge(&from, &to);
+        let from = c * clique_size + (clique_size - 1);
+        let to = next * clique_size;
+        edges.push((from, to));
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
 
     Ok(g)
 }
@@ -38831,9 +38844,7 @@ fn gen_nodes(g: &mut Graph, n: usize) {
 }
 
 fn gen_edge(g: &mut Graph, u: usize, v: usize) {
-    let us = u.to_string();
-    let vs = v.to_string();
-    let _ = g.add_edge(us.as_str(), vs.as_str());
+    let _ = g.extend_existing_index_edges_unrecorded([(u, v)]);
 }
 
 /// Return a balanced tree of branching factor r and height h.
@@ -38851,14 +38862,16 @@ pub fn balanced_tree(r: usize, h: usize) -> Graph {
         (r.pow((h + 1) as u32) - 1) / (r - 1)
     };
     gen_nodes(&mut g, n);
+    let mut edges = Vec::new();
     for i in 0..n {
         for j in 0..r {
             let child = i * r + j + 1;
             if child < n {
-                gen_edge(&mut g, i, child);
+                edges.push((i, child));
             }
         }
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     g
 }
 
@@ -39491,18 +39504,20 @@ pub fn generalized_petersen_graph(n: usize, k: usize) -> Result<Graph, String> {
     }
     let mut g = Graph::strict();
     gen_nodes(&mut g, 2 * n);
+    let mut edges = Vec::with_capacity(3 * n);
     // Outer ring: 0..n-1
     for i in 0..n {
-        gen_edge(&mut g, i, (i + 1) % n);
+        edges.push((i, (i + 1) % n));
     }
     // Inner star: n..2n-1
     for i in 0..n {
-        gen_edge(&mut g, n + i, n + (i + k) % n);
+        edges.push((n + i, n + (i + k) % n));
     }
     // Spokes
     for i in 0..n {
-        gen_edge(&mut g, i, n + i);
+        edges.push((i, n + i));
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     Ok(g)
 }
 
@@ -39519,19 +39534,21 @@ pub fn wheel_graph(n: usize) -> Result<Graph, String> {
     if n == 2 {
         let mut g = Graph::strict();
         gen_nodes(&mut g, 2);
-        gen_edge(&mut g, 0, 1);
+        let _ = g.extend_existing_index_edges_unrecorded([(0, 1)]);
         return Ok(g);
     }
     let mut g = Graph::strict();
     gen_nodes(&mut g, n);
+    let mut edges = Vec::with_capacity(2 * n - 2);
     // Hub is node 0, rim is 1..(n-1)
     for i in 1..n {
-        gen_edge(&mut g, 0, i);
+        edges.push((0, i));
     }
     for i in 1..(n - 1) {
-        gen_edge(&mut g, i, i + 1);
+        edges.push((i, i + 1));
     }
-    gen_edge(&mut g, n - 1, 1);
+    edges.push((n - 1, 1));
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     Ok(g)
 }
 
@@ -39542,13 +39559,15 @@ pub fn ladder_graph(n: usize) -> Result<Graph, String> {
     }
     let mut g = Graph::strict();
     gen_nodes(&mut g, 2 * n);
+    let mut edges = Vec::new();
     for i in 0..n.saturating_sub(1) {
-        gen_edge(&mut g, i, i + 1);
-        gen_edge(&mut g, n + i, n + i + 1);
+        edges.push((i, i + 1));
+        edges.push((n + i, n + i + 1));
     }
     for i in 0..n {
-        gen_edge(&mut g, i, n + i);
+        edges.push((i, n + i));
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     Ok(g)
 }
 
@@ -39559,11 +39578,13 @@ pub fn circular_ladder_graph(n: usize) -> Result<Graph, String> {
     }
     let mut g = Graph::strict();
     gen_nodes(&mut g, 2 * n);
+    let mut edges = Vec::with_capacity(3 * n);
     for i in 0..n {
-        gen_edge(&mut g, i, (i + 1) % n);
-        gen_edge(&mut g, n + i, n + (i + 1) % n);
-        gen_edge(&mut g, i, n + i);
+        edges.push((i, (i + 1) % n));
+        edges.push((n + i, n + (i + 1) % n));
+        edges.push((i, n + i));
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     Ok(g)
 }
 
@@ -39607,17 +39628,19 @@ pub fn tadpole_graph(m: usize, n: usize) -> Result<Graph, String> {
     let mut g = Graph::strict();
     let total = m + n;
     gen_nodes(&mut g, total);
+    let mut edges = Vec::new();
     // Cycle on 0..m
     for i in 0..m {
-        gen_edge(&mut g, i, (i + 1) % m);
+        edges.push((i, (i + 1) % m));
     }
     // Path from m-1 to m..total-1
     if m > 0 && n > 0 {
-        gen_edge(&mut g, m - 1, m);
+        edges.push((m - 1, m));
     }
     for i in m..total.saturating_sub(1) {
-        gen_edge(&mut g, i, i + 1);
+        edges.push((i, i + 1));
     }
+    let _ = g.extend_existing_index_edges_unrecorded(edges);
     Ok(g)
 }
 
@@ -44535,21 +44558,21 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
     }
 
     // Build subgraph
-    let mut in_ego = vec![false; n];
-    for &i in &ego_nodes {
-        in_ego[i] = true;
+    let mut ego_pos = vec![usize::MAX; n];
+    for (pos, &i) in ego_nodes.iter().enumerate() {
+        ego_pos[i] = pos;
     }
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     let _ = result.extend_nodes_unrecorded(ego_nodes.iter().map(|&i| nodes[i]));
-    // Collect the induced edges (both endpoints in the ego set) in the same order
-    // + one batch insert instead of per-edge add_edge_with_attrs.
-    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::new();
     for (ui, vi, attrs) in graph.edges_ordered_indices_borrowed() {
-        if in_ego[ui] && in_ego[vi] {
-            edges.push((nodes[ui].to_owned(), nodes[vi].to_owned(), attrs.clone()));
+        let pu = ego_pos[ui];
+        let pv = ego_pos[vi];
+        if pu != usize::MAX && pv != usize::MAX {
+            edges.push((pu, pv, attrs.clone()));
         }
     }
-    let _ = result.extend_edges_with_attrs_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
 
     result
 }
@@ -44594,19 +44617,21 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
         }
     }
 
-    let mut in_ego = vec![false; n];
-    for &i in &ego_nodes {
-        in_ego[i] = true;
+    let mut ego_pos = vec![usize::MAX; n];
+    for (pos, &i) in ego_nodes.iter().enumerate() {
+        ego_pos[i] = pos;
     }
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     let _ = result.extend_nodes_unrecorded(ego_nodes.iter().map(|&i| nodes[i]));
-    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::new();
     for (ui, vi, attrs) in digraph.edges_ordered_indices_borrowed() {
-        if in_ego[ui] && in_ego[vi] {
-            edges.push((nodes[ui].to_owned(), nodes[vi].to_owned(), attrs.clone()));
+        let pu = ego_pos[ui];
+        let pv = ego_pos[vi];
+        if pu != usize::MAX && pv != usize::MAX {
+            edges.push((pu, pv, attrs.clone()));
         }
     }
-    let _ = result.extend_edges_with_attrs_unrecorded(edges);
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
 
     result
 }
@@ -46036,15 +46061,17 @@ pub fn relabel_nodes(graph: &Graph, mapping: &std::collections::HashMap<String, 
     // Add nodes with new labels
     let nodes = graph.nodes_ordered();
     let mut mapped_nodes: Vec<String> = Vec::with_capacity(nodes.len());
-    for &node in &nodes {
+    let mut batch_nodes: Vec<(String, AttrMap)> = Vec::with_capacity(nodes.len());
+    for (idx, &node) in nodes.iter().enumerate() {
         let new_label = mapping
             .get(node)
             .cloned()
             .unwrap_or_else(|| node.to_owned());
-        let attrs = graph.node_attrs(node).cloned().unwrap_or_default();
-        let _ = result.add_node_with_attrs(new_label.clone(), attrs);
+        let attrs = graph.node_attrs_by_index(idx).cloned().unwrap_or_default();
+        batch_nodes.push((new_label.clone(), attrs));
         mapped_nodes.push(new_label);
     }
+    let _ = result.extend_nodes_with_attrs_unrecorded(batch_nodes);
 
     // br-r37-c1-relabelbatch (cc): collect the remapped edges (same order) + one batch insert instead
     // of per-edge add_edge_with_attrs (a policy record each). extend_edges_with_attrs_unrecorded DEDUPS
@@ -46074,15 +46101,20 @@ pub fn relabel_nodes_directed(
 
     let nodes = digraph.nodes_ordered();
     let mut mapped_nodes: Vec<String> = Vec::with_capacity(nodes.len());
-    for &node in &nodes {
+    let mut batch_nodes: Vec<(String, AttrMap)> = Vec::with_capacity(nodes.len());
+    for (idx, &node) in nodes.iter().enumerate() {
         let new_label = mapping
             .get(node)
             .cloned()
             .unwrap_or_else(|| node.to_owned());
-        let attrs = digraph.node_attrs(node).cloned().unwrap_or_default();
-        let _ = result.add_node_with_attrs(new_label.clone(), attrs);
+        let attrs = digraph
+            .node_attrs_by_index(idx)
+            .cloned()
+            .unwrap_or_default();
+        batch_nodes.push((new_label.clone(), attrs));
         mapped_nodes.push(new_label);
     }
+    let _ = result.extend_nodes_with_attrs_unrecorded(batch_nodes);
 
     // br-r37-c1-relabeldirbatch (cc): collect the remapped edges (same order) + one batch insert instead
     // of per-edge add_edge_with_attrs (a policy record each). The DiGraph inserter dedups on the directed
@@ -46130,28 +46162,46 @@ pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     let nodes = graph.nodes_ordered();
     let v_idx = graph.get_node_index(v);
+    let u_idx = graph.get_node_index(u);
 
-    // Add all nodes except v
-    for (idx, &node) in nodes.iter().enumerate() {
+    let nodes_to_add: Vec<(String, AttrMap)> = nodes
+        .iter()
+        .enumerate()
+        .filter(|&(idx, _)| Some(idx) != v_idx)
+        .map(|(idx, &node)| {
+            (
+                node.to_owned(),
+                graph.node_attrs_by_index(idx).cloned().unwrap_or_default(),
+            )
+        })
+        .collect();
+    let _ = result.extend_nodes_with_attrs_unrecorded(nodes_to_add);
+
+    let mut map_idx = vec![None; nodes.len()];
+    let mut res_idx = 0;
+    for (idx, _) in nodes.iter().enumerate() {
         if Some(idx) != v_idx {
-            let attrs = graph.node_attrs_by_index(idx).cloned().unwrap_or_default();
-            let _ = result.add_node_with_attrs(node.to_owned(), attrs);
+            map_idx[idx] = Some(res_idx);
+            res_idx += 1;
         }
+    }
+    if let (Some(vi), Some(ui)) = (v_idx, u_idx) {
+        map_idx[vi] = map_idx[ui];
     }
 
-    // Add edges, redirecting v → u
+    let mut seen = std::collections::HashSet::new();
+    let mut edges: Vec<(usize, usize, AttrMap)> = Vec::new();
     for (left, right, attrs) in graph.edges_ordered_indices_borrowed() {
-        let left_name = if Some(left) == v_idx { u } else { nodes[left] };
-        let right_name = if Some(right) == v_idx {
-            u
-        } else {
-            nodes[right]
-        };
-        // Skip self-loops created by contraction
-        if left_name != right_name && !result.has_edge(left_name, right_name) {
-            let _ = result.add_edge_with_attrs(left_name, right_name, attrs.clone());
+        if let (Some(l), Some(r)) = (map_idx[left], map_idx[right])
+            && l != r
+        {
+            let key = if l < r { (l, r) } else { (r, l) };
+            if seen.insert(key) {
+                edges.push((l, r, attrs.clone()));
+            }
         }
     }
+    let _ = result.extend_existing_index_edges_with_attrs_unrecorded(edges);
 
     result
 }
@@ -47755,28 +47805,23 @@ pub fn intersection_all(graphs: &[&Graph]) -> Graph {
     if graphs.is_empty() {
         return Graph::strict();
     }
-    let mut common: std::collections::HashSet<String> = graphs[0]
-        .nodes_ordered()
-        .iter()
-        .map(|&n| n.to_owned())
+    let g0_nodes = graphs[0].nodes_ordered();
+    let common_nodes: Vec<&str> = g0_nodes
+        .into_iter()
+        .filter(|&node| graphs[1..].iter().all(|g| g.has_node(node)))
         .collect();
-    for &g in &graphs[1..] {
-        let ns: std::collections::HashSet<String> =
-            g.nodes_ordered().iter().map(|&n| n.to_owned()).collect();
-        common = common.intersection(&ns).cloned().collect();
-    }
+
     let mut result = Graph::with_runtime_policy(graphs[0].runtime_policy().clone());
-    for n in &common {
-        let _ = result.add_node(n.clone());
-    }
+    let _ = result.extend_nodes_unrecorded(common_nodes.iter().copied());
+
+    let mut edges: Vec<(String, String)> = Vec::new();
     for (u, v, _) in graphs[0].edges_ordered_borrowed() {
-        if !common.contains(u) || !common.contains(v) {
-            continue;
-        }
-        if graphs[1..].iter().all(|g| g.has_edge(u, v)) {
-            let _ = result.add_edge(u, v);
+        if result.has_node(u) && result.has_node(v) && graphs[1..].iter().all(|g| g.has_edge(u, v))
+        {
+            edges.push((u.to_owned(), v.to_owned()));
         }
     }
+    let _ = result.extend_edges_unrecorded(edges.iter().map(|(u, v)| (u.as_str(), v.as_str())));
     result
 }
 
@@ -48136,22 +48181,22 @@ pub fn stochastic_block_model(sizes: &[usize], p: &[Vec<f64>], seed: u64) -> Gra
         (rng >> 11) as f64 / (1u64 << 53) as f64
     };
     let total: usize = sizes.iter().sum();
-    for i in 0..total {
-        let _ = graph.add_node(i.to_string());
-    }
+    let _ = graph.extend_nodes_unrecorded((0..total).map(|i| i.to_string()));
     let mut bmap = Vec::with_capacity(total);
     for (bi, &sz) in sizes.iter().enumerate() {
         for _ in 0..sz {
             bmap.push(bi);
         }
     }
+    let mut edges = Vec::new();
     for i in 0..total {
         for j in (i + 1)..total {
             if rand_f64() < p[bmap[i]][bmap[j]] {
-                let _ = graph.add_edge(i.to_string(), j.to_string());
+                edges.push((i, j));
             }
         }
     }
+    let _ = graph.extend_existing_index_edges_unrecorded(edges);
     graph
 }
 
@@ -48204,17 +48249,17 @@ pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
     let mut g = Graph::strict();
     let mut rng = seed.wrapping_add(1);
     let total = l * k;
-    for i in 0..total {
-        let _ = g.add_node(i.to_string());
-    }
+    let _ = g.extend_nodes_unrecorded((0..total).map(|i| i.to_string()));
+    let mut init_edges = Vec::new();
     for c in 0..l {
         let s = c * k;
         for i in s..s + k {
             for j in (i + 1)..s + k {
-                let _ = g.add_edge(i.to_string(), j.to_string());
+                init_edges.push((i, j));
             }
         }
     }
+    let _ = g.extend_existing_index_edges_unrecorded(init_edges);
     let edges: Vec<(String, String)> = g
         .edges_ordered_borrowed()
         .into_iter()
