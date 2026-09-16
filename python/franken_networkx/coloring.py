@@ -22,6 +22,16 @@ import types as _types
 import networkx as _nx
 import networkx.algorithms.coloring as _nxcl
 from networkx.algorithms.coloring import *  # noqa: F401,F403
+from networkx.algorithms.coloring.greedy_coloring import (  # noqa: F401
+    strategy_connected_sequential,
+    strategy_connected_sequential_bfs,
+    strategy_connected_sequential_dfs,
+    strategy_independent_set,
+    strategy_largest_first,
+    strategy_random_sequential,
+    strategy_saturation_largest_first,
+    strategy_smallest_last,
+)
 
 import franken_networkx as _fnx
 

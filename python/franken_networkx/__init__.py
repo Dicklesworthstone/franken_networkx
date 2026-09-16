@@ -15008,9 +15008,22 @@ def harmonic_centrality(
         return centrality
 
     if nbunch is not None or distance is not None or sources is not None:
-        return _call_networkx_for_parity(
-            "harmonic_centrality", G, nbunch=nbunch, distance=distance, sources=sources
-        )
+        nb = set(G.nbunch_iter(nbunch) if nbunch is not None else G.nodes)
+        sources_set = set(G.nbunch_iter(sources) if sources is not None else G.nodes)
+        centrality = {u: 0 for u in nb}
+        transposed = False
+        g_work = G
+        if len(nb) < len(sources_set):
+            transposed = True
+            nb, sources_set = sources_set, nb
+            if g_work.is_directed():
+                g_work = reverse(g_work, copy=False)
+        for v in sources_set:
+            dist = shortest_path_length(g_work, source=v, weight=distance)
+            for u, d_uv in dist.items():
+                if d_uv != 0 and u in nb:
+                    centrality[v if transposed else u] += 1 / d_uv
+        return centrality
     raw = _raw_harmonic_centrality(G)
     # br-r37-c1-rsom6: nx initializes ``{u: 0 for u in set(G.nbunch_iter())}``,
     # so output dict iteration order is set(G.nodes) order — for small int
@@ -19153,10 +19166,17 @@ def _greedy_color_structural_nx(G, strategy, interchange):
     # The gate below used to exclude directed entirely, on the grounds that "structural
     # would drop parallel edges / direction" - true of an nx.Graph copy, but direction
     # survives an nx.DiGraph one, and greedy_color is still structure-only.
-    _H = _nx.DiGraph() if G.is_directed() else _nx.Graph()
-    _H.add_nodes_from(G)
-    _H.add_edges_from(G.edges())
-    return _nx.greedy_color(_H, strategy=strategy, interchange=interchange)
+    if G.is_multigraph():
+        from franken_networkx.backend import _fnx_to_nx
+        _H = _fnx_to_nx(G)
+    else:
+        _H = _nx.DiGraph() if G.is_directed() else _nx.Graph()
+        _H.add_nodes_from(G)
+        _H.add_edges_from(G.edges())
+    try:
+        return _nx.greedy_color(_H, strategy=strategy, interchange=interchange)
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def greedy_color(G, strategy="largest_first", interchange=False):
@@ -19182,12 +19202,7 @@ def greedy_color(G, strategy="largest_first", interchange=False):
     # sees the filtered nodes/edges (view family).
     G = _coerce_arg_to_fnx_graph(G)
     if interchange or callable(strategy):
-        return _call_networkx_for_parity(
-            "greedy_color",
-            G,
-            strategy=strategy,
-            interchange=interchange,
-        )
+        return _greedy_color_structural_nx(G, strategy, interchange)
     # br-r37-c1-fki5h: the Rust greedy_color now mirrors nx's
     # ``sorted(G, key=G.degree, reverse=True)`` tie-breaking (stable
     # sort, insertion-order ties) for the default ``"largest_first"``
@@ -19283,12 +19298,7 @@ def greedy_color(G, strategy="largest_first", interchange=False):
                 colors[u] = color
             return colors
         return _greedy_color_structural_nx(G, strategy, interchange)
-    return _call_networkx_for_parity(
-        "greedy_color",
-        G,
-        strategy=strategy,
-        interchange=interchange,
-    )
+    return _greedy_color_structural_nx(G, strategy, interchange)
 
 
 # Algorithm functions — condensation (wrapped to match NetworkX API)
