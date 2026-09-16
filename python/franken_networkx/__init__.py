@@ -55899,25 +55899,12 @@ def to_prufer_sequence(T):
 
 def from_nested_tuple(sequence, sensible_relabeling=False):
     """Build tree from nested tuple representation."""
-    G = Graph()
-    counter = [0]
+    from franken_networkx.tree import from_nested_tuple as _tree_from_nested_tuple
 
-    def _build(parent, subtree):
-        for child_tree in subtree:
-            child = counter[0]
-            counter[0] += 1
-            G.add_node(child)
-            if parent is not None:
-                G.add_edge(parent, child)
-            if isinstance(child_tree, tuple):
-                _build(child, child_tree)
+    return _tree_from_nested_tuple(
+        sequence, sensible_relabeling=sensible_relabeling
+    )
 
-    root = counter[0]
-    counter[0] += 1
-    G.add_node(root)
-    if isinstance(sequence, tuple):
-        _build(root, sequence)
-    return G
 
 
 def to_nested_tuple(T, root, canonical_form=False):

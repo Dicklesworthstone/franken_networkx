@@ -145,3 +145,55 @@ def test_tree_module_junction_tree_multigraph_guard_matches_networkx(fnx_cls, nx
         nx_tree.junction_tree(expected)
 
     assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize(
+    "seq,sensible",
+    [
+        ((), False),
+        ((), True),
+        (((), ()), False),
+        (((), ()), True),
+        ((((), ()), ((), ())), False),
+        ((((), ()), ((), ())), True),
+        ((((),), ()), False),
+        ((((),), ()), True),
+    ],
+)
+def test_from_nested_tuple_all_namespaces_match_networkx(seq, sensible):
+    from franken_networkx.algorithms import tree as algorithms_tree
+
+    nx_g = nx.from_nested_tuple(seq, sensible_relabeling=sensible)
+    top_g = fnx.from_nested_tuple(seq, sensible_relabeling=sensible)
+    tree_g = fnx_tree.from_nested_tuple(seq, sensible_relabeling=sensible)
+    algo_g = algorithms_tree.from_nested_tuple(seq, sensible_relabeling=sensible)
+
+    for g in (top_g, tree_g, algo_g):
+        assert isinstance(g, fnx.Graph)
+        assert list(g.nodes()) == list(nx_g.nodes())
+        assert list(g.edges()) == list(nx_g.edges())
+
+
+@pytest.mark.parametrize(
+    "seq",
+    [
+        [],
+        [0],
+        [0, 1, 2],
+        [3, 3, 3, 3],
+        [i % 5 for i in range(20)],
+    ],
+)
+def test_from_prufer_sequence_all_namespaces_match_networkx(seq):
+    from franken_networkx.algorithms import tree as algorithms_tree
+
+    nx_g = nx.from_prufer_sequence(seq)
+    top_g = fnx.from_prufer_sequence(seq)
+    tree_g = fnx_tree.from_prufer_sequence(seq)
+    algo_g = algorithms_tree.from_prufer_sequence(seq)
+
+    for g in (top_g, tree_g, algo_g):
+        assert isinstance(g, fnx.Graph)
+        assert list(g.nodes()) == list(nx_g.nodes())
+        assert list(g.edges()) == list(nx_g.edges())
+
