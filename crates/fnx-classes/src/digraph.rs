@@ -1816,13 +1816,32 @@ impl DiGraph {
         // input. Measured before this: one isolated node off a 12800-node
         // DiGraph cost 178.22us against networkx's 0.71us (0.0040x), the same
         // whether the node sat first or last.
-        if node_idx + 1 == self.nodes.len()
-            && self.succ_indices[node_idx].is_empty()
-            && self.pred_indices[node_idx].is_empty()
-        {
+        // br-r37-c1-qxtlj / br-r37-c1-tv8wd: tail removal fast path.
+        // When `node_idx` IS the last position (`node_idx + 1 == self.nodes.len()`),
+        // nothing sits above it, so NO node index shifts down.
+        // Rather than rebuilding all element-parallel edge storage (O(|E|))
+        // and decrementing all succ/pred rows (O(|V|+|E|)), we only need to:
+        // 1. Drop incident edges in O(degree) via swap_remove.
+        // 2. Clean up references to `node_idx` in neighbors' succ/pred rows in O(degree).
+        // 3. Pop the tail slots in O(1).
+        if node_idx + 1 == self.nodes.len() {
+            let succs = std::mem::take(&mut self.succ_indices[node_idx]);
+            for t in succs {
+                self.edges.swap_remove(&(node_idx, t));
+                if t != node_idx {
+                    self.pred_indices[t].retain(|&i| i != node_idx);
+                }
+            }
+            let preds = std::mem::take(&mut self.pred_indices[node_idx]);
+            for s in preds {
+                self.edges.swap_remove(&(s, node_idx));
+                if s != node_idx {
+                    self.succ_indices[s].retain(|&i| i != node_idx);
+                }
+            }
             self.nodes.shift_remove(node);
-            self.succ_indices.remove(node_idx);
-            self.pred_indices.remove(node_idx);
+            self.succ_indices.pop();
+            self.pred_indices.pop();
             self.revision = self.revision.saturating_add(1);
             return true;
         }
