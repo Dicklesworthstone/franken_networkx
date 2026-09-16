@@ -267,13 +267,16 @@ def test_feature_universe_reports_every_family_not_only_a_headline():
 
 
 def test_coverage_matrix_tracks_networkx_helper_routes():
+    # shortest_path was de-delegated to native implementations; effective_size
+    # calls _call_networkx_submodule_for_parity and serves as the representative
+    # NETWORKX_HELPER export.
     coverage_matrix = _load_coverage_matrix_script()
-    analysis = coverage_matrix["analyze_export"]("shortest_path", fnx.shortest_path)
+    analysis = coverage_matrix["analyze_export"]("effective_size", fnx.effective_size)
     exports, duplicates = coverage_matrix["load_public_exports"]()
     rendered = coverage_matrix["render_markdown"](exports, duplicates)
 
     assert analysis["runtime_route"] == "NETWORKX_HELPER"
-    assert "shortest_path" in {call["target"] for call in analysis["helper_calls"]}
+    assert "effective_size" in {call["target"] for call in analysis["helper_calls"]}
     assert "| NETWORKX_HELPER |" in rendered
     assert "`shortest_path_weighted_delegated`" in rendered
 
@@ -292,7 +295,7 @@ def test_coverage_matrix_tracks_upstream_divergence_ledger():
     assert set(coverage_matrix["DIVERGENCE_CATEGORY_ORDER"]).issubset(categories)
     assert any(
         row["category"] == "intentionally-delegated"
-        and row["export"] == "shortest_path"
+        and row["export"] == "effective_size"
         for row in ledger
     )
     assert any(

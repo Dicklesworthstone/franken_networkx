@@ -291,7 +291,14 @@ def build_auxiliary_edge_connectivity(G, *, backend=None, **backend_kwargs):
     return H
 
 
-bridge_components = _fnx._bridge_components
+def bridge_components(G, *, backend=None, **backend_kwargs):
+    """Find the bridge-connected components for the graph G."""
+    _fnx._validate_backend_dispatch_keywords(
+        "bridge_components", backend, backend_kwargs
+    )
+    return _fnx._bridge_components(G)
+
+
 EdgeComponentAuxGraph = _fnx._EdgeComponentAuxGraph
 general_k_edge_subgraphs = _fnx._general_k_edge_subgraphs
 
