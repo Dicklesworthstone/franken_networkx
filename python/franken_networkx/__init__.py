@@ -15504,16 +15504,16 @@ def diameter(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): the plain weighted case is just max(eccentricity), and
-    # fnx's eccentricity now has a fast all-pairs path — compute it in-process instead of
-    # the fnx->nx delegation (was ~parity 0.98x).
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
-        return max(eccentricity(G, weight=weight).values())
-    if e is not None or usebounds or weight is not None or len(G) == 0:
+    if e is not None:
+        return max(e.values())
+    if usebounds or (weight is not None and not isinstance(weight, str)):
         return _call_networkx_for_parity(
             "diameter", G, e=e, usebounds=usebounds, weight=weight
         )
+    if len(G) == 0:
+        raise ValueError("max() iterable argument is empty")
+    if weight is not None:
+        return max(eccentricity(G, weight=weight).values())
     # br-r37-c1-tcyne: the Rust _raw_diameter calls gr.undirected()
     # before computing — collapses antiparallel directions (returns
     # 2 on directed cycle5 instead of nx's 4). Stay on _raw_diameter
@@ -15550,14 +15550,16 @@ def radius(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): weighted radius = min(eccentricity), now fast in-process.
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
-        return min(eccentricity(G, weight=weight).values())
-    if e is not None or usebounds or weight is not None or len(G) == 0:
+    if e is not None:
+        return min(e.values())
+    if usebounds or (weight is not None and not isinstance(weight, str)):
         return _call_networkx_for_parity(
             "radius", G, e=e, usebounds=usebounds, weight=weight
         )
+    if len(G) == 0:
+        raise ValueError("min() iterable argument is empty")
+    if weight is not None:
+        return min(eccentricity(G, weight=weight).values())
     # br-r37-c1-tcyne: same directed-collapse defect as _raw_diameter —
     # _raw_radius runs on gr.undirected(). Use fnx.eccentricity for the
     # directed path (correct, no fnx_to_nx round-trip).
@@ -15591,18 +15593,23 @@ def center(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): weighted center filters eccentricity by min, now fast.
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+    if e is not None:
+        radius_w = min(e.values())
+        return [v for v in e if e[v] == radius_w]
+    if usebounds or (weight is not None and not isinstance(weight, str)):
+        return _call_networkx_for_parity(
+            "center", G, e=e, usebounds=usebounds, weight=weight
+        )
+    if len(G) == 0:
+        if weight is None and not G.is_directed():
+            raise NetworkXPointlessConcept("G has no nodes.")
+        raise ValueError("min() iterable argument is empty")
+    if weight is not None:
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
         radius_w = min(ecc.values())
         return [n for n in G.nodes() if ecc[n] == radius_w]
-    if e is not None or usebounds or weight is not None or len(G) == 0:
-        return _call_networkx_for_parity(
-            "center", G, e=e, usebounds=usebounds, weight=weight
-        )
     # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
     # insertion order) and filters by min eccentricity. The Rust
     # _raw_center returned nodes in a different order. Filter
@@ -15646,18 +15653,21 @@ def periphery(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): weighted periphery filters eccentricity by max, now fast.
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+    if e is not None:
+        diameter_w = max(e.values())
+        return [v for v in e if e[v] == diameter_w]
+    if usebounds or (weight is not None and not isinstance(weight, str)):
+        return _call_networkx_for_parity(
+            "periphery", G, e=e, usebounds=usebounds, weight=weight
+        )
+    if len(G) == 0:
+        raise ValueError("max() iterable argument is empty")
+    if weight is not None:
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
         diameter_w = max(ecc.values())
         return [n for n in G.nodes() if ecc[n] == diameter_w]
-    if e is not None or usebounds or weight is not None or len(G) == 0:
-        return _call_networkx_for_parity(
-            "periphery", G, e=e, usebounds=usebounds, weight=weight
-        )
     # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
     # insertion order) and filters by max eccentricity. The Rust
     # _raw_periphery returned nodes in a different order. Filter
