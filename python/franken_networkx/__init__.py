@@ -23566,20 +23566,46 @@ def is_simple_path(G, nodes):
     return all(v in G[u] for u, v in _itertools.pairwise(nodes))
 
 
+def _matching_dict_to_set(matching):
+    edges = set()
+    for edge in matching.items():
+        u, v = edge
+        if (v, u) in edges or edge in edges:
+            continue
+        if u == v:
+            raise NetworkXError(f"Selfloops cannot appear in matchings {edge}")
+        edges.add(edge)
+    return edges
+
+
 def is_matching(G, matching):
     """Return True if ``matching`` is a valid matching of ``G``.
 
-    br-matchingport: routes through the native Rust validator
-    ``franken_networkx._fnx.is_matching`` which checks the matching
-    contract directly (every entry is an edge of G, no shared
-    endpoints) instead of bridging through nx via the parity
-    helper.
+    br-matchingport: routes simple undirected graphs through the native
+    Rust validator ``franken_networkx._fnx.is_matching``, and evaluates
+    directed / multigraph cases in-process with exact NetworkX semantics.
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity("is_matching", G, matching)
-    return _fnx.is_matching(G, matching)
+    if not G.is_directed() and not G.is_multigraph():
+        return _fnx.is_matching(G, matching)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+    return True
 
 
 def is_maximal_matching(G, matching):
@@ -23589,9 +23615,32 @@ def is_maximal_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity("is_maximal_matching", G, matching)
-    return _fnx.is_maximal_matching(G, matching)
+    if not G.is_directed() and not G.is_multigraph():
+        return _fnx.is_maximal_matching(G, matching)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    edges = set()
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+        edges.add(edge)
+        edges.add((v, u))
+    for u, v in G.edges:
+        if (u, v) not in edges:
+            if u not in nodes and v not in nodes and u != v:
+                return False
+    return True
 
 
 def is_perfect_matching(G, matching):
@@ -23601,9 +23650,25 @@ def is_perfect_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity("is_perfect_matching", G, matching)
-    return _fnx.is_perfect_matching(G, matching)
+    if not G.is_directed() and not G.is_multigraph():
+        return _fnx.is_perfect_matching(G, matching)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+    return len(nodes) == len(G)
 
 
 class _MinDegreeHeuristic:

@@ -5004,13 +5004,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 621 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 120 | 176 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 624 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 117 | 173 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 73 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 120 public export(s) and 176 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 117 public export(s) and 173 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -5020,7 +5020,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 120 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 117 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -5129,10 +5129,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `is_chordal` | 1 | `is_chordal` |
 | `is_dominating_set` | 1 | `is_dominating_set` |
 | `is_eulerian` | 1 | `is_eulerian` |
-| `is_matching` | 1 | `is_matching` |
-| `is_maximal_matching` | 1 | `is_maximal_matching` |
 | `is_minimal_d_separator` | 1 | `is_minimal_d_separator` |
-| `is_perfect_matching` | 1 | `is_perfect_matching` |
 | `johnson` | 1 | `johnson` |
 | `k_components` | 1 | `k_components` |
 | `k_edge_components` | 1 | `k_edge_components` |
