@@ -15073,6 +15073,29 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     return _raw_degree_centrality(G)
 
 
+def _betweenness_centrality_inproc(
+    G,
+    k=None,
+    normalized=True,
+    weight=None,
+    endpoints=False,
+    seed=None,
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.centrality.betweenness.betweenness_centrality(
+            H,
+            k=k,
+            normalized=normalized,
+            weight=weight,
+            endpoints=endpoints,
+            seed=seed,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def betweenness_centrality(
     G,
     k=None,
@@ -15138,8 +15161,7 @@ def betweenness_centrality(
         )
 
     if k is not None or weight is not None or seed is not None:
-        return _call_networkx_for_parity(
-            "betweenness_centrality",
+        return _betweenness_centrality_inproc(
             G,
             k=k,
             normalized=normalized,
@@ -31430,6 +31452,27 @@ def closeness_centrality(
     return _raw_closeness_centrality(G)
 
 
+def _edge_betweenness_centrality_inproc(
+    G,
+    k=None,
+    normalized=True,
+    weight=None,
+    seed=None,
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.centrality.betweenness.edge_betweenness_centrality(
+            H,
+            k=k,
+            normalized=normalized,
+            weight=weight,
+            seed=seed,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def edge_betweenness_centrality(
     G,
     k=None,
@@ -31519,8 +31562,7 @@ def edge_betweenness_centrality(
 
     # Delegate to NetworkX for unsupported parameters
     if k is not None or not normalized or weight is not None or seed is not None:
-        return _call_networkx_for_parity(
-            "edge_betweenness_centrality",
+        return _edge_betweenness_centrality_inproc(
             G,
             k=k,
             normalized=normalized,
@@ -31534,8 +31576,7 @@ def edge_betweenness_centrality(
     # dimension and the per-edge values. Delegate multigraphs to nx so the
     # key shape and values match the reference.
     if G.is_multigraph():
-        return _call_networkx_for_parity(
-            "edge_betweenness_centrality",
+        return _edge_betweenness_centrality_inproc(
             G,
             k=k,
             normalized=normalized,
