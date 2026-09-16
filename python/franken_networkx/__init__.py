@@ -31317,6 +31317,33 @@ def pagerank_many(
         return list(executor.map(_solve, queries))
 
 
+def _pagerank_inproc(
+    G,
+    alpha=0.85,
+    personalization=None,
+    max_iter=100,
+    tol=1.0e-6,
+    nstart=None,
+    weight="weight",
+    dangling=None,
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.link_analysis.pagerank_alg.pagerank(
+            H,
+            alpha=alpha,
+            personalization=personalization,
+            max_iter=max_iter,
+            tol=tol,
+            nstart=nstart,
+            weight=weight,
+            dangling=dangling,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def pagerank(
     G,
     alpha=0.85,
@@ -31383,8 +31410,7 @@ def pagerank(
         and (pagerank_weight is None or isinstance(pagerank_weight, str))
     ):
         if _pagerank_needs_networkx_weight_parity(G, pagerank_weight):
-            return _call_networkx_for_parity(
-                "pagerank",
+            return _pagerank_inproc(
                 G,
                 alpha=alpha,
                 personalization=None,
@@ -31909,6 +31935,33 @@ def katz_centrality_many(
         return [answer for block in solved_blocks for answer in block]
 
 
+def _katz_centrality_inproc(
+    G,
+    alpha=0.1,
+    beta=1.0,
+    max_iter=1000,
+    tol=1.0e-6,
+    nstart=None,
+    normalized=True,
+    weight=None,
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.centrality.katz.katz_centrality(
+            H,
+            alpha=alpha,
+            beta=beta,
+            max_iter=max_iter,
+            tol=tol,
+            nstart=nstart,
+            normalized=normalized,
+            weight=weight,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def katz_centrality(
     G,
     alpha=0.1,
@@ -31987,8 +32040,7 @@ def katz_centrality(
                 raise
             except (ValueError, ZeroDivisionError, FloatingPointError, NetworkXError):
                 pass
-        return _call_networkx_for_parity(
-            "katz_centrality",
+        return _katz_centrality_inproc(
             G,
             alpha=alpha,
             beta=beta,
@@ -34785,6 +34837,29 @@ def closeness_vitality(
     }
 
 
+def _spectral_ordering_inproc(
+    G,
+    weight="weight",
+    normalized=False,
+    tol=1e-08,
+    method="tracemin_pcg",
+    seed=None,
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.linalg.algebraicconnectivity.spectral_ordering(
+            H,
+            weight=weight,
+            normalized=normalized,
+            tol=tol,
+            method=method,
+            seed=seed,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def spectral_ordering(
     G,
     weight="weight",
@@ -34804,8 +34879,7 @@ def spectral_ordering(
     broke. Delegate to nx so the chosen sign + tie-break match
     exactly.
     """
-    return _call_networkx_for_parity(
-        "spectral_ordering",
+    return _spectral_ordering_inproc(
         G,
         weight=weight,
         normalized=normalized,
@@ -38334,6 +38408,27 @@ def _group_preprocessing_local(G, group_nodes, weight):
     return path_betweenness, sigma, distances
 
 
+def _load_centrality_inproc(
+    G,
+    v=None,
+    cutoff=None,
+    normalized=True,
+    weight=None,
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.centrality.load.load_centrality(
+            H,
+            v=v,
+            cutoff=cutoff,
+            normalized=normalized,
+            weight=weight,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def load_centrality(
     G,
     v=None,
@@ -38426,8 +38521,7 @@ def load_centrality(
         or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
         or _has_nonnumeric_edge_weight(G, weight)
     ):
-        return _call_networkx_for_parity(
-            "load_centrality",
+        return _load_centrality_inproc(
             G,
             v=v,
             cutoff=cutoff,
@@ -45064,6 +45158,36 @@ def edge_current_flow_betweenness_centrality(
     return {(ordering[s], ordering[t]): value for (s, t), value in betweenness.items()}
 
 
+def _approximate_current_flow_betweenness_centrality_inproc(
+    G,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver="lu",
+    epsilon=0.5,
+    kmax=10000,
+    seed=None,
+    *,
+    sample_weight=1,
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.centrality.current_flow_betweenness.approximate_current_flow_betweenness_centrality(
+            H,
+            normalized=normalized,
+            weight=weight,
+            dtype=dtype,
+            solver=solver,
+            epsilon=epsilon,
+            kmax=kmax,
+            seed=seed,
+            sample_weight=sample_weight,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def approximate_current_flow_betweenness_centrality(
     G,
     normalized=True,
@@ -45093,8 +45217,7 @@ def approximate_current_flow_betweenness_centrality(
     # full default so the common call beats nx without changing the result; an
     # explicit solver= choice (lu / cg) is honoured as given.
     effective_solver = "lu" if solver == "full" else solver
-    return _call_networkx_for_parity(
-        "approximate_current_flow_betweenness_centrality",
+    return _approximate_current_flow_betweenness_centrality_inproc(
         G,
         normalized=normalized,
         weight=weight,
