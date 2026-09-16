@@ -19,7 +19,16 @@ import franken_networkx.algorithms as fnx_algorithms
 
 
 def test_overridden_submodules_are_fnx():
-    for name in ("community", "connectivity", "isomorphism"):
+    for name in (
+        "community",
+        "connectivity",
+        "isomorphism",
+        "shortest_paths",
+        "coloring",
+        "node_classification",
+        "planar_drawing",
+        "time_dependent",
+    ):
         assert getattr(fnx_algorithms, name) is getattr(fnx, name)
         assert getattr(fnx_algorithms, name) is not getattr(nx.algorithms, name)
 
@@ -43,3 +52,70 @@ def test_doubly_nested_isomorphism_is_native():
     g = fnx.complete_graph(4)
     h = fnx.complete_graph(4)
     assert fnx.is_isomorphic(g, h)
+
+
+def test_shortest_paths_submodule_routes_to_fnx_native():
+    assert fnx.shortest_paths.shortest_path is fnx.shortest_path
+    assert fnx.algorithms.shortest_paths.shortest_path is fnx.shortest_path
+    assert fnx.algorithms.shortest_paths.dijkstra_path is fnx.dijkstra_path
+    assert fnx.algorithms.shortest_paths.weighted.dijkstra_path is fnx.dijkstra_path
+    assert (
+        fnx.algorithms.shortest_paths.unweighted.single_source_shortest_path
+        is fnx.single_source_shortest_path
+    )
+
+    g = fnx.path_graph(5)
+    from franken_networkx.algorithms.shortest_paths.weighted import dijkstra_path
+    from franken_networkx.algorithms.shortest_paths import shortest_path
+
+    assert dijkstra_path(g, 0, 4) == [0, 1, 2, 3, 4]
+    assert shortest_path(g, 0, 4) == [0, 1, 2, 3, 4]
+
+
+def test_coloring_submodule_routes_to_fnx_native():
+    assert fnx.coloring.greedy_color is fnx.greedy_color
+    assert fnx.algorithms.coloring.greedy_color is fnx.greedy_color
+    assert fnx.algorithms.coloring.greedy_coloring.greedy_color is fnx.greedy_color
+
+    g = fnx.cycle_graph(4)
+    from franken_networkx.algorithms.coloring import greedy_color
+    from franken_networkx.algorithms.coloring.greedy_coloring import (
+        greedy_color as greedy_color_child,
+    )
+
+    assert greedy_color(g) == {0: 0, 1: 1, 2: 0, 3: 1}
+    assert greedy_color_child(g) == {0: 0, 1: 1, 2: 0, 3: 1}
+
+
+def test_planar_drawing_submodule_routes_to_fnx_native():
+    assert (
+        fnx.planar_drawing.combinatorial_embedding_to_pos
+        is fnx.combinatorial_embedding_to_pos
+    )
+    assert (
+        fnx.algorithms.planar_drawing.combinatorial_embedding_to_pos
+        is fnx.combinatorial_embedding_to_pos
+    )
+    from franken_networkx.algorithms.planar_drawing import (
+        combinatorial_embedding_to_pos,
+    )
+
+    assert combinatorial_embedding_to_pos is fnx.combinatorial_embedding_to_pos
+
+
+def test_time_dependent_submodule_routes_to_fnx_native():
+    assert fnx.time_dependent.cd_index is fnx.cd_index
+    assert fnx.algorithms.time_dependent.cd_index is fnx.cd_index
+    from franken_networkx.algorithms.time_dependent import cd_index
+
+    assert cd_index is fnx.cd_index
+
+    g = fnx.DiGraph()
+    g.add_node(0, time=1)
+    g.add_node(1, time=2)
+    g.add_node(2, time=3)
+    g.add_edge(1, 0)
+    g.add_edge(0, 2)
+    assert cd_index(g, 0, 5, time="time") == 1.0
+
+

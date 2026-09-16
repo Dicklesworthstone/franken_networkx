@@ -27938,6 +27938,18 @@ def read_adjlist(
             and nodetype is None
         ):
             return _rust_read_adjlist(path, mode=mode)
+    if (
+        comments == "#"
+        and delimiter is None
+        and nodetype is None
+        and encoding == "utf-8"
+        and isinstance(path, str)
+        and not path.endswith((".gz", ".bz2"))
+        and (create_using is None or create_using is Graph)
+    ):
+        native = _fnx.read_adjlist_simple(path)
+        if native is not None:
+            return native
     from .readwrite import parse_adjlist as _parse_adjlist
 
     return _read_decoded_lines_via_open_file(
@@ -28135,6 +28147,15 @@ def read_gml(
     _validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         return _rust_read_gml(path, label=label, destringizer=destringizer, mode=mode)
+    if label == "label" and destringizer is None:
+        try:
+            if isinstance(path, (str, bytes)) or hasattr(path, "__fspath__"):
+                with open(path, "rb") as _fh:
+                    _head = _fh.read(1024)
+                if b"multigraph 1" not in _head:
+                    return _rust_read_gml(path, label=label, destringizer=destringizer)
+        except Exception:
+            pass
     return _read_gml_via_nx(path, label=label, destringizer=destringizer)
 
 
@@ -55878,25 +55899,12 @@ def to_prufer_sequence(T):
 
 def from_nested_tuple(sequence, sensible_relabeling=False):
     """Build tree from nested tuple representation."""
-    G = Graph()
-    counter = [0]
+    from franken_networkx.tree import from_nested_tuple as _tree_from_nested_tuple
 
-    def _build(parent, subtree):
-        for child_tree in subtree:
-            child = counter[0]
-            counter[0] += 1
-            G.add_node(child)
-            if parent is not None:
-                G.add_edge(parent, child)
-            if isinstance(child_tree, tuple):
-                _build(child, child_tree)
+    return _tree_from_nested_tuple(
+        sequence, sensible_relabeling=sensible_relabeling
+    )
 
-    root = counter[0]
-    counter[0] += 1
-    G.add_node(root)
-    if isinstance(sequence, tuple):
-        _build(root, sequence)
-    return G
 
 
 def to_nested_tuple(T, root, canonical_form=False):
@@ -70552,8 +70560,10 @@ def _resync_submodule_exports():
     for mod_name in (
         "assortativity",
         "centrality",
+        "coloring",
         "distance_measures",
         "link_analysis",
+        "shortest_paths",
     ):
         for prefix in (f"{__name__}.{mod_name}", f"{__name__}.algorithms.{mod_name}"):
             mod = _sys.modules.get(prefix)
@@ -70565,6 +70575,8 @@ def _resync_submodule_exports():
         ("chains", ("chain_decomposition",)),
         ("communicability_alg", ("communicability", "communicability_exp")),
         ("asteroidal", ("is_at_free", "find_asteroidal_triple")),
+        ("planar_drawing", ("combinatorial_embedding_to_pos",)),
+        ("time_dependent", ("cd_index",)),
     ):
         for prefix in (f"{__name__}.{mod_name}", f"{__name__}.algorithms.{mod_name}"):
             mod = _sys.modules.get(prefix)
@@ -71058,6 +71070,7 @@ def __getattr__(name):
         "centrality",
         "chains",
         "cluster",
+        "coloring",
         "communicability_alg",
         "covering",
         "cuts",
@@ -71077,12 +71090,15 @@ def __getattr__(name):
         "matching",
         "mis",
         "perfect_graph",
+        "planar_drawing",
         "polynomials",
         "richclub",
+        "shortest_paths",
         "similarity",
         "simple_paths",
         "smetric",
         "structuralholes",
+        "time_dependent",
         "vitality",
         "voronoi",
         "walks",
@@ -71161,6 +71177,7 @@ __all__ += [
     "centrality",
     "chains",
     "cluster",
+    "coloring",
     "communicability_alg",
     "connectivity",
     "covering",
@@ -71182,12 +71199,15 @@ __all__ += [
     "matching",
     "mis",
     "perfect_graph",
+    "planar_drawing",
     "polynomials",
     "richclub",
+    "shortest_paths",
     "similarity",
     "simple_paths",
     "smetric",
     "structuralholes",
+    "time_dependent",
     "vitality",
     "voronoi",
     "walks",
