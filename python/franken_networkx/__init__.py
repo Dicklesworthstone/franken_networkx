@@ -13477,8 +13477,10 @@ def has_path(G, source, target):
     """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if _path_query_has_missing_nodes(G, source=source, target=target):
-        return _call_networkx_for_parity("has_path", G, source, target)
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
     return _raw_has_path(G, source, target)
 
 

@@ -5004,13 +5004,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 619 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 122 | 178 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 620 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 121 | 177 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 73 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 122 public export(s) and 178 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 121 public export(s) and 177 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -5020,7 +5020,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 122 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 121 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -5125,7 +5125,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `harmonic_centrality` | 1 | `harmonic_centrality` |
 | `harmonic_diameter` | 1 | `harmonic_diameter` |
 | `has_eulerian_path` | 3 | `has_eulerian_path` |
-| `has_path` | 1 | `has_path` |
 | `hyper_wiener_index` | 1 | `hyper_wiener_index` |
 | `incremental_closeness_centrality` | 1 | `incremental_closeness_centrality` |
 | `is_chordal` | 1 | `is_chordal` |
