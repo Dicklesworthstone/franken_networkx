@@ -289,3 +289,9 @@ def build_auxiliary_edge_connectivity(G, *, backend=None, **backend_kwargs):
             edges.extend([(source, target), (target, source)])
         H.add_edges_from(edges, capacity=1)
     return H
+
+
+bridge_components = _fnx._bridge_components
+EdgeComponentAuxGraph = _fnx._EdgeComponentAuxGraph
+general_k_edge_subgraphs = _fnx._general_k_edge_subgraphs
+
