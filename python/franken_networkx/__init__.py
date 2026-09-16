@@ -18140,12 +18140,15 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             return int(value)
         return value
 
-    # Callable weight support requires nx's three-arg edge-data evaluator;
-    # the in-process Dijkstra below uses a string-keyed lookup. Delegate
-    # the callable case to nx (the without_fallback parity test only
-    # blocks fallback for string weights — callables are out of scope).
+    # Callable weight support evaluates shortest_path_length in-process
+    # directly matching NetworkX semantics without cross-package delegation.
     if callable(weight):
-        return _call_networkx_for_parity("wiener_index", G, weight=weight)
+        connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
+        if not connected:
+            return float("inf")
+        spl = shortest_path_length(G, weight=weight)
+        total = sum(_itertools.chain.from_iterable(nbrs.values() for node, nbrs in spl))
+        return total if G.is_directed() else total / 2
 
     # Weighted simple graphs and multigraphs stay on the in-process
     # Python BFS/Dijkstra path below (NOT a fallback to nx — the
@@ -19506,16 +19509,19 @@ from franken_networkx._fnx import (
 def is_dominating_set(G, nbunch):
     """Return True if ``nbunch`` is a dominating set of ``G``.
 
-    br-r37-c1-hdhe3: the Rust kernel ``_raw_is_dominating_set`` has
-    ``require_undirected`` and rejects directed input. nx supports
-    DiGraph / MultiDiGraph for is_dominating_set (checks coverage
-    via out-neighbors / successors). Sister of br-r37-c1-3jn5a which
-    fixed ``dominating_set`` the same way.
+    # br-r37-c1-hdhe3: the Rust kernel ``_raw_is_dominating_set`` has
+    # ``require_undirected`` and rejects directed input. nx supports
+    # DiGraph / MultiDiGraph for is_dominating_set (checks coverage
+    # via out-neighbors / successors).
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
-        return _call_networkx_for_parity("is_dominating_set", G, nbunch)
+        testset = {n for n in nbunch if n in G}
+        dominated = set(testset)
+        for n in testset:
+            dominated.update(G[n])
+        return len(dominated) == len(G)
     return _raw_is_dominating_set(G, nbunch)
 
 
@@ -19553,50 +19559,42 @@ def dominating_set(G, start_with=None):
     # below so the chosen set is identical. (Empty graph keeps fnx's set()
     # return rather than nx's StopIteration leak.)
     # br-r37-c1-04z53: the same greedy is valid for directed graphs because
-    # ``G[v]`` iterates successors, matching nx. Only empty directed graphs
-    # still use the parity fallback below to preserve the prior exception.
-    if start_with is None and len(G) > 0:
+    # ``G[v]`` iterates successors, matching nx. Empty directed graphs
+    # raise StopIteration matching NetworkX.
+    if start_with is None:
+        if len(G) == 0:
+            if G.is_directed():
+                raise StopIteration
+            result = _raw_dominating_set(G)
+            return set(result) if not isinstance(result, set) else result
         start_with = next(iter(set(G)))
-    if start_with is not None:
-        if start_with not in G:
-            raise NetworkXError(f"node {start_with} is not in G")
-        _raw_nbrs = _raw_neighbors_dispatch(G)
-        if _raw_nbrs is not None:
-            all_nodes = set(G)
-            dominating: set = {start_with}
-            dominated = set(_raw_nbrs(G, start_with))
-            remaining = all_nodes - dominated - dominating
-            while remaining:
-                v = remaining.pop()
-                undom_nbrs = set(_raw_nbrs(G, v)) - dominating
-                dominating.add(v)
-                dominated |= undom_nbrs
-                remaining -= undom_nbrs
-            return dominating
-        # Multigraph / private-storage path: stay on G[u].
+    if start_with not in G:
+        raise NetworkXError(f"node {start_with} is not in G")
+    _raw_nbrs = _raw_neighbors_dispatch(G)
+    if _raw_nbrs is not None:
         all_nodes = set(G)
-        dominating = {start_with}
-        dominated = set(G[start_with])
+        dominating: set = {start_with}
+        dominated = set(_raw_nbrs(G, start_with))
         remaining = all_nodes - dominated - dominating
         while remaining:
             v = remaining.pop()
-            undom_nbrs = set(G[v]) - dominating
+            undom_nbrs = set(_raw_nbrs(G, v)) - dominating
             dominating.add(v)
             dominated |= undom_nbrs
             remaining -= undom_nbrs
         return dominating
-    # br-r37-c1-3jn5a: _raw_dominating_set has require_undirected, but
-    # nx supports DiGraph (uses out-neighbors / successors for the
-    # greedy step). Delegate directed input to nx so drop-in callers
-    # using DiGraph keep working.
-    if G.is_directed():
-        return _call_networkx_for_parity("dominating_set", G, start_with=start_with)
-    # br-domtype: nx.dominating_set returns a set; the Rust binding
-    # returned a list. The docstring already claims set, so users
-    # relying on set operations (union/intersection/issubset) silently
-    # broke. Coerce the Rust list-of-nodes to set.
-    result = _raw_dominating_set(G)
-    return set(result) if not isinstance(result, set) else result
+    # Multigraph / private-storage path: stay on G[u].
+    all_nodes = set(G)
+    dominating = {start_with}
+    dominated = set(G[start_with])
+    remaining = all_nodes - dominated - dominating
+    while remaining:
+        v = remaining.pop()
+        undom_nbrs = set(G[v]) - dominating
+        dominating.add(v)
+        dominated |= undom_nbrs
+        remaining -= undom_nbrs
+    return dominating
 
 # Algorithm functions — community detection
 from franken_networkx._fnx import (
@@ -23310,25 +23308,30 @@ def cut_size(G, S, T=None, weight=None):
     """
     # br-r37-c1-eog89: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_multigraph():
-        return _call_networkx_for_parity(
-            "cut_size", G, S, T=T, weight=weight,
-        )
+    if not G.is_multigraph() and (
+        weight is None or not _graph_has_nonunit_weight(G, weight)
+    ):
+        S_nb = _coerce_nbunch(S)
+        T_nb = _coerce_nbunch(T)
+        raw = _raw_cut_size(G, S_nb, T_nb, weight=weight)
+        if weight is None or _sp_edge_weights_all_int(G, weight):
+            if isinstance(raw, float) and raw.is_integer():
+                return int(raw)
+        return raw
 
-    # br-r37-c1-2c8ed: the Rust _raw_cut_size silently ignores the
-    # weight kwarg (returns unweighted edge count). Delegate to nx
-    # when the input actually has a non-unit weight attribute.
-    if weight is not None and _graph_has_nonunit_weight(G, weight):
-        return _call_networkx_for_parity(
-            "cut_size", G, S, T=T, weight=weight,
+    if T is None:
+        T_eff = set(G) - set(S)
+    else:
+        T_eff = T
+    edges = edge_boundary(G, S, T_eff, data=weight, default=1)
+    if G.is_directed():
+        edges = _itertools.chain(
+            edges, edge_boundary(G, T_eff, S, data=weight, default=1)
         )
-
-    S_nb = _coerce_nbunch(S)
-    T_nb = _coerce_nbunch(T)
-    raw = _raw_cut_size(G, S_nb, T_nb, weight=weight)
-    if weight is None or _sp_edge_weights_all_int(G, weight):
-        # Result is necessarily an integer (edge _count or sum of int
-        # weights); coerce safely.
+    if weight is None:
+        return sum(1 for _ in edges)
+    raw = sum(w for u, v, w in edges)
+    if _sp_edge_weights_all_int(G, weight):
         if isinstance(raw, float) and raw.is_integer():
             return int(raw)
     return raw
@@ -23338,18 +23341,12 @@ def normalized_cut_size(G, S, T=None, weight=None):
     """br-boundkw: ``G, S, T`` match nx."""
     # br-r37-c1-eog89: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_multigraph():
-        return _call_networkx_for_parity(
-            "normalized_cut_size", G, S, T=T, weight=weight,
-        )
-    # br-r37-c1-2c8ed: sister of cut_size — Rust path ignores weight.
-    if weight is not None and _graph_has_nonunit_weight(G, weight):
-        return _call_networkx_for_parity(
-            "normalized_cut_size", G, S, T=T, weight=weight,
-        )
-    S_nb = _coerce_nbunch(S)
-    T_nb = _coerce_nbunch(T)
-    return _raw_normalized_cut_size(G, S_nb, T_nb, weight=weight)
+    if T is None:
+        T = set(G) - set(S)
+    num_cut_edges = cut_size(G, S, T=T, weight=weight)
+    volume_S = volume(G, S, weight=weight)
+    volume_T = volume(G, T, weight=weight)
+    return num_cut_edges * ((1 / volume_S) + (1 / volume_T))
 
 
 def node_boundary(G, nbunch1, nbunch2=None, *, backend=None, **backend_kwargs):
@@ -23438,40 +23435,10 @@ def edge_boundary(
 
 def volume(G, S, weight=None):
     """Return the volume of a set of nodes."""
-    # br-r37-c1-ay2no: fast path for the common case — undirected,
-    # unweighted, no multigraph. ``volume(G, S) == sum(deg(v) for v in S)``
-    # holds for any undirected simple graph including those with
-    # self-loops (G.degree counts each self-loop twice, matching
-    # the volume definition's nbr == node *2 contribution).
-    # Profiling on BA200 showed the slow per-node AtlasView walk was
-    # 207x slower than nx; G.degree is O(1) per node via the Rust
-    # binding.
-    if (
-        weight is None
-        and not G.is_multigraph()
-        and not G.is_directed()
-    ):
-        # br-r37-c1-volsubdeg (cc): pass S straight to the degree view —
-        # ``sum(d for v, d in G.degree(S))``, nx's own formula. The prior
-        # ``dict(G.degree())`` materialized ALL |V| degrees regardless of |S|,
-        # which is O(V) even for a handful of query nodes: at N=2000 it was
-        # 216 µs / 0.06x vs nx for |S|=40 (16x SLOWER). The subset degree view is
-        # O(|S|) and BEATS nx across the board (small 6.9 vs 13.5 µs, |S|=500
-        # 73 vs 82, |S|=all 285 vs 316). Byte-exact incl self-loops (degree counts
-        # them twice) and missing nodes (degree(nbunch) skips them == the old
-        # get(v, 0) contributing 0).
-        return sum(d for v, d in G.degree(S))
-    return sum(
-        _adc_weighted_degree(
-            G,
-            node,
-            incoming=not G.is_directed(),
-            outgoing=True,
-            weight=weight,
-        )
-        for node in S
-        if node in G
-    )
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        return sum(d for v, d in G.out_degree(S, weight=weight))
+    return sum(d for v, d in G.degree(S, weight=weight))
 
 
 def edge_expansion(G, S, T=None, weight=None):
@@ -43087,7 +43054,9 @@ def hyper_wiener_index(G, weight=None):
             native_weighted = getattr(_fnx, "hyper_wiener_index_weighted_rust", None)
             if native_weighted is not None:
                 return native_weighted(G, weight)
-        return _call_networkx_for_parity("hyper_wiener_index", G, weight=weight)
+        spl = shortest_path_length(G, weight=weight)
+        total = sum(dist + dist**2 for _, lengths in spl for dist in lengths.values())
+        return total / 2
     return _fnx.hyper_wiener_index_rust(G)
 
 

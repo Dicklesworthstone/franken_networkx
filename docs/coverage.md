@@ -5004,13 +5004,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 624 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 117 | 173 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 630 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 111 | 165 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 73 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 117 public export(s) and 173 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 111 public export(s) and 165 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -5020,7 +5020,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 117 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 111 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -5095,7 +5095,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `closeness_centrality` | 1 | `closeness_centrality` |
 | `complete_to_chordal_graph` | 1 | `complete_to_chordal_graph` |
 | `constraint` | 1 | `constraint` |
-| `cut_size` | 2 | `cut_size` |
 | `degree_assortativity_coefficient` | 2 | `degree_assortativity_coefficient` |
 | `dfs_labeled_edges` | 1 | `dfs_labeled_edges` |
 | `diameter` | 1 | `diameter` |
@@ -5103,7 +5102,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `dijkstra_path_length` | 4 | `dijkstra_path_length` |
 | `directed_combinatorial_laplacian_matrix` | 1 | `directed_combinatorial_laplacian_matrix` |
 | `directed_laplacian_matrix` | 1 | `directed_laplacian_matrix` |
-| `dominating_set` | 1 | `dominating_set` |
 | `eccentricity` | 2 | `eccentricity` |
 | `edge_betweenness_centrality` | 2 | `edge_betweenness_centrality` |
 | `edge_connectivity` | 4 | `edge_connectivity` |
@@ -5124,10 +5122,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `harmonic_centrality` | 1 | `harmonic_centrality` |
 | `harmonic_diameter` | 1 | `harmonic_diameter` |
 | `has_eulerian_path` | 3 | `has_eulerian_path` |
-| `hyper_wiener_index` | 1 | `hyper_wiener_index` |
 | `incremental_closeness_centrality` | 1 | `incremental_closeness_centrality` |
 | `is_chordal` | 1 | `is_chordal` |
-| `is_dominating_set` | 1 | `is_dominating_set` |
 | `is_eulerian` | 1 | `is_eulerian` |
 | `is_minimal_d_separator` | 1 | `is_minimal_d_separator` |
 | `johnson` | 1 | `johnson` |
@@ -5157,7 +5153,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `negative_edge_cycle` | 1 | `negative_edge_cycle` |
 | `node_connectivity` | 4 | `node_connectivity` |
 | `node_disjoint_paths` | 2 | `node_disjoint_paths` |
-| `normalized_cut_size` | 2 | `normalized_cut_size` |
 | `omega` | 1 | `omega` |
 | `pagerank` | 1 | `pagerank` |
 | `partition_spanning_tree` | 1 | `partition_spanning_tree` |
@@ -5185,7 +5180,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `tutte_polynomial` | 1 | `tutte_polynomial` |
 | `weisfeiler_lehman_graph_hash` | 1 | `weisfeiler_lehman_graph_hash` |
 | `weisfeiler_lehman_subgraph_hashes` | 1 | `weisfeiler_lehman_subgraph_hashes` |
-| `wiener_index` | 1 | `wiener_index` |
 
 ## Module Breakdown
 
