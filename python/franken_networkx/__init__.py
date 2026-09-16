@@ -16917,11 +16917,64 @@ def _branching_structural_nx(G, nx_name, attr, default):
     # `default` to the rest. Materialising `d.get(attr, default)` here is WRONG and was
     # caught by the parameter sweep: on a graph with no weight attribute and default=-1,
     # writing -1 onto every edge made networkx select a full branching where the
-    # unmaterialised call returns an empty one.
     _H.add_edges_from(
         (u, v, {attr: d[attr]} if attr in d else {}) for u, v, d in G.edges(data=True)
     )
-    return getattr(_nx, nx_name)(_H, attr=attr, default=default)
+    fn = getattr(_nx.algorithms.tree.branchings, nx_name)
+    try:
+        return fn(_H, attr=attr, default=default)
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def _minimum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    nx_g = _branching_partition_graph_for_networkx(G, partition)
+    try:
+        return _nx.algorithms.tree.branchings.minimum_branching(
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def _maximum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    nx_g = _branching_partition_graph_for_networkx(G, partition)
+    try:
+        return _nx.algorithms.tree.branchings.maximum_branching(
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def _minimum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    nx_g = _branching_partition_graph_for_networkx(G, partition)
+    try:
+        return _nx.algorithms.tree.branchings.minimum_spanning_arborescence(
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def _maximum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    nx_g = _branching_partition_graph_for_networkx(G, partition)
+    try:
+        return _nx.algorithms.tree.branchings.maximum_spanning_arborescence(
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def _random_spanning_tree_inproc(G, weight=None, *, multiplicative=True, seed=None):
+    nx_g = _networkx_graph_for_parity(G)
+    try:
+        return _nx.algorithms.tree.mst.random_spanning_tree(
+            nx_g, weight=weight, multiplicative=multiplicative, seed=seed,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -16969,9 +17022,8 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
             return _from_nx_graph(
                 _branching_structural_nx(G, "minimum_branching", attr, default)
             )
-        nx_result = _call_networkx_for_parity(
-            "minimum_branching", _branching_partition_graph_for_networkx(G, partition),
-            attr=attr, default=default,
+        nx_result = _minimum_branching_inproc(
+            G, attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
         )
         return _from_nx_graph(nx_result)
@@ -17022,9 +17074,8 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
         return _from_nx_graph(
             _branching_structural_nx(G, "maximum_branching", attr, default)
         )
-    nx_result = _call_networkx_for_parity(
-        "maximum_branching", _branching_partition_graph_for_networkx(G, partition),
-        attr=attr, default=default,
+    nx_result = _maximum_branching_inproc(
+        G, attr=attr, default=default,
         preserve_attrs=preserve_attrs, partition=partition,
     )
     return _from_nx_graph(nx_result)
@@ -17046,9 +17097,8 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
         raise NetworkXNotImplemented("not implemented for undirected type")
     if partition is not None or G.is_multigraph():
         from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _call_networkx_for_parity(
-            "minimum_spanning_arborescence",
-            _branching_partition_graph_for_networkx(G, partition),
+        nx_result = _minimum_spanning_arborescence_inproc(
+            G,
             attr=attr,
             default=default,
             preserve_attrs=preserve_attrs,
@@ -17092,11 +17142,14 @@ def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_
     backend). The implementation delegates to nx's pure-Python kernel via
     the existing parity bridge.
     """
-    return _call_networkx_submodule_for_parity(
-        "algorithms.tree", "minimal_branching", G,
-        attr=attr, default=default,
-        preserve_attrs=preserve_attrs, partition=partition,
-    )
+    nx_g = _branching_partition_graph_for_networkx(G, partition)
+    try:
+        return _nx.algorithms.tree.branchings.minimal_branching(
+            nx_g, attr=attr, default=default,
+            preserve_attrs=preserve_attrs, partition=partition,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -17112,9 +17165,8 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
         raise NetworkXNotImplemented("not implemented for undirected type")
     if partition is not None or G.is_multigraph():
         from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _call_networkx_for_parity(
-            "maximum_spanning_arborescence",
-            _branching_partition_graph_for_networkx(G, partition),
+        nx_result = _maximum_spanning_arborescence_inproc(
+            G,
             attr=attr,
             default=default,
             preserve_attrs=preserve_attrs,
@@ -17146,8 +17198,7 @@ def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
     attribute carryover from G). Strict nx parity is enforced by
     test_spanning_tree_conformance.py — see commit 122ab6a2.
     """
-    nx_result = _call_networkx_for_parity(
-        "random_spanning_tree",
+    nx_result = _random_spanning_tree_inproc(
         G,
         weight=weight,
         multiplicative=multiplicative,
