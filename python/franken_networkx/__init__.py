@@ -15398,6 +15398,21 @@ def min_weight_matching(G, weight="weight"):
     return _min_weight_matching_structural_nx(G, weight)
 
 
+def _max_weight_matching_structural_nx(G, maxcardinality, weight):
+    """Structural-only in-process nx delegation for ``max_weight_matching``."""
+    _H = _nx.Graph()
+    _H.add_nodes_from(G)
+    _H.add_weighted_edges_from(
+        ((u, v, d.get(weight, 1)) for u, v, d in G.edges(data=True)), weight=weight
+    )
+    try:
+        return _nx.algorithms.matching.max_weight_matching(
+            _H, maxcardinality=maxcardinality, weight=weight
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def max_weight_matching(G, maxcardinality=False, weight="weight"):
     """Compute a maximum-weight matching in the graph.
 
@@ -15429,9 +15444,8 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    return _call_networkx_for_parity(
-        "max_weight_matching", G,
-        maxcardinality=maxcardinality, weight=weight,
+    return _max_weight_matching_structural_nx(
+        G, maxcardinality=maxcardinality, weight=weight
     )
 
 
@@ -15667,6 +15681,28 @@ def _check_flow_endpoints(flowG, source, sink):
         raise NetworkXError(f"node {sink} not in graph")
 
 
+def _maximum_flow_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(flowG)
+    try:
+        return _nx.algorithms.flow.maxflow.maximum_flow(
+            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def _maximum_flow_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(flowG)
+    try:
+        return _nx.algorithms.flow.maxflow.maximum_flow_value(
+            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
 
@@ -15679,16 +15715,16 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     _reject_multigraph_flow(flowG)
     _check_flow_endpoints(flowG, _s, _t)
     if flow_func is not None or kwargs:
-        return _call_networkx_for_parity(
-            "maximum_flow", flowG, _s, _t, capacity=capacity,
+        return _maximum_flow_inproc(
+            flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
     # br-r37-c1-31tby: one edge scan yields both the route-to-nx decision
     # and the int-coercion flag (was two full-graph scans).
     needs_nx, all_int = _flow_caps_summary(flowG, capacity)
     if needs_nx:
-        return _call_networkx_for_parity(
-            "maximum_flow", flowG, _s, _t, capacity=capacity,
+        return _maximum_flow_inproc(
+            flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
     _sync_rust_edge_attrs(flowG, edge_only=True)
@@ -15703,15 +15739,15 @@ def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwa
     _reject_multigraph_flow(flowG)
     _check_flow_endpoints(flowG, _s, _t)
     if flow_func is not None or kwargs:
-        return _call_networkx_for_parity(
-            "maximum_flow_value", flowG, _s, _t, capacity=capacity,
+        return _maximum_flow_value_inproc(
+            flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
     # br-r37-c1-31tby: single fused capacity scan.
     needs_nx, all_int = _flow_caps_summary(flowG, capacity)
     if needs_nx:
-        return _call_networkx_for_parity(
-            "maximum_flow_value", flowG, _s, _t, capacity=capacity,
+        return _maximum_flow_value_inproc(
+            flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
     _sync_rust_edge_attrs(flowG, edge_only=True)
@@ -15745,6 +15781,28 @@ def _validate_flow_func_selector(flow_func):
 
 
 
+def _minimum_cut_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(flowG)
+    try:
+        return _nx.algorithms.flow.maxflow.minimum_cut(
+            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def _minimum_cut_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(flowG)
+    try:
+        return _nx.algorithms.flow.maxflow.minimum_cut_value(
+            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Return the minimum cut value and node partition.
 
@@ -15773,8 +15831,7 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
         # br-r37-c1-31tby: single fused capacity scan.
         needs_nx, all_int = _flow_caps_summary(flowG, capacity)
     if needs_nx:
-        return _call_networkx_for_parity(
-            "minimum_cut",
+        return _minimum_cut_inproc(
             flowG,
             _s,
             _t,
@@ -15809,8 +15866,7 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwar
         # br-r37-c1-31tby: single fused capacity scan.
         needs_nx, all_int = _flow_caps_summary(flowG, capacity)
     if needs_nx:
-        return _call_networkx_for_parity(
-            "minimum_cut_value",
+        return _minimum_cut_value_inproc(
             flowG,
             _s,
             _t,
