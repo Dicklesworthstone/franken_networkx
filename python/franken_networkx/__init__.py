@@ -70575,6 +70575,8 @@ def _resync_submodule_exports():
         ("chains", ("chain_decomposition",)),
         ("communicability_alg", ("communicability", "communicability_exp")),
         ("asteroidal", ("is_at_free", "find_asteroidal_triple")),
+        ("planar_drawing", ("combinatorial_embedding_to_pos",)),
+        ("time_dependent", ("cd_index",)),
     ):
         for prefix in (f"{__name__}.{mod_name}", f"{__name__}.algorithms.{mod_name}"):
             mod = _sys.modules.get(prefix)
@@ -71088,6 +71090,7 @@ def __getattr__(name):
         "matching",
         "mis",
         "perfect_graph",
+        "planar_drawing",
         "polynomials",
         "richclub",
         "shortest_paths",
@@ -71095,6 +71098,7 @@ def __getattr__(name):
         "simple_paths",
         "smetric",
         "structuralholes",
+        "time_dependent",
         "vitality",
         "voronoi",
         "walks",
@@ -71195,6 +71199,7 @@ __all__ += [
     "matching",
     "mis",
     "perfect_graph",
+    "planar_drawing",
     "polynomials",
     "richclub",
     "shortest_paths",
@@ -71202,6 +71207,7 @@ __all__ += [
     "simple_paths",
     "smetric",
     "structuralholes",
+    "time_dependent",
     "vitality",
     "voronoi",
     "walks",
