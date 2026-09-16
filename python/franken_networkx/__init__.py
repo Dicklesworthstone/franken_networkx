@@ -70560,8 +70560,10 @@ def _resync_submodule_exports():
     for mod_name in (
         "assortativity",
         "centrality",
+        "coloring",
         "distance_measures",
         "link_analysis",
+        "shortest_paths",
     ):
         for prefix in (f"{__name__}.{mod_name}", f"{__name__}.algorithms.{mod_name}"):
             mod = _sys.modules.get(prefix)
@@ -71066,6 +71068,7 @@ def __getattr__(name):
         "centrality",
         "chains",
         "cluster",
+        "coloring",
         "communicability_alg",
         "covering",
         "cuts",
@@ -71087,6 +71090,7 @@ def __getattr__(name):
         "perfect_graph",
         "polynomials",
         "richclub",
+        "shortest_paths",
         "similarity",
         "simple_paths",
         "smetric",
@@ -71169,6 +71173,7 @@ __all__ += [
     "centrality",
     "chains",
     "cluster",
+    "coloring",
     "communicability_alg",
     "connectivity",
     "covering",
@@ -71192,6 +71197,7 @@ __all__ += [
     "perfect_graph",
     "polynomials",
     "richclub",
+    "shortest_paths",
     "similarity",
     "simple_paths",
     "smetric",

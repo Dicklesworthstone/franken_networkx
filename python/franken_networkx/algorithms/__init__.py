@@ -112,6 +112,8 @@ _FNX_OVERRIDE_SUBMODULES = {
     "distance_measures",
     "link_analysis",
     "assortativity",
+    "shortest_paths",
+    "coloring",
 }
 
 
@@ -265,6 +267,14 @@ operators = _fnx_operators  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.operators", f"{__name__}.operators"
 )
+
+import franken_networkx.shortest_paths as _fnx_shortest_paths
+_sys.modules[f"{__name__}.shortest_paths"] = _fnx_shortest_paths
+shortest_paths = _fnx_shortest_paths  # Override in module globals
+
+import franken_networkx.coloring as _fnx_coloring
+_sys.modules[f"{__name__}.coloring"] = _fnx_coloring
+coloring = _fnx_coloring  # Override in module globals
 
 
 def cartesian_product(G, H, *, backend=None, **backend_kwargs):
