@@ -13863,6 +13863,17 @@ def number_connected_components(G, *, backend=None, **backend_kwargs):
     return _raw_number_connected_components(G)
 
 
+def _minimum_node_cut_inproc(G, s=None, t=None, flow_func=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.connectivity.cuts.minimum_node_cut(
+            H, s=s, t=t, flow_func=flow_func
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def minimum_node_cut(
     G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs
 ):
@@ -13893,8 +13904,8 @@ def minimum_node_cut(
     if (s is None) != (t is None):
         raise NetworkXError("Both source and target must be specified.")
     if flow_func is not None:
-        return _call_networkx_for_parity(
-            "minimum_node_cut", G, s=s, t=t, flow_func=flow_func,
+        return _minimum_node_cut_inproc(
+            G, s=s, t=t, flow_func=flow_func,
         )
     if s is not None and t is not None:
         if s not in G:
@@ -14220,6 +14231,17 @@ def _build_auxiliary_edge_connectivity_fast(G):
     return H
 
 
+def _node_connectivity_inproc(G, s=None, t=None, flow_func=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.connectivity.connectivity.node_connectivity(
+            H, s=s, t=t, flow_func=flow_func
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def node_connectivity(G, s=None, t=None, flow_func=None):
     """Return the node connectivity of the graph.
 
@@ -14251,8 +14273,7 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     if t is not None and t not in G:
         raise NetworkXError(f"node {t} not in graph")
     if flow_func is not None:
-        return _call_networkx_for_parity(
-            "node_connectivity",
+        return _node_connectivity_inproc(
             G,
             s=s,
             t=t,
@@ -14294,6 +14315,17 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     return K
 
 
+def _edge_connectivity_inproc(G, s=None, t=None, flow_func=None, cutoff=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.connectivity.connectivity.edge_connectivity(
+            H, s=s, t=t, flow_func=flow_func, cutoff=cutoff
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     """Return the edge connectivity of the graph.
 
@@ -14327,8 +14359,7 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     if t is not None and t not in G:
         raise NetworkXError(f"node {t} not in graph")
     if flow_func is not None:
-        return _call_networkx_for_parity(
-            "edge_connectivity",
+        return _edge_connectivity_inproc(
             G,
             s=s,
             t=t,
@@ -30440,6 +30471,17 @@ def local_bridges(G, with_span=True, weight=None, *, backend=None, **backend_kwa
     return _generate()
 
 
+def _minimum_edge_cut_inproc(G, s=None, t=None, flow_func=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.connectivity.cuts.minimum_edge_cut(
+            H, s=s, t=t, flow_func=flow_func
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def minimum_edge_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Return a minimum edge cut of *G*."""
     _validate_backend_dispatch_keywords("minimum_edge_cut", backend, backend_kwargs)
@@ -30450,8 +30492,8 @@ def minimum_edge_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backe
         raise NetworkXError("Both source and target must be specified.")
 
     if flow_func is not None:
-        return _call_networkx_for_parity(
-            "minimum_edge_cut", G, s=s, t=t, flow_func=flow_func,
+        return _minimum_edge_cut_inproc(
+            G, s=s, t=t, flow_func=flow_func,
         )
 
     H = _build_auxiliary_edge_connectivity_fast(G)
@@ -38481,6 +38523,19 @@ def generalized_degree(G, nodes=None):
     return generalized_degrees
 
 
+def _all_pairs_node_connectivity_inproc(G, nbunch=None, flow_func=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.connectivity.connectivity.all_pairs_node_connectivity(
+            H,
+            nbunch=nbunch,
+            flow_func=flow_func,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     """Return node connectivity between all pairs.
 
@@ -38499,8 +38554,7 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     # bulk Rust helper emitted 2 for that entry. Delegate directed
     # inputs to networkx, where local_node_connectivity is correct.
     if G.is_directed() or flow_func is not None:
-        return _call_networkx_for_parity(
-            "all_pairs_node_connectivity",
+        return _all_pairs_node_connectivity_inproc(
             G,
             nbunch=nbunch,
             flow_func=flow_func,
