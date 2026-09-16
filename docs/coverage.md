@@ -5004,13 +5004,13 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 617 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 124 | 180 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| PY_WRAPPER | 619 | 0 | Python-defined export with no visible NetworkX route |
+| NETWORKX_HELPER | 122 | 178 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 73 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 124 public export(s) and 180 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 122 public export(s) and 178 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -5020,7 +5020,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 |------------------|------|------|
 | native-parity | 1 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
-| intentionally-delegated | 124 | AST-visible parity helper or direct NetworkX route |
+| intentionally-delegated | 122 | AST-visible parity helper or direct NetworkX route |
 | raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
 | owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
 
@@ -5069,7 +5069,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Export | Helper call sites | NetworkX target(s) |
 |--------|-------------------|--------------------|
-| `all_pairs_all_shortest_paths` | 1 | `all_pairs_all_shortest_paths` |
 | `all_pairs_bellman_ford_path` | 1 | `all_pairs_bellman_ford_path` |
 | `all_pairs_bellman_ford_path_length` | 1 | `all_pairs_bellman_ford_path_length` |
 | `all_pairs_dijkstra_path` | 1 | `all_pairs_dijkstra_path` |
@@ -5177,7 +5176,6 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `shortest_simple_paths` | 1 | `shortest_simple_paths` |
 | `sigma` | 1 | `sigma` |
 | `simple_cycles` | 2 | `simple_cycles` |
-| `single_source_all_shortest_paths` | 1 | `single_source_all_shortest_paths` |
 | `single_source_bellman_ford` | 2 | `single_source_bellman_ford` |
 | `single_source_bellman_ford_path` | 2 | `single_source_bellman_ford_path` |
 | `single_source_bellman_ford_path_length` | 4 | `single_source_bellman_ford_path_length` |

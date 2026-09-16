@@ -40230,6 +40230,34 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     return dists
 
 
+def _build_paths_from_predecessors(sources, target, pred):
+    """Compute all simple paths to target, given predecessors, terminating at sources."""
+    if target not in pred:
+        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+
+    seen = {target}
+    stack = [[target, 0]]
+    top = 0
+    while top >= 0:
+        node, i = stack[top]
+        if node in sources:
+            yield [p for p, n in reversed(stack[: top + 1])]
+        if len(pred[node]) > i:
+            stack[top][1] = i + 1
+            next_node = pred[node][i]
+            if next_node in seen:
+                continue
+            seen.add(next_node)
+            top += 1
+            if top == len(stack):
+                stack.append([next_node, 0])
+            else:
+                stack[top][:] = [next_node, 0]
+        else:
+            seen.discard(node)
+            top -= 1
+
+
 def single_source_all_shortest_paths(G, source, weight=None, method="dijkstra"):
     """Yield all shortest paths from source to every reachable target.
 
@@ -40245,13 +40273,18 @@ def single_source_all_shortest_paths(G, source, weight=None, method="dijkstra"):
     (target, paths)
         ``paths`` is the list of all shortest paths from source to target.
     """
-    yield from _call_networkx_for_parity(
-        "single_source_all_shortest_paths",
-        G,
-        source,
-        weight=weight,
-        method=method,
-    )
+    method = "unweighted" if weight is None else method
+    if method == "unweighted":
+        pred = predecessor(G, source)
+    elif method == "dijkstra":
+        pred, _ = dijkstra_predecessor_and_distance(G, source, weight=weight)
+    elif method == "bellman-ford":
+        pred, _ = bellman_ford_predecessor_and_distance(G, source, weight=weight)
+    else:
+        raise ValueError(f"method not supported: {method}")
+
+    for n in pred:
+        yield n, list(_build_paths_from_predecessors({source}, n, pred))
 
 
 def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
@@ -40269,9 +40302,11 @@ def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
         Where paths_dict maps target -> list of shortest paths.
     """
     if weight is not None:
-        yield from _call_networkx_for_parity(
-            "all_pairs_all_shortest_paths", G, weight=weight, method=method
-        )
+        for n in G:
+            yield (
+                n,
+                dict(single_source_all_shortest_paths(G, n, weight=weight, method=method)),
+            )
         return
     result = _fnx.all_pairs_all_shortest_paths_rust(G)
     for source in G.nodes():
