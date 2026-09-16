@@ -41,6 +41,7 @@ redirect
 *-fsqlite-ns-gate
 *-fsqlite-ns-use
 *.vacuum-wal-cert*
+*fsqlite-migration-state*
 *.stale_*
 *schemabroken*
 *.bad_*

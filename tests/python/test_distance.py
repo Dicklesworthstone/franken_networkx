@@ -111,3 +111,25 @@ class TestDistance:
         assert fnx.tree_broadcast_time(G_fnx) == nx.tree_broadcast_time(G_nx)
         assert fnx.tree_broadcast_time(G_fnx, 17) == nx.tree_broadcast_time(G_nx, 17)
         assert fnx.tree_broadcast_time(G_fnx, 3) == nx.tree_broadcast_time(G_nx, 3)
+
+    def test_distance_measures_with_precomputed_e(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        fe = fnx.eccentricity(G_fnx)
+        ne = nx.eccentricity(G_nx)
+        assert fnx.diameter(G_fnx, e=fe) == nx.diameter(G_nx, e=ne)
+        assert fnx.radius(G_fnx, e=fe) == nx.radius(G_nx, e=ne)
+        assert fnx.center(G_fnx, e=fe) == nx.center(G_nx, e=ne)
+        assert fnx.periphery(G_fnx, e=fe) == nx.periphery(G_nx, e=ne)
+
+    def test_distance_measures_empty_graph(self, fnx, nx):
+        for G_fnx, G_nx in [(fnx.Graph(), nx.Graph()), (fnx.DiGraph(), nx.DiGraph())]:
+            for fn_name in ["diameter", "radius", "periphery", "center"]:
+                fn_fnx = getattr(fnx, fn_name)
+                fn_nx = getattr(nx, fn_name)
+                with pytest.raises(Exception) as exc_expected:
+                    fn_nx(G_nx)
+                with pytest.raises(Exception) as exc_actual:
+                    fn_fnx(G_fnx)
+                assert type(exc_actual.value) is type(exc_expected.value)
+                assert str(exc_actual.value) == str(exc_expected.value)
+

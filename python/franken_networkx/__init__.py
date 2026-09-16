@@ -13477,8 +13477,10 @@ def has_path(G, source, target):
     """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if _path_query_has_missing_nodes(G, source=source, target=target):
-        return _call_networkx_for_parity("has_path", G, source, target)
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
     return _raw_has_path(G, source, target)
 
 
@@ -15502,16 +15504,12 @@ def diameter(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): the plain weighted case is just max(eccentricity), and
-    # fnx's eccentricity now has a fast all-pairs path — compute it in-process instead of
-    # the fnx->nx delegation (was ~parity 0.98x).
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+    if e is not None:
+        return max(e.values())
+    if len(G) == 0:
+        raise ValueError("max() iterable argument is empty")
+    if weight is not None or usebounds:
         return max(eccentricity(G, weight=weight).values())
-    if e is not None or usebounds or weight is not None or len(G) == 0:
-        return _call_networkx_for_parity(
-            "diameter", G, e=e, usebounds=usebounds, weight=weight
-        )
     # br-r37-c1-tcyne: the Rust _raw_diameter calls gr.undirected()
     # before computing — collapses antiparallel directions (returns
     # 2 on directed cycle5 instead of nx's 4). Stay on _raw_diameter
@@ -15548,14 +15546,12 @@ def radius(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): weighted radius = min(eccentricity), now fast in-process.
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+    if e is not None:
+        return min(e.values())
+    if len(G) == 0:
+        raise ValueError("min() iterable argument is empty")
+    if weight is not None or usebounds:
         return min(eccentricity(G, weight=weight).values())
-    if e is not None or usebounds or weight is not None or len(G) == 0:
-        return _call_networkx_for_parity(
-            "radius", G, e=e, usebounds=usebounds, weight=weight
-        )
     # br-r37-c1-tcyne: same directed-collapse defect as _raw_diameter —
     # _raw_radius runs on gr.undirected(). Use fnx.eccentricity for the
     # directed path (correct, no fnx_to_nx round-trip).
@@ -15589,18 +15585,19 @@ def center(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): weighted center filters eccentricity by min, now fast.
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+    if e is not None:
+        radius_w = min(e.values())
+        return [v for v in e if e[v] == radius_w]
+    if len(G) == 0:
+        if weight is None and not G.is_directed():
+            raise NetworkXPointlessConcept("G has no nodes.")
+        raise ValueError("min() iterable argument is empty")
+    if weight is not None or usebounds:
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
         radius_w = min(ecc.values())
         return [n for n in G.nodes() if ecc[n] == radius_w]
-    if e is not None or usebounds or weight is not None or len(G) == 0:
-        return _call_networkx_for_parity(
-            "center", G, e=e, usebounds=usebounds, weight=weight
-        )
     # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
     # insertion order) and filters by min eccentricity. The Rust
     # _raw_center returned nodes in a different order. Filter
@@ -15644,18 +15641,17 @@ def periphery(G, e=None, usebounds=False, weight=None):
     """
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Delegate cases where the native path does not yet preserve nx contracts.
-    # br-r37-c1-eccallpairs (cc): weighted periphery filters eccentricity by max, now fast.
-    if weight is not None and isinstance(weight, str) and e is None and not usebounds and len(G) > 0:
+    if e is not None:
+        diameter_w = max(e.values())
+        return [v for v in e if e[v] == diameter_w]
+    if len(G) == 0:
+        raise ValueError("max() iterable argument is empty")
+    if weight is not None or usebounds:
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
         diameter_w = max(ecc.values())
         return [n for n in G.nodes() if ecc[n] == diameter_w]
-    if e is not None or usebounds or weight is not None or len(G) == 0:
-        return _call_networkx_for_parity(
-            "periphery", G, e=e, usebounds=usebounds, weight=weight
-        )
     # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
     # insertion order) and filters by max eccentricity. The Rust
     # _raw_periphery returned nodes in a different order. Filter
@@ -15681,15 +15677,6 @@ def eccentricity(G, v=None, sp=None, weight=None):
     G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0:
         return {}
-
-    # br-r37-c1-blu7u: nx accepts any hashable as ``weight``; the
-    # Rust ``_raw_eccentricity`` binding has ``weight: str`` and
-    # type-rejects.  Delegate non-string weights to nx (which falls
-    # back to default-1 since no edge has that key).
-    if weight is not None and not isinstance(weight, str) and not callable(weight):
-        return _call_networkx_for_parity("eccentricity", G, v=v, sp=sp, weight=weight)
-    if callable(weight):
-        return _call_networkx_for_parity("eccentricity", G, v=v, sp=sp, weight=weight)
 
     if v is None:
         nodes = list(G)
@@ -15729,7 +15716,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
     # setup — that loop made weighted eccentricity 0.84x. max() is order-invariant so the
     # result is identical; the reachability check matches nx's per-source one.
     if v is None and sp is None:
-        if isinstance(weight, str):
+        if weight is not None:
             all_lengths = dict(all_pairs_dijkstra_path_length(G, weight=weight))
         else:
             all_lengths = dict(all_pairs_shortest_path_length(G))
@@ -16510,19 +16497,6 @@ def is_eulerian(G):
             if deg % 2 != 0:
                 return False
         return True
-    # br-r37-c1-792dv: the Rust _raw_is_eulerian also mishandles
-    # self-loops on multi-node graphs (e.g. K3 + self-loop on one
-    # vertex remains Eulerian per nx but the Rust path returns
-    # False). Delegate to nx whenever any self-loop is present so
-    # both predicates carry the same self-loop semantics.
-    # br-r37-c1-euleridx: only the UNDIRECTED native kernel mishandles self-loops.
-    # The directed path (integer in/out-degree balance + is_strongly_connected)
-    # already matches nx on self-loops — a directed self-loop adds +1 to both in-
-    # and out-degree and does not affect strong connectivity (verified 0/66 on
-    # self-loop digraphs) — so directed skips the number_of_selfloops scan
-    # entirely (nx never checks it either).
-    if not G.is_directed() and number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check
-        return _call_networkx_for_parity("is_eulerian", G)
     # br-euldense: the UNDIRECTED native _raw_is_eulerian kernel does O(E) work
     # and was 18-30x slower than nx on dense graphs (K301: 1.65ms vs 0.06ms).
     # nx's test is trivial — all degrees even AND connected — so run it directly
@@ -16701,45 +16675,35 @@ def has_eulerian_path(G, source=None):
     bool
         True if G has an Eulerian path.
     """
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # The ``source`` variant has extra start-node conditions; keep it on nx.
-    if source is not None:
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    # br-r37-c1-eulerpathdir: the native binding now implements nx's directed
-    # contract (in/out-degree balance with <=1 unbalanced each way + weak
-    # connectivity), handling directed self-loops correctly (a directed self-loop
-    # is +1 in AND +1 out, so it stays balanced). MultiDiGraph parallel-edge
-    # degrees stay on nx. This drops the full fnx->nx conversion the old directed
-    # delegation paid (~20ms / 3600 edges, 2714x slower than nx).
+    if is_eulerian(G):
+        return True
+
     if G.is_directed():
-        if not G.is_multigraph():
-            return _raw_has_eulerian_path(G)
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    # br-r37-c1-mgisol (cc): undirected MULTIgraph fast path. The native
-    # _raw_has_eulerian_path built a FULL gr.undirected() simple-graph projection
-    # (attr clones + per-element ledger) AND crossed into Python once per node for
-    # the degree view (~1.5ms / 0.11x vs nx at n=300); self-loop multigraphs
-    # additionally delegated to nx (~2ms / 0.05x). nx's undirected test is just
-    # "<=2 odd-degree vertices AND connected" — run it directly on the fast
-    # MultiGraph degree view + native is_connected, mirroring is_eulerian's
-    # br-euldense fast path. The degree view counts self-loops as +2 (even, no
-    # parity effect) and is_connected ignores them, so this handles self-loops
-    # too — byte-exact 0/500 incl. self-loops/parallels (vs the native kernel
-    # which mishandles undirected self-loops, br-r37-c1-792dv). Runs BEFORE the
-    # simple-graph self-loop guard below so MG/MDG never pay the delegation.
-    if G.is_multigraph():
-        odd = sum(1 for _n, deg in G.degree() if deg % 2 != 0)
-        if odd not in (0, 2):
+        ins = G.in_degree
+        outs = G.out_degree
+        if source is not None and outs[source] - ins[source] != 1:
             return False
-        return is_connected(G)
-    # br-r37-c1-792dv: the UNDIRECTED Rust _raw_has_eulerian_path mishandles
-    # self-loops (each self-loop adds 2 to degree, keeping parity even). On
-    # SIMPLE undirected graphs with self-loops the Rust path returns False where
-    # nx returns True (e.g. K3 + self-loop). Delegate simple self-loop graphs.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    return _raw_has_eulerian_path(G)
+
+        unbalanced_ins = 0
+        unbalanced_outs = 0
+        for v in G:
+            diff = ins[v] - outs[v]
+            if diff == 1:
+                unbalanced_ins += 1
+            elif diff == -1:
+                unbalanced_outs += 1
+            elif diff != 0:
+                return False
+
+        return (
+            unbalanced_ins <= 1 and unbalanced_outs <= 1 and is_weakly_connected(G)
+        )
+    else:
+        if source is not None and G.degree[source] % 2 != 1:
+            return False
+
+        return sum(d % 2 == 1 for _v, d in G.degree()) == 2 and is_connected(G)
 
 # Algorithm functions — paths and cycles
 from franken_networkx._fnx import (
@@ -18128,12 +18092,15 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             return int(value)
         return value
 
-    # Callable weight support requires nx's three-arg edge-data evaluator;
-    # the in-process Dijkstra below uses a string-keyed lookup. Delegate
-    # the callable case to nx (the without_fallback parity test only
-    # blocks fallback for string weights — callables are out of scope).
+    # Callable weight support evaluates shortest_path_length in-process
+    # directly matching NetworkX semantics without cross-package delegation.
     if callable(weight):
-        return _call_networkx_for_parity("wiener_index", G, weight=weight)
+        connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
+        if not connected:
+            return float("inf")
+        spl = shortest_path_length(G, weight=weight)
+        total = sum(_itertools.chain.from_iterable(nbrs.values() for node, nbrs in spl))
+        return total if G.is_directed() else total / 2
 
     # Weighted simple graphs and multigraphs stay on the in-process
     # Python BFS/Dijkstra path below (NOT a fallback to nx — the
@@ -19494,16 +19461,19 @@ from franken_networkx._fnx import (
 def is_dominating_set(G, nbunch):
     """Return True if ``nbunch`` is a dominating set of ``G``.
 
-    br-r37-c1-hdhe3: the Rust kernel ``_raw_is_dominating_set`` has
-    ``require_undirected`` and rejects directed input. nx supports
-    DiGraph / MultiDiGraph for is_dominating_set (checks coverage
-    via out-neighbors / successors). Sister of br-r37-c1-3jn5a which
-    fixed ``dominating_set`` the same way.
+    # br-r37-c1-hdhe3: the Rust kernel ``_raw_is_dominating_set`` has
+    # ``require_undirected`` and rejects directed input. nx supports
+    # DiGraph / MultiDiGraph for is_dominating_set (checks coverage
+    # via out-neighbors / successors).
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
-        return _call_networkx_for_parity("is_dominating_set", G, nbunch)
+        testset = {n for n in nbunch if n in G}
+        dominated = set(testset)
+        for n in testset:
+            dominated.update(G[n])
+        return len(dominated) == len(G)
     return _raw_is_dominating_set(G, nbunch)
 
 
@@ -19541,50 +19511,42 @@ def dominating_set(G, start_with=None):
     # below so the chosen set is identical. (Empty graph keeps fnx's set()
     # return rather than nx's StopIteration leak.)
     # br-r37-c1-04z53: the same greedy is valid for directed graphs because
-    # ``G[v]`` iterates successors, matching nx. Only empty directed graphs
-    # still use the parity fallback below to preserve the prior exception.
-    if start_with is None and len(G) > 0:
+    # ``G[v]`` iterates successors, matching nx. Empty directed graphs
+    # raise StopIteration matching NetworkX.
+    if start_with is None:
+        if len(G) == 0:
+            if G.is_directed():
+                raise StopIteration
+            result = _raw_dominating_set(G)
+            return set(result) if not isinstance(result, set) else result
         start_with = next(iter(set(G)))
-    if start_with is not None:
-        if start_with not in G:
-            raise NetworkXError(f"node {start_with} is not in G")
-        _raw_nbrs = _raw_neighbors_dispatch(G)
-        if _raw_nbrs is not None:
-            all_nodes = set(G)
-            dominating: set = {start_with}
-            dominated = set(_raw_nbrs(G, start_with))
-            remaining = all_nodes - dominated - dominating
-            while remaining:
-                v = remaining.pop()
-                undom_nbrs = set(_raw_nbrs(G, v)) - dominating
-                dominating.add(v)
-                dominated |= undom_nbrs
-                remaining -= undom_nbrs
-            return dominating
-        # Multigraph / private-storage path: stay on G[u].
+    if start_with not in G:
+        raise NetworkXError(f"node {start_with} is not in G")
+    _raw_nbrs = _raw_neighbors_dispatch(G)
+    if _raw_nbrs is not None:
         all_nodes = set(G)
-        dominating = {start_with}
-        dominated = set(G[start_with])
+        dominating: set = {start_with}
+        dominated = set(_raw_nbrs(G, start_with))
         remaining = all_nodes - dominated - dominating
         while remaining:
             v = remaining.pop()
-            undom_nbrs = set(G[v]) - dominating
+            undom_nbrs = set(_raw_nbrs(G, v)) - dominating
             dominating.add(v)
             dominated |= undom_nbrs
             remaining -= undom_nbrs
         return dominating
-    # br-r37-c1-3jn5a: _raw_dominating_set has require_undirected, but
-    # nx supports DiGraph (uses out-neighbors / successors for the
-    # greedy step). Delegate directed input to nx so drop-in callers
-    # using DiGraph keep working.
-    if G.is_directed():
-        return _call_networkx_for_parity("dominating_set", G, start_with=start_with)
-    # br-domtype: nx.dominating_set returns a set; the Rust binding
-    # returned a list. The docstring already claims set, so users
-    # relying on set operations (union/intersection/issubset) silently
-    # broke. Coerce the Rust list-of-nodes to set.
-    result = _raw_dominating_set(G)
-    return set(result) if not isinstance(result, set) else result
+    # Multigraph / private-storage path: stay on G[u].
+    all_nodes = set(G)
+    dominating = {start_with}
+    dominated = set(G[start_with])
+    remaining = all_nodes - dominated - dominating
+    while remaining:
+        v = remaining.pop()
+        undom_nbrs = set(G[v]) - dominating
+        dominating.add(v)
+        dominated |= undom_nbrs
+        remaining -= undom_nbrs
+    return dominating
 
 # Algorithm functions — community detection
 from franken_networkx._fnx import (
@@ -22776,14 +22738,6 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
                     result.append(v)
             return result
         return _raw_barycenter(G)
-    if attr is None:
-        return _call_networkx_for_parity(
-            "barycenter", G, weight=weight, attr=attr, sp=sp,
-        )
-
-    # br-baryattr: replicate NX's in-place attr write on the user's
-    # fnx graph by computing barycentricity ourselves rather than
-    # losing it to the delegation copy.
     if sp is None:
         if weight is not None:
             sp_iter = shortest_path_length(G, weight=weight)
@@ -22803,7 +22757,8 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
                 "has infinite barycentricity."
             )
         barycentricity = sum(dists.values())
-        G.nodes[v][attr] = barycentricity
+        if attr is not None:
+            G.nodes[v][attr] = barycentricity
         if barycentricity < smallest:
             smallest = barycentricity
             barycenter_vertices = [v]
@@ -23305,25 +23260,30 @@ def cut_size(G, S, T=None, weight=None):
     """
     # br-r37-c1-eog89: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_multigraph():
-        return _call_networkx_for_parity(
-            "cut_size", G, S, T=T, weight=weight,
-        )
+    if not G.is_multigraph() and (
+        weight is None or not _graph_has_nonunit_weight(G, weight)
+    ):
+        S_nb = _coerce_nbunch(S)
+        T_nb = _coerce_nbunch(T)
+        raw = _raw_cut_size(G, S_nb, T_nb, weight=weight)
+        if weight is None or _sp_edge_weights_all_int(G, weight):
+            if isinstance(raw, float) and raw.is_integer():
+                return int(raw)
+        return raw
 
-    # br-r37-c1-2c8ed: the Rust _raw_cut_size silently ignores the
-    # weight kwarg (returns unweighted edge count). Delegate to nx
-    # when the input actually has a non-unit weight attribute.
-    if weight is not None and _graph_has_nonunit_weight(G, weight):
-        return _call_networkx_for_parity(
-            "cut_size", G, S, T=T, weight=weight,
+    if T is None:
+        T_eff = set(G) - set(S)
+    else:
+        T_eff = T
+    edges = edge_boundary(G, S, T_eff, data=weight, default=1)
+    if G.is_directed():
+        edges = _itertools.chain(
+            edges, edge_boundary(G, T_eff, S, data=weight, default=1)
         )
-
-    S_nb = _coerce_nbunch(S)
-    T_nb = _coerce_nbunch(T)
-    raw = _raw_cut_size(G, S_nb, T_nb, weight=weight)
-    if weight is None or _sp_edge_weights_all_int(G, weight):
-        # Result is necessarily an integer (edge _count or sum of int
-        # weights); coerce safely.
+    if weight is None:
+        return sum(1 for _ in edges)
+    raw = sum(w for u, v, w in edges)
+    if _sp_edge_weights_all_int(G, weight):
         if isinstance(raw, float) and raw.is_integer():
             return int(raw)
     return raw
@@ -23333,18 +23293,12 @@ def normalized_cut_size(G, S, T=None, weight=None):
     """br-boundkw: ``G, S, T`` match nx."""
     # br-r37-c1-eog89: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_multigraph():
-        return _call_networkx_for_parity(
-            "normalized_cut_size", G, S, T=T, weight=weight,
-        )
-    # br-r37-c1-2c8ed: sister of cut_size — Rust path ignores weight.
-    if weight is not None and _graph_has_nonunit_weight(G, weight):
-        return _call_networkx_for_parity(
-            "normalized_cut_size", G, S, T=T, weight=weight,
-        )
-    S_nb = _coerce_nbunch(S)
-    T_nb = _coerce_nbunch(T)
-    return _raw_normalized_cut_size(G, S_nb, T_nb, weight=weight)
+    if T is None:
+        T = set(G) - set(S)
+    num_cut_edges = cut_size(G, S, T=T, weight=weight)
+    volume_S = volume(G, S, weight=weight)
+    volume_T = volume(G, T, weight=weight)
+    return num_cut_edges * ((1 / volume_S) + (1 / volume_T))
 
 
 def node_boundary(G, nbunch1, nbunch2=None, *, backend=None, **backend_kwargs):
@@ -23433,40 +23387,10 @@ def edge_boundary(
 
 def volume(G, S, weight=None):
     """Return the volume of a set of nodes."""
-    # br-r37-c1-ay2no: fast path for the common case — undirected,
-    # unweighted, no multigraph. ``volume(G, S) == sum(deg(v) for v in S)``
-    # holds for any undirected simple graph including those with
-    # self-loops (G.degree counts each self-loop twice, matching
-    # the volume definition's nbr == node *2 contribution).
-    # Profiling on BA200 showed the slow per-node AtlasView walk was
-    # 207x slower than nx; G.degree is O(1) per node via the Rust
-    # binding.
-    if (
-        weight is None
-        and not G.is_multigraph()
-        and not G.is_directed()
-    ):
-        # br-r37-c1-volsubdeg (cc): pass S straight to the degree view —
-        # ``sum(d for v, d in G.degree(S))``, nx's own formula. The prior
-        # ``dict(G.degree())`` materialized ALL |V| degrees regardless of |S|,
-        # which is O(V) even for a handful of query nodes: at N=2000 it was
-        # 216 µs / 0.06x vs nx for |S|=40 (16x SLOWER). The subset degree view is
-        # O(|S|) and BEATS nx across the board (small 6.9 vs 13.5 µs, |S|=500
-        # 73 vs 82, |S|=all 285 vs 316). Byte-exact incl self-loops (degree counts
-        # them twice) and missing nodes (degree(nbunch) skips them == the old
-        # get(v, 0) contributing 0).
-        return sum(d for v, d in G.degree(S))
-    return sum(
-        _adc_weighted_degree(
-            G,
-            node,
-            incoming=not G.is_directed(),
-            outgoing=True,
-            weight=weight,
-        )
-        for node in S
-        if node in G
-    )
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        return sum(d for v, d in G.out_degree(S, weight=weight))
+    return sum(d for v, d in G.degree(S, weight=weight))
 
 
 def edge_expansion(G, S, T=None, weight=None):
@@ -23561,20 +23485,46 @@ def is_simple_path(G, nodes):
     return all(v in G[u] for u, v in _itertools.pairwise(nodes))
 
 
+def _matching_dict_to_set(matching):
+    edges = set()
+    for edge in matching.items():
+        u, v = edge
+        if (v, u) in edges or edge in edges:
+            continue
+        if u == v:
+            raise NetworkXError(f"Selfloops cannot appear in matchings {edge}")
+        edges.add(edge)
+    return edges
+
+
 def is_matching(G, matching):
     """Return True if ``matching`` is a valid matching of ``G``.
 
-    br-matchingport: routes through the native Rust validator
-    ``franken_networkx._fnx.is_matching`` which checks the matching
-    contract directly (every entry is an edge of G, no shared
-    endpoints) instead of bridging through nx via the parity
-    helper.
+    br-matchingport: routes simple undirected graphs through the native
+    Rust validator ``franken_networkx._fnx.is_matching``, and evaluates
+    directed / multigraph cases in-process with exact NetworkX semantics.
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity("is_matching", G, matching)
-    return _fnx.is_matching(G, matching)
+    if not G.is_directed() and not G.is_multigraph():
+        return _fnx.is_matching(G, matching)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+    return True
 
 
 def is_maximal_matching(G, matching):
@@ -23584,9 +23534,32 @@ def is_maximal_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity("is_maximal_matching", G, matching)
-    return _fnx.is_maximal_matching(G, matching)
+    if not G.is_directed() and not G.is_multigraph():
+        return _fnx.is_maximal_matching(G, matching)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    edges = set()
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+        edges.add(edge)
+        edges.add((v, u))
+    for u, v in G.edges:
+        if (u, v) not in edges:
+            if u not in nodes and v not in nodes and u != v:
+                return False
+    return True
 
 
 def is_perfect_matching(G, matching):
@@ -23596,9 +23569,25 @@ def is_perfect_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed() or G.is_multigraph():
-        return _call_networkx_for_parity("is_perfect_matching", G, matching)
-    return _fnx.is_perfect_matching(G, matching)
+    if not G.is_directed() and not G.is_multigraph():
+        return _fnx.is_perfect_matching(G, matching)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+    return len(nodes) == len(G)
 
 
 class _MinDegreeHeuristic:
@@ -40230,6 +40219,34 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     return dists
 
 
+def _build_paths_from_predecessors(sources, target, pred):
+    """Compute all simple paths to target, given predecessors, terminating at sources."""
+    if target not in pred:
+        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+
+    seen = {target}
+    stack = [[target, 0]]
+    top = 0
+    while top >= 0:
+        node, i = stack[top]
+        if node in sources:
+            yield [p for p, n in reversed(stack[: top + 1])]
+        if len(pred[node]) > i:
+            stack[top][1] = i + 1
+            next_node = pred[node][i]
+            if next_node in seen:
+                continue
+            seen.add(next_node)
+            top += 1
+            if top == len(stack):
+                stack.append([next_node, 0])
+            else:
+                stack[top][:] = [next_node, 0]
+        else:
+            seen.discard(node)
+            top -= 1
+
+
 def single_source_all_shortest_paths(G, source, weight=None, method="dijkstra"):
     """Yield all shortest paths from source to every reachable target.
 
@@ -40245,13 +40262,18 @@ def single_source_all_shortest_paths(G, source, weight=None, method="dijkstra"):
     (target, paths)
         ``paths`` is the list of all shortest paths from source to target.
     """
-    yield from _call_networkx_for_parity(
-        "single_source_all_shortest_paths",
-        G,
-        source,
-        weight=weight,
-        method=method,
-    )
+    method = "unweighted" if weight is None else method
+    if method == "unweighted":
+        pred = predecessor(G, source)
+    elif method == "dijkstra":
+        pred, _ = dijkstra_predecessor_and_distance(G, source, weight=weight)
+    elif method == "bellman-ford":
+        pred, _ = bellman_ford_predecessor_and_distance(G, source, weight=weight)
+    else:
+        raise ValueError(f"method not supported: {method}")
+
+    for n in pred:
+        yield n, list(_build_paths_from_predecessors({source}, n, pred))
 
 
 def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
@@ -40269,9 +40291,11 @@ def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
         Where paths_dict maps target -> list of shortest paths.
     """
     if weight is not None:
-        yield from _call_networkx_for_parity(
-            "all_pairs_all_shortest_paths", G, weight=weight, method=method
-        )
+        for n in G:
+            yield (
+                n,
+                dict(single_source_all_shortest_paths(G, n, weight=weight, method=method)),
+            )
         return
     result = _fnx.all_pairs_all_shortest_paths_rust(G)
     for source in G.nodes():
@@ -42982,7 +43006,9 @@ def hyper_wiener_index(G, weight=None):
             native_weighted = getattr(_fnx, "hyper_wiener_index_weighted_rust", None)
             if native_weighted is not None:
                 return native_weighted(G, weight)
-        return _call_networkx_for_parity("hyper_wiener_index", G, weight=weight)
+        spl = shortest_path_length(G, weight=weight)
+        total = sum(dist + dist**2 for _, lengths in spl for dist in lengths.values())
+        return total / 2
     return _fnx.hyper_wiener_index_rust(G)
 
 
@@ -45852,35 +45878,29 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
 
 
 def harmonic_diameter(G, sp=None, *, weight=None):
-    """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs.
+    """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs."""
+    G = _coerce_arg_to_fnx_graph(G)
+    order = G.order()
+    sum_invd = 0.0
+    for n in G:
+        if sp is None:
+            length = single_source_dijkstra_path_length(G, n, weight=weight)
+        else:
+            try:
+                length = sp[n]
+                _ = len(length)
+            except TypeError as err:
+                raise NetworkXError('Format of "sp" is invalid.') from err
 
-    ``weight`` is accepted for networkx signature parity. When set, the
-    calculation delegates to networkx so edge weights are honoured; the
-    native Rust path assumes unit-distance edges.
+        for d in length.values():
+            if d != 0:
+                sum_invd += 1.0 / d
 
-    br-harmdir: NetworkX considers ordered pairs ``(u, v)`` for
-    directed input — six pairs for ``DiGraph`` C_3 with mixed
-    distances {1, 2, 2, 1, 1, 2} → harmonic_diameter = 6 / 4.5 ≈ 1.333.
-    The Rust ``harmonic_diameter_rust`` calls ``gr.undirected()`` and
-    folds antiparallel directions, computing 1.0 instead. Same shape as
-    the eccentricity / is_eulerian / is_tree / core_number directed-
-    collapse defects fixed earlier (07303b1, 73f199a, 6c4a1e6, e7cd197).
-    Delegate to NX whenever the input is directed.
-    """
-    if (
-        weight is not None
-        or sp is not None
-        or G.is_directed()
-        or G.number_of_nodes() < 2
-    ):
-        # br-harmtrivial: NX's harmonic_diameter returns NaN on graphs
-        # with fewer than 2 nodes (the formula divides by 0). The Rust
-        # path returns 0.0. Delegate trivial cases so the contract
-        # matches.
-        return _call_networkx_for_parity(
-            "harmonic_diameter", G, sp=sp, weight=weight
-        )
-    return _fnx.harmonic_diameter_rust(G)
+    if sum_invd != 0:
+        return order * (order - 1) / sum_invd
+    if order > 1:
+        return _math.inf
+    return _math.nan
 
 
 def _global_parameters_from_graph(G):

@@ -1950,7 +1950,7 @@ fn validate_node(
         return Err(crate::NodeNotFound::new_err(format!(
             "{} {} is not in G",
             prefix,
-            py_key.repr()?
+            py_key.str()?
         )));
     }
     Ok(())
@@ -1959,7 +1959,7 @@ fn validate_node(
 fn validate_node_str(gr: &GraphRef<'_>, canonical: &str, prefix: &str) -> PyResult<()> {
     if !gr.has_node(canonical) {
         return Err(crate::NodeNotFound::new_err(format!(
-            "{} '{}' is not in G",
+            "{} {} is not in G",
             prefix, canonical
         )));
     }
