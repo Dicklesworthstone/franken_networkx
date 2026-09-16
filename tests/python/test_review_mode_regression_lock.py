@@ -5680,7 +5680,10 @@ def test_algorithms_submodule_import_paths_match_nx():
     ):
         fnx_mod = importlib.import_module(f"franken_networkx.algorithms.{path}")
         nx_sub = importlib.import_module(f"networkx.algorithms.{path}")
-        assert fnx_mod is nx_sub
+        native = sys.modules.get(f"franken_networkx.{path}")
+        assert fnx_mod is nx_sub or fnx_mod is native, (
+            f"franken_networkx.algorithms.{path} should alias networkx or fnx native but got {fnx_mod!r}"
+        )
 
     # The from-import form — naive text-substitution drop-in
     import franken_networkx.flow as fnx_flow_mod

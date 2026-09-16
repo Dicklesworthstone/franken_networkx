@@ -14358,7 +14358,7 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
         raise NetworkXError(f"node {s} not in graph")
     if t is not None and t not in G:
         raise NetworkXError(f"node {t} not in graph")
-    if flow_func is not None:
+    if flow_func is not None or cutoff is not None:
         return _edge_connectivity_inproc(
             G,
             s=s,
