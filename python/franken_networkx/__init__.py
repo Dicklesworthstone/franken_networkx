@@ -16497,19 +16497,6 @@ def is_eulerian(G):
             if deg % 2 != 0:
                 return False
         return True
-    # br-r37-c1-792dv: the Rust _raw_is_eulerian also mishandles
-    # self-loops on multi-node graphs (e.g. K3 + self-loop on one
-    # vertex remains Eulerian per nx but the Rust path returns
-    # False). Delegate to nx whenever any self-loop is present so
-    # both predicates carry the same self-loop semantics.
-    # br-r37-c1-euleridx: only the UNDIRECTED native kernel mishandles self-loops.
-    # The directed path (integer in/out-degree balance + is_strongly_connected)
-    # already matches nx on self-loops — a directed self-loop adds +1 to both in-
-    # and out-degree and does not affect strong connectivity (verified 0/66 on
-    # self-loop digraphs) — so directed skips the number_of_selfloops scan
-    # entirely (nx never checks it either).
-    if not G.is_directed() and number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check
-        return _call_networkx_for_parity("is_eulerian", G)
     # br-euldense: the UNDIRECTED native _raw_is_eulerian kernel does O(E) work
     # and was 18-30x slower than nx on dense graphs (K301: 1.65ms vs 0.06ms).
     # nx's test is trivial — all degrees even AND connected — so run it directly
@@ -16688,45 +16675,35 @@ def has_eulerian_path(G, source=None):
     bool
         True if G has an Eulerian path.
     """
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # The ``source`` variant has extra start-node conditions; keep it on nx.
-    if source is not None:
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    # br-r37-c1-eulerpathdir: the native binding now implements nx's directed
-    # contract (in/out-degree balance with <=1 unbalanced each way + weak
-    # connectivity), handling directed self-loops correctly (a directed self-loop
-    # is +1 in AND +1 out, so it stays balanced). MultiDiGraph parallel-edge
-    # degrees stay on nx. This drops the full fnx->nx conversion the old directed
-    # delegation paid (~20ms / 3600 edges, 2714x slower than nx).
+    if is_eulerian(G):
+        return True
+
     if G.is_directed():
-        if not G.is_multigraph():
-            return _raw_has_eulerian_path(G)
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    # br-r37-c1-mgisol (cc): undirected MULTIgraph fast path. The native
-    # _raw_has_eulerian_path built a FULL gr.undirected() simple-graph projection
-    # (attr clones + per-element ledger) AND crossed into Python once per node for
-    # the degree view (~1.5ms / 0.11x vs nx at n=300); self-loop multigraphs
-    # additionally delegated to nx (~2ms / 0.05x). nx's undirected test is just
-    # "<=2 odd-degree vertices AND connected" — run it directly on the fast
-    # MultiGraph degree view + native is_connected, mirroring is_eulerian's
-    # br-euldense fast path. The degree view counts self-loops as +2 (even, no
-    # parity effect) and is_connected ignores them, so this handles self-loops
-    # too — byte-exact 0/500 incl. self-loops/parallels (vs the native kernel
-    # which mishandles undirected self-loops, br-r37-c1-792dv). Runs BEFORE the
-    # simple-graph self-loop guard below so MG/MDG never pay the delegation.
-    if G.is_multigraph():
-        odd = sum(1 for _n, deg in G.degree() if deg % 2 != 0)
-        if odd not in (0, 2):
+        ins = G.in_degree
+        outs = G.out_degree
+        if source is not None and outs[source] - ins[source] != 1:
             return False
-        return is_connected(G)
-    # br-r37-c1-792dv: the UNDIRECTED Rust _raw_has_eulerian_path mishandles
-    # self-loops (each self-loop adds 2 to degree, keeping parity even). On
-    # SIMPLE undirected graphs with self-loops the Rust path returns False where
-    # nx returns True (e.g. K3 + self-loop). Delegate simple self-loop graphs.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
-        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
-    return _raw_has_eulerian_path(G)
+
+        unbalanced_ins = 0
+        unbalanced_outs = 0
+        for v in G:
+            diff = ins[v] - outs[v]
+            if diff == 1:
+                unbalanced_ins += 1
+            elif diff == -1:
+                unbalanced_outs += 1
+            elif diff != 0:
+                return False
+
+        return (
+            unbalanced_ins <= 1 and unbalanced_outs <= 1 and is_weakly_connected(G)
+        )
+    else:
+        if source is not None and G.degree[source] % 2 != 1:
+            return False
+
+        return sum(d % 2 == 1 for _v, d in G.degree()) == 2 and is_connected(G)
 
 # Algorithm functions — paths and cycles
 from franken_networkx._fnx import (
@@ -45901,35 +45878,29 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
 
 
 def harmonic_diameter(G, sp=None, *, weight=None):
-    """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs.
+    """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs."""
+    G = _coerce_arg_to_fnx_graph(G)
+    order = G.order()
+    sum_invd = 0.0
+    for n in G:
+        if sp is None:
+            length = single_source_dijkstra_path_length(G, n, weight=weight)
+        else:
+            try:
+                length = sp[n]
+                _ = len(length)
+            except TypeError as err:
+                raise NetworkXError('Format of "sp" is invalid.') from err
 
-    ``weight`` is accepted for networkx signature parity. When set, the
-    calculation delegates to networkx so edge weights are honoured; the
-    native Rust path assumes unit-distance edges.
+        for d in length.values():
+            if d != 0:
+                sum_invd += 1.0 / d
 
-    br-harmdir: NetworkX considers ordered pairs ``(u, v)`` for
-    directed input — six pairs for ``DiGraph`` C_3 with mixed
-    distances {1, 2, 2, 1, 1, 2} → harmonic_diameter = 6 / 4.5 ≈ 1.333.
-    The Rust ``harmonic_diameter_rust`` calls ``gr.undirected()`` and
-    folds antiparallel directions, computing 1.0 instead. Same shape as
-    the eccentricity / is_eulerian / is_tree / core_number directed-
-    collapse defects fixed earlier (07303b1, 73f199a, 6c4a1e6, e7cd197).
-    Delegate to NX whenever the input is directed.
-    """
-    if (
-        weight is not None
-        or sp is not None
-        or G.is_directed()
-        or G.number_of_nodes() < 2
-    ):
-        # br-harmtrivial: NX's harmonic_diameter returns NaN on graphs
-        # with fewer than 2 nodes (the formula divides by 0). The Rust
-        # path returns 0.0. Delegate trivial cases so the contract
-        # matches.
-        return _call_networkx_for_parity(
-            "harmonic_diameter", G, sp=sp, weight=weight
-        )
-    return _fnx.harmonic_diameter_rust(G)
+    if sum_invd != 0:
+        return order * (order - 1) / sum_invd
+    if order > 1:
+        return _math.inf
+    return _math.nan
 
 
 def _global_parameters_from_graph(G):
