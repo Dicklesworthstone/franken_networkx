@@ -22540,17 +22540,23 @@ def _link_prediction_validate_ebunch(G, ebunch):
 
 def _link_prediction_lazy_delegate(name, G, materialized):
     """br-r37-c1-8e60l: defer the fnx_to_nx graph conversion in
-    _call_networkx_for_parity until the user begins iterating the
+    in-process delegation until the user begins iterating the
     returned generator. Profiling on BA200 showed the eager-conversion
     variant was 1000+x slower than nx on the call alone (3.5 ms vs
     3 µs to construct nx's generator); deferring matches nx's
     O(1)-construction contract.
     """
     def _gen():
-        if materialized is None:
-            yield from _call_networkx_for_parity(name, G)
-        else:
-            yield from _call_networkx_for_parity(name, G, ebunch=materialized)
+        from franken_networkx.backend import _fnx_to_nx
+        H = _fnx_to_nx(G)
+        fn = getattr(_nx.algorithms.link_prediction, name)
+        try:
+            if materialized is None:
+                yield from fn(H)
+            else:
+                yield from fn(H, ebunch=materialized)
+        except Exception as exc:
+            _raise_translated_networkx_exception(exc)
     return _gen()
 
 
@@ -44321,6 +44327,17 @@ def is_distance_regular(G):
     return _raw_is_distance_regular(G)
 
 
+def _sigma_inproc(G, niter=100, nrand=10, seed=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.smallworld.sigma(
+            H, niter=niter, nrand=nrand, seed=seed,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
     """Return the small-world sigma coefficient.
 
@@ -44342,9 +44359,20 @@ def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
         raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) < 4:
         raise NetworkXError("Graph has fewer than four nodes.")
-    return _call_networkx_for_parity(
-        "sigma", G, niter=niter, nrand=nrand, seed=seed,
+    return _sigma_inproc(
+        G, niter=niter, nrand=nrand, seed=seed,
     )
+
+
+def _omega_inproc(G, niter=5, nrand=10, seed=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.smallworld.omega(
+            H, niter=niter, nrand=nrand, seed=seed,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
@@ -44365,14 +44393,35 @@ def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
         raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
         raise ZeroDivisionError("division by zero")
-    return _call_networkx_for_parity(
-        "omega", G, niter=niter, nrand=nrand, seed=seed,
+    return _omega_inproc(
+        G, niter=niter, nrand=nrand, seed=seed,
     )
 
 
 # ---------------------------------------------------------------------------
 # Connectivity & Disjoint Paths (br-ak4)
 # ---------------------------------------------------------------------------
+
+
+def _edge_disjoint_paths_inproc(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        gen = _nx.algorithms.connectivity.disjoint_paths.edge_disjoint_paths(
+            H, s, t,
+            flow_func=flow_func, cutoff=cutoff,
+            auxiliary=auxiliary, residual=residual,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+    try:
+        for path in gen:
+            yield path
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def edge_disjoint_paths(
@@ -44405,8 +44454,8 @@ def edge_disjoint_paths(
         raise NetworkXError(f"node {t} not in graph")
     if (cutoff is not None or flow_func is not None
             or auxiliary is not None or residual is not None):
-        yield from _call_networkx_for_parity(
-            "edge_disjoint_paths", G, s, t,
+        yield from _edge_disjoint_paths_inproc(
+            G, s, t,
             flow_func=flow_func, cutoff=cutoff,
             auxiliary=auxiliary, residual=residual,
         )
@@ -44416,6 +44465,27 @@ def edge_disjoint_paths(
         raise NetworkXNoPath
     for path in paths:
         yield path
+
+
+def _node_disjoint_paths_inproc(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
+):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        gen = _nx.algorithms.connectivity.disjoint_paths.node_disjoint_paths(
+            H, s, t,
+            flow_func=flow_func, cutoff=cutoff,
+            auxiliary=auxiliary, residual=residual,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+    try:
+        for path in gen:
+            yield path
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def node_disjoint_paths(
@@ -44441,8 +44511,8 @@ def node_disjoint_paths(
         raise NetworkXError(f"node {t} not in graph")
     if (cutoff is not None or flow_func is not None
             or auxiliary is not None or residual is not None):
-        yield from _call_networkx_for_parity(
-            "node_disjoint_paths", G, s, t,
+        yield from _node_disjoint_paths_inproc(
+            G, s, t,
             flow_func=flow_func, cutoff=cutoff,
             auxiliary=auxiliary, residual=residual,
         )
@@ -44453,7 +44523,7 @@ def node_disjoint_paths(
         # s and t are disconnected (nx raises ``NetworkXNoPath``) and for the
         # degenerate s == t case (nx yields one trivial path). Delegate the
         # empty case to nx so both contracts are reproduced exactly.
-        yield from _call_networkx_for_parity("node_disjoint_paths", G, s, t)
+        yield from _node_disjoint_paths_inproc(G, s, t)
         return
     for path in paths:
         yield path
@@ -57816,7 +57886,12 @@ def _onion_layers_impl(G):
     """Private delegation helper (fallback when the native kernel is
     unavailable); keeps the public ``onion_layers`` PY_WRAPPER-classified.
     """
-    return _call_networkx_for_parity("onion_layers", G)
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.core.onion_layers(H)
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def _bridge_components(G):
@@ -63961,6 +64036,17 @@ def _random_internet_as_graph_impl(n, seed=None):
     return _from_nx_graph(nx_result, create_using=Graph())
 
 
+def _random_reference_inproc(G, niter=1, connectivity=True, seed=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.smallworld.random_reference(
+            H, niter=niter, connectivity=connectivity, seed=seed,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def random_reference(G, niter=1, connectivity=True, seed=None):
     """Random reference graph preserving degree sequence (Maslov-Sneppen).
 
@@ -63983,8 +64069,8 @@ def random_reference(G, niter=1, connectivity=True, seed=None):
         raise NetworkXError("Graph has fewer than four nodes.")
     if G.number_of_edges() < 2:
         raise NetworkXError("Graph has fewer that 2 edges")
-    nx_result = _call_networkx_for_parity(
-        "random_reference", G, niter=niter, connectivity=connectivity, seed=seed,
+    nx_result = _random_reference_inproc(
+        G, niter=niter, connectivity=connectivity, seed=seed,
     )
     from franken_networkx.readwrite import _from_nx_graph
     return _from_nx_graph(nx_result)
@@ -65551,6 +65637,17 @@ def _ordered_two_clique_bridge_k_components(G):
     return result
 
 
+def _k_components_inproc(G, flow_func=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.connectivity.kcomponents.k_components(
+            H, flow_func=flow_func
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def k_components(G, flow_func=None):
     """Return k-connected component structure.
 
@@ -65668,7 +65765,7 @@ def k_components(G, flow_func=None):
                 if components:
                     result[1] = components
                 return result
-    return _call_networkx_for_parity("k_components", G, flow_func=flow_func)
+    return _k_components_inproc(G, flow_func=flow_func)
 
 
 def k_factor(G, k, matching_weight="weight"):
@@ -65807,12 +65904,21 @@ def spectral_graph_forge(G, alpha, transformation="identity", seed=None):
     return H
 
 
+def _tutte_polynomial_inproc(G):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.polynomials.tutte_polynomial(H)
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def tutte_polynomial(G, *, backend=None, **backend_kwargs):
     """Return the symbolic Tutte polynomial of ``G`` with NetworkX semantics."""
     _validate_backend_dispatch_keywords(
         "tutte_polynomial", backend, backend_kwargs
     )
-    return _call_networkx_for_parity("tutte_polynomial", G)
+    return _tutte_polynomial_inproc(G)
 
 
 class _TarjanUnionFind:
