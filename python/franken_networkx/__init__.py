@@ -25584,21 +25584,14 @@ def simple_cycles(G, length_bound=None):
     directly. Undirected MultiGraph keeps the full conversion: its frozenset
     edge-dedup order in ``_fnx_to_nx`` differs from ``add_edges_from``.
     """
-    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)) and not (
-        G.is_multigraph() and not G.is_directed()
-    ):
-        yield from _simple_cycles_structure_only_via_networkx(G, length_bound)
-        return
-    if length_bound is not None or not G.is_directed():
-        yield from _call_networkx_for_parity(
-            "simple_cycles", G, length_bound=length_bound
-        )
-        return
-    yield from _call_networkx_for_parity("simple_cycles", G)
+    yield from _simple_cycles_structure_only_via_networkx(G, length_bound)
 
 
 def _simple_cycles_structure_only_via_networkx(G, length_bound):
-    if G.is_multigraph():
+    if G.is_multigraph() and not G.is_directed():
+        from franken_networkx.backend import _fnx_to_nx
+        H = _fnx_to_nx(G)
+    elif G.is_multigraph():
         H = _nx.MultiDiGraph()
         H.add_nodes_from(G)
         H.add_edges_from(G.edges(keys=True))
@@ -26162,8 +26155,6 @@ def max_weight_clique(G, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if G.is_multigraph():
-        return _call_networkx_for_parity("max_weight_clique", G, weight=weight)
     return _max_weight_clique_native(G, weight)
 
 # Algorithm functions — DAG additional
@@ -38720,12 +38711,6 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
             w = attrs.get(weight, 1)
             if isinstance(w, _numbers.Number) and not isinstance(w, bool) and w < 0:
                 raise NetworkXError("graph has a negative-weighted edge.")
-    if weight is None:
-        kwargs = {"weight": weight}
-        if heap is not None:
-            kwargs["heap"] = heap
-        return _call_networkx_for_parity("stoer_wagner", G, **kwargs)
-
     # br-r37-c1-35oum: the kernel mirrors nx's phases exactly (per-phase
     # lazy-deletion heap with insertion-counter tie-breaks, copy-order
     # arbitrary_element, row-order contraction merges) and returns the
@@ -38734,8 +38719,9 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     # order, unreplicable in Rust but exact by construction here.
     from franken_networkx._fnx import stoer_wagner_phases as _rust_stoer_wagner_phases
 
+    weight_key = "__fnx_stoer_wagner_unit_weight__" if weight is None else weight
     cut_value, contractions, best_phase, copy_nodes = _rust_stoer_wagner_phases(
-        G, weight=weight
+        G, weight=weight_key
     )
     adj = {}
     for u, v in contractions[:best_phase]:
@@ -38766,11 +38752,13 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
 
 
 def _stoer_wagner_weights_all_integral(G, weight):
+    if weight is None:
+        return True
     if not isinstance(weight, str):
         return False
     for _, _, attrs in G.edges(data=True):
         value = attrs.get(weight, 1) if isinstance(attrs, dict) else 1
-        if not isinstance(value, _numbers.Integral):
+        if isinstance(value, bool) or not isinstance(value, _numbers.Integral):
             return False
     return True
 
