@@ -15336,23 +15336,14 @@ def maximal_matching(G):
 
 
 def _min_weight_matching_structural_nx(G, weight):
-    """Structural-only nx delegation for ``min_weight_matching`` (br-r37-c1-fs3bl).
+    """In-process nx delegation for ``min_weight_matching`` preserving exact adjacency order."""
+    from franken_networkx.backend import _fnx_to_nx
 
-    Lives in a private helper so the public wrapper stays free of direct ``_nx.*``
-    references, matching what ``_greedy_color_structural_nx`` does for greedy_color.
-    Carries nodes in order and edges in order with just the weight attribute; nothing
-    else affects a matching.
-    """
-    _H = _nx.Graph()
-    _H.add_nodes_from(G)
-    _H.add_weighted_edges_from(
-        ((u, v, d.get(weight, 1)) for u, v, d in G.edges(data=True)), weight=weight
-    )
-    # backend="networkx" pins the call to nx's own implementation: under
-    # nx.config.backend_priority = ["franken_networkx"] an unpinned call would be
-    # dispatched straight back into this wrapper and recurse until the stack
-    # blows (test_backend_dispatch_cycles::test_no_dispatchable_algorithm_recurses).
-    return _nx.min_weight_matching(_H, weight=weight, backend="networkx")
+    _H = G if isinstance(G, _nx.Graph) else _fnx_to_nx(G)
+    try:
+        return _nx.min_weight_matching(_H, weight=weight, backend="networkx")
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def min_weight_matching(G, weight="weight"):
@@ -15399,15 +15390,13 @@ def min_weight_matching(G, weight="weight"):
 
 
 def _max_weight_matching_structural_nx(G, maxcardinality, weight):
-    """Structural-only in-process nx delegation for ``max_weight_matching``."""
-    _H = _nx.Graph()
-    _H.add_nodes_from(G)
-    _H.add_weighted_edges_from(
-        ((u, v, d.get(weight, 1)) for u, v, d in G.edges(data=True)), weight=weight
-    )
+    """In-process nx delegation for ``max_weight_matching`` preserving exact adjacency order."""
+    from franken_networkx.backend import _fnx_to_nx
+
+    _H = G if isinstance(G, _nx.Graph) else _fnx_to_nx(G)
     try:
         return _nx.algorithms.matching.max_weight_matching(
-            _H, maxcardinality=maxcardinality, weight=weight
+            _H, maxcardinality=maxcardinality, weight=weight, backend="networkx"
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
