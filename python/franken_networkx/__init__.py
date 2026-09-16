@@ -22778,14 +22778,6 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
                     result.append(v)
             return result
         return _raw_barycenter(G)
-    if attr is None:
-        return _call_networkx_for_parity(
-            "barycenter", G, weight=weight, attr=attr, sp=sp,
-        )
-
-    # br-baryattr: replicate NX's in-place attr write on the user's
-    # fnx graph by computing barycentricity ourselves rather than
-    # losing it to the delegation copy.
     if sp is None:
         if weight is not None:
             sp_iter = shortest_path_length(G, weight=weight)
@@ -22805,7 +22797,8 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
                 "has infinite barycentricity."
             )
         barycentricity = sum(dists.values())
-        G.nodes[v][attr] = barycentricity
+        if attr is not None:
+            G.nodes[v][attr] = barycentricity
         if barycentricity < smallest:
             smallest = barycentricity
             barycenter_vertices = [v]
