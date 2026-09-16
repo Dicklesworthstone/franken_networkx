@@ -12991,7 +12991,10 @@ def _validate_shortest_path_length_source_query(G, source, weight, method):
             raise NodeNotFound(f"Source {source} is not in G")
         return
 
-    _HASH_PROBE.get(source)
+    if method == "dijkstra":
+        {source}
+    else:
+        _HASH_PROBE.get(source)
 
     if source in G:
         return
@@ -13000,6 +13003,153 @@ def _validate_shortest_path_length_source_query(G, source, weight, method):
         raise NodeNotFound(f"Node {source} not found in graph")
 
     raise NodeNotFound(f"Source {source} not in G")
+
+
+def _weight_function(G, weight):
+    """Returns a function that returns the weight of an edge.
+    Matches networkx.algorithms.shortest_paths.weighted._weight_function.
+    """
+    if callable(weight):
+        return weight
+    if G.is_multigraph():
+        return lambda u, v, d: min(attr.get(weight, 1) for attr in d.values())
+    return lambda u, v, data: data.get(weight, 1)
+
+
+def _dijkstra_multisource_inproc(
+    G, sources, weight, pred=None, paths=None, cutoff=None, target=None
+):
+    """Uses Dijkstra's algorithm to find shortest weighted paths in-process.
+    Matches networkx.algorithms.shortest_paths.weighted._dijkstra_multisource.
+    """
+    import heapq as _heapq
+    import itertools as _itertools
+
+    pred_dict = pred if paths is None or pred is not None else {}
+    G_succ = G._adj
+
+    dist = {}
+    seen = {}
+    c = _itertools.count()
+    fringe = []
+    for source in sources:
+        seen[source] = 0
+        _heapq.heappush(fringe, (0, next(c), source))
+    number_of_sources = len(seen)
+    while fringe:
+        (dist_v, _, v) = _heapq.heappop(fringe)
+        if v in dist:
+            continue
+        dist[v] = dist_v
+        if v == target:
+            break
+        for u, e in G_succ[v].items():
+            cost = weight(v, u, e)
+            if cost is None:
+                continue
+            vu_dist = dist_v + cost
+            if cutoff is not None and vu_dist > cutoff:
+                continue
+            if u in dist:
+                u_dist = dist[u]
+                if vu_dist < u_dist:
+                    raise ValueError("Contradictory paths found:", "negative weights?")
+                elif pred is not None and vu_dist == u_dist:
+                    pred_dict[u].append(v)
+            elif u not in seen or vu_dist < seen[u]:
+                seen[u] = vu_dist
+                _heapq.heappush(fringe, (vu_dist, next(c), u))
+                if pred_dict is not None:
+                    pred_dict[u] = [v]
+            elif pred is not None and vu_dist == seen[u]:
+                pred_dict[u].append(v)
+
+    if paths is not None:
+        if target is None:
+            for v in _itertools.islice(dist, number_of_sources, None):
+                paths[v] = paths[pred_dict[v][0]] + [v]
+        else:
+            path = paths[target] = [target]
+            while (current_preds := pred_dict.get(path[-1])) is not None:
+                path.append(current_preds[0])
+            path.reverse()
+
+    return dist
+
+
+def _multi_source_dijkstra_inproc(G, sources, target=None, cutoff=None, weight="weight"):
+    """In-process multi-source / single-source Dijkstra shortest paths and lengths."""
+    if not sources:
+        raise ValueError("sources must not be empty")
+    for s in sources:
+        if s not in G:
+            raise NodeNotFound(f"Node {s} not found in graph")
+    if target in sources:
+        return (0, [target])
+    weight_fn = _weight_function(G, weight)
+    paths = {source: [source] for source in sources}
+    dist = _dijkstra_multisource_inproc(
+        G, sources, weight_fn, paths=paths, cutoff=cutoff, target=target
+    )
+    if target is None:
+        return (dist, paths)
+    try:
+        return (dist[target], paths[target])
+    except KeyError as err:
+        raise NetworkXNoPath(f"No path to {target}.") from err
+
+
+def _dijkstra_path_length_inproc(G, source, target, weight="weight"):
+    """In-process Dijkstra shortest path length matching NetworkX's contract."""
+    if source not in G:
+        raise NodeNotFound(f"Node {source} not found in graph")
+    if source == target:
+        return 0
+    weight_fn = _weight_function(G, weight)
+    length = _dijkstra_multisource_inproc(G, [source], weight_fn, target=target)
+    try:
+        return length[target]
+    except KeyError as err:
+        raise NetworkXNoPath(f"Node {target} not reachable from {source}") from err
+
+
+def _dijkstra_predecessor_and_distance_inproc(G, source, cutoff=None, weight="weight"):
+    """In-process Dijkstra predecessor and distance dictionaries matching NetworkX."""
+    if source not in G:
+        raise NodeNotFound(f"Node {source} is not found in the graph")
+    weight_fn = _weight_function(G, weight)
+    pred = {source: []}
+    dist = _dijkstra_multisource_inproc(
+        G, [source], weight_fn, pred=pred, cutoff=cutoff
+    )
+    return (pred, dist)
+
+
+def _floyd_warshall_predecessor_and_distance_inproc(G, weight="weight"):
+    """In-process Floyd-Warshall predecessor and distance dictionaries matching NetworkX."""
+    from collections import defaultdict as _defaultdict
+    dist = _defaultdict(lambda: _defaultdict(lambda: float("inf")))
+    for u in G:
+        dist[u][u] = 0
+    pred = _defaultdict(dict)
+    undirected = not G.is_directed()
+    for u, v, d in G.edges(data=True):
+        e_weight = d.get(weight, 1.0)
+        dist[u][v] = min(e_weight, dist[u][v])
+        pred[u][v] = u
+        if undirected:
+            dist[v][u] = min(e_weight, dist[v][u])
+            pred[v][u] = v
+    for w in G:
+        dist_w = dist[w]
+        for u in G:
+            dist_u = dist[u]
+            for v in G:
+                d = dist_u[w] + dist_w[v]
+                if dist_u[v] > d:
+                    dist_u[v] = d
+                    pred[u][v] = pred[w][v]
+    return dict(pred), dict(dist)
 
 
 def average_shortest_path_length(G, weight=None, method=None):
@@ -13012,10 +13162,6 @@ def average_shortest_path_length(G, weight=None, method=None):
     # when the view is disconnected). Same view-coerce family as
     # br-r37-c1-ajhcl / -c7xg2 / -2dbnk.
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-aspl-fw: nx accepts ``method='floyd-warshall'`` and
-    # ``method='floyd-warshall-numpy'``; fnx previously rejected
-    # both with ``ValueError("method not supported: ...")``.
-    # Delegate those two paths to nx for parity.
     _SUPPORTED_METHODS = (
         None, "unweighted", "dijkstra", "bellman-ford",
         "floyd-warshall", "floyd-warshall-numpy",
@@ -13026,22 +13172,32 @@ def average_shortest_path_length(G, weight=None, method=None):
     # (no divisions happen on that code path); fnx's Rust-native path
     # returns 0.0 float. Match nx's exact type so isinstance(..., int)
     # checks downstream don't diverge.
-    if G.number_of_nodes() == 1:
+    n = G.number_of_nodes()
+    if n == 1:
         return 0
-    # Floyd-Warshall variants don't have a fnx-native fast path; bridge
-    # to nx so the value parity is preserved.
+    # In-process exact Floyd-Warshall variants
     if method in ("floyd-warshall", "floyd-warshall-numpy"):
-        kwargs = {"method": method}
-        if weight is not None:
-            kwargs["weight"] = weight
-        return _call_networkx_for_parity(
-            "average_shortest_path_length", G, **kwargs
-        )
+        if G.is_directed() and not is_strongly_connected(G):
+            raise NetworkXError("Graph is not strongly connected.")
+        if not G.is_directed() and not is_connected(G):
+            raise NetworkXError("Graph is not connected.")
+        if method == "floyd-warshall":
+            all_pairs = floyd_warshall(G, weight=weight)
+            s = sum(sum(t.values()) for t in all_pairs.values())
+        else:
+            s = float(floyd_warshall_numpy(G, weight=weight).sum())
+        return s / (n * (n - 1))
     if weight is not None and method in (None, "dijkstra") and _should_delegate_dijkstra_to_networkx(G, weight):
-        kwargs = {"weight": weight}
-        if method is not None:
-            kwargs["method"] = method
-        return _call_networkx_for_parity("average_shortest_path_length", G, **kwargs)
+        if G.is_directed() and not is_strongly_connected(G):
+            raise NetworkXError("Graph is not strongly connected.")
+        if not G.is_directed() and not is_connected(G):
+            raise NetworkXError("Graph is not connected.")
+        s = sum(
+            l
+            for u in G
+            for l in single_source_dijkstra_path_length(G, u, weight=weight).values()
+        )
+        return s / (n * (n - 1))
     if isinstance(weight, str):
         # br-r37-c1-4tmgq: the native kernel reads the Rust attr store; push any
         # post-construction Python-side edge attribute writes down first. The
@@ -13077,9 +13233,7 @@ def dijkstra_path(G, source, target, weight="weight"):
         # kernel is entered before the delegation predicate, and its own
         # "return None to delegate" rule has no exactness dimension.
         if _should_delegate_dijkstra_to_networkx(G, weight):
-            return _call_networkx_for_parity(
-                "dijkstra_path", G, source, target, weight=weight
-            )
+            return single_source_dijkstra(G, source, target=target, weight=weight)[1]
         try:
             _direct = _raw_multidigraph_dijkstra_path_target(
                 G, source, target, weight=weight
@@ -13090,14 +13244,10 @@ def dijkstra_path(G, source, target, weight="weight"):
             return _direct
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "dijkstra_path", G, source, target, weight=weight
-            )
+            return single_source_dijkstra(G, source, target=target, weight=weight)[1]
         return dijkstra_path(_simple, source, target, weight=weight)
     if _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "dijkstra_path", G, source, target, weight=weight
-        )
+        return single_source_dijkstra(G, source, target=target, weight=weight)[1]
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
     if target not in G:
@@ -13136,6 +13286,176 @@ def _path_length_preserving_weight_type(G, path, weight):
     for node, neighbor in _itertools.pairwise(path):
         total += G[node][neighbor].get(weight, 1)
     return total
+
+
+def _build_paths_from_predecessors(sources, target, pred):
+    """Compute all simple paths to target, given predecessors, terminating at sources."""
+    if target not in pred:
+        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+
+    seen = {target}
+    stack = [[target, 0]]
+    top = 0
+    while top >= 0:
+        node, i = stack[top]
+        if node in sources:
+            yield [p for p, n in reversed(stack[: top + 1])]
+        if len(pred[node]) > i:
+            stack[top][1] = i + 1
+            next_node = pred[node][i]
+            if next_node in seen:
+                continue
+            else:
+                seen.add(next_node)
+            top += 1
+            if top == len(stack):
+                stack.append([next_node, 0])
+            else:
+                stack[top][:] = [next_node, 0]
+        else:
+            seen.discard(node)
+            top -= 1
+
+
+def _inner_bellman_ford_inproc(
+    G,
+    sources,
+    weight,
+    pred,
+    dist=None,
+    heuristic=True,
+):
+    from collections import deque as _deque
+
+    for s in sources:
+        if s not in G:
+            raise NodeNotFound(f"Source {s} not in G")
+
+    if pred is None:
+        pred = {v: [] for v in sources}
+
+    if dist is None:
+        dist = {v: 0 for v in sources}
+
+    nonexistent_edge = (None, None)
+    pred_edge = {v: None for v in sources}
+    recent_update = {v: nonexistent_edge for v in sources}
+
+    G_succ = G._adj
+    inf = float("inf")
+    n = len(G)
+
+    count = {}
+    q = _deque(sources)
+    in_q = set(sources)
+    while q:
+        u = q.popleft()
+        in_q.remove(u)
+
+        if all(pred_u not in in_q for pred_u in pred[u]):
+            dist_u = dist[u]
+            for v, e in G_succ[u].items():
+                dist_v = dist_u + weight(u, v, e)
+
+                if dist_v < dist.get(v, inf):
+                    if heuristic:
+                        if v in recent_update[u]:
+                            pred[v].append(u)
+                            return v
+
+                        if v in pred_edge and pred_edge[v] == u:
+                            recent_update[v] = recent_update[u]
+                        else:
+                            recent_update[v] = (u, v)
+
+                    if v not in in_q:
+                        q.append(v)
+                        in_q.add(v)
+                        count_v = count.get(v, 0) + 1
+                        if count_v == n:
+                            return v
+
+                        count[v] = count_v
+                    dist[v] = dist_v
+                    pred[v] = [u]
+                    pred_edge[v] = u
+
+                elif dist.get(v) is not None and dist_v == dist.get(v):
+                    pred[v].append(u)
+
+    return None
+
+
+def _bellman_ford_inproc(
+    G,
+    source,
+    weight,
+    pred=None,
+    paths=None,
+    dist=None,
+    target=None,
+    heuristic=True,
+):
+    if pred is None:
+        pred = {v: [] for v in source}
+
+    if dist is None:
+        dist = {v: 0 for v in source}
+
+    negative_cycle_found = _inner_bellman_ford_inproc(
+        G,
+        source,
+        weight,
+        pred,
+        dist,
+        heuristic,
+    )
+    if negative_cycle_found is not None:
+        raise NetworkXUnbounded("Negative cycle detected.")
+
+    if paths is not None:
+        sources = set(source)
+        dsts = [target] if target is not None else pred
+        for dst in dsts:
+            gen = _build_paths_from_predecessors(sources, dst, pred)
+            paths[dst] = next(gen)
+
+    return dist
+
+
+def _single_source_bellman_ford_inproc(G, source, target=None, weight="weight"):
+    if source == target:
+        if source not in G:
+            raise NodeNotFound(f"Node {source} is not found in the graph")
+        return (0, [source])
+
+    weight_fn = _weight_function(G, weight)
+
+    paths = {source: [source]}
+    dist = _bellman_ford_inproc(G, [source], weight_fn, paths=paths, target=target)
+    if target is None:
+        return (dist, paths)
+    try:
+        return (dist[target], paths[target])
+    except KeyError as err:
+        msg = f"Node {target} not reachable from {source}"
+        raise NetworkXNoPath(msg) from err
+
+
+def _bellman_ford_path_length_inproc(G, source, target, weight="weight"):
+    if source == target:
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        return 0
+
+    weight_fn = _weight_function(G, weight)
+
+    length = _bellman_ford_inproc(G, [source], weight_fn, target=target)
+
+    try:
+        return length[target]
+    except KeyError as err:
+        raise NetworkXNoPath(f"node {target} not reachable from {source}") from err
 
 
 def bellman_ford_path(G, source, target, weight="weight"):
@@ -13179,20 +13499,18 @@ def bellman_ford_path(G, source, target, weight="weight"):
     if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
         _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "bellman_ford_path", G, source, target, weight=weight
-            )
+            return _single_source_bellman_ford_inproc(
+                G, source, target=target, weight=weight
+            )[1]
         return bellman_ford_path(_simple, source, target, weight=weight)
-    # Delegate to nx for: callable / non-str weight (the kernel needs a str attr
-    # key), and NaN/inf or non-numeric edge values (nx's relaxation treats NaN/inf
-    # as unreachable / negative-cycle and raises TypeError on non-numeric `+`).
-    # Bellman-Ford legitimately allows NEGATIVE weights, so — unlike the Dijkstra
-    # gate — a negative edge does NOT trigger delegation. Use the fast single-pass
-    # native weight scan (reads edge_py_attrs directly, cached) when available.
+    # Delegate to in-process Bellman-Ford for: callable / non-str weight, and
+    # NaN/inf or non-numeric edge values. Bellman-Ford legitimately allows
+    # NEGATIVE weights, so — unlike the Dijkstra gate — a negative edge does NOT
+    # trigger fallback.
     if _should_delegate_bellman_ford_path_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "bellman_ford_path", G, source, target, weight=weight
-        )
+        return _single_source_bellman_ford_inproc(
+            G, source, target=target, weight=weight
+        )[1]
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
     # nx's single_source_bellman_ford short-circuits source == target to
@@ -13234,14 +13552,27 @@ def shortest_path(
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
-        return _call_networkx_for_parity(
-            "shortest_path",
-            G,
-            source=source,
-            target=target,
-            weight=weight,
-            method=method,
-        )
+        if source is not None and target is not None:
+            if weight is None:
+                return bidirectional_shortest_path(G, source, target)
+            if method == "bellman-ford":
+                return bellman_ford_path(G, source, target, weight=weight)
+            return bidirectional_dijkstra(G, source, target, weight=weight)[1]
+        if source is not None and target is None:
+            if weight is None:
+                return single_source_shortest_path(G, source)
+            if method == "bellman-ford":
+                return single_source_bellman_ford_path(G, source, weight=weight)
+            return single_source_dijkstra_path(G, source, weight=weight)
+        if source is None and target is not None:
+            H = G.reverse(copy=False) if G.is_directed() else G
+            if weight is None:
+                paths = single_source_shortest_path(H, target)
+            elif method == "bellman-ford":
+                paths = single_source_bellman_ford_path(H, target, weight=weight)
+            else:
+                paths = single_source_dijkstra_path(H, target, weight=weight)
+            return {u: list(reversed(p)) for u, p in paths.items()}
     if weight is not None:
         # br-r37-c1-04z53.9171: exact-string MultiGraph point queries route
         # directly to ``bidirectional_dijkstra`` below. That function owns the
@@ -13271,23 +13602,25 @@ def shortest_path(
                 ),
             )
         ):
-            return _call_networkx_for_parity(
-                "shortest_path",
-                G,
-                source=source,
-                target=target,
-                weight=weight,
-                method=method,
-            )
+            if source is not None and target is not None:
+                return bidirectional_dijkstra(G, source, target, weight=weight)[1]
+            if source is not None and target is None:
+                return single_source_dijkstra_path(G, source, weight=weight)
+            if source is None and target is not None:
+                H = G.reverse(copy=False) if G.is_directed() else G
+                paths = single_source_dijkstra_path(H, target, weight=weight)
+                return {u: list(reversed(p)) for u, p in paths.items()}
+            return all_pairs_dijkstra_path(G, weight=weight)
         if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight, G):
-            return _call_networkx_for_parity(
-                "shortest_path",
-                G,
-                source=source,
-                target=target,
-                weight=weight,
-                method=method,
-            )
+            if source is not None and target is not None:
+                return bellman_ford_path(G, source, target, weight=weight)
+            if source is not None and target is None:
+                return single_source_bellman_ford_path(G, source, weight=weight)
+            if source is None and target is not None:
+                H = G.reverse(copy=False) if G.is_directed() else G
+                paths = single_source_bellman_ford_path(H, target, weight=weight)
+                return {u: list(reversed(p)) for u, p in paths.items()}
+            return all_pairs_bellman_ford_path(G, weight=weight)
     if weight is None and source is not None and target is not None:
         # br-gauntlet-sp-bidir: nx.shortest_path routes the unweighted
         # point-to-point case through ``bidirectional_shortest_path``, whose
@@ -13369,14 +13702,27 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
-        return _call_networkx_for_parity(
-            "shortest_path_length",
-            G,
-            source=source,
-            target=target,
-            weight=weight,
-            method=method,
-        )
+        if source is not None and target is not None:
+            if method == "bellman-ford":
+                return bellman_ford_path_length(G, source, target, weight=weight)
+            if weight is not None:
+                return dijkstra_path_length(G, source, target, weight=weight)
+            return len(bidirectional_shortest_path(G, source, target)) - 1
+        if source is not None and target is None:
+            _validate_shortest_path_length_source_query(G, source, weight, method)
+            if weight is not None:
+                if method == "bellman-ford":
+                    return dict(single_source_bellman_ford_path_length(G, source, weight=weight))
+                return dict(single_source_dijkstra_path_length(G, source, weight=weight))
+            return dict(single_source_shortest_path_length(G, source))
+        if source is None and target is not None:
+            H = G.reverse(copy=False) if G.is_directed() else G
+            _validate_shortest_path_length_source_query(H, target, weight, method)
+            if weight is not None:
+                if method == "bellman-ford":
+                    return dict(single_source_bellman_ford_path_length(H, target, weight=weight))
+                return dict(single_source_dijkstra_path_length(H, target, weight=weight))
+            return dict(single_source_shortest_path_length(H, target))
 
     if weight is not None:
         # br-cc-mgdijkstra: for a MULTIGRAPH with a SOURCE given, the dijkstra
@@ -13392,23 +13738,23 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
             and not _mg_source_collapse
             and _should_delegate_dijkstra_to_networkx(G, weight)
         ):
-            return _call_networkx_for_parity(
-                "shortest_path_length",
-                G,
-                source=source,
-                target=target,
-                weight=weight,
-                method=method,
-            )
+            if source is not None and target is not None:
+                return dijkstra_path_length(G, source, target, weight=weight)
+            if source is not None and target is None:
+                return dict(single_source_dijkstra_path_length(G, source, weight=weight))
+            if source is None and target is not None:
+                H = G.reverse(copy=False) if G.is_directed() else G
+                return dict(single_source_dijkstra_path_length(H, target, weight=weight))
+            return all_pairs_dijkstra_path_length(G, weight=weight)
         if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
-            return _call_networkx_for_parity(
-                "shortest_path_length",
-                G,
-                source=source,
-                target=target,
-                weight=weight,
-                method=method,
-            )
+            if source is not None and target is not None:
+                return bellman_ford_path_length(G, source, target, weight=weight)
+            if source is not None and target is None:
+                return dict(single_source_bellman_ford_path_length(G, source, weight=weight))
+            if source is None and target is not None:
+                H = G.reverse(copy=False) if G.is_directed() else G
+                return dict(single_source_bellman_ford_path_length(H, target, weight=weight))
+            return all_pairs_bellman_ford_path_length(G, weight=weight)
 
     if source is not None and target is not None:
         if weight is not None and method == "bellman-ford":
@@ -14424,6 +14770,40 @@ def _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight):
     raise PowerIterationFailedConvergence(max_iter)
 
 
+def _eigenvector_centrality_inproc(G, max_iter=100, tol=1e-6, nstart=None, weight=None):
+    import math
+
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("cannot compute centrality for the null graph")
+    if nstart is None:
+        nstart = {v: 1 for v in G}
+    if all(v == 0 for v in nstart.values()):
+        raise NetworkXError("initial vector cannot have all zero values")
+    nstart_sum = sum(nstart.values())
+    x = {k: v / nstart_sum for k, v in nstart.items()}
+    nnodes = G.number_of_nodes()
+    is_multi = G.is_multigraph()
+    for _ in range(max_iter):
+        xlast = x
+        x = xlast.copy()
+        if is_multi:
+            for n in x:
+                for nbr, keydict in G[n].items():
+                    for key, datadict in keydict.items():
+                        w = datadict.get(weight, 1) if weight else 1
+                        x[nbr] += xlast[n] * w
+        else:
+            for n in x:
+                for nbr in G[n]:
+                    w = G[n][nbr].get(weight, 1) if weight else 1
+                    x[nbr] += xlast[n] * w
+        norm = math.hypot(*x.values()) or 1
+        x = {k: v / norm for k, v in x.items()}
+        if sum(abs(x[n] - xlast[n]) for n in x) < nnodes * tol:
+            return x
+    raise PowerIterationFailedConvergence(max_iter)
+
+
 def eigenvector_centrality(
     G,
     max_iter=100,
@@ -14513,8 +14893,7 @@ def eigenvector_centrality(
                 raise
             except (ValueError, ZeroDivisionError, FloatingPointError):
                 pass
-        return _call_networkx_for_parity(
-            "eigenvector_centrality",
+        return _eigenvector_centrality_inproc(
             G,
             max_iter=max_iter,
             tol=tol,
@@ -15920,6 +16299,199 @@ def _boruvka_spanning_edges_inproc(G, weight, minimum, ignore_nan):
     return out
 
 
+def _kruskal_spanning_edges_inproc(
+    G, minimum=True, weight="weight", keys=True, data=True, ignore_nan=False, partition=None
+):
+    from math import isnan
+    from operator import itemgetter
+    from networkx.utils import UnionFind
+
+    subtrees = UnionFind()
+    if G.is_multigraph():
+        edges = G.edges(keys=True, data=True)
+    else:
+        edges = G.edges(data=True)
+
+    included_edges = []
+    open_edges = []
+    for e in edges:
+        d = e[-1]
+        wt = d.get(weight, 1)
+        if isinstance(wt, float) and isnan(wt):
+            if ignore_nan:
+                continue
+            raise ValueError(f"NaN found as an edge weight. Edge {e}")
+
+        edge = (wt,) + e
+        if partition is not None:
+            part_val = d.get(partition)
+            if getattr(part_val, "name", None) == "INCLUDED" or part_val == 1:
+                included_edges.append(edge)
+                continue
+            elif getattr(part_val, "name", None) == "EXCLUDED" or part_val == 2:
+                continue
+        open_edges.append(edge)
+
+    if minimum:
+        sorted_open_edges = sorted(open_edges, key=itemgetter(0))
+    else:
+        sorted_open_edges = sorted(open_edges, key=itemgetter(0), reverse=True)
+
+    included_edges.extend(sorted_open_edges)
+    sorted_edges = included_edges
+
+    edges_needed = len(G) - 1
+    edges_added = 0
+
+    if G.is_multigraph():
+        for wt, u, v, k, d in sorted_edges:
+            if subtrees[u] != subtrees[v]:
+                if keys:
+                    if data:
+                        yield u, v, k, d
+                    else:
+                        yield u, v, k
+                else:
+                    if data:
+                        yield u, v, d
+                    else:
+                        yield u, v
+                subtrees.union(u, v)
+                edges_added += 1
+                if edges_added == edges_needed:
+                    return
+    else:
+        for wt, u, v, d in sorted_edges:
+            if subtrees[u] != subtrees[v]:
+                if data:
+                    yield u, v, d
+                else:
+                    yield u, v
+                subtrees.union(u, v)
+                edges_added += 1
+                if edges_added == edges_needed:
+                    return
+
+
+def _prim_spanning_edges_inproc(
+    G, minimum=True, weight="weight", keys=True, data=True, ignore_nan=False
+):
+    from heapq import heappop, heappush
+    from itertools import count
+    from math import isnan
+
+    is_multigraph = G.is_multigraph()
+    nodes = set(G)
+    c = count()
+    sign = 1 if minimum else -1
+
+    while nodes:
+        u = nodes.pop()
+        frontier = []
+        visited = {u}
+        if is_multigraph:
+            for v, keydict in G.adj[u].items():
+                for k, d in keydict.items():
+                    wt = d.get(weight, 1) * sign
+                    if isinstance(wt, float) and isnan(wt):
+                        if ignore_nan:
+                            continue
+                        msg = f"NaN found as an edge weight. Edge {(u, v, k, d)}"
+                        raise ValueError(msg)
+                    heappush(frontier, (wt, next(c), u, v, k, d))
+        else:
+            for v, d in G.adj[u].items():
+                wt = d.get(weight, 1) * sign
+                if isinstance(wt, float) and isnan(wt):
+                    if ignore_nan:
+                        continue
+                    msg = f"NaN found as an edge weight. Edge {(u, v, d)}"
+                    raise ValueError(msg)
+                heappush(frontier, (wt, next(c), u, v, d))
+        while nodes and frontier:
+            if is_multigraph:
+                W, _, u, v, k, d = heappop(frontier)
+            else:
+                W, _, u, v, d = heappop(frontier)
+            if v in visited or v not in nodes:
+                continue
+            if is_multigraph and keys:
+                if data:
+                    yield u, v, k, d
+                else:
+                    yield u, v, k
+            else:
+                if data:
+                    yield u, v, d
+                else:
+                    yield u, v
+            visited.add(v)
+            nodes.discard(v)
+            if is_multigraph:
+                for w, keydict in G.adj[v].items():
+                    if w in visited:
+                        continue
+                    for k2, d2 in keydict.items():
+                        new_weight = d2.get(weight, 1) * sign
+                        if isinstance(new_weight, float) and isnan(new_weight):
+                            if ignore_nan:
+                                continue
+                            msg = f"NaN found as an edge weight. Edge {(v, w, k2, d2)}"
+                            raise ValueError(msg)
+                        heappush(frontier, (new_weight, next(c), v, w, k2, d2))
+            else:
+                for w, d2 in G.adj[v].items():
+                    if w in visited:
+                        continue
+                    new_weight = d2.get(weight, 1) * sign
+                    if isinstance(new_weight, float) and isnan(new_weight):
+                        if ignore_nan:
+                            continue
+                        msg = f"NaN found as an edge weight. Edge {(v, w, d2)}"
+                        raise ValueError(msg)
+                    heappush(frontier, (new_weight, next(c), v, w, d2))
+
+
+def _boruvka_inproc_full(G, minimum=True, weight="weight", data=True, ignore_nan=False):
+    from networkx.utils import UnionFind
+    from math import isnan
+
+    forest = UnionFind(G)
+
+    def best_edge(component):
+        sign = 1 if minimum else -1
+        minwt = float("inf")
+        boundary = None
+        cset = set(component)
+        for n in G:
+            if n in cset:
+                for nbr, d in G[n].items():
+                    if nbr not in cset:
+                        wt = d.get(weight, 1) * sign
+                        if isinstance(wt, float) and isnan(wt):
+                            if ignore_nan:
+                                continue
+                            msg = f"NaN found as an edge weight. Edge {(n, nbr, d)}"
+                            raise ValueError(msg)
+                        if wt < minwt:
+                            minwt = wt
+                            boundary = (n, nbr, d)
+        return boundary
+
+    best_edges = (best_edge(component) for component in forest.to_sets())
+    best_edges = [edge for edge in best_edges if edge is not None]
+    while best_edges:
+        best_edges = (best_edge(component) for component in forest.to_sets())
+        best_edges = [edge for edge in best_edges if edge is not None]
+        for u, v, d in best_edges:
+            if forest[u] != forest[v]:
+                if data:
+                    yield u, v, d
+                else:
+                    yield u, v
+                forest.union(u, v)
+
+
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``.
 
@@ -16011,15 +16583,38 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
                 else:
                     yield from _edges
                 return
-        yield from _call_networkx_for_parity(
-            "minimum_spanning_edges",
-            G,
-            algorithm=algorithm,
-            weight=weight,
-            keys=keys,
-            data=data,
-            ignore_nan=ignore_nan,
-        )
+        if algorithm == "kruskal":
+            yield from _kruskal_spanning_edges_inproc(
+                G,
+                minimum=True,
+                weight=weight,
+                keys=keys,
+                data=data,
+                ignore_nan=ignore_nan,
+            )
+            return
+        if algorithm == "prim":
+            yield from _prim_spanning_edges_inproc(
+                G,
+                minimum=True,
+                weight=weight,
+                keys=keys,
+                data=data,
+                ignore_nan=ignore_nan,
+            )
+            return
+        if algorithm in ("boruvka", "borůvka"):
+            if G.is_multigraph():
+                raise NetworkXNotImplemented("not implemented for multigraph type")
+            yield from _boruvka_inproc_full(
+                G,
+                minimum=True,
+                weight=weight,
+                data=data,
+                ignore_nan=ignore_nan,
+            )
+            return
+        raise ValueError(f"{algorithm} is not a valid choice for an algorithm.")
 
     return _gen()
 
@@ -16095,15 +16690,38 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
                 else:
                     yield from _edges
                 return
-        yield from _call_networkx_for_parity(
-            "maximum_spanning_edges",
-            G,
-            algorithm=algorithm,
-            weight=weight,
-            keys=keys,
-            data=data,
-            ignore_nan=ignore_nan,
-        )
+        if algorithm == "kruskal":
+            yield from _kruskal_spanning_edges_inproc(
+                G,
+                minimum=False,
+                weight=weight,
+                keys=keys,
+                data=data,
+                ignore_nan=ignore_nan,
+            )
+            return
+        if algorithm == "prim":
+            yield from _prim_spanning_edges_inproc(
+                G,
+                minimum=False,
+                weight=weight,
+                keys=keys,
+                data=data,
+                ignore_nan=ignore_nan,
+            )
+            return
+        if algorithm in ("boruvka", "borůvka"):
+            if G.is_multigraph():
+                raise NetworkXNotImplemented("not implemented for multigraph type")
+            yield from _boruvka_inproc_full(
+                G,
+                minimum=False,
+                weight=weight,
+                data=data,
+                ignore_nan=ignore_nan,
+            )
+            return
+        raise ValueError(f"{algorithm} is not a valid choice for an algorithm.")
 
     return _gen()
 
@@ -16421,13 +17039,20 @@ def partition_spanning_tree(G, minimum=True, weight="weight", partition="partiti
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed() or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _call_networkx_for_parity(
-            "partition_spanning_tree", G,
-            minimum=minimum, weight=weight,
-            partition=partition, ignore_nan=ignore_nan,
+        edges = _kruskal_spanning_edges_inproc(
+            G,
+            minimum=minimum,
+            weight=weight,
+            keys=True,
+            data=True,
+            ignore_nan=ignore_nan,
+            partition=partition,
         )
-        return _from_nx_graph(nx_result)
+        T = _concrete_class_for(G)()
+        T.graph.update(G.graph)
+        T.add_nodes_from(G.nodes.items())
+        T.add_edges_from(edges)
+        return T
     # br-r37-c1-4tmgq: both ``weight`` and ``partition`` are read from the Rust
     # store by the native kernel; flush post-construction writes first.
     _sync_rust_edge_attrs(G, edge_only=True)
@@ -16544,61 +17169,110 @@ def eulerian_circuit(G, source=None, keys=False):
     route. Multigraph/directed keep delegating (key ordering).
     """
     G = _coerce_arg_to_fnx_graph(G)
+    if source is not None and source not in G:
+        raise NetworkXError(f"Node {source} is not in the graph.")
     if (
         not G.is_directed()
         and not G.is_multigraph()
         and len(G) > 0
-        and (source is None or source in G)
         and number_of_selfloops(G) == 0
     ):
-        # Self-loops are gated out: nx's degree counts a self-loop twice while the
-        # snapshot's len(adj[v]) counts it once, so they keep the nx-delegating path.
         if not is_eulerian(G):
             raise NetworkXError("G is not Eulerian.")
         yield from _fnx.eulerian_circuit(G, source)
         return
-    if (
-        G.is_directed()
-        and not G.is_multigraph()
-        and len(G) > 0
-        and (source is None or source in G)
-    ):
-        # br-cc-eulcircdir: the directed simple case still paid the full
-        # fnx->nx conversion (was 0.64x). nx reverses the digraph
-        # (``G = G.reverse()``) then runs Hierholzer over the reversed graph's
-        # OUT-edges, which makes the yielded ``(last, current)`` edges come out in
-        # the original FORWARD orientation. Reproduce that in-process: build the
-        # reversed successor adjacency in nx's exact edge order
-        # (``rev_succ[v]`` = the sources ``u`` of every arc ``(u, v)``, ordered by
-        # ``G.edges()`` = successor-adjacency order), then run the identical
-        # stack walk. ``next(iter(rev_succ[c]))`` == nx's
-        # ``arbitrary_element(G_rev.out_edges(c))``, so the edge SEQUENCE is
-        # byte-identical to nx — without the conversion. Multigraphs keep
-        # delegating (edge-key ordering).
-        if not is_eulerian(G):
-            raise NetworkXError("G is not Eulerian.")
-        rev_succ = {node: {} for node in G}
+    if not is_eulerian(G):
+        raise NetworkXError("G is not Eulerian.")
+    if source is None:
+        source = next(iter(G))
+    if G.is_multigraph():
+        yield from _multigraph_eulerian_circuit_inproc(G, source=source, keys=keys)
+    else:
+        yield from _simplegraph_eulerian_circuit_inproc(G, source=source)
+
+
+def _simplegraph_eulerian_circuit_inproc(G, source):
+    is_directed = G.is_directed()
+    if is_directed:
+        adj = {u: {} for u in G}
         for u, nbrs in G.adjacency():
             for v in nbrs:
-                rev_succ[v][u] = None
-        current_vertex = next(iter(G)) if source is None else source
-        vertex_stack = [current_vertex]
-        last_vertex = None
-        while vertex_stack:
-            current_vertex = vertex_stack[-1]
-            if len(rev_succ[current_vertex]) == 0:
-                if last_vertex is not None:
-                    yield (last_vertex, current_vertex)
-                last_vertex = current_vertex
-                vertex_stack.pop()
-            else:
-                next_vertex = next(iter(rev_succ[current_vertex]))
-                vertex_stack.append(next_vertex)
-                del rev_succ[current_vertex][next_vertex]
-        return
-    yield from _call_networkx_for_parity(
-        "eulerian_circuit", G, source=source, keys=keys,
-    )
+                adj[v][u] = None
+    else:
+        adj = {u: dict.fromkeys(nbrs) for u, nbrs in G.adjacency()}
+    vertex_stack = [source]
+    last_vertex = None
+    while vertex_stack:
+        current_vertex = vertex_stack[-1]
+        adj_cur = adj[current_vertex]
+        if not adj_cur:
+            if last_vertex is not None:
+                yield (last_vertex, current_vertex)
+            last_vertex = current_vertex
+            vertex_stack.pop()
+        else:
+            next_vertex = next(iter(adj_cur))
+            vertex_stack.append(next_vertex)
+            del adj_cur[next_vertex]
+            if not is_directed and next_vertex != current_vertex:
+                del adj[next_vertex][current_vertex]
+
+
+def _multigraph_eulerian_circuit_inproc(G, source, keys=False):
+    is_directed = G.is_directed()
+    adj = {u: {} for u in G}
+    if is_directed:
+        for u, nbrs in G.adjacency():
+            for v, keydict in nbrs.items():
+                if u not in adj[v]:
+                    adj[v][u] = dict.fromkeys(keydict)
+                else:
+                    adj[v][u].update(dict.fromkeys(keydict))
+    else:
+        for u, nbrs in G.adjacency():
+            adj_u = adj[u]
+            for v, keydict in nbrs.items():
+                adj_u[v] = dict.fromkeys(keydict)
+
+    vertex_stack = [(source, None)]
+    last_vertex = None
+    last_key = None
+    while vertex_stack:
+        current_vertex, current_key = vertex_stack[-1]
+        adj_cur = adj[current_vertex]
+        if not adj_cur:
+            if last_vertex is not None:
+                yield (last_vertex, current_vertex, last_key) if keys else (last_vertex, current_vertex)
+            last_vertex, last_key = current_vertex, current_key
+            vertex_stack.pop()
+        else:
+            next_vertex = next(iter(adj_cur))
+            next_key_dict = adj_cur[next_vertex]
+            next_key = next(iter(next_key_dict))
+            vertex_stack.append((next_vertex, next_key))
+            del next_key_dict[next_key]
+            if not next_key_dict:
+                del adj_cur[next_vertex]
+            if not is_directed and next_vertex != current_vertex:
+                rev_key_dict = adj[next_vertex][current_vertex]
+                del rev_key_dict[next_key]
+                if not rev_key_dict:
+                    del adj[next_vertex][current_vertex]
+
+
+def _find_path_start_inproc(G):
+    if not has_eulerian_path(G):
+        return None
+    if is_eulerian(G):
+        return next(iter(G))
+    if G.is_directed():
+        v1, v2 = (v for v in G if G.in_degree(v) != G.out_degree(v))
+        if G.out_degree(v1) > G.in_degree(v1):
+            return v1
+        else:
+            return v2
+    else:
+        return [v for v in G if G.degree(v) % 2 != 0][0]
 
 
 def eulerian_path(G, source=None, keys=False):
@@ -16628,32 +17302,27 @@ def eulerian_path(G, source=None, keys=False):
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None and source not in G:
         raise NetworkXError(f"Node {source} is not in the graph.")
-    # br-r37-c1-04z53.51: simple DiGraph now uses the native directed
-    # reversed-Hierholzer path. MultiDiGraph still delegates so key
-    # ordering and parallel-edge handling remain NetworkX-owned.
+    if not has_eulerian_path(G, source):
+        raise NetworkXError("Graph has no Eulerian paths.")
     if G.is_directed():
+        if source is None or is_eulerian(G) is False:
+            source = _find_path_start_inproc(G.reverse())
         if G.is_multigraph():
-            yield from _call_networkx_for_parity(
-                "eulerian_path", G, source=source, keys=keys,
-            )
-            return
-        yield from _raw_eulerian_path(G, source=source)
-        return
-    if keys:
-        yield from _call_networkx_for_parity("eulerian_path", G, source=source, keys=keys)
-        return
-    # br-r37-c1-dg2dn: the Rust _raw_eulerian_path mishandles
-    # self-loops the same way the boolean predicates did
-    # (br-r37-c1-792dv) — it raises "Graph has no Eulerian paths"
-    # on graphs that ARE Eulerian, e.g. K3 + self-loop. Delegate
-    # any graph with at least one self-loop to nx so eulerian_path
-    # is consistent with has_eulerian_path / is_eulerian.
-    if number_of_selfloops(G) > 0:  # br-r37-c1-5i5gb: native O(|V|) check, not O(|E|) EdgeView pass
-        yield from _call_networkx_for_parity(
-            "eulerian_path", G, source=source, keys=keys,
-        )
-        return
-    yield from _raw_eulerian_path(G, source=source)
+            yield from _multigraph_eulerian_circuit_inproc(G, source=source, keys=keys)
+        else:
+            yield from _simplegraph_eulerian_circuit_inproc(G, source=source)
+    else:
+        if source is None:
+            source = _find_path_start_inproc(G)
+        if G.is_multigraph():
+            circuit = list(_multigraph_eulerian_circuit_inproc(G, source=source, keys=True))
+            if keys:
+                yield from reversed([(v, u, k) for u, v, k in circuit])
+            else:
+                yield from reversed([(v, u) for u, v in circuit])
+        else:
+            circuit = list(_simplegraph_eulerian_circuit_inproc(G, source=source))
+            yield from reversed([(v, u) for u, v in circuit])
 
 
 def has_eulerian_path(G, source=None):
@@ -16735,6 +17404,34 @@ def cycle_basis(G, root=None):
     return _raw_cycle_basis(G)
 
 
+def _build_paths_from_predecessors(sources, target, pred):
+    """Compute all simple paths to target, given predecessors, terminating at sources."""
+    if target not in pred:
+        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+
+    seen = {target}
+    stack = [[target, 0]]
+    top = 0
+    while top >= 0:
+        node, i = stack[top]
+        if node in sources:
+            yield [p for p, n in reversed(stack[: top + 1])]
+        if len(pred[node]) > i:
+            stack[top][1] = i + 1
+            next_node = pred[node][i]
+            if next_node in seen:
+                continue
+            seen.add(next_node)
+            top += 1
+            if top == len(stack):
+                stack.append([next_node, 0])
+            else:
+                stack[top][:] = [next_node, 0]
+        else:
+            seen.discard(node)
+            top -= 1
+
+
 def all_shortest_paths(
     G, source, target, weight=None, method="dijkstra", *, backend=None, **backend_kwargs
 ):
@@ -16773,7 +17470,7 @@ def all_shortest_paths(
         # whenever weight is None. The binding raises NetworkXNoPath with a
         # different message for an unreachable (but present) target, so re-raise
         # with nx's exact wording.
-        if weight is None:
+        if weight is None or method == "unweighted":
             try:
                 paths = _raw_all_shortest_paths(G, source, target, method="unweighted")
             except NetworkXNoPath:
@@ -16782,42 +17479,14 @@ def all_shortest_paths(
                 )
             yield from paths
             return
-        if method == "unweighted":
-            # nx accepts method='unweighted' even when weight is supplied;
-            # the method selection wins and edge weights are ignored.
-            yield from _call_networkx_for_parity(
-                "all_shortest_paths", G, source, target, weight=weight, method=method,
-            )
-            return
-        if weight is not None and G.is_directed():
-            # Delegate non-string / callable weights to NetworkX (the PyO3
-            # binding's ``weight: str`` signature type-rejects, and callables
-            # have no Rust analogue). bellman-ford is now native (br-r37-c1-
-            # xsi7c), so it stays in the Rust path unless the weight type
-            # forces a fallback.
-            if _should_delegate_dijkstra_to_networkx(G, weight) or (
-                method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight)
-            ):
-                kwargs = {"weight": weight}
-                if method is not None:
-                    kwargs["method"] = method
-                yield from _call_networkx_for_parity(
-                    "all_shortest_paths", G, source, target, **kwargs
-                )
-                return
-        if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
-            kwargs = {"weight": weight}
-            if method is not None:
-                kwargs["method"] = method
-            yield from _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
-            return
-        if weight is not None and method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
-            kwargs = {"weight": weight}
-            if method is not None:
-                kwargs["method"] = method
-            yield from _call_networkx_for_parity(
-                "all_shortest_paths", G, source, target, **kwargs
-            )
+        if not isinstance(weight, str) or _should_delegate_dijkstra_to_networkx(G, weight) or (
+            method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight)
+        ):
+            if method == "bellman-ford":
+                pred, _ = bellman_ford_predecessor_and_distance(G, source, weight=weight)
+            else:
+                pred, _ = dijkstra_predecessor_and_distance(G, source, weight=weight)
+            yield from _build_paths_from_predecessors({source}, target, pred)
             return
         try:
             if isinstance(weight, str):
@@ -21421,15 +22090,8 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     # binding below. Keep nx delegation for cutoff/callable/non-string,
     # multigraph, negative, nonfinite, and nonnumeric cases.
     if should_delegate or (has_explicit_nonunit and not native_weighted_simple):
-        kwargs = {"weight": weight}
-        if cutoff is not None:
-            kwargs["cutoff"] = cutoff
-        caller = (
-            _call_networkx_for_dijkstra_parity
-            if isinstance(weight, str)
-            else _call_networkx_for_parity
-        )
-        yield from caller("all_pairs_dijkstra", G, **kwargs)
+        for node in G:
+            yield (node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight))
         return
     if cutoff is not None:
         for node in G:
@@ -22775,6 +23437,81 @@ def _translate_astar_no_path(exc, source, target):
     return None
 
 
+def _astar_path_inproc(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
+
+    if heuristic is None:
+        def heuristic(u, v):
+            return 0
+
+    weight_fn = _weight_function(G, weight)
+    G_succ = G._adj
+
+    c = _itertools.count()
+    queue = [(0, next(c), source, 0, None)]
+    enqueued = {}
+    explored = {}
+
+    while queue:
+        _, __, curnode, dist, parent = _heappop(queue)
+
+        if curnode == target:
+            path = [curnode]
+            node = parent
+            while node is not None:
+                path.append(node)
+                node = explored[node]
+            path.reverse()
+            return path
+
+        if curnode in explored:
+            if explored[curnode] is None:
+                continue
+            qcost, h = enqueued[curnode]
+            if qcost < dist:
+                continue
+
+        explored[curnode] = parent
+
+        for neighbor, w in G_succ[curnode].items():
+            cost = weight_fn(curnode, neighbor, w)
+            if cost is None:
+                continue
+            ncost = dist + cost
+            if neighbor in enqueued:
+                qcost, h = enqueued[neighbor]
+                if qcost <= ncost:
+                    continue
+            else:
+                h = heuristic(neighbor, target)
+
+            if cutoff and ncost + h > cutoff:
+                continue
+
+            enqueued[neighbor] = ncost, h
+            _heappush(queue, (ncost + h, next(c), neighbor, ncost, curnode))
+
+    raise NetworkXNoPath(f"Node {target} not reachable from {source}")
+
+
+def _astar_path_length_inproc(
+    G, source, target, heuristic=None, weight="weight", *, cutoff=None
+):
+    if source not in G or target not in G:
+        msg = f"Either source {source} or target {target} is not in G"
+        raise NodeNotFound(msg)
+
+    weight_fn = _weight_function(G, weight)
+    path = _astar_path_inproc(
+        G, source, target, heuristic=heuristic, weight=weight, cutoff=cutoff
+    )
+    return sum(weight_fn(u, v, G[u][v]) for u, v in zip(path[:-1], path[1:]))
+
+
 def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
     """Return the shortest path from ``source`` to ``target`` via A* search.
 
@@ -22813,8 +23550,7 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # directed A* runs natively and respects edge direction — the prior
     # ``G.is_directed()`` delegation (br-r37-c1-astdir) is removed.
     if _should_delegate_astar_to_networkx(weight, cutoff):
-        return _call_networkx_for_parity(
-            "astar_path",
+        return _astar_path_inproc(
             G,
             source,
             target,
@@ -22828,8 +23564,7 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "astar_path",
+            return _astar_path_inproc(
                 G,
                 source,
                 target,
@@ -22861,8 +23596,7 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # delegate to nx, matching dijkstra — strictly more correct than the old
     # silent native run on an unordered-comparison weight.)
     if _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "astar_path",
+        return _astar_path_inproc(
             G,
             source,
             target,
@@ -22897,8 +23631,7 @@ def astar_path_length(
     # br-r37-c1-astar-strw: non-numeric weight delegation (sibling).
     # br-r37-c1-kp1va: directed A* now runs natively (see astar_path).
     if _should_delegate_astar_to_networkx(weight, cutoff):
-        return _call_networkx_for_parity(
-            "astar_path_length",
+        return _astar_path_length_inproc(
             G,
             source,
             target,
@@ -22914,8 +23647,7 @@ def astar_path_length(
     if G.is_multigraph() and isinstance(weight, str):
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "astar_path_length",
+            return _astar_path_length_inproc(
                 G,
                 source,
                 target,
@@ -22936,8 +23668,7 @@ def astar_path_length(
     # br-r37-c1-ixp5q: cached single-pass weight-validity gate (see
     # astar_path) replacing three uncached O(|E|) scans -> parity on repeat calls.
     if _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "astar_path_length",
+        return _astar_path_length_inproc(
             G,
             source,
             target,
@@ -23003,16 +23734,11 @@ def shortest_simple_paths(G, source, target, weight=None):
     Returns a true generator for simple fnx graphs, matching nx's lazy contract
     while avoiding the old full fnx->nx conversion fallback.
     """
-    if isinstance(G, (Graph, DiGraph)) and not G.is_multigraph():
-        return _shortest_simple_paths_fallback_generator(G, source, target, weight)
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    # The Rust fast path eagerly returns a capped Vec (1000 paths), but
-    # NetworkX exposes an uncapped lazy generator. For multigraphs and non-fnx
-    # graph-like inputs, keep the decorated nx fallback so not-implemented and
-    # conversion behavior stays exactly aligned with upstream.
-    return _call_networkx_for_parity(
-        "shortest_simple_paths", G, source, target, weight=weight
-    )
+    return _shortest_simple_paths_fallback_generator(G, source, target, weight)
 
 # Algorithm functions — approximation
 from franken_networkx._fnx import (
@@ -25822,9 +26548,7 @@ def dijkstra_path_length(G, source, target, weight="weight"):
             # was corrected. The kernel's own "return None to delegate" rule
             # carries no exactness dimension, so the predicate has to be asked.
             if _should_delegate_dijkstra_to_networkx(G, weight):
-                return _call_networkx_for_parity(
-                    "dijkstra_path_length", G, source, target, weight=weight
-                )
+                return _dijkstra_path_length_inproc(G, source, target, weight=weight)
             try:
                 _direct = _raw_multidigraph_dijkstra_path_length_target(
                     G, source, target, weight=weight
@@ -25842,19 +26566,13 @@ def dijkstra_path_length(G, source, target, weight="weight"):
                 ) from exc
             if _direct is not None:
                 return _direct
-            return _call_networkx_for_parity(
-                "dijkstra_path_length", G, source, target, weight=weight
-            )
+            return _dijkstra_path_length_inproc(G, source, target, weight=weight)
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "dijkstra_path_length", G, source, target, weight=weight
-            )
+            return _dijkstra_path_length_inproc(G, source, target, weight=weight)
         return dijkstra_path_length(_simple, source, target, weight=weight)
     if _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "dijkstra_path_length", G, source, target, weight=weight
-        )
+        return _dijkstra_path_length_inproc(G, source, target, weight=weight)
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
     # br-r37-c1-omjmu: nx's _dijkstra raises TypeError on unhashable
@@ -25902,13 +26620,13 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     if G.is_multigraph() and isinstance(weight, str):
         _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "bellman_ford_path_length", G, source, target, weight=weight
+            return _bellman_ford_path_length_inproc(
+                G, source, target, weight=weight
             )
         return bellman_ford_path_length(_simple, source, target, weight=weight)
     if _should_delegate_bellman_ford_path_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "bellman_ford_path_length", G, source, target, weight=weight
+        return _bellman_ford_path_length_inproc(
+            G, source, target, weight=weight
         )
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
@@ -26321,8 +27039,8 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 raise NetworkXNoPath(f"No path to {target}.")
             # br-r37-c1-04z53.9172: same bypass as dijkstra_path/_length.
             if _should_delegate_dijkstra_to_networkx(G, weight):
-                return _call_networkx_for_parity(
-                    "single_source_dijkstra", G, source, target=target, weight=weight
+                return _multi_source_dijkstra_inproc(
+                    G, {source}, target=target, cutoff=cutoff, weight=weight
                 )
             try:
                 _len = _raw_multidigraph_dijkstra_path_length_target(
@@ -26338,23 +27056,13 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
         if source not in G:
             raise NodeNotFound(f"Node {source} not found in graph")
         if _sp_weights_need_networkx_for_type_parity(G, weight):
-            return _call_networkx_for_parity(
-                "single_source_dijkstra",
-                G,
-                source,
-                target=target,
-                cutoff=cutoff,
-                weight=weight,
+            return _multi_source_dijkstra_inproc(
+                G, {source}, target=target, cutoff=cutoff, weight=weight
             )
         _direct = _raw_mdg_ss_dijkstra(G, source, weight=weight, cutoff=cutoff)
         if _direct is None:
-            return _call_networkx_for_parity(
-                "single_source_dijkstra",
-                G,
-                source,
-                target=target,
-                cutoff=cutoff,
-                weight=weight,
+            return _multi_source_dijkstra_inproc(
+                G, {source}, target=target, cutoff=cutoff, weight=weight
             )
         dists, paths = _direct
         if target is not None:
@@ -26363,13 +27071,8 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
             return dists[target], paths[target]
         return dists, paths
     if _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "single_source_dijkstra",
-            G,
-            source,
-            target=target,
-            cutoff=cutoff,
-            weight=weight,
+        return _multi_source_dijkstra_inproc(
+            G, {source}, target=target, cutoff=cutoff, weight=weight
         )
     # br-r37-c1-k4pod: pre-check membership so we get nx's exact
     # 'Node X not found in graph' wording.  The Rust binding emits
@@ -26563,34 +27266,22 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
             # MultiDiGraph kept flattening Fraction/Decimal/numpy after the
             # undirected half was fixed.
             if _sp_weights_need_networkx_for_type_parity(G, weight):
-                return _call_networkx_for_parity(
-                    "single_source_dijkstra_path_length",
-                    G,
-                    source,
-                    cutoff=cutoff,
-                    weight=weight,
-                )
+                return _multi_source_dijkstra_inproc(
+                    G, {source}, cutoff=cutoff, weight=weight
+                )[0]
             _direct = _raw_mdg_ss_dijkstra_path_length(
                 G, source, weight=weight, cutoff=cutoff
             )
             if _direct is not None:
                 return _direct
-            return _call_networkx_for_parity(
-                "single_source_dijkstra_path_length",
-                G,
-                source,
-                cutoff=cutoff,
-                weight=weight,
-            )
+            return _multi_source_dijkstra_inproc(
+                G, {source}, cutoff=cutoff, weight=weight
+            )[0]
         _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "single_source_dijkstra_path_length",
-                G,
-                source,
-                cutoff=cutoff,
-                weight=weight,
-            )
+            return _multi_source_dijkstra_inproc(
+                G, {source}, cutoff=cutoff, weight=weight
+            )[0]
         if source not in G:
             raise NodeNotFound(f"Node {source} not found in graph")
         return _raw_single_source_dijkstra_path_length(
@@ -26600,13 +27291,9 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     # native kernel already computes for any attribute no edge carries.
     weight = _dijkstra_weight_for_none(G, weight)
     if _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "single_source_dijkstra_path_length",
-            G,
-            source,
-            cutoff=cutoff,
-            weight=weight,
-        )
+        return _multi_source_dijkstra_inproc(
+            G, {source}, cutoff=cutoff, weight=weight
+        )[0]
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
     # br-r37-c1-1kor1: the raw length-only kernel now preserves nx's
@@ -26646,20 +27333,19 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     ):
         _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "single_source_bellman_ford", G, source, target=target, weight=weight
+            return _single_source_bellman_ford_inproc(
+                G, source, target=target, weight=weight
             )
         return single_source_bellman_ford(_simple, source, weight=weight)
     # br-bfignoreweight: same weight-ignoring bug as dijkstra — the
     # Rust Bellman-Ford returns hop-_count distances on weighted input.
-    # Delegate any weighted graph to nx.
+    # Run in-process on weighted / delegated input.
     if (
         target is not None
         or _should_delegate_bellman_ford_to_networkx(weight)
         or _binding_self_syncs_gate(G, weight)
     ):
-        return _call_networkx_for_parity(
-            "single_source_bellman_ford",
+        return _single_source_bellman_ford_inproc(
             G,
             source,
             target=target,
@@ -26700,15 +27386,15 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
         _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "single_source_bellman_ford_path", G, source, weight=weight
-            )
+            return _single_source_bellman_ford_inproc(
+                G, source, weight=weight
+            )[1]
         return single_source_bellman_ford_path(_simple, source, weight=weight)
     # br-bfignoreweight: delegate weighted inputs.
     if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
-        return _call_networkx_for_parity(
-            "single_source_bellman_ford_path", G, source, weight=weight
-        )
+        return _single_source_bellman_ford_inproc(
+            G, source, weight=weight
+        )[1]
     # br-r37-c1-jxvsu: pre-check for nx's exact 'Source X not in G'
     # wording — Rust binding emits a quoted-repr 'Source \'X\' is
     # not in G' variant.
@@ -26731,9 +27417,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     _HASH_PROBE.get(source)
     # br-bfignoreweight: delegate weighted inputs.
     if _should_delegate_bellman_ford_to_networkx(weight):
-        return _call_networkx_for_parity(
-            "single_source_bellman_ford_path_length", G, source, weight=weight
-        )
+        return _bellman_ford_inproc(G, [source], _weight_function(G, weight))
     # br-cc-mgdijkstra: multigraph Bellman-Ford LENGTH -> collapse parallels to the
     # simple min-weight graph (keep negatives; delegate NaN/inf/nonnumeric) + fast
     # simple kernel. Length is order-independent -> byte-exact. This also fixes the
@@ -26742,14 +27426,10 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     if G.is_multigraph() and isinstance(weight, str):
         _simple, _delegate = _multigraph_collapse_min_weight_bellman(G, weight)
         if _delegate:
-            return _call_networkx_for_parity(
-                "single_source_bellman_ford_path_length", G, source, weight=weight
-            )
+            return _bellman_ford_inproc(G, [source], _weight_function(G, weight))
         return single_source_bellman_ford_path_length(_simple, source, weight=weight)
     if _binding_self_syncs_gate(G, weight):
-        return _call_networkx_for_parity(
-            "single_source_bellman_ford_path_length", G, source, weight=weight
-        )
+        return _bellman_ford_inproc(G, [source], _weight_function(G, weight))
     # br-r37-c1-jxvsu: same exact wording fix as
     # single_source_bellman_ford_path — Rust binding emits a
     # quoted-repr variant.
@@ -26792,9 +27472,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     # networkx returns `np.int64`. Asking the narrower question first left that
     # case looking fixed while it was merely fixed differently.
     if _sp_weights_need_networkx_for_type_parity(G, weight):
-        return _call_networkx_for_parity(
-            "single_source_bellman_ford_path_length", G, source, weight=weight
-        )
+        return _bellman_ford_inproc(G, [source], _weight_function(G, weight))
     if _sp_edge_weights_all_int(G, weight):
         result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
         return _sp_coerce_dist_to_int(dict(result))
@@ -26820,9 +27498,11 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
             )
         return
     if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
-        yield from _call_networkx_for_parity(
-            "all_pairs_dijkstra_path", G, weight=weight
-        )
+        for node in G:
+            yield (
+                node,
+                single_source_dijkstra_path(G, node, cutoff=cutoff, weight=weight),
+            )
         return
     # br-r37-c1-3dxfn: iterate outer keys in node-insertion order so
     # ``for source, paths in all_pairs_dijkstra_path(G): ...`` matches
@@ -26855,9 +27535,13 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
         if G.is_multigraph() and isinstance(weight, str):
             _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
             if _delegate:
-                yield from _call_networkx_for_parity(
-                    "all_pairs_dijkstra_path_length", G, cutoff=cutoff, weight=weight
-                )
+                for node in G:
+                    yield (
+                        node,
+                        single_source_dijkstra_path_length(
+                            G, node, cutoff=cutoff, weight=weight
+                        ),
+                    )
                 return
             for node in G:
                 yield (
@@ -26884,9 +27568,13 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     # keeps all_pairs_dijkstra_path delegated. Only genuinely-unhandleable
     # weights (negative / +inf / non-numeric / callable) still delegate.
     if _should_delegate_dijkstra_to_networkx(G, weight):
-        yield from _call_networkx_for_parity(
-            "all_pairs_dijkstra_path_length", G, weight=weight
-        )
+        for node in G:
+            yield (
+                node,
+                single_source_dijkstra_path_length(
+                    G, node, cutoff=cutoff, weight=weight
+                ),
+            )
         return
     # br-r37-c1-3dxfn: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
@@ -26937,9 +27625,8 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
-        yield from _call_networkx_for_parity(
-            "all_pairs_bellman_ford_path", G, weight=weight
-        )
+        for node in G:
+            yield (node, single_source_bellman_ford_path(G, node, weight=weight))
         return
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
@@ -26960,9 +27647,8 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
-        yield from _call_networkx_for_parity(
-            "all_pairs_bellman_ford_path_length", G, weight=weight
-        )
+        for node in G:
+            yield (node, dict(single_source_bellman_ford_path_length(G, node, weight=weight)))
         return
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
@@ -27001,7 +27687,7 @@ def floyd_warshall(G, weight="weight"):
         or G.is_multigraph()
         or _fw_weight_kind(G, weight) == "mixed"
     ):
-        return _call_networkx_for_parity("floyd_warshall", G, weight=weight)
+        return _floyd_warshall_predecessor_and_distance_inproc(G, weight=weight)[1]
     return _floyd_warshall_numpy(G, weight)
 
 
@@ -27096,15 +27782,8 @@ def floyd_warshall_predecessor_and_distance(G, weight="weight"):
     suitable for ``reconstruct_path``, distances mirrors ``floyd_warshall``.
     Mirrors ``networkx.floyd_warshall_predecessor_and_distance``.
     """
-    # br-fwignoreweight: delegate weighted inputs.
-    if _should_delegate_floyd_warshall_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
-        return _call_networkx_for_parity(
-            "floyd_warshall_predecessor_and_distance", G, weight=weight
-        )
-    # br-r37-c1-h1kf2: same iteration-order rationale as floyd_warshall.
-    return _call_networkx_for_parity(
-        "floyd_warshall_predecessor_and_distance", G, weight=weight
-    )
+    G = _coerce_arg_to_fnx_graph(G)
+    return _floyd_warshall_predecessor_and_distance_inproc(G, weight=weight)
 
 
 # Additional centrality algorithms
@@ -33999,9 +34678,35 @@ def bellman_ford_predecessor_and_distance(
     if type(G) in (Graph, DiGraph) and not callable(weight):
         return _bellman_ford_pred_dist_inprocess(G, source, weight)
 
-    return _call_networkx_for_parity(
-        "bellman_ford_predecessor_and_distance", G, source, weight=weight
+    return _bellman_ford_predecessor_and_distance_inproc(
+        G, source, weight=weight
     )
+
+
+def _bellman_ford_predecessor_and_distance_inproc(G, source, target=None, weight="weight", heuristic=False):
+    if source not in G:
+        raise NodeNotFound(f"Node {source} is not found in the graph")
+    weight_fn = _weight_function(G, weight)
+    if G.is_multigraph():
+        if any(
+            weight_fn(u, v, {k: d}) < 0
+            for u, v, k, d in selfloop_edges(G, keys=True, data=True)
+        ):
+            raise NetworkXUnbounded("Negative cycle detected.")
+    else:
+        if any(weight_fn(u, v, d) < 0 for u, v, d in selfloop_edges(G, data=True)):
+            raise NetworkXUnbounded("Negative cycle detected.")
+
+    dist = {source: 0}
+    pred = {source: []}
+
+    if len(G) == 1:
+        return pred, dist
+
+    dist = _bellman_ford_inproc(
+        G, [source], weight_fn, pred=pred, dist=dist, target=target, heuristic=heuristic
+    )
+    return (pred, dist)
 
 
 def _bellman_ford_pred_dist_inprocess(G, source, weight):
@@ -36353,8 +37058,8 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
         weight,
         _require_exact_string_nodes=type(G) is MultiGraph,
     ):
-        return _call_networkx_for_parity(
-            "bidirectional_dijkstra", G, source, target, weight=weight
+        return _bidirectional_dijkstra_local(
+            G, source, target, weight=weight
         )
     # br-r37-c1-ybw1s: nx checks ``source not in G`` (silent False on unhashable,
     # no hash op) and raises NodeNotFound — not TypeError.
@@ -36389,16 +37094,20 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
 
 def _bidirectional_dijkstra_local(G, source, target, weight):
     """networkx's exact bidirectional-Dijkstra, run in-process on the fnx graph
-    (no fnx->nx conversion). Mirrors ``networkx.bidirectional_dijkstra`` for a
-    simple graph with a string ``weight`` key, so the returned ``(length, path)``
-    is byte-identical — including the bidirectional meeting-node tie-break, which
-    differs from a plain ``dijkstra_path``.
+    (no fnx->nx conversion). Mirrors ``networkx.bidirectional_dijkstra``,
+    so the returned ``(length, path)`` is byte-identical — including the
+    bidirectional meeting-node tie-break, which differs from a plain ``dijkstra_path``.
     """
     from heapq import heappush as _hpush, heappop as _hpop
     from itertools import count as _count
 
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
     if source == target:
         return (0, [source])
+    weight_fn = _weight_function(G, weight)
     dists = [{}, {}]
     preds = [{source: None}, {target: None}]
 
@@ -36414,7 +37123,7 @@ def _bidirectional_dijkstra_local(G, source, target, weight):
     counter = _count()
     _hpush(fringe[0], (0, next(counter), source))
     _hpush(fringe[1], (0, next(counter), target))
-    neighbors = [G.succ, G.pred] if G.is_directed() else [G.adj, G.adj]
+    neighbors = [G._succ, G._pred] if G.is_directed() else [G._adj, G._adj]
     finaldist = None
     meetnode = None
     direction = 1
@@ -36427,7 +37136,7 @@ def _bidirectional_dijkstra_local(G, source, target, weight):
         if v in dists[1 - direction]:
             return (finaldist, _path(meetnode, 0) + _path(preds[1][meetnode], 1))
         for w, edge_data in neighbors[direction][v].items():
-            cost = edge_data.get(weight, 1)
+            cost = weight_fn(v, w, edge_data) if direction == 0 else weight_fn(w, v, edge_data)
             if cost is None:
                 continue
             vw_length = dist + cost
@@ -39993,8 +40702,7 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
 
 
 def _dijkstra_predecessor_and_distance_via_parity(G, source, cutoff=None, weight="weight"):
-    return _call_networkx_for_parity(
-        "dijkstra_predecessor_and_distance",
+    return _dijkstra_predecessor_and_distance_inproc(
         G, source, cutoff=cutoff, weight=weight,
     )
 
@@ -40021,8 +40729,7 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
         )
         or _binding_self_syncs_gate(G, weight)
     ):
-        return _call_networkx_for_parity(
-            "multi_source_dijkstra",
+        return _multi_source_dijkstra_inproc(
             G,
             sources,
             target=target,
@@ -40361,7 +41068,26 @@ def johnson(G, weight="weight"):
                     return _raw_johnson_path_directed(G, weight=weight)
         elif not _should_delegate_dijkstra_to_networkx(G, weight):
             return dict(all_pairs_dijkstra_path(G, weight=weight))
-    return _call_networkx_for_parity("johnson", G, weight=weight)
+    return _johnson_inproc(G, weight=weight)
+
+
+def _johnson_inproc(G, weight="weight"):
+    """In-process Johnson algorithm matching NetworkX."""
+    dist = {v: 0 for v in G}
+    pred = {v: [] for v in G}
+    weight_fn = _weight_function(G, weight)
+
+    dist_bellman = _bellman_ford_inproc(G, list(G), weight_fn, pred=pred, dist=dist)
+
+    def new_weight(u, v, d):
+        return weight_fn(u, v, d) + dist_bellman[u] - dist_bellman[v]
+
+    def dist_path(v):
+        paths = {v: [v]}
+        _dijkstra_multisource_inproc(G, [v], new_weight, paths=paths)
+        return paths
+
+    return {v: dist_path(v) for v in G}
 
 
 # ---------------------------------------------------------------------------
@@ -62006,19 +62732,89 @@ def goldberg_radzik(G, source, weight="weight"):
     if source not in G:
         raise NodeNotFound(f"Node {source} is not found in the graph")
     if callable(weight):
-        return _call_networkx_for_parity("goldberg_radzik", G, source, weight=weight)
-    if G.is_directed():
+        return _goldberg_radzik_inproc(G, source, weight=weight)
+    if G.is_directed() and not G.is_multigraph():
         return _goldberg_radzik_directed_inprocess(G, source, weight)
+    return _goldberg_radzik_inproc(G, source, weight=weight)
 
-    dist = dict(single_source_bellman_ford_path_length(G, source, weight=weight))
-    paths = single_source_bellman_ford_path(G, source, weight=weight)
+
+def _goldberg_radzik_inproc(G, source, weight="weight"):
+    """Compute shortest path lengths and predecessors via Goldberg-Radzik in-process."""
+    if source not in G:
+        raise NodeNotFound(f"Node {source} is not found in the graph")
+    weight_fn = _weight_function(G, weight)
+    if G.is_multigraph():
+        if any(
+            weight_fn(u, v, {k: d}) < 0
+            for u, v, k, d in selfloop_edges(G, keys=True, data=True)
+        ):
+            raise NetworkXUnbounded("Negative cycle detected.")
+    else:
+        if any(weight_fn(u, v, d) < 0 for u, v, d in selfloop_edges(G, data=True)):
+            raise NetworkXUnbounded("Negative cycle detected.")
+
+    if len(G) == 1:
+        return {source: None}, {source: 0}
+
+    G_succ = G._adj
+
+    inf = float("inf")
+    d = {u: inf for u in G}
+    d[source] = 0
     pred = {source: None}
-    for target, path in paths.items():
-        if len(path) >= 2:
-            pred[target] = path[-2]
-        elif target == source:
-            pred[target] = None
-    return pred, dist
+
+    def topo_sort(relabeled):
+        to_scan = []
+        neg_count = {}
+        for u in relabeled - neg_count.keys():
+            d_u = d[u]
+            if all(d_u + weight_fn(u, v, e) >= d[v] for v, e in G_succ[u].items()):
+                continue
+            stack = [(u, iter(G_succ[u].items()))]
+            in_stack = {u}
+            neg_count[u] = 0
+            while stack:
+                u, it = stack[-1]
+                try:
+                    v, e = next(it)
+                except StopIteration:
+                    to_scan.append(u)
+                    stack.pop()
+                    in_stack.remove(u)
+                    continue
+                t = d[u] + weight_fn(u, v, e)
+                d_v = d[v]
+                if t < d_v:
+                    d[v] = t
+                    pred[v] = u
+                    if v not in neg_count:
+                        neg_count[v] = neg_count[u] + 1
+                        stack.append((v, iter(G_succ[v].items())))
+                        in_stack.add(v)
+                    elif v in in_stack and neg_count[u] + 1 > neg_count[v]:
+                        raise NetworkXUnbounded("Negative cycle detected.")
+        to_scan.reverse()
+        return to_scan
+
+    def relax(to_scan):
+        relabeled = set()
+        for u in to_scan:
+            d_u = d[u]
+            for v, e in G_succ[u].items():
+                w_e = weight_fn(u, v, e)
+                if d_u + w_e < d[v]:
+                    d[v] = d_u + w_e
+                    pred[v] = u
+                    relabeled.add(v)
+        return relabeled
+
+    relabeled = {source}
+    while relabeled:
+        to_scan = topo_sort(relabeled)
+        relabeled = relax(to_scan)
+
+    d = {u: d[u] for u in pred}
+    return pred, d
 
 
 def _goldberg_radzik_directed_inprocess(G, source, weight):
