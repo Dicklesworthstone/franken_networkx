@@ -17772,16 +17772,20 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
             return _bfs_tree_raw(G, source, reverse, depth_limit, None)
         except Exception:
             pass
-    from franken_networkx.readwrite import _from_nx_graph
-    nx_result = _call_networkx_for_parity(
-        "bfs_tree",
-        G,
-        source,
-        reverse=reverse,
-        depth_limit=depth_limit,
-        sort_neighbors=sort_neighbors,
+    if source not in G:
+        raise NetworkXError(f"The node {source} is not in the graph.")
+    T = DiGraph()
+    T.add_node(source)
+    T.add_edges_from(
+        bfs_edges(
+            G,
+            source,
+            reverse=reverse,
+            depth_limit=depth_limit,
+            sort_neighbors=sort_neighbors,
+        )
     )
-    return _from_nx_graph(nx_result)
+    return T
 
 
 def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
@@ -25750,20 +25754,38 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
     ``networkx.predecessor``.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-pred-dir: nx's ``predecessor`` (shortest-path BFS
-    # predecessor map) supports directed graphs; fnx's Rust binding
-    # rejects them with NetworkXNotImplemented("not implemented for
-    # directed type").  Route directed graphs to nx for parity.
-    if G.is_directed():
-        return _call_networkx_for_parity(
-            "predecessor", G, source,
-            target=target, cutoff=cutoff, return_seen=return_seen,
-        )
     if source not in G:
-        # br-r37-c1-pred-dir: nx raises ``NodeNotFound(f"Source
-        # {source} not in G")`` (no quoting around the node repr);
-        # the Rust binding emits ``Source '99' is not in G``.
         raise NodeNotFound(f"Source {source} not in G")
+    if G.is_directed():
+        level = 0
+        nextlevel = [source]
+        seen = {source: level}
+        pred = {source: []}
+        while nextlevel:
+            level = level + 1
+            thislevel = nextlevel
+            nextlevel = []
+            for v in thislevel:
+                for w in G[v]:
+                    if w not in seen:
+                        pred[w] = [v]
+                        seen[w] = level
+                        nextlevel.append(w)
+                    elif seen[w] == level:
+                        pred[w].append(v)
+            if cutoff and cutoff <= level:
+                break
+        if target is not None:
+            if return_seen:
+                if target not in pred:
+                    return ([], -1)
+                return (pred[target], seen[target])
+            if target not in pred:
+                return []
+            return pred[target]
+        if return_seen:
+            return (pred, seen)
+        return pred
     # br-r37-c1-pred-cutfloat: nx's predecessor uses
     # ``if cutoff and cutoff <= level: break`` (truthy-aware).
     # For NaN / +inf, comparison returns False so the search runs
@@ -30689,12 +30711,10 @@ def closeness_centrality(
     # uses INCOMING distances — nx reverses G and runs single-source from u, i.e.
     # distances TO u, which `single_target_shortest_path_length` computes directly
     # in the same finalisation order. Integer hop sum -> byte-identical (600/600).
-    if (
-        u is not None
-        and distance is None
-        and wf_improved
-        and u in G
-    ):
+    if u is not None and u not in G:
+        raise NodeNotFound(f"Source {u} is not in G")
+
+    if u is not None and distance is None:
         sp = (
             single_target_shortest_path_length(G, u)
             if G.is_directed()
@@ -30705,22 +30725,11 @@ def closeness_centrality(
         closeness = 0.0
         if totsp > 0.0 and len_G > 1:
             closeness = (len(sp) - 1.0) / totsp
-            closeness *= (len(sp) - 1.0) / (len_G - 1)
+            if wf_improved:
+                closeness *= (len(sp) - 1.0) / (len_G - 1)
         return closeness
 
-    # br-r37-c1-closedir: weighted single-u closeness (a ``distance`` attr) — the
-    # whole-graph weighted path below already handles u=None via reverse + dijkstra
-    # byte-exactly; mirror it for a single u so it stops delegating (~2x nx). The
-    # single_source_dijkstra_path_length wrapper keeps nx's weight contract
-    # (negative / +inf / non-numeric weights raise/delegate identically), so bad
-    # weights surface the same error as nx; clean weights give byte-exact sums.
-    if u is not None and distance is not None and wf_improved and u in G:
-        # br-cc-mgdijkstra: for a DIRECTED multigraph, reversing G builds a whole
-        # new multigraph (the nested-bucket construction floor, ~half the wall
-        # time). Collapse to the simple min-weight graph FIRST and reverse THAT
-        # (cheap, no parallels) — byte-identical incoming distances. Bad weights
-        # (collapse declines) fall back to the original reverse-then-collapse path
-        # inside single_source_dijkstra_path_length, preserving its exact contract.
+    if u is not None and distance is not None:
         if G.is_directed() and G.is_multigraph() and isinstance(distance, str):
             _simple, _delegate = _multigraph_collapse_min_weight(G, distance)
             H = G.reverse() if _delegate else _simple.reverse()
@@ -30732,21 +30741,10 @@ def closeness_centrality(
         closeness = 0.0
         if totsp > 0.0 and len_G > 1:
             closeness = (len(sp) - 1.0) / totsp
-            closeness *= (len(sp) - 1.0) / (len_G - 1)
+            if wf_improved:
+                closeness *= (len(sp) - 1.0) / (len_G - 1)
         return closeness
 
-    # br-clwdijkstra: weighted closeness (a ``distance`` edge attribute) for the
-    # whole-graph case previously delegated to networkx — a full fnx->nx
-    # conversion plus nx's single-threaded per-node Python Dijkstra (~2.5 s on
-    # n=700). Compute it in-process from the native
-    # ``all_pairs_dijkstra_path_length`` kernel (one bulk call), mirroring nx
-    # exactly: directed graphs use the reversed graph (incoming distances),
-    # ``totsp = sum(sp.values())`` in Dijkstra finalisation order, and the
-    # Wasserman-Faust scaling when ``wf_improved``. The public all_pairs wrapper
-    # keeps nx's weight contract (negative / +inf / non-numeric weights delegate
-    # there), so those cases behave exactly as the standalone dijkstra family.
-    # 4.7-7.3x faster than nx, byte-identical (exact float parity, verified
-    # undirected/directed/disconnected/isolated).
     if distance is not None and u is None:
         H = G.reverse() if G.is_directed() else G
         apl = dict(all_pairs_dijkstra_path_length(H, weight=distance))
@@ -30763,15 +30761,20 @@ def closeness_centrality(
             closeness_dict[n] = cc
         return closeness_dict
 
-    # Delegate to NetworkX for unsupported parameters
-    if u is not None or distance is not None or not wf_improved:
-        return _call_networkx_for_parity(
-            "closeness_centrality",
-            G,
-            u=u,
-            distance=distance,
-            wf_improved=wf_improved,
-        )
+    if not wf_improved and distance is None and u is None:
+        H = G.reverse() if G.is_directed() else G
+        apl = dict(all_pairs_shortest_path_length(H))
+        len_G = len(H)
+        closeness_dict = {}
+        for n in H:
+            sp = apl.get(n, {n: 0})
+            totsp = sum(sp.values())
+            cc = 0.0
+            if totsp > 0.0 and len_G > 1:
+                cc = (len(sp) - 1.0) / totsp
+            closeness_dict[n] = cc
+        return closeness_dict
+
     # Use fast Rust implementation for standard case
     return _raw_closeness_centrality(G)
 
@@ -40912,11 +40915,6 @@ def directed_laplacian_matrix(
     """
     G = _coerce_arg_to_fnx_graph(G)
     _directed_laplacian_not_implemented_guard(G)
-    if callable(weight):
-        return _call_networkx_for_parity(
-            "directed_laplacian_matrix", G, nodelist=nodelist, weight=weight,
-            walk_type=walk_type, alpha=alpha,
-        )
     import numpy as _np
     import scipy as _sp
 
@@ -40946,11 +40944,6 @@ def directed_combinatorial_laplacian_matrix(
     """
     G = _coerce_arg_to_fnx_graph(G)
     _directed_laplacian_not_implemented_guard(G)
-    if callable(weight):
-        return _call_networkx_for_parity(
-            "directed_combinatorial_laplacian_matrix", G, nodelist=nodelist,
-            weight=weight, walk_type=walk_type, alpha=alpha,
-        )
     import scipy as _sp
 
     P = _directed_transition_matrix(G, nodelist, weight, walk_type, alpha)
