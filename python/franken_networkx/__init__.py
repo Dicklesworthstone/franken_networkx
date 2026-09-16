@@ -14471,6 +14471,17 @@ def _multigraph_degree_assortativity_coefficient(G, weight):
     return _numeric_ac(matrix, mapping=mapping)
 
 
+def _degree_assortativity_inproc(G, x="out", y="in", weight=None, nodes=None):
+    from franken_networkx.backend import _fnx_to_nx
+    H = _fnx_to_nx(G)
+    try:
+        return _nx.algorithms.assortativity.correlation.degree_assortativity_coefficient(
+            H, x=x, y=y, weight=weight, nodes=nodes
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None):
     """Compute degree assortativity of graph.
 
@@ -14523,8 +14534,7 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         try:
             return degree_pearson_correlation_coefficient(G, weight=weight)
         except ValueError:
-            return _call_networkx_for_parity(
-                "degree_assortativity_coefficient",
+            return _degree_assortativity_inproc(
                 G,
                 x=x,
                 y=y,
@@ -14581,8 +14591,7 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         and G.is_multigraph()
     ):
         return _multigraph_degree_assortativity_coefficient(G, weight)
-    return _call_networkx_for_parity(
-        "degree_assortativity_coefficient",
+    return _degree_assortativity_inproc(
         G,
         x=x,
         y=y,
