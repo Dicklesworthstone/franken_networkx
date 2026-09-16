@@ -15506,13 +15506,9 @@ def diameter(G, e=None, usebounds=False, weight=None):
     G = _coerce_arg_to_fnx_graph(G)
     if e is not None:
         return max(e.values())
-    if usebounds or (weight is not None and not isinstance(weight, str)):
-        return _call_networkx_for_parity(
-            "diameter", G, e=e, usebounds=usebounds, weight=weight
-        )
     if len(G) == 0:
         raise ValueError("max() iterable argument is empty")
-    if weight is not None:
+    if weight is not None or usebounds:
         return max(eccentricity(G, weight=weight).values())
     # br-r37-c1-tcyne: the Rust _raw_diameter calls gr.undirected()
     # before computing — collapses antiparallel directions (returns
@@ -15552,13 +15548,9 @@ def radius(G, e=None, usebounds=False, weight=None):
     G = _coerce_arg_to_fnx_graph(G)
     if e is not None:
         return min(e.values())
-    if usebounds or (weight is not None and not isinstance(weight, str)):
-        return _call_networkx_for_parity(
-            "radius", G, e=e, usebounds=usebounds, weight=weight
-        )
     if len(G) == 0:
         raise ValueError("min() iterable argument is empty")
-    if weight is not None:
+    if weight is not None or usebounds:
         return min(eccentricity(G, weight=weight).values())
     # br-r37-c1-tcyne: same directed-collapse defect as _raw_diameter —
     # _raw_radius runs on gr.undirected(). Use fnx.eccentricity for the
@@ -15596,15 +15588,11 @@ def center(G, e=None, usebounds=False, weight=None):
     if e is not None:
         radius_w = min(e.values())
         return [v for v in e if e[v] == radius_w]
-    if usebounds or (weight is not None and not isinstance(weight, str)):
-        return _call_networkx_for_parity(
-            "center", G, e=e, usebounds=usebounds, weight=weight
-        )
     if len(G) == 0:
         if weight is None and not G.is_directed():
             raise NetworkXPointlessConcept("G has no nodes.")
         raise ValueError("min() iterable argument is empty")
-    if weight is not None:
+    if weight is not None or usebounds:
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
@@ -15656,13 +15644,9 @@ def periphery(G, e=None, usebounds=False, weight=None):
     if e is not None:
         diameter_w = max(e.values())
         return [v for v in e if e[v] == diameter_w]
-    if usebounds or (weight is not None and not isinstance(weight, str)):
-        return _call_networkx_for_parity(
-            "periphery", G, e=e, usebounds=usebounds, weight=weight
-        )
     if len(G) == 0:
         raise ValueError("max() iterable argument is empty")
-    if weight is not None:
+    if weight is not None or usebounds:
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
@@ -15693,15 +15677,6 @@ def eccentricity(G, v=None, sp=None, weight=None):
     G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0:
         return {}
-
-    # br-r37-c1-blu7u: nx accepts any hashable as ``weight``; the
-    # Rust ``_raw_eccentricity`` binding has ``weight: str`` and
-    # type-rejects.  Delegate non-string weights to nx (which falls
-    # back to default-1 since no edge has that key).
-    if weight is not None and not isinstance(weight, str) and not callable(weight):
-        return _call_networkx_for_parity("eccentricity", G, v=v, sp=sp, weight=weight)
-    if callable(weight):
-        return _call_networkx_for_parity("eccentricity", G, v=v, sp=sp, weight=weight)
 
     if v is None:
         nodes = list(G)
@@ -15741,7 +15716,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
     # setup — that loop made weighted eccentricity 0.84x. max() is order-invariant so the
     # result is identical; the reachability check matches nx's per-source one.
     if v is None and sp is None:
-        if isinstance(weight, str):
+        if weight is not None:
             all_lengths = dict(all_pairs_dijkstra_path_length(G, weight=weight))
         else:
             all_lengths = dict(all_pairs_shortest_path_length(G))
