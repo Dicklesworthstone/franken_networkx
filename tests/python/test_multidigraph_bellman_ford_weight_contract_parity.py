@@ -101,3 +101,34 @@ def test_multidigraph_bellman_ford_length_matches_networkx(edges, source, target
     assert _outcome(fnx, edges, source, target, nodes) == _outcome(
         nx, edges, source, target, nodes
     )
+
+
+def test_multidigraph_bellman_ford_collapse_cache_invalidation():
+    g = fnx.MultiDiGraph()
+    g.add_edge("a", "b", weight=1.0)
+    g.add_edge("b", "c", weight=2.0)
+
+    len1 = fnx.bellman_ford_path_length(g, "a", "c", weight="weight")
+    assert len1 == 3.0
+    # Cache hit on second call
+    len2 = fnx.bellman_ford_path_length(g, "a", "c", weight="weight")
+    assert len2 == 3.0
+
+    # In-place edge attribute write invalidates cache
+    g["a"]["b"][0]["weight"] = 99.0
+    len3 = fnx.bellman_ford_path_length(g, "a", "c", weight="weight")
+    assert len3 == 101.0
+
+    # Adding an edge updates revision tokens
+    g.add_edge("a", "c", weight=5.0)
+    len4 = fnx.bellman_ford_path_length(g, "a", "c", weight="weight")
+    assert len4 == 5.0
+
+    # Undirected MultiGraph
+    mg = fnx.MultiGraph()
+    mg.add_edge("x", "y", weight=10.0)
+    mg.add_edge("y", "z", weight=20.0)
+    assert fnx.bellman_ford_path_length(mg, "x", "z", weight="weight") == 30.0
+    assert fnx.bellman_ford_path_length(mg, "x", "z", weight="weight") == 30.0
+    mg["x"]["y"][0]["weight"] = 50.0
+    assert fnx.bellman_ford_path_length(mg, "x", "z", weight="weight") == 70.0
