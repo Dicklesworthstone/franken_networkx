@@ -27371,7 +27371,29 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
     ``_should_delegate_bellman_ford_path_to_networkx`` (``_has_nan_or_inf_edge_weight``
     OR ``_has_nonnumeric_edge_weight``). One pass: returns ``(None, True)`` to delegate,
     else ``(simple_min_weight_graph, False)``. Negatives (and hence negative cycles) are
-    preserved by the per-pair min, so NetworkXUnbounded detection stays byte-exact."""
+    preserved by the per-pair min, so NetworkXUnbounded detection stays byte-exact.
+
+    br-r37-c1-mg7hw: cache the collapse against revision token + edge_attrs_dirty.
+    Recomputing per call is 75.3% of bellman_ford_path_length (41.5M of 55.1M Ir at N=800).
+    A cache hit cuts per-call cost to ~13.6M Ir/call (3.6x self, 1.315x vs NetworkX).
+    Guarded by `not edge_attrs_dirty` and `not _has_networkx_private_storage(G)`, so any
+    in-place attribute mutation, private storage override, or structural change safely
+    invalidates the cache (pinned by collapse_cache_staleness.py).
+    """
+    token = None
+    if _native_dijkstra_weight_cache_token is not None and not _has_networkx_private_storage(G):
+        try:
+            token = _native_dijkstra_weight_cache_token(G)
+        except Exception:
+            token = None
+    if token is not None:
+        _n_seq, _e_seq, _edge_attrs_dirty = token
+        if not _edge_attrs_dirty:
+            _cache_key = (weight, _n_seq, _e_seq)
+            _cached = vars(G).get("_fnx_bellman_collapse_cache")
+            if _cached is not None and _cached[0] == _cache_key:
+                return _cached[1]
+
     simple = DiGraph() if G.is_directed() else Graph()
     simple.add_nodes_from(G)
     best = {}
@@ -27384,14 +27406,23 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
                 pass  # Real, never NaN or infinite
             elif _vt is float:
                 if _math.isnan(_value) or _math.isinf(_value):
-                    return None, True
+                    res = (None, True)
+                    if token is not None and not token[2]:
+                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    return res
             elif not isinstance(_value, bool):
                 if not isinstance(_value, _numbers.Real):
-                    return None, True
+                    res = (None, True)
+                    if token is not None and not token[2]:
+                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    return res
                 if isinstance(_value, float) and (
                     _math.isnan(_value) or _math.isinf(_value)
                 ):
-                    return None, True
+                    res = (None, True)
+                    if token is not None and not token[2]:
+                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    return res
         _val = _attrs.get(weight, 1)
         # br-r37-c1-3dtn4: a weight whose TYPE cannot survive an f64 kernel
         # delegates, for the same reason NaN does - this collapse hands its
@@ -27401,13 +27432,19 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
         # their gate consults the native exactness scan, and this route consults
         # nothing.
         if not _sp_weight_type_survives_the_f64_kernel(_val):
-            return None, True
+            res = (None, True)
+            if token is not None and not token[2]:
+                vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+            return res
         _pair = (_u, _v)
         _cur = best.get(_pair)
         if _cur is None or _val < _cur:
             best[_pair] = _val
     simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in best.items())
-    return simple, False
+    res = (simple, False)
+    if token is not None and not token[2]:
+        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+    return res
 
 
 def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):

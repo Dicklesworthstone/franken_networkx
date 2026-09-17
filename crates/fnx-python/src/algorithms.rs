@@ -4895,7 +4895,16 @@ pub fn dijkstra_weight_cache_token(g: &Bound<'_, PyAny>) -> PyResult<Option<(u64
             dg.edges_seq,
             dg.edges_dirty.load(Ordering::Relaxed),
         ))),
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => Ok(None),
+        GraphRef::MultiUndirected { mg, .. } => Ok(Some((
+            mg.nodes_seq,
+            mg.edges_seq,
+            mg.edges_dirty.load(Ordering::Relaxed),
+        ))),
+        GraphRef::MultiDirected { mdg, .. } => Ok(Some((
+            mdg.nodes_seq,
+            mdg.edges_seq,
+            mdg.edges_dirty.load(Ordering::Relaxed),
+        ))),
     }
 }
 
