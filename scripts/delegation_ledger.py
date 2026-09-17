@@ -54,8 +54,23 @@ INIT_PATH = REPO_ROOT / "python" / "franken_networkx" / "__init__.py"
 
 PARITY_HELPER_NAMES = {
     "_call_networkx_for_parity",
+    "_call_networkx_for_dijkstra_parity",
     "_call_networkx_submodule_for_parity",
+    "_fnx_to_nx",
+    "_networkx_graph_for_parity",
+    "_networkx_graph_for_dijkstra_parity",
+    "_networkx_graph_for_traversal_parity",
 }
+
+
+def _is_parity_helper_call(fn_name: str) -> bool:
+    if fn_name in PARITY_HELPER_NAMES:
+        return True
+    if fn_name.startswith("_call_networkx"):
+        return True
+    if fn_name.endswith(("_inproc", "_inprocess", "_via_parity", "_via_networkx")):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -107,13 +122,25 @@ def _gather_static() -> dict[str, StaticInfo]:
             body_lines=getattr(node, "end_lineno", node.lineno) - node.lineno,
         )
         for sub in ast.walk(node):
-            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):
-                fn_name = sub.func.id
-                if fn_name in PARITY_HELPER_NAMES:
+            if isinstance(sub, ast.Call):
+                if isinstance(sub.func, ast.Name):
+                    fn_name = sub.func.id
+                    if _is_parity_helper_call(fn_name):
+                        si.calls_parity_helper = True
+                    if fn_name.startswith("_raw_"):
+                        si.calls_raw_rust = True
+                        si.raw_rust_targets.append(fn_name)
+                elif isinstance(sub.func, ast.Attribute):
+                    val = sub.func.value
+                    if isinstance(val, ast.Name) and val.id in ("nx", "networkx"):
+                        si.calls_parity_helper = True
+            elif isinstance(sub, ast.Import):
+                for alias in sub.names:
+                    if "networkx" in alias.name:
+                        si.calls_parity_helper = True
+            elif isinstance(sub, ast.ImportFrom):
+                if sub.module and "networkx" in sub.module:
                     si.calls_parity_helper = True
-                if fn_name.startswith("_raw_"):
-                    si.calls_raw_rust = True
-                    si.raw_rust_targets.append(fn_name)
         info[name] = si
 
     for name in public_assignments:
@@ -224,22 +251,67 @@ class _Tracer:
         self._patched: list[tuple[Any, str, Any]] = []
 
     def install(self):
-        original_parity = fnx._call_networkx_for_parity
+        if hasattr(fnx, "_call_networkx_for_parity"):
+            original_parity = fnx._call_networkx_for_parity
 
-        def _parity_wrap(name, *args, **kwargs):
-            self.parity_targets.append(name)
-            return original_parity(name, *args, **kwargs)
+            def _parity_wrap(name, *args, **kwargs):
+                self.parity_targets.append(name)
+                return original_parity(name, *args, **kwargs)
 
-        fnx._call_networkx_for_parity = _parity_wrap
-        self._patched.append((fnx, "_call_networkx_for_parity", original_parity))
+            fnx._call_networkx_for_parity = _parity_wrap
+            self._patched.append((fnx, "_call_networkx_for_parity", original_parity))
+
+        if hasattr(fnx, "_call_networkx_for_dijkstra_parity"):
+            original_dijkstra = fnx._call_networkx_for_dijkstra_parity
+
+            def _dijkstra_wrap(name, *args, **kwargs):
+                self.parity_targets.append(name)
+                return original_dijkstra(name, *args, **kwargs)
+
+            fnx._call_networkx_for_dijkstra_parity = _dijkstra_wrap
+            self._patched.append((fnx, "_call_networkx_for_dijkstra_parity", original_dijkstra))
+
+        if hasattr(fnx, "_call_networkx_submodule_for_parity"):
+            original_sub = fnx._call_networkx_submodule_for_parity
+
+            def _sub_wrap(submodule_path, name, *args, **kwargs):
+                self.parity_targets.append(f"{submodule_path}.{name}")
+                return original_sub(submodule_path, name, *args, **kwargs)
+
+            fnx._call_networkx_submodule_for_parity = _sub_wrap
+            self._patched.append((fnx, "_call_networkx_submodule_for_parity", original_sub))
 
         for attr in dir(fnx):
-            if not attr.startswith("_raw_"):
-                continue
-            target = getattr(fnx, attr)
-            if not callable(target):
-                continue
-            self._patch_raw(attr, target)
+            if attr.startswith("_raw_"):
+                target = getattr(fnx, attr)
+                if callable(target):
+                    self._patch_raw(attr, target)
+            elif attr.endswith(("_inproc", "_inprocess", "_via_parity", "_via_networkx")):
+                target = getattr(fnx, attr)
+                if callable(target):
+                    self._patch_parity_helper(attr, target)
+
+        if hasattr(fnx, "_fnx_to_nx"):
+            target = getattr(fnx, "_fnx_to_nx")
+            if callable(target):
+                self._patch_parity_helper("_fnx_to_nx", target)
+
+    def _patch_parity_helper(self, attr: str, target: Callable):
+        @functools.wraps(target)
+        def _wrap(*args, **kwargs):
+            self.parity_targets.append(attr)
+            return target(*args, **kwargs)
+
+        try:
+            wrapped = _wrap
+            wrapped.__wrapped__ = target
+        except (AttributeError, TypeError):
+            def wrapped(*args, **kwargs):
+                self.parity_targets.append(attr)
+                return target(*args, **kwargs)
+
+        setattr(fnx, attr, wrapped)
+        self._patched.append((fnx, attr, target))
 
     def _patch_raw(self, attr: str, target: Callable):
         @functools.wraps(target)
@@ -349,7 +421,7 @@ def write_markdown(
         "- `rust-reexport`: assigned directly from `_fnx.<name>` — zero Python overhead.",
         "- `rust-native`: wrapper calls a `_raw_<X>` binding without any parity-helper fallback.",
         "- `mixed-route`: wrapper has both a `_raw_<X>` path and a parity-helper path (gates by input shape).",
-        "- `nx-fallback`: wrapper calls `_call_networkx_for_parity` and never reaches a `_raw_<X>` binding.",
+        "- `nx-fallback`: wrapper calls a parity or inproc delegation helper and never reaches a `_raw_<X>` binding.",
         "- `py-wrapper`: pure-Python wrapper; no parity helper, no raw binding (e.g. orchestrators or trivial helpers).",
         "",
         "| classification | count |",
@@ -362,10 +434,10 @@ def write_markdown(
     lines.append("## Runtime probe results")
     lines.append("")
     lines.append(
-        "Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` "
-        "and every `_raw_<X>` to record which path actually executed, eliminating "
-        "the static-AST blind spot called out in the cvrij/256q5 modes-of-reasoning "
-        "reports."
+        "Per-(function, shape) instrumentation. Wraps parity helpers, inproc "
+        "fallback helpers, and every `_raw_<X>` to record which path actually executed, "
+        "eliminating the static-AST blind spot called out in the cvrij/256q5 "
+        "modes-of-reasoning reports."
     )
     lines.append("")
     lines.append(
