@@ -168,6 +168,7 @@ def _read_edgelist_via_nx(
         data=data,
         edgetype=edgetype,
         encoding=encoding,
+        backend="networkx",
     )
     return _from_nx_graph(nx_graph, create_using=create_using)
 
@@ -213,6 +214,7 @@ def _read_adjlist_via_nx(
         create_using=_to_nx_create_using(create_using),
         nodetype=nodetype,
         encoding=encoding,
+        backend="networkx",
     )
     return _from_nx_graph(nx_graph, create_using=create_using)
 
@@ -342,6 +344,7 @@ def _read_graphml_via_nx(
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,
+        backend="networkx",
     )
     return _from_nx_graph(nx_graph)
 
@@ -407,7 +410,7 @@ def _read_gml_via_nx(path, *, label="label", destringizer=None):
         else:
             path = _BytesIO(bytes(data))
 
-    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer)
+    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer, backend="networkx")
     return _from_nx_graph(nx_graph)
 
 
@@ -420,7 +423,7 @@ def _parse_gml_via_nx(text, *, label="label", destringizer=None):
     """
     import networkx as nx
 
-    nx_graph = nx.parse_gml(text, label=label, destringizer=destringizer)
+    nx_graph = nx.parse_gml(text, label=label, destringizer=destringizer, backend="networkx")
     return _from_nx_graph(nx_graph)
 
 
@@ -1120,6 +1123,7 @@ def parse_graphml(
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,
+        backend="networkx",
     )
     return _from_nx_graph(nx_graph)
 
@@ -1212,6 +1216,7 @@ def read_adjlist(
         create_using=create_using,
         nodetype=nodetype,
         encoding=encoding,
+        backend="networkx",
     )
     return _from_nx_graph(nx_graph, create_using=create_using)
 
@@ -1248,6 +1253,7 @@ def read_edgelist(
         data=data,
         edgetype=edgetype,
         encoding=encoding,
+        backend="networkx",
     )
     return _from_nx_graph(nx_graph, create_using=create_using)
 
@@ -1270,7 +1276,7 @@ def read_gml(
 
     fnx._validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
 
-    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer)
+    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer, backend="networkx")
     return _from_nx_graph(nx_graph)
 
 
@@ -1298,6 +1304,7 @@ def read_graphml(
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,
+        backend="networkx",
     )
     return _from_nx_graph(nx_graph)
 

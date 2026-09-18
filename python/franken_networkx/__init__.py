@@ -13868,7 +13868,7 @@ def _minimum_node_cut_inproc(G, s=None, t=None, flow_func=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.connectivity.cuts.minimum_node_cut(
-            H, s=s, t=t, flow_func=flow_func
+            H, s=s, t=t, flow_func=flow_func, backend="networkx"
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -14236,7 +14236,7 @@ def _node_connectivity_inproc(G, s=None, t=None, flow_func=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.connectivity.connectivity.node_connectivity(
-            H, s=s, t=t, flow_func=flow_func
+            H, s=s, t=t, flow_func=flow_func, backend="networkx"
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -14320,7 +14320,7 @@ def _edge_connectivity_inproc(G, s=None, t=None, flow_func=None, cutoff=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.connectivity.connectivity.edge_connectivity(
-            H, s=s, t=t, flow_func=flow_func, cutoff=cutoff
+            H, s=s, t=t, flow_func=flow_func, cutoff=cutoff, backend="networkx"
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -14507,7 +14507,7 @@ def _degree_assortativity_inproc(G, x="out", y="in", weight=None, nodes=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.assortativity.correlation.degree_assortativity_coefficient(
-            H, x=x, y=y, weight=weight, nodes=nodes
+            H, x=x, y=y, weight=weight, nodes=nodes, backend="networkx"
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -15122,6 +15122,7 @@ def _betweenness_centrality_inproc(
             weight=weight,
             endpoints=endpoints,
             seed=seed,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -15673,6 +15674,7 @@ def _check_flow_endpoints(flowG, source, sink):
 def _maximum_flow_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     from franken_networkx.backend import _fnx_to_nx
     H = _fnx_to_nx(flowG)
+    kwargs.setdefault("backend", "networkx")
     try:
         return _nx.algorithms.flow.maxflow.maximum_flow(
             H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
@@ -15684,6 +15686,7 @@ def _maximum_flow_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **k
 def _maximum_flow_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     from franken_networkx.backend import _fnx_to_nx
     H = _fnx_to_nx(flowG)
+    kwargs.setdefault("backend", "networkx")
     try:
         return _nx.algorithms.flow.maxflow.maximum_flow_value(
             H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
@@ -15773,6 +15776,7 @@ def _validate_flow_func_selector(flow_func):
 def _minimum_cut_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     from franken_networkx.backend import _fnx_to_nx
     H = _fnx_to_nx(flowG)
+    kwargs.setdefault("backend", "networkx")
     try:
         return _nx.algorithms.flow.maxflow.minimum_cut(
             H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
@@ -15784,6 +15788,7 @@ def _minimum_cut_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kw
 def _minimum_cut_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     from franken_networkx.backend import _fnx_to_nx
     H = _fnx_to_nx(flowG)
+    kwargs.setdefault("backend", "networkx")
     try:
         return _nx.algorithms.flow.maxflow.minimum_cut_value(
             H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
@@ -16911,7 +16916,7 @@ def _branching_structural_nx(G, nx_name, attr, default):
     )
     fn = getattr(_nx.algorithms.tree.branchings, nx_name)
     try:
-        return fn(_H, attr=attr, default=default)
+        return fn(_H, attr=attr, default=default, backend="networkx")
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 
@@ -16920,7 +16925,7 @@ def _minimum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False,
     nx_g = _branching_partition_graph_for_networkx(G, partition)
     try:
         return _nx.algorithms.tree.branchings.minimum_branching(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -16930,7 +16935,7 @@ def _maximum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False,
     nx_g = _branching_partition_graph_for_networkx(G, partition)
     try:
         return _nx.algorithms.tree.branchings.maximum_branching(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -16940,7 +16945,7 @@ def _minimum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_
     nx_g = _branching_partition_graph_for_networkx(G, partition)
     try:
         return _nx.algorithms.tree.branchings.minimum_spanning_arborescence(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -16950,7 +16955,7 @@ def _maximum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_
     nx_g = _branching_partition_graph_for_networkx(G, partition)
     try:
         return _nx.algorithms.tree.branchings.maximum_spanning_arborescence(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -16960,7 +16965,7 @@ def _random_spanning_tree_inproc(G, weight=None, *, multiplicative=True, seed=No
     nx_g = _networkx_graph_for_parity(G)
     try:
         return _nx.algorithms.tree.mst.random_spanning_tree(
-            nx_g, weight=weight, multiplicative=multiplicative, seed=seed,
+            nx_g, weight=weight, multiplicative=multiplicative, seed=seed, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -17136,6 +17141,7 @@ def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_
         return _nx.algorithms.tree.branchings.minimal_branching(
             nx_g, attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -19150,6 +19156,7 @@ def _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
         weight=weight,
         algorithm=algorithm,
         ignore_nan=ignore_nan,
+        backend="networkx",
     )
     from franken_networkx.readwrite import _from_nx_graph
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
@@ -19260,6 +19267,7 @@ def _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
         weight=weight,
         algorithm=algorithm,
         ignore_nan=ignore_nan,
+        backend="networkx",
     )
     from franken_networkx.readwrite import _from_nx_graph
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
@@ -19332,7 +19340,7 @@ def _greedy_color_structural_nx(G, strategy, interchange):
         _H.add_nodes_from(G)
         _H.add_edges_from(G.edges())
     try:
-        return _nx.greedy_color(_H, strategy=strategy, interchange=interchange)
+        return _nx.greedy_color(_H, strategy=strategy, interchange=interchange, backend="networkx")
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 
@@ -20412,6 +20420,7 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
             community_list,
             weight=weight,
             resolution=resolution,
+            backend="networkx",
         )
     # br-r37-c1-nim1v / br-r37-c1-modsnapshot: weighted inputs must delegate to
     # nx's reference implementation (the snapshot/Rust paths are unweighted).
@@ -21077,6 +21086,7 @@ def _intersection_via_parity(G, H):
     nx_result = _nx.intersection(
         _networkx_graph_for_parity(G),
         _networkx_graph_for_parity(H),
+        backend="networkx",
     )
     from franken_networkx.readwrite import _from_nx_graph
     cls = _operator_output_class(G, H)
@@ -21284,6 +21294,7 @@ def _multigraph_diff_via_parity(name, G, H):
     nx_result = nx_op(
         _networkx_graph_for_parity(G),
         _networkx_graph_for_parity(H),
+        backend="networkx",
     )
     cls = _operator_output_class(G, H)
     return _from_nx_graph(nx_result, create_using=cls())
@@ -21304,6 +21315,7 @@ def _union_with_rename_via_parity(G, H, rename):
         _networkx_graph_for_parity(G),
         _networkx_graph_for_parity(H),
         rename=rename,
+        backend="networkx",
     )
     # Pick the fnx target class from G (nx.union preserves G's class).
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
@@ -21483,10 +21495,10 @@ def _transitive_reduction_via_parity(G):
     # classes (the blaz5 _FilteredGraphView whose ``type(G)()`` needs args) and any
     # shape where the result is not an fnx graph fall back to the conversion path.
     if type(G) is DiGraph:
-        direct = _nx.transitive_reduction(G)
+        direct = _nx.transitive_reduction(G, backend="networkx")
         if isinstance(direct, DiGraph):
             return direct
-    nx_result = _nx.transitive_reduction(_networkx_graph_for_parity(G))
+    nx_result = _nx.transitive_reduction(_networkx_graph_for_parity(G), backend="networkx")
     from franken_networkx.readwrite import _from_nx_graph
     cls = _concrete_class_for(G)()
     return _from_nx_graph(nx_result, create_using=cls)
@@ -22541,9 +22553,9 @@ def _link_prediction_lazy_delegate(name, G, materialized):
         fn = getattr(_nx.algorithms.link_prediction, name)
         try:
             if materialized is None:
-                yield from fn(H)
+                yield from fn(H, backend="networkx")
             else:
-                yield from fn(H, ebunch=materialized)
+                yield from fn(H, ebunch=materialized, backend="networkx")
         except Exception as exc:
             _raise_translated_networkx_exception(exc)
     return _gen()
@@ -24595,7 +24607,9 @@ class _ApproximationNamespace:
             # greedy order differs from the undirected kernel; delegate to keep
             # exact parity (the perf-sensitive case is undirected).
             nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.min_weighted_vertex_cover(nx_G, weight=weight)
+            return _nx.approximation.min_weighted_vertex_cover(
+                nx_G, weight=weight, backend="networkx"
+            )
         if weight is not None:
             # br-r37-c1-303zo: node-view writes mutate the live Python mirrors,
             # while the native kernel reads the typed AttrMap store. Flush those
@@ -24660,7 +24674,7 @@ class _ApproximationNamespace:
             return set()
         if type(G) is not Graph:
             return _nx.approximation.min_weighted_dominating_set(
-                _networkx_graph_for_parity(G), weight=weight
+                _networkx_graph_for_parity(G), weight=weight, backend="networkx"
             )
         dom_set: set = set()
         dod = to_dict_of_lists(G)
@@ -24784,7 +24798,7 @@ class _ApproximationNamespace:
             return 0
         if G.is_directed():
             nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.diameter(nx_G, seed=seed)
+            return _nx.approximation.diameter(nx_G, seed=seed, backend="networkx")
         rng = _generator_random_state(seed)
         source = rng.choice(list(G))
         distances = single_source_shortest_path_length(G, source)
@@ -24819,7 +24833,9 @@ class _ApproximationNamespace:
                 G, raw, source, target, cutoff
             )
         nx_G = _networkx_graph_for_parity(G)
-        return _nx.approximation.local_node_connectivity(nx_G, source, target, cutoff)
+        return _nx.approximation.local_node_connectivity(
+            nx_G, source, target, cutoff, backend="networkx"
+        )
 
     def node_connectivity(self, G, s=None, t=None, *, backend=None, **backend_kwargs):
         # br-r37-c1-nawyw: the generic __getattr__ wrapper round-trips the graph
@@ -24844,7 +24860,7 @@ class _ApproximationNamespace:
         raw = _raw_neighbors_dispatch(G)
         if raw is None or G.is_directed() or G.is_multigraph():
             nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.node_connectivity(nx_G, s, t)
+            return _nx.approximation.node_connectivity(nx_G, s, t, backend="networkx")
         # Local node connectivity.
         if s is not None and t is not None:
             if s not in G:
@@ -24930,7 +24946,7 @@ class _ApproximationNamespace:
         ):
             nx_G = _networkx_graph_for_parity(G)
             return _nx.approximation.all_pairs_node_connectivity(
-                nx_G, nbunch=nbunch, cutoff=cutoff
+                nx_G, nbunch=nbunch, cutoff=cutoff, backend="networkx"
             )
         adj = {node: list(nbrs) for node, nbrs in nak()}
         deg = {node: len(nbrs) for node, nbrs in adj.items()}
@@ -24943,7 +24959,7 @@ class _ApproximationNamespace:
             if any(n not in adj for n in nb):
                 nx_G = _networkx_graph_for_parity(G)
                 return _nx.approximation.all_pairs_node_connectivity(
-                    nx_G, nbunch=nbunch, cutoff=cutoff
+                    nx_G, nbunch=nbunch, cutoff=cutoff, backend="networkx"
                 )
         all_pairs = {n: {} for n in nb}
         for u, v in _itertools.combinations(nb, 2):
@@ -24969,7 +24985,9 @@ class _ApproximationNamespace:
         G = _coerce_arg_to_fnx_graph(G)
         nak = getattr(G, "_native_adjacency_keys", None)
         if G.is_directed() or G.is_multigraph() or nak is None or type(G) is not Graph:
-            return _nx.approximation.large_clique_size(_networkx_graph_for_parity(G))
+            return _nx.approximation.large_clique_size(
+                _networkx_graph_for_parity(G), backend="networkx"
+            )
 
         adj = {node: set(nbrs) for node, nbrs in nak()}
         degrees = {u: len(nbrs) for u, nbrs in adj.items()}
@@ -25052,7 +25070,7 @@ class _ApproximationNamespace:
 
         return _from_nx_graph(
             _nx.approximation.metric_closure(
-                _networkx_graph_for_parity(G), weight=weight
+                _networkx_graph_for_parity(G), weight=weight, backend="networkx"
             )
         )
 
@@ -25115,7 +25133,10 @@ class _ApproximationNamespace:
             cycle.append(cycle[0])
             return cycle
         return _nx.approximation.greedy_tsp(
-            _networkx_graph_for_parity(G), weight=weight, source=source
+            _networkx_graph_for_parity(G),
+            weight=weight,
+            source=source,
+            backend="networkx",
         )
 
     def _tsp_anneal_prep(self, G, init_cycle, weight, source, move):
@@ -25286,6 +25307,7 @@ class _ApproximationNamespace:
             N_inner=N_inner,
             alpha=alpha,
             seed=seed,
+            backend="networkx",
         )
 
     def threshold_accepting_tsp(
@@ -25352,6 +25374,7 @@ class _ApproximationNamespace:
             N_inner=N_inner,
             alpha=alpha,
             seed=seed,
+            backend="networkx",
         )
 
     def __getattr__(self, name):
@@ -25368,6 +25391,7 @@ class _ApproximationNamespace:
         @_functools.wraps(nx_func)
         def wrapper(G, *args, **kwargs):
             nx_G = _networkx_graph_for_parity(G)
+            kwargs.setdefault("backend", "networkx")
             result = nx_func(nx_G, *args, **kwargs)
             # br-r37-c1-apxret: convert graph results to fnx types
             if isinstance(result, _nx.Graph):
@@ -30615,7 +30639,7 @@ def _minimum_edge_cut_inproc(G, s=None, t=None, flow_func=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.connectivity.cuts.minimum_edge_cut(
-            H, s=s, t=t, flow_func=flow_func
+            H, s=s, t=t, flow_func=flow_func, backend="networkx"
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -31371,6 +31395,7 @@ def _pagerank_inproc(
             nstart=nstart,
             weight=weight,
             dangling=dangling,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -31675,6 +31700,7 @@ def _edge_betweenness_centrality_inproc(
             normalized=normalized,
             weight=weight,
             seed=seed,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -31989,6 +32015,7 @@ def _katz_centrality_inproc(
             nstart=nstart,
             normalized=normalized,
             weight=weight,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -34887,6 +34914,7 @@ def _spectral_ordering_inproc(
             tol=tol,
             method=method,
             seed=seed,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -37195,10 +37223,11 @@ def _check_planarity_certificate(G, counterexample=False, recursive=False):
         result = nx_planarity.check_planarity_recursive(
             graph,
             counterexample=counterexample,
+            backend="networkx",
         )
     else:
         result = nx_planarity.check_planarity(
-            graph, counterexample=counterexample
+            graph, counterexample=counterexample, backend="networkx"
         )
 
     # br-r37-c1-rcg8f: return the Kuratowski counterexample as an fnx graph.
@@ -38456,6 +38485,7 @@ def _load_centrality_inproc(
             cutoff=cutoff,
             normalized=normalized,
             weight=weight,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -38764,6 +38794,7 @@ def _all_pairs_node_connectivity_inproc(G, nbunch=None, flow_func=None):
             H,
             nbunch=nbunch,
             flow_func=flow_func,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -40802,7 +40833,7 @@ def prefix_tree(paths):
 
 def _root_to_leaf_paths_via_nx(G):
     """br-r37-c1-17uhk: private wrapper so dag_to_branching stays PY_WRAPPER."""
-    return _nx.algorithms.dag.root_to_leaf_paths(G)
+    return _nx.algorithms.dag.root_to_leaf_paths(G, backend="networkx")
 
 
 def dag_to_branching(G):
@@ -40960,7 +40991,7 @@ def _transitive_closure_dag_via_parity(G, topo_order):
     if topo_order is not None:
         kwargs["topo_order"] = topo_order
     nx_result = _nx.transitive_closure_dag(
-        _networkx_graph_for_parity(G), **kwargs,
+        _networkx_graph_for_parity(G), backend="networkx", **kwargs,
     )
     from franken_networkx.readwrite import _from_nx_graph
     # br-r37-c1-lblzk: cycle-225 family — SubgraphView can't be empty-constructed.
@@ -44245,7 +44276,7 @@ def kemeny_constant(G, *, weight=None, backend=None, **backend_kwargs):
 
 def _label_propagation_communities_via_nx(G):
     """br-r37-c1-17uhk: private wrapper so non_randomness stays PY_WRAPPER."""
-    return _nx.community.label_propagation_communities(G)
+    return _nx.community.label_propagation_communities(G, backend="networkx")
 
 
 def non_randomness(G, k=None, weight="weight"):
@@ -44358,7 +44389,7 @@ def _sigma_inproc(G, niter=100, nrand=10, seed=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.smallworld.sigma(
-            H, niter=niter, nrand=nrand, seed=seed,
+            H, niter=niter, nrand=nrand, seed=seed, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -44395,7 +44426,7 @@ def _omega_inproc(G, niter=5, nrand=10, seed=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.smallworld.omega(
-            H, niter=niter, nrand=nrand, seed=seed,
+            H, niter=niter, nrand=nrand, seed=seed, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -44439,6 +44470,7 @@ def _edge_disjoint_paths_inproc(
             H, s, t,
             flow_func=flow_func, cutoff=cutoff,
             auxiliary=auxiliary, residual=residual,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -44503,6 +44535,7 @@ def _node_disjoint_paths_inproc(
             H, s, t,
             flow_func=flow_func, cutoff=cutoff,
             auxiliary=auxiliary, residual=residual,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -45279,6 +45312,7 @@ def _approximate_current_flow_betweenness_centrality_inproc(
             kmax=kmax,
             seed=seed,
             sample_weight=sample_weight,
+            backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -47245,7 +47279,7 @@ def _min_cycle_scipy(graph, orth, weight):
         else:
             lifted_nx.add_edges_from([(u, v), ((u, 1), (v, 1))], Gi_weight=wt)
     min_path_i = _nx.shortest_path(
-        lifted_nx, source=start, target=end, weight="Gi_weight"
+        lifted_nx, source=start, target=end, weight="Gi_weight", backend="networkx"
     )
     min_path = [node if node in graph else node[0] for node in min_path_i]
 
@@ -47275,7 +47309,7 @@ def _min_cycle_basis_scipy(component_graph, weight):
     ``_min_cycle_scipy``. All set-order-dependent state stays in Python so the
     output is byte-identical to upstream."""
     cb = []
-    tree_edges = list(_nx.minimum_spanning_edges(component_graph, weight=None, data=False))
+    tree_edges = list(_nx.minimum_spanning_edges(component_graph, weight=None, data=False, backend="networkx"))
     chords = component_graph.edges - tree_edges - {(v, u) for u, v in tree_edges}
 
     set_orth = [{edge} for edge in chords]
@@ -47352,7 +47386,7 @@ def _chordless_cycles_via_parity(G, *, length_bound=None):
     )
 
     yield from _upstream_chordless_cycles(
-        _networkx_graph_for_traversal_parity(G), length_bound=length_bound
+        _networkx_graph_for_traversal_parity(G), length_bound=length_bound, backend="networkx"
     )
 
 
@@ -57915,7 +57949,7 @@ def _onion_layers_impl(G):
     from franken_networkx.backend import _fnx_to_nx
     H = _fnx_to_nx(G)
     try:
-        return _nx.algorithms.core.onion_layers(H)
+        return _nx.algorithms.core.onion_layers(H, backend="networkx")
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 
@@ -58418,7 +58452,7 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
         and _nx_bridge_augmentation is not None
     ):
         try:
-            return list(_nx_bridge_augmentation(G))
+            return list(_nx_bridge_augmentation(G, backend="networkx"))
         except NetworkXUnfeasible:
             if not partial:
                 raise
@@ -58594,6 +58628,7 @@ def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
         directed=directed,
         selfloops=selfloops,
         sparse=sparse,
+        backend="networkx",
     )
     from franken_networkx.readwrite import _from_nx_graph
     if nodelist is None:
@@ -60854,7 +60889,9 @@ def _junction_tree_nx(G):
     chordal_graph, _ = complete_to_chordal_graph(G)
     cliques = [
         tuple(sorted(i))
-        for i in _nx.chordal_graph_cliques(_fnx_to_nx(chordal_graph))
+        for i in _nx.chordal_graph_cliques(
+            _fnx_to_nx(chordal_graph), backend="networkx"
+        )
     ]
     clique_graph.add_nodes_from(cliques, type="clique")
     for edge in combinations(cliques, 2):
@@ -60865,7 +60902,7 @@ def _junction_tree_nx(G):
             clique_graph.add_edge(
                 edge[0], edge[1], weight=len(sepset), sepset=sepset
             )
-    jt = _nx.maximum_spanning_tree(clique_graph)
+    jt = _nx.maximum_spanning_tree(clique_graph, backend="networkx")
     for edge in list(jt.edges(data=True)):
         jt.add_node(edge[2]["sepset"], type="sepset")
         jt.add_edge(edge[0], edge[2]["sepset"])
@@ -64067,7 +64104,7 @@ def _random_reference_inproc(G, niter=1, connectivity=True, seed=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.smallworld.random_reference(
-            H, niter=niter, connectivity=connectivity, seed=seed,
+            H, niter=niter, connectivity=connectivity, seed=seed, backend="networkx",
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -65668,7 +65705,7 @@ def _k_components_inproc(G, flow_func=None):
     H = _fnx_to_nx(G)
     try:
         return _nx.algorithms.connectivity.kcomponents.k_components(
-            H, flow_func=flow_func
+            H, flow_func=flow_func, backend="networkx"
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
@@ -65934,7 +65971,7 @@ def _tutte_polynomial_inproc(G):
     from franken_networkx.backend import _fnx_to_nx
     H = _fnx_to_nx(G)
     try:
-        return _nx.algorithms.polynomials.tutte_polynomial(H)
+        return _nx.algorithms.polynomials.tutte_polynomial(H, backend="networkx")
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 
@@ -66144,7 +66181,7 @@ def _random_kernel_graph_via_parity(
         kernel_root=kernel_root,
         seed=seed,
         create_using=create_using,
-        backend=backend,
+        backend="networkx",
         **backend_kwargs,
     )
     return _from_nx_graph(g)
