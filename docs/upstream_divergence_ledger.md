@@ -8,15 +8,15 @@ Combines static AST analysis (`docs/delegation_ledger.json`), per-fixture audit 
 
 | category | count | meaning |
 |----------|-------|---------|
-| `native-parity` | 430 | Rust-native execution; output matches NetworkX byte-for-byte |
+| `native-parity` | 460 | Rust-native execution; output matches NetworkX byte-for-byte |
 | `wrapper-patched` | 24 | Python wrapper post-processes raw output (sort, type-coerce, etc.) so the user-visible result matches NetworkX |
-| `intentionally-delegated` | 132 | Wrapper routes to NetworkX (via _call_networkx_for_parity) for some or all input shapes; not a Rust-native path |
+| `intentionally-delegated` | 181 | Wrapper routes to NetworkX (via _call_networkx_for_parity) for some or all input shapes; not a Rust-native path |
 | `raw-known-gap` | 1 | Lower-level _raw_<X> kernel has a documented gap; public wrapper hides the divergence via fallback |
 | `owner-acknowledged-limitation` | 1 | Divergence is intentional / out-of-scope; documented in source |
 
-## native-parity (430)
+## native-parity (460)
 
-`DiGraph`, `Graph`, `HasACycle`, `MultiDiGraph`, `MultiGraph`, `NetworkXAlgorithmError`, `NetworkXError`, `NetworkXNoCycle`, `NetworkXNoPath`, `NetworkXNotImplemented`, `NetworkXPointlessConcept`, `NetworkXUnbounded`, `NetworkXUnfeasible`, `NodeNotFound`, `NotATree`, `PowerIterationFailedConvergence`, `_NotAPartition`, `__version__`, `_aa_native_scores`, `_betweenness_centrality_sampled_rust`, `_betweenness_centrality_subset_rust`, `_betweenness_centrality_subset_weighted_rust`, `_bfs_edges_raw`, `_bfs_layers_raw`, `_bfs_predecessors_raw`, `_bfs_successors_raw`, `_bfs_tree_raw`, `_bipartite_sets`, `_condensation_nx_ordered`, `_condensation_raw`, `_dfs_edges_raw`, `_dfs_postorder_nodes_raw`, `_dfs_predecessors_raw`, `_dfs_preorder_nodes_raw`, `_dfs_successors_raw`, `_dfs_tree_raw`, `_edge_betweenness_centrality_subset_rust`, `_edge_betweenness_centrality_subset_weighted_rust`, `_edge_bfs_raw`, `_edge_dfs_raw`, `_find_cliques_impl`, `_graph_edit_distance_common_rust`, `_is_isomorphic_rust`, `_jaccard_native_scores`, `_minimum_cut_raw`, `_minimum_cut_value_raw`, `_pa_native_scores`, `_prim_spanning_edges_native`, `_ra_native_scores`, `_raw_adamic_adar_index`, `_raw_all_pairs_bellman_ford_path`, `_raw_all_pairs_bellman_ford_path_length`, `_raw_all_pairs_dijkstra`, `_raw_all_pairs_dijkstra_path`, `_raw_all_pairs_dijkstra_path_length`, `_raw_all_pairs_shortest_path`, `_raw_all_pairs_shortest_path_length`, `_raw_all_shortest_paths`, `_raw_ancestors`, `_raw_antichains`, `_raw_approx_local_node_connectivity_undirected`, `_raw_articulation_points`, `_raw_astar_path`, `_raw_astar_path_length`, `_raw_attracting_components`, `_raw_average_clustering`, `_raw_average_neighbor_degree`, `_raw_average_node_connectivity`, `_raw_average_shortest_path_length`, `_raw_barycenter`, `_raw_bellman_ford_path`, `_raw_bellman_ford_path_length`, `_raw_betweenness_centrality`, `_raw_biconnected_component_edges`, `_raw_biconnected_components`, `_raw_bidirectional_shortest_path`, `_raw_bridges`, `_raw_center`, `_raw_chordal_graph_cliques`, `_raw_clique_removal`, `_raw_closeness_centrality`, `_raw_clustering`, `_raw_common_neighbors`, `_raw_complement`, `_raw_compose`, `_raw_connected_components`, `_raw_core_number`, `_raw_cut_size`, `_raw_cycle_basis`, `_raw_dag_longest_path`, `_raw_dag_longest_path_length`, `_raw_degree_assortativity_coefficient`, `_raw_degree_assortativity_coefficient_directed`, `_raw_degree_centrality`, `_raw_degree_histogram`, `_raw_descendants`, `_raw_descendants_at_distance`, `_raw_diameter`, `_raw_difference`, `_raw_dijkstra_path`, `_raw_dijkstra_path_length`, `_raw_dijkstra_predecessor_and_distance`, `_raw_dominance_frontiers`, `_raw_dominating_set`, `_raw_eccentricity`, `_raw_edge_betweenness_centrality`, `_raw_edge_betweenness_centrality_weighted`, `_raw_edge_boundary`, `_raw_edge_connectivity`, `_raw_edge_expansion`, `_raw_efficiency`, `_raw_eigenvector_centrality`, `_raw_enumerate_all_cliques`, `_raw_eulerian_circuit`, `_raw_eulerian_path`, `_raw_fast_could_be_isomorphic`, `_raw_faster_could_be_isomorphic`, `_raw_find_cliques`, `_raw_find_cliques_recursive`, `_raw_find_cycle`, `_raw_find_cycle_multigraph_simple`, `_raw_find_cycle_simple`, `_raw_find_negative_cycle`, `_raw_floyd_warshall`, `_raw_floyd_warshall_predecessor_and_distance`, `_raw_girth`, `_raw_global_efficiency`, `_raw_global_node_connectivity`, `_raw_greedy_color`, `_raw_greedy_color_directed`, `_raw_greedy_modularity_communities`, `_raw_group_degree_centrality`, `_raw_group_in_degree_centrality`, `_raw_group_out_degree_centrality`, `_raw_harmonic_centrality`, `_raw_has_eulerian_path`, `_raw_has_path`, `_raw_immediate_dominators`, `_raw_in_degree_centrality`, `_raw_intersection`, `_raw_is_aperiodic`, `_raw_is_arborescence`, `_raw_is_attracting_component`, `_raw_is_biconnected`, `_raw_is_bipartite`, `_raw_is_branching`, `_raw_is_chordal`, `_raw_is_connected`, `_raw_is_digraphical`, `_raw_is_directed_acyclic_graph`, `_raw_is_distance_regular`, `_raw_is_dominating_set`, `_raw_is_edge_cover`, `_raw_is_eulerian`, `_raw_is_forest`, `_raw_is_isolate`, `_raw_is_k_edge_connected`, `_raw_is_k_regular`, `_raw_is_planar`, `_raw_is_regular`, `_raw_is_semiconnected`, `_raw_is_semieulerian`, `_raw_is_simple_path`, `_raw_is_strongly_connected`, `_raw_is_tree`, `_raw_is_weakly_connected`, `_raw_isolates`, `_raw_jaccard_coefficient`, `_raw_johnson_path_directed`, `_raw_katz_centrality`, `_raw_kosaraju_strongly_connected_components`, `_raw_large_clique_size`, `_raw_lexicographic_topological_sort`, `_raw_link_pred_common_neighbor_degrees`, `_raw_link_pred_jaccard_counts`, `_raw_load_centrality`, `_raw_load_centrality_weighted`, `_raw_local_efficiency`, `_raw_louvain_communities`, `_raw_max_clique`, `_raw_max_weight_clique`, `_raw_max_weight_matching`, `_raw_maximal_independent_set`, `_raw_maximal_matching`, `_raw_maximum_flow`, `_raw_maximum_flow_value`, `_raw_maximum_independent_set`, `_raw_maximum_spanning_arborescence`, `_raw_maximum_spanning_tree`, `_raw_mdg_ss_dijkstra`, `_raw_mdg_ss_dijkstra_path_length`, `_raw_min_edge_cover`, `_raw_min_weight_matching`, `_raw_min_weighted_vertex_cover`, `_raw_minimum_branching`, `_raw_minimum_node_cut`, `_raw_minimum_spanning_arborescence`, `_raw_minimum_spanning_edges`, `_raw_minimum_spanning_tree`, `_raw_modularity`, `_raw_multi_source_dijkstra`, `_raw_multidigraph_dijkstra_path_length_target`, `_raw_multidigraph_dijkstra_path_target`, `_raw_multidigraph_transitive_closure`, `_raw_multigraph_minimum_spanning_tree`, `_raw_negative_edge_cycle`, `_raw_node_boundary`, `_raw_node_connected_component`, `_raw_node_connectivity`, `_raw_node_expansion`, `_raw_non_edges`, `_raw_normalized_cut_size`, `_raw_number_attracting_components`, `_raw_number_connected_components`, `_raw_number_of_isolates`, `_raw_number_of_spanning_trees`, `_raw_number_strongly_connected_components`, `_raw_number_weakly_connected_components`, `_raw_out_degree_centrality`, `_raw_pagerank`, `_raw_partition_spanning_tree`, `_raw_percolation_centrality_weighted`, `_raw_periphery`, `_raw_predecessor`, `_raw_preferential_attachment`, `_raw_prim_spanning_edges`, `_raw_radius`, `_raw_random_spanning_tree`, `_raw_resource_allocation_index`, `_raw_shortest_path`, `_raw_shortest_path_length_matrix`, `_raw_shortest_simple_paths`, `_raw_single_source_bellman_ford`, `_raw_single_source_bellman_ford_path`, `_raw_single_source_bellman_ford_path_length`, `_raw_single_source_dijkstra`, `_raw_single_source_dijkstra_path`, `_raw_single_source_dijkstra_path_length`, `_raw_single_source_shortest_path`, `_raw_single_source_shortest_path_length`, `_raw_single_target_dijkstra_path_length`, `_raw_single_target_shortest_path`, `_raw_single_target_shortest_path_length`, `_raw_spanner`, `_raw_strongly_connected_components`, `_raw_symmetric_difference`, `_raw_topological_generations`, `_raw_topological_sort`, `_raw_transitive_closure`, `_raw_transitive_reduction`, `_raw_transitivity`, `_raw_tree_broadcast_center`, `_raw_tree_broadcast_time`, `_raw_triangles`, `_raw_union`, `_raw_voterank`, `_raw_weakly_connected_components`, `_rust_all_simple_paths`, `_rust_all_triangles`, `_rust_balanced_tree`, `_rust_barabasi_albert_graph`, `_rust_barbell_graph`, `_rust_binomial_tree`, `_rust_bull_graph`, `_rust_caveman_graph`, `_rust_chordal_cycle_graph`, `_rust_chordal_graph_treewidth`, `_rust_chvatal_graph`, `_rust_circulant_graph`, `_rust_circular_ladder_graph`, `_rust_circular_ladder_graph_native`, `_rust_closeness_vitality`, `_rust_complete_bipartite_graph`, `_rust_complete_graph`, `_rust_complete_multipartite_graph`, `_rust_connected_watts_strogatz_graph`, `_rust_cubical_graph`, `_rust_cycle_graph`, `_rust_desargues_graph`, `_rust_diamond_graph`, `_rust_dodecahedral_graph`, `_rust_dorogovtsev_goltsev_mendes_graph`, `_rust_empty_graph`, `_rust_erdos_renyi_graph`, `_rust_frucht_graph`, `_rust_full_rary_tree`, `_rust_full_rary_tree_native`, `_rust_generalized_petersen_graph`, `_rust_gnp_random_digraph`, `_rust_gnp_random_graph`, `_rust_grid_2d_graph`, `_rust_grid_graph`, `_rust_heawood_graph`, `_rust_hoffman_singleton_graph`, `_rust_house_graph`, `_rust_house_x_graph`, `_rust_hypercube_graph`, `_rust_icosahedral_graph`, `_rust_kneser_graph`, `_rust_krackhardt_kite_graph`, `_rust_ladder_graph`, `_rust_lollipop_graph`, `_rust_make_max_clique_graph`, `_rust_moebius_kantor_graph`, `_rust_newman_watts_strogatz_graph`, `_rust_node_link_data`, `_rust_node_link_graph`, `_rust_null_graph`, `_rust_octahedral_graph`, `_rust_paley_graph`, `_rust_pappus_graph`, `_rust_path_graph`, `_rust_petersen_graph`, `_rust_powerlaw_cluster_graph`, `_rust_random_lobster_graph_lazy_int`, `_rust_random_regular_edges_pyset`, `_rust_random_regular_graph`, `_rust_random_regular_graph_pyset_order`, `_rust_read_adjlist`, `_rust_read_edgelist`, `_rust_read_gml`, `_rust_read_graphml`, `_rust_sedgewick_maze_graph`, `_rust_star_graph`, `_rust_stochastic_block_model`, `_rust_sudoku_graph`, `_rust_tadpole_graph`, `_rust_tetrahedral_graph`, `_rust_trivial_graph`, `_rust_truncated_cube_graph`, `_rust_truncated_tetrahedron_graph`, `_rust_turan_graph`, `_rust_tutte_graph`, `_rust_watts_strogatz_graph`, `_rust_wheel_graph`, `_rust_windmill_graph`, `_rust_write_adjlist`, `_rust_write_edgelist`, `_rust_write_gml`, `_rust_write_graphml`, `_shortest_path_length_raw`, `_transitive_closure_dag_inproc`, `_vf2pp_all_isomorphisms_rust`, `_vf2pp_isomorphism_rust`, `_voronoi_nearest_centers`, `all_pairs_dijkstra`, `all_pairs_shortest_path`, `all_pairs_shortest_path_length`, `ancestors`, `articulation_points`, `attracting_components`, `average_degree_connectivity`, `average_neighbor_degree`, `biconnected_component_edges`, `biconnected_components`, `bidirectional_shortest_path`, `clustering`, `common_neighbors`, `complement`, `connected_components`, `core_number`, `cycle_basis`, `degree_centrality`, `degree_histogram`, `descendants`, `dijkstra_predecessor_and_distance`, `edge_expansion`, `enumerate_all_cliques`, `fast_could_be_isomorphic`, `faster_could_be_isomorphic`, `find_cycle`, `girth`, `global_efficiency`, `group_degree_centrality`, `group_in_degree_centrality`, `group_out_degree_centrality`, `immediate_dominators`, `is_arborescence`, `is_biconnected`, `is_bipartite`, `is_branching`, `is_connected`, `is_digraphical`, `is_directed_acyclic_graph`, `is_distance_regular`, `is_edge_cover`, `is_empty`, `is_forest`, `is_k_regular`, `is_regular`, `is_semiconnected`, `is_simple_path`, `is_strongly_connected`, `is_tree`, `is_weakly_connected`, `isolates`, `local_efficiency`, `maximal_matching`, `maximum_spanning_tree`, `minimum_spanning_tree`, `node_attribute_xy`, `node_boundary`, `node_connected_component`, `node_expansion`, `non_edges`, `non_neighbors`, `number_attracting_components`, `number_connected_components`, `number_of_isolates`, `number_of_spanning_trees`, `number_strongly_connected_components`, `number_weakly_connected_components`, `onion_layers`, `percolation_centrality`, `selfloop_edges`, `shortest_path_length_matrix`, `single_source_shortest_path`, `single_source_shortest_path_length`, `single_target_shortest_path`, `single_target_shortest_path_length`, `spanner`, `square_clustering`, `strongly_connected_components`, `topological_generations`, `topological_sort`, `transitivity`, `tree_broadcast_center`, `tree_broadcast_time`, `triangles`, `weakly_connected_components`
+`DiGraph`, `Graph`, `HasACycle`, `MultiDiGraph`, `MultiGraph`, `NetworkXAlgorithmError`, `NetworkXError`, `NetworkXNoCycle`, `NetworkXNoPath`, `NetworkXNotImplemented`, `NetworkXPointlessConcept`, `NetworkXUnbounded`, `NetworkXUnfeasible`, `NodeNotFound`, `NotATree`, `PowerIterationFailedConvergence`, `_NotAPartition`, `__version__`, `_aa_native_scores`, `_betweenness_centrality_sampled_rust`, `_betweenness_centrality_subset_rust`, `_betweenness_centrality_subset_weighted_rust`, `_bfs_edges_raw`, `_bfs_layers_raw`, `_bfs_predecessors_raw`, `_bfs_successors_raw`, `_bfs_tree_raw`, `_bipartite_sets`, `_condensation_nx_ordered`, `_condensation_raw`, `_dfs_edges_raw`, `_dfs_postorder_nodes_raw`, `_dfs_predecessors_raw`, `_dfs_preorder_nodes_raw`, `_dfs_successors_raw`, `_dfs_tree_raw`, `_edge_betweenness_centrality_subset_rust`, `_edge_betweenness_centrality_subset_weighted_rust`, `_edge_bfs_raw`, `_edge_dfs_raw`, `_find_cliques_impl`, `_graph_edit_distance_common_rust`, `_is_isomorphic_rust`, `_jaccard_native_scores`, `_minimum_cut_raw`, `_minimum_cut_value_raw`, `_pa_native_scores`, `_prim_spanning_edges_native`, `_ra_native_scores`, `_raw_adamic_adar_index`, `_raw_all_pairs_bellman_ford_path`, `_raw_all_pairs_bellman_ford_path_length`, `_raw_all_pairs_dijkstra`, `_raw_all_pairs_dijkstra_path`, `_raw_all_pairs_dijkstra_path_length`, `_raw_all_pairs_shortest_path`, `_raw_all_pairs_shortest_path_length`, `_raw_all_shortest_paths`, `_raw_ancestors`, `_raw_antichains`, `_raw_approx_local_node_connectivity_undirected`, `_raw_articulation_points`, `_raw_astar_path`, `_raw_astar_path_length`, `_raw_attracting_components`, `_raw_average_clustering`, `_raw_average_neighbor_degree`, `_raw_average_node_connectivity`, `_raw_average_shortest_path_length`, `_raw_barycenter`, `_raw_bellman_ford_path`, `_raw_bellman_ford_path_length`, `_raw_betweenness_centrality`, `_raw_biconnected_component_edges`, `_raw_biconnected_components`, `_raw_bidirectional_shortest_path`, `_raw_bridges`, `_raw_center`, `_raw_chordal_graph_cliques`, `_raw_clique_removal`, `_raw_closeness_centrality`, `_raw_clustering`, `_raw_common_neighbors`, `_raw_complement`, `_raw_compose`, `_raw_connected_components`, `_raw_core_number`, `_raw_cut_size`, `_raw_cycle_basis`, `_raw_dag_longest_path`, `_raw_dag_longest_path_length`, `_raw_degree_assortativity_coefficient`, `_raw_degree_assortativity_coefficient_directed`, `_raw_degree_centrality`, `_raw_degree_histogram`, `_raw_descendants`, `_raw_descendants_at_distance`, `_raw_diameter`, `_raw_difference`, `_raw_dijkstra_path`, `_raw_dijkstra_path_length`, `_raw_dijkstra_predecessor_and_distance`, `_raw_dominance_frontiers`, `_raw_dominating_set`, `_raw_eccentricity`, `_raw_edge_betweenness_centrality`, `_raw_edge_betweenness_centrality_weighted`, `_raw_edge_boundary`, `_raw_edge_connectivity`, `_raw_edge_expansion`, `_raw_efficiency`, `_raw_eigenvector_centrality`, `_raw_enumerate_all_cliques`, `_raw_eulerian_circuit`, `_raw_eulerian_path`, `_raw_fast_could_be_isomorphic`, `_raw_faster_could_be_isomorphic`, `_raw_find_cliques`, `_raw_find_cliques_recursive`, `_raw_find_cycle`, `_raw_find_cycle_multigraph_simple`, `_raw_find_cycle_simple`, `_raw_find_negative_cycle`, `_raw_floyd_warshall`, `_raw_floyd_warshall_predecessor_and_distance`, `_raw_girth`, `_raw_global_efficiency`, `_raw_global_node_connectivity`, `_raw_greedy_color`, `_raw_greedy_color_directed`, `_raw_greedy_modularity_communities`, `_raw_group_degree_centrality`, `_raw_group_in_degree_centrality`, `_raw_group_out_degree_centrality`, `_raw_harmonic_centrality`, `_raw_has_eulerian_path`, `_raw_has_path`, `_raw_immediate_dominators`, `_raw_in_degree_centrality`, `_raw_intersection`, `_raw_is_aperiodic`, `_raw_is_arborescence`, `_raw_is_attracting_component`, `_raw_is_biconnected`, `_raw_is_bipartite`, `_raw_is_branching`, `_raw_is_chordal`, `_raw_is_connected`, `_raw_is_digraphical`, `_raw_is_directed_acyclic_graph`, `_raw_is_distance_regular`, `_raw_is_dominating_set`, `_raw_is_edge_cover`, `_raw_is_eulerian`, `_raw_is_forest`, `_raw_is_isolate`, `_raw_is_k_edge_connected`, `_raw_is_k_regular`, `_raw_is_planar`, `_raw_is_regular`, `_raw_is_semiconnected`, `_raw_is_semieulerian`, `_raw_is_simple_path`, `_raw_is_strongly_connected`, `_raw_is_tree`, `_raw_is_weakly_connected`, `_raw_isolates`, `_raw_jaccard_coefficient`, `_raw_johnson_path_directed`, `_raw_katz_centrality`, `_raw_kosaraju_strongly_connected_components`, `_raw_large_clique_size`, `_raw_lexicographic_topological_sort`, `_raw_link_pred_common_neighbor_degrees`, `_raw_link_pred_jaccard_counts`, `_raw_load_centrality`, `_raw_load_centrality_weighted`, `_raw_local_efficiency`, `_raw_louvain_communities`, `_raw_max_clique`, `_raw_max_weight_clique`, `_raw_max_weight_matching`, `_raw_maximal_independent_set`, `_raw_maximal_matching`, `_raw_maximum_flow`, `_raw_maximum_flow_value`, `_raw_maximum_independent_set`, `_raw_maximum_spanning_arborescence`, `_raw_maximum_spanning_tree`, `_raw_mdg_ss_dijkstra`, `_raw_mdg_ss_dijkstra_path_length`, `_raw_min_edge_cover`, `_raw_min_weight_matching`, `_raw_min_weighted_vertex_cover`, `_raw_minimum_branching`, `_raw_minimum_node_cut`, `_raw_minimum_spanning_arborescence`, `_raw_minimum_spanning_edges`, `_raw_minimum_spanning_tree`, `_raw_modularity`, `_raw_multi_source_dijkstra`, `_raw_multidigraph_dijkstra_path_length_target`, `_raw_multidigraph_dijkstra_path_target`, `_raw_multidigraph_transitive_closure`, `_raw_multigraph_minimum_spanning_tree`, `_raw_negative_edge_cycle`, `_raw_node_boundary`, `_raw_node_connected_component`, `_raw_node_connectivity`, `_raw_node_expansion`, `_raw_non_edges`, `_raw_normalized_cut_size`, `_raw_number_attracting_components`, `_raw_number_connected_components`, `_raw_number_of_isolates`, `_raw_number_of_spanning_trees`, `_raw_number_strongly_connected_components`, `_raw_number_weakly_connected_components`, `_raw_out_degree_centrality`, `_raw_pagerank`, `_raw_partition_spanning_tree`, `_raw_percolation_centrality_weighted`, `_raw_periphery`, `_raw_predecessor`, `_raw_preferential_attachment`, `_raw_prim_spanning_edges`, `_raw_radius`, `_raw_random_spanning_tree`, `_raw_resource_allocation_index`, `_raw_shortest_path`, `_raw_shortest_path_length_matrix`, `_raw_shortest_simple_paths`, `_raw_single_source_bellman_ford`, `_raw_single_source_bellman_ford_path`, `_raw_single_source_bellman_ford_path_length`, `_raw_single_source_dijkstra`, `_raw_single_source_dijkstra_path`, `_raw_single_source_dijkstra_path_length`, `_raw_single_source_shortest_path`, `_raw_single_source_shortest_path_length`, `_raw_single_target_dijkstra_path_length`, `_raw_single_target_shortest_path`, `_raw_single_target_shortest_path_length`, `_raw_spanner`, `_raw_strongly_connected_components`, `_raw_symmetric_difference`, `_raw_topological_generations`, `_raw_topological_sort`, `_raw_transitive_closure`, `_raw_transitive_reduction`, `_raw_transitivity`, `_raw_tree_broadcast_center`, `_raw_tree_broadcast_time`, `_raw_triangles`, `_raw_union`, `_raw_voterank`, `_raw_weakly_connected_components`, `_rust_all_simple_paths`, `_rust_all_triangles`, `_rust_balanced_tree`, `_rust_barabasi_albert_graph`, `_rust_barbell_graph`, `_rust_binomial_tree`, `_rust_bull_graph`, `_rust_caveman_graph`, `_rust_chordal_cycle_graph`, `_rust_chordal_graph_treewidth`, `_rust_chvatal_graph`, `_rust_circulant_graph`, `_rust_circular_ladder_graph`, `_rust_circular_ladder_graph_native`, `_rust_closeness_vitality`, `_rust_complete_bipartite_graph`, `_rust_complete_graph`, `_rust_complete_multipartite_graph`, `_rust_connected_watts_strogatz_graph`, `_rust_cubical_graph`, `_rust_cycle_graph`, `_rust_decision_records`, `_rust_desargues_graph`, `_rust_diamond_graph`, `_rust_dodecahedral_graph`, `_rust_dorogovtsev_goltsev_mendes_graph`, `_rust_drain_decision_records`, `_rust_empty_graph`, `_rust_erdos_renyi_graph`, `_rust_frucht_graph`, `_rust_full_rary_tree`, `_rust_full_rary_tree_native`, `_rust_generalized_petersen_graph`, `_rust_get_compatibility_mode`, `_rust_get_thread_compatibility_mode`, `_rust_gnp_random_digraph`, `_rust_gnp_random_graph`, `_rust_grid_2d_graph`, `_rust_grid_graph`, `_rust_heawood_graph`, `_rust_hoffman_singleton_graph`, `_rust_house_graph`, `_rust_house_x_graph`, `_rust_hypercube_graph`, `_rust_icosahedral_graph`, `_rust_kneser_graph`, `_rust_krackhardt_kite_graph`, `_rust_ladder_graph`, `_rust_lollipop_graph`, `_rust_make_max_clique_graph`, `_rust_moebius_kantor_graph`, `_rust_newman_watts_strogatz_graph`, `_rust_node_link_data`, `_rust_node_link_graph`, `_rust_null_graph`, `_rust_octahedral_graph`, `_rust_paley_graph`, `_rust_pappus_graph`, `_rust_path_graph`, `_rust_petersen_graph`, `_rust_powerlaw_cluster_graph`, `_rust_random_lobster_graph_lazy_int`, `_rust_random_regular_edges_pyset`, `_rust_random_regular_graph`, `_rust_random_regular_graph_pyset_order`, `_rust_read_adjlist`, `_rust_read_edgelist`, `_rust_read_gexf`, `_rust_read_gml`, `_rust_read_graphml`, `_rust_read_json_graph`, `_rust_sedgewick_maze_graph`, `_rust_set_compatibility_mode`, `_rust_set_thread_compatibility_mode`, `_rust_star_graph`, `_rust_stochastic_block_model`, `_rust_sudoku_graph`, `_rust_tadpole_graph`, `_rust_tetrahedral_graph`, `_rust_trivial_graph`, `_rust_truncated_cube_graph`, `_rust_truncated_tetrahedron_graph`, `_rust_turan_graph`, `_rust_tutte_graph`, `_rust_watts_strogatz_graph`, `_rust_wheel_graph`, `_rust_windmill_graph`, `_rust_write_adjlist`, `_rust_write_edgelist`, `_rust_write_gml`, `_rust_write_graphml`, `_shortest_path_length_raw`, `_transitive_closure_dag_inproc`, `_vf2pp_all_isomorphisms_rust`, `_vf2pp_isomorphism_rust`, `_voronoi_nearest_centers`, `all_pairs_bellman_ford_path`, `all_pairs_bellman_ford_path_length`, `all_pairs_dijkstra`, `all_pairs_dijkstra_path`, `all_pairs_dijkstra_path_length`, `all_pairs_shortest_path`, `all_pairs_shortest_path_length`, `all_shortest_paths`, `ancestors`, `articulation_points`, `attracting_components`, `average_degree_connectivity`, `average_neighbor_degree`, `average_shortest_path_length`, `barycenter`, `biconnected_component_edges`, `biconnected_components`, `bidirectional_shortest_path`, `bridges`, `closeness_centrality`, `clustering`, `common_neighbors`, `complement`, `connected_components`, `core_number`, `cut_size`, `cycle_basis`, `degree_centrality`, `degree_histogram`, `descendants`, `diameter`, `dijkstra_path`, `dominating_set`, `eccentricity`, `edge_boundary`, `edge_expansion`, `enumerate_all_cliques`, `fast_could_be_isomorphic`, `faster_could_be_isomorphic`, `find_cycle`, `girth`, `global_efficiency`, `greedy_color`, `group_degree_centrality`, `harmonic_centrality`, `has_path`, `immediate_dominators`, `is_arborescence`, `is_biconnected`, `is_bipartite`, `is_branching`, `is_chordal`, `is_connected`, `is_digraphical`, `is_directed_acyclic_graph`, `is_distance_regular`, `is_dominating_set`, `is_edge_cover`, `is_empty`, `is_eulerian`, `is_forest`, `is_k_regular`, `is_regular`, `is_semiconnected`, `is_simple_path`, `is_strongly_connected`, `is_tree`, `is_weakly_connected`, `isolates`, `kosaraju_strongly_connected_components`, `local_efficiency`, `maximal_matching`, `node_attribute_xy`, `node_boundary`, `node_connected_component`, `node_expansion`, `non_edges`, `non_neighbors`, `number_attracting_components`, `number_connected_components`, `number_of_isolates`, `number_of_spanning_trees`, `number_strongly_connected_components`, `number_weakly_connected_components`, `onion_layers`, `percolation_centrality`, `predecessor`, `radius`, `selfloop_edges`, `shortest_path`, `shortest_path_length`, `shortest_path_length_matrix`, `single_source_shortest_path`, `single_source_shortest_path_length`, `single_target_shortest_path`, `single_target_shortest_path_length`, `spanner`, `square_clustering`, `strongly_connected_components`, `topological_generations`, `topological_sort`, `transitive_closure`, `transitivity`, `tree_broadcast_center`, `tree_broadcast_time`, `triangles`, `weakly_connected_components`
 
 ## wrapper-patched (24)
 
@@ -47,142 +47,191 @@ Combines static AST analysis (`docs/delegation_ledger.json`), per-fixture audit 
 | `single_source_dijkstra_path_length` | raw-vs-public-audit | raw output is post-processed by wrapper to match nx |
 | `transitivity` | raw-vs-public-audit | raw output is post-processed by wrapper to match nx |
 
-## intentionally-delegated (132)
+## intentionally-delegated (181)
 
 | function | source | note |
 |----------|--------|------|
-| `_complement_via_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `__dir__` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `__getattr__` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_all_pairs_node_connectivity_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_approximate_current_flow_betweenness_centrality_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_astar_path_length_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_bellman_ford_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_bellman_ford_path_length_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_bellman_ford_predecessor_and_distance_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_betweenness_centrality_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_boruvka_inproc_full` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_boruvka_spanning_edges_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_branching_partition_graph_for_networkx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_build_isomorphism_module` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_build_vf2_matcher_classes` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_call_networkx_for_dijkstra_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_call_networkx_for_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_call_networkx_submodule_for_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_check_planarity_certificate` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_chordless_cycles_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_coerce_arg_to_fnx_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_davis_southern_women_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_default_binary_heap` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_degree_assortativity_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_dijkstra_path_length_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_dijkstra_predecessor_and_distance_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_dijkstra_predecessor_and_distance_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_edge_betweenness_centrality_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_edge_connectivity_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_edge_disjoint_paths_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_finalize_operator_result` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_general_random_intersection_graph_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_generator_random_state` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_greedy_color_structural_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_hoffman_singleton_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_init_absorbing_dict_of_dicts` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_intersection_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_johnson_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_junction_tree_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_k_components_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_katz_centrality_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_kruskal_spanning_edges_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_les_miserables_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_lfr_generate_communities` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_link_prediction_lazy_delegate` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `_minimal_branching_backend_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_load_centrality_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_matcher_factory` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_materialize_view_via_from_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_max_weight_matching_structural_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_maximum_flow_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_maximum_flow_value_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_maximum_spanning_tree_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_min_cost_flow_network_simplex_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_min_cycle_scipy` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_min_weight_matching_structural_nx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_minimum_cut_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_minimum_cut_value_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_minimum_cycle_basis_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_minimum_edge_cut_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_minimum_node_cut_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_minimum_spanning_tree_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_modularity_backend_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_multi_source_dijkstra_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_multigraph_degree_assortativity_coefficient` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_multigraph_diff_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_networkx_graph_for_dijkstra_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_networkx_graph_for_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_node_connectivity_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_node_disjoint_paths_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_omega_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `_onion_layers_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `_trophic_levels_compute` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `all_pairs_all_shortest_paths` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `all_pairs_bellman_ford_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `all_pairs_bellman_ford_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `all_pairs_dijkstra_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `all_pairs_dijkstra_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `_pagerank_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_partial_duplication_graph_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_planarity_graph_for_certificate` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_raise_translated_networkx_exception` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_random_internet_as_graph_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_random_k_out_graph_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_random_kernel_graph_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_random_reference_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_random_spanning_tree_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_read_decoded_lines_via_open_file` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_read_edgelist_simple_via_open_file` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_sbm_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_shortest_simple_paths_fallback_generator` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_sigma_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_simple_cycles_structure_only_via_networkx` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_simrank_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_single_source_bellman_ford_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_spectral_ordering_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_transitive_closure_dag_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_transitive_reduction_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_tutte_polynomial_inproc` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_uniform_random_intersection_graph_impl` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_union_with_rename_via_parity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_write_adjlist_generate_fast` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `_write_edgelist_generate_fast` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `all_pairs_node_connectivity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `all_shortest_paths` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `all_simple_edge_paths` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `all_simple_paths` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `all_topological_sorts` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `antichains` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `approximate_current_flow_betweenness_centrality` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `astar_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `astar_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `average_shortest_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `barycenter` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `bellman_ford_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `bellman_ford_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `bellman_ford_predecessor_and_distance` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `betweenness_centrality` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `bfs_tree` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `bidirectional_dijkstra` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `bridges` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `center` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `chain_decomposition` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `chordal_graph_cliques` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `closeness_centrality` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `complete_to_chordal_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `chordless_cycles` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `constraint` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `cut_size` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `cycle_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `degree_assortativity_coefficient` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `dfs_labeled_edges` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `diameter` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `dijkstra_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `dijkstra_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `directed_combinatorial_laplacian_matrix` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `directed_laplacian_matrix` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `dominating_set` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `eccentricity` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `dijkstra_predecessor_and_distance` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `dodecahedral_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `edge_betweenness_centrality` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `edge_boundary` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `edge_connectivity` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `edge_connectivity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `edge_disjoint_paths` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `effective_size` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `eigenvector_centrality` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `eulerian_circuit` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `eulerian_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `find_minimal_d_separator` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `eulerian_path` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `fast_gnp_random_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `find_asteroidal_triple` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `find_negative_cycle` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `flow_hierarchy` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `floyd_warshall` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `floyd_warshall_numpy` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `floyd_warshall_predecessor_and_distance` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `gnm_random_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `from_nested_tuple` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `frucht_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `gn_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `gnc_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `gnr_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `goldberg_radzik` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `greedy_color` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `group_betweenness_centrality` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `harmonic_centrality` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `harmonic_diameter` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `has_eulerian_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `has_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `hyper_wiener_index` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `incremental_closeness_centrality` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `is_chordal` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `is_dominating_set` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `is_eulerian` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `is_matching` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `is_maximal_matching` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `is_minimal_d_separator` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `is_perfect_matching` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `is_d_separator` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `johnson` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `k_components` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `k_edge_components` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `k_edge_subgraphs` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `k_truss` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `katz_centrality` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `kosaraju_strongly_connected_components` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `laplacian_centrality` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `load_centrality` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `local_bridges` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `max_weight_clique` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `max_weight_matching` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `maximum_branching` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `maximum_flow` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `maximum_flow_value` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `maximum_spanning_arborescence` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `maximum_spanning_edges` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `maximum_spanning_tree` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `minimum_branching` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `minimum_cut` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `minimum_cut_value` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `minimum_cycle_basis` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `minimum_edge_cut` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `minimum_node_cut` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `minimum_spanning_arborescence` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `minimum_spanning_edges` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `minimum_spanning_tree` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `multi_source_dijkstra` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `negative_edge_cycle` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `node_connectivity` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `negative_edge_cycle` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `node_connectivity` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `node_disjoint_paths` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `normalized_cut_size` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `omega` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `pagerank` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `partition_spanning_tree` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `periphery` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `predecessor` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `radius` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `quotient_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `random_kernel_graph` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `random_reference` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `random_spanning_tree` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `shortest_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `shortest_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `shortest_simple_paths` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `rescale_layout` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `rooted_tree_isomorphism` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `sigma` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `simple_cycles` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `single_source_all_shortest_paths` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `single_source_bellman_ford` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `single_source_bellman_ford_path` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `single_source_bellman_ford_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `single_source_dijkstra` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
 | `single_source_dijkstra_path_length` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
+| `snap_aggregation` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `spectral_ordering` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `stoer_wagner` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `transitive_closure` | static-classification | mixed-route: wrapper has both _raw_<X> and parity-helper paths |
-| `triadic_census` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `trophic_differences` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `trophic_incoherence_parameter` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `transitive_closure_dag` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `transitive_reduction` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `tree_all_pairs_lowest_common_ancestor` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
+| `tree_isomorphism` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `tutte_polynomial` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `weisfeiler_lehman_graph_hash` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `weisfeiler_lehman_subgraph_hashes` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
-| `wiener_index` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 
 ## raw-known-gap (1)
 
