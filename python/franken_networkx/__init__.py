@@ -17489,6 +17489,7 @@ def eulerian_path(G, source=None, keys=False):
         else:
             yield from _simplegraph_eulerian_circuit_inproc(G, source=source)
     else:
+        G = G.copy()
         if source is None:
             source = _find_path_start_inproc(G)
         if G.is_multigraph():
