@@ -66132,6 +66132,7 @@ def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, crea
     backend : str, optional
         Backend dispatch (ignored, for compatibility).
     """
+    _validate_backend_dispatch_keywords("random_kernel_graph", backend, backend_kwargs)
     return _random_kernel_graph_via_parity(
         n,
         kernel_integral,
