@@ -195,6 +195,21 @@ TRIAGE = {
         "via reverse-graph transformation"),
     "_raw_group_out_degree_centrality": ("keep-public-api",
         "exposed for direct callers; wrapper routes group degree centrality"),
+    "_raw_edge_connectivity": ("keep-public-api",
+        "wrapper builds auxiliary network and solves min-cuts for full nx "
+        "parameter support (cutoff, flow_func, directed); raw kept as direct-Rust API"),
+    "_raw_eulerian_path": ("keep-public-api",
+        "wrapper handles directed graphs and tie-breaking path reversals; "
+        "raw kept as direct-Rust API"),
+    "_raw_has_eulerian_path": ("keep-public-api",
+        "wrapper handles directed graphs and degree parity checks; "
+        "raw kept as direct-Rust API"),
+    "_raw_negative_edge_cycle": ("keep-public-api",
+        "wrapper routes through inprocess cycle detection for heuristic and "
+        "weight handling; raw kept as direct-Rust API"),
+    "_raw_node_connectivity": ("keep-public-api",
+        "wrapper handles s/t pairs, flow_func, and auxiliary network flow; "
+        "raw kept as direct-Rust API"),
 }
 
 
