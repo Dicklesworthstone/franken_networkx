@@ -9,6 +9,9 @@ target-codex-*/
 .rch-target-*/
 # The shared pool is plural with no separator, so the pattern above misses it.
 .rch-targets/
+# Per-job Cargo homes/checkouts created by RCH inside the synced workspace.
+.rch-tmp/
+.repo_janitor_workspace/
 
 # Python cache artifacts
 __pycache__/
