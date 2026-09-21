@@ -147,10 +147,10 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     by_path = {row["path"]: row for row in rows}
 
     assert len(by_path) == len(rows) == 4926
-    # `missing` is no longer observed (see the 2026-09-02 note below), and a
+    # `missing` and `partial` are no longer observed (see the 2026-09-20 note below), and a
     # Counter omits zero-count keys, so the status set is bounded from both sides
     # rather than pinned to one exact set.
-    assert {"present", "partial", "excluded"} <= set(statuses)
+    assert {"present", "excluded"} <= set(statuses)
     assert set(statuses) <= {"present", "partial", "missing", "n/a", "excluded"}
     # br-r37-c1-9hnq3: 3399 -> 3403 present, 700 -> 696 partial. Four paths moved
     # partial -> present and NOTHING moved the other way (verified by diffing the
@@ -193,25 +193,22 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     #    30 missing -> present: the SpanningTreeIterator / ArborescenceIterator
     #       `Partition` inner classes (6 paths) and the GraphMLReader methods and
     #       namespace constants (24 paths, br-r37-c1-ozpfa).
-    # GOLDEN-CHANGE 2026-09-08 (regenerated from HEAD): 3823 -> 4109 present,
-    # 306 -> 20 partial, 0 missing. 286 paths moved partial -> present: full
-    # signatures added across algorithms namespace routers and readwrite functions
-    # (read_edgelist, read_adjlist, read_graphml, read_gml, read_gexf, node_link_graph).
+    # GOLDEN-CHANGE 2026-09-20 (eliminating all 20 partials): 4109 -> 4129 present,
+    # 20 -> 0 partial, 0 missing. 20 paths moved partial -> present:
+    # 8 graph constructors (backend parameter acceptance in Rust and Python),
+    # 9 EdgePartition paths (__module__ attribution to networkx.algorithms.tree.mst),
+    # 3 bridges / reciprocity paths (preserving raw functions against module shadowing).
     assert statuses == {
-        "present": 4109,
-        "partial": 20,
+        "present": 4129,
         "n/a": 1,
         "excluded": 796,
     }
+    assert statuses["partial"] == 0
     assert statuses["missing"] == 0
     assert by_path["networkx.shortest_path"]["status"] == "present"
     assert by_path["networkx.algorithms.shortest_path"]["status"] == "present"
-    assert by_path["networkx.bridges"]["status"] == "partial"
-    assert (
-        "function-object surface is missing"
-        in by_path["networkx.bridges"]["detail"]
-    )
-    assert by_path["networkx.Graph"]["status"] == "partial"
+    assert by_path["networkx.bridges"]["status"] == "present"
+    assert by_path["networkx.Graph"]["status"] == "present"
     assert by_path["networkx.readwrite.GraphMLReader.add_edge"]["status"] == (
         "present"
     )
@@ -221,7 +218,7 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     )
     assert applicable == 4129
     assert statuses["present"] / applicable == pytest.approx(
-        4109 / 4129
+        4129 / 4129
     )
 
 
@@ -233,7 +230,7 @@ def test_feature_universe_exclusions_and_partials_always_state_exact_reason():
 
     partials = [row for row in rows if row["status"] == "partial"]
     exclusions = [row for row in rows if row["status"] == "excluded"]
-    assert partials
+    assert not partials
     assert exclusions
     assert all(row["detail"].strip() for row in partials)
     assert all(row["detail"].strip() for row in exclusions)
@@ -260,9 +257,11 @@ def test_feature_universe_reports_every_family_not_only_a_headline():
     # test_feature_universe_classifies_every_path_without_rounding_partial_up.
     # GOLDEN-CHANGE 2026-09-08: 3823 (92.6%) -> 4109 (99.5%); itemised on
     # test_feature_universe_classifies_every_path_without_rounding_partial_up.
+    # GOLDEN-CHANGE 2026-09-20: 4109 (99.5%) -> 4129 (100.0%); itemised on
+    # test_feature_universe_classifies_every_path_without_rounding_partial_up.
     assert (
-        "a real user can port **4109 of 4129 applicable NetworkX feature "
-        "paths today (99.5%)**"
+        "a real user can port **4129 of 4129 applicable NetworkX feature "
+        "paths today (100.0%)**"
     ) in rendered
 
 

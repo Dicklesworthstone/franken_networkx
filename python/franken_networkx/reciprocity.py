@@ -11,7 +11,9 @@ _nx_reciprocity = _importlib.import_module("networkx.algorithms.reciprocity")
 
 import franken_networkx as _fnx
 
-_fnx_reciprocity = _fnx.__dict__["reciprocity"]
+_fnx_reciprocity = getattr(
+    _fnx, "_fnx_public_reciprocity", _fnx.__dict__.get("reciprocity")
+)
 _fnx_overall_reciprocity = _fnx.__dict__["overall_reciprocity"]
 
 __all__ = list(

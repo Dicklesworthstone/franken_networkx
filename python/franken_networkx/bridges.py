@@ -16,7 +16,7 @@ _nx_bridges = _importlib.import_module("networkx.algorithms.bridges")
 
 import franken_networkx as _fnx
 
-bridges = _fnx.bridges
+bridges = getattr(_fnx, "_fnx_public_bridges", _fnx.bridges)
 has_bridges = _fnx.has_bridges
 local_bridges = _fnx.local_bridges
 

@@ -4688,6 +4688,7 @@ impl PyMultiDiGraph {
         let graph_attrs = PyDict::new(py);
         if let Some(a) = attr {
             graph_attrs.update(a.as_mapping())?;
+            graph_attrs.del_item("backend").ok();
         }
 
         let mut g = Self::new_empty_with_mode(py, crate::active_compatibility_mode())?;
@@ -13202,6 +13203,7 @@ impl PyDiGraph {
         let graph_attrs = PyDict::new(py);
         if let Some(a) = attr {
             graph_attrs.update(a.as_mapping())?;
+            graph_attrs.del_item("backend").ok();
         }
 
         let mut g = Self::new_empty_with_mode(py, crate::active_compatibility_mode())?;

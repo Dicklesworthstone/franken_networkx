@@ -4646,3 +4646,31 @@ def __dir__():
     import networkx.algorithms as _src
 
     return sorted(set(globals()) | set(dir(_src)))
+
+
+import types as _types
+
+
+class _FnxAlgorithmsModule(_types.ModuleType):
+    """Module proxy guaranteeing that public callable function surfaces are not shadowed."""
+
+    def __getattribute__(self, name):
+        if name == "bridges":
+            return getattr(self, "_fnx_public_bridges", super().__getattribute__(name))
+        if name == "reciprocity":
+            return getattr(self, "_fnx_public_reciprocity", super().__getattribute__(name))
+        return super().__getattribute__(name)
+
+
+import franken_networkx as _fnx_for_bindings
+
+_fnx_public_bridges = getattr(_fnx_for_bindings, "_fnx_public_bridges", _fnx_for_bindings.bridges)
+_fnx_public_reciprocity = getattr(_fnx_for_bindings, "_fnx_public_reciprocity", _fnx_for_bindings.reciprocity)
+
+_algo_module = _sys.modules[__name__]
+_algo_module.__class__ = _FnxAlgorithmsModule
+_algo_module._fnx_public_bridges = _fnx_public_bridges
+_algo_module._fnx_public_reciprocity = _fnx_public_reciprocity
+_algo_module.bridges = _fnx_public_bridges
+_algo_module.reciprocity = _fnx_public_reciprocity
+

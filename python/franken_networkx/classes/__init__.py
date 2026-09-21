@@ -404,6 +404,7 @@ def _install_native_graph_predicate_signatures():
         _networkx_class = getattr(_nx_classes, _class_name, None)
         if _native_class is None or _networkx_class is None:
             continue
+        _native_class.__signature__ = _inspect.signature(_networkx_class)
         for _method_name in ("is_directed", "is_multigraph"):
             _native_method = getattr(_native_class, _method_name, None)
             _networkx_method = getattr(_networkx_class, _method_name, None)

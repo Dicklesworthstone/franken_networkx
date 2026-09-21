@@ -29,11 +29,11 @@
 | `algorithms.link_analysis` | 12 | 0 | 0 | 0 | 11 | 12 | 100.0% |
 | `algorithms.minors` | 20 | 0 | 0 | 0 | 3 | 20 | 100.0% |
 | `algorithms.operators` | 84 | 0 | 0 | 0 | 19 | 84 | 100.0% |
-| `algorithms.other` | 634 | 3 | 0 | 0 | 164 | 637 | 99.5% |
+| `algorithms.other` | 637 | 0 | 0 | 0 | 164 | 637 | 100.0% |
 | `algorithms.shortest_paths` | 184 | 0 | 0 | 0 | 24 | 184 | 100.0% |
 | `algorithms.traversal` | 72 | 0 | 0 | 0 | 23 | 72 | 100.0% |
-| `algorithms.tree` | 121 | 9 | 0 | 0 | 17 | 130 | 93.1% |
-| `classes` | 918 | 8 | 0 | 0 | 35 | 926 | 99.1% |
+| `algorithms.tree` | 130 | 0 | 0 | 0 | 17 | 130 | 100.0% |
+| `classes` | 926 | 0 | 0 | 0 | 35 | 926 | 100.0% |
 | `configuration` | 1 | 0 | 0 | 0 | 0 | 1 | 100.0% |
 | `conversion` | 34 | 0 | 0 | 0 | 3 | 34 | 100.0% |
 | `drawing` | 121 | 0 | 0 | 0 | 18 | 121 | 100.0% |
@@ -45,9 +45,9 @@
 | `readwrite` | 260 | 0 | 0 | 0 | 54 | 260 | 100.0% |
 | `runtime` | 2 | 0 | 0 | 0 | 1 | 2 | 100.0% |
 | `utils` | 150 | 0 | 0 | 0 | 21 | 150 | 100.0% |
-| **All families** | **4109** | **20** | **0** | **1** | **796** | **4129** | **99.5%** |
+| **All families** | **4129** | **0** | **0** | **1** | **796** | **4129** | **100.0%** |
 
-At the declared import-and-signature surface measured here, a real user can port **4109 of 4129 applicable NetworkX feature paths today (99.5%)**; the 20 partial and 0 missing paths are not counted as portable, and this is not a behavioral-conformance score.
+At the declared import-and-signature surface measured here, a real user can port **4129 of 4129 applicable NetworkX feature paths today (100.0%)**; the 0 partial and 0 missing paths are not counted as portable, and this is not a behavioral-conformance score.
 
 ## Exhaustive FeatureUniverse
 
@@ -1511,7 +1511,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.boundary.edge_boundary` | `callable` | `present` | `franken_networkx.algorithms.boundary.edge_boundary` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.boundary.node_boundary` | `callable` | `present` | `franken_networkx.algorithms.boundary.node_boundary` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.boundary_expansion` | `callable` | `present` | `franken_networkx.algorithms.boundary_expansion` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.bridges` | `callable` | `partial` | `franken_networkx.algorithms.bridges` | function-object surface is missing: NetworkX exposes a callable, while FrankenNetworkX exposes a callable `module` proxy |
+| `algorithms.other` | `networkx.algorithms.bridges` | `callable` | `present` | `franken_networkx.algorithms.bridges` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.bridges.bridges` | `callable` | `present` | `franken_networkx.algorithms.bridges.bridges` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.bridges.has_bridges` | `callable` | `present` | `franken_networkx.algorithms.bridges.has_bridges` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.bridges.local_bridges` | `callable` | `present` | `franken_networkx.algorithms.bridges.local_bridges` | binding kind and signature match |
@@ -2025,7 +2025,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.barycenter` | `callable` | `present` | `franken_networkx.barycenter` | binding kind and signature match |
 | `algorithms.other` | `networkx.boundary` | `module` | `excluded` | `franken_networkx.boundary` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.boundary_expansion` | `callable` | `present` | `franken_networkx.boundary_expansion` | binding kind and signature match |
-| `algorithms.other` | `networkx.bridges` | `callable` | `partial` | `franken_networkx.bridges` | function-object surface is missing: NetworkX exposes a callable, while FrankenNetworkX exposes a callable `module` proxy |
+| `algorithms.other` | `networkx.bridges` | `callable` | `present` | `franken_networkx.bridges` | binding kind and signature match |
 | `algorithms.other` | `networkx.broadcasting` | `module` | `excluded` | `franken_networkx.broadcasting` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.cd_index` | `callable` | `present` | `franken_networkx.cd_index` | binding kind and signature match |
 | `algorithms.other` | `networkx.center` | `callable` | `present` | `franken_networkx.center` | binding kind and signature match |
@@ -2201,7 +2201,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.ra_index_soundarajan_hopcroft` | `callable` | `present` | `franken_networkx.ra_index_soundarajan_hopcroft` | binding kind and signature match |
 | `algorithms.other` | `networkx.radius` | `callable` | `present` | `franken_networkx.radius` | binding kind and signature match |
 | `algorithms.other` | `networkx.random_reference` | `callable` | `present` | `franken_networkx.random_reference` | binding kind and signature match |
-| `algorithms.other` | `networkx.reciprocity` | `callable` | `partial` | `franken_networkx.reciprocity` | function-object surface is missing: NetworkX exposes a callable, while FrankenNetworkX exposes a callable `module` proxy |
+| `algorithms.other` | `networkx.reciprocity` | `callable` | `present` | `franken_networkx.reciprocity` | binding kind and signature match |
 | `algorithms.other` | `networkx.recursive_simple_cycles` | `callable` | `present` | `franken_networkx.recursive_simple_cycles` | binding kind and signature match |
 | `algorithms.other` | `networkx.regular` | `module` | `excluded` | `franken_networkx.regular` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.resistance_distance` | `callable` | `present` | `franken_networkx.resistance_distance` | binding kind and signature match |
@@ -2558,18 +2558,18 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.tree` | `networkx.ArborescenceIterator` | `class` | `present` | `franken_networkx.ArborescenceIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.ArborescenceIterator.Partition` | `method` | `present` | `franken_networkx.ArborescenceIterator.Partition` | class-member kind and signature match |
 | `algorithms.tree` | `networkx.EdgePartition` | `class` | `present` | `franken_networkx.EdgePartition` | binding kind and signature match |
-| `algorithms.tree` | `networkx.EdgePartition.EXCLUDED` | `attribute` | `partial` | `franken_networkx.EdgePartition.EXCLUDED` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.EXCLUDED: 2>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.EXCLUDED: 2>` |
-| `algorithms.tree` | `networkx.EdgePartition.INCLUDED` | `attribute` | `partial` | `franken_networkx.EdgePartition.INCLUDED` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.INCLUDED: 1>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.INCLUDED: 1>` |
-| `algorithms.tree` | `networkx.EdgePartition.OPEN` | `attribute` | `partial` | `franken_networkx.EdgePartition.OPEN` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.OPEN: 0>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.OPEN: 0>` |
+| `algorithms.tree` | `networkx.EdgePartition.EXCLUDED` | `attribute` | `present` | `franken_networkx.EdgePartition.EXCLUDED` | class attribute value and type match |
+| `algorithms.tree` | `networkx.EdgePartition.INCLUDED` | `attribute` | `present` | `franken_networkx.EdgePartition.INCLUDED` | class attribute value and type match |
+| `algorithms.tree` | `networkx.EdgePartition.OPEN` | `attribute` | `present` | `franken_networkx.EdgePartition.OPEN` | class attribute value and type match |
 | `algorithms.tree` | `networkx.NotATree` | `class` | `present` | `franken_networkx.NotATree` | binding kind matches; NetworkX exposes no inspectable signature |
 | `algorithms.tree` | `networkx.SpanningTreeIterator` | `class` | `present` | `franken_networkx.SpanningTreeIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.SpanningTreeIterator.Partition` | `method` | `present` | `franken_networkx.SpanningTreeIterator.Partition` | class-member kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.ArborescenceIterator` | `class` | `present` | `franken_networkx.algorithms.ArborescenceIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.ArborescenceIterator.Partition` | `method` | `present` | `franken_networkx.algorithms.ArborescenceIterator.Partition` | class-member kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.EdgePartition` | `class` | `present` | `franken_networkx.algorithms.EdgePartition` | binding kind and signature match |
-| `algorithms.tree` | `networkx.algorithms.EdgePartition.EXCLUDED` | `attribute` | `partial` | `franken_networkx.algorithms.EdgePartition.EXCLUDED` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.EXCLUDED: 2>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.EXCLUDED: 2>` |
-| `algorithms.tree` | `networkx.algorithms.EdgePartition.INCLUDED` | `attribute` | `partial` | `franken_networkx.algorithms.EdgePartition.INCLUDED` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.INCLUDED: 1>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.INCLUDED: 1>` |
-| `algorithms.tree` | `networkx.algorithms.EdgePartition.OPEN` | `attribute` | `partial` | `franken_networkx.algorithms.EdgePartition.OPEN` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.OPEN: 0>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.OPEN: 0>` |
+| `algorithms.tree` | `networkx.algorithms.EdgePartition.EXCLUDED` | `attribute` | `present` | `franken_networkx.algorithms.EdgePartition.EXCLUDED` | class attribute value and type match |
+| `algorithms.tree` | `networkx.algorithms.EdgePartition.INCLUDED` | `attribute` | `present` | `franken_networkx.algorithms.EdgePartition.INCLUDED` | class attribute value and type match |
+| `algorithms.tree` | `networkx.algorithms.EdgePartition.OPEN` | `attribute` | `present` | `franken_networkx.algorithms.EdgePartition.OPEN` | class attribute value and type match |
 | `algorithms.tree` | `networkx.algorithms.NotATree` | `class` | `present` | `franken_networkx.algorithms.NotATree` | binding kind matches; NetworkX exposes no inspectable signature |
 | `algorithms.tree` | `networkx.algorithms.SpanningTreeIterator` | `class` | `present` | `franken_networkx.algorithms.SpanningTreeIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.SpanningTreeIterator.Partition` | `method` | `present` | `franken_networkx.algorithms.SpanningTreeIterator.Partition` | class-member kind and signature match |
@@ -2598,9 +2598,9 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.tree` | `networkx.algorithms.tree.ArborescenceIterator` | `class` | `present` | `franken_networkx.algorithms.tree.ArborescenceIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.tree.ArborescenceIterator.Partition` | `method` | `present` | `franken_networkx.algorithms.tree.ArborescenceIterator.Partition` | class-member kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.tree.EdgePartition` | `class` | `present` | `franken_networkx.algorithms.tree.EdgePartition` | binding kind and signature match |
-| `algorithms.tree` | `networkx.algorithms.tree.EdgePartition.EXCLUDED` | `attribute` | `partial` | `franken_networkx.algorithms.tree.EdgePartition.EXCLUDED` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.EXCLUDED: 2>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.EXCLUDED: 2>` |
-| `algorithms.tree` | `networkx.algorithms.tree.EdgePartition.INCLUDED` | `attribute` | `partial` | `franken_networkx.algorithms.tree.EdgePartition.INCLUDED` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.INCLUDED: 1>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.INCLUDED: 1>` |
-| `algorithms.tree` | `networkx.algorithms.tree.EdgePartition.OPEN` | `attribute` | `partial` | `franken_networkx.algorithms.tree.EdgePartition.OPEN` | class attribute differs: NetworkX `networkx.algorithms.tree.mst.EdgePartition=<EdgePartition.OPEN: 0>`; FrankenNetworkX `franken_networkx.EdgePartition=<EdgePartition.OPEN: 0>` |
+| `algorithms.tree` | `networkx.algorithms.tree.EdgePartition.EXCLUDED` | `attribute` | `present` | `franken_networkx.algorithms.tree.EdgePartition.EXCLUDED` | class attribute value and type match |
+| `algorithms.tree` | `networkx.algorithms.tree.EdgePartition.INCLUDED` | `attribute` | `present` | `franken_networkx.algorithms.tree.EdgePartition.INCLUDED` | class attribute value and type match |
+| `algorithms.tree` | `networkx.algorithms.tree.EdgePartition.OPEN` | `attribute` | `present` | `franken_networkx.algorithms.tree.EdgePartition.OPEN` | class attribute value and type match |
 | `algorithms.tree` | `networkx.algorithms.tree.NotATree` | `class` | `present` | `franken_networkx.algorithms.tree.NotATree` | binding kind matches; NetworkX exposes no inspectable signature |
 | `algorithms.tree` | `networkx.algorithms.tree.SpanningTreeIterator` | `class` | `present` | `franken_networkx.algorithms.tree.SpanningTreeIterator` | binding kind and signature match |
 | `algorithms.tree` | `networkx.algorithms.tree.SpanningTreeIterator.Partition` | `method` | `present` | `franken_networkx.algorithms.tree.SpanningTreeIterator.Partition` | class-member kind and signature match |
@@ -2702,7 +2702,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.tree` | `networkx.to_nested_tuple` | `callable` | `present` | `franken_networkx.to_nested_tuple` | binding kind and signature match |
 | `algorithms.tree` | `networkx.to_prufer_sequence` | `callable` | `present` | `franken_networkx.to_prufer_sequence` | binding kind and signature match |
 | `algorithms.tree` | `networkx.tree` | `module` | `excluded` | `franken_networkx.tree` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `classes` | `networkx.DiGraph` | `class` | `partial` | `franken_networkx.DiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.DiGraph` | `class` | `present` | `franken_networkx.DiGraph` | binding kind and signature match |
 | `classes` | `networkx.DiGraph.add_edge` | `method` | `present` | `franken_networkx.DiGraph.add_edge` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.add_edges_from` | `method` | `present` | `franken_networkx.DiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.add_node` | `method` | `present` | `franken_networkx.DiGraph.add_node` | class-member kind and signature match |
@@ -2756,7 +2756,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.DiGraph.to_undirected` | `method` | `present` | `franken_networkx.DiGraph.to_undirected` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.to_undirected_class` | `method` | `present` | `franken_networkx.DiGraph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.update` | `method` | `present` | `franken_networkx.DiGraph.update` | class-member kind and signature match |
-| `classes` | `networkx.Graph` | `class` | `partial` | `franken_networkx.Graph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.Graph` | `class` | `present` | `franken_networkx.Graph` | binding kind and signature match |
 | `classes` | `networkx.Graph.add_edge` | `method` | `present` | `franken_networkx.Graph.add_edge` | class-member kind and signature match |
 | `classes` | `networkx.Graph.add_edges_from` | `method` | `present` | `franken_networkx.Graph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.Graph.add_node` | `method` | `present` | `franken_networkx.Graph.add_node` | class-member kind and signature match |
@@ -2799,7 +2799,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.Graph.to_undirected` | `method` | `present` | `franken_networkx.Graph.to_undirected` | class-member kind and signature match |
 | `classes` | `networkx.Graph.to_undirected_class` | `method` | `present` | `franken_networkx.Graph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.Graph.update` | `method` | `present` | `franken_networkx.Graph.update` | class-member kind and signature match |
-| `classes` | `networkx.MultiDiGraph` | `class` | `partial` | `franken_networkx.MultiDiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.MultiDiGraph` | `class` | `present` | `franken_networkx.MultiDiGraph` | binding kind and signature match |
 | `classes` | `networkx.MultiDiGraph.add_edge` | `method` | `present` | `franken_networkx.MultiDiGraph.add_edge` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.add_edges_from` | `method` | `present` | `franken_networkx.MultiDiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.add_node` | `method` | `present` | `franken_networkx.MultiDiGraph.add_node` | class-member kind and signature match |
@@ -2855,7 +2855,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiDiGraph.to_undirected` | `method` | `present` | `franken_networkx.MultiDiGraph.to_undirected` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.to_undirected_class` | `method` | `present` | `franken_networkx.MultiDiGraph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.update` | `method` | `present` | `franken_networkx.MultiDiGraph.update` | class-member kind and signature match |
-| `classes` | `networkx.MultiGraph` | `class` | `partial` | `franken_networkx.MultiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.MultiGraph` | `class` | `present` | `franken_networkx.MultiGraph` | binding kind and signature match |
 | `classes` | `networkx.MultiGraph.add_edge` | `method` | `present` | `franken_networkx.MultiGraph.add_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u_for_edge, v_for_edge, key=None, **attr)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiGraph.add_edges_from` | `method` | `present` | `franken_networkx.MultiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.add_node` | `method` | `present` | `franken_networkx.MultiGraph.add_node` | class-member kind and signature match |
@@ -3043,7 +3043,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.algorithms.planarity.PlanarEmbedding.update` | `method` | `present` | `franken_networkx.algorithms.planarity.PlanarEmbedding.update` | class-member kind and signature match |
 | `classes` | `networkx.all_neighbors` | `callable` | `present` | `franken_networkx.all_neighbors` | binding kind and signature match |
 | `classes` | `networkx.classes` | `module` | `excluded` | `franken_networkx.classes` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
-| `classes` | `networkx.classes.DiGraph` | `class` | `partial` | `franken_networkx.classes.DiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.classes.DiGraph` | `class` | `present` | `franken_networkx.classes.DiGraph` | binding kind and signature match |
 | `classes` | `networkx.classes.DiGraph.add_edge` | `method` | `present` | `franken_networkx.classes.DiGraph.add_edge` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.add_edges_from` | `method` | `present` | `franken_networkx.classes.DiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.add_node` | `method` | `present` | `franken_networkx.classes.DiGraph.add_node` | class-member kind and signature match |
@@ -3097,7 +3097,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.DiGraph.to_undirected` | `method` | `present` | `franken_networkx.classes.DiGraph.to_undirected` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.to_undirected_class` | `method` | `present` | `franken_networkx.classes.DiGraph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.update` | `method` | `present` | `franken_networkx.classes.DiGraph.update` | class-member kind and signature match |
-| `classes` | `networkx.classes.Graph` | `class` | `partial` | `franken_networkx.classes.Graph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.classes.Graph` | `class` | `present` | `franken_networkx.classes.Graph` | binding kind and signature match |
 | `classes` | `networkx.classes.Graph.add_edge` | `method` | `present` | `franken_networkx.classes.Graph.add_edge` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.add_edges_from` | `method` | `present` | `franken_networkx.classes.Graph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.add_node` | `method` | `present` | `franken_networkx.classes.Graph.add_node` | class-member kind and signature match |
@@ -3140,7 +3140,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.Graph.to_undirected` | `method` | `present` | `franken_networkx.classes.Graph.to_undirected` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.to_undirected_class` | `method` | `present` | `franken_networkx.classes.Graph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.update` | `method` | `present` | `franken_networkx.classes.Graph.update` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiDiGraph` | `class` | `partial` | `franken_networkx.classes.MultiDiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.classes.MultiDiGraph` | `class` | `present` | `franken_networkx.classes.MultiDiGraph` | binding kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.add_edge` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.add_edge` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.add_edges_from` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.add_node` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.add_node` | class-member kind and signature match |
@@ -3196,7 +3196,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiDiGraph.to_undirected` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.to_undirected` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.to_undirected_class` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.update` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.update` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiGraph` | `class` | `partial` | `franken_networkx.classes.MultiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
+| `classes` | `networkx.classes.MultiGraph` | `class` | `present` | `franken_networkx.classes.MultiGraph` | binding kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.add_edge` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u_for_edge, v_for_edge, key=None, **attr)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiGraph.add_edges_from` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.add_node` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_node` | class-member kind and signature match |
@@ -5076,16 +5076,16 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 687 |
-| `builtins` | 72 |
+| `franken_networkx` | 688 |
+| `builtins` | 71 |
 | `franken_networkx.readwrite` | 32 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
 | `franken_networkx._fnx` | 1 |
-| `franken_networkx.bridges` | 1 |
-| `franken_networkx.reciprocity` | 1 |
+| `franken_networkx.algorithms` | 1 |
 | `networkx.algorithms.tree.coding` | 1 |
+| `networkx.algorithms.tree.mst` | 1 |
 
 ## RUST_NATIVE exports (1)
 

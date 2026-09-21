@@ -182,6 +182,9 @@ class EdgePartition(_Enum):
     EXCLUDED = 2
 
 
+EdgePartition.__module__ = "networkx.algorithms.tree.mst"
+
+
 def _directed_graph_has_successor(self, u, v):
     # br-r37-c1-s8dj1: on a plain directed graph this IS `has_edge(u, v)` --
     # networkx defines both as `u in self._succ and v in self._succ[u]` -- and
@@ -7518,6 +7521,8 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
 
     def __init__(self, incoming_graph_data=None, multigraph_input=None, **attr):
         self._fnx_register_gc_dict(vars(self))
+        attr.pop("backend", None)
+        self.graph.pop("backend", None)
         # ``raw_init(self, incoming_graph_data)`` is a no-op on pyo3
         # classes where ``__new__`` consumed the data; call it with
         # no extra args just to exercise any future init logic.
@@ -7735,6 +7740,20 @@ Graph.__init__ = _init_absorbing_dict_of_dicts(_GRAPH_INIT, is_multigraph=False)
 DiGraph.__init__ = _init_absorbing_dict_of_dicts(_DIGRAPH_INIT, is_multigraph=False)
 MultiGraph.__init__ = _init_absorbing_dict_of_dicts(_MULTIGRAPH_INIT, is_multigraph=True)
 MultiDiGraph.__init__ = _init_absorbing_dict_of_dicts(_MULTIDIGRAPH_INIT, is_multigraph=True)
+
+import inspect as _inspect
+
+_GRAPH_CONSTRUCTOR_SIG = _inspect.Signature(
+    parameters=[
+        _inspect.Parameter("args", _inspect.Parameter.VAR_POSITIONAL),
+        _inspect.Parameter("backend", _inspect.Parameter.KEYWORD_ONLY, default=None),
+        _inspect.Parameter("kwargs", _inspect.Parameter.VAR_KEYWORD),
+    ]
+)
+Graph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
+DiGraph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
+MultiGraph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
+MultiDiGraph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
 
 
 _GRAPH_TO_DIRECTED = Graph.to_directed
@@ -14084,6 +14103,9 @@ def bridges(G, root=None, *, backend=None, **backend_kwargs):
     return _gen()
 
 
+_fnx_public_bridges = bridges
+
+
 def is_tree(G, *, backend=None, **backend_kwargs):
     """Return True if ``G`` is a tree.
 
@@ -18856,6 +18878,9 @@ def reciprocity(G, nodes=None, *, backend=None, **backend_kwargs):
             continue
         result[node] = _reciprocity_value_for_node(G, node)
     return result
+
+
+_fnx_public_reciprocity = reciprocity
 
 
 # Algorithm functions — Wiener index
@@ -72654,3 +72679,34 @@ __all__ += [
     "walks",
     "wiener",
 ]
+
+
+import types as _types
+import sys as _sys
+
+
+class _FnxTopLevelModule(_types.ModuleType):
+    """Module proxy guaranteeing that public callable function surfaces are not shadowed."""
+
+    def __getattribute__(self, name):
+        if name == "bridges":
+            return getattr(self, "_fnx_public_bridges", super().__getattribute__(name))
+        if name == "reciprocity":
+            return getattr(self, "_fnx_public_reciprocity", super().__getattribute__(name))
+        return super().__getattribute__(name)
+
+
+_fnx_public_bridges.bridges = _fnx_public_bridges
+_fnx_public_bridges.has_bridges = has_bridges
+_fnx_public_bridges.local_bridges = local_bridges
+
+_fnx_public_reciprocity.reciprocity = _fnx_public_reciprocity
+_fnx_public_reciprocity.overall_reciprocity = overall_reciprocity
+
+_module = _sys.modules[__name__]
+_module.__class__ = _FnxTopLevelModule
+_module._fnx_public_bridges = _fnx_public_bridges
+_module._fnx_public_reciprocity = _fnx_public_reciprocity
+_module.bridges = _fnx_public_bridges
+_module.reciprocity = _fnx_public_reciprocity
+
