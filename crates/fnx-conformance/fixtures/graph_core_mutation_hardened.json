@@ -32,10 +32,7 @@
   ],
   "expected": {
     "graph": {
-      "nodes": [
-        "x",
-        "y"
-      ],
+      "nodes": ["x", "y"],
       "edges": [
         {
           "left": "x",

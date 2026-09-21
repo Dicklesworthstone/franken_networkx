@@ -33,12 +33,7 @@
   ],
   "expected": {
     "graph": {
-      "nodes": [
-        "a",
-        "b",
-        "c",
-        "d"
-      ],
+      "nodes": ["a", "b", "c", "d"],
       "edges": [
         {
           "left": "a",
@@ -64,10 +59,6 @@
         }
       ]
     },
-    "shortest_path_unweighted": [
-      "a",
-      "b",
-      "d"
-    ]
+    "shortest_path_unweighted": ["a", "b", "d"]
   }
 }

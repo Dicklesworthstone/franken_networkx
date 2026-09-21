@@ -213,9 +213,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_link_pred_common_neighbor_degrees"
-      ],
+      "raw_rust_targets": ["_raw_link_pred_common_neighbor_degrees"],
       "body_lines": 5
     },
     {
@@ -2591,10 +2589,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_find_cliques_adjacency_sets",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_find_cliques_adjacency_sets", "_raw_neighbors_dispatch"],
       "body_lines": 73
     },
     {
@@ -3449,9 +3444,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_link_pred_jaccard_counts"
-      ],
+      "raw_rust_targets": ["_raw_link_pred_jaccard_counts"],
       "body_lines": 5
     },
     {
@@ -5107,9 +5100,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_preferential_attachment"
-      ],
+      "raw_rust_targets": ["_raw_preferential_attachment"],
       "body_lines": 41
     },
     {
@@ -5289,9 +5280,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_prim_spanning_edges"
-      ],
+      "raw_rust_targets": ["_raw_prim_spanning_edges"],
       "body_lines": 15
     },
     {
@@ -5651,9 +5640,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_link_pred_common_neighbor_degrees"
-      ],
+      "raw_rust_targets": ["_raw_link_pred_common_neighbor_degrees"],
       "body_lines": 7
     },
     {
@@ -9289,9 +9276,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_neighbors_dispatch"],
       "body_lines": 56
     },
     {
@@ -9651,9 +9636,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_multi_source_dijkstra"
-      ],
+      "raw_rust_targets": ["_raw_multi_source_dijkstra"],
       "body_lines": 56
     },
     {
@@ -9851,9 +9834,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_all_pairs_bellman_ford_path"
-      ],
+      "raw_rust_targets": ["_raw_all_pairs_bellman_ford_path"],
       "body_lines": 19
     },
     {
@@ -9862,9 +9843,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_all_pairs_bellman_ford_path_length"
-      ],
+      "raw_rust_targets": ["_raw_all_pairs_bellman_ford_path_length"],
       "body_lines": 24
     },
     {
@@ -9873,9 +9852,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_all_pairs_dijkstra"
-      ],
+      "raw_rust_targets": ["_raw_all_pairs_dijkstra"],
       "body_lines": 46
     },
     {
@@ -9884,9 +9861,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_all_pairs_dijkstra_path"
-      ],
+      "raw_rust_targets": ["_raw_all_pairs_dijkstra_path"],
       "body_lines": 32
     },
     {
@@ -9926,9 +9901,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_all_pairs_shortest_path"
-      ],
+      "raw_rust_targets": ["_raw_all_pairs_shortest_path"],
       "body_lines": 20
     },
     {
@@ -9937,9 +9910,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_all_pairs_shortest_path_length"
-      ],
+      "raw_rust_targets": ["_raw_all_pairs_shortest_path_length"],
       "body_lines": 15
     },
     {
@@ -9948,9 +9919,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_all_shortest_paths"
-      ],
+      "raw_rust_targets": ["_raw_all_shortest_paths"],
       "body_lines": 68
     },
     {
@@ -10004,9 +9973,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_ancestors"
-      ],
+      "raw_rust_targets": ["_raw_ancestors"],
       "body_lines": 26
     },
     {
@@ -10042,9 +10009,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_articulation_points"
-      ],
+      "raw_rust_targets": ["_raw_articulation_points"],
       "body_lines": 20
     },
     {
@@ -10053,9 +10018,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_astar_path"
-      ],
+      "raw_rust_targets": ["_raw_astar_path"],
       "body_lines": 103
     },
     {
@@ -10064,9 +10027,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_astar_path_length"
-      ],
+      "raw_rust_targets": ["_raw_astar_path_length"],
       "body_lines": 96
     },
     {
@@ -10093,9 +10054,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_attracting_components"
-      ],
+      "raw_rust_targets": ["_raw_attracting_components"],
       "body_lines": 6
     },
     {
@@ -10140,10 +10099,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_nbrs",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_nbrs", "_raw_neighbors_dispatch"],
       "body_lines": 295
     },
     {
@@ -10152,9 +10108,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_average_neighbor_degree"
-      ],
+      "raw_rust_targets": ["_raw_average_neighbor_degree"],
       "body_lines": 141
     },
     {
@@ -10172,9 +10126,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_average_shortest_path_length"
-      ],
+      "raw_rust_targets": ["_raw_average_shortest_path_length"],
       "body_lines": 51
     },
     {
@@ -10210,9 +10162,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_barycenter"
-      ],
+      "raw_rust_targets": ["_raw_barycenter"],
       "body_lines": 83
     },
     {
@@ -10221,9 +10171,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_bellman_ford_path"
-      ],
+      "raw_rust_targets": ["_raw_bellman_ford_path"],
       "body_lines": 68
     },
     {
@@ -10232,9 +10180,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_bellman_ford_path"
-      ],
+      "raw_rust_targets": ["_raw_bellman_ford_path"],
       "body_lines": 47
     },
     {
@@ -10270,9 +10216,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_betweenness_centrality"
-      ],
+      "raw_rust_targets": ["_raw_betweenness_centrality"],
       "body_lines": 81
     },
     {
@@ -10353,9 +10297,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_biconnected_component_edges"
-      ],
+      "raw_rust_targets": ["_raw_biconnected_component_edges"],
       "body_lines": 24
     },
     {
@@ -10364,9 +10306,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_biconnected_components"
-      ],
+      "raw_rust_targets": ["_raw_biconnected_components"],
       "body_lines": 33
     },
     {
@@ -10384,9 +10324,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_bidirectional_shortest_path"
-      ],
+      "raw_rust_targets": ["_raw_bidirectional_shortest_path"],
       "body_lines": 21
     },
     {
@@ -10422,9 +10360,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_bridges"
-      ],
+      "raw_rust_targets": ["_raw_bridges"],
       "body_lines": 53
     },
     {
@@ -10514,9 +10450,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_chordal_graph_cliques"
-      ],
+      "raw_rust_targets": ["_raw_chordal_graph_cliques"],
       "body_lines": 39
     },
     {
@@ -10579,9 +10513,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_closeness_centrality"
-      ],
+      "raw_rust_targets": ["_raw_closeness_centrality"],
       "body_lines": 108
     },
     {
@@ -10599,9 +10531,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_clustering"
-      ],
+      "raw_rust_targets": ["_raw_clustering"],
       "body_lines": 68
     },
     {
@@ -10637,10 +10567,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_nbrs",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_nbrs", "_raw_neighbors_dispatch"],
       "body_lines": 39
     },
     {
@@ -10685,9 +10612,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_complement"
-      ],
+      "raw_rust_targets": ["_raw_complement"],
       "body_lines": 35
     },
     {
@@ -10786,9 +10711,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_connected_components"
-      ],
+      "raw_rust_targets": ["_raw_connected_components"],
       "body_lines": 23
     },
     {
@@ -10860,9 +10783,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_core_number"
-      ],
+      "raw_rust_targets": ["_raw_core_number"],
       "body_lines": 48
     },
     {
@@ -10943,9 +10864,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_cut_size"
-      ],
+      "raw_rust_targets": ["_raw_cut_size"],
       "body_lines": 36
     },
     {
@@ -10954,9 +10873,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_cycle_basis"
-      ],
+      "raw_rust_targets": ["_raw_cycle_basis"],
       "body_lines": 15
     },
     {
@@ -11067,9 +10984,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_degree_centrality"
-      ],
+      "raw_rust_targets": ["_raw_degree_centrality"],
       "body_lines": 23
     },
     {
@@ -11078,9 +10993,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_degree_histogram"
-      ],
+      "raw_rust_targets": ["_raw_degree_histogram"],
       "body_lines": 47
     },
     {
@@ -11152,9 +11065,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_descendants"
-      ],
+      "raw_rust_targets": ["_raw_descendants"],
       "body_lines": 26
     },
     {
@@ -11244,9 +11155,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_diameter"
-      ],
+      "raw_rust_targets": ["_raw_diameter"],
       "body_lines": 39
     },
     {
@@ -11273,9 +11182,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_multidigraph_dijkstra_path_target"
-      ],
+      "raw_rust_targets": ["_raw_multidigraph_dijkstra_path_target"],
       "body_lines": 64
     },
     {
@@ -11296,9 +11203,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_dijkstra_predecessor_and_distance"
-      ],
+      "raw_rust_targets": ["_raw_dijkstra_predecessor_and_distance"],
       "body_lines": 60
     },
     {
@@ -11415,11 +11320,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_dominating_set",
-        "_raw_nbrs",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_dominating_set", "_raw_nbrs", "_raw_neighbors_dispatch"],
       "body_lines": 69
     },
     {
@@ -11473,9 +11374,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_eccentricity"
-      ],
+      "raw_rust_targets": ["_raw_eccentricity"],
       "body_lines": 85
     },
     {
@@ -11514,9 +11413,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_edge_boundary"
-      ],
+      "raw_rust_targets": ["_raw_edge_boundary"],
       "body_lines": 66
     },
     {
@@ -11570,9 +11467,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_edge_expansion"
-      ],
+      "raw_rust_targets": ["_raw_edge_expansion"],
       "body_lines": 24
     },
     {
@@ -11644,9 +11539,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_eigenvector_centrality"
-      ],
+      "raw_rust_targets": ["_raw_eigenvector_centrality"],
       "body_lines": 102
     },
     {
@@ -11673,9 +11566,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_enumerate_all_cliques"
-      ],
+      "raw_rust_targets": ["_raw_enumerate_all_cliques"],
       "body_lines": 15
     },
     {
@@ -11765,9 +11656,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_fast_could_be_isomorphic"
-      ],
+      "raw_rust_targets": ["_raw_fast_could_be_isomorphic"],
       "body_lines": 5
     },
     {
@@ -11785,9 +11674,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_faster_could_be_isomorphic"
-      ],
+      "raw_rust_targets": ["_raw_faster_could_be_isomorphic"],
       "body_lines": 5
     },
     {
@@ -11832,10 +11719,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_find_cycle_multigraph_simple",
-        "_raw_find_cycle_simple"
-      ],
+      "raw_rust_targets": ["_raw_find_cycle_multigraph_simple", "_raw_find_cycle_simple"],
       "body_lines": 36
     },
     {
@@ -11862,9 +11746,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_find_negative_cycle"
-      ],
+      "raw_rust_targets": ["_raw_find_negative_cycle"],
       "body_lines": 35
     },
     {
@@ -12152,9 +12034,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_girth"
-      ],
+      "raw_rust_targets": ["_raw_girth"],
       "body_lines": 19
     },
     {
@@ -12163,9 +12043,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_global_efficiency"
-      ],
+      "raw_rust_targets": ["_raw_global_efficiency"],
       "body_lines": 15
     },
     {
@@ -12291,10 +12169,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_greedy_color",
-        "_raw_greedy_color_directed"
-      ],
+      "raw_rust_targets": ["_raw_greedy_color", "_raw_greedy_color_directed"],
       "body_lines": 119
     },
     {
@@ -12339,9 +12214,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_group_degree_centrality"
-      ],
+      "raw_rust_targets": ["_raw_group_degree_centrality"],
       "body_lines": 21
     },
     {
@@ -12377,9 +12250,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_harmonic_centrality"
-      ],
+      "raw_rust_targets": ["_raw_harmonic_centrality"],
       "body_lines": 126
     },
     {
@@ -12415,9 +12286,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_has_path"
-      ],
+      "raw_rust_targets": ["_raw_has_path"],
       "body_lines": 12
     },
     {
@@ -12543,9 +12412,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_immediate_dominators"
-      ],
+      "raw_rust_targets": ["_raw_immediate_dominators"],
       "body_lines": 46
     },
     {
@@ -12653,9 +12520,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_arborescence"
-      ],
+      "raw_rust_targets": ["_raw_is_arborescence"],
       "body_lines": 7
     },
     {
@@ -12682,9 +12547,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_biconnected"
-      ],
+      "raw_rust_targets": ["_raw_is_biconnected"],
       "body_lines": 4
     },
     {
@@ -12693,9 +12556,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_bipartite"
-      ],
+      "raw_rust_targets": ["_raw_is_bipartite"],
       "body_lines": 8
     },
     {
@@ -12704,9 +12565,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_branching"
-      ],
+      "raw_rust_targets": ["_raw_is_branching"],
       "body_lines": 6
     },
     {
@@ -12715,9 +12574,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_chordal"
-      ],
+      "raw_rust_targets": ["_raw_is_chordal"],
       "body_lines": 45
     },
     {
@@ -12726,9 +12583,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_connected"
-      ],
+      "raw_rust_targets": ["_raw_is_connected"],
       "body_lines": 10
     },
     {
@@ -12755,9 +12610,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_digraphical"
-      ],
+      "raw_rust_targets": ["_raw_is_digraphical"],
       "body_lines": 19
     },
     {
@@ -12775,9 +12628,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_directed_acyclic_graph"
-      ],
+      "raw_rust_targets": ["_raw_is_directed_acyclic_graph"],
       "body_lines": 4
     },
     {
@@ -12786,9 +12637,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_distance_regular"
-      ],
+      "raw_rust_targets": ["_raw_is_distance_regular"],
       "body_lines": 33
     },
     {
@@ -12797,9 +12646,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_dominating_set"
-      ],
+      "raw_rust_targets": ["_raw_is_dominating_set"],
       "body_lines": 16
     },
     {
@@ -12808,9 +12655,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_edge_cover"
-      ],
+      "raw_rust_targets": ["_raw_is_edge_cover"],
       "body_lines": 8
     },
     {
@@ -12828,9 +12673,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_eulerian"
-      ],
+      "raw_rust_targets": ["_raw_is_eulerian"],
       "body_lines": 44
     },
     {
@@ -12839,9 +12682,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_forest"
-      ],
+      "raw_rust_targets": ["_raw_is_forest"],
       "body_lines": 44
     },
     {
@@ -12895,9 +12736,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_k_regular"
-      ],
+      "raw_rust_targets": ["_raw_is_k_regular"],
       "body_lines": 20
     },
     {
@@ -13005,9 +12844,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_regular"
-      ],
+      "raw_rust_targets": ["_raw_is_regular"],
       "body_lines": 47
     },
     {
@@ -13025,9 +12862,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_semiconnected"
-      ],
+      "raw_rust_targets": ["_raw_is_semiconnected"],
       "body_lines": 8
     },
     {
@@ -13045,9 +12880,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_simple_path"
-      ],
+      "raw_rust_targets": ["_raw_is_simple_path"],
       "body_lines": 23
     },
     {
@@ -13056,9 +12889,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_strongly_connected"
-      ],
+      "raw_rust_targets": ["_raw_is_strongly_connected"],
       "body_lines": 22
     },
     {
@@ -13085,9 +12916,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_tree"
-      ],
+      "raw_rust_targets": ["_raw_is_tree"],
       "body_lines": 27
     },
     {
@@ -13141,9 +12970,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_is_weakly_connected"
-      ],
+      "raw_rust_targets": ["_raw_is_weakly_connected"],
       "body_lines": 13
     },
     {
@@ -13161,9 +12988,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_isolates"
-      ],
+      "raw_rust_targets": ["_raw_isolates"],
       "body_lines": 12
     },
     {
@@ -13181,9 +13006,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_johnson_path_directed"
-      ],
+      "raw_rust_targets": ["_raw_johnson_path_directed"],
       "body_lines": 53
     },
     {
@@ -13327,9 +13150,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_katz_centrality"
-      ],
+      "raw_rust_targets": ["_raw_katz_centrality"],
       "body_lines": 99
     },
     {
@@ -13383,9 +13204,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_kosaraju_strongly_connected_components"
-      ],
+      "raw_rust_targets": ["_raw_kosaraju_strongly_connected_components"],
       "body_lines": 53
     },
     {
@@ -13484,10 +13303,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_load_centrality",
-        "_raw_load_centrality_weighted"
-      ],
+      "raw_rust_targets": ["_raw_load_centrality", "_raw_load_centrality_weighted"],
       "body_lines": 133
     },
     {
@@ -13514,9 +13330,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_local_efficiency"
-      ],
+      "raw_rust_targets": ["_raw_local_efficiency"],
       "body_lines": 17
     },
     {
@@ -13615,9 +13429,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_maximal_matching"
-      ],
+      "raw_rust_targets": ["_raw_maximal_matching"],
       "body_lines": 21
     },
     {
@@ -13635,9 +13447,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_maximum_flow"
-      ],
+      "raw_rust_targets": ["_raw_maximum_flow"],
       "body_lines": 26
     },
     {
@@ -13646,9 +13456,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_maximum_flow_value"
-      ],
+      "raw_rust_targets": ["_raw_maximum_flow_value"],
       "body_lines": 22
     },
     {
@@ -13657,9 +13465,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_maximum_spanning_arborescence"
-      ],
+      "raw_rust_targets": ["_raw_maximum_spanning_arborescence"],
       "body_lines": 35
     },
     {
@@ -13668,9 +13474,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_mse"
-      ],
+      "raw_rust_targets": ["_raw_mse"],
       "body_lines": 104
     },
     {
@@ -13679,9 +13483,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_maximum_spanning_tree"
-      ],
+      "raw_rust_targets": ["_raw_maximum_spanning_tree"],
       "body_lines": 74
     },
     {
@@ -13744,9 +13546,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_minimum_branching"
-      ],
+      "raw_rust_targets": ["_raw_minimum_branching"],
       "body_lines": 55
     },
     {
@@ -13800,9 +13600,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_minimum_spanning_arborescence"
-      ],
+      "raw_rust_targets": ["_raw_minimum_spanning_arborescence"],
       "body_lines": 41
     },
     {
@@ -13811,9 +13609,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_minimum_spanning_edges"
-      ],
+      "raw_rust_targets": ["_raw_minimum_spanning_edges"],
       "body_lines": 124
     },
     {
@@ -13822,10 +13618,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_minimum_spanning_tree",
-        "_raw_multigraph_minimum_spanning_tree"
-      ],
+      "raw_rust_targets": ["_raw_minimum_spanning_tree", "_raw_multigraph_minimum_spanning_tree"],
       "body_lines": 129
     },
     {
@@ -13897,9 +13690,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_multi_source_dijkstra"
-      ],
+      "raw_rust_targets": ["_raw_multi_source_dijkstra"],
       "body_lines": 79
     },
     {
@@ -13989,10 +13780,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_nbrs",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_nbrs", "_raw_neighbors_dispatch"],
       "body_lines": 53
     },
     {
@@ -14001,9 +13789,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_node_boundary"
-      ],
+      "raw_rust_targets": ["_raw_node_boundary"],
       "body_lines": 12
     },
     {
@@ -14021,9 +13807,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_node_connected_component"
-      ],
+      "raw_rust_targets": ["_raw_node_connected_component"],
       "body_lines": 20
     },
     {
@@ -14059,9 +13843,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_node_expansion"
-      ],
+      "raw_rust_targets": ["_raw_node_expansion"],
       "body_lines": 8
     },
     {
@@ -14106,10 +13888,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_nbrs",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_nbrs", "_raw_neighbors_dispatch"],
       "body_lines": 34
     },
     {
@@ -14118,10 +13897,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_nbrs",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_nbrs", "_raw_neighbors_dispatch"],
       "body_lines": 42
     },
     {
@@ -14184,9 +13960,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_number_attracting_components"
-      ],
+      "raw_rust_targets": ["_raw_number_attracting_components"],
       "body_lines": 6
     },
     {
@@ -14195,9 +13969,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_number_connected_components"
-      ],
+      "raw_rust_targets": ["_raw_number_connected_components"],
       "body_lines": 10
     },
     {
@@ -14224,9 +13996,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_number_of_isolates"
-      ],
+      "raw_rust_targets": ["_raw_number_of_isolates"],
       "body_lines": 6
     },
     {
@@ -14262,9 +14032,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_number_of_spanning_trees"
-      ],
+      "raw_rust_targets": ["_raw_number_of_spanning_trees"],
       "body_lines": 12
     },
     {
@@ -14282,9 +14050,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_number_strongly_connected_components"
-      ],
+      "raw_rust_targets": ["_raw_number_strongly_connected_components"],
       "body_lines": 13
     },
     {
@@ -14293,9 +14059,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_number_weakly_connected_components"
-      ],
+      "raw_rust_targets": ["_raw_number_weakly_connected_components"],
       "body_lines": 13
     },
     {
@@ -14331,9 +14095,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_onion_layers"
-      ],
+      "raw_rust_targets": ["_raw_onion_layers"],
       "body_lines": 28
     },
     {
@@ -14459,9 +14221,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_partition_spanning_tree"
-      ],
+      "raw_rust_targets": ["_raw_partition_spanning_tree"],
       "body_lines": 28
     },
     {
@@ -14488,9 +14248,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_percolation_centrality_weighted"
-      ],
+      "raw_rust_targets": ["_raw_percolation_centrality_weighted"],
       "body_lines": 133
     },
     {
@@ -14544,9 +14302,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_predecessor"
-      ],
+      "raw_rust_targets": ["_raw_predecessor"],
       "body_lines": 65
     },
     {
@@ -14618,9 +14374,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_radius"
-      ],
+      "raw_rust_targets": ["_raw_radius"],
       "body_lines": 36
     },
     {
@@ -15079,9 +14833,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_neighbors_dispatch"],
       "body_lines": 133
     },
     {
@@ -15117,9 +14869,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_shortest_path"
-      ],
+      "raw_rust_targets": ["_raw_shortest_path"],
       "body_lines": 155
     },
     {
@@ -15128,9 +14878,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_single_target_dijkstra_path_length"
-      ],
+      "raw_rust_targets": ["_raw_single_target_dijkstra_path_length"],
       "body_lines": 118
     },
     {
@@ -15139,9 +14887,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_shortest_path_length_matrix"
-      ],
+      "raw_rust_targets": ["_raw_shortest_path_length_matrix"],
       "body_lines": 30
     },
     {
@@ -15195,9 +14941,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_single_source_bellman_ford"
-      ],
+      "raw_rust_targets": ["_raw_single_source_bellman_ford"],
       "body_lines": 58
     },
     {
@@ -15206,9 +14950,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": true,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_single_source_bellman_ford_path"
-      ],
+      "raw_rust_targets": ["_raw_single_source_bellman_ford_path"],
       "body_lines": 34
     },
     {
@@ -15264,9 +15006,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_single_source_shortest_path"
-      ],
+      "raw_rust_targets": ["_raw_single_source_shortest_path"],
       "body_lines": 24
     },
     {
@@ -15275,9 +15015,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_single_source_shortest_path_length"
-      ],
+      "raw_rust_targets": ["_raw_single_source_shortest_path_length"],
       "body_lines": 18
     },
     {
@@ -15286,9 +15024,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_single_target_shortest_path"
-      ],
+      "raw_rust_targets": ["_raw_single_target_shortest_path"],
       "body_lines": 15
     },
     {
@@ -15297,9 +15033,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_single_target_shortest_path_length"
-      ],
+      "raw_rust_targets": ["_raw_single_target_shortest_path_length"],
       "body_lines": 19
     },
     {
@@ -15326,9 +15060,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_spanner"
-      ],
+      "raw_rust_targets": ["_raw_spanner"],
       "body_lines": 35
     },
     {
@@ -15364,10 +15096,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_neighbors",
-        "_raw_neighbors_dispatch"
-      ],
+      "raw_rust_targets": ["_raw_neighbors", "_raw_neighbors_dispatch"],
       "body_lines": 97
     },
     {
@@ -15421,9 +15150,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_strongly_connected_components"
-      ],
+      "raw_rust_targets": ["_raw_strongly_connected_components"],
       "body_lines": 24
     },
     {
@@ -15630,9 +15357,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_topological_generations"
-      ],
+      "raw_rust_targets": ["_raw_topological_generations"],
       "body_lines": 23
     },
     {
@@ -15641,9 +15366,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_topological_sort"
-      ],
+      "raw_rust_targets": ["_raw_topological_sort"],
       "body_lines": 75
     },
     {
@@ -15652,10 +15375,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_multidigraph_transitive_closure",
-        "_raw_transitive_closure"
-      ],
+      "raw_rust_targets": ["_raw_multidigraph_transitive_closure", "_raw_transitive_closure"],
       "body_lines": 68
     },
     {
@@ -15682,9 +15402,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_transitivity"
-      ],
+      "raw_rust_targets": ["_raw_transitivity"],
       "body_lines": 33
     },
     {
@@ -15702,9 +15420,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_tree_broadcast_center"
-      ],
+      "raw_rust_targets": ["_raw_tree_broadcast_center"],
       "body_lines": 14
     },
     {
@@ -15713,9 +15429,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_tree_broadcast_time"
-      ],
+      "raw_rust_targets": ["_raw_tree_broadcast_time"],
       "body_lines": 20
     },
     {
@@ -15787,9 +15501,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_triangles"
-      ],
+      "raw_rust_targets": ["_raw_triangles"],
       "body_lines": 38
     },
     {
@@ -15996,9 +15708,7 @@
       "is_rust_reexport": false,
       "calls_parity_helper": false,
       "calls_raw_rust": true,
-      "raw_rust_targets": [
-        "_raw_weakly_connected_components"
-      ],
+      "raw_rust_targets": ["_raw_weakly_connected_components"],
       "body_lines": 16
     },
     {
@@ -16097,9 +15807,7 @@
       "name": "single_source_dijkstra_path_length",
       "shape": "path-5-unweighted",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_single_source_dijkstra_path_length"
-      ],
+      "raw_called": ["_raw_single_source_dijkstra_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16107,9 +15815,7 @@
       "name": "single_source_dijkstra_path_length",
       "shape": "path-5-weighted-kwargs",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_single_source_dijkstra_path_length"
-      ],
+      "raw_called": ["_raw_single_source_dijkstra_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16117,9 +15823,7 @@
       "name": "single_source_dijkstra_path_length",
       "shape": "path-5-weighted-postmut",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_single_source_dijkstra_path_length"
-      ],
+      "raw_called": ["_raw_single_source_dijkstra_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16127,9 +15831,7 @@
       "name": "single_source_bellman_ford_path_length",
       "shape": "path-5-unweighted",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_single_source_bellman_ford_path_length"
-      ],
+      "raw_called": ["_raw_single_source_bellman_ford_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16137,9 +15839,7 @@
       "name": "single_source_bellman_ford_path_length",
       "shape": "path-5-weighted-kwargs",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_single_source_bellman_ford"
-      ],
+      "raw_called": ["_raw_single_source_bellman_ford"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16147,9 +15847,7 @@
       "name": "single_source_bellman_ford_path_length",
       "shape": "path-5-weighted-postmut",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_single_source_bellman_ford_path_length"
-      ],
+      "raw_called": ["_raw_single_source_bellman_ford_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16157,9 +15855,7 @@
       "name": "astar_path_length",
       "shape": "path-5-unweighted",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_astar_path_length"
-      ],
+      "raw_called": ["_raw_astar_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16167,9 +15863,7 @@
       "name": "astar_path_length",
       "shape": "path-5-weighted-kwargs",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_astar_path_length"
-      ],
+      "raw_called": ["_raw_astar_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16177,9 +15871,7 @@
       "name": "astar_path_length",
       "shape": "path-5-weighted-postmut",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_astar_path_length"
-      ],
+      "raw_called": ["_raw_astar_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16195,9 +15887,7 @@
       "name": "shortest_path_length",
       "shape": "path-5-weighted-kwargs",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_dijkstra_path_length"
-      ],
+      "raw_called": ["_raw_dijkstra_path_length"],
       "parity_called_with_target": [],
       "error": null
     },
@@ -16205,9 +15895,7 @@
       "name": "shortest_path_length",
       "shape": "path-5-weighted-postmut",
       "classification": "rust-native",
-      "raw_called": [
-        "_raw_dijkstra_path_length"
-      ],
+      "raw_called": ["_raw_dijkstra_path_length"],
       "parity_called_with_target": [],
       "error": null
     },

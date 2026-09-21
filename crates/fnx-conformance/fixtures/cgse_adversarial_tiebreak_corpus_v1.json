@@ -13,13 +13,13 @@
         "directed": false,
         "nodes": ["a", "b", "c", "d"],
         "edges": [
-          {"u": "a", "v": "b", "weight": 1.0},
-          {"u": "a", "v": "c", "weight": 1.0},
-          {"u": "b", "v": "d", "weight": 1.0},
-          {"u": "c", "v": "d", "weight": 1.0}
+          { "u": "a", "v": "b", "weight": 1.0 },
+          { "u": "a", "v": "c", "weight": 1.0 },
+          { "u": "b", "v": "d", "weight": 1.0 },
+          { "u": "c", "v": "d", "weight": 1.0 }
         ]
       },
-      "query": {"source": "a", "target": "d"},
+      "query": { "source": "a", "target": "d" },
       "expected_path": ["a", "b", "d"],
       "expected_witness_property": "deterministic_hash",
       "adversarial_property": "equal_weight_tie"
@@ -33,15 +33,15 @@
         "directed": false,
         "nodes": ["s", "a", "b", "c", "t"],
         "edges": [
-          {"u": "s", "v": "a", "weight": 1.0},
-          {"u": "s", "v": "b", "weight": 1.0},
-          {"u": "s", "v": "c", "weight": 1.0},
-          {"u": "a", "v": "t", "weight": 1.0},
-          {"u": "b", "v": "t", "weight": 1.0},
-          {"u": "c", "v": "t", "weight": 1.0}
+          { "u": "s", "v": "a", "weight": 1.0 },
+          { "u": "s", "v": "b", "weight": 1.0 },
+          { "u": "s", "v": "c", "weight": 1.0 },
+          { "u": "a", "v": "t", "weight": 1.0 },
+          { "u": "b", "v": "t", "weight": 1.0 },
+          { "u": "c", "v": "t", "weight": 1.0 }
         ]
       },
-      "query": {"source": "s", "target": "t"},
+      "query": { "source": "s", "target": "t" },
       "expected_path": ["s", "a", "t"],
       "expected_witness_property": "deterministic_hash",
       "adversarial_property": "three_way_weight_tie"
@@ -55,15 +55,15 @@
         "directed": false,
         "nodes": ["s", "a", "b", "c", "t"],
         "edges": [
-          {"u": "s", "v": "a", "weight": 2.0},
-          {"u": "s", "v": "b", "weight": 2.0},
-          {"u": "a", "v": "t", "weight": 1.0},
-          {"u": "b", "v": "t", "weight": 1.0},
-          {"u": "s", "v": "c", "weight": 1.0},
-          {"u": "c", "v": "t", "weight": 2.0}
+          { "u": "s", "v": "a", "weight": 2.0 },
+          { "u": "s", "v": "b", "weight": 2.0 },
+          { "u": "a", "v": "t", "weight": 1.0 },
+          { "u": "b", "v": "t", "weight": 1.0 },
+          { "u": "s", "v": "c", "weight": 1.0 },
+          { "u": "c", "v": "t", "weight": 2.0 }
         ]
       },
-      "query": {"source": "s", "target": "t"},
+      "query": { "source": "s", "target": "t" },
       "expected_witness_property": "deterministic_hash",
       "adversarial_property": "equal_relaxation_candidates"
     },
@@ -76,15 +76,15 @@
         "directed": false,
         "nodes": ["root", "a", "b", "c", "d", "e", "f"],
         "edges": [
-          {"u": "root", "v": "c"},
-          {"u": "root", "v": "a"},
-          {"u": "root", "v": "b"},
-          {"u": "a", "v": "d"},
-          {"u": "b", "v": "e"},
-          {"u": "c", "v": "f"}
+          { "u": "root", "v": "c" },
+          { "u": "root", "v": "a" },
+          { "u": "root", "v": "b" },
+          { "u": "a", "v": "d" },
+          { "u": "b", "v": "e" },
+          { "u": "c", "v": "f" }
         ]
       },
-      "query": {"source": "root"},
+      "query": { "source": "root" },
       "expected_witness_property": "deterministic_hash",
       "adversarial_property": "sibling_order_sensitivity"
     },
@@ -97,15 +97,15 @@
         "directed": false,
         "nodes": ["root", "a", "b", "c", "leaf_a", "leaf_b", "leaf_c"],
         "edges": [
-          {"u": "root", "v": "b"},
-          {"u": "root", "v": "c"},
-          {"u": "root", "v": "a"},
-          {"u": "a", "v": "leaf_a"},
-          {"u": "b", "v": "leaf_b"},
-          {"u": "c", "v": "leaf_c"}
+          { "u": "root", "v": "b" },
+          { "u": "root", "v": "c" },
+          { "u": "root", "v": "a" },
+          { "u": "a", "v": "leaf_a" },
+          { "u": "b", "v": "leaf_b" },
+          { "u": "c", "v": "leaf_c" }
         ]
       },
-      "query": {"source": "root"},
+      "query": { "source": "root" },
       "expected_witness_property": "deterministic_hash",
       "adversarial_property": "dfs_stack_order"
     },
@@ -118,10 +118,10 @@
         "directed": false,
         "nodes": ["x", "y", "z", "p", "q", "r"],
         "edges": [
-          {"u": "x", "v": "y"},
-          {"u": "y", "v": "z"},
-          {"u": "p", "v": "q"},
-          {"u": "q", "v": "r"}
+          { "u": "x", "v": "y" },
+          { "u": "y", "v": "z" },
+          { "u": "p", "v": "q" },
+          { "u": "q", "v": "r" }
         ]
       },
       "query": {},
@@ -138,14 +138,14 @@
         "directed": true,
         "nodes": ["a", "b", "c", "d", "e", "f"],
         "edges": [
-          {"u": "a", "v": "b"},
-          {"u": "b", "v": "a"},
-          {"u": "c", "v": "d"},
-          {"u": "d", "v": "c"},
-          {"u": "e", "v": "f"},
-          {"u": "f", "v": "e"},
-          {"u": "b", "v": "c"},
-          {"u": "d", "v": "e"}
+          { "u": "a", "v": "b" },
+          { "u": "b", "v": "a" },
+          { "u": "c", "v": "d" },
+          { "u": "d", "v": "c" },
+          { "u": "e", "v": "f" },
+          { "u": "f", "v": "e" },
+          { "u": "b", "v": "c" },
+          { "u": "d", "v": "e" }
         ]
       },
       "query": {},
@@ -162,12 +162,12 @@
         "directed": false,
         "nodes": ["a", "b", "c", "d"],
         "edges": [
-          {"u": "a", "v": "b", "weight": 1.0},
-          {"u": "c", "v": "d", "weight": 1.0},
-          {"u": "a", "v": "c", "weight": 1.0},
-          {"u": "b", "v": "d", "weight": 1.0},
-          {"u": "a", "v": "d", "weight": 2.0},
-          {"u": "b", "v": "c", "weight": 2.0}
+          { "u": "a", "v": "b", "weight": 1.0 },
+          { "u": "c", "v": "d", "weight": 1.0 },
+          { "u": "a", "v": "c", "weight": 1.0 },
+          { "u": "b", "v": "d", "weight": 1.0 },
+          { "u": "a", "v": "d", "weight": 2.0 },
+          { "u": "b", "v": "c", "weight": 2.0 }
         ]
       },
       "query": {},
@@ -184,14 +184,14 @@
         "directed": false,
         "nodes": ["start", "a", "b", "c"],
         "edges": [
-          {"u": "start", "v": "a", "weight": 1.0},
-          {"u": "start", "v": "b", "weight": 1.0},
-          {"u": "start", "v": "c", "weight": 1.0},
-          {"u": "a", "v": "b", "weight": 0.5},
-          {"u": "b", "v": "c", "weight": 0.5}
+          { "u": "start", "v": "a", "weight": 1.0 },
+          { "u": "start", "v": "b", "weight": 1.0 },
+          { "u": "start", "v": "c", "weight": 1.0 },
+          { "u": "a", "v": "b", "weight": 0.5 },
+          { "u": "b", "v": "c", "weight": 0.5 }
         ]
       },
-      "query": {"source": "start"},
+      "query": { "source": "start" },
       "expected_witness_property": "deterministic_hash",
       "adversarial_property": "prim_frontier_selection"
     },
@@ -204,10 +204,10 @@
         "directed": false,
         "nodes": ["a", "b", "c", "d"],
         "edges": [
-          {"u": "a", "v": "b", "weight": 1.0},
-          {"u": "a", "v": "c", "weight": 1.0},
-          {"u": "b", "v": "d", "weight": 1.0},
-          {"u": "c", "v": "d", "weight": 1.0}
+          { "u": "a", "v": "b", "weight": 1.0 },
+          { "u": "a", "v": "c", "weight": 1.0 },
+          { "u": "b", "v": "d", "weight": 1.0 },
+          { "u": "c", "v": "d", "weight": 1.0 }
         ]
       },
       "query": {},
@@ -224,10 +224,10 @@
         "directed": false,
         "nodes": ["p", "q", "r", "s"],
         "edges": [
-          {"u": "p", "v": "q", "weight": 1.0},
-          {"u": "p", "v": "r", "weight": 1.0},
-          {"u": "q", "v": "s", "weight": 1.0},
-          {"u": "r", "v": "s", "weight": 1.0}
+          { "u": "p", "v": "q", "weight": 1.0 },
+          { "u": "p", "v": "r", "weight": 1.0 },
+          { "u": "q", "v": "s", "weight": 1.0 },
+          { "u": "r", "v": "s", "weight": 1.0 }
         ]
       },
       "query": {},
@@ -243,11 +243,7 @@
       "graph": {
         "directed": false,
         "nodes": ["c", "a", "b"],
-        "edges": [
-          {"u": "a", "v": "b"},
-          {"u": "b", "v": "c"},
-          {"u": "c", "v": "a"}
-        ]
+        "edges": [{ "u": "a", "v": "b" }, { "u": "b", "v": "c" }, { "u": "c", "v": "a" }]
       },
       "query": {},
       "expected_circuit_start": "a",
@@ -263,11 +259,11 @@
         "directed": true,
         "nodes": ["c", "b", "a", "x", "y", "z"],
         "edges": [
-          {"u": "a", "v": "x"},
-          {"u": "b", "v": "y"},
-          {"u": "c", "v": "z"},
-          {"u": "x", "v": "z"},
-          {"u": "y", "v": "z"}
+          { "u": "a", "v": "x" },
+          { "u": "b", "v": "y" },
+          { "u": "c", "v": "z" },
+          { "u": "x", "v": "z" },
+          { "u": "y", "v": "z" }
         ]
       },
       "query": {},
@@ -283,10 +279,10 @@
         "directed": true,
         "nodes": ["top", "left", "right", "bottom"],
         "edges": [
-          {"u": "top", "v": "left"},
-          {"u": "top", "v": "right"},
-          {"u": "left", "v": "bottom"},
-          {"u": "right", "v": "bottom"}
+          { "u": "top", "v": "left" },
+          { "u": "top", "v": "right" },
+          { "u": "left", "v": "bottom" },
+          { "u": "right", "v": "bottom" }
         ]
       },
       "query": {},
@@ -315,12 +311,25 @@
     {
       "pattern_id": "ADV-WEIGHT-TIE",
       "description": "Multiple candidates with identical weight/cost metrics",
-      "algorithms_affected": ["dijkstra", "bellman_ford", "kruskal", "prim", "max_weight_matching", "min_weight_matching"]
+      "algorithms_affected": [
+        "dijkstra",
+        "bellman_ford",
+        "kruskal",
+        "prim",
+        "max_weight_matching",
+        "min_weight_matching"
+      ]
     },
     {
       "pattern_id": "ADV-SIBLING-ORDER",
       "description": "Multiple neighbors/children at the same traversal depth",
-      "algorithms_affected": ["bfs", "dfs", "connected_components", "strongly_connected_components", "topological_sort"]
+      "algorithms_affected": [
+        "bfs",
+        "dfs",
+        "connected_components",
+        "strongly_connected_components",
+        "topological_sort"
+      ]
     },
     {
       "pattern_id": "ADV-SYMMETRIC-GRAPH",
@@ -330,7 +339,14 @@
     {
       "pattern_id": "ADV-INSERTION-SENSITIVE",
       "description": "Graphs where edge/node insertion order affects algorithm behavior",
-      "algorithms_affected": ["bellman_ford", "bfs", "dfs", "strongly_connected_components", "eulerian_circuit", "topological_sort"]
+      "algorithms_affected": [
+        "bellman_ford",
+        "bfs",
+        "dfs",
+        "strongly_connected_components",
+        "eulerian_circuit",
+        "topological_sort"
+      ]
     }
   ]
 }

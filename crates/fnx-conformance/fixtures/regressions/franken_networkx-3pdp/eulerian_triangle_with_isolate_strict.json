@@ -27,9 +27,6 @@
     "is_eulerian": false,
     "has_eulerian_path": true,
     "is_semieulerian": true,
-    "eulerian_path": [
-      { "from": "c", "to": "b" },
-      { "from": "b", "to": "a" }
-    ]
+    "eulerian_path": [{ "from": "c", "to": "b" }, { "from": "b", "to": "a" }]
   }
 }

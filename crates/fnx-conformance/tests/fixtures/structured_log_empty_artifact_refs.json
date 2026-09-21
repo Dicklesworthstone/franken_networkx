@@ -33,9 +33,7 @@
     "bundle_hash_id": "bundlehash-9",
     "captured_unix_ms": 1,
     "replay_ref": "cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/example.json",
-    "artifact_refs": [
-      "artifacts/conformance/latest/smoke_report.json"
-    ],
+    "artifact_refs": ["artifacts/conformance/latest/smoke_report.json"],
     "raptorq_sidecar_refs": [],
     "decode_proof_refs": []
   }
