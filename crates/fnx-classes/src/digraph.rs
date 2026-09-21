@@ -1846,22 +1846,17 @@ impl DiGraph {
             return true;
         }
 
-        let targets: Vec<usize> = self.succ_indices[node_idx].clone();
-        for t in targets {
+        for &t in &self.succ_indices[node_idx] {
             self.edges.swap_remove(&(node_idx, t));
         }
-        let sources: Vec<usize> = self.pred_indices[node_idx].clone();
-        for s in sources {
+        for &s in &self.pred_indices[node_idx] {
             self.edges.swap_remove(&(s, node_idx));
         }
 
         // br-r37-c1-d58s8 DiGraph flip P1: I5 repair on both index
         // families — drop the removed index's rows, purge refs, decrement
         // indices that shift down.
-        let idx = self
-            .nodes
-            .get_index_of(node)
-            .expect("node existence checked above");
+        let idx = node_idx;
         self.nodes.shift_remove(node);
         self.succ_indices.remove(idx);
         self.pred_indices.remove(idx);

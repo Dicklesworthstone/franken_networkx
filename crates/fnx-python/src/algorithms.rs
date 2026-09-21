@@ -11243,6 +11243,9 @@ pub fn cycle_basis(
     // a ``String`` per cycle-node in the kernel and re-resolving it here.
     let (idx_cycles, _touched, _scanned, _peak) =
         py.allow_threads(|| fnx_algorithms::cycle_basis_index_cycles(inner, r.as_deref()));
+    if idx_cycles.is_empty() {
+        return Ok(Vec::new());
+    }
     let node_objs: Vec<PyObject> = inner
         .nodes_ordered()
         .iter()

@@ -8996,15 +8996,15 @@ fn minimum_undirected_degree(graph: &Graph) -> f64 {
 
 fn edge_connectivity_dominating_set(graph: &Graph, start: &str) -> Vec<String> {
     let mut dominating = Vec::<String>::new();
-    let mut dominating_set = HashSet::<String>::new();
-    let mut remaining = BTreeSet::<String>::new();
+    let mut dominating_set = HashSet::<&str>::new();
+    let mut remaining = BTreeSet::<&str>::new();
 
     for node in graph.nodes_ordered() {
-        remaining.insert(node.to_owned());
+        remaining.insert(node);
     }
 
     dominating.push(start.to_owned());
-    dominating_set.insert(start.to_owned());
+    dominating_set.insert(start);
     remaining.remove(start);
 
     if let Some(neighbors) = graph.neighbors_iter(start) {
@@ -9014,18 +9014,15 @@ fn edge_connectivity_dominating_set(graph: &Graph, start: &str) -> Vec<String> {
     }
 
     while let Some(node) = remaining.pop_first() {
-        dominating.push(node.clone());
-        dominating_set.insert(node.clone());
+        dominating.push(node.to_owned());
+        dominating_set.insert(node);
 
-        let Some(neighbors) = graph.neighbors_iter(&node) else {
-            continue;
-        };
-        let undominated_neighbors = neighbors
-            .filter(|neighbor| !dominating_set.contains(*neighbor))
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        for neighbor in undominated_neighbors {
-            remaining.remove(&neighbor);
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if !dominating_set.contains(neighbor) {
+                    remaining.remove(neighbor);
+                }
+            }
         }
     }
 
@@ -9037,14 +9034,14 @@ pub fn global_edge_connectivity_edmonds_karp(
     graph: &Graph,
     capacity_attr: &str,
 ) -> EdgeConnectivityResult {
-    let nodes = graph.nodes_ordered();
-    if nodes.len() < 2 {
+    let n = graph.node_count();
+    if n < 2 {
         return EdgeConnectivityResult {
             value: 0.0,
             witness: ComplexityWitness {
                 algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
                 complexity_claim: "O(|D| * |V| * |E|^2)".to_owned(),
-                nodes_touched: graph.node_count(),
+                nodes_touched: n,
                 edges_scanned: 0,
                 queue_peak: 0,
             },
@@ -9068,6 +9065,7 @@ pub fn global_edge_connectivity_edmonds_karp(
         };
     }
 
+    let nodes = graph.nodes_ordered();
     let mut best_value = minimum_undirected_degree(graph);
     let mut dominating = Vec::<String>::new();
     for node in &nodes {
@@ -20354,8 +20352,7 @@ pub fn cycle_basis_index_cycles(
     graph: &Graph,
     root: Option<&str>,
 ) -> (Vec<Vec<usize>>, usize, usize, usize) {
-    let all_nodes = graph.nodes_ordered();
-    let n = all_nodes.len();
+    let n = graph.node_count();
     let mut cycles: Vec<Vec<usize>> = Vec::new();
     if n == 0 {
         return (cycles, 0, 0, 0);
@@ -20386,10 +20383,7 @@ pub fn cycle_basis_index_cycles(
 
     // An explicit ``root`` (already validated to be in the graph by the caller)
     // selects the start index for the first component.
-    let mut current_root: Option<usize> = match root {
-        Some(name) => all_nodes.iter().position(|&node| node == name),
-        None => None,
-    };
+    let mut current_root: Option<usize> = root.and_then(|name| graph.get_node_index(name));
 
     while let Some(&last) = gnodes.last() {
         let r = if let Some(r) = current_root.take() {
@@ -20449,13 +20443,17 @@ pub fn cycle_basis_index_cycles(
 }
 
 pub fn cycle_basis(graph: &Graph, root: Option<&str>) -> CycleBasisResult {
-    let all_nodes = graph.nodes_ordered();
     let (idx_cycles, nodes_touched, edges_scanned, stack_peak) =
         cycle_basis_index_cycles(graph, root);
-    let cycles = idx_cycles
-        .into_iter()
-        .map(|cycle| cycle.into_iter().map(|i| all_nodes[i].to_owned()).collect())
-        .collect();
+    let cycles = if idx_cycles.is_empty() {
+        Vec::new()
+    } else {
+        let all_nodes = graph.nodes_ordered();
+        idx_cycles
+            .into_iter()
+            .map(|cycle| cycle.into_iter().map(|i| all_nodes[i].to_owned()).collect())
+            .collect()
+    };
 
     CycleBasisResult {
         cycles,
@@ -20484,10 +20482,9 @@ pub fn all_simple_paths(
     target: &str,
     cutoff: Option<usize>,
 ) -> AllSimplePathsResult {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
-
-    if !nodes.contains(&source) || !nodes.contains(&target) {
+    let (Some(source_idx), Some(target_idx)) =
+        (graph.get_node_index(source), graph.get_node_index(target))
+    else {
         return AllSimplePathsResult {
             paths: Vec::new(),
             witness: ComplexityWitness {
@@ -20498,7 +20495,7 @@ pub fn all_simple_paths(
                 queue_peak: 0,
             },
         };
-    }
+    };
 
     if source == target {
         return AllSimplePathsResult {
@@ -20513,13 +20510,9 @@ pub fn all_simple_paths(
         };
     }
 
+    let n = graph.node_count();
+    let nodes = graph.nodes_ordered();
     let max_depth = cutoff.unwrap_or(n.saturating_sub(1));
-    let source_idx = graph
-        .get_node_index(source)
-        .expect("source verified present above");
-    let target_idx = graph
-        .get_node_index(target)
-        .expect("target verified present above");
 
     let mut paths: Vec<Vec<String>> = Vec::new();
     let mut nodes_touched = 0usize;
@@ -20662,10 +20655,10 @@ pub fn all_simple_paths_directed(
     target: &str,
     cutoff: Option<usize>,
 ) -> AllSimplePathsResult {
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-
-    if !nodes.contains(&source) || !nodes.contains(&target) {
+    let (Some(source_idx), Some(target_idx)) = (
+        digraph.get_node_index(source),
+        digraph.get_node_index(target),
+    ) else {
         return AllSimplePathsResult {
             paths: Vec::new(),
             witness: ComplexityWitness {
@@ -20676,7 +20669,7 @@ pub fn all_simple_paths_directed(
                 queue_peak: 0,
             },
         };
-    }
+    };
 
     if source == target {
         return AllSimplePathsResult {
@@ -20691,13 +20684,9 @@ pub fn all_simple_paths_directed(
         };
     }
 
+    let n = digraph.node_count();
+    let nodes = digraph.nodes_ordered();
     let max_depth = cutoff.unwrap_or(n.saturating_sub(1));
-    let source_idx = digraph
-        .get_node_index(source)
-        .expect("source verified present above");
-    let target_idx = digraph
-        .get_node_index(target)
-        .expect("target verified present above");
 
     let mut paths: Vec<Vec<String>> = Vec::new();
     let mut nodes_touched = 0usize;
@@ -26308,8 +26297,7 @@ pub fn number_of_cliques(graph: &Graph) -> HashMap<String, usize> {
 /// different greedy strategy, both produce valid dominating sets).
 #[must_use]
 pub fn dominating_set(graph: &Graph) -> Vec<String> {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n == 0 {
         return Vec::new();
     }
@@ -26353,7 +26341,7 @@ pub fn dominating_set(graph: &Graph) -> Vec<String> {
         }
 
         if let Some(v) = best {
-            dom_set.push(nodes[v].to_owned());
+            dom_set.push(graph.get_node_name(v).unwrap().to_owned());
             if !dominated[v] {
                 dominated[v] = true;
                 dominated_count += 1;
@@ -28944,40 +28932,39 @@ pub fn maximal_independent_set(
     initial_nodes: &[String],
     seed: Option<u64>,
 ) -> Result<Vec<String>, MaximalIndependentSetError> {
-    let ordered_nodes: Vec<String> = graph
-        .nodes_ordered()
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-
-    let graph_nodes: HashSet<&str> = ordered_nodes.iter().map(String::as_str).collect();
     let mut seen = HashSet::new();
     let mut required = Vec::new();
     let mut seed_state = seed;
     for node in initial_nodes {
-        if !graph_nodes.contains(node.as_str()) {
+        if !graph.has_node(node.as_str()) {
             return Err(MaximalIndependentSetError::NodesNotSubset {
                 nodes: initial_nodes.to_vec(),
             });
         }
-        if seen.insert(node.clone()) {
+        if seen.insert(node.as_str()) {
             required.push(node.clone());
         }
     }
+
+    let n = graph.node_count();
     if required.is_empty() {
-        if ordered_nodes.is_empty() {
+        if n == 0 {
             return Ok(Vec::new());
         }
-        let first_index = choose_index(&mut seed_state, ordered_nodes.len());
-        required.push(ordered_nodes[first_index].clone());
+        let first_index = choose_index(&mut seed_state, n);
+        let first_node = graph
+            .get_node_name(first_index)
+            .expect("first_index is < n")
+            .to_owned();
+        required.push(first_node);
     }
 
     let required_set: HashSet<&str> = required.iter().map(String::as_str).collect();
     for node in &required {
         if graph
-            .neighbors(node)
-            .unwrap_or_default()
+            .neighbors_iter(node)
             .into_iter()
+            .flatten()
             .any(|neighbor| required_set.contains(neighbor))
         {
             return Err(MaximalIndependentSetError::NodesNotIndependent {
@@ -28993,7 +28980,6 @@ pub fn maximal_independent_set(
     // Indices give O(1) blocking with no hashing/cloning. Output is identical:
     // the index permutation tracks the string permutation 1:1 (same RNG
     // sequence, same swap positions), and the greedy scan order is unchanged.
-    let n = ordered_nodes.len();
     // br-r37-c1-misadjidx (cc): build the peeling adjacency from `neighbors_indices` (zero-alloc
     // &[usize]) instead of `neighbors(node)` (a Vec<&str> alloc per node) + a `node_to_idx.get(nbr)`
     // String re-hash per edge; the `node_to_idx` map is then unneeded (the required-node seeding
@@ -29033,7 +29019,7 @@ pub fn maximal_independent_set(
 
     for idx in available {
         if !blocked[idx] {
-            indep_nodes.push(ordered_nodes[idx].clone());
+            indep_nodes.push(graph.get_node_name(idx).expect("idx is < n").to_owned());
             blocked[idx] = true;
             for &j in &adj[idx] {
                 blocked[j] = true;
