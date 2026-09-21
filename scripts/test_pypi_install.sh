@@ -19,7 +19,11 @@ fi
 VENV_DIR="${VENV_DIR:-.venv-pypi-smoke}"
 
 rm -rf "$VENV_DIR"
-"$PYTHON_BIN" -m venv "$VENV_DIR"
+if command -v uv &>/dev/null; then
+  uv venv --python "$PYTHON_BIN" --seed "$VENV_DIR"
+else
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
 if [[ -f "$VENV_DIR/bin/activate" ]]; then
   source "$VENV_DIR/bin/activate"
 elif [[ -f "$VENV_DIR/Scripts/activate" ]]; then
@@ -47,9 +51,22 @@ install_cmd+=("$PACKAGE_NAME")
 
 python - <<'PY'
 import franken_networkx as fnx
+import networkx as nx
 
 graph = fnx.path_graph(5)
 path = fnx.shortest_path(graph, 0, 4)
 assert path == [0, 1, 2, 3, 4], path
-print("smoke_ok", path)
+
+# Test karate club graph
+kg = fnx.karate_club_graph()
+assert len(kg) == 34
+assert kg.number_of_edges() == 78
+
+# Test backend dispatch
+k_nx = nx.karate_club_graph()
+sp_nx = nx.shortest_path(k_nx, 0, 33, backend="franken_networkx")
+assert sp_nx[0] == 0 and sp_nx[-1] == 33
+
+print("smoke_ok", path, "karate_nodes:", len(kg), "backend_dispatch:", sp_nx)
 PY
+

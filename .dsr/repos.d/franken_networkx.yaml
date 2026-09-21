@@ -6,6 +6,7 @@ tool_name: franken_networkx
 repo: Dicklesworthstone/franken_networkx
 local_path: /data/projects/franken_networkx
 language: rust
+main_package: fnx-python
 build_profile: release
 targets:
   - linux/amd64
