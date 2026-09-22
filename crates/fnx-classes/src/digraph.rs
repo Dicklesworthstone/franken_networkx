@@ -1848,6 +1848,16 @@ impl DiGraph {
 
     /// Remove node and all incident edges (both incoming and outgoing).
     pub fn remove_node(&mut self, node: &str) -> bool {
+        let removed = self.remove_node_deferred_compaction(node);
+        if removed {
+            // Public node indices and the successor/predecessor slices must
+            // share dense coordinates at every externally observable state.
+            self.ensure_compact();
+        }
+        removed
+    }
+
+    fn remove_node_deferred_compaction(&mut self, node: &str) -> bool {
         let Some(slot) = self.node_order.shift_remove(node) else {
             return false;
         };
@@ -1893,7 +1903,7 @@ impl DiGraph {
         let mut removed_nodes = 0usize;
         let old_edge_count = self.edges.len();
         for node in nodes {
-            if self.remove_node(node) {
+            if self.remove_node_deferred_compaction(node) {
                 removed_nodes += 1;
             }
         }

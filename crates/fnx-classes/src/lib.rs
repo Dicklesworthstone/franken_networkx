@@ -2273,6 +2273,16 @@ impl Graph {
     }
 
     pub fn remove_node(&mut self, node: &str) -> bool {
+        let removed = self.remove_node_deferred_compaction(node);
+        if removed {
+            // Public indices are dense insertion-order positions. Adjacency
+            // slices must use the same coordinates before a reader can run.
+            self.ensure_compact();
+        }
+        removed
+    }
+
+    fn remove_node_deferred_compaction(&mut self, node: &str) -> bool {
         let Some(slot) = self.node_order.shift_remove(node) else {
             return false;
         };
@@ -2313,7 +2323,7 @@ impl Graph {
         let mut removed_nodes = 0usize;
         let old_edge_count = self.edges.len();
         for node in nodes {
-            if self.remove_node(node) {
+            if self.remove_node_deferred_compaction(node) {
                 removed_nodes += 1;
             }
         }
