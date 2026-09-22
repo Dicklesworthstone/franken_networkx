@@ -8309,10 +8309,9 @@ impl MultiAtlasView {
             && seq == g.nodes_seq
             && node_key_can_use_index_lookaside(v)
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+            && g.inner.has_edge_by_indices(u_index, v_index)
         {
-            if g.inner.has_edge_by_indices(u_index, v_index) {
-                return Ok(true);
-            }
+            return Ok(true);
         }
         let v_canon = node_key_to_string(py, v)?;
         Ok(
