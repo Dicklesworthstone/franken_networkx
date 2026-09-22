@@ -138,6 +138,7 @@ fn report_to_pymultidigraph(
         pred_key_rows: None,
         edge_keydict_cache: None,
         live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+        live_edge_key_views: HashMap::new(),
         edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),

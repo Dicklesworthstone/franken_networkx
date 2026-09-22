@@ -6337,6 +6337,7 @@ pub(crate) struct PyMultiGraph {
         HashMap<String, HashMap<String, (usize, Py<PyDict>)>>,
     )>,
     pub(crate) live_keydict_rows: crate::live_keydict::LiveKeydictRows,
+    pub(crate) live_edge_key_views: HashMap<String, HashMap<String, Py<PyMultiEdgeKeyView>>>,
     /// br-r37-c1-2ndmw: the endpoint-INDEX twin of `edge_keydict_cache` above,
     /// mirroring what br-r37-c1-f3i50 did for `PyMultiDiGraph`.
     ///
@@ -6420,6 +6421,14 @@ impl PyMultiGraph {
     fn __clear__(slf: &Bound<'_, Self>) {
         let py = slf.py();
         slf.borrow_mut().clear_python_refs(py);
+    }
+
+    pub(crate) fn has_live_edge_key_view(&self, u: &str, v: &str) -> bool {
+        let (lo, hi) = if u <= v { (u, v) } else { (v, u) };
+        self.live_edge_key_views
+            .get(lo)
+            .and_then(|m| m.get(hi))
+            .is_some()
     }
 }
 
@@ -6514,6 +6523,11 @@ impl PyMultiGraph {
             }
         }
         self.live_keydict_rows.traverse(visit)?;
+        for row in self.live_edge_key_views.values() {
+            for view in row.values() {
+                visit.call(view)?;
+            }
+        }
         self.has_edge_node_index_cache.traverse(visit)
     }
 
@@ -6534,6 +6548,7 @@ impl PyMultiGraph {
         *self.node_iter_mirror.get_mut().unwrap() = None;
         self.edge_keydict_cache = None;
         self.live_keydict_rows.clear_in_place(py);
+        self.live_edge_key_views.clear();
         self.edge_keydict_by_index.clear(); // br-r37-c1-2ndmw
         self.edge_py_attrs_by_index.clear(); // br-r37-c1-f3i50
         self.has_edge_node_index_cache.clear(py);
@@ -7064,6 +7079,7 @@ impl PyMultiGraph {
     /// return directly out of a single `get`, so a warm keydict build hashes
     /// each key once rather than three times (this, plus the `edge_py_keys`
     /// probe above).
+    #[allow(dead_code)]
     fn edge_py_attrs_cloned_with_key(
         &mut self,
         py: Python<'_>,
@@ -7215,6 +7231,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8220,7 +8237,7 @@ impl MultiAtlasView {
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<MultiKeyDictView>> {
         let g = self.graph.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
-        if !g.inner.has_edge(&self.node, &v_canon) {
+        if !g.inner.has_edge(&self.node, &v_canon) && !g.has_live_edge_key_view(&self.node, &v_canon) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
         // br-r37-c1-6r00i: HAND THE POSITIONS DOWN. This is the one place that
@@ -8291,10 +8308,12 @@ impl MultiAtlasView {
             && node_key_can_use_index_lookaside(v)
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
         {
-            return Ok(g.inner.has_edge_by_indices(u_index, v_index));
+            if g.inner.has_edge_by_indices(u_index, v_index) {
+                return Ok(true);
+            }
         }
         let v_canon = node_key_to_string(py, v)?;
-        Ok(g.inner.has_edge(&self.node, &v_canon))
+        Ok(g.inner.has_edge(&self.node, &v_canon) || g.has_live_edge_key_view(&self.node, &v_canon))
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
@@ -8651,6 +8670,349 @@ impl MultiKeyDictView {
             "AtlasView({})",
             materialized.bind(py).repr()?.to_str()?
         ))
+    }
+
+    fn __bool__(&self, py: Python<'_>) -> bool {
+        self.__len__(py) > 0
+    }
+}
+
+/// Live write-through keydict mirror for MultiGraph edge pairs (br-r37-c1-epic-storage-architecture-yr2oc.2, resolving br-r37-c1-f3i50 and br-r37-c1-himzq).
+#[pyclass(module = "franken_networkx", name = "MultiEdgeKeyView", mapping)]
+pub struct PyMultiEdgeKeyView {
+    pub(crate) graph: Py<PyMultiGraph>,
+    pub(crate) source: String,
+    pub(crate) target: String,
+}
+
+#[pymethods]
+impl PyMultiEdgeKeyView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
+    fn __len__(&self, py: Python<'_>) -> usize {
+        self.graph
+            .borrow(py)
+            .inner
+            .edge_keys_iter(&self.source, &self.target)
+            .map_or(0, Iterator::count)
+    }
+
+    fn __contains__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let g = self.graph.borrow(py);
+        Ok(
+            g.resolve_internal_edge_key(py, &self.source, &self.target, key)?
+                .is_some(),
+        )
+    }
+
+    fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let mut g = self.graph.borrow_mut(py);
+        let Some(internal_key) =
+            g.resolve_internal_edge_key(py, &self.source, &self.target, key)?
+        else {
+            return Err(PyKeyError::new_err((key.clone().unbind(),)));
+        };
+        g.mark_edges_dirty();
+        let attrs = g
+            .ensure_edge_py_attrs(py, &self.source, &self.target, internal_key)
+            .clone_ref(py);
+        Ok(attrs)
+    }
+
+    fn __setitem__(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let dict_bound: Bound<'_, PyDict> = if let Ok(d) = value.cast::<PyDict>() {
+            d.clone()
+        } else if let Ok(m) = value.cast::<pyo3::types::PyMapping>() {
+            let builtins = py.import("builtins")?;
+            builtins
+                .getattr("dict")?
+                .call1((m,))?
+                .extract::<Bound<'_, PyDict>>()?
+        } else {
+            return Err(PyTypeError::new_err(format!(
+                "fnx: a multigraph keydict entry must be a mapping of edge attributes; got {}",
+                value.get_type().name()?
+            )));
+        };
+
+        let mut g = self.graph.borrow_mut(py);
+        let existing = g.resolve_internal_edge_key(py, &self.source, &self.target, key)?;
+        if let Some(internal_key) = existing {
+            let attrs = g.ensure_edge_py_attrs(py, &self.source, &self.target, internal_key);
+            let bound_attrs = attrs.bind(py);
+            bound_attrs.clear();
+            bound_attrs.update(dict_bound.as_mapping())?;
+            g.mark_edges_dirty();
+        } else {
+            let u_obj = g.py_node_key(py, &self.source);
+            let v_obj = g.py_node_key(py, &self.target);
+            g.add_edge(
+                py,
+                u_obj.bind(py),
+                v_obj.bind(py),
+                Some(key),
+                Some(&dict_bound),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn __delitem__(slf: &Bound<'_, Self>, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
+        let view = slf.borrow();
+        let (source, target) = (view.source.clone(), view.target.clone());
+        let graph_py = view.graph.clone_ref(py);
+        drop(view);
+
+        let mut g = graph_py.borrow_mut(py);
+        let Some(_) = g.resolve_internal_edge_key(py, &source, &target, key)? else {
+            return Err(PyKeyError::new_err((key.clone().unbind(),)));
+        };
+        let u_obj = g.py_node_key(py, &source);
+        let v_obj = g.py_node_key(py, &target);
+        g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), Some(key))?;
+        if !g.inner.has_edge(&source, &target) {
+            let (lo, hi) = if source <= target {
+                (source, target)
+            } else {
+                (target, source)
+            };
+            g.live_edge_key_views
+                .entry(lo)
+                .or_default()
+                .insert(hi, slf.clone().unbind());
+        }
+        Ok(())
+    }
+
+    #[pyo3(signature = (key, *default))]
+    fn pop(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        default: &Bound<'_, pyo3::types::PyTuple>,
+    ) -> PyResult<PyObject> {
+        if default.len() > 1 {
+            return Err(PyTypeError::new_err(format!(
+                "pop expected at most 2 arguments, got {}",
+                default.len() + 1
+            )));
+        }
+        let view = slf.borrow();
+        let (source, target) = (view.source.clone(), view.target.clone());
+        let graph_py = view.graph.clone_ref(py);
+        drop(view);
+
+        let mut g = graph_py.borrow_mut(py);
+        let existing = g.resolve_internal_edge_key(py, &source, &target, key)?;
+        if let Some(internal_key) = existing {
+            let attrs = g
+                .ensure_edge_py_attrs(py, &source, &target, internal_key)
+                .clone_ref(py);
+            let u_obj = g.py_node_key(py, &source);
+            let v_obj = g.py_node_key(py, &target);
+            g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), Some(key))?;
+            if !g.inner.has_edge(&source, &target) {
+                let (lo, hi) = if source <= target {
+                    (source, target)
+                } else {
+                    (target, source)
+                };
+                g.live_edge_key_views
+                    .entry(lo)
+                    .or_default()
+                    .insert(hi, slf.clone().unbind());
+            }
+            Ok(attrs.into_any())
+        } else if !default.is_empty() {
+            Ok(default.get_item(0)?.unbind())
+        } else {
+            Err(PyKeyError::new_err((key.clone().unbind(),)))
+        }
+    }
+
+    fn clear(slf: &Bound<'_, Self>, py: Python<'_>) -> PyResult<()> {
+        let view = slf.borrow();
+        let (source, target) = (view.source.clone(), view.target.clone());
+        let graph_py = view.graph.clone_ref(py);
+        drop(view);
+
+        let mut g = graph_py.borrow_mut(py);
+        let u_obj = g.py_node_key(py, &source);
+        let v_obj = g.py_node_key(py, &target);
+        while g.inner.has_edge(&source, &target) {
+            if g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), None)
+                .is_err()
+            {
+                break;
+            }
+        }
+        let (lo, hi) = if source <= target {
+            (source, target)
+        } else {
+            (target, source)
+        };
+        g.live_edge_key_views
+            .entry(lo)
+            .or_default()
+            .insert(hi, slf.clone().unbind());
+        Ok(())
+    }
+
+    #[pyo3(signature = (other=None, **kwargs))]
+    fn update(
+        &self,
+        py: Python<'_>,
+        other: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        if let Some(o) = other {
+            if let Ok(keys_meth) = o.getattr("keys") {
+                let keys = keys_meth.call0()?;
+                for k in keys.try_iter()? {
+                    let k = k?;
+                    let v = o.get_item(&k)?;
+                    self.__setitem__(py, &k, &v)?;
+                }
+            } else {
+                for pair in o.try_iter()? {
+                    let pair = pair?;
+                    let k = pair.get_item(0)?;
+                    let v = pair.get_item(1)?;
+                    self.__setitem__(py, &k, &v)?;
+                }
+            }
+        }
+        if let Some(kw) = kwargs {
+            for (k, v) in kw.iter() {
+                self.__setitem__(py, &k, &v)?;
+            }
+        }
+        Ok(())
+    }
+
+    #[pyo3(signature = (key, default=None))]
+    fn setdefault(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        default: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        if self.__contains__(py, key)? {
+            let val = self.__getitem__(py, key)?;
+            return Ok(val.into_any());
+        }
+        let def_val = if let Some(d) = default {
+            d.clone()
+        } else {
+            PyDict::new(py).into_any()
+        };
+        self.__setitem__(py, key, &def_val)?;
+        let val = self.__getitem__(py, key)?;
+        Ok(val.into_any())
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
+        let g = self.graph.borrow(py);
+        let keys: Vec<PyObject> = g
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|key| g.py_edge_key(py, &self.source, &self.target, key))
+            .collect();
+        Py::new(py, NodeIterator::unguarded(keys))
+    }
+
+    fn keys(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
+        self.__iter__(py)
+    }
+
+    fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
+        let mut g = self.graph.borrow_mut(py);
+        let keys = g
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .unwrap_or_default();
+        if !keys.is_empty() {
+            g.mark_edges_dirty();
+        }
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            let attrs = g
+                .ensure_edge_py_attrs(py, &self.source, &self.target, key)
+                .clone_ref(py);
+            let py_key = g.py_edge_key(py, &self.source, &self.target, key);
+            out.push((py_key, attrs));
+        }
+        Ok(out)
+    }
+
+    fn values(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
+        Ok(self
+            .items(py)?
+            .into_iter()
+            .map(|(_, attrs)| attrs)
+            .collect())
+    }
+
+    #[pyo3(signature = (key, default=None))]
+    fn get(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+        default: Option<PyObject>,
+    ) -> PyResult<PyObject> {
+        match self.__getitem__(py, key) {
+            Ok(value) => Ok(value.into_any()),
+            Err(e) if e.is_instance_of::<PyKeyError>(py) => {
+                Ok(default.unwrap_or_else(|| py.None()))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let g = self.graph.borrow(py);
+        let result = PyDict::new(py);
+        for key in g
+            .inner
+            .edge_keys(&self.source, &self.target)
+            .unwrap_or_default()
+        {
+            let edge_key = PyMultiGraph::edge_key(&self.source, &self.target, key);
+            let attrs = match g.edge_py_attrs.get(&edge_key) {
+                Some(attrs) => attrs.bind(py).copy()?.unbind(),
+                None => PyDict::new(py).unbind(),
+            };
+            result.set_item(g.py_edge_key(py, &self.source, &self.target, key), attrs)?;
+        }
+        Ok(result.unbind())
+    }
+
+    fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let dict_copy = self.copy(py)?;
+        dict_copy.bind(py).eq(other)
+    }
+
+    fn __ne__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Ok(!self.__eq__(py, other)?)
+    }
+
+    fn __str__(&self, py: Python<'_>) -> PyResult<String> {
+        let dict_copy = self.copy(py)?;
+        Ok(dict_copy.bind(py).str()?.to_string())
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let dict_copy = self.copy(py)?;
+        Ok(dict_copy.bind(py).repr()?.to_string())
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
@@ -9145,10 +9507,10 @@ impl PyMultiGraph {
         Ok(())
     }
 
-    /// If key is None, returns a dict of key -> attr_dict.
+    /// If key is None, returns a dict-like live write-through keydict mirror.
     #[pyo3(signature = (u, v, key=None, default=None))]
     fn get_edge_data(
-        &mut self,
+        slf: &Bound<'_, Self>,
         py: Python<'_>,
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
@@ -9160,254 +9522,73 @@ impl PyMultiGraph {
         // an explicit multiedge key.
         hash_key_as_dict_would(u)?;
         hash_key_as_dict_would(v)?;
-        // br-r37-c1-f3i50: KEYED index probe, before any canonical is built.
-        //
-        // `G.edges[u, v, k]` measured 0.0754x at 2000-character node keys — the
-        // worst cell on this surface — because everything below is O(node key
-        // length): both endpoints canonicalise, `resolve_internal_edge_key`
-        // hashes them, and `ensure_edge_py_attrs` hashes them again. A hit here
-        // is one hash of three `usize`s, off CPython's cached `str` hash.
-        //
-        // MultiDiGraph has had this since br-r37-c1-7qqr8; the undirected class
-        // never got it. Gated exactly like that twin: an exact nonnegative
-        // `PyInt` public key IS the internal key while `has_remapped_int_key` is
-        // false, so nothing is skipped, only repeated. Anything else falls
-        // through unchanged.
-        // br-r37-c1-ktsxn: THE GATE HERE MUST MATCH THE FILL AT THE BOTTOM OF
-        // THIS FUNCTION, and it did not. The fill was widened to
-        // exact-`str`-OR-exact-`int` and this probe stayed exact-`str`, so on an
-        // int-keyed multigraph the keyed lookaside was FILLED on every call and
-        // could never be READ - the graph paid to populate a cache it was
-        // structurally forbidden from consulting, then fell through to two
-        // canonicalisations, `resolve_internal_edge_key` and
-        // `ensure_edge_py_attrs` anyway.
-        //
-        // This is ede473b68 inverted. There the unkeyed PROBE was wide and the
-        // FILL narrow; here the keyed FILL is wide and the PROBE narrow. Same
-        // bug class, opposite halves, and the comment on the fill already
-        // asserted the two matched.
-        //
-        // Measured before this changed, raw PyO3 `get_edge_data(u, v, key,
-        // default)` per call: MultiGraph 338.6ns on int keys against 144.8ns on
-        // str, a 2.34x key-type penalty, and MultiDiGraph 347.7ns against
-        // 168.1ns, 2.07x. Graph and DiGraph both sit at 0.97-0.98x, i.e. int is
-        // marginally FASTER there - only the multigraphs invert.
-        if let Some(key_obj) = key
-            && !self.has_remapped_int_key
-            && key_obj.is_exact_instance_of::<PyInt>()
-            && node_key_can_use_index_lookaside(u)
-            && node_key_can_use_index_lookaside(v)
-            && let Ok(internal_key) = key_obj.extract::<usize>()
-            && let Some(ui) = self.cached_exact_string_node_index(py, u)?
-            && let Some(vi) = self.cached_exact_string_node_index(py, v)?
-            && let Some(attrs) = self.cached_keyed_edge_attrs_by_index(py, ui, vi, internal_key)
-        {
-            self.mark_edges_dirty();
-            return Ok(attrs.into_any());
-        }
+
         if let Some(key_obj) = key {
+            let mut this = slf.borrow_mut();
+            if !this.has_remapped_int_key
+                && key_obj.is_exact_instance_of::<PyInt>()
+                && node_key_can_use_index_lookaside(u)
+                && node_key_can_use_index_lookaside(v)
+                && let Ok(internal_key) = key_obj.extract::<usize>()
+                && let Some(ui) = this.cached_exact_string_node_index(py, u)?
+                && let Some(vi) = this.cached_exact_string_node_index(py, v)?
+                && let Some(attrs) = this.cached_keyed_edge_attrs_by_index(py, ui, vi, internal_key)
+            {
+                this.mark_edges_dirty();
+                return Ok(attrs.into_any());
+            }
             hash_key_as_dict_would(key_obj)?;
-        }
-        // br-r37-c1-2ndmw: INDEX-keyed keydict probe, before ANY canonical is
-        // built. Mirrors br-r37-c1-f3i50 on the directed sibling, which this
-        // call was 6.5x behind on the identical workload purely for want of it.
-        //
-        // This sits IN FRONT OF the string-keyed cache and does not replace it.
-        // That cache (and ed315dd2d's count guard on it) removes the O(parallel
-        // edges) rebuild and the copy; what it cannot remove is the cost of
-        // REACHING it, which is two canonicalisations and two full-length
-        // hashes — the entire remaining key-length slope on this call. These
-        // indices come from CPython's cached `str` hash instead.
-        //
-        // ORDER-NORMALISED, because this graph is undirected and the string
-        // cache it mirrors normalises too. Without this, `G.get_edge_data(v, u)`
-        // would miss an entry filled by `G.get_edge_data(u, v)`.
-        //
-        // Unkeyed calls only: `key.is_none()` is the branch returning the whole
-        // keydict. The generation check is on BOTH sequences, matching what the
-        // string cache is checked against — `nodes_seq` alone let a warm read
-        // survive an `add_edge` and hand back a stale mapping. A hit is
-        // existence proof: entries are recorded only for pairs that had edges.
-        //
-        // The entry-count guard and the LIVE return are carried over from
-        // ed315dd2d deliberately: this path must not reintroduce the copy it
-        // removed, nor lose the identity contract that makes repeated reads the
-        // same object as networkx's are. A mismatch falls through to the
-        // rebuild rather than trusting a dict that was tampered with.
-        if key.is_none()
-            && node_key_can_use_index_lookaside(u)
-            && node_key_can_use_index_lookaside(v)
-            && let Some(ui) = self.cached_exact_string_node_index(py, u)?
-            && let Some(vi) = self.cached_exact_string_node_index(py, v)?
-            && let Some((ns, es, expected_len, cached)) =
-                self.edge_keydict_by_index
-                    .get(&if ui <= vi { (ui, vi) } else { (vi, ui) })
-            && *ns == self.nodes_seq
-            && *es == self.edges_seq
-            && cached.bind(py).len() == *expected_len
-        {
-            let live = cached.clone_ref(py);
-            self.mark_edges_dirty();
-            return Ok(live.into_any());
-        }
-        // br-r37-c1-vz4v9: this body had no fast path — it canonicalized BOTH
-        // endpoints onto the heap on every call, so each `get_edge_data` probe
-        // malloc'd and freed two Strings purely to look them up. The membership
-        // lever (br-r37-c1-oe93x) proved removing exactly that allocation is
-        // worth 8-19% build-over-build on `has_node` / `n in G`.
-        //
-        // Unlike `has_edge`, there is no interned-index fast path ahead of this,
-        // so the borrowed key is the whole optimisation here rather than a
-        // second-best one.
-        let mut u_buf = ArrayString::new();
-        let mut v_buf = ArrayString::new();
-        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
-        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
-        let u_c = u_key.as_str();
-        let v_c = v_key.as_str();
-        if let Some(key_obj) = key {
-            let Some(internal_key) = self.resolve_internal_edge_key(py, u_c, v_c, key_obj)? else {
+            let mut u_buf = ArrayString::new();
+            let mut v_buf = ArrayString::new();
+            let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+            let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+            let u_c = u_key.as_str();
+            let v_c = v_key.as_str();
+
+            let Some(internal_key) = this.resolve_internal_edge_key(py, u_c, v_c, key_obj)? else {
                 return Ok(default.unwrap_or_else(|| py.None()));
             };
-            self.mark_edges_dirty();
-            let attrs = self
+            this.mark_edges_dirty();
+            let attrs = this
                 .ensure_edge_py_attrs(py, u_c, v_c, internal_key)
                 .clone_ref(py);
-            // br-r37-c1-f3i50: fill the keyed index lookaside with the SAME dict
-            // the string-keyed mirror just returned, so the two can never
-            // disagree about identity. Same exact-scalar gate as the probe at
-            // the top of this function (br-r37-c1-ktsxn: `str` or `int`).
             if node_key_can_use_index_lookaside(u)
                 && node_key_can_use_index_lookaside(v)
-                && let Some(ui) = self.cached_exact_string_node_index(py, u)?
-                && let Some(vi) = self.cached_exact_string_node_index(py, v)?
+                && let Some(ui) = this.cached_exact_string_node_index(py, u)?
+                && let Some(vi) = this.cached_exact_string_node_index(py, v)?
             {
-                self.remember_keyed_edge_attrs_by_index(py, ui, vi, internal_key, &attrs);
+                this.remember_keyed_edge_attrs_by_index(py, ui, vi, internal_key, &attrs);
             }
             Ok(attrs.into_any())
         } else {
-            // br-r37-c1-ptiz2: serve a warm endpoint pair from the keydict cache.
-            //
-            // The rebuild below is O(parallel edges) and networkx is O(1), which
-            // is the entire defect on this row. A hit returns a SHALLOW COPY of
-            // the cached mapping: same observable contract as rebuilding (a
-            // fresh dict per call, values are the same live attribute dicts),
-            // at ~451ns against ~16623ns.
-            //
-            // The generation is checked FIRST and a stale one drops the whole
-            // map, so no keydict can survive an edge or node mutation.
+            let mut u_buf = ArrayString::new();
+            let mut v_buf = ArrayString::new();
+            let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+            let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+            let u_c = u_key.as_str();
+            let v_c = v_key.as_str();
+
+            let mut this = slf.borrow_mut();
+            if !this.inner.has_edge(u_c, v_c) {
+                return Ok(default.unwrap_or_else(|| py.None()));
+            }
             let (lo, hi) = if u_c <= v_c { (u_c, v_c) } else { (v_c, u_c) };
-            let fresh = matches!(
-                &self.edge_keydict_cache,
-                Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
-            );
-            if !fresh {
-                self.edge_keydict_cache = Some((self.nodes_seq, self.edges_seq, HashMap::new()));
+            if let Some(view) = this.live_edge_key_views.get(lo).and_then(|r| r.get(hi)) {
+                return Ok(view.clone_ref(py).into_any());
             }
-            let mut cached_row_was_tampered = false;
-            if let Some((_, _, rows)) = &self.edge_keydict_cache
-                && let Some((expected_len, cached)) = rows.get(lo).and_then(|row| row.get(hi))
-            {
-                // br-r37-c1-f3i50: hand back the CACHED dict, not a copy, guarded
-                // by its entry count.
-                //
-                // networkx returns `self._adj[u][v]` itself, so repeated reads
-                // are the SAME object. Copying diverged from that AND made the
-                // read O(parallel edges) — 0.2311x at par=64, the worst
-                // vs-incumbent cell measured on this pane. The copy existed so a
-                // caller mutating the returned mapping could not corrupt the
-                // cache.
-                //
-                // The length guard replaces that protection without paying
-                // O(par): an insert or delete changes the entry count, the next
-                // read sees the mismatch and rebuilds, so the mapping agrees with
-                // `G.edges` and `number_of_edges` again. That is exactly the
-                // self-consistency `test_insertion_does_not_corrupt_the_graph_
-                // either_way` pins.
-                //
-                // It does NOT make insertion create a real edge the way networkx
-                // does; that needs a write-through mapping, and its xfail stays.
-                // On a MISMATCH, fall through to the rebuild below rather than
-                // copying — the cached dict is the one that was tampered with,
-                // so copying it would propagate the phantom key instead of
-                // healing it. The rebuild re-inserts under the same pair key and
-                // overwrites the stale entry.
-                if cached.bind(py).len() == *expected_len {
-                    let live = cached.clone_ref(py);
-                    self.mark_edges_dirty();
-                    return Ok(live.into_any());
-                }
-                // `live_keydict_rows` stores this same object to keep genuine
-                // graph mutations visible to callers that retained it. It is
-                // not an independent source of truth, so do not immediately
-                // return the known-tampered mapping through that second cache.
-                cached_row_was_tampered = true;
-            }
-            if !cached_row_was_tampered
-                && let Some(live) = self.live_keydict_rows.get_if_pristine(py, lo, hi)
-            {
-                self.mark_edges_dirty();
-                return Ok(live.into_any());
-            }
-            let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
-            if keys.is_empty() {
-                Ok(default.unwrap_or_else(|| py.None()))
-            } else {
-                self.mark_edges_dirty();
-                let result = PyDict::new(py);
-                // br-r37-c1-ptiz2: build the endpoint half of the edge key ONCE.
-                //
-                // Both `ensure_edge_py_attrs` and `py_edge_key` call
-                // `Self::edge_key(u, v, k)` internally, and that helper does
-                // `u.to_owned(), v.to_owned()` — so this loop allocated FOUR
-                // full-length node-key strings per parallel edge, all of them
-                // byte-identical across iterations, to vary one `usize`. That is
-                // the whole reason this call degrades linearly in the parallel
-                // count while networkx (which hands back its existing keydict) is
-                // flat: measured 360ns at par=1 rising to 30366ns at par=128,
-                // against a flat 95-103ns for nx.
-                //
-                // Reusing one tuple and overwriting `.2` leaves exactly two
-                // allocations for the whole call. The residual O(par) is then the
-                // dict build itself, which is the same floor the sibling
-                // `G[u][v]` already sits at.
-                let mut ek = Self::edge_key(u_c, v_c, 0);
-                for k in keys {
-                    ek.2 = k;
-                    let attrs = self.edge_py_attrs_cloned_with_key(py, u_c, v_c, k, &ek);
-                    let py_key = self.py_edge_key_with_key(py, k, &ek);
-                    result.set_item(py_key, attrs.bind(py))?;
-                }
-                // br-r37-c1-ptiz2: remember it, then hand back a COPY — the
-                // caller must never receive the cached object, or a mutation
-                // through it would corrupt the cache (see the field's note).
-                let stored_len = result.len();
-                let live = result.unbind();
-                // br-r37-c1-2ndmw: fill the index twin with the SAME object and
-                // the SAME count guard the string-keyed cache stores, so a warm
-                // read by either key hands back one live mapping, and stamp BOTH
-                // sequences. The pair is order-normalised to match the probe.
-                if node_key_can_use_index_lookaside(u) && node_key_can_use_index_lookaside(v) {
-                    let indices = (
-                        self.cached_exact_string_node_index(py, u)?,
-                        self.cached_exact_string_node_index(py, v)?,
-                    );
-                    if let (Some(ui), Some(vi)) = indices {
-                        let (ns, es) = (self.nodes_seq, self.edges_seq);
-                        let pair = if ui <= vi { (ui, vi) } else { (vi, ui) };
-                        self.edge_keydict_by_index
-                            .insert(pair, (ns, es, stored_len, live.clone_ref(py)));
-                    }
-                }
-                if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
-                    rows.entry(lo.to_owned())
-                        .or_default()
-                        .insert(hi.to_owned(), (stored_len, live.clone_ref(py)));
-                }
-                self.live_keydict_rows
-                    .insert(py, lo.to_owned(), hi.to_owned(), live.clone_ref(py));
-                Ok(live.into_any())
-            }
+            let view = Py::new(
+                py,
+                PyMultiEdgeKeyView {
+                    graph: slf.clone().unbind(),
+                    source: lo.to_owned(),
+                    target: hi.to_owned(),
+                },
+            )?;
+            this.live_edge_key_views
+                .entry(lo.to_owned())
+                .or_default()
+                .insert(hi.to_owned(), view.clone_ref(py));
+            Ok(view.into_any())
         }
     }
 
@@ -9535,6 +9716,10 @@ impl PyMultiGraph {
         self.neighbor_key_rows = None;
         self.live_keydict_rows
             .remove_touching_in_place(py, &canonical);
+        self.live_edge_key_views.remove(&canonical);
+        for row in self.live_edge_key_views.values_mut() {
+            row.remove(&canonical);
+        }
 
         // surgically remove attributes for incident edges before removing node from inner graph
         let neighbors = self
@@ -11945,6 +12130,9 @@ impl PyMultiGraph {
             self.live_keydict_rows.remove_in_place(py, lo, hi);
         }
         if !pair_remaining {
+            if let Some(m) = self.live_edge_key_views.get_mut(lo) {
+                m.remove(hi);
+            }
             if !self.adj_py_keys.is_empty() {
                 // br-r37-c1-z6uka: the LAST parallel key removed empties the
                 // adjacency cell — drop its row overrides (a re-add creates
@@ -12014,6 +12202,7 @@ impl PyMultiGraph {
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
         self.live_keydict_rows.clear_in_place(py);
+        self.live_edge_key_views.clear();
         // br-r37-c1-clrow: DROP THE NEIGHBOUR ROW CACHE, like every other mirror
         // above. It is stamped with (nodes_seq, edges_seq) and both are bumped
         // below, so a survivor would normally be rejected on read -- but leaving
@@ -13392,6 +13581,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -13503,6 +13693,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -13578,6 +13769,7 @@ impl PyMultiGraph {
             pred_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -13678,6 +13870,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -13774,6 +13967,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -13870,6 +14064,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -13984,6 +14179,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -14097,6 +14293,7 @@ impl PyMultiGraph {
             pred_key_rows: None,
             edge_keydict_cache: None,
             live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            live_edge_key_views: HashMap::new(),
             edge_keydict_by_index: HashMap::new(),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -22170,6 +22367,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Graph class
     m.add_class::<PyGraph>()?;
     m.add_class::<PyMultiGraph>()?;
+    m.add_class::<PyMultiEdgeKeyView>()?;
     m.add_class::<NodeIterator>()?;
 
     // DiGraph class + views

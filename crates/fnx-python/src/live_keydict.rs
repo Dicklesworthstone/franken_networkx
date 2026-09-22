@@ -27,6 +27,7 @@ impl LiveKeydictRows {
             .map(|row| row.dict.clone_ref(py))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn get_if_pristine(
         &self,
         py: Python<'_>,
@@ -40,6 +41,7 @@ impl LiveKeydictRows {
             .map(|row| row.dict.clone_ref(py))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn insert(
         &mut self,
         py: Python<'_>,

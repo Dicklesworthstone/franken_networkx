@@ -2928,6 +2928,10 @@ class AtlasView(_Mapping):
 # an extension type a virtual ``collections.abc.Mapping`` subclass on its own.
 # Register it once so callers see the same abstract type as NetworkX's view.
 _Mapping.register(_fnx.AtlasView)
+if hasattr(_fnx, "MultiEdgeKeyView"):
+    _Mapping.register(_fnx.MultiEdgeKeyView)
+if hasattr(_fnx, "MultiDiEdgeKeyView"):
+    _Mapping.register(_fnx.MultiDiEdgeKeyView)
 
 
 def _graph_is_filtered(graph, _depth=0):
@@ -3244,6 +3248,28 @@ class AdjacencyView(_Mapping):
                 # pyclass was added for; the flag is certified at no cost on G[u]
                 # (1.1587x before / 1.1580x after vs networkx, common-mode 0.9999).
                 view = _private_writable_class(_fnx.AtlasView)(owner, node)
+            elif (
+                getattr(self, "_fnx_multi_edge_owner", None) is not None
+                or (owner is not None and getattr(owner, "is_multigraph", lambda: False)())
+            ):
+                multigraph_owner = (
+                    getattr(self, "_fnx_write_owner", None)
+                    or self._fnx_multi_edge_owner
+                    or owner
+                )
+                parent_node = getattr(self, "_fnx_write_node", None)
+                if parent_node is not None and not _has_networkx_private_storage(multigraph_owner):
+                    if getattr(self, "_fnx_write_kind", "adj") == "pred":
+                        return multigraph_owner.get_edge_data(node, parent_node)
+                    return multigraph_owner.get_edge_data(parent_node, node)
+                view = _private_writable_class(AtlasView)(
+                    lambda: self._atlas()[node],
+                    owner=owner,
+                    row_node=node,
+                    row_kind=self._fnx_row_kind,
+                    multi_edge_owner=self._fnx_multi_edge_owner,
+                )
+                _private_mark_child(self, view, owner, node)
             else:
                 # br-r37-c1-rgmef: identical read construction, writable class.
                 view = _private_writable_class(AtlasView)(
@@ -3253,7 +3279,7 @@ class AdjacencyView(_Mapping):
                     row_kind=self._fnx_row_kind,
                     multi_edge_owner=self._fnx_multi_edge_owner,
                 )
-            _private_mark_child(self, view, owner, node)
+                _private_mark_child(self, view, owner, node)
         elif type(owner) is Graph and not _has_networkx_private_storage(owner):
             # br-r37-c1-ey6ob: the native AtlasView owns a C-level
             # ``__getitem__`` slot, so the cold G[u][v] path avoids the
