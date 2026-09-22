@@ -127,13 +127,6 @@ def test_repeated_reads_return_the_same_object(class_name):
 
 
 @pytest.mark.parametrize("class_name", CLASSES)
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-f3i50: insertion into the returned mapping must create a "
-    "real edge, as it does in networkx (number_of_edges 2->3, degree 3). That "
-    "needs a WRITE-THROUGH mapping, not merely a live mirror — the same write "
-    "barrier br-r37-c1-igdzi needs.",
-)
 def test_keydict_insertion_creates_a_real_edge(class_name):
     # Establish the contract from live networkx, not from a hard-coded number.
     reference = _pair(nx, class_name)

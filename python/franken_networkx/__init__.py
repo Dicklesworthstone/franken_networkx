@@ -28,6 +28,7 @@ from collections.abc import (
     Iterable as _Iterable,
     Iterator as _Iterator,
     Mapping as _Mapping,
+    MutableMapping as _MutableMapping,
     Set as _Set,
 )
 from copy import deepcopy as _deepcopy
@@ -2930,8 +2931,10 @@ class AtlasView(_Mapping):
 _Mapping.register(_fnx.AtlasView)
 if hasattr(_fnx, "MultiEdgeKeyView"):
     _Mapping.register(_fnx.MultiEdgeKeyView)
+    _MutableMapping.register(_fnx.MultiEdgeKeyView)
 if hasattr(_fnx, "MultiDiEdgeKeyView"):
     _Mapping.register(_fnx.MultiDiEdgeKeyView)
+    _MutableMapping.register(_fnx.MultiDiEdgeKeyView)
 
 
 def _graph_is_filtered(graph, _depth=0):

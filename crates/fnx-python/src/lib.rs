@@ -8237,7 +8237,9 @@ impl MultiAtlasView {
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<MultiKeyDictView>> {
         let g = self.graph.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
-        if !g.inner.has_edge(&self.node, &v_canon) && !g.has_live_edge_key_view(&self.node, &v_canon) {
+        if !g.inner.has_edge(&self.node, &v_canon)
+            && !g.has_live_edge_key_view(&self.node, &v_canon)
+        {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
         // br-r37-c1-6r00i: HAND THE POSITIONS DOWN. This is the one place that
@@ -8313,7 +8315,10 @@ impl MultiAtlasView {
             }
         }
         let v_canon = node_key_to_string(py, v)?;
-        Ok(g.inner.has_edge(&self.node, &v_canon) || g.has_live_edge_key_view(&self.node, &v_canon))
+        Ok(
+            g.inner.has_edge(&self.node, &v_canon)
+                || g.has_live_edge_key_view(&self.node, &v_canon),
+        )
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
@@ -9569,12 +9574,12 @@ impl PyMultiGraph {
             let v_c = v_key.as_str();
 
             let mut this = slf.borrow_mut();
-            if !this.inner.has_edge(u_c, v_c) {
-                return Ok(default.unwrap_or_else(|| py.None()));
-            }
             let (lo, hi) = if u_c <= v_c { (u_c, v_c) } else { (v_c, u_c) };
             if let Some(view) = this.live_edge_key_views.get(lo).and_then(|r| r.get(hi)) {
                 return Ok(view.clone_ref(py).into_any());
+            }
+            if !this.inner.has_edge(u_c, v_c) {
+                return Ok(default.unwrap_or_else(|| py.None()));
             }
             let view = Py::new(
                 py,

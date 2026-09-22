@@ -4234,7 +4234,7 @@ impl MultiDiAtlasView {
         let g = self.graph.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
         let (source, target) = self.endpoint_pair(v_canon);
-        if !g.inner.has_edge(&source, &target) {
+        if !g.inner.has_edge(&source, &target) && !g.has_live_edge_key_view(&source, &target) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
         // br-r37-c1-6r00i: hand the positions down, so every later
@@ -4299,11 +4299,13 @@ impl MultiDiAtlasView {
                 MultiDiAdjKind::Successors => (row_index, other_index),
                 MultiDiAdjKind::Predecessors => (other_index, row_index),
             };
-            return Ok(g.inner.has_edge_by_indices(source_idx, target_idx));
+            if g.inner.has_edge_by_indices(source_idx, target_idx) {
+                return Ok(true);
+            }
         }
         let v_canon = node_key_to_string(py, v)?;
         let (source, target) = self.endpoint_pair(v_canon);
-        Ok(g.inner.has_edge(&source, &target))
+        Ok(g.inner.has_edge(&source, &target) || g.has_live_edge_key_view(&source, &target))
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
@@ -4780,20 +4782,31 @@ impl PyMultiDiEdgeKeyView {
         Ok(())
     }
 
-    fn __delitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
-        let mut g = self.graph.borrow_mut(py);
-        let Some(_) = g.resolve_internal_edge_key(py, &self.source, &self.target, key)? else {
+    fn __delitem__(slf: &Bound<'_, Self>, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
+        let view = slf.borrow();
+        let (source, target) = (view.source.clone(), view.target.clone());
+        let graph_py = view.graph.clone_ref(py);
+        drop(view);
+
+        let mut g = graph_py.borrow_mut(py);
+        let Some(_) = g.resolve_internal_edge_key(py, &source, &target, key)? else {
             return Err(PyKeyError::new_err((key.clone().unbind(),)));
         };
-        let u_obj = g.py_node_key(py, &self.source);
-        let v_obj = g.py_node_key(py, &self.target);
+        let u_obj = g.py_node_key(py, &source);
+        let v_obj = g.py_node_key(py, &target);
         g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), Some(key))?;
+        if !g.inner.has_edge(&source, &target) {
+            g.live_edge_key_views
+                .entry(source)
+                .or_default()
+                .insert(target, slf.clone().unbind());
+        }
         Ok(())
     }
 
     #[pyo3(signature = (key, *default))]
     fn pop(
-        &self,
+        slf: &Bound<'_, Self>,
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
         default: &Bound<'_, pyo3::types::PyTuple>,
@@ -4804,15 +4817,26 @@ impl PyMultiDiEdgeKeyView {
                 default.len() + 1
             )));
         }
-        let mut g = self.graph.borrow_mut(py);
-        let existing = g.resolve_internal_edge_key(py, &self.source, &self.target, key)?;
+        let view = slf.borrow();
+        let (source, target) = (view.source.clone(), view.target.clone());
+        let graph_py = view.graph.clone_ref(py);
+        drop(view);
+
+        let mut g = graph_py.borrow_mut(py);
+        let existing = g.resolve_internal_edge_key(py, &source, &target, key)?;
         if let Some(internal_key) = existing {
             let attrs = g
-                .ensure_edge_py_attrs(py, &self.source, &self.target, internal_key)
+                .ensure_edge_py_attrs(py, &source, &target, internal_key)
                 .clone_ref(py);
-            let u_obj = g.py_node_key(py, &self.source);
-            let v_obj = g.py_node_key(py, &self.target);
+            let u_obj = g.py_node_key(py, &source);
+            let v_obj = g.py_node_key(py, &target);
             g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), Some(key))?;
+            if !g.inner.has_edge(&source, &target) {
+                g.live_edge_key_views
+                    .entry(source)
+                    .or_default()
+                    .insert(target, slf.clone().unbind());
+            }
             Ok(attrs.into_any())
         } else if !default.is_empty() {
             Ok(default.get_item(0)?.unbind())
@@ -4821,17 +4845,26 @@ impl PyMultiDiEdgeKeyView {
         }
     }
 
-    fn clear(&self, py: Python<'_>) -> PyResult<()> {
-        let mut g = self.graph.borrow_mut(py);
-        let u_obj = g.py_node_key(py, &self.source);
-        let v_obj = g.py_node_key(py, &self.target);
-        while g.inner.has_edge(&self.source, &self.target) {
+    fn clear(slf: &Bound<'_, Self>, py: Python<'_>) -> PyResult<()> {
+        let view = slf.borrow();
+        let (source, target) = (view.source.clone(), view.target.clone());
+        let graph_py = view.graph.clone_ref(py);
+        drop(view);
+
+        let mut g = graph_py.borrow_mut(py);
+        let u_obj = g.py_node_key(py, &source);
+        let v_obj = g.py_node_key(py, &target);
+        while g.inner.has_edge(&source, &target) {
             if g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), None)
                 .is_err()
             {
                 break;
             }
         }
+        g.live_edge_key_views
+            .entry(source)
+            .or_default()
+            .insert(target, slf.clone().unbind());
         Ok(())
     }
 
@@ -6701,6 +6734,11 @@ impl PyMultiDiGraph {
         } else {
             self.live_keydict_rows
                 .remove_in_place(py, &u_canonical, &v_canonical);
+        }
+        if !pair_remaining {
+            if let Some(m) = self.live_edge_key_views.get_mut(&u_canonical) {
+                m.remove(&v_canonical);
+            }
         }
         // br-r37-c1-dwy1n: drop the neighbour from live direction rows IN
         // PLACE, but ONLY once the LAST parallel edge between the pair is gone.
@@ -10248,11 +10286,11 @@ impl PyMultiDiGraph {
             let v_c = v_key.as_str();
 
             let mut this = slf.borrow_mut();
-            if !this.inner.has_edge(u_c, v_c) {
-                return Ok(default.unwrap_or_else(|| py.None()));
-            }
             if let Some(view) = this.live_edge_key_views.get(u_c).and_then(|r| r.get(v_c)) {
                 return Ok(view.clone_ref(py).into_any());
+            }
+            if !this.inner.has_edge(u_c, v_c) {
+                return Ok(default.unwrap_or_else(|| py.None()));
             }
             let view = Py::new(
                 py,

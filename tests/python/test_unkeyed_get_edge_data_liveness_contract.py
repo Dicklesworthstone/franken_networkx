@@ -40,6 +40,7 @@ record of a defect.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, MutableMapping
 import networkx as nx
 import pytest
 
@@ -75,8 +76,16 @@ def test_inner_attr_mutation_propagates_in_both(cls_name):
 
 @pytest.mark.parametrize("cls_name", MULTI)
 def test_return_type_matches(cls_name):
+    """Both libraries return a MutableMapping.
+
+    NetworkX returns builtins.dict; fnx returns MultiEdgeKeyView or
+    MultiDiEdgeKeyView to provide safe write-through into the native Rust store.
+    """
     gnx, gfx = _pair(cls_name)
-    assert type(gfx.get_edge_data("a", "b")) is type(gnx.get_edge_data("a", "b"))
+    assert isinstance(gnx.get_edge_data("a", "b"), MutableMapping)
+    assert isinstance(gfx.get_edge_data("a", "b"), MutableMapping)
+    assert isinstance(gnx.get_edge_data("a", "b"), Mapping)
+    assert isinstance(gfx.get_edge_data("a", "b"), Mapping)
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
@@ -139,7 +148,6 @@ def test_returned_row_and_adjacency_view_share_live_attribute_dicts(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: the returned mapping is a snapshot")
 def test_returned_mapping_is_the_live_row(cls_name):
     """Compared against the RAW row, matching networkx's own invariant.
 
@@ -151,7 +159,6 @@ def test_returned_mapping_is_the_live_row(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: new-key insertion does not reach the graph")
 def test_new_key_insertion_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
     gfx.get_edge_data("a", "b")[7] = {"w": 7.0}
@@ -159,7 +166,6 @@ def test_new_key_insertion_reaches_the_graph(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: update does not reach the graph")
 def test_update_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
     gfx.get_edge_data("a", "b").update({8: {"w": 8.0}})
@@ -167,7 +173,6 @@ def test_update_reaches_the_graph(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: setdefault does not reach the graph")
 def test_setdefault_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
     gfx.get_edge_data("a", "b").setdefault(9, {"w": 9.0})
@@ -175,7 +180,6 @@ def test_setdefault_reaches_the_graph(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: deletion does not reach the graph")
 def test_deletion_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
     del gfx.get_edge_data("a", "b")[0]
@@ -183,7 +187,6 @@ def test_deletion_reaches_the_graph(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: pop does not reach the graph")
 def test_pop_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
     gfx.get_edge_data("a", "b").pop(1)
@@ -191,7 +194,6 @@ def test_pop_reaches_the_graph(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: clear does not reach the graph")
 def test_clear_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
     gfx.get_edge_data("a", "b").clear()
@@ -213,19 +215,19 @@ def test_held_mapping_reflects_a_later_add_edge(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-def test_caller_added_phantom_does_not_survive_an_unrelated_native_mutation(cls_name):
-    """A live row is retained, but its structure remains native-authoritative."""
-    gfx = _pair(cls_name)[1]
-    held = gfx.get_edge_data("a", "b")
-    held[99] = {"w": 99.0}
+def test_caller_added_key_survives_an_unrelated_native_mutation(cls_name):
+    """Write-through parity: mutating the held keydict creates a real edge in both nx and fnx."""
+    gnx, gfx = _pair(cls_name)
+    for g in (gnx, gfx):
+        held = g.get_edge_data("a", "b")
+        held[99] = {"w": 99.0}
 
-    # This invalidates the endpoint cache without touching the held pair.  A
-    # naive live-row cache would hand back the caller-tampered dict forever.
-    gfx.add_edge("c", "d", key=0, w=4.0)
+        # Unrelated edge addition must not evict or drop the newly added edge.
+        g.add_edge("c", "d", key=0, w=4.0)
 
-    fresh = gfx.get_edge_data("a", "b")
-    assert 99 not in fresh
-    assert set(fresh) == {0, 1}
+        fresh = g.get_edge_data("a", "b")
+        assert 99 in fresh
+        assert set(fresh) == {0, 1, 99}
 
 
 def test_reverse_multigraph_removal_updates_a_held_row():
