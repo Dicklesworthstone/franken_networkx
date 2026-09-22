@@ -16010,7 +16010,7 @@ impl PyDiGraph {
         slf: PyRef<'_, Self>,
         py: Python<'_>,
     ) -> PyResult<Option<Py<DiGraphGuardedEdgeStreamIter>>> {
-        if !slf.succ_py_keys.is_empty() {
+        if !slf.succ_py_keys.is_empty() || !slf.inner.is_compact() {
             return Ok(None);
         }
         let node_keys = slf.cached_node_key_tuple(py);
