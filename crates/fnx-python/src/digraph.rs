@@ -2694,6 +2694,13 @@ impl PyMultiDiGraph {
             .any(|s| s.as_ref().is_some_and(|(_, _, rows, _)| !rows.is_empty()))
     }
 
+    pub(crate) fn has_live_edge_key_view(&self, u: &str, v: &str) -> bool {
+        self.live_edge_key_views
+            .get(u)
+            .and_then(|m| m.get(v))
+            .is_some()
+    }
+
     /// br-r37-c1-bvwam: the `{neighbour: None}` row for one direction, cached
     /// under the current `(nodes_seq, edges_seq)` generation. See
     /// `PyMultiGraph::neighbor_key_row` — the row deliberately holds no edge
