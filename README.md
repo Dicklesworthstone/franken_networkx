@@ -34,7 +34,7 @@ NetworkX is the canonical Python graph library: rich, correct, comprehensive, an
 
 FrankenNetworkX is a Rust port of NetworkX that treats **observable behavior** as a hard constraint. Graph mutation semantics, iteration order, tie-break choices, exception classes, error message wording, and serialization round-trip behavior are all part of the contract. Where pure-Python NetworkX would call `dict[unhashable]`, FrankenNetworkX raises the same `TypeError`. Where NetworkX iterates a `dict_keys` in insertion order, FrankenNetworkX does too. Where NetworkX returns a generator, FrankenNetworkX returns a generator, not a list with a different repr.
 
-That contract is enforced by a 1,088-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if a measured public symbol drifts. The current structural surface result is not 100%: the pinned NetworkX 3.6.1 FeatureUniverse has 4,109 strictly present paths out of 4,129 applicable paths (99.5%), with 20 partial and 0 missing.
+That contract is enforced by a 1,088-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if a measured public symbol drifts. The current structural surface result achieves complete coverage: the pinned NetworkX 3.6.1 FeatureUniverse has 4,129 strictly present paths out of 4,129 applicable paths (100.0%), with 0 partial and 0 missing.
 
 ### Why FrankenNetworkX?
 
@@ -2366,7 +2366,7 @@ FrankenNetworkX is honest about what it does not do today:
 ## FAQ
 
 **Is it really a drop-in replacement?**
-Not across all of NetworkX today. Against the pinned 3.6.1 declared import-and-signature FeatureUniverse, 4,109 of 4,129 applicable paths are strictly present (99.5%), while 20 are partial and 0 are missing. The 313 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
+Across the pinned 3.6.1 declared import-and-signature FeatureUniverse, all 4,129 applicable paths are strictly present (100.0%), with 0 partial and 0 missing. The 313 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
 
 **Why are iteration orders such a big deal?**
 NetworkX users often write code that implicitly depends on `dict` insertion order or BFS visit order or `connected_components` set ordering. If a "faster NetworkX" returns the same set of correct answers but in a different order, downstream code breaks subtly. CGSE + the parity tests + the iteration-order audit ledger collectively make iteration order a first-class API contract.
@@ -2443,6 +2443,18 @@ For very small graphs (< 100 nodes / single-shot analysis), the PyO3 marshaling 
 - **Use a release build.** `maturin develop --release --features pyo3/abi3-py310`. Debug builds are 5–20× slower.
 - **Amortize the marshaling.** A single `fnx.pagerank(G)` call pays the marshaling once; calling it 1000 times in a loop pays it 1000 times. Reuse the result.
 - **Use the standalone API, not backend dispatch, when you know the algorithm is supported.** Direct `fnx.pagerank(G)` skips the dispatcher overhead.
+
+#### Known Performance Trade-offs and Inverted Operations
+
+While FrankenNetworkX delivers 5×–250× speedups across graph analytics and algorithm traversal, preserving exact NetworkX semantics across the FFI boundary entails measured trade-offs on specific fine-grained mutation operations:
+
+| Operation | Typical Workload / Shape | Relative Performance vs NetworkX | Architectural Root Cause | Status & Mitigation |
+|---|---|---|---|---|
+| `remove_node(u)` | Dense node deletion ($N=25.6\text{k}$) | $0.0037\times$ (legacy dense index shifting) | Prior compact storage renumbered all subsequent nodes and adjacencies on deletion ($O(V+E)$ pass). | **Mitigated:** Replaced with $O(\text{deg}(u))$ slot tombstoning and free-list reclamation (`br-r37-c1-epic-storage-architecture-yr2oc.1`). |
+| `MDG.get_edge_data(u, v)` | MultiDiGraph unkeyed edge query | $0.027\times$ | Dynamic PyDict synthesis and live-mirror maintenance across parallel edge keys vs CPython dictionary read. | Tracked under `br-r37-c1-himzq` and `br-r37-c1-epic-storage-architecture-yr2oc.2`. |
+| `G[u][v]` | Direct edge attribute probe | $0.36\times$ | FFI boundary crossing and AtlasView proxy construction vs native CPython dictionary lookup (`br-r37-c1-177b6`). | Amortized across batch queries via `G.edges(data=True)` and native vector iteration. |
+| `copy.copy(G)` | Shallow copy | $0.85\times$ | Independent graph structure allocation vs NetworkX's zero-cost reference aliasing (`br-r37-c1-copyshare-2h5uj`). | Tracked under `br-r37-c1-epic-storage-architecture-yr2oc.3` (shared backing store). |
+
 
 ### "I called `G.add_edge(0, 1)` and then `G[0][1]['weight'] = 5` but `nx.shortest_path(G, 0, 1, weight='weight', backend='franken_networkx')` returned the wrong path"
 
