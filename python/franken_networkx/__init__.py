@@ -35919,7 +35919,20 @@ def _native_random_seed(seed):
 
 
 def _validate_backend_dispatch_keywords(function_name, backend, backend_kwargs):
-    if backend is not None and backend != "networkx":
+    # br-r37-c1-rc0923-epic-honest-measurement-vbneu.1: this library IS the
+    # installed "franken_networkx" backend, so its own name must run here just
+    # like "networkx" does; rejecting it made portable code such as
+    # ``pagerank(G, backend="franken_networkx")`` raise "'franken_networkx'
+    # backend is not installed" under fnx while networkx accepted it.
+    if backend is not None and backend not in ("networkx", "franken_networkx"):
+        from networkx.utils.backends import backends as _installed_backends
+
+        if backend in _installed_backends:
+            raise NotImplementedError(
+                f"franken_networkx.{function_name} runs its own implementation and "
+                f"cannot dispatch to the {backend!r} backend; call "
+                f"networkx.{function_name}(..., backend={backend!r}) instead"
+            )
         raise ImportError(f"'{backend}' backend is not installed")
     if backend_kwargs:
         unexpected = next(iter(backend_kwargs))
