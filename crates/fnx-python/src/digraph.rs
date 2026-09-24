@@ -6480,12 +6480,11 @@ impl PyMultiDiGraph {
         if !self.inner.has_edge(&u_canonical, &v_canonical) {
             self.maybe_store_row_keys(py, &u_canonical, &v_canonical, u, v);
         }
-        self.node_py_attrs
-            .entry(u_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-        self.node_py_attrs
-            .entry(v_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
+        // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (existing-edge
+        // merge): seed node mirrors from the core — an existing node of a
+        // natively built graph may hold its attrs only there.
+        self.materialize_node_py_attrs(py, &u_canonical);
+        self.materialize_node_py_attrs(py, &v_canonical);
 
         let mut rust_attrs = AttrMap::new();
         if let Some(a) = attr {
@@ -6534,11 +6533,13 @@ impl PyMultiDiGraph {
             None
         };
 
+        let mut existing_key = false;
         let actual_key = match key {
             Some(explicit_key) => {
                 if let Some(internal_key) =
                     self.resolve_internal_edge_key(py, &u_canonical, &v_canonical, explicit_key)?
                 {
+                    existing_key = true;
                     self.inner
                         .add_edge_with_key_and_attrs(
                             u_canonical.clone(),
@@ -6563,11 +6564,20 @@ impl PyMultiDiGraph {
         // Own a Python reference before mutating any other graph state below;
         // `Entry` otherwise keeps `edge_py_attrs` mutably borrowed across the
         // direction-cache and stable-keydict updates.
-        let py_dict = self
-            .edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py);
+        //
+        // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (existing-edge
+        // merge): an existing key's attrs may live only in the core (lazy
+        // mirror); materialise them — the core already merged the new attrs —
+        // rather than start an empty dict that hides the old ones.
+        let py_dict = if existing_key {
+            self.ensure_edge_py_attrs_with_key(py, &u_canonical, &v_canonical, actual_key, &ek)
+                .clone_ref(py)
+        } else {
+            self.edge_py_attrs
+                .entry(ek)
+                .or_insert_with(|| PyDict::new(py).unbind())
+                .clone_ref(py)
+        };
         if let Some(a) = attr {
             for (k, val) in a.iter() {
                 py_dict.bind(py).set_item(k, val)?;
@@ -14210,23 +14220,28 @@ impl PyDiGraph {
         }
         // br-r37-c1-z6uka: NEW directed edges record per-row display
         // objects (succ gets v, pred gets u).
-        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+        let edge_existed = self.inner.has_edge(&u_canonical, &v_canonical);
+        if !edge_existed {
             self.maybe_store_row_keys(py, &u_canonical, &v_canonical, u, v);
         }
-        self.node_py_attrs
-            .entry(u_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-        self.node_py_attrs
-            .entry(v_canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
+        // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (existing-edge
+        // merge): the mirrors are lazy, so an existing node or edge of a
+        // natively built graph (read_edgelist, read_graphml, generators) may
+        // hold its attrs only in the core. Starting an empty dict hid them;
+        // seed from the core instead (a new node/edge still gets an empty one).
+        self.materialize_node_py_attrs(py, &u_canonical);
+        self.materialize_node_py_attrs(py, &v_canonical);
 
         let mut rust_attrs = AttrMap::new();
         // Directed: edge key is (source, target) — NOT canonicalized.
-        let ek = Self::edge_key(&u_canonical, &v_canonical);
-        let py_dict = self
-            .edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind());
+        let py_dict = if edge_existed {
+            self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
+        } else {
+            self.edge_py_attrs
+                .entry(Self::edge_key(&u_canonical, &v_canonical))
+                .or_insert_with(|| PyDict::new(py).unbind())
+                .clone_ref(py)
+        };
         if let Some(a) = attr {
             rust_attrs = py_dict_to_attr_map(a)?;
             for (k, val) in a.iter() {

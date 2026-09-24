@@ -10074,11 +10074,13 @@ impl PyMultiGraph {
             None
         };
 
+        let mut existing_key = false;
         let actual_key = match key {
             Some(explicit_key) => {
                 if let Some(internal_key) =
                     self.resolve_internal_edge_key(py, &u_canonical, &v_canonical, explicit_key)?
                 {
+                    existing_key = true;
                     self.inner
                         .add_edge_with_key_and_attrs(
                             u_canonical.clone(),
@@ -10103,11 +10105,21 @@ impl PyMultiGraph {
         // Own a Python reference before mutating any other graph state below;
         // `Entry` otherwise keeps `edge_py_attrs` mutably borrowed across the
         // row-cache and stable-keydict updates.
-        let py_dict = self
-            .edge_py_attrs
-            .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py);
+        //
+        // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (existing-edge
+        // merge): an existing key's attrs may live only in the core (lazy
+        // mirror, e.g. MultiGraph(karate_club_graph())); materialise them —
+        // the core already merged the new attrs — instead of starting an empty
+        // dict that would hide the old ones.
+        let py_dict = if existing_key {
+            self.ensure_edge_py_attrs_with_key(py, &u_canonical, &v_canonical, actual_key, &ek)
+                .clone_ref(py)
+        } else {
+            self.edge_py_attrs
+                .entry(ek)
+                .or_insert_with(|| PyDict::new(py).unbind())
+                .clone_ref(py)
+        };
         if let Some(a) = attr {
             // br-r37-c1-aefbatch: single C-level dict.update instead of N
             // per-item set_item calls (see PyGraph::add_edge).
@@ -16400,17 +16412,27 @@ impl PyGraph {
             && !a.is_empty()
         {
             rust_attrs = py_dict_to_attr_map(a)?;
-            let ek = Self::edge_key(&u_canonical, &v_canonical);
             // br-r37-c1-aefbatch: a single C-level dict.update copies all items
             // in one call instead of N Rust->Python set_item round-trips, which
             // dominated attributed edge construction (add_edges_from / from_dict
             // build paths were ~7x nx). The edge dict is freshly created for new
             // edges and merged-into for existing ones; update() matches both.
-            self.edge_py_attrs
-                .entry(ek)
-                .or_insert_with(|| PyDict::new(py).unbind())
-                .bind(py)
-                .update(a.as_mapping())?;
+            //
+            // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (existing-edge
+            // merge): an EXISTING edge may hold its attrs only in the core (the
+            // mirror is lazy; every generator-built graph starts that way). A
+            // fresh empty dict here hid them: karate_club_graph().add_edge(0, 1,
+            // extra=1) left G.edges[0, 1] == {'extra': 1} and size(weight) off
+            // by 3. networkx merges into the existing datadict, so seed first.
+            let mirror = if was_new_edge {
+                self.edge_py_attrs
+                    .entry(Self::edge_key(&u_canonical, &v_canonical))
+                    .or_insert_with(|| PyDict::new(py).unbind())
+                    .clone_ref(py)
+            } else {
+                self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
+            };
+            mirror.bind(py).update(a.as_mapping())?;
         }
 
         log::debug!(target: "franken_networkx", "add_edge: {u_canonical} -- {v_canonical}");
@@ -16538,62 +16560,6 @@ impl PyGraph {
             }
         }
         self.bump_edges_seq();
-        Ok(())
-    }
-
-    /// Fast batch edge insertion for integer-keyed graphs without attributes.
-    ///
-    /// Takes a flat list of ``[u0, v0, u1, v1, ...]`` integers and adds all
-    /// edges in a tight loop with minimal Python object overhead.
-    fn _fast_add_int_edges(&mut self, py: Python<'_>, flat: Vec<i64>) -> PyResult<()> {
-        if !flat.len().is_multiple_of(2) {
-            return Err(PyValueError::new_err(
-                "flat edge list must have even length",
-            ));
-        }
-        let empty_attrs = AttrMap::new();
-        for pair in flat.as_chunks::<2>().0 {
-            let u = pair[0];
-            let v = pair[1];
-            let u_s = u.to_string();
-            let v_s = v.to_string();
-            let u_was_new = !self.inner.has_node(&u_s);
-            let v_was_new = !self.inner.has_node(&v_s);
-
-            // Insert node key maps only if new.
-            if self.should_store_node_key(&u_s, u_was_new) {
-                self.node_key_map
-                    .entry(u_s.clone())
-                    .or_insert_with(|| unwrap_infallible(u.into_pyobject(py)).into_any().unbind());
-            }
-            if self.should_store_node_key(&v_s, v_was_new) {
-                self.node_key_map
-                    .entry(v_s.clone())
-                    .or_insert_with(|| unwrap_infallible(v.into_pyobject(py)).into_any().unbind());
-            }
-            self.node_py_attrs
-                .entry(u_s.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
-            self.node_py_attrs
-                .entry(v_s.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
-
-            let ek = Self::edge_key(&u_s, &v_s);
-            self.edge_py_attrs
-                .entry(ek)
-                .or_insert_with(|| PyDict::new(py).unbind());
-
-            let was_new_edge = !self.inner.has_edge(&u_s, &v_s);
-            let _ = self
-                .inner
-                .add_edge_with_attrs(u_s.clone(), v_s.clone(), empty_attrs.clone());
-            if was_new_edge && self.py_adj_rows_live() {
-                self.cached_adj_set_edge(py, &u_s, &v_s)?;
-                if u_s != v_s {
-                    self.cached_adj_set_edge(py, &v_s, &u_s)?;
-                }
-            }
-        }
         Ok(())
     }
 
