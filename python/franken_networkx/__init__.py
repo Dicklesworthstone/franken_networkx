@@ -14342,6 +14342,16 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     if G.is_directed():
         if not is_weakly_connected(G):
             return 0
+        # br-r37-c1-npdzs (restored, br-r37-c1-rc0923-epic-evidence-authority-hhj5p.2):
+        # networkx 3.6.1 OVER-reports global connectivity on some strongly
+        # connected digraphs because it only tests flows leaving the
+        # min-degree node. The project deliberately locked the correct value
+        # (test_directed_node_connectivity_divergence.py); b2ae44f7f replaced
+        # the native global kernel with an nx replica and silently reverted
+        # that decision. Simple digraphs without self-loops use the native
+        # kernel again; multigraphs / self-loops keep nx's degree convention.
+        if not G.is_multigraph() and number_of_selfloops(G) == 0:
+            return _raw_node_connectivity(G)
         iter_func = _itertools.permutations
 
         def neighbors(v):

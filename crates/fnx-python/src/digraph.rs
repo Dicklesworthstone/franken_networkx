@@ -6755,10 +6755,8 @@ impl PyMultiDiGraph {
             self.live_keydict_rows
                 .remove_in_place(py, &u_canonical, &v_canonical);
         }
-        if !pair_remaining {
-            if let Some(m) = self.live_edge_key_views.get_mut(&u_canonical) {
-                m.remove(&v_canonical);
-            }
+        if !pair_remaining && let Some(m) = self.live_edge_key_views.get_mut(&u_canonical) {
+            m.remove(&v_canonical);
         }
         // br-r37-c1-dwy1n: drop the neighbour from live direction rows IN
         // PLACE, but ONLY once the LAST parallel edge between the pair is gone.
