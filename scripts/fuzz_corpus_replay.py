@@ -60,13 +60,23 @@ def binary_path(fuzz_dir: Path, name: str) -> Path:
     return fuzz_dir / "target" / TRIPLE / "release" / name
 
 
-def build(jobs: int, fuzz_dir: Path = FUZZ) -> None:
-    env = dict(os.environ, CARGO_TARGET_DIR=str(fuzz_dir / "target"))
+def build_command(jobs: int, fuzz_dir: Path = FUZZ) -> tuple[list[str], dict[str, str]]:
+    """The rch build of every fuzz target, and its environment.
+
+    RCH_QUEUE_WHEN_BUSY makes rch wait for a worker slot instead of refusing
+    when every worker is busy, as the DSR config's cargo checks do.
+    """
+    env = dict(os.environ, CARGO_TARGET_DIR=str(fuzz_dir / "target"), RCH_QUEUE_WHEN_BUSY="1")
     command = [
         "rch", "exec", "--", "cargo", "build", "--release", "-j", str(jobs),
         "--manifest-path", str(fuzz_dir / "Cargo.toml"), "--bins", "--target", TRIPLE,
         "--config", "build.rustflags=" + json.dumps(RUSTFLAGS, separators=(",", ":")),
     ]
+    return command, env
+
+
+def build(jobs: int, fuzz_dir: Path = FUZZ) -> None:
+    command, env = build_command(jobs, fuzz_dir)
     proc = subprocess.run(command, cwd=fuzz_dir.parent, env=env, timeout=5400, check=False)  # nosec B603 B607
     if proc.returncode != 0:
         raise SystemExit(f"fuzz build failed (exit {proc.returncode})")
@@ -116,7 +126,7 @@ def replay(name: str, *, fuzz_dir: Path = FUZZ, budget_seconds: int = 0, input_t
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-build", action="store_true", help="use the binaries already in fuzz/target")
-    parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--target", action="append", default=[], help="only these targets")
     parser.add_argument("--fuzz-dir", type=Path, default=FUZZ)
     parser.add_argument("--budget-seconds", type=int, default=0, help="seconds of fuzzing per target after the replay")

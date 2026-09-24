@@ -66,6 +66,20 @@ def test_targets_are_the_declared_bins_that_have_a_corpus(tmp_path):
     assert replay.fuzz_targets(fuzz) == ["fuzz_a", "fuzz_b"]
 
 
+def test_the_build_queues_for_a_worker_and_instruments_only_the_target(tmp_path):
+    # A DSR run on 2026-09-24 failed this check with "no admissible workers"
+    # (rch exit 103) because the build did not ask rch to queue.
+    command, env = replay.build_command(3, tmp_path / "fuzz")
+    assert command[:4] == ["rch", "exec", "--", "cargo"]
+    assert env["RCH_QUEUE_WHEN_BUSY"] == "1"
+    assert env["CARGO_TARGET_DIR"] == str(tmp_path / "fuzz" / "target")
+    assert command[command.index("-j") + 1] == "3"
+    assert command[command.index("--target") + 1] == replay.TRIPLE
+    flags = command[command.index("--config") + 1]
+    assert flags.startswith("build.rustflags=[") and "-Cpasses=sancov-module" in flags
+    assert '"--cfg","fuzzing"' in flags
+
+
 def test_the_repo_declares_a_corpus_for_every_fuzz_bin():
     declared = replay.BIN_RE.findall((replay.FUZZ / "Cargo.toml").read_text())
     assert declared, "no [[bin]] parsed from fuzz/Cargo.toml"
