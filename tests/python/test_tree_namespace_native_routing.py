@@ -54,10 +54,18 @@ def _legacy_networkx():
     return module
 
 
+# Pure value enums re-exported BY IDENTITY with networkx (a look-alike copy is
+# not is/==/isinstance-equal and does not pickle;
+# br-r37-c1-rc0923-epic-honest-measurement-vbneu.1).
+_SHARED_WITH_NETWORKX = {"EdgePartition"}
+
+
 @pytest.mark.parametrize("name", _FUNCS + _CLASSES)
 def test_tree_object_is_not_networkx_version(name):
     obj = getattr(fnx_tree, name)
-    if hasattr(nx, name):
+    if name in _SHARED_WITH_NETWORKX:
+        assert obj is getattr(nx, name)
+    elif hasattr(nx, name):
         assert obj is not getattr(nx, name)
     # Classes are routed by direct alias, so they ARE the fnx object. Functions
     # are routed via call-time closure wrappers (the namespace object is a

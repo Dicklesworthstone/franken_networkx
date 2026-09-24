@@ -5077,13 +5077,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | Module | Count |
 |--------|-------|
 | `franken_networkx` | 688 |
-| `builtins` | 71 |
+| `builtins` | 72 |
 | `franken_networkx.readwrite` | 32 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
 | `franken_networkx._fnx` | 1 |
-| `franken_networkx.algorithms` | 1 |
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.algorithms.tree.mst` | 1 |
 

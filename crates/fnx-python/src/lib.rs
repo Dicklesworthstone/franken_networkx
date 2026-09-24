@@ -9027,12 +9027,18 @@ impl PyMultiEdgeKeyView {
 #[pymethods]
 impl PyMultiGraph {
     #[new]
-    #[pyo3(signature = (incoming_graph_data=None, **attr))]
+    // br-r37-c1-rc0923-epic-honest-measurement-vbneu.1: networkx's
+    // ``MultiGraph(incoming_graph_data, multigraph_input)`` accepts the flag
+    // positionally; the Python ``__init__`` decodes it, so ``__new__`` only has
+    // to accept it (and keep it out of the graph attributes).
+    #[pyo3(signature = (incoming_graph_data=None, multigraph_input=None, **attr))]
     fn new(
         py: Python<'_>,
         incoming_graph_data: Option<&Bound<'_, PyAny>>,
+        multigraph_input: Option<&Bound<'_, PyAny>>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
+        let _ = multigraph_input;
         let graph_attrs = PyDict::new(py);
         if let Some(a) = attr {
             graph_attrs.update(a.as_mapping())?;
@@ -20219,7 +20225,7 @@ class FnxMultiGraphCtorEdgeIterable:
         } else {
             iterable
         };
-        PyMultiGraph::new(py, Some(&data), None)
+        PyMultiGraph::new(py, Some(&data), None, None)
     }
 
     fn assert_multigraph_ctor_parity(
@@ -20371,7 +20377,7 @@ class FnxMultiGraphCtorEdgeIterable:
 
             let iterable = iterable_type.call1((8, 1))?;
             let iterator = iterable.call_method0("__iter__")?;
-            let candidate = PyMultiGraph::new(py, Some(&iterator), None)?;
+            let candidate = PyMultiGraph::new(py, Some(&iterator), None, None)?;
             assert_eq!(candidate.inner.edge_count(), 8);
             assert!(
                 PyIterator::from_object(&iterator)?.next().is_none(),
@@ -20650,7 +20656,7 @@ class FnxMultiGraphCtorEdgeIterable:
                     iterable
                 };
                 let start = Instant::now();
-                let graph = PyMultiGraph::new(py, Some(&data), None)?;
+                let graph = PyMultiGraph::new(py, Some(&data), None, None)?;
                 black_box(graph.inner.edge_count());
                 black_box(graph.inner.node_count());
                 Ok(start.elapsed().as_secs_f64())
@@ -21589,7 +21595,7 @@ class FnxMultiGraphCtorEdgeIterable:
             );
 
             let mut restored =
-                PyMultiGraph::new(py, None, None).expect("multigraph should initialize");
+                PyMultiGraph::new(py, None, None, None).expect("multigraph should initialize");
             restored
                 .__setstate__(py, &state)
                 .expect("state import should succeed");

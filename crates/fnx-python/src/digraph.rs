@@ -5026,12 +5026,17 @@ impl PyMultiDiEdgeKeyView {
 #[pymethods]
 impl PyMultiDiGraph {
     #[new]
-    #[pyo3(signature = (incoming_graph_data=None, **attr))]
+    // br-r37-c1-rc0923-epic-honest-measurement-vbneu.1: accept networkx's
+    // positional ``multigraph_input`` (decoded by the Python ``__init__``) and
+    // keep it out of the graph attributes.
+    #[pyo3(signature = (incoming_graph_data=None, multigraph_input=None, **attr))]
     fn new(
         py: Python<'_>,
         incoming_graph_data: Option<&Bound<'_, PyAny>>,
+        multigraph_input: Option<&Bound<'_, PyAny>>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
+        let _ = multigraph_input;
         let graph_attrs = PyDict::new(py);
         if let Some(a) = attr {
             graph_attrs.update(a.as_mapping())?;
@@ -20127,7 +20132,7 @@ mod tests {
             .store(force_string_stage, Ordering::Relaxed);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS
             .store(force_string_mirrors, Ordering::Relaxed);
-        let graph = PyMultiDiGraph::new(py, Some(iter), None);
+        let graph = PyMultiDiGraph::new(py, Some(iter), None, None);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(false, Ordering::Relaxed);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE.store(false, Ordering::Relaxed);
         crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS.store(false, Ordering::Relaxed);
@@ -20208,7 +20213,7 @@ mod tests {
         rows: &Bound<'_, PyList>,
         force_general: bool,
     ) -> PyResult<PyMultiDiGraph> {
-        let mut graph = PyMultiDiGraph::new(py, None, None)?;
+        let mut graph = PyMultiDiGraph::new(py, None, None, None)?;
         FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.store(force_general, Ordering::Relaxed);
         let added = graph._try_add_attr_edges_from_batch(py, rows.as_any(), None);
         FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.store(false, Ordering::Relaxed);
@@ -21512,7 +21517,7 @@ def fnx_keyed_attr_edges(mixed):
         ensure_python();
         Python::attach(|py| {
             let mut graph =
-                PyMultiDiGraph::new(py, None, None).expect("multidigraph should initialize");
+                PyMultiDiGraph::new(py, None, None, None).expect("multidigraph should initialize");
             let a = "a".into_py_any(py).expect("node conversion");
             let b = "b".into_py_any(py).expect("node conversion");
             graph.add_node(py, a.bind(py), None).expect("add node a");
@@ -21772,7 +21777,7 @@ def fnx_keyed_attr_edges(mixed):
             );
 
             let mut restored =
-                PyMultiDiGraph::new(py, None, None).expect("multidigraph should initialize");
+                PyMultiDiGraph::new(py, None, None, None).expect("multidigraph should initialize");
             restored
                 .__setstate__(py, &state)
                 .expect("state import should succeed");

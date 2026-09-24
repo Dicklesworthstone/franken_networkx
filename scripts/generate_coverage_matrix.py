@@ -458,6 +458,43 @@ def _surface_signature(obj) -> str | None:
         return None
 
 
+def _declared_class_signature_spoof(obj) -> bool:
+    """A class whose OWN ``__dict__`` carries ``__signature__`` declares a call
+    shape that its constructor does not implement; ``inspect.signature`` reads
+    the override without looking at ``__new__``/``__init__``. Observed defect:
+    07924ecdd flipped the four graph-class rows to present this way while
+    ``backend=`` validation and positional ``multigraph_input`` still differed
+    (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1). Callables are NOT
+    covered: forwarding wrappers legitimately attach ``__signature__`` (as
+    networkx's own dispatchables do), so only behaviour can judge them. A
+    class that IS networkx's own object (re-exported by identity) is exempt:
+    its ``__signature__`` is networkx's, not an override."""
+    if not inspect.isclass(obj) or "__signature__" not in vars(obj):
+        return False
+    module_name = getattr(obj, "__module__", "") or ""
+    return not (module_name.startswith("networkx") and not _type_module_spoof(obj))
+
+
+def _type_module_spoof(obj_type) -> bool:
+    """A type that claims a ``networkx`` module in ``__module__`` but is not
+    the object that module actually holds under its ``__qualname__``.
+    Observed defect: a look-alike ``EdgePartition`` enum with ``__module__``
+    rewritten to ``networkx.algorithms.tree.mst`` (not ``is``/``==`` to nx's,
+    and unpicklable) was classified present."""
+    module_name = getattr(obj_type, "__module__", "") or ""
+    if not module_name.startswith("networkx"):
+        return False
+    try:
+        holder = importlib.import_module(module_name)
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-except
+        return True
+    for part in getattr(obj_type, "__qualname__", "").split("."):
+        holder = getattr(holder, part, None)
+        if holder is None:
+            return True
+    return holder is not obj_type
+
+
 def _signature_matches_ignoring_self_marker(
     reference: str | None, franken: str | None
 ) -> bool:
@@ -728,7 +765,14 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
                     f"{franken_type.__module__}.{franken_type.__qualname__}"
                 )
                 franken_value_repr = _surface_stable_repr(resolved_member)
-                if (
+                if _type_module_spoof(franken_type):
+                    row["status"] = "partial"
+                    row["detail"] = (
+                        f"class attribute type `{franken_type_name}` claims a "
+                        "networkx module but is not that module's object "
+                        "(spelled, not shared)"
+                    )
+                elif (
                     franken_type_name == reference_row["type_name"]
                     and franken_value_repr == reference_row["value_repr"]
                 ):
@@ -802,6 +846,19 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
             rows.append(row)
             continue
 
+        if reference_row["kind"] == "class" and (
+            _declared_class_signature_spoof(franken_obj)
+            or _type_module_spoof(franken_obj)
+        ):
+            row["status"] = "partial"
+            row["detail"] = (
+                "class surface is declared, not implemented: its "
+                "`__signature__`/`__module__` metadata is overridden rather "
+                "than provided by the constructor or the networkx object itself"
+            )
+            rows.append(row)
+            continue
+
         if reference_row["kind"] in {"callable", "class"}:
             reference_call_shape = reference_row.get("signature")
             if (
@@ -835,7 +892,13 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
             f"{franken_type.__module__}.{franken_type.__qualname__}"
         )
         franken_value_repr = _surface_stable_repr(franken_obj)
-        if (
+        if _type_module_spoof(franken_type):
+            row["status"] = "partial"
+            row["detail"] = (
+                f"value type `{franken_type_name}` claims a networkx module but "
+                "is not that module's object (spelled, not shared)"
+            )
+        elif (
             franken_type_name == reference_row["type_name"]
             and franken_value_repr == reference_row["value_repr"]
         ):

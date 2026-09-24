@@ -177,13 +177,12 @@ except Exception:
     pass
 
 
-class EdgePartition(_Enum):
-    OPEN = 0
-    INCLUDED = 1
-    EXCLUDED = 2
-
-
-EdgePartition.__module__ = "networkx.algorithms.tree.mst"
+# br-r37-c1-rc0923-epic-honest-measurement-vbneu.1: NetworkX's own enum, by
+# identity. The previous look-alike enum with ``__module__`` rewritten to
+# "networkx.algorithms.tree.mst" satisfied the coverage classifier's spelling
+# check while staying a different class (``is``/``==``/``isinstance`` all False
+# against nx) and made ``pickle.dumps(EdgePartition.OPEN)`` raise.
+from networkx.algorithms.tree.mst import EdgePartition
 
 
 def _directed_graph_has_successor(self, u, v):
@@ -7541,6 +7540,19 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
             )
 
 
+def _validate_graph_constructor_backend(graph, backend):
+    """networkx's dispatchable ``Graph.__new__`` rejects a backend name that is
+    not installed with ``ImportError``; ``"networkx"`` and this library's own
+    name build the graph here."""
+    if backend in ("networkx", "franken_networkx"):
+        return
+    from networkx.utils.backends import backends as _installed_backends
+
+    if backend not in _installed_backends:
+        graph.clear()
+        raise ImportError(f"{backend!r} backend is not installed")
+
+
 def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
     """Factory: wrap ``__init__`` so dict-of-dicts / dict-of-dict-of-dicts
     payloads are decoded — the Rust ``__new__`` already handles
@@ -7548,9 +7560,41 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
     inputs other than as a node-only iteration.
     """
 
-    def __init__(self, incoming_graph_data=None, multigraph_input=None, **attr):
+    def __init__(self, *args, backend=None, **kwargs):
+        # br-r37-c1-rc0923-epic-honest-measurement-vbneu.1: this IS networkx's
+        # constructor call shape (``Graph.__new__`` is a dispatchable with
+        # ``(*args, backend=None, **kwargs)``), parsed the way networkx parses
+        # it — no ``__signature__`` override. ``Graph``/``DiGraph`` take one
+        # positional (``incoming_graph_data``); the multigraph classes also take
+        # ``multigraph_input``; everything else is a graph attribute.
         self._fnx_register_gc_dict(vars(self))
-        attr.pop("backend", None)
+        max_positional = 2 if is_multigraph else 1
+        if len(args) > max_positional:
+            self.clear()
+            raise TypeError(
+                f"{type(self).__name__}.__init__() takes from 1 to "
+                f"{max_positional + 1} positional arguments but "
+                f"{len(args) + 1} were given"
+            )
+        for position, param in enumerate(
+            ("incoming_graph_data", "multigraph_input")[:max_positional]
+        ):
+            if position < len(args) and param in kwargs:
+                self.clear()
+                raise TypeError(
+                    f"{type(self).__name__}.__init__() got multiple values for "
+                    f"argument '{param}'"
+                )
+        incoming_graph_data = args[0] if args else kwargs.pop("incoming_graph_data", None)
+        if is_multigraph:
+            multigraph_input = (
+                args[1] if len(args) > 1 else kwargs.pop("multigraph_input", None)
+            )
+        else:
+            multigraph_input = None
+        attr = kwargs
+        if backend is not None:
+            _validate_graph_constructor_backend(self, backend)
         self.graph.pop("backend", None)
         # ``raw_init(self, incoming_graph_data)`` is a no-op on pyo3
         # classes where ``__new__`` consumed the data; call it with
@@ -7771,18 +7815,6 @@ MultiGraph.__init__ = _init_absorbing_dict_of_dicts(_MULTIGRAPH_INIT, is_multigr
 MultiDiGraph.__init__ = _init_absorbing_dict_of_dicts(_MULTIDIGRAPH_INIT, is_multigraph=True)
 
 import inspect as _inspect
-
-_GRAPH_CONSTRUCTOR_SIG = _inspect.Signature(
-    parameters=[
-        _inspect.Parameter("args", _inspect.Parameter.VAR_POSITIONAL),
-        _inspect.Parameter("backend", _inspect.Parameter.KEYWORD_ONLY, default=None),
-        _inspect.Parameter("kwargs", _inspect.Parameter.VAR_KEYWORD),
-    ]
-)
-Graph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
-DiGraph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
-MultiGraph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
-MultiDiGraph.__signature__ = _GRAPH_CONSTRUCTOR_SIG
 
 
 _GRAPH_TO_DIRECTED = Graph.to_directed
@@ -72859,21 +72891,6 @@ __all__ += [
 ]
 
 
-import types as _types
-import sys as _sys
-
-
-class _FnxTopLevelModule(_types.ModuleType):
-    """Module proxy guaranteeing that public callable function surfaces are not shadowed."""
-
-    def __getattribute__(self, name):
-        if name == "bridges":
-            return getattr(self, "_fnx_public_bridges", super().__getattribute__(name))
-        if name == "reciprocity":
-            return getattr(self, "_fnx_public_reciprocity", super().__getattribute__(name))
-        return super().__getattribute__(name)
-
-
 _fnx_public_bridges.bridges = _fnx_public_bridges
 _fnx_public_bridges.has_bridges = has_bridges
 _fnx_public_bridges.local_bridges = local_bridges
@@ -72881,10 +72898,18 @@ _fnx_public_bridges.local_bridges = local_bridges
 _fnx_public_reciprocity.reciprocity = _fnx_public_reciprocity
 _fnx_public_reciprocity.overall_reciprocity = overall_reciprocity
 
-_module = _sys.modules[__name__]
-_module.__class__ = _FnxTopLevelModule
-_module._fnx_public_bridges = _fnx_public_bridges
-_module._fnx_public_reciprocity = _fnx_public_reciprocity
-_module.bridges = _fnx_public_bridges
-_module.reciprocity = _fnx_public_reciprocity
+# ``franken_networkx.bridges`` / ``.reciprocity`` are leaf SUBMODULES whose
+# names collide with public functions — exactly like networkx, where
+# ``nx.bridges`` is the function while ``sys.modules["networkx.algorithms.bridges"]``
+# is the module. The import system binds a child module onto its parent the
+# first time it is loaded, so load them NOW and bind the functions afterwards
+# (networkx's own package init relies on the same ordering). This replaces the
+# 07924ecdd module-class swap, whose Python-level ``__getattribute__`` made
+# every ``fnx.<attr>`` lookup ~4x slower (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1).
+import importlib as _importlib_leaf
+
+_importlib_leaf.import_module("franken_networkx.bridges")
+_importlib_leaf.import_module("franken_networkx.reciprocity")
+bridges = _fnx_public_bridges
+reciprocity = _fnx_public_reciprocity
 
