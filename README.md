@@ -44,7 +44,7 @@ That contract is checked by a Python parity test suite of about 1,100 files, by 
 | Adjacency storage | nested `dict` | deterministic `IndexMap`-based, insertion-order preserving |
 | GIL release on heavy work | n/a (pure Python) | yes; hundreds of `py.allow_threads(...)` sites |
 | Declared import/signature surface | NetworkX 3.6.1 FeatureUniverse | **4,129 / 4,129 strictly present**; 0 partial, 0 missing (the classifier rejects shapes declared only through `__signature__`/`__module__` metadata, on classes and functions) |
-| NetworkX's own test suite, fnx as backend | 6,816 tests pass on plain NetworkX 3.6.1 (0 fail) | **6,808 pass (99.9%)**; 7 fail, 0 error with fnx as the backend (2026-09-24). Each of the 7 is named with its reason in `artifacts/upstream_suite/ratchet_v1.json`, and DSR fails on any other |
+| NetworkX's own test suite, fnx as backend | 6,816 tests pass on plain NetworkX 3.6.1 (0 fail) | **6,814 pass (99.97%)**; 1 fails, 0 error with fnx as the backend (2026-09-24): `test_dag.py::test_topological_sort6` (mutating the graph while iterating a topological sort), named with its reason in `artifacts/upstream_suite/ratchet_v1.json`. DSR fails on any other |
 | Backend-dispatch surface | n/a | **313** algorithms registered in `backend.py` |
 | Tie-break determinism | implicit | explicit **CGSE** (13-variant `TieBreakPolicy`) |
 | Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
@@ -81,7 +81,7 @@ The discipline difference is enforced by tooling, not goodwill:
 | **graph-tool** | `Graph` with vertex/edge property maps | no; C++/Python hybrid API | no | strong for analytics + statistics | Boost-backed, very fast, but requires a custom build pipeline (no PyPI wheel). |
 | **rustworkx** | `PyGraph`/`PyDiGraph` with integer node IDs | partial; explicit conversion API | no; integer-index based | growing | High-quality Rust core; intentionally not a drop-in replacement. |
 | **graspologic** / **networkx-cuda** / **cugraph** | various, often GPU-backed | partial; mostly nx-shaped but algorithm coverage varies widely | varies | varies | Often optimize the inner loop of specific algorithms (PageRank, BFS, connected components) but require additional toolchains (CUDA, conda channels). |
-| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and 99.9% of NetworkX's own test suite passing in backend mode, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 313 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
+| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and 99.97% of NetworkX's own test suite passing in backend mode, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 313 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
 
 The honest summary: if the only thing you need is "PageRank on a huge graph as fast as possible" and you don't care about API shape or tie-break semantics, igraph or graph-tool or a GPU library may beat fnx on raw throughput for that single call. If you have an existing NetworkX codebase and you want it to *just work* without rewriting and without subtle behavior changes, fnx is built for that case.
 
@@ -2455,6 +2455,7 @@ Analytics kernels are where fnx wins (the per-family table above ranges from abo
 | backend mode, cold conversion | nx graph, 80k edges, cheap kernel (BFS, components) | **~0.03×** first call / after mutation (3–4 µs per edge to convert); warm cache 1.7–47× | `convert_from_nx` converts everything; `should_run` has no cost model | Open — `…sfq4w.2` |
 | `G.has_edge(u, v)` / `list(G.neighbors(n))` | 5,000 probes, n = 20k | 0.52× / 0.75× | per-call boundary cost | Open — `…sfq4w.3` |
 | `G[u][v]` | direct edge attribute probe | 0.36× (bead figure; 0.83× in the 2026-09-23 probe) | inner subscript builds an AtlasView proxy | Open — `br-r37-c1-ey6ob` |
+| `minimum_branching` / `minimum_spanning_arborescence` / `maximum_spanning_arborescence` | 1,500-node digraph, ~10.5k weighted edges | 0.82× / 1.0× / 1.1× | networkx's in-place weight round trip reproduced exactly over `maximum_branching`, which runs networkx's algorithm in-process; the earlier native kernels were ~3× faster but chose a different arborescence or edge order in ~20% of random cases | Open — native `maximum_branching` with networkx's selection is `…sfq4w.4` |
 | `MultiGraph`/`MultiDiGraph.get_edge_data(u, v)` | unkeyed, 1–16 parallel edges | 0.57–0.62× per call, flat in parallel edges; consumption 0.73–0.89× | a registry lookup per call where nx does two dict lookups; the keydict itself is a real `dict` (2026-09-24) | Open (per-call cost) |
 
 
