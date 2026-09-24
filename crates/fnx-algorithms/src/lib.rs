@@ -15635,6 +15635,621 @@ pub fn networkx_maximum_branching_plan(
     Ok(NetworkxBranchingPlan { initial, steps })
 }
 
+/// A blossom of `networkx_max_weight_matching_mate`: children (vertex ids
+/// below `n`, blossom ids from `n`), the edges joining them, and the best
+/// edges to other S-blossoms cached for the next contraction.
+struct MwmBlossom {
+    childs: Vec<usize>,
+    edges: Vec<(usize, usize)>,
+    mybestedges: Option<Vec<(usize, usize)>>,
+}
+
+/// networkx's `max_weight_matching` state, one field per local of the
+/// Python function; the dicts networkx iterates are `IndexMap`s so they
+/// iterate in the same (insertion) order.
+struct NetworkxMwm<'a> {
+    n: usize,
+    adjacency: &'a [Vec<(usize, f64)>],
+    weight: HashMap<(usize, usize), f64>,
+    blossoms: HashMap<usize, MwmBlossom>,
+    next_id: usize,
+    mate: IndexMap<usize, usize>,
+    label: HashMap<usize, u8>,
+    labeledge: HashMap<usize, Option<(usize, usize)>>,
+    inblossom: Vec<usize>,
+    blossomparent: IndexMap<usize, Option<usize>>,
+    blossombase: HashMap<usize, usize>,
+    bestedge: HashMap<usize, (usize, usize)>,
+    dualvar: Vec<f64>,
+    blossomdual: IndexMap<usize, f64>,
+    allowedge: HashSet<(usize, usize)>,
+    queue: Vec<usize>,
+}
+
+/// Python list indexing, negative indices counting from the end.
+fn py_at<T: Copy>(items: &[T], index: isize) -> T {
+    let len = isize::try_from(items.len()).expect("list length fits isize");
+    let i = if index < 0 { index + len } else { index };
+    items[usize::try_from(i).expect("index within the list")]
+}
+
+impl NetworkxMwm<'_> {
+    fn is_blossom(&self, x: usize) -> bool {
+        x >= self.n
+    }
+
+    fn label(&self, x: usize) -> Option<u8> {
+        self.label.get(&x).copied()
+    }
+
+    fn labeledge(&self, x: usize) -> Option<(usize, usize)> {
+        self.labeledge.get(&x).copied().flatten()
+    }
+
+    fn slack(&self, v: usize, w: usize) -> f64 {
+        self.dualvar[v] + self.dualvar[w] - 2.0 * self.weight[&(v, w)]
+    }
+
+    /// `Blossom.leaves()`: a stack walk, popping from the end.
+    fn leaves(&self, b: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut stack = self.blossoms[&b].childs.clone();
+        while let Some(t) = stack.pop() {
+            if self.is_blossom(t) {
+                stack.extend(self.blossoms[&t].childs.iter().copied());
+            } else {
+                out.push(t);
+            }
+        }
+        out
+    }
+
+    fn assign_label(&mut self, w: usize, t: u8, v: Option<usize>) {
+        let b = self.inblossom[w];
+        self.label.insert(w, t);
+        self.label.insert(b, t);
+        let edge = v.map(|v| (v, w));
+        self.labeledge.insert(w, edge);
+        self.labeledge.insert(b, edge);
+        self.bestedge.remove(&w);
+        self.bestedge.remove(&b);
+        if t == 1 {
+            if self.is_blossom(b) {
+                let leaves = self.leaves(b);
+                self.queue.extend(leaves);
+            } else {
+                self.queue.push(b);
+            }
+        } else if t == 2 {
+            let base = self.blossombase[&b];
+            let mate = self.mate[&base];
+            self.assign_label(mate, 1, Some(base));
+        }
+    }
+
+    fn scan_blossom(&mut self, v: usize, w: usize) -> Option<usize> {
+        let mut path = Vec::new();
+        let mut base = None;
+        let (mut v, mut w) = (Some(v), Some(w));
+        while let Some(vv) = v {
+            let mut b = self.inblossom[vv];
+            if self.label(b).unwrap_or(0) & 4 != 0 {
+                base = Some(self.blossombase[&b]);
+                break;
+            }
+            path.push(b);
+            self.label.insert(b, 5);
+            match self.labeledge(b) {
+                None => v = None,
+                Some((x, _)) => {
+                    b = self.inblossom[x];
+                    v = self.labeledge(b).map(|(y, _)| y);
+                }
+            }
+            if w.is_some() {
+                std::mem::swap(&mut v, &mut w);
+            }
+        }
+        for b in path {
+            self.label.insert(b, 1);
+        }
+        base
+    }
+
+    fn add_blossom(&mut self, base: usize, v: usize, w: usize) {
+        let bb = self.inblossom[base];
+        let mut bv = self.inblossom[v];
+        let mut bw = self.inblossom[w];
+        let b = self.next_id;
+        self.next_id += 1;
+        self.blossombase.insert(b, base);
+        self.blossomparent.insert(b, None);
+        self.blossomparent.insert(bb, Some(b));
+        let mut path = Vec::new();
+        let mut edgs = vec![(v, w)];
+        while bv != bb {
+            self.blossomparent.insert(bv, Some(b));
+            path.push(bv);
+            let e = self.labeledge(bv).expect("labelled sub-blossom");
+            edgs.push(e);
+            bv = self.inblossom[e.0];
+        }
+        path.push(bb);
+        path.reverse();
+        edgs.reverse();
+        while bw != bb {
+            self.blossomparent.insert(bw, Some(b));
+            path.push(bw);
+            let e = self.labeledge(bw).expect("labelled sub-blossom");
+            edgs.push((e.1, e.0));
+            bw = self.inblossom[e.0];
+        }
+        self.blossoms.insert(
+            b,
+            MwmBlossom {
+                childs: path.clone(),
+                edges: edgs,
+                mybestedges: None,
+            },
+        );
+        self.label.insert(b, 1);
+        let bb_edge = self.labeledge(bb);
+        self.labeledge.insert(b, bb_edge);
+        self.blossomdual.insert(b, 0.0);
+        for leaf in self.leaves(b) {
+            if self.label(self.inblossom[leaf]) == Some(2) {
+                self.queue.push(leaf);
+            }
+            self.inblossom[leaf] = b;
+        }
+        let mut bestedgeto: IndexMap<usize, (usize, usize)> = IndexMap::new();
+        for &bv in &path {
+            let nblist: Vec<(usize, usize)> = if self.is_blossom(bv) {
+                match self
+                    .blossoms
+                    .get_mut(&bv)
+                    .and_then(|x| x.mybestedges.take())
+                {
+                    Some(list) => list,
+                    None => self
+                        .leaves(bv)
+                        .into_iter()
+                        .flat_map(|x| {
+                            self.adjacency[x]
+                                .iter()
+                                .filter(move |&&(y, _)| y != x)
+                                .map(move |&(y, _)| (x, y))
+                        })
+                        .collect(),
+                }
+            } else {
+                self.adjacency[bv]
+                    .iter()
+                    .filter(|&&(y, _)| y != bv)
+                    .map(|&(y, _)| (bv, y))
+                    .collect()
+            };
+            for k in nblist {
+                let (mut i, mut j) = k;
+                if self.inblossom[j] == b {
+                    std::mem::swap(&mut i, &mut j);
+                }
+                let bj = self.inblossom[j];
+                if bj != b
+                    && self.label(bj) == Some(1)
+                    && bestedgeto
+                        .get(&bj)
+                        .is_none_or(|&(p, q)| self.slack(i, j) < self.slack(p, q))
+                {
+                    bestedgeto.insert(bj, k);
+                }
+            }
+            self.bestedge.remove(&bv);
+        }
+        let mybestedges: Vec<(usize, usize)> = bestedgeto.values().copied().collect();
+        let mut best: Option<((usize, usize), f64)> = None;
+        for &k in &mybestedges {
+            let kslack = self.slack(k.0, k.1);
+            if best.is_none_or(|(_, s)| kslack < s) {
+                best = Some((k, kslack));
+            }
+        }
+        if let Some(blossom) = self.blossoms.get_mut(&b) {
+            blossom.mybestedges = Some(mybestedges);
+        }
+        match best {
+            Some((k, _)) => self.bestedge.insert(b, k),
+            None => self.bestedge.remove(&b),
+        };
+    }
+
+    fn expand_blossom(&mut self, b: usize, endstage: bool) {
+        let childs = self.blossoms[&b].childs.clone();
+        for &s in &childs {
+            self.blossomparent.insert(s, None);
+            if self.is_blossom(s) {
+                if endstage && self.blossomdual[&s] == 0.0 {
+                    self.expand_blossom(s, endstage);
+                } else {
+                    for leaf in self.leaves(s) {
+                        self.inblossom[leaf] = s;
+                    }
+                }
+            } else {
+                self.inblossom[s] = s;
+            }
+        }
+        if !endstage && self.label(b) == Some(2) {
+            let edges = self.blossoms[&b].edges.clone();
+            let len = isize::try_from(childs.len()).expect("fits");
+            let (lv, lw) = self.labeledge(b).expect("T-blossom has a label edge");
+            let entrychild = self.inblossom[lw];
+            let mut j = isize::try_from(
+                childs
+                    .iter()
+                    .position(|&c| c == entrychild)
+                    .expect("entry child"),
+            )
+            .expect("fits");
+            let jstep: isize = if j & 1 == 1 {
+                j -= len;
+                1
+            } else {
+                -1
+            };
+            let (mut v, mut w) = (lv, lw);
+            while j != 0 {
+                let (p, q) = if jstep == 1 {
+                    py_at(&edges, j)
+                } else {
+                    let (a, c) = py_at(&edges, j - 1);
+                    (c, a)
+                };
+                self.label.remove(&w);
+                self.label.remove(&q);
+                self.assign_label(w, 2, Some(v));
+                self.allowedge.insert((p, q));
+                self.allowedge.insert((q, p));
+                j += jstep;
+                (v, w) = if jstep == 1 {
+                    py_at(&edges, j)
+                } else {
+                    let (a, c) = py_at(&edges, j - 1);
+                    (c, a)
+                };
+                self.allowedge.insert((v, w));
+                self.allowedge.insert((w, v));
+                j += jstep;
+            }
+            let bw = py_at(&childs, j);
+            self.label.insert(w, 2);
+            self.label.insert(bw, 2);
+            self.labeledge.insert(w, Some((v, w)));
+            self.labeledge.insert(bw, Some((v, w)));
+            self.bestedge.remove(&bw);
+            j += jstep;
+            while py_at(&childs, j) != entrychild {
+                let bv = py_at(&childs, j);
+                if self.label(bv) == Some(1) {
+                    j += jstep;
+                    continue;
+                }
+                let labelled = if self.is_blossom(bv) {
+                    self.leaves(bv)
+                        .into_iter()
+                        .find(|&x| self.label(x).is_some())
+                } else {
+                    Some(bv).filter(|&x| self.label(x).is_some())
+                };
+                if let Some(x) = labelled {
+                    self.label.remove(&x);
+                    let base_mate = self.mate[&self.blossombase[&bv]];
+                    self.label.remove(&base_mate);
+                    let from = self.labeledge(x).expect("labelled vertex").0;
+                    self.assign_label(x, 2, Some(from));
+                }
+                j += jstep;
+            }
+        }
+        self.label.remove(&b);
+        self.labeledge.remove(&b);
+        self.bestedge.remove(&b);
+        self.blossomparent.shift_remove(&b);
+        self.blossombase.remove(&b);
+        self.blossomdual.shift_remove(&b);
+        self.blossoms.remove(&b);
+    }
+
+    fn augment_blossom(&mut self, b: usize, v: usize) {
+        let mut t = v;
+        while self.blossomparent[&t] != Some(b) {
+            t = self.blossomparent[&t].expect("t lies inside b");
+        }
+        if self.is_blossom(t) {
+            self.augment_blossom(t, v);
+        }
+        let childs = self.blossoms[&b].childs.clone();
+        let edges = self.blossoms[&b].edges.clone();
+        let len = isize::try_from(childs.len()).expect("fits");
+        let i = childs.iter().position(|&c| c == t).expect("child of b");
+        let mut j = isize::try_from(i).expect("fits");
+        let jstep: isize = if j & 1 == 1 {
+            j -= len;
+            1
+        } else {
+            -1
+        };
+        while j != 0 {
+            j += jstep;
+            let t1 = py_at(&childs, j);
+            let (w, x) = if jstep == 1 {
+                py_at(&edges, j)
+            } else {
+                let (a, c) = py_at(&edges, j - 1);
+                (c, a)
+            };
+            if self.is_blossom(t1) {
+                self.augment_blossom(t1, w);
+            }
+            j += jstep;
+            let t2 = py_at(&childs, j);
+            if self.is_blossom(t2) {
+                self.augment_blossom(t2, x);
+            }
+            self.mate.insert(w, x);
+            self.mate.insert(x, w);
+        }
+        let blossom = self.blossoms.get_mut(&b).expect("blossom");
+        blossom.childs.rotate_left(i);
+        blossom.edges.rotate_left(i);
+        let first = blossom.childs[0];
+        let base = self.blossombase[&first];
+        self.blossombase.insert(b, base);
+    }
+
+    fn augment_matching(&mut self, v: usize, w: usize) {
+        for (mut s, mut j) in [(v, w), (w, v)] {
+            loop {
+                let bs = self.inblossom[s];
+                if self.is_blossom(bs) {
+                    self.augment_blossom(bs, s);
+                }
+                self.mate.insert(s, j);
+                let Some((t, _)) = self.labeledge(bs) else {
+                    break;
+                };
+                let bt = self.inblossom[t];
+                (s, j) = self.labeledge(bt).expect("T-blossom has a label edge");
+                if self.is_blossom(bt) {
+                    self.augment_blossom(bt, j);
+                }
+                self.mate.insert(j, s);
+            }
+        }
+    }
+}
+
+/// networkx 3.6's `max_weight_matching` (van Rantwijk's blossom algorithm as
+/// networkx adapts it), step for step, over vertices `0..adjacency.len()` in
+/// `list(G)` order; `adjacency[v]` is `(w, weight)` in `G.neighbors(v)` order,
+/// self-loops included (networkx skips them). Returns networkx's `mate` dict
+/// items in insertion order, which `matching_dict_to_set` turns into the
+/// result, so the matching AND each pair's direction match networkx: every
+/// choice it makes by iteration order is made in the same order here (the
+/// LIFO queue, `leaves()`, the dict orders of `blossomparent`,
+/// `blossomdual`, `mate` and each new blossom's best edges, the first
+/// minimum on ties). Weights are f64, which equals networkx's arithmetic for
+/// floats and for integers f64 represents exactly.
+#[must_use]
+pub fn networkx_max_weight_matching_mate(
+    adjacency: &[Vec<(usize, f64)>],
+    maxcardinality: bool,
+) -> Vec<(usize, usize)> {
+    let n = adjacency.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut weight = HashMap::new();
+    let mut maxweight = 0.0_f64;
+    for (v, row) in adjacency.iter().enumerate() {
+        for &(w, wt) in row {
+            weight.insert((v, w), wt);
+            if v != w && wt > maxweight {
+                maxweight = wt;
+            }
+        }
+    }
+    let mut m = NetworkxMwm {
+        n,
+        adjacency,
+        weight,
+        blossoms: HashMap::new(),
+        next_id: n,
+        mate: IndexMap::new(),
+        label: HashMap::new(),
+        labeledge: HashMap::new(),
+        inblossom: (0..n).collect(),
+        blossomparent: (0..n).map(|v| (v, None)).collect(),
+        blossombase: (0..n).map(|v| (v, v)).collect(),
+        bestedge: HashMap::new(),
+        dualvar: vec![maxweight; n],
+        blossomdual: IndexMap::new(),
+        allowedge: HashSet::new(),
+        queue: Vec::new(),
+    };
+    loop {
+        m.label.clear();
+        m.labeledge.clear();
+        m.bestedge.clear();
+        for b in m.blossomdual.keys().copied().collect::<Vec<_>>() {
+            if let Some(blossom) = m.blossoms.get_mut(&b) {
+                blossom.mybestedges = None;
+            }
+        }
+        m.allowedge.clear();
+        m.queue.clear();
+        for v in 0..n {
+            if !m.mate.contains_key(&v) && m.label(m.inblossom[v]).is_none() {
+                m.assign_label(v, 1, None);
+            }
+        }
+        let mut augmented = false;
+        loop {
+            while !augmented {
+                let Some(v) = m.queue.pop() else { break };
+                for &(w, _) in &adjacency[v] {
+                    if w == v {
+                        continue;
+                    }
+                    let bv = m.inblossom[v];
+                    let bw = m.inblossom[w];
+                    if bv == bw {
+                        continue;
+                    }
+                    let mut kslack = f64::NAN;
+                    if !m.allowedge.contains(&(v, w)) {
+                        kslack = m.slack(v, w);
+                        if kslack <= 0.0 {
+                            m.allowedge.insert((v, w));
+                            m.allowedge.insert((w, v));
+                        }
+                    }
+                    if m.allowedge.contains(&(v, w)) {
+                        match m.label(bw) {
+                            None => m.assign_label(w, 2, Some(v)),
+                            Some(1) => match m.scan_blossom(v, w) {
+                                Some(base) => m.add_blossom(base, v, w),
+                                None => {
+                                    m.augment_matching(v, w);
+                                    augmented = true;
+                                    break;
+                                }
+                            },
+                            _ => {
+                                if m.label(w).is_none() {
+                                    m.label.insert(w, 2);
+                                    m.labeledge.insert(w, Some((v, w)));
+                                }
+                            }
+                        }
+                    } else if m.label(bw) == Some(1) {
+                        if m.bestedge
+                            .get(&bv)
+                            .is_none_or(|&(p, q)| kslack < m.slack(p, q))
+                        {
+                            m.bestedge.insert(bv, (v, w));
+                        }
+                    } else if m.label(w).is_none()
+                        && m.bestedge
+                            .get(&w)
+                            .is_none_or(|&(p, q)| kslack < m.slack(p, q))
+                    {
+                        m.bestedge.insert(w, (v, w));
+                    }
+                }
+            }
+            if augmented {
+                break;
+            }
+            // deltatype -1 is "none yet"; 1..4 as in networkx.
+            let mut deltatype = -1;
+            let mut delta = 0.0_f64;
+            let mut deltaedge = (0, 0);
+            let mut deltablossom = 0;
+            let min_dual = || m.dualvar.iter().copied().fold(f64::INFINITY, f64::min);
+            if !maxcardinality {
+                deltatype = 1;
+                delta = min_dual();
+            }
+            for v in 0..n {
+                if m.label(m.inblossom[v]).is_none()
+                    && let Some(&(p, q)) = m.bestedge.get(&v)
+                {
+                    let d = m.slack(p, q);
+                    if deltatype == -1 || d < delta {
+                        delta = d;
+                        deltatype = 2;
+                        deltaedge = (p, q);
+                    }
+                }
+            }
+            for (&b, &parent) in &m.blossomparent {
+                if parent.is_none()
+                    && m.label(b) == Some(1)
+                    && let Some(&(p, q)) = m.bestedge.get(&b)
+                {
+                    let d = m.slack(p, q) / 2.0;
+                    if deltatype == -1 || d < delta {
+                        delta = d;
+                        deltatype = 3;
+                        deltaedge = (p, q);
+                    }
+                }
+            }
+            for (&b, &dual) in &m.blossomdual {
+                if m.blossomparent[&b].is_none()
+                    && m.label(b) == Some(2)
+                    && (deltatype == -1 || dual < delta)
+                {
+                    delta = dual;
+                    deltatype = 4;
+                    deltablossom = b;
+                }
+            }
+            if deltatype == -1 {
+                deltatype = 1;
+                delta = min_dual().max(0.0);
+            }
+            for v in 0..n {
+                match m.label(m.inblossom[v]) {
+                    Some(1) => m.dualvar[v] -= delta,
+                    Some(2) => m.dualvar[v] += delta,
+                    _ => {}
+                }
+            }
+            let labels: Vec<(usize, Option<u8>)> = m
+                .blossomdual
+                .keys()
+                .map(|&b| {
+                    (
+                        b,
+                        m.blossomparent[&b].is_none().then(|| m.label(b)).flatten(),
+                    )
+                })
+                .collect();
+            for (b, label) in labels {
+                match label {
+                    Some(1) => *m.blossomdual.get_mut(&b).expect("dual") += delta,
+                    Some(2) => *m.blossomdual.get_mut(&b).expect("dual") -= delta,
+                    _ => {}
+                }
+            }
+            match deltatype {
+                1 => break,
+                2 | 3 => {
+                    let (v, w) = deltaedge;
+                    m.allowedge.insert((v, w));
+                    m.allowedge.insert((w, v));
+                    m.queue.push(v);
+                }
+                _ => m.expand_blossom(deltablossom, false),
+            }
+        }
+        if !augmented {
+            break;
+        }
+        for b in m.blossomdual.keys().copied().collect::<Vec<_>>() {
+            if !m.blossomdual.contains_key(&b) {
+                continue;
+            }
+            if m.blossomparent[&b].is_none() && m.label(b) == Some(1) && m.blossomdual[&b] == 0.0 {
+                m.expand_blossom(b, true);
+            }
+        }
+    }
+    m.mate.into_iter().collect()
+}
+
 /// Return a maximum branching of a directed graph.
 #[must_use]
 pub fn maximum_branching(

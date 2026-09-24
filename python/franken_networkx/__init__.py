@@ -15516,17 +15516,6 @@ def maximal_matching(G):
     return _raw_maximal_matching(G)
 
 
-def _min_weight_matching_structural_nx(G, weight):
-    """In-process nx delegation for ``min_weight_matching`` preserving exact adjacency order."""
-    from franken_networkx.backend import _fnx_to_nx
-
-    _H = G if isinstance(G, _nx.Graph) else _fnx_to_nx(G)
-    try:
-        return _nx.min_weight_matching(_H, weight=weight, backend="networkx")
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
 def min_weight_matching(G, weight="weight"):
     """Compute a minimum-weight matching in the graph.
 
@@ -15567,7 +15556,56 @@ def min_weight_matching(G, weight="weight"):
     # decides the blossom traversal and hence which orientation each pair ends up with.
     # Verified byte-identical to the faithful path over 120 random graphs including
     # permuted node insertion order and attributed graphs.
-    return _min_weight_matching_structural_nx(G, weight)
+    #
+    # 1g0lj.1: max_weight_matching now reproduces the mate order natively, so this is
+    # networkx's own body over it: the inverted graph is built the way networkx builds it
+    # (an fnx Graph keeps networkx's node and adjacency order for the same insertions).
+    if len(G.edges) == 0:
+        return max_weight_matching(G, maxcardinality=True, weight=weight)
+    g_edges = list(G.edges(data=weight, default=1))
+    max_weight = 1 + max(w for _, _, w in g_edges)
+    inverted = Graph()
+    inverted.add_weighted_edges_from(((u, v, max_weight - w) for u, v, w in g_edges), weight=weight)
+    return max_weight_matching(inverted, maxcardinality=True, weight=weight)
+
+
+def _max_weight_matching_native(G, maxcardinality, weight):
+    """networkx's ``max_weight_matching`` through the native port (1g0lj.1).
+
+    ``networkx_max_weight_matching_mate`` repeats networkx's blossom
+    algorithm step for step over ``list(G)`` positions and ``G.neighbors``
+    order and returns its ``mate`` dict items in insertion order; this is
+    networkx's ``matching_dict_to_set`` over them, so the matching and every
+    pair's direction match. Returns None, for networkx's own code to run,
+    where f64 arithmetic would not equal networkx's: a weight that is not an
+    int or a finite float, or an int beyond 2**48.
+    """
+    nodes = list(G)
+    if not nodes:
+        return set()
+    index = {n: i for i, n in enumerate(nodes)}
+    adjacency = []
+    for u in nodes:
+        row = []
+        for v, d in G.adj[u].items():
+            w = d.get(weight, 1)
+            kind = type(w)
+            if kind is float:
+                if not _math.isfinite(w):
+                    return None
+            elif (kind is int or kind is bool) and -(2**48) <= w <= 2**48:
+                w = float(w)
+            else:
+                return None
+            row.append((index[v], w))
+        adjacency.append(row)
+    edges = set()
+    for u, v in _raw_networkx_max_weight_matching_mate(adjacency, bool(maxcardinality)):
+        edge = (nodes[u], nodes[v])
+        if (edge[1], edge[0]) in edges or edge in edges:
+            continue
+        edges.add(edge)
+    return edges
 
 
 def _max_weight_matching_structural_nx(G, maxcardinality, weight):
@@ -15614,6 +15652,9 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    native = _max_weight_matching_native(G, maxcardinality, weight)
+    if native is not None:
+        return native
     return _max_weight_matching_structural_nx(
         G, maxcardinality=maxcardinality, weight=weight
     )
@@ -17100,7 +17141,7 @@ def _branching_structural_nx(G, nx_name, attr, default):
 
     br-r37-c1-p80x1.14. Lives in a private helper so the public wrappers keep no direct
     ``_nx.*`` reference, matching ``_greedy_color_structural_nx`` and
-    ``_min_weight_matching_structural_nx``. Nodes in order, edges in order, carrying only
+    ``_max_weight_matching_structural_nx``. Nodes in order, edges in order, carrying only
     the caller's ``attr`` - which is all networkx's own output retains when
     ``preserve_attrs`` is false. Mirrors the input's directedness, since a branching on a
     DiGraph is a different problem from one on a Graph.
@@ -22963,6 +23004,7 @@ from franken_networkx._fnx import (
     lexicographic_topological_sort as _raw_lexicographic_topological_sort,
     topological_generations_state as _raw_topological_generations_state,
     networkx_maximum_branching_plan as _raw_networkx_maximum_branching_plan,
+    networkx_max_weight_matching_mate as _raw_networkx_max_weight_matching_mate,
 )
 
 

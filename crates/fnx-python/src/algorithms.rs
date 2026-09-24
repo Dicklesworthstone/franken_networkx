@@ -13457,6 +13457,36 @@ pub fn networkx_maximum_branching_plan(
     }
 }
 
+/// networkx's `max_weight_matching` as its `mate` dict items in insertion
+/// order (see `fnx_algorithms::networkx_max_weight_matching_mate`), for the
+/// Python wrapper to turn into networkx's result set. `adjacency[v]` is
+/// `[(w, weight), ...]` in `G.neighbors(v)` order over `list(G)` positions;
+/// it must be symmetric, as an undirected graph's is.
+#[pyfunction]
+#[pyo3(signature = (adjacency, maxcardinality=false))]
+pub fn networkx_max_weight_matching_mate(
+    py: Python<'_>,
+    adjacency: Vec<Vec<(usize, f64)>>,
+    maxcardinality: bool,
+) -> PyResult<Vec<(usize, usize)>> {
+    let n = adjacency.len();
+    let mut pairs = HashSet::new();
+    for (v, row) in adjacency.iter().enumerate() {
+        for &(w, _) in row {
+            if w >= n {
+                return Err(PyValueError::new_err("neighbor index out of range"));
+            }
+            pairs.insert((v, w));
+        }
+    }
+    if pairs.iter().any(|&(v, w)| !pairs.contains(&(w, v))) {
+        return Err(PyValueError::new_err("adjacency must be symmetric"));
+    }
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::networkx_max_weight_matching_mate(&adjacency, maxcardinality)
+    }))
+}
+
 /// Return the longest path in a DAG.
 ///
 /// Matches `networkx.dag_longest_path(G, weight=, default_weight=)`.
@@ -28468,6 +28498,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // DAG algorithms
     m.add_function(wrap_pyfunction!(topological_generations_state, m)?)?;
     m.add_function(wrap_pyfunction!(networkx_maximum_branching_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(networkx_max_weight_matching_mate, m)?)?;
     m.add_class::<TopologicalGenerationsState>()?;
     m.add_function(wrap_pyfunction!(dag_longest_path, m)?)?;
     m.add_function(wrap_pyfunction!(dag_longest_path_length, m)?)?;
