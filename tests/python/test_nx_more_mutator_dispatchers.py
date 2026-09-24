@@ -23,10 +23,21 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 
 
 @needs_nx
+def _swappable_digraph_edges():
+    # The earlier fixture, a 4-node digraph, admits NO directed 3-swap:
+    # networkx raises NetworkXAlgorithmError for every seed on it, and fnx does
+    # too since its swaps are networkx's algorithm
+    # (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.4).
+    return list(nx.gnm_random_graph(12, 36, seed=1, directed=True).edges())
+
+
 def test_directed_edge_swap_via_nx_on_fnx_digraph():
-    g = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 2), (2, 3), (3, 0)])
+    g = fnx.DiGraph(_swappable_digraph_edges())
+    reference = nx.DiGraph(_swappable_digraph_edges())
     nx.directed_edge_swap(g, nswap=1, max_tries=100, seed=42)
-    assert g.number_of_edges() == 6
+    nx.directed_edge_swap(reference, nswap=1, max_tries=100, seed=42)
+    assert sorted(g.edges()) == sorted(reference.edges())
+    assert sorted(g.edges()) != sorted(_swappable_digraph_edges())
 
 
 @needs_nx
@@ -82,6 +93,16 @@ def test_directed_edge_swap_direct_with_random_instance_seed():
     br-r37-c1-frbgb's fix for the undirected variant)."""
     import random
 
-    g = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 2), (2, 3), (3, 0)])
+    g = fnx.DiGraph(_swappable_digraph_edges())
+    reference = nx.DiGraph(_swappable_digraph_edges())
     fnx.directed_edge_swap(g, nswap=1, max_tries=100, seed=random.Random(42))
-    assert g.number_of_edges() == 6
+    nx.directed_edge_swap(reference, nswap=1, max_tries=100, seed=random.Random(42))
+    assert sorted(g.edges()) == sorted(reference.edges())
+
+
+@needs_nx
+def test_directed_edge_swap_on_an_unswappable_digraph_raises_like_networkx():
+    edges = [(0, 1), (1, 2), (2, 0), (0, 2), (2, 3), (3, 0)]
+    for module in (nx, fnx):
+        with pytest.raises(module.NetworkXAlgorithmError, match="Maximum number of swap attempts"):
+            module.directed_edge_swap(module.DiGraph(edges), nswap=1, max_tries=100, seed=42)
