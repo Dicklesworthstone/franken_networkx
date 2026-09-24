@@ -713,7 +713,11 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
 /// nodes through ``report_to_pygraph``.
 #[pyfunction]
 pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyGraph> {
-    if n > MAX_NATIVE_RARY_N {
+    // Like the fnx-generators budgets, this cap is a hardened-mode defence;
+    // strict mode builds every size networkx builds.
+    if crate::active_compatibility_mode() == fnx_runtime::CompatibilityMode::Hardened
+        && n > MAX_NATIVE_RARY_N
+    {
         return Err(PyValueError::new_err(format!(
             "FailClosed {{ operation: \"full_rary_tree\", reason: \"n={n} exceeds max_allowed={MAX_NATIVE_RARY_N}\" }}"
         )));

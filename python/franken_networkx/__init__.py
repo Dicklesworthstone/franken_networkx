@@ -20356,8 +20356,6 @@ from franken_networkx._fnx import (
     sudoku_graph as _rust_sudoku_graph,
 )
 
-_RUST_GENERATOR_MAX_N_GENERIC = 100_000
-
 # Algorithm functions — single-source shortest paths
 from franken_networkx._fnx import (
     single_source_shortest_path as _raw_single_source_shortest_path,
@@ -36266,8 +36264,6 @@ def balanced_tree(r, h, create_using=None):
     ):
         n = h + 1 if r == 1 else (1 - r ** (h + 1)) // (1 - r)
         if type(r) is int and type(h) is int:
-            if n > _RUST_GENERATOR_MAX_N_GENERIC:
-                return _rust_balanced_tree(r, h)
             return _rust_full_rary_tree_native(r, n)
         return _rust_balanced_tree(r, h)
     if r == 1:
@@ -36294,8 +36290,6 @@ def full_rary_tree(r, n, create_using=None):
         return empty_graph(n, create_using)
     if create_using is None:
         if type(r) is int and type(n) is int and r >= 0 and n >= 0:
-            if n > _RUST_GENERATOR_MAX_N_GENERIC:
-                return _rust_full_rary_tree(r, n)
             return _rust_full_rary_tree_native(r, n)
         return _rust_full_rary_tree(r, n)
 
@@ -36598,13 +36592,9 @@ def circular_ladder_graph(n, create_using=None):
     n ∈ {0, 1, 2} (franken_networkx-uwa6w).
 
     br-r37-c1-3bdal: use the generator-native path only where it is
-    order-compatible and within the generator guardrails.
+    order-compatible.
     """
-    if (
-        create_using is None
-        and isinstance(n, _numbers.Integral)
-        and 3 <= n <= _RUST_GENERATOR_MAX_N_GENERIC // 2
-    ):
+    if create_using is None and isinstance(n, _numbers.Integral) and n >= 3:
         return _rust_circular_ladder_graph_native(int(n))
 
     G = ladder_graph(n, create_using)
