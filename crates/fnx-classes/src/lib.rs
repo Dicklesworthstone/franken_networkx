@@ -87,28 +87,284 @@ pub struct MultiGraphSnapshot {
     pub edges: Vec<MultiEdgeSnapshot>,
 }
 
+/// yr2oc.1: the node table of `Graph` and `DiGraph`: name -> slot, and the
+/// nodes in insertion order.
+///
+/// Slots are handed out in insertion order and the entries are indexed by
+/// slot, so the live entries in slot order ARE the insertion order. Removing a
+/// node tombstones its entry in O(1) instead of shifting every later node. A
+/// node's POSITION (the dense insertion-order index of the public API) is its
+/// rank among the live entries: its slot while nothing has been removed, and
+/// after a removal answered in O(log V) by a Fenwick tree built on first use
+/// and then updated by each further removal.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NodeOrder {
+    slots: rustc_hash::FxHashMap<String, usize>,
+    /// slot -> name, `None` once removed. Read it freely; change it only
+    /// through the methods, which keep `slots`, `live` and the ranks in step.
+    pub(crate) names: Vec<Option<String>>,
+    live: usize,
+    ranks: std::sync::OnceLock<NodeRanks>,
+}
+
+/// Rank/select over the live slots: a Fenwick tree of 0/1 liveness. A removal
+/// updates it in O(log V) instead of invalidating it, so a positional read
+/// between two removals never pays an O(V) rebuild.
+#[derive(Debug, Clone)]
+struct NodeRanks {
+    /// 1-based Fenwick tree over slots.
+    tree: Vec<usize>,
+}
+
+impl NodeRanks {
+    fn build(names: &[Option<String>]) -> Self {
+        let n = names.len();
+        let mut tree = vec![0; n + 1];
+        for (slot, name) in names.iter().enumerate() {
+            if name.is_some() {
+                tree[slot + 1] += 1;
+            }
+        }
+        for i in 1..=n {
+            let parent = i + i.isolate_lowest_one();
+            if parent <= n {
+                tree[parent] += tree[i];
+            }
+        }
+        Self { tree }
+    }
+
+    /// The number of live slots before `slot`.
+    fn rank(&self, slot: usize) -> usize {
+        let mut i = slot;
+        let mut live = 0;
+        while i > 0 {
+            live += self.tree[i];
+            i &= i - 1;
+        }
+        live
+    }
+
+    /// The live slot with `position` live slots before it.
+    fn select(&self, position: usize) -> Option<usize> {
+        let n = self.tree.len() - 1;
+        if n == 0 {
+            return None;
+        }
+        let mut remaining = position + 1;
+        let mut index = 0;
+        let mut step = 1 << (usize::BITS - 1 - n.leading_zeros());
+        while step > 0 {
+            let next = index + step;
+            if next <= n && self.tree[next] < remaining {
+                index = next;
+                remaining -= self.tree[next];
+            }
+            step >>= 1;
+        }
+        (index < n).then_some(index)
+    }
+
+    fn remove(&mut self, slot: usize) {
+        let mut i = slot + 1;
+        while i < self.tree.len() {
+            self.tree[i] -= 1;
+            i += i.isolate_lowest_one();
+        }
+    }
+}
+
+impl NodeOrder {
+    /// A table of distinct names, each at the slot of its index.
+    pub(crate) fn from_names(names: Vec<String>) -> Self {
+        let mut order = Self::default();
+        order.reserve(names.len());
+        for name in names {
+            order.push(name);
+        }
+        order
+    }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.live
+    }
+
+    #[inline]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.live == 0
+    }
+
+    /// The length of every slot-indexed array: live and removed entries.
+    #[inline]
+    pub(crate) fn slot_count(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Nothing removed since the last compaction: every slot is its position.
+    #[inline]
+    pub(crate) fn is_dense(&self) -> bool {
+        self.live == self.names.len()
+    }
+
+    /// The slot of a live name.
+    #[inline]
+    pub(crate) fn get(&self, name: &str) -> Option<&usize> {
+        self.slots.get(name)
+    }
+
+    #[inline]
+    pub(crate) fn contains_key(&self, name: &str) -> bool {
+        self.slots.contains_key(name)
+    }
+
+    /// The name at a live slot.
+    #[inline]
+    pub(crate) fn name(&self, slot: usize) -> Option<&str> {
+        self.names.get(slot)?.as_deref()
+    }
+
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        self.slots.reserve(additional);
+        self.names.reserve(additional);
+    }
+
+    /// Append a node that is not in the table; returns its slot.
+    pub(crate) fn push(&mut self, name: String) -> usize {
+        debug_assert!(!self.slots.contains_key(&name));
+        let slot = self.names.len();
+        self.slots.insert(name.clone(), slot);
+        self.names.push(Some(name));
+        // The tree has a fixed size; an append after removals rebuilds it on
+        // the next positional read (insertions compact first anyway).
+        self.ranks.take();
+        self.live += 1;
+        slot
+    }
+
+    /// Remove a node: its slot, and whether its entry was popped rather than
+    /// tombstoned (it was the last entry and nothing else had been removed),
+    /// in which case the caller pops its slot-indexed arrays too. O(1), plus
+    /// O(log V) to keep a built rank tree current.
+    pub(crate) fn remove(&mut self, name: &str) -> Option<(usize, bool)> {
+        let slot = self.slots.remove(name)?;
+        self.live -= 1;
+        let popped = slot + 1 == self.names.len() && self.live == slot;
+        if popped {
+            self.names.pop();
+            self.ranks.take();
+        } else {
+            self.names[slot] = None;
+            if let Some(ranks) = self.ranks.get_mut() {
+                ranks.remove(slot);
+            }
+        }
+        Some((slot, popped))
+    }
+
+    fn ranks(&self) -> &NodeRanks {
+        self.ranks.get_or_init(|| NodeRanks::build(&self.names))
+    }
+
+    /// The slot at a position.
+    #[inline]
+    pub(crate) fn slot_at(&self, position: usize) -> Option<usize> {
+        if self.is_dense() {
+            (position < self.live).then_some(position)
+        } else if position < self.live {
+            self.ranks().select(position)
+        } else {
+            None
+        }
+    }
+
+    /// The position of a live slot.
+    #[inline]
+    pub(crate) fn position_of(&self, slot: usize) -> Option<usize> {
+        if self.is_dense() {
+            (slot < self.live).then_some(slot)
+        } else {
+            self.names.get(slot)?.as_ref()?;
+            Some(self.ranks().rank(slot))
+        }
+    }
+
+    /// slot -> position for a whole-graph walk (`usize::MAX` for a removed
+    /// slot), or `None` while every slot is its own position. O(slots).
+    pub(crate) fn slot_positions(&self) -> Option<Vec<usize>> {
+        if self.is_dense() {
+            return None;
+        }
+        let mut positions = vec![usize::MAX; self.names.len()];
+        for (position, slot) in self.values().enumerate() {
+            positions[slot] = position;
+        }
+        Some(positions)
+    }
+
+    /// The name and slot at a position.
+    #[inline]
+    pub(crate) fn get_index(&self, position: usize) -> Option<(&String, usize)> {
+        let slot = self.slot_at(position)?;
+        Some((self.names.get(slot)?.as_ref()?, slot))
+    }
+
+    /// The position of a live name.
+    #[inline]
+    pub(crate) fn get_index_of(&self, name: &str) -> Option<usize> {
+        self.position_of(*self.get(name)?)
+    }
+
+    /// `(name, slot)` in insertion order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, usize)> + '_ {
+        self.names
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, name)| Some((name.as_ref()?, slot)))
+    }
+
+    /// Names in insertion order.
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &String> + '_ {
+        self.names.iter().filter_map(Option::as_ref)
+    }
+
+    /// Slots in insertion order.
+    pub(crate) fn values(&self) -> impl Iterator<Item = usize> + '_ {
+        self.iter().map(|(_, slot)| slot)
+    }
+
+    /// Renumber the live entries 0..len in order; returns old slot -> new slot
+    /// (`usize::MAX` for a removed one).
+    pub(crate) fn compact(&mut self) -> Vec<usize> {
+        let mut old_to_new = vec![usize::MAX; self.names.len()];
+        let mut names = Vec::with_capacity(self.live);
+        for (old, name) in std::mem::take(&mut self.names).into_iter().enumerate() {
+            if let Some(name) = name {
+                let new = names.len();
+                old_to_new[old] = new;
+                *self.slots.get_mut(&name).expect("live name is indexed") = new;
+                names.push(Some(name));
+            }
+        }
+        self.names = names;
+        self.ranks.take();
+        old_to_new
+    }
+}
+
 /// yr2oc.1: adjacency rows indexed by node SLOT, holding neighbour slots.
 ///
 /// Slots stay put when a node is removed, so a removal costs its own degree
 /// instead of renumbering the whole graph. The public `*_indices` API speaks
-/// dense insertion-order POSITIONS, which equal slots only until a removal (or
-/// a re-add into a freed slot) separates them. From then until the next
-/// compaction, [`SlotRows::positions`] serves the rows translated to positions,
-/// built on first use. Rows can only be changed through [`SlotRows::rows_mut`],
-/// which drops that translation, so it is never read stale.
+/// dense insertion-order POSITIONS, which equal slots only until a removal
+/// separates them. From then until the next compaction,
+/// [`SlotRows::positions`] serves the rows translated to positions, built on
+/// first use. Rows can only be changed through [`SlotRows::rows_mut`], which
+/// drops that translation, so it is never read stale.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SlotRows {
     rows: Vec<Vec<usize>>,
-    positions: std::sync::OnceLock<PositionRows>,
-}
-
-/// [`SlotRows`] translated to positions.
-#[derive(Debug, Clone)]
-pub(crate) struct PositionRows {
-    /// position -> neighbour positions, in the slot row's order.
-    pub(crate) rows: Vec<Vec<usize>>,
-    /// slot -> position (`usize::MAX` for a free slot).
-    pub(crate) slot_positions: Vec<usize>,
+    positions: std::sync::OnceLock<Vec<Vec<usize>>>,
 }
 
 impl std::ops::Deref for SlotRows {
@@ -133,27 +389,23 @@ impl SlotRows {
         &mut self.rows
     }
 
-    /// The rows by position, for a node order mapping each name to its slot in
-    /// position order. Built once per change of the rows.
-    pub(crate) fn positions(&self, order: &FxIndexMap<String, usize>) -> &PositionRows {
+    /// The rows by position: position -> neighbour positions, in the slot
+    /// row's order. Built once per change of the rows.
+    pub(crate) fn positions(&self, order: &NodeOrder) -> &[Vec<usize>] {
         self.positions.get_or_init(|| {
             let mut slot_positions = vec![usize::MAX; self.rows.len()];
-            for (position, &slot) in order.values().enumerate() {
+            for (position, slot) in order.values().enumerate() {
                 slot_positions[slot] = position;
             }
-            let rows = order
+            order
                 .values()
-                .map(|&slot| {
+                .map(|slot| {
                     self.rows[slot]
                         .iter()
                         .map(|&neighbour| slot_positions[neighbour])
                         .collect()
                 })
-                .collect();
-            PositionRows {
-                rows,
-                slot_positions,
-            }
+                .collect()
         })
     }
 }
@@ -162,17 +414,10 @@ impl SlotRows {
 pub struct Graph {
     mode: CompatibilityMode,
     revision: u64,
-    /// name -> slot, iteration order = nx node insertion order
-    node_order: FxIndexMap<String, usize>,
-    /// slot -> Some(name) or None if tombstoned awaiting reuse/compaction
-    slot_names: Vec<Option<String>>,
+    /// name <-> slot and the insertion order (yr2oc.1: removal tombstones).
+    node_order: NodeOrder,
     /// slot -> node attribute map
     node_attrs: Vec<AttrMap>,
-    /// LIFO free-list of tombstoned slots
-    free_slots: Vec<usize>,
-    /// Every node's slot equals its position (no removal has separated them
-    /// since the last compaction), so `adj_indices` can be read by position.
-    slots_dense: bool,
     /// slot -> neighbor slots
     adj_indices: SlotRows,
     /// br-r37-c1-d58s8: revision-keyed all-int weights memo (see
@@ -197,10 +442,7 @@ impl Clone for Graph {
             mode: self.mode,
             revision: self.revision,
             node_order: self.node_order.clone(),
-            slot_names: self.slot_names.clone(),
             node_attrs: self.node_attrs.clone(),
-            free_slots: self.free_slots.clone(),
-            slots_dense: self.slots_dense,
             adj_indices: self.adj_indices.clone(),
             // Both caches are derived state. A clone must not share a cache:
             // independently mutated copies can reach the same revision with
@@ -220,11 +462,8 @@ impl Graph {
         Self {
             mode,
             revision: 0,
-            node_order: FxIndexMap::default(),
-            slot_names: Vec::new(),
+            node_order: NodeOrder::default(),
             node_attrs: Vec::new(),
-            free_slots: Vec::new(),
-            slots_dense: true,
             adj_indices: SlotRows::default(),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
@@ -240,11 +479,8 @@ impl Graph {
         Self {
             mode,
             revision: 0,
-            node_order: FxIndexMap::default(),
-            slot_names: Vec::new(),
+            node_order: NodeOrder::default(),
             node_attrs: Vec::new(),
-            free_slots: Vec::new(),
-            slots_dense: true,
             adj_indices: SlotRows::default(),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
@@ -284,22 +520,13 @@ impl Graph {
             .unwrap_or(u64::MAX)
             .saturating_add(u64::try_from(edge_capacity).unwrap_or(u64::MAX));
         let node_labels = (0..n).map(|node| node.to_string()).collect::<Vec<_>>();
-        let mut node_order = FxIndexMap::with_capacity_and_hasher(n, rustc_hash::FxBuildHasher);
-        let mut slot_names = Vec::with_capacity(n);
-        let mut node_attrs = Vec::with_capacity(n);
-        for (i, node) in node_labels.iter().enumerate() {
-            node_order.insert(node.clone(), i);
-            slot_names.push(Some(node.clone()));
-            node_attrs.push(AttrMap::new());
-        }
+        let node_order = NodeOrder::from_names(node_labels.clone());
+        let node_attrs = vec![AttrMap::new(); n];
         let mut graph = Self {
             mode,
             revision,
             node_order,
-            slot_names,
             node_attrs,
-            free_slots: Vec::new(),
-            slots_dense: true,
             adj_indices: SlotRows::new(vec![Vec::with_capacity(n.saturating_sub(1)); n]),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
@@ -350,27 +577,18 @@ impl Graph {
             .saturating_add(u64::try_from(edge_capacity).unwrap_or(u64::MAX));
         let label = |i: usize, j: usize| format!("({i}, {j})");
         let idx = |i: usize, j: usize| i * n + j;
-        let mut node_order =
-            FxIndexMap::with_capacity_and_hasher(node_count, rustc_hash::FxBuildHasher);
-        let mut slot_names = Vec::with_capacity(node_count);
-        let mut node_attrs = Vec::with_capacity(node_count);
+        let mut node_order = NodeOrder::default();
+        node_order.reserve(node_count);
         for i in 0..m {
             for j in 0..n {
-                let key = label(i, j);
-                let slot = node_order.len();
-                node_order.insert(key.clone(), slot);
-                slot_names.push(Some(key));
-                node_attrs.push(AttrMap::new());
+                node_order.push(label(i, j));
             }
         }
         let mut graph = Self {
             mode,
             revision,
             node_order,
-            slot_names,
-            node_attrs,
-            free_slots: Vec::new(),
-            slots_dense: true,
+            node_attrs: vec![AttrMap::new(); node_count],
             adj_indices: SlotRows::new(vec![Vec::with_capacity(4); node_count]),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
@@ -608,28 +826,14 @@ impl Graph {
         let revision = u64::try_from(state.node_count)
             .unwrap_or(u64::MAX)
             .saturating_add(u64::try_from(edge_view.len()).unwrap_or(u64::MAX));
-        let mut node_order =
-            FxIndexMap::with_capacity_and_hasher(state.node_count, rustc_hash::FxBuildHasher);
-        let mut slot_names = Vec::with_capacity(state.node_count);
-        let mut node_attrs = Vec::with_capacity(state.node_count);
-        let mut adj_indices = Vec::with_capacity(state.node_count);
-
-        for (index, label) in labels.iter().enumerate() {
-            node_order.insert(label.clone(), index);
-            slot_names.push(Some(label.clone()));
-            node_attrs.push(AttrMap::new());
-            adj_indices.push(final_adjacency[index].clone());
-        }
+        let node_order = NodeOrder::from_names(labels);
 
         let mut graph = Self {
             mode,
             revision,
             node_order,
-            slot_names,
-            node_attrs,
-            free_slots: Vec::new(),
-            slots_dense: true,
-            adj_indices: SlotRows::new(adj_indices),
+            node_attrs: vec![AttrMap::new(); state.node_count],
+            adj_indices: SlotRows::new(final_adjacency),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: Vec::with_capacity(edge_view.len()),
@@ -716,27 +920,18 @@ impl Graph {
         let subsets = lex_combinations(n, k);
         let canonicals: Vec<String> = subsets.iter().map(|c| tuple_canonical(c)).collect();
         let total = subsets.len();
-        let mut node_order = FxIndexMap::with_capacity_and_hasher(total, rustc_hash::FxBuildHasher);
-        let mut slot_names = Vec::with_capacity(total);
+        let mut node_order = NodeOrder::default();
+        node_order.reserve(total);
         let mut node_attrs = Vec::with_capacity(total);
         let mut adj_indices = Vec::new();
         if 2 * k > n {
             // No disjoint pairs exist — nx pre-adds all subsets as nodes.
-            for (slot, canonical) in canonicals.iter().enumerate() {
-                node_order.insert(canonical.clone(), slot);
-                slot_names.push(Some(canonical.clone()));
-                node_attrs.push(AttrMap::new());
-            }
-            adj_indices = vec![Vec::new(); total];
             return Self {
                 mode,
                 revision: u64::try_from(total).unwrap_or(u64::MAX),
-                node_order,
-                slot_names,
-                node_attrs,
-                free_slots: Vec::new(),
-                slots_dense: true,
-                adj_indices: SlotRows::new(adj_indices),
+                node_order: NodeOrder::from_names(canonicals),
+                node_attrs: vec![AttrMap::new(); total],
+                adj_indices: SlotRows::new(vec![Vec::new(); total]),
                 all_int_cache: std::sync::Arc::default(),
                 edge_slots_by_neighbor: std::sync::RwLock::default(),
                 edge_index_endpoints: Vec::new(),
@@ -787,9 +982,7 @@ impl Graph {
                 if seen.insert(pair) {
                     for idx in [s_idx, t_idx] {
                         if node_idx[idx] == usize::MAX {
-                            let slot = node_order.len();
-                            node_order.insert(canonicals[idx].clone(), slot);
-                            slot_names.push(Some(canonicals[idx].clone()));
+                            let slot = node_order.push(canonicals[idx].clone());
                             node_attrs.push(AttrMap::new());
                             node_idx[idx] = slot;
                             adj_indices.push(Vec::new());
@@ -821,10 +1014,7 @@ impl Graph {
             mode,
             revision,
             node_order,
-            slot_names,
             node_attrs,
-            free_slots: Vec::new(),
-            slots_dense: true,
             adj_indices: SlotRows::new(adj_indices),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
@@ -904,26 +1094,24 @@ impl Graph {
     /// in-range parent indices.
     #[must_use]
     pub fn induced_subgraph_ordered(&self, order: &[usize], runtime_policy: RuntimePolicy) -> Self {
-        let mut parent_slot_to_subgraph_slot = vec![usize::MAX; self.slot_names.len()];
+        let mut parent_slot_to_subgraph_slot = vec![usize::MAX; self.node_order.slot_count()];
         for (slot, &parent_idx) in order.iter().enumerate() {
-            let (_, &parent_slot) = self
+            let (_, parent_slot) = self
                 .node_order
                 .get_index(parent_idx)
                 .expect("induced subgraph order must hold valid parent node indices");
             parent_slot_to_subgraph_slot[parent_slot] = slot;
         }
 
-        let mut node_order = FxIndexMap::default();
+        let mut node_order = NodeOrder::default();
         node_order.reserve(order.len());
-        let mut slot_names = Vec::with_capacity(order.len());
         let mut node_attrs = Vec::with_capacity(order.len());
-        for (slot, &parent_idx) in order.iter().enumerate() {
-            let (name, &parent_slot) = self
+        for &parent_idx in order {
+            let (name, parent_slot) = self
                 .node_order
                 .get_index(parent_idx)
                 .expect("induced subgraph order must hold valid parent node indices");
-            node_order.insert(name.clone(), slot);
-            slot_names.push(Some(name.clone()));
+            node_order.push(name.clone());
             node_attrs.push(self.node_attrs[parent_slot].clone());
         }
 
@@ -931,7 +1119,7 @@ impl Graph {
         let mut edges = FxIndexMap::default();
         let mut edge_index_endpoints = Vec::new();
         for (slot, &parent_idx) in order.iter().enumerate() {
-            let parent_slot = *self.node_order.get_index(parent_idx).unwrap().1;
+            let parent_slot = self.node_order.get_index(parent_idx).unwrap().1;
             for &parent_neighbor_slot in &self.adj_indices[parent_slot] {
                 let other = parent_slot_to_subgraph_slot[parent_neighbor_slot];
                 if other == usize::MAX || other < slot {
@@ -961,10 +1149,7 @@ impl Graph {
             mode: runtime_policy.mode(),
             revision: 0,
             node_order,
-            slot_names,
             node_attrs,
-            free_slots: Vec::new(),
-            slots_dense: true,
             adj_indices: SlotRows::new(adj_indices),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
@@ -998,10 +1183,10 @@ impl Graph {
     /// `node_index_matches_int`).
     #[must_use]
     pub fn has_edge_by_indices(&self, l: usize, r: usize) -> bool {
-        let Some((_, &ls)) = self.node_order.get_index(l) else {
+        let Some(ls) = self.node_order.slot_at(l) else {
             return false;
         };
-        let Some((_, &rs)) = self.node_order.get_index(r) else {
+        let Some(rs) = self.node_order.slot_at(r) else {
             return false;
         };
         self.edges.contains_key(&Self::canon_pair(ls, rs))
@@ -1035,8 +1220,8 @@ impl Graph {
             self.adj_indices[slot]
                 .iter()
                 .map(|&nbr_slot| {
-                    self.slot_names[nbr_slot]
-                        .as_deref()
+                    self.node_order
+                        .name(nbr_slot)
                         .expect("adj_indices entries are valid node slots")
                 })
                 .collect::<Vec<&str>>(),
@@ -1048,8 +1233,8 @@ impl Graph {
         // br-r37-c1-d58s8 P2(a): index-backed (see neighbors()).
         let &slot = self.node_order.get(node)?;
         Some(self.adj_indices[slot].iter().map(move |&nbr_slot| {
-            self.slot_names[nbr_slot]
-                .as_deref()
+            self.node_order
+                .name(nbr_slot)
                 .expect("adj_indices entries are valid node slots")
         }))
     }
@@ -1059,26 +1244,14 @@ impl Graph {
     #[must_use]
     #[inline]
     pub fn neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
-        if self.slots_dense {
+        if self.node_order.is_dense() {
             self.adj_indices.get(node_idx).map(Vec::as_slice)
         } else {
             self.adj_indices
                 .positions(&self.node_order)
-                .rows
                 .get(node_idx)
                 .map(Vec::as_slice)
         }
-    }
-
-    /// slot -> position while a removal has separated them, `None` while every
-    /// slot is its own position.
-    fn slot_positions(&self) -> Option<&[usize]> {
-        (!self.slots_dense).then(|| {
-            self.adj_indices
-                .positions(&self.node_order)
-                .slot_positions
-                .as_slice()
-        })
     }
 
     /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
@@ -1091,10 +1264,7 @@ impl Graph {
             mode: self.mode,
             revision: self.revision,
             node_order: self.node_order.clone(),
-            slot_names: self.slot_names.clone(),
             node_attrs: self.node_attrs.clone(),
-            free_slots: self.free_slots.clone(),
-            slots_dense: self.slots_dense,
             adj_indices: self.adj_indices.clone(),
             all_int_cache: std::sync::Arc::default(),
             edge_slots_by_neighbor: std::sync::RwLock::default(),
@@ -1196,12 +1366,12 @@ impl Graph {
     pub fn edges_storage_order_index_iter(
         &self,
     ) -> impl Iterator<Item = (usize, usize, &AttrMap)> + '_ {
-        let slot_positions = self.slot_positions();
+        let slot_positions = self.node_order.slot_positions();
         self.edge_index_endpoints
             .iter()
             .copied()
             .zip(self.edges.values())
-            .map(move |((left, right), attrs)| match slot_positions {
+            .map(move |((left, right), attrs)| match &slot_positions {
                 Some(positions) => (positions[left], positions[right], attrs),
                 None => (left, right, attrs),
             })
@@ -1219,7 +1389,7 @@ impl Graph {
     pub fn neighbor_count_by_index(&self, idx: usize) -> usize {
         self.node_order
             .get_index(idx)
-            .map_or(0, |(_, &slot)| self.adj_indices[slot].len())
+            .map_or(0, |(_, slot)| self.adj_indices[slot].len())
     }
 
     /// Return the degree of a node.
@@ -1257,7 +1427,7 @@ impl Graph {
     #[must_use]
     #[inline]
     pub fn node_attrs_by_index(&self, idx: usize) -> Option<&AttrMap> {
-        let (_, &slot) = self.node_order.get_index(idx)?;
+        let slot = self.node_order.slot_at(idx)?;
         Some(&self.node_attrs[slot])
     }
 
@@ -1272,8 +1442,8 @@ impl Graph {
     #[must_use]
     #[inline]
     pub fn edge_attrs_by_indices(&self, left_idx: usize, right_idx: usize) -> Option<&AttrMap> {
-        let (_, &l_slot) = self.node_order.get_index(left_idx)?;
-        let (_, &r_slot) = self.node_order.get_index(right_idx)?;
+        let l_slot = self.node_order.slot_at(left_idx)?;
+        let r_slot = self.node_order.slot_at(right_idx)?;
         self.edges.get(&Self::canon_pair(l_slot, r_slot))
     }
 
@@ -1303,7 +1473,7 @@ impl Graph {
             .expect("edge slot cache lock poisoned");
         if !matches!(guard.as_ref(), Some((revision, _)) if *revision == self.revision) {
             let mut rows = Vec::with_capacity(self.node_order.len());
-            for &node in self.node_order.values() {
+            for node in self.node_order.values() {
                 let neighbors = &self.adj_indices[node];
                 let mut slots = Vec::with_capacity(neighbors.len());
                 for &neighbor in neighbors {
@@ -1358,7 +1528,7 @@ impl Graph {
     pub fn any_node_has_attrs(&self) -> bool {
         self.node_order
             .values()
-            .any(|&slot| !self.node_attrs[slot].is_empty())
+            .any(|slot| !self.node_attrs[slot].is_empty())
     }
 
     /// br-r37-c1-hasanyattrlazyfix: does ANY edge carry a Python-visible attr, per the
@@ -1492,20 +1662,10 @@ impl Graph {
             return (changed, true, bucket.len(), None);
         }
 
-        let slot = if let Some(reused) = self.free_slots.pop() {
-            self.slot_names[reused] = Some(node_ref.to_owned());
-            self.node_attrs[reused] = attrs;
-            self.adj_indices.rows_mut()[reused].clear();
-            reused
-        } else {
-            let slot = self.slot_names.len();
-            self.slot_names.push(Some(node_ref.to_owned()));
-            self.node_attrs.push(attrs);
-            self.adj_indices.rows_mut().push(Vec::new());
-            slot
-        };
+        let slot = self.node_order.push(node.into());
+        self.node_attrs.push(attrs);
+        self.adj_indices.rows_mut().push(Vec::new());
         let attr_count = self.node_attrs[slot].len();
-        self.node_order.insert(node.into(), slot);
         self.revision = self.revision.saturating_add(1);
         (true, false, attr_count, Some(slot))
     }
@@ -1529,19 +1689,9 @@ impl Graph {
         if let Some(&slot) = self.node_order.get(node) {
             return (slot, false);
         }
-        let slot = if let Some(reused) = self.free_slots.pop() {
-            self.slot_names[reused] = Some(node.to_owned());
-            self.node_attrs[reused].clear();
-            self.adj_indices.rows_mut()[reused].clear();
-            reused
-        } else {
-            let slot = self.slot_names.len();
-            self.slot_names.push(Some(node.to_owned()));
-            self.node_attrs.push(AttrMap::new());
-            self.adj_indices.rows_mut().push(Vec::new());
-            slot
-        };
-        self.node_order.insert(node.to_owned(), slot);
+        let slot = self.node_order.push(node.to_owned());
+        self.node_attrs.push(AttrMap::new());
+        self.adj_indices.rows_mut().push(Vec::new());
         self.revision = self.revision.saturating_add(1);
         (slot, true)
     }
@@ -1592,19 +1742,9 @@ impl Graph {
             if self.node_order.contains_key(&node) {
                 continue;
             }
-            let slot = if let Some(reused) = self.free_slots.pop() {
-                self.slot_names[reused] = Some(node.clone());
-                self.node_attrs[reused].clear();
-                self.adj_indices.rows_mut()[reused].clear();
-                reused
-            } else {
-                let slot = self.slot_names.len();
-                self.slot_names.push(Some(node.clone()));
-                self.node_attrs.push(AttrMap::new());
-                self.adj_indices.rows_mut().push(Vec::new());
-                slot
-            };
-            self.node_order.insert(node, slot);
+            self.node_order.push(node);
+            self.node_attrs.push(AttrMap::new());
+            self.adj_indices.rows_mut().push(Vec::new());
             inserted += 1;
         }
         if inserted > 0 {
@@ -1643,19 +1783,9 @@ impl Graph {
                 self.node_attrs[slot].extend(attrs);
                 continue;
             }
-            let slot = if let Some(reused) = self.free_slots.pop() {
-                self.slot_names[reused] = Some(node.clone());
-                self.node_attrs[reused] = attrs;
-                self.adj_indices.rows_mut()[reused].clear();
-                reused
-            } else {
-                let slot = self.slot_names.len();
-                self.slot_names.push(Some(node.clone()));
-                self.node_attrs.push(attrs);
-                self.adj_indices.rows_mut().push(Vec::new());
-                slot
-            };
-            self.node_order.insert(node, slot);
+            self.node_order.push(node);
+            self.node_attrs.push(attrs);
+            self.adj_indices.rows_mut().push(Vec::new());
             inserted += 1;
         }
         if inserted > 0 {
@@ -1681,7 +1811,7 @@ impl Graph {
             return false;
         }
         let mut inserted = 0usize;
-        for &slot in self.node_order.values() {
+        for slot in self.node_order.values() {
             let attrs = &mut self.node_attrs[slot];
             for (key, value) in defaults {
                 if !attrs.contains_key(key) {
@@ -1751,19 +1881,9 @@ impl Graph {
             let (left_slot, l_added) = match self.node_order.get(&left) {
                 Some(&slot) => (slot, false),
                 None => {
-                    let slot = if let Some(reused) = self.free_slots.pop() {
-                        self.slot_names[reused] = Some(left.clone());
-                        self.node_attrs[reused].clear();
-                        self.adj_indices.rows_mut()[reused].clear();
-                        reused
-                    } else {
-                        let slot = self.slot_names.len();
-                        self.slot_names.push(Some(left.clone()));
-                        self.node_attrs.push(AttrMap::new());
-                        self.adj_indices.rows_mut().push(Vec::new());
-                        slot
-                    };
-                    self.node_order.insert(left.clone(), slot);
+                    let slot = self.node_order.push(left.clone());
+                    self.node_attrs.push(AttrMap::new());
+                    self.adj_indices.rows_mut().push(Vec::new());
                     (slot, true)
                 }
             };
@@ -1775,19 +1895,9 @@ impl Graph {
                 match self.node_order.get(&right) {
                     Some(&slot) => (slot, false),
                     None => {
-                        let slot = if let Some(reused) = self.free_slots.pop() {
-                            self.slot_names[reused] = Some(right.clone());
-                            self.node_attrs[reused].clear();
-                            self.adj_indices.rows_mut()[reused].clear();
-                            reused
-                        } else {
-                            let slot = self.slot_names.len();
-                            self.slot_names.push(Some(right.clone()));
-                            self.node_attrs.push(AttrMap::new());
-                            self.adj_indices.rows_mut().push(Vec::new());
-                            slot
-                        };
-                        self.node_order.insert(right.clone(), slot);
+                        let slot = self.node_order.push(right.clone());
+                        self.node_attrs.push(AttrMap::new());
+                        self.adj_indices.rows_mut().push(Vec::new());
                         (slot, true)
                     }
                 }
@@ -1835,27 +1945,27 @@ impl Graph {
         for (left_idx, right_idx) in iterator {
             debug_assert!(left_idx < self.node_order.len());
             debug_assert!(right_idx < self.node_order.len());
-            let left_slot = *self
+            let left_slot = self
                 .node_order
-                .get_index(left_idx)
-                .expect("validated left node index")
-                .1;
-            let right_slot = *self
+                .slot_at(left_idx)
+                .expect("validated left node index");
+            let right_slot = self
                 .node_order
-                .get_index(right_idx)
-                .expect("validated right node index")
-                .1;
+                .slot_at(right_idx)
+                .expect("validated right node index");
 
             let edge_key = Self::canon_pair(left_slot, right_slot);
             if self.edges.contains_key(&edge_key) {
                 continue;
             }
 
-            let left_name = self.slot_names[left_slot]
-                .as_deref()
+            let left_name = self
+                .node_order
+                .name(left_slot)
                 .expect("validated left node index");
-            let right_name = self.slot_names[right_slot]
-                .as_deref()
+            let right_name = self
+                .node_order
+                .name(right_slot)
                 .expect("validated right node index");
             if left_name <= right_name {
                 self.edge_index_endpoints.push((left_slot, right_slot));
@@ -1895,16 +2005,14 @@ impl Graph {
         for (left_idx, right_idx, attrs) in iterator {
             debug_assert!(left_idx < self.node_order.len());
             debug_assert!(right_idx < self.node_order.len());
-            let left_slot = *self
+            let left_slot = self
                 .node_order
-                .get_index(left_idx)
-                .expect("validated left node index")
-                .1;
-            let right_slot = *self
+                .slot_at(left_idx)
+                .expect("validated left node index");
+            let right_slot = self
                 .node_order
-                .get_index(right_idx)
-                .expect("validated right node index")
-                .1;
+                .slot_at(right_idx)
+                .expect("validated right node index");
 
             let edge_key = Self::canon_pair(left_slot, right_slot);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
@@ -1915,11 +2023,13 @@ impl Graph {
                 continue;
             }
 
-            let left_name = self.slot_names[left_slot]
-                .as_deref()
+            let left_name = self
+                .node_order
+                .name(left_slot)
                 .expect("validated left node index");
-            let right_name = self.slot_names[right_slot]
-                .as_deref()
+            let right_name = self
+                .node_order
+                .name(right_slot)
                 .expect("validated right node index");
             if left_name <= right_name {
                 self.edge_index_endpoints.push((left_slot, right_slot));
@@ -1970,19 +2080,9 @@ impl Graph {
             let (left_slot, l_added) = match self.node_order.get(&left) {
                 Some(&slot) => (slot, false),
                 None => {
-                    let slot = if let Some(reused) = self.free_slots.pop() {
-                        self.slot_names[reused] = Some(left.clone());
-                        self.node_attrs[reused].clear();
-                        self.adj_indices.rows_mut()[reused].clear();
-                        reused
-                    } else {
-                        let slot = self.slot_names.len();
-                        self.slot_names.push(Some(left.clone()));
-                        self.node_attrs.push(AttrMap::new());
-                        self.adj_indices.rows_mut().push(Vec::new());
-                        slot
-                    };
-                    self.node_order.insert(left.clone(), slot);
+                    let slot = self.node_order.push(left.clone());
+                    self.node_attrs.push(AttrMap::new());
+                    self.adj_indices.rows_mut().push(Vec::new());
                     (slot, true)
                 }
             };
@@ -1994,19 +2094,9 @@ impl Graph {
                 match self.node_order.get(&right) {
                     Some(&slot) => (slot, false),
                     None => {
-                        let slot = if let Some(reused) = self.free_slots.pop() {
-                            self.slot_names[reused] = Some(right.clone());
-                            self.node_attrs[reused].clear();
-                            self.adj_indices.rows_mut()[reused].clear();
-                            reused
-                        } else {
-                            let slot = self.slot_names.len();
-                            self.slot_names.push(Some(right.clone()));
-                            self.node_attrs.push(AttrMap::new());
-                            self.adj_indices.rows_mut().push(Vec::new());
-                            slot
-                        };
-                        self.node_order.insert(right.clone(), slot);
+                        let slot = self.node_order.push(right.clone());
+                        self.node_attrs.push(AttrMap::new());
+                        self.adj_indices.rows_mut().push(Vec::new());
                         (slot, true)
                     }
                 }
@@ -2075,16 +2165,9 @@ impl Graph {
 
         let node_labels: Vec<String> = nodes.into_iter().collect();
         let node_count = node_labels.len();
-        self.node_order.reserve(node_count);
-        self.slot_names = Vec::with_capacity(node_count);
+        self.node_order = NodeOrder::from_names(node_labels.clone());
         self.node_attrs = vec![AttrMap::new(); node_count];
-        self.free_slots.clear();
-        self.slots_dense = true;
         *self.adj_indices.rows_mut() = vec![Vec::new(); node_count];
-        for (i, node) in node_labels.iter().enumerate() {
-            self.node_order.insert(node.clone(), i);
-            self.slot_names.push(Some(node.clone()));
-        }
 
         let iterator = edges.into_iter();
         let (lower_bound, _) = iterator.size_hint();
@@ -2425,11 +2508,13 @@ impl Graph {
     }
 
     fn remove_node_deferred_compaction(&mut self, node: &str) -> bool {
-        let Some(slot) = self.node_order.shift_remove(node) else {
+        // O(1): the node's entry is tombstoned (or popped, for the last entry
+        // of a table with nothing else removed), never shifted.
+        let Some((slot, popped)) = self.node_order.remove(node) else {
             return false;
         };
 
-        // 1. Drop incident edges and remove this slot from neighbors' adjacency lists.
+        // Drop incident edges and remove this slot from neighbors' adjacency lists.
         let rows = self.adj_indices.rows_mut();
         let nbrs = std::mem::take(&mut rows[slot]);
         for &nbr in &nbrs {
@@ -2442,19 +2527,11 @@ impl Graph {
             }
         }
 
-        // 2. Tombstone the node's slot data.
-        self.slot_names[slot] = None;
-        self.node_attrs[slot].clear();
-
-        // 3. Slot reclamation / tail trimming. Freeing any other slot leaves
-        // every later node one position below its slot.
-        if slot + 1 == self.slot_names.len() && self.free_slots.is_empty() {
-            self.slot_names.pop();
+        if popped {
             self.node_attrs.pop();
             rows.pop();
         } else {
-            self.free_slots.push(slot);
-            self.slots_dense = false;
+            self.node_attrs[slot].clear();
         }
 
         self.revision = self.revision.saturating_add(1);
@@ -2485,7 +2562,8 @@ impl Graph {
     /// arrays stay within twice the live node count. Until then, readers of
     /// positions go through the position view.
     fn compact_when_sparse(&mut self) {
-        if self.free_slots.len() > self.node_order.len() {
+        let removed = self.node_order.slot_count() - self.node_order.len();
+        if removed > self.node_order.len() {
             self.compact_internal();
         }
     }
@@ -2495,7 +2573,7 @@ impl Graph {
     /// on dense slots: an insertion would otherwise drop the position view and
     /// every index read after it would rebuild the view in O(V+E).
     fn compact_before_growth(&mut self) {
-        if !self.slots_dense {
+        if !self.node_order.is_dense() {
             self.compact_internal();
         }
     }
@@ -2526,13 +2604,13 @@ impl Graph {
 
     pub fn edges_ordered(&self) -> Vec<EdgeSnapshot> {
         let mut ordered = Vec::with_capacity(self.edges.len());
-        let mut seen = vec![false; self.slot_names.len()];
-        for (u_name, &u) in &self.node_order {
+        let mut seen = vec![false; self.node_order.slot_count()];
+        for (u_name, u) in self.node_order.iter() {
             for &v in &self.adj_indices[u] {
                 if !seen[v] {
                     let pair = Self::canon_pair(u, v);
                     if let Some(attrs) = self.edges.get(&pair) {
-                        let v_name = self.slot_names[v].as_deref().expect("valid node slot");
+                        let v_name = self.node_order.name(v).expect("valid node slot");
                         ordered.push(EdgeSnapshot {
                             left: u_name.clone(),
                             right: v_name.to_owned(),
@@ -2550,13 +2628,13 @@ impl Graph {
     #[must_use]
     pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edges.len());
-        let mut seen = vec![false; self.slot_names.len()];
-        let mut slot_to_pos = vec![0; self.slot_names.len()];
-        for (pos, (_, &slot)) in self.node_order.iter().enumerate() {
+        let mut seen = vec![false; self.node_order.slot_count()];
+        let mut slot_to_pos = vec![0; self.node_order.slot_count()];
+        for (pos, (_, slot)) in self.node_order.iter().enumerate() {
             slot_to_pos[slot] = pos;
         }
 
-        for (u_pos, (_, &u)) in self.node_order.iter().enumerate() {
+        for (u_pos, (_, u)) in self.node_order.iter().enumerate() {
             for &v in &self.adj_indices[u] {
                 if !seen[v] {
                     let pair = Self::canon_pair(u, v);
@@ -2575,13 +2653,13 @@ impl Graph {
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edges.len());
-        let mut seen = vec![false; self.slot_names.len()];
-        for (u_name, &u) in &self.node_order {
+        let mut seen = vec![false; self.node_order.slot_count()];
+        for (u_name, u) in self.node_order.iter() {
             for &v in &self.adj_indices[u] {
                 if !seen[v] {
                     let pair = Self::canon_pair(u, v);
                     if let Some(attrs) = self.edges.get(&pair) {
-                        let v_name = self.slot_names[v].as_deref().expect("valid node slot");
+                        let v_name = self.node_order.name(v).expect("valid node slot");
                         ordered.push((u_name.as_str(), v_name, attrs));
                     }
                 }
@@ -2624,13 +2702,13 @@ impl Graph {
     #[must_use]
     pub fn edges_ordered_indices(&self) -> Vec<(usize, usize)> {
         let mut ordered = Vec::with_capacity(self.edges.len());
-        let mut seen_source = vec![false; self.slot_names.len()];
-        let mut slot_to_pos = vec![0; self.slot_names.len()];
-        for (pos, (_, &slot)) in self.node_order.iter().enumerate() {
+        let mut seen_source = vec![false; self.node_order.slot_count()];
+        let mut slot_to_pos = vec![0; self.node_order.slot_count()];
+        for (pos, (_, slot)) in self.node_order.iter().enumerate() {
             slot_to_pos[slot] = pos;
         }
 
-        for (u_pos, (_, &u)) in self.node_order.iter().enumerate() {
+        for (u_pos, (_, u)) in self.node_order.iter().enumerate() {
             for &v in &self.adj_indices[u] {
                 if !seen_source[v] {
                     let v_pos = slot_to_pos[v];
@@ -2651,7 +2729,7 @@ impl Graph {
         let mut ordered = Vec::with_capacity(self.edges.len());
         let mut seen_pairs =
             std::collections::HashSet::<(usize, usize)>::with_capacity(self.edges.len());
-        for (u_pos, (_, &u)) in self.node_order.iter().enumerate() {
+        for (u_pos, (_, u)) in self.node_order.iter().enumerate() {
             for &v in &self.adj_indices[u] {
                 let pair = Self::canon_pair(u, v);
                 if !seen_pairs.insert(pair) {
@@ -2682,8 +2760,8 @@ impl Graph {
             .zip(self.edges.values())
             .map(|(&(l, r), attrs)| {
                 (
-                    self.slot_names[l].as_deref().expect("valid index"),
-                    self.slot_names[r].as_deref().expect("valid index"),
+                    self.node_order.name(l).expect("valid index"),
+                    self.node_order.name(r).expect("valid index"),
                     attrs,
                 )
             })
@@ -2696,23 +2774,19 @@ impl Graph {
             .zip(self.edges.values())
             .map(|(&(l, r), attrs)| {
                 (
-                    self.slot_names[l].as_deref().expect("valid index"),
-                    self.slot_names[r].as_deref().expect("valid index"),
+                    self.node_order.name(l).expect("valid index"),
+                    self.node_order.name(r).expect("valid index"),
                     attrs,
                 )
             })
     }
 
-    /// Every node's slot is its position (O(1): the flag every removal and
-    /// compaction maintains).
+    /// Nothing removed since the last compaction: every node's slot is its
+    /// position (O(1)).
     #[inline]
     #[must_use]
     pub fn is_compact(&self) -> bool {
-        debug_assert!(
-            !self.slots_dense
-                || (self.free_slots.is_empty() && self.slot_names.len() == self.node_order.len())
-        );
-        self.slots_dense
+        self.node_order.is_dense()
     }
 
     pub fn ensure_compact(&mut self) {
@@ -2724,21 +2798,15 @@ impl Graph {
 
     fn compact_internal(&mut self) {
         let n = self.node_order.len();
-        let old_slot_count = self.slot_names.len();
-        let mut old_to_new = vec![usize::MAX; old_slot_count];
+        let old_slots: Vec<usize> = self.node_order.values().collect();
+        let old_to_new = self.node_order.compact();
 
-        let mut new_slot_names = Vec::with_capacity(n);
         let mut new_node_attrs = Vec::with_capacity(n);
         let mut new_adj_indices = Vec::with_capacity(n);
-
-        for (new_idx, (name, slot_ref)) in self.node_order.iter_mut().enumerate() {
-            let old_slot = *slot_ref;
-            old_to_new[old_slot] = new_idx;
-            *slot_ref = new_idx;
-
-            new_slot_names.push(Some(name.clone()));
+        let rows = self.adj_indices.rows_mut();
+        for old_slot in old_slots {
             new_node_attrs.push(std::mem::take(&mut self.node_attrs[old_slot]));
-            new_adj_indices.push(std::mem::take(&mut self.adj_indices.rows_mut()[old_slot]));
+            new_adj_indices.push(std::mem::take(&mut rows[old_slot]));
         }
 
         // Remap neighbor slots in adjacency rows
@@ -2762,20 +2830,17 @@ impl Graph {
             new_endpoints.push((old_to_new[ep_l], old_to_new[ep_r]));
         }
 
-        self.slot_names = new_slot_names;
         self.node_attrs = new_node_attrs;
         *self.adj_indices.rows_mut() = new_adj_indices;
         self.edges = new_edges;
         self.edge_index_endpoints = new_endpoints;
-        self.free_slots.clear();
-        self.slots_dense = true;
         self.revision = self.revision.saturating_add(1);
     }
 
     #[must_use]
     pub fn snapshot(&self) -> GraphSnapshot {
         let mut node_attrs: BTreeMap<String, AttrMap> = BTreeMap::new();
-        for (name, &slot) in &self.node_order {
+        for (name, slot) in self.node_order.iter() {
             if !self.node_attrs[slot].is_empty() {
                 node_attrs.insert(name.clone(), self.node_attrs[slot].clone());
             }
@@ -9983,6 +10048,58 @@ mod tests {
         assert!(g.remove_node("n5"));
         assert!(g.is_compact(), "6 freed slots against 4 live nodes");
         assert_graph_positions_agree_with_names(&g);
+    }
+
+    /// yr2oc.1: the node table's rank/select after O(1) removals, against the
+    /// order a plain insertion-ordered list keeps.
+    #[test]
+    fn node_order_positions_follow_removals_and_compaction() {
+        use super::NodeOrder;
+        let names: Vec<String> = (0..12).map(|i| format!("v{i}")).collect();
+        let mut order = NodeOrder::from_names(names.clone());
+        let mut model = names.clone();
+        let check = |order: &NodeOrder, model: &[String]| {
+            assert_eq!(order.len(), model.len());
+            assert_eq!(order.keys().cloned().collect::<Vec<_>>(), model);
+            for (position, name) in model.iter().enumerate() {
+                assert_eq!(order.get_index_of(name), Some(position));
+                let (at, slot) = order.get_index(position).expect("live position");
+                assert_eq!(at, name);
+                assert_eq!(order.slot_at(position), Some(slot));
+                assert_eq!(order.position_of(slot), Some(position));
+                assert_eq!(order.get(name), Some(&slot));
+            }
+            assert_eq!(order.get_index(model.len()), None);
+        };
+        for victim in ["v3", "v0", "v7", "v11", "v10"] {
+            let (slot, popped) = order.remove(victim).expect("live name");
+            model.retain(|name| name != victim);
+            assert!(
+                !popped,
+                "{victim} is not the last live entry of a dense table"
+            );
+            assert_eq!(order.position_of(slot), None);
+            assert!(order.get(victim).is_none());
+            assert!(!order.is_dense());
+            check(&order, &model);
+        }
+        assert!(order.remove("v3").is_none());
+        // A push after removals appends at the end of the order.
+        order.push("late".to_owned());
+        model.push("late".to_owned());
+        check(&order, &model);
+        // Compaction renumbers the live entries in order and keeps every name.
+        let old_to_new = order.compact();
+        assert!(order.is_dense());
+        assert_eq!(order.slot_count(), model.len());
+        assert_eq!(old_to_new[3], usize::MAX);
+        assert_eq!(old_to_new[1], 0);
+        check(&order, &model);
+        // On a dense table the last entry is popped, not tombstoned.
+        let last = model.pop().expect("non-empty");
+        assert_eq!(order.remove(&last).map(|(_, popped)| popped), Some(true));
+        assert!(order.is_dense());
+        check(&order, &model);
     }
 
     #[test]
