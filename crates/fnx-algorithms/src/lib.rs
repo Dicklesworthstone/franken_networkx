@@ -8,6 +8,7 @@ use fnx_cgse::{
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, RuntimePolicy};
+use indexmap::{IndexMap, IndexSet};
 use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use rand_core::Rng;
@@ -13554,8 +13555,10 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
     }
 }
 
+/// An edge's `networkx.EdgePartition` state as branching algorithms read it:
+/// anything other than INCLUDED or EXCLUDED (OPEN, no value) is `Open`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PartitionState {
+pub enum PartitionState {
     Included,
     Excluded,
     Open,
@@ -15284,6 +15287,352 @@ fn spanning_arborescence_with_partition(
     let result = branching_result(algorithm, nodes.len(), directed_edges.len(), edges);
     let arborescence = build_branching_digraph(&nodes, &result.edges, digraph.mode());
     is_arborescence(&arborescence).then_some(result)
+}
+
+/// What networkx's `maximum_branching` does to its final set of edge keys.
+///
+/// networkx builds the result by iterating a Python `set` of integer edge
+/// keys, so the result's edge ORDER depends on that set's history. The plan
+/// is that history: `set(initial)`, then for each step `update(circuit)` and
+/// `remove(removed)`. Replaying it on a Python set reproduces networkx's
+/// order exactly; the keys index the input edge list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkxBranchingPlan {
+    /// The last level's branching keys, in networkx's edge-index order.
+    pub initial: Vec<usize>,
+    /// One step per contraction, from the last level to the first.
+    pub steps: Vec<(Vec<usize>, usize)>,
+}
+
+/// The two ways networkx's `maximum_branching` raises a bare `Exception`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkxBranchingError {
+    /// A root circuit has no non-INCLUDED edge of finite weight (`raise Exception`).
+    NoMinimumEdge,
+    /// "Couldn't find edge incoming to merged node."
+    NoIncomingEdge,
+}
+
+/// Python-dict-ordered multigraph with networkx `MultiDiGraph` iteration
+/// order: nodes and rows in insertion order, removal keeping the rest.
+#[derive(Default)]
+struct OrderedMultiDiGraph {
+    nodes: IndexSet<usize>,
+    succ: HashMap<usize, IndexMap<usize, IndexSet<usize>>>,
+    pred: HashMap<usize, IndexMap<usize, IndexSet<usize>>>,
+}
+
+impl OrderedMultiDiGraph {
+    fn add_node(&mut self, node: usize) {
+        if self.nodes.insert(node) {
+            self.succ.insert(node, IndexMap::new());
+            self.pred.insert(node, IndexMap::new());
+        }
+    }
+
+    fn add_edge(&mut self, u: usize, v: usize, key: usize) {
+        self.add_node(u);
+        self.add_node(v);
+        self.succ
+            .get_mut(&u)
+            .expect("added above")
+            .entry(v)
+            .or_default()
+            .insert(key);
+        self.pred
+            .get_mut(&v)
+            .expect("added above")
+            .entry(u)
+            .or_default()
+            .insert(key);
+    }
+
+    /// Remove `node` and its edges, returning the removed edge keys.
+    fn remove_node(&mut self, node: usize) -> Vec<usize> {
+        let mut keys = Vec::new();
+        if let Some(out) = self.succ.remove(&node) {
+            for (v, ks) in out {
+                keys.extend(ks.iter().copied());
+                if v != node
+                    && let Some(row) = self.pred.get_mut(&v)
+                {
+                    row.shift_remove(&node);
+                }
+            }
+        }
+        if let Some(inc) = self.pred.remove(&node) {
+            for (u, ks) in inc {
+                if u != node {
+                    keys.extend(ks.iter().copied());
+                    if let Some(row) = self.succ.get_mut(&u) {
+                        row.shift_remove(&node);
+                    }
+                }
+            }
+        }
+        self.nodes.shift_remove(&node);
+        keys
+    }
+
+    /// Keys of the edges into `node`, in the order a `G.copy()` of this graph
+    /// lists `copy.pred[node]`: by source in node order, then key order.
+    fn copied_in_keys(&self, node: usize) -> Vec<usize> {
+        let mut keys = Vec::new();
+        for u in &self.nodes {
+            if let Some(ks) = self.succ.get(u).and_then(|row| row.get(&node)) {
+                keys.extend(ks.iter().copied());
+            }
+        }
+        keys
+    }
+}
+
+fn union_find_root(parent: &mut HashMap<usize, usize>, node: usize) -> usize {
+    let mut root = node;
+    while let Some(&p) = parent.get(&root) {
+        if p == root {
+            break;
+        }
+        root = p;
+    }
+    let mut cur = node;
+    while cur != root {
+        let next = parent.get(&cur).copied().unwrap_or(root);
+        parent.insert(cur, root);
+        cur = next;
+    }
+    root
+}
+
+/// networkx 3.6's `maximum_branching` (Edmonds), step for step, over edge
+/// keys `0..edges.len()`.
+///
+/// `edges[k] = (u, v, weight, partition)` in `G.edges(data=True)` order, with
+/// node ids assigned in first-appearance order (u before v), which is the
+/// node order of networkx's working graph. Every choice networkx makes by
+/// iteration order is made in the same order here: the node scan restarting
+/// after each contraction, the first maximal incoming edge (INCLUDED wins at
+/// once, EXCLUDED is skipped), the first minimal circuit edge, the edge list
+/// of each contraction and the in-edge order of a merged node in the
+/// `G.copy()` snapshots the unwinding reads. Weights are compared and
+/// adjusted as f64, which equals networkx's arithmetic for floats and for
+/// integers f64 represents exactly.
+///
+/// # Errors
+/// The cases where networkx raises a bare `Exception` while unwinding.
+pub fn networkx_maximum_branching_plan(
+    edges: &[(usize, usize, f64, PartitionState)],
+) -> Result<NetworkxBranchingPlan, NetworkxBranchingError> {
+    let mut g = OrderedMultiDiGraph::default();
+    let mut g_ends: HashMap<usize, (usize, usize)> = HashMap::with_capacity(edges.len());
+    let mut g_weight: HashMap<usize, f64> = HashMap::with_capacity(edges.len());
+    let mut candidate: HashSet<usize> = HashSet::new();
+    let partition: Vec<PartitionState> = edges.iter().map(|e| e.3).collect();
+    for (key, &(u, v, w, _)) in edges.iter().enumerate() {
+        g.add_edge(u, v, key);
+        g_ends.insert(key, (u, v));
+        g_weight.insert(key, w);
+    }
+    let mut next_id = edges
+        .iter()
+        .map(|&(u, v, _, _)| u.max(v) + 1)
+        .max()
+        .unwrap_or(0);
+
+    // B: the branching, as each node's (parent, key) and the edge index order.
+    let mut b_parent: HashMap<usize, (usize, usize)> = HashMap::new();
+    let mut b_children: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut b_weight: HashMap<usize, f64> = HashMap::new();
+    let mut b_stamp: HashMap<usize, u64> = HashMap::new();
+    let mut stamp = 0_u64;
+    let mut uf: HashMap<usize, usize> = HashMap::new();
+    let mut selected: HashSet<usize> = HashSet::new();
+
+    // Per level: circuit keys, minimum edge, each circuit / redirected key's
+    // target before the contraction, and (from the next snapshot) the merged
+    // node's in-edge keys in `G.copy()` order.
+    let mut circuits: Vec<Vec<usize>> = Vec::new();
+    let mut min_edges: Vec<Option<usize>> = Vec::new();
+    let mut targets_before: Vec<HashMap<usize, usize>> = Vec::new();
+    let mut merged_in_keys: Vec<Vec<usize>> = Vec::new();
+    let mut merged_nodes: Vec<usize> = Vec::new();
+
+    let mut order: Vec<usize> = g.nodes.iter().copied().collect();
+    let mut pos = 0;
+    while pos < order.len() {
+        let v = order[pos];
+        pos += 1;
+        if !selected.insert(v) {
+            continue;
+        }
+        // edmonds_find_desired_edge(v)
+        let mut desired: Option<(usize, usize)> = None;
+        let mut max_weight = f64::NEG_INFINITY;
+        'scan: for (&u, keys) in &g.pred[&v] {
+            for &key in keys {
+                match partition[key] {
+                    PartitionState::Excluded => continue,
+                    PartitionState::Included => {
+                        max_weight = g_weight[&key];
+                        desired = Some((u, key));
+                        break 'scan;
+                    }
+                    PartitionState::Open => {
+                        if g_weight[&key] > max_weight {
+                            max_weight = g_weight[&key];
+                            desired = Some((u, key));
+                        }
+                    }
+                }
+            }
+        }
+        let Some((u, key)) = desired else { continue };
+        if max_weight <= 0.0 || max_weight.is_nan() {
+            continue;
+        }
+        let circuit = union_find_root(&mut uf, u) == union_find_root(&mut uf, v);
+        b_parent.insert(v, (u, key));
+        b_children.entry(u).or_default().push(v);
+        b_weight.insert(key, max_weight);
+        b_stamp.insert(key, stamp);
+        stamp += 1;
+        candidate.insert(key);
+        let (ru, rv) = (union_find_root(&mut uf, u), union_find_root(&mut uf, v));
+        if ru != rv {
+            uf.insert(rv, ru);
+        }
+        if !circuit {
+            continue;
+        }
+
+        // edmonds_step_I2: the circuit is the B path v -> ... -> u plus (u, v).
+        let level = circuits.len();
+        if level > 0 {
+            merged_in_keys.push(g.copied_in_keys(merged_nodes[level - 1]));
+        }
+        let mut path = vec![u];
+        while *path.last().expect("non-empty") != v {
+            let (parent, _) = b_parent[path.last().expect("non-empty")];
+            path.push(parent);
+        }
+        path.reverse(); // Q_nodes: v, ..., u
+        let mut q_edges: Vec<usize> = path[1..].iter().map(|n| b_parent[n].1).collect();
+        q_edges.push(key);
+        let mut min_weight = f64::INFINITY;
+        let mut min_edge = None;
+        let mut incoming_weight: HashMap<usize, f64> = HashMap::new();
+        let mut before: HashMap<usize, usize> = HashMap::new();
+        for &k in &q_edges {
+            let w = b_weight[&k];
+            let target = g_ends[&k].1;
+            incoming_weight.insert(target, w);
+            before.insert(k, target);
+            if partition[k] == PartitionState::Included {
+                continue;
+            }
+            if w < min_weight {
+                min_weight = w;
+                min_edge = Some(k);
+            }
+        }
+        let new_node = next_id;
+        next_id += 1;
+        g.add_node(new_node);
+        let mut new_edges: Vec<(usize, usize, usize, f64)> = Vec::new();
+        for &a in &g.nodes {
+            for (&b, keys) in &g.succ[&a] {
+                let (a_in, b_in) = (
+                    incoming_weight.contains_key(&a),
+                    incoming_weight.contains_key(&b),
+                );
+                for &k in keys {
+                    if a_in && !b_in {
+                        new_edges.push((new_node, b, k, g_weight[&k]));
+                    } else if !a_in && b_in {
+                        before.insert(k, b);
+                        new_edges.push((
+                            a,
+                            new_node,
+                            k,
+                            g_weight[&k] + (min_weight - incoming_weight[&b]),
+                        ));
+                    }
+                }
+            }
+        }
+        for &q in &path {
+            for k in g.remove_node(q) {
+                g_ends.remove(&k);
+                g_weight.remove(&k);
+            }
+            if let Some((_, k)) = b_parent.remove(&q) {
+                b_stamp.remove(&k);
+                b_weight.remove(&k);
+            }
+            for child in b_children.remove(&q).unwrap_or_default() {
+                if let Some(&(parent, k)) = b_parent.get(&child)
+                    && parent == q
+                {
+                    b_parent.remove(&child);
+                    b_stamp.remove(&k);
+                    b_weight.remove(&k);
+                }
+            }
+            selected.remove(&q);
+        }
+        for (a, b, k, w) in new_edges {
+            g.add_edge(a, b, k);
+            g_ends.insert(k, (a, b));
+            g_weight.insert(k, w);
+            if candidate.contains(&k) {
+                b_parent.insert(b, (a, k));
+                b_children.entry(a).or_default().push(b);
+                b_weight.insert(k, w);
+                b_stamp.insert(k, stamp);
+                stamp += 1;
+                let (ra, rb) = (union_find_root(&mut uf, a), union_find_root(&mut uf, b));
+                if ra != rb {
+                    uf.insert(rb, ra);
+                }
+            }
+        }
+        circuits.push(q_edges);
+        min_edges.push(min_edge);
+        targets_before.push(before);
+        merged_nodes.push(new_node);
+        order = g.nodes.iter().copied().collect();
+        pos = 0;
+    }
+    if let Some(&last) = merged_nodes.last() {
+        merged_in_keys.push(g.copied_in_keys(last));
+    }
+
+    let mut initial: Vec<usize> = b_stamp.keys().copied().collect();
+    initial.sort_unstable_by_key(|k| b_stamp[k]);
+    let mut kept: HashSet<usize> = initial.iter().copied().collect();
+    let mut steps = Vec::with_capacity(circuits.len());
+    for level in (0..circuits.len()).rev() {
+        let circuit = &circuits[level];
+        let entering = merged_in_keys[level]
+            .iter()
+            .copied()
+            .find(|k| kept.contains(k));
+        kept.extend(circuit.iter().copied());
+        let removed = match entering {
+            None => min_edges[level].ok_or(NetworkxBranchingError::NoMinimumEdge)?,
+            Some(k) => {
+                let target = targets_before[level][&k];
+                circuit
+                    .iter()
+                    .copied()
+                    .find(|c| targets_before[level][c] == target)
+                    .ok_or(NetworkxBranchingError::NoIncomingEdge)?
+            }
+        };
+        kept.remove(&removed);
+        steps.push((circuit.clone(), removed));
+    }
+    Ok(NetworkxBranchingPlan { initial, steps })
 }
 
 /// Return a maximum branching of a directed graph.
@@ -54797,6 +55146,9 @@ mod tests {
         LinkPredictionEndpointPairs,
         MaximalIndependentSetError,
         ModularityError,
+        NetworkxBranchingError,
+        NetworkxBranchingPlan,
+        PartitionState,
         SpannerError,
         TopologicalGenerationsTrace,
         adamic_adar_index,
@@ -55106,6 +55458,7 @@ mod tests {
         // Connectivity and cuts — additional
         navigable_small_world_graph,
         negative_edge_cycle,
+        networkx_maximum_branching_plan,
         node_boundary,
         node_boundary_directed,
         node_clique_number,
@@ -72136,6 +72489,56 @@ mod tests {
         g.add_edge("x", "y").expect("edge");
         g.add_edge("y", "x").expect("edge");
         assert!(topological_generations(&g).is_none());
+    }
+
+    #[test]
+    fn networkx_branching_plan_root_circuit_drops_its_minimum_edge() {
+        // 0 -1-> ... : keys 0: 0->1 (5), 1: 1->2 (3), 2: 2->0 (1). The whole
+        // graph is one circuit contracted into a root; unwinding removes the
+        // minimum edge, key 2.
+        let open = PartitionState::Open;
+        let plan = networkx_maximum_branching_plan(&[
+            (0, 1, 5.0, open),
+            (1, 2, 3.0, open),
+            (2, 0, 1.0, open),
+        ])
+        .expect("plan");
+        assert_eq!(
+            plan,
+            NetworkxBranchingPlan {
+                initial: vec![],
+                steps: vec![(vec![2, 0, 1], 2)],
+            }
+        );
+    }
+
+    #[test]
+    fn networkx_branching_plan_entering_edge_breaks_the_circuit_at_its_target() {
+        // keys 0: 1->2 (5), 1: 2->1 (5), 2: 0->1 (1). The 1<->2 circuit is
+        // entered by key 2 at node 1, so the circuit edge into 1 (key 1) goes.
+        let open = PartitionState::Open;
+        let plan = networkx_maximum_branching_plan(&[
+            (1, 2, 5.0, open),
+            (2, 1, 5.0, open),
+            (0, 1, 1.0, open),
+        ])
+        .expect("plan");
+        assert_eq!(
+            plan,
+            NetworkxBranchingPlan {
+                initial: vec![2],
+                steps: vec![(vec![1, 0], 1)],
+            }
+        );
+    }
+
+    #[test]
+    fn networkx_branching_plan_all_included_root_circuit_is_networkx_s_bare_exception() {
+        let included = PartitionState::Included;
+        assert_eq!(
+            networkx_maximum_branching_plan(&[(0, 1, 1.0, included), (1, 0, 1.0, included)]),
+            Err(NetworkxBranchingError::NoMinimumEdge)
+        );
     }
 
     /// networkx's in-degree map before processing generation `k`.

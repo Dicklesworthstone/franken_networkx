@@ -13,7 +13,8 @@ use crate::{
 use fnx_classes::AttrMap;
 use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::{
-    PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError, PyZeroDivisionError,
+    PyException, PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError,
+    PyZeroDivisionError,
 };
 use pyo3::prelude::*;
 use pyo3::types::{
@@ -13479,6 +13480,48 @@ pub fn topological_generations_state(
         multiplicity,
     };
     Ok((generations, unprocessed, state))
+}
+
+/// networkx's `maximum_branching` as a plan for the Python wrapper: the last
+/// level's branching keys and, per contraction from the last, the circuit
+/// keys added back and the key removed (see
+/// `fnx_algorithms::networkx_maximum_branching_plan`). Edge k is
+/// `(sources[k], targets[k], weights[k])`; `partitions[k]` is 1 for
+/// INCLUDED, 2 for EXCLUDED, anything else OPEN. Raises what networkx raises
+/// when a circuit cannot be unwound.
+#[pyfunction]
+#[pyo3(signature = (sources, targets, weights, partitions=None))]
+pub fn networkx_maximum_branching_plan(
+    py: Python<'_>,
+    sources: Vec<usize>,
+    targets: Vec<usize>,
+    weights: Vec<f64>,
+    partitions: Option<Vec<u8>>,
+) -> PyResult<(Vec<usize>, Vec<(Vec<usize>, usize)>)> {
+    let n = sources.len();
+    if targets.len() != n || weights.len() != n || partitions.as_ref().is_some_and(|p| p.len() != n)
+    {
+        return Err(PyValueError::new_err(
+            "edge columns must have the same length",
+        ));
+    }
+    let edges: Vec<(usize, usize, f64, fnx_algorithms::PartitionState)> = (0..n)
+        .map(|k| {
+            let state = match partitions.as_ref().map(|p| p[k]) {
+                Some(1) => fnx_algorithms::PartitionState::Included,
+                Some(2) => fnx_algorithms::PartitionState::Excluded,
+                _ => fnx_algorithms::PartitionState::Open,
+            };
+            (sources[k], targets[k], weights[k], state)
+        })
+        .collect();
+    match py.allow_threads(|| fnx_algorithms::networkx_maximum_branching_plan(&edges)) {
+        Ok(plan) => Ok((plan.initial, plan.steps)),
+        Err(fnx_algorithms::NetworkxBranchingError::NoMinimumEdge) => Err(PyException::new_err(())),
+        Err(fnx_algorithms::NetworkxBranchingError::NoIncomingEdge) => Err(PyException::new_err(
+            "Couldn't find edge incoming to merged node.",
+        )),
+    }
 }
 
 /// Return the longest path in a DAG.
@@ -28491,6 +28534,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dfs_postorder_nodes, m)?)?;
     // DAG algorithms
     m.add_function(wrap_pyfunction!(topological_generations_state, m)?)?;
+    m.add_function(wrap_pyfunction!(networkx_maximum_branching_plan, m)?)?;
     m.add_class::<TopologicalGenerationsState>()?;
     m.add_function(wrap_pyfunction!(dag_longest_path, m)?)?;
     m.add_function(wrap_pyfunction!(dag_longest_path_length, m)?)?;

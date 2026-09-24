@@ -17165,6 +17165,84 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     return _branching_round_trip(G, attr, default, preserve_attrs, partition, negate, negate)
 
 
+_EDMONDS_CANDIDATE_ATTR = "edmonds' secret candidate attribute"
+
+
+def _maximum_branching_native(G, attr, default, preserve_attrs, partition):
+    """networkx's ``maximum_branching`` through the native plan (sfq4w.4).
+
+    The kernel repeats networkx's Edmonds step for step over integer edge
+    keys and returns the history of networkx's final ``set`` of keys; replaying
+    it here gives networkx's result edge ORDER, which comes from that set.
+    Returns None, for networkx's own code to run, where the plan would not be
+    exact: a weight that is not an int or float, an int too large for f64
+    arithmetic to stay exact through the contractions, or an attribute name
+    equal to networkx's private candidate attribute.
+    """
+    if attr == _EDMONDS_CANDIDATE_ATTR or partition == _EDMONDS_CANDIDATE_ATTR:
+        return None
+    if preserve_attrs or partition is not None:
+        rows = list(G.edges(data=True))
+        if preserve_attrs and any(_EDMONDS_CANDIDATE_ATTR in d for _, _, d in rows):
+            return None
+        weights = [d.get(attr, default) for _, _, d in rows]
+    else:
+        rows = list(G.edges(data=attr, default=default))
+        weights = [w for _, _, w in rows]
+    # Each contraction can move a weight by twice the largest one.
+    bound = 2**53 // (2 * len(rows) + 2)
+    ids = {}
+    sources, targets, floats = [], [], []
+    for (u, v, _), w in zip(rows, weights):
+        kind = type(w)
+        if kind is float:
+            floats.append(w)
+        elif (kind is int or kind is bool) and -bound <= w <= bound:
+            floats.append(float(w))
+        else:
+            return None
+        sources.append(ids.setdefault(u, len(ids)))
+        targets.append(ids.setdefault(v, len(ids)))
+    parts = None
+    if partition is not None:
+        parts = []
+        for _, _, d in rows:
+            value = d.get(partition)
+            if value == EdgePartition.EXCLUDED:
+                parts.append(2)
+            elif value == EdgePartition.INCLUDED:
+                parts.append(1)
+            else:
+                parts.append(0)
+    initial, steps = _raw_networkx_maximum_branching_plan(sources, targets, floats, parts)
+    # networkx takes set() of a DICT (its edge index): CPython sizes the table
+    # for a dict in one step but grows it while inserting from a list, and the
+    # table size decides where small int keys collide, hence the order.
+    kept = set(dict.fromkeys(initial))
+    for circuit, removed in steps:
+        kept.update(circuit)
+        kept.remove(removed)
+    H = G.__class__()
+    H.add_nodes_from(G)
+    for key in kept:
+        u, v, data = rows[key]
+        dd = {attr: weights[key]}
+        if preserve_attrs:
+            # networkx's G^0 edge data, then its result data without the
+            # weight's second copy or the candidate marker.
+            d = {attr: weights[key]}
+            if data.get(partition) is not None:
+                d[partition] = data.get(partition)
+            for k, value in data.items():
+                if k != attr:
+                    d[k] = value
+            for k, value in d.items():
+                if k not in (attr, _EDMONDS_CANDIDATE_ATTR):
+                    dd[k] = value
+        H.add_edge(u, v, **dd)
+    return H
+
+
 def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
     """br-isokw: ``G`` matches nx; default aligned to int 1.
 
@@ -17175,13 +17253,16 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel
     rejects MultiDiGraph but nx accepts it.
 
-    br-r37-c1-kb9hm: the native Edmonds kernel does not preserve
+    br-r37-c1-kb9hm: the old native Edmonds kernel did not preserve
     NetworkX's incoming-edge iteration order through tie-rich cycle
-    contractions. Equal-weight optimums can therefore return a
-    different observable edge set. Delegate until the native kernel
-    has a full tie-break proof corpus.
+    contractions. sfq4w.4: ``_maximum_branching_native`` runs a
+    step-for-step port instead (edge order included); the networkx
+    delegation below remains for weights that port does not cover.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    H = _maximum_branching_native(G, attr, default, preserve_attrs, partition)
+    if H is not None:
+        return H
     from franken_networkx.readwrite import _from_nx_graph
 
     # br-r37-c1-p80x1.14: the delegation above stays - br-r37-c1-kb9hm rejected the native
@@ -22881,6 +22962,7 @@ from franken_networkx._fnx import (
     is_directed_acyclic_graph as _raw_is_directed_acyclic_graph,
     lexicographic_topological_sort as _raw_lexicographic_topological_sort,
     topological_generations_state as _raw_topological_generations_state,
+    networkx_maximum_branching_plan as _raw_networkx_maximum_branching_plan,
 )
 
 
