@@ -64,13 +64,29 @@ def test_erdos_renyi_alias_builds_past_the_gnp_budget():
     assert _shape(G) == _shape(fnx.gnp_random_graph(20_001, 1e-5, seed=11))
 
 
-def test_hardened_mode_still_enforces_the_budget():
-    """The budgets did not disappear: hardened mode keeps its defence, so a
-    fix that simply deleted the caps would fail here."""
+@pytest.mark.parametrize(
+    ("build", "clamped_nodes"),
+    [
+        (lambda: fnx.empty_graph(100_001), 100_000),
+        (lambda: fnx.path_graph(100_001), 100_000),
+        (lambda: fnx.gnp_random_graph(20_001, 1e-5, seed=3), 20_000),
+    ],
+)
+def test_hardened_mode_clamps_the_budget_and_says_so(build, clamped_nodes):
+    """The budgets did not disappear: hardened mode keeps its defence (a fix
+    that deleted the caps fails the node count), and the clamp is VISIBLE.
+    nro4w.9: the clamp warning never left Rust, so a hardened caller got a
+    smaller graph than requested with nothing to say so."""
     with fnx.compatibility_mode("hardened"):
-        try:
-            G = fnx.path_graph(100_001)
-        except ValueError as exc:
-            assert "max_allowed=100000" in str(exc)
-        else:
-            assert G.number_of_nodes() == 100_000
+        with pytest.warns(RuntimeWarning, match="clamped to"):
+            G = build()
+    assert G.number_of_nodes() == clamped_nodes
+
+
+def test_strict_mode_generators_emit_no_recovery_warnings():
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert fnx.path_graph(100_001).number_of_nodes() == 100_001
+        assert fnx.gnp_random_graph(50, 0.1, seed=1).number_of_nodes() == 50
