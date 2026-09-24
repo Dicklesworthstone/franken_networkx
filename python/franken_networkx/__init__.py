@@ -43243,6 +43243,116 @@ def triads_by_type(G):
 # ---------------------------------------------------------------------------
 
 
+def _edge_swap_networkx_exact(G, nswap, max_tries, seed, *, directed):
+    """``networkx`` 3.6.1 ``double_edge_swap`` / ``directed_edge_swap``, step for step.
+
+    br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.4: fnx used a different
+    algorithm (uniform edge pick) documented as an "intentional divergence" but
+    never owned in the upstream-divergence ledger, so the same seed produced a
+    different graph than networkx (12 failures in networkx's own
+    test_swap.py under NETWORKX_TEST_BACKEND). This is nx's algorithm with
+    nx's RNG consumption: degree-weighted source choice via
+    ``discrete_sequence`` over the degree CDF (degrees taken once, in node
+    order), ``seed.choice`` over the CURRENT neighbour order, nx's skip rules
+    (which do not count as tries in the undirected case) and nx's operation
+    order. Neighbour lists are read from an insertion-ordered mirror that
+    models nx's dict adjacency exactly, so an attempt never crosses into Rust;
+    only accepted swaps touch ``G``, in nx's order, so ``G`` also ends with
+    nx's adjacency order.
+    """
+    from networkx.utils import (
+        create_py_random_state,
+        cumulative_distribution,
+        discrete_sequence,
+    )
+
+    rng = create_py_random_state(seed)
+    keys, degrees = zip(*G.degree())
+    cdf = cumulative_distribution(degrees)
+
+    if directed:
+        succ = {node: dict.fromkeys(G.succ[node]) for node in keys}
+        tries = 0
+        swapcount = 0
+        while swapcount < nswap:
+            start = keys[discrete_sequence(1, cdistribution=cdf, seed=rng)[0]]
+            tries += 1
+            if tries > max_tries:
+                raise NetworkXAlgorithmError(
+                    f"Maximum number of swap attempts ({tries}) exceeded "
+                    f"before desired swaps achieved ({nswap})."
+                )
+            if not succ[start]:
+                continue
+            second = rng.choice(list(succ[start]))
+            if start == second:
+                continue
+            if not succ[second]:
+                continue
+            third = rng.choice(list(succ[second]))
+            if second == third:
+                continue
+            if not succ[third]:
+                continue
+            fourth = rng.choice(list(succ[third]))
+            if third == fourth:
+                continue
+            if (
+                third not in succ[start]
+                and fourth not in succ[second]
+                and second not in succ[third]
+            ):
+                for a, b in ((start, third), (third, second), (second, fourth)):
+                    G.add_edge(a, b)
+                    succ[a][b] = None
+                for a, b in ((start, second), (second, third), (third, fourth)):
+                    G.remove_edge(a, b)
+                    del succ[a][b]
+                swapcount += 1
+        return G
+
+    adj = {node: dict.fromkeys(G[node]) for node in keys}
+
+    def _mirror_add(a, b):
+        adj[a][b] = None
+        adj[b][a] = None
+
+    def _mirror_remove(a, b):
+        del adj[a][b]
+        if a != b:
+            del adj[b][a]
+
+    n = 0
+    swapcount = 0
+    while swapcount < nswap:
+        ui, xi = discrete_sequence(2, cdistribution=cdf, seed=rng)
+        if ui == xi:
+            continue
+        u = keys[ui]
+        x = keys[xi]
+        v = rng.choice(list(adj[u]))
+        y = rng.choice(list(adj[x]))
+        if v == y:
+            continue
+        if (x not in adj[u]) and (y not in adj[v]):
+            G.add_edge(u, x)
+            _mirror_add(u, x)
+            G.add_edge(v, y)
+            _mirror_add(v, y)
+            G.remove_edge(u, v)
+            _mirror_remove(u, v)
+            G.remove_edge(x, y)
+            _mirror_remove(x, y)
+            swapcount += 1
+        if n >= max_tries:
+            raise NetworkXAlgorithmError(
+                f"Maximum number of swap attempts ({n}) exceeded "
+                f"before desired swaps achieved ({nswap})."
+            )
+        n += 1
+    return G
+
+
 def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     """Swap two edges while preserving the degree sequence.
 
@@ -43264,8 +43374,6 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     G : Graph
         The modified graph.
     """
-    import random as _random
-
     # br-r37-c1-des-validate: nx raises on five precondition / runtime
     # cases; previously fnx silently returned G unchanged for all
     # five, which masked invalid input AND hid the
@@ -43284,113 +43392,17 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     if G.number_of_edges() < 2:
         raise NetworkXError("Graph has fewer than 2 edges")
 
-    # br-r37-c1-frbgb: when called via the nx dispatcher (registered in
-    # backend._SUPPORTED_ALGORITHMS), nx's ``@py_random_state("seed")``
-    # decorator has already wrapped ``seed`` into a ``random.Random``
-    # instance. Detect that and reuse the pre-built RNG so the dispatch
-    # path doesn't crash on ``Random.Random(<Random>)``.
-    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
-
-    # br-cc-des-batch: the per-swap path pays 6 PyO3 calls/swap (2 has_edge +
-    # 4 add/remove) — the per-call mutation floor in a loop (0.49x vs nx). When
-    # G carries no edge attributes, simulate the WHOLE swap sequence on a
-    # pure-Python edge set (``has_edge`` -> O(1) frozenset membership, no PyO3)
-    # with the IDENTICAL rng draw pattern + uniform-edge-pick + acceptance
-    # logic, then apply the NET structural change to G with two batch calls.
-    # Byte-identical swap sequence and final edge list to the per-swap path
-    # (same rng, same accept test). Gated on no-edge-attrs: an edge removed and
-    # later re-added would keep its original attrs under net-apply but be fresh
-    # under the per-swap path — irrelevant when there are no edge attrs. The
-    # net change is applied in a ``finally`` so a max_tries-exhaustion still
-    # leaves G with the partial swaps done (matching the per-swap in-place path).
-    if not _graph_has_any_edge_attrs(G):
-        edges = list(G.edges())
-        n_edges = len(edges)
-        orig_set = {frozenset(e) for e in edges}
-        edge_set = set(orig_set)
-        swaps_done = 0
-        tries = 0
-        max_attempts = max_tries
-        try:
-            while swaps_done < nswap:
-                if tries >= max_attempts:
-                    raise NetworkXAlgorithmError(
-                        f"Maximum number of swap attempts ({tries}) exceeded "
-                        f"before desired swaps achieved ({nswap})."
-                    )
-                tries += 1
-                i1 = rng.randint(0, n_edges - 1)
-                i2 = rng.randint(0, n_edges - 1)
-                u, v = edges[i1]
-                x, y = edges[i2]
-                if len({u, v, x, y}) < 4:
-                    continue
-                ex1 = frozenset((u, x))
-                ex2 = frozenset((v, y))
-                if ex1 not in edge_set and ex2 not in edge_set and u != x and v != y:
-                    edge_set.discard(frozenset((u, v)))
-                    edge_set.discard(frozenset((x, y)))
-                    edge_set.add(ex1)
-                    edge_set.add(ex2)
-                    edges[i1] = (u, x)
-                    edges[i2] = (v, y)
-                    swaps_done += 1
-        finally:
-            removed = [tuple(e) for e in (orig_set - edge_set)]
-            added = [tuple(e) for e in (edge_set - orig_set)]
-            if removed:
-                G.remove_edges_from(removed)
-            if added:
-                G.add_edges_from(added)
-        return G
-
-    edges = list(G.edges())
-    swaps_done = 0
-    tries = 0
-    # br-r37-c1-ekbo3: nx caps total attempts at max_tries — not
-    # nswap * max_tries (nx swap.py:222 reads ``if n >= max_tries``).
-    max_attempts = max_tries
-
-    while swaps_done < nswap:
-        if tries >= max_attempts:
-            raise NetworkXAlgorithmError(
-                f"Maximum number of swap attempts ({tries}) exceeded "
-                f"before desired swaps achieved ({nswap})."
-            )
-        tries += 1
-        # br-r37-c1-vbwpl: keep the edge list current with O(1) in-place
-        # slot updates instead of rebuilding `list(G.edges())` after every
-        # successful swap (which was O(|E|)/swap -> O(nswap*|E|), ~167x nx
-        # at nswap=2000). The two picked slots are the only edges that
-        # change; both new edges are fresh (has_edge gate) and the list
-        # keeps exactly one entry per edge. Same rng-draw pattern and the
-        # documented uniform-edge-pick + degree-preservation contract;
-        # the exact edge sequence is an implementation detail (fnx's
-        # uniform-pick is an intentional divergence from nx's degree-CDF
-        # algorithm, so no exact-output parity is owed — only degree seq).
-        i1 = rng.randint(0, len(edges) - 1)
-        i2 = rng.randint(0, len(edges) - 1)
-        u, v = edges[i1]
-        x, y = edges[i2]
-        if len({u, v, x, y}) < 4:
-            continue
-        # Try swap: (u,v), (x,y) → (u,x), (v,y)
-        if not G.has_edge(u, x) and not G.has_edge(v, y) and u != x and v != y:
-            G.remove_edge(u, v)
-            G.remove_edge(x, y)
-            G.add_edge(u, x)
-            G.add_edge(v, y)
-            edges[i1] = (u, x)
-            edges[i2] = (v, y)
-            swaps_done += 1
-
-    return G
+    # br-r37-c1-frbgb: via the nx dispatcher ``seed`` may already be a
+    # ``random.Random``; ``create_py_random_state`` accepts every form nx does.
+    return _edge_swap_networkx_exact(G, nswap, max_tries, seed, directed=False)
 
 
 def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
-    """Swap two directed edges while preserving in/out degree sequences.
+    """Swap three-edge directed paths while preserving in/out degree sequences.
 
-    Select edges (u→v) and (x→y), replace with (u→y) and (x→v).
+    As in networkx: pick a start node weighted by degree and walk a random
+    path ``u→v→x→y``; if ``u→x``, ``x→v`` and ``v→y`` are all absent, replace
+    the path's three edges with them.
 
     Parameters
     ----------
@@ -43404,113 +43416,18 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
     -------
     G : DiGraph
     """
-    import random as _random
-
-    # br-r37-c1-pq52x: handle pre-wrapped Random from nx dispatcher
-    # (same shape as br-r37-c1-frbgb on double_edge_swap).
-    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
-
     # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected') and
-    # raises NetworkXNotImplemented (catchable via that subclass);
-    # previously fnx raised the parent NetworkXError class.
+    # raises NetworkXNotImplemented (catchable via that subclass).
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    # nx contract: at least 4 nodes and 3 edges, else NetworkXError.
+    # nx's preconditions, in nx's order.
+    if nswap > max_tries:
+        raise NetworkXError("Number of swaps > number of tries allowed.")
     if len(G) < 4:
         raise NetworkXError("DiGraph has fewer than four nodes.")
     if G.number_of_edges() < 3:
         raise NetworkXError("DiGraph has fewer than 3 edges")
-    if G.number_of_edges() < 2:
-        return G
-
-    # br-cc-des-batch (directed sibling of double_edge_swap): the per-swap loop
-    # pays 6 PyO3 calls/swap (2 directed has_edge + 4 add/remove). fnx's swap
-    # already diverges from nx's exact algorithm (uniform-pick; only the in/out-
-    # degree sequences are owed), so when G has no edge attributes, simulate the
-    # whole swap sequence on a pure-Python directed edge-set (ordered (u,v)
-    # tuples — has_edge -> O(1) membership, no PyO3) with the IDENTICAL rng draws
-    # + skip/accept logic, then apply the NET change with two batch calls. The
-    # apply runs in a ``finally`` so a max_tries-exhaustion leaves the partial
-    # swaps (per-swap-path parity). Byte-identical final edge set (same rng, same
-    # accept boolean since ``(u, y) in edge_set`` == ``G.has_edge(u, y)``).
-    if not _graph_has_any_edge_attrs(G):
-        edges = list(G.edges())
-        n_edges = len(edges)
-        orig_set = set(edges)
-        edge_set = set(orig_set)
-        swaps_done = 0
-        tries = 0
-        try:
-            while swaps_done < nswap:
-                tries += 1
-                if tries > max_tries:
-                    raise NetworkXAlgorithmError(
-                        f"Maximum number of swap attempts ({tries}) exceeded "
-                        f"before desired swaps achieved ({nswap})."
-                    )
-                i1 = rng.randint(0, n_edges - 1)
-                i2 = rng.randint(0, n_edges - 1)
-                u, v = edges[i1]
-                x, y = edges[i2]
-                if u == x or v == y:
-                    continue
-                if u == y or x == v:
-                    continue
-                if (u, y) not in edge_set and (x, v) not in edge_set:
-                    edge_set.discard((u, v))
-                    edge_set.discard((x, y))
-                    edge_set.add((u, y))
-                    edge_set.add((x, v))
-                    edges[i1] = (u, y)
-                    edges[i2] = (x, v)
-                    swaps_done += 1
-        finally:
-            removed = list(orig_set - edge_set)
-            added = list(edge_set - orig_set)
-            if removed:
-                G.remove_edges_from(removed)
-            if added:
-                G.add_edges_from(added)
-        return G
-
-    edges = list(G.edges())
-    swaps_done = 0
-    tries = 0
-
-    # br-r37-c1-zoj3v: nx caps total attempts at max_tries directly
-    # (nx swap.py:94 reads ``if tries > max_tries``) and raises
-    # NetworkXAlgorithmError on exhaustion — fnx previously used
-    # ``nswap * max_tries`` and silently returned G when exhausted.
-    while swaps_done < nswap:
-        tries += 1
-        if tries > max_tries:
-            raise NetworkXAlgorithmError(
-                f"Maximum number of swap attempts ({tries}) exceeded "
-                f"before desired swaps achieved ({nswap})."
-            )
-        # br-r37-c1-vbwpl: O(1) in-place slot update instead of the
-        # O(|E|)/swap `edges = list(G.edges())` rebuild (-> O(nswap*|E|),
-        # same pattern as double_edge_swap). Same uniform-pick rng draws;
-        # in/out-degree-sequence + max_tries/exception contracts intact.
-        i1 = rng.randint(0, len(edges) - 1)
-        i2 = rng.randint(0, len(edges) - 1)
-        u, v = edges[i1]
-        x, y = edges[i2]
-        if u == x or v == y:
-            continue
-        if u == y or x == v:
-            continue
-        # Swap: (u→v), (x→y) → (u→y), (x→v)
-        if not G.has_edge(u, y) and not G.has_edge(x, v):
-            G.remove_edge(u, v)
-            G.remove_edge(x, y)
-            G.add_edge(u, y)
-            G.add_edge(x, v)
-            edges[i1] = (u, y)
-            edges[i2] = (x, v)
-            swaps_done += 1
-
-    return G
+    return _edge_swap_networkx_exact(G, nswap, max_tries, seed, directed=True)
 
 
 # ---------------------------------------------------------------------------
@@ -45111,8 +45028,6 @@ def kl_connected_subgraph(G, k, l, low_memory=False, same_as_graph=False):
 
 def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
     """Swap edges maintaining connectivity and degree sequence."""
-    import random as _random
-
     # br-r37-c1-cdes-validate: nx raises early on inputs where the
     # algorithm has no defined behavior (empty graph, fewer than four
     # nodes, disconnected graph). Previously fnx silently spun the
@@ -45136,45 +45051,96 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
         raise NetworkXError("Graph not connected")
     if len(G) < 4:
         raise NetworkXError("Graph has fewer than four nodes.")
-    # br-r37-c1-frbgb: handle pre-wrapped Random from nx dispatcher.
-    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
-    if G.number_of_edges() < 2:
-        return 0
-    swaps_done = 0
-    # br-r37-c1-vbwpl: build the edge list ONCE and maintain it in place.
-    # The previous per-iteration `edges = list(G.edges())` rebuild was
-    # O(|E|)/iter -> O(nswap*|E|) (18x nx here; is_connected is native and
-    # cheap, the rebuild was the cost). A swap changes exactly the two
-    # picked slots; a reverted (would-disconnect) swap restores the
-    # original edges, so its slots are left unchanged. Same uniform-pick
-    # rng-draw pattern; degree-seq + connectivity + return-count contract
-    # intact (fnx uniform-pick is an intentional divergence from nx's
-    # degree-CDF/window algorithm, so only those invariants are owed).
-    edges = list(G.edges())
-    for _ in range(nswap * 100):
-        if swaps_done >= nswap:
-            break
-        i1 = rng.randint(0, len(edges) - 1)
-        i2 = rng.randint(0, len(edges) - 1)
-        u, v = edges[i1]
-        x, y = edges[i2]
-        if len({u, v, x, y}) < 4 or G.has_edge(u, x) or G.has_edge(v, y):
-            continue
-        G.remove_edge(u, v)
-        G.remove_edge(x, y)
-        G.add_edge(u, x)
-        G.add_edge(v, y)
-        if not is_connected(G):
-            G.remove_edge(u, x)
-            G.remove_edge(v, y)
-            G.add_edge(u, v)
-            G.add_edge(x, y)
-            # swap reverted: edges[i1]/[i2] still (u,v)/(x,y), back in G
+    # br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.4: networkx 3.6.1's
+    # windowed algorithm step for step (degree-weighted sources via
+    # ``discrete_sequence``, nx's RNG consumption, window growth/halving, the
+    # small-window ``has_path`` undo and the large-window ``is_connected``
+    # rollback). fnx's previous uniform-edge-pick algorithm returned a
+    # different graph for the same seed and was never owned in the
+    # upstream-divergence ledger.
+    from networkx.utils import (
+        create_py_random_state,
+        cumulative_distribution,
+        discrete_sequence,
+    )
+
+    rng = create_py_random_state(seed)
+    n = 0
+    swapcount = 0
+    dk = [node for node, _ in G.degree()]
+    cdf = cumulative_distribution([d for _, d in G.degree()])
+    window = 1
+
+    def _pick():
+        ui, xi = discrete_sequence(2, cdistribution=cdf, seed=rng)
+        if ui == xi:
+            return None
+        u = dk[ui]
+        x = dk[xi]
+        v = rng.choice(list(G.neighbors(u)))
+        y = rng.choice(list(G.neighbors(x)))
+        if v == y:
+            return None
+        return u, v, x, y
+
+    while n < nswap:
+        wcount = 0
+        swapped = []
+        if window < _window_threshold:
+            fail = False
+            while wcount < window and n < nswap:
+                picked = _pick()
+                if picked is None:
+                    continue
+                u, v, x, y = picked
+                if x not in G[u] and y not in G[v]:
+                    G.remove_edge(u, v)
+                    G.remove_edge(x, y)
+                    G.add_edge(u, x)
+                    G.add_edge(v, y)
+                    swapped.append((u, v, x, y))
+                    swapcount += 1
+                n += 1
+                if has_path(G, u, v):
+                    wcount += 1
+                else:
+                    G.add_edge(u, v)
+                    G.add_edge(x, y)
+                    G.remove_edge(u, x)
+                    G.remove_edge(v, y)
+                    swapcount -= 1
+                    fail = True
+            if fail:
+                window = _math.ceil(window / 2)
+            else:
+                window += 1
         else:
-            edges[i1] = (u, x)
-            edges[i2] = (v, y)
-            swaps_done += 1
-    return swaps_done
+            while wcount < window and n < nswap:
+                picked = _pick()
+                if picked is None:
+                    continue
+                u, v, x, y = picked
+                if x not in G[u] and y not in G[v]:
+                    G.remove_edge(u, v)
+                    G.remove_edge(x, y)
+                    G.add_edge(u, x)
+                    G.add_edge(v, y)
+                    swapped.append((u, v, x, y))
+                    swapcount += 1
+                n += 1
+                wcount += 1
+            if is_connected(G):
+                window += 1
+            else:
+                while swapped:
+                    (u, v, x, y) = swapped.pop()
+                    G.add_edge(u, v)
+                    G.add_edge(x, y)
+                    G.remove_edge(u, x)
+                    G.remove_edge(v, y)
+                    swapcount -= 1
+                window = _math.ceil(window / 2)
+    return swapcount
 
 
 # ---------------------------------------------------------------------------
