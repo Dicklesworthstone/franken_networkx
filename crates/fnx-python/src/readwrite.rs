@@ -343,6 +343,16 @@ fn digraph_absorb_graph_bidirected(
                         return Ok(false);
                     }
                 }
+            } else if let Some(core) = src.inner.edge_attrs(u, v)
+                && !core.is_empty()
+            {
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is LAZY — an edge whose Python dict was never
+                // materialised (every edge of a generator-built graph) keeps its
+                // attrs only in the core. Reading the mirror alone made
+                // DiGraph(karate_club_graph()) silently drop every weight.
+                amap = core.clone();
+                mirror.update(attr_map_to_pydict(py, &amap)?.bind(py).as_mapping())?;
             }
             edge_py_attrs.insert(PyDiGraph::edge_key(u, v), mirror.unbind());
             edges_bulk.push((u.clone(), (*v).to_owned(), amap));
@@ -450,6 +460,11 @@ fn multigraph_absorb_graph(
                     return Ok(false);
                 }
             }
+        } else if let Some(core) = src.inner.edge_attrs(&u, &v) {
+            // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): an
+            // unmaterialised mirror means the core holds the attrs; reading the
+            // mirror alone made MultiGraph(karate_club_graph()) drop every weight.
+            amap = core.clone();
         }
         let _ = inner.add_edge_with_key_and_attrs(u, v, 0, amap);
     }
@@ -2952,6 +2967,12 @@ pub fn adjacency_csr_bytes_default_order_unweighted(
                         return Ok(None);
                     }
                 }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is lazy — unmaterialised edges keep their attrs only in
+                // the core, so the mirror alone cannot prove absence.
+                if pg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
+                }
             }
             let inner = &pg.inner;
             let mut rows = Vec::with_capacity(inner.node_count());
@@ -2966,6 +2987,11 @@ pub fn adjacency_csr_bytes_default_order_unweighted(
                     if dict.bind(py).contains(attr)? {
                         return Ok(None);
                     }
+                }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): see
+                // the undirected arm — the lazy mirror cannot prove absence.
+                if dg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
                 }
             }
             let inner = &dg.inner;

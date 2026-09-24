@@ -5496,12 +5496,26 @@ impl PyMultiDiGraph {
         match weight {
             None => Ok(self.inner.edge_count() as f64),
             Some(attr) => {
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is lazy; summing it alone skipped every unmaterialised
+                // edge. Walk the core edges and prefer a materialised mirror dict
+                // (it carries post-construction Python mutations), exactly like
+                // PyMultiGraph::size.
                 let mut total = 0.0_f64;
-                for dict in self.edge_py_attrs.values() {
-                    let bound = dict.bind(py);
-                    match bound.get_item(attr)? {
-                        Some(val) => total += val.extract::<f64>()?,
-                        None => total += 1.0,
+                for (u, v, key, attrs) in self.inner.edges_ordered_borrowed() {
+                    match self.edge_py_attrs.get(&(u.to_owned(), v.to_owned(), key)) {
+                        Some(dict) => match dict.bind(py).get_item(attr)? {
+                            Some(val) => total += val.extract::<f64>()?,
+                            None => total += 1.0,
+                        },
+                        None => match attrs.get(attr) {
+                            Some(stored) => {
+                                total += crate::cgse_value_to_py(py, stored)?
+                                    .bind(py)
+                                    .extract::<f64>()?;
+                            }
+                            None => total += 1.0,
+                        },
                     }
                 }
                 Ok(total)

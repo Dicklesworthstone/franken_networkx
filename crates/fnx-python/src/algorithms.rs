@@ -2714,6 +2714,22 @@ fn ensure_random_spanning_weight_key(py: Python<'_>, pg: &PyGraph, weight: &str)
             return Err(pyo3::exceptions::PyKeyError::new_err(weight.to_owned()));
         }
     }
+    // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): unmaterialised
+    // edges keep their attrs only in the core; check those too.
+    if pg.edge_py_attrs.len() < pg.inner.edge_count() {
+        let names = pg.inner.nodes_ordered();
+        for (u, v, attrs) in pg.inner.edges_ordered_indices_borrowed() {
+            if pg
+                .edge_py_attrs
+                .contains_key(&PyGraph::edge_key(names[u], names[v]))
+            {
+                continue;
+            }
+            if !attrs.contains_key(weight) {
+                return Err(pyo3::exceptions::PyKeyError::new_err(weight.to_owned()));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -3713,6 +3729,12 @@ pub fn adjacency_index_arrays(
                         return Ok(None);
                     }
                 }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is lazy — unmaterialised edges keep their attrs only in
+                // the core, so the mirror alone cannot prove absence.
+                if pg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
+                }
             }
             let inner = &pg.inner;
             let edge_count = inner.edge_count();
@@ -3736,6 +3758,11 @@ pub fn adjacency_index_arrays(
                     if dict.bind(py).contains(attr)? {
                         return Ok(None);
                     }
+                }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): see
+                // the undirected arm — the lazy mirror cannot prove absence.
+                if dg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
                 }
             }
             let inner = &dg.inner;
@@ -3855,6 +3882,12 @@ pub fn adjacency_default_order_index_arrays(
                         return Ok(None);
                     }
                 }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is lazy — unmaterialised edges keep their attrs only in
+                // the core, so the mirror alone cannot prove absence.
+                if pg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
+                }
             }
             let inner = &pg.inner;
             let mut rows = Vec::with_capacity(inner.edge_count() * 2);
@@ -3876,6 +3909,11 @@ pub fn adjacency_default_order_index_arrays(
                     if dict.bind(py).contains(attr)? {
                         return Ok(None);
                     }
+                }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): see
+                // the undirected arm — the lazy mirror cannot prove absence.
+                if dg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
                 }
             }
             let inner = &dg.inner;
@@ -4420,6 +4458,15 @@ pub fn graph_has_explicit_nonunit_weight_fast(
             Err(_) => Ok(true),
         }
     };
+    // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2: `edge_py_attrs` is a
+    // LAZY mirror — it only holds edges whose Python dict has been materialised.
+    // A graph built natively (generators, batch constructors) has none until
+    // something like `edges(data=True)` runs, so scanning the mirror alone
+    // answered "no non-unit weight" for karate_club_graph and
+    // `community.modularity` silently took the unweighted path (0.3905 instead
+    // of 0.4266). A materialised dict stays authoritative for its edge (it holds
+    // post-construction Python mutations); every other edge is read from the
+    // native store. Erring toward "non-unit" only costs the fast path.
     let has_nonunit = match &gr {
         GraphRef::Undirected(pg) => {
             let mut found = false;
@@ -4427,6 +4474,21 @@ pub fn graph_has_explicit_nonunit_weight_fast(
                 if dict_has_nonunit(dict)? {
                     found = true;
                     break;
+                }
+            }
+            if !found && pg.edge_py_attrs.len() < pg.inner.edge_count() {
+                let names = pg.inner.nodes_ordered();
+                for (u, v, attrs) in pg.inner.edges_ordered_indices_borrowed() {
+                    if pg
+                        .edge_py_attrs
+                        .contains_key(&PyGraph::edge_key(names[u], names[v]))
+                    {
+                        continue;
+                    }
+                    if attrs.get(weight_attr).is_some_and(cgse_value_is_nonunit) {
+                        found = true;
+                        break;
+                    }
                 }
             }
             Some(found)
@@ -4439,11 +4501,37 @@ pub fn graph_has_explicit_nonunit_weight_fast(
                     break;
                 }
             }
+            if !found && dg.edge_py_attrs.len() < dg.inner.edge_count() {
+                let names = dg.inner.nodes_ordered();
+                for (u, v, attrs) in dg.inner.edges_ordered_indices_borrowed() {
+                    if dg
+                        .edge_py_attrs
+                        .contains_key(&(names[u].to_owned(), names[v].to_owned()))
+                    {
+                        continue;
+                    }
+                    if attrs.get(weight_attr).is_some_and(cgse_value_is_nonunit) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
             Some(found)
         }
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
     };
     Ok(has_nonunit)
+}
+
+/// Python's ``value != 1`` for a native attribute value (``True == 1`` in
+/// Python, so only ``Bool(false)`` is non-unit among booleans; NaN != 1).
+fn cgse_value_is_nonunit(value: &fnx_runtime::CgseValue) -> bool {
+    match value {
+        fnx_runtime::CgseValue::Bool(b) => !*b,
+        fnx_runtime::CgseValue::Int(i) => *i != 1,
+        fnx_runtime::CgseValue::Float(f) => *f != 1.0,
+        fnx_runtime::CgseValue::String(_) | fnx_runtime::CgseValue::Map(_) => true,
+    }
 }
 
 /// Native O(|E|) scan for any non-finite or non-numeric edge weight
