@@ -19270,17 +19270,19 @@ impl PyGraph {
                             }
                         }
                         Err(x) => {
-                            if !is_float {
-                                // First float for this node: CPython converts the
-                                // integer prefix to double here and continues.
+                            if is_float {
+                                neumaier_add(&mut float_total, &mut comp, x);
+                            } else {
+                                // First float for this node: CPython leaves its
+                                // integer loop with `int_total + x` as a plain float
+                                // add and compensates only the adds after it.
                                 if int_total.abs() > EXACT_F64_INT {
                                     return Ok(None);
                                 }
-                                float_total = int_total as f64;
+                                float_total = int_total as f64 + x;
                                 comp = 0.0;
                                 is_float = true;
                             }
-                            neumaier_add(&mut float_total, &mut comp, x);
                         }
                     }
                     if i == j {

@@ -243,7 +243,9 @@ pub struct PyDiGraph {
 
 /// br-r37-c1-weightupdate-9rts1: one group of a weighted degree, summed the way
 /// CPython's `sum` types it — an exact integer prefix that promotes to a
-/// Neumaier-compensated float on the FIRST float value, and not before.
+/// Neumaier-compensated float on the FIRST float value, and not before. The
+/// promoting add itself is plain `int + float` (CPython's `PyNumber_Add`), so
+/// its rounding error is not compensated; the compensation starts after it.
 ///
 /// Directed degree needs this per GROUP, not per node: nx computes
 /// `sum(succ) + sum(pred)`, so an all-int successor row stays an int even when
@@ -288,16 +290,18 @@ impl MixedSum {
     }
 
     pub(crate) fn add_float(&mut self, x: f64) -> bool {
-        if !self.is_float {
-            // CPython converts the integer prefix to double at exactly this point.
+        if self.is_float {
+            crate::neumaier_add(&mut self.f, &mut self.c, x);
+        } else {
+            // CPython leaves its integer loop here with `int_total + x` as a plain
+            // float add, then compensates only the adds after it.
             if self.int_total.abs() > Self::EXACT_F64_INT {
                 return false;
             }
-            self.f = self.int_total as f64;
+            self.f = self.int_total as f64 + x;
             self.c = 0.0;
             self.is_float = true;
         }
-        crate::neumaier_add(&mut self.f, &mut self.c, x);
         true
     }
 
