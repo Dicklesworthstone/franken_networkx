@@ -107,22 +107,23 @@ pub(crate) struct NodeOrder {
     ranks: std::sync::OnceLock<NodeRanks>,
 }
 
-/// Rank/select over the live slots: a Fenwick tree of 0/1 liveness. A removal
-/// updates it in O(log V) instead of invalidating it, so a positional read
-/// between two removals never pays an O(V) rebuild.
+/// Rank/select over the live entries of a node table: a Fenwick tree of 0/1
+/// liveness. A removal updates it in O(log V) instead of invalidating it, so a
+/// positional read between two removals never pays an O(V) rebuild.
 #[derive(Debug, Clone)]
 struct NodeRanks {
-    /// 1-based Fenwick tree over slots.
+    /// 1-based Fenwick tree over entries.
     tree: Vec<usize>,
 }
 
 impl NodeRanks {
-    fn build(names: &[Option<String>]) -> Self {
-        let n = names.len();
+    /// A tree over `live.len()` entries, entry `i` counting when `live[i]`.
+    fn build(live: impl ExactSizeIterator<Item = bool>) -> Self {
+        let n = live.len();
         let mut tree = vec![0; n + 1];
-        for (slot, name) in names.iter().enumerate() {
-            if name.is_some() {
-                tree[slot + 1] += 1;
+        for (entry, is_live) in live.enumerate() {
+            if is_live {
+                tree[entry + 1] += 1;
             }
         }
         for i in 1..=n {
@@ -171,6 +172,20 @@ impl NodeRanks {
             self.tree[i] -= 1;
             i += i.isolate_lowest_one();
         }
+    }
+
+    /// Append an entry in O(log V): the new node covers the entries after
+    /// `i - lowbit(i)`, all already counted by the prefix sums.
+    fn push(&mut self, is_live: bool) {
+        let i = self.tree.len();
+        let covered = self.rank(i - 1) - self.rank(i - i.isolate_lowest_one());
+        self.tree.push(covered + usize::from(is_live));
+    }
+
+    /// Drop the last entry. No earlier node covers it.
+    fn pop(&mut self) {
+        debug_assert!(self.tree.len() > 1);
+        self.tree.pop();
     }
 }
 
@@ -263,7 +278,8 @@ impl NodeOrder {
     }
 
     fn ranks(&self) -> &NodeRanks {
-        self.ranks.get_or_init(|| NodeRanks::build(&self.names))
+        self.ranks
+            .get_or_init(|| NodeRanks::build(self.names.iter().map(Option::is_some)))
     }
 
     /// The slot at a position.
@@ -349,6 +365,207 @@ impl NodeOrder {
         self.names = names;
         self.ranks.take();
         old_to_new
+    }
+}
+
+/// yr2oc.1: the node table of `MultiGraph`: name -> slot, and the nodes in
+/// insertion order.
+///
+/// Unlike [`NodeOrder`], a freed slot is REUSED by the next new node, because
+/// the multigraph's rows and slot-keyed edge buckets are never renumbered. So
+/// slot order is not insertion order, and the order is a separate list of
+/// entries, each naming a slot. Removing a node tombstones its entry in O(1)
+/// (the last entry is popped); a node's POSITION is its entry's rank among the
+/// live entries, answered by the entry index itself while nothing is
+/// tombstoned and by a Fenwick tree after. Once tombstones outnumber live
+/// entries the list is compacted, which moves entries and never slots.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SlotOrder {
+    slots: rustc_hash::FxHashMap<String, usize>,
+    /// slot -> name, `None` while the slot is free.
+    names: Vec<Option<String>>,
+    /// Freed slots, reused last-freed first.
+    free: Vec<usize>,
+    /// Insertion order: entry -> slot, `usize::MAX` once removed.
+    entries: Vec<usize>,
+    /// slot -> its entry; meaningful for live slots only.
+    entry_of: Vec<usize>,
+    ranks: std::sync::OnceLock<NodeRanks>,
+}
+
+impl SlotOrder {
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// The length of every slot-indexed array: live and free slots.
+    #[inline]
+    pub(crate) fn slot_count(&self) -> usize {
+        self.names.len()
+    }
+
+    /// No entry tombstoned: every entry index is its position.
+    #[inline]
+    fn is_dense(&self) -> bool {
+        self.entries.len() == self.slots.len()
+    }
+
+    /// The slot of a live name.
+    #[inline]
+    pub(crate) fn get(&self, name: &str) -> Option<&usize> {
+        self.slots.get(name)
+    }
+
+    #[inline]
+    pub(crate) fn contains_key(&self, name: &str) -> bool {
+        self.slots.contains_key(name)
+    }
+
+    /// The name at a live slot.
+    #[inline]
+    pub(crate) fn name(&self, slot: usize) -> Option<&str> {
+        self.names.get(slot)?.as_deref()
+    }
+
+    /// slot -> name for every slot, `None` for a free one.
+    #[inline]
+    pub(crate) fn names(&self) -> &[Option<String>] {
+        &self.names
+    }
+
+    /// The freed slots awaiting reuse.
+    #[cfg(test)]
+    pub(crate) fn free_slots(&self) -> &[usize] {
+        &self.free
+    }
+
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        self.slots.reserve(additional);
+        self.names.reserve(additional);
+        self.entries.reserve(additional);
+        self.entry_of.reserve(additional);
+    }
+
+    /// Append a node that is not in the table. Returns its slot and whether
+    /// the slot is new (the caller grows its slot-indexed arrays) rather than
+    /// a reused free one.
+    pub(crate) fn insert(&mut self, name: String) -> (usize, bool) {
+        debug_assert!(!self.slots.contains_key(&name));
+        let (slot, fresh) = if let Some(slot) = self.free.pop() {
+            debug_assert!(self.names[slot].is_none());
+            self.names[slot] = Some(name.clone());
+            (slot, false)
+        } else {
+            self.names.push(Some(name.clone()));
+            self.entry_of.push(usize::MAX);
+            (self.names.len() - 1, true)
+        };
+        self.slots.insert(name, slot);
+        self.entry_of[slot] = self.entries.len();
+        self.entries.push(slot);
+        if let Some(ranks) = self.ranks.get_mut() {
+            ranks.push(true);
+        }
+        (slot, fresh)
+    }
+
+    /// Remove a node; returns its slot, now free. O(1), plus O(log V) to keep
+    /// a built rank tree current, plus an amortised O(1) share of compaction.
+    pub(crate) fn remove(&mut self, name: &str) -> Option<usize> {
+        let slot = self.slots.remove(name)?;
+        self.names[slot] = None;
+        self.free.push(slot);
+        let entry = self.entry_of[slot];
+        if entry + 1 == self.entries.len() {
+            self.entries.pop();
+            if let Some(ranks) = self.ranks.get_mut() {
+                ranks.pop();
+            }
+        } else {
+            self.entries[entry] = usize::MAX;
+            if let Some(ranks) = self.ranks.get_mut() {
+                ranks.remove(entry);
+            }
+        }
+        if self.entries.len() - self.slots.len() > self.slots.len() {
+            self.compact();
+        }
+        Some(slot)
+    }
+
+    /// Remove every node whose slot is in `doomed`, freeing the slots in the
+    /// set's iteration order. O(V).
+    pub(crate) fn remove_slots(&mut self, doomed: &rustc_hash::FxHashSet<usize>) {
+        for &slot in doomed {
+            let name = self.names[slot].take().expect("doomed slot is live");
+            self.slots.remove(&name);
+            self.entries[self.entry_of[slot]] = usize::MAX;
+            self.free.push(slot);
+        }
+        self.compact();
+    }
+
+    /// Drop the tombstoned entries; slots do not move.
+    fn compact(&mut self) {
+        self.entries.retain(|&slot| slot != usize::MAX);
+        for (entry, &slot) in self.entries.iter().enumerate() {
+            self.entry_of[slot] = entry;
+        }
+        self.ranks.take();
+    }
+
+    fn ranks(&self) -> &NodeRanks {
+        self.ranks
+            .get_or_init(|| NodeRanks::build(self.entries.iter().map(|&slot| slot != usize::MAX)))
+    }
+
+    /// The slot at a position.
+    #[inline]
+    pub(crate) fn slot_at(&self, position: usize) -> Option<usize> {
+        if self.is_dense() {
+            self.entries.get(position).copied()
+        } else if position < self.slots.len() {
+            Some(self.entries[self.ranks().select(position)?])
+        } else {
+            None
+        }
+    }
+
+    /// The position of a live name.
+    #[inline]
+    pub(crate) fn get_index_of(&self, name: &str) -> Option<usize> {
+        let entry = self.entry_of[*self.slots.get(name)?];
+        Some(if self.is_dense() {
+            entry
+        } else {
+            self.ranks().rank(entry)
+        })
+    }
+
+    /// The name and slot at a position.
+    #[inline]
+    pub(crate) fn get_index(&self, position: usize) -> Option<(&String, usize)> {
+        let slot = self.slot_at(position)?;
+        Some((self.names[slot].as_ref()?, slot))
+    }
+
+    /// `(name, slot)` in insertion order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, usize)> + '_ {
+        self.entries
+            .iter()
+            .filter(|&&slot| slot != usize::MAX)
+            .map(|&slot| (self.names[slot].as_ref().expect("live entry"), slot))
+    }
+
+    /// Names in insertion order.
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &String> + '_ {
+        self.iter().map(|(name, _)| name)
+    }
+
+    /// Slots in insertion order.
+    pub(crate) fn values(&self) -> impl Iterator<Item = usize> + '_ {
+        self.iter().map(|(_, slot)| slot)
     }
 }
 
@@ -2928,7 +3145,7 @@ enum IntAdjEdgeDelta<'a> {
 /// Stable-slot storage for `MultiGraph`. Test-only positional prototypes stay
 /// alongside it as parity and benchmark comparators for the storage cutover.
 mod multigraph_storage {
-    use super::{AttrMap, CompatibilityMode, MultiEdgeSnapshot, MultiGraphSnapshot};
+    use super::{AttrMap, CompatibilityMode, MultiEdgeSnapshot, MultiGraphSnapshot, SlotOrder};
     use indexmap::{IndexMap, IndexSet};
 
     /// Index-keyed analog of the MultiGraph storage core. Internal pair
@@ -3573,25 +3790,18 @@ mod multigraph_storage {
     /// br-r37-c1-thp6w S9: the slab/stable-slot layout MANDATED by the S8
     /// removal A/B (positional renumber measured 190-203x slower than the
     /// String store). Node identity = a STABLE SLOT that never renumbers;
-    /// removal tombstones the slot (free-list reuse) and shift-removes only
-    /// the order entry, so rows and edge pair-keys stay valid with ZERO
-    /// rekeying. nx-observable insertion order lives entirely in `node_order`
-    /// (name -> slot, insertion-ordered IndexMap — the same structure and
-    /// O(V) shift_remove the production String store already pays). Buckets
-    /// are the S6 compact enums (the winning construction layout).
+    /// removal frees the slot for reuse and tombstones only the order entry
+    /// (yr2oc.1: O(1), see [`SlotOrder`]), so rows and edge pair-keys stay
+    /// valid with ZERO rekeying. nx-observable insertion order lives entirely
+    /// in `node_order`. Buckets are the S6 compact enums (the winning
+    /// construction layout).
     #[derive(Debug, Clone, Default)]
     pub struct MgSlabStorage {
-        /// name -> stable slot, iteration = nx node insertion order.
-        pub node_order: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
-        /// slot -> name (None = tombstone awaiting reuse/compaction).
-        pub slot_names: Vec<Option<String>>,
-        /// slot -> node attribute map (parallel to `slot_names`; empty for
-        /// attr-less / edge-created nodes and for tombstoned slots).
+        /// name <-> stable slot, and the nx node insertion order.
+        pub(crate) node_order: SlotOrder,
         /// Slot-parallel node attributes. Empty for edge-created nodes and
-        /// cleared when a slot is tombstoned.
+        /// cleared when a slot is freed.
         pub node_attrs: Vec<AttrMap>,
-        /// LIFO free-list of tombstoned slots.
-        pub free_slots: Vec<usize>,
         /// slot -> neighbor slot -> parallel-key cell (row insertion order).
         pub rows: Vec<IndexMap<usize, CompactKeys>>,
         /// slot-canonical (min, max) pair -> compact bucket. Slots are stable,
@@ -3610,19 +3820,14 @@ mod multigraph_storage {
             if let Some(&slot) = self.node_order.get(name) {
                 return slot;
             }
-            let slot = if let Some(reused) = self.free_slots.pop() {
-                debug_assert!(self.slot_names[reused].is_none());
-                debug_assert!(self.rows[reused].is_empty());
-                self.slot_names[reused] = Some(name.to_owned());
-                self.node_attrs[reused] = AttrMap::new();
-                reused
-            } else {
-                self.slot_names.push(Some(name.to_owned()));
+            let (slot, fresh) = self.node_order.insert(name.to_owned());
+            if fresh {
                 self.rows.push(IndexMap::new());
                 self.node_attrs.push(AttrMap::new());
-                self.slot_names.len() - 1
-            };
-            self.node_order.insert(name.to_owned(), slot);
+            } else {
+                debug_assert!(self.rows[slot].is_empty());
+                self.node_attrs[slot] = AttrMap::new();
+            }
             slot
         }
 
@@ -3699,14 +3904,11 @@ mod multigraph_storage {
             let (lower_bound, _) = iterator.size_hint();
             let mut proto = Self::new();
             proto.node_order.reserve(node_count);
-            proto.slot_names.reserve(node_count);
             proto.rows.reserve(node_count);
             proto.edges.reserve(lower_bound);
             proto.node_attrs.reserve(node_count);
             for node in 0..node_count {
-                let name = node.to_string();
-                proto.node_order.insert(name.clone(), node);
-                proto.slot_names.push(Some(name));
+                proto.node_order.insert(node.to_string());
                 proto.rows.push(IndexMap::new());
                 proto.node_attrs.push(AttrMap::new());
             }
@@ -3784,8 +3986,8 @@ mod multigraph_storage {
             true
         }
 
-        /// Slab removal: O(V) order-entry shift + O(degree) row/bucket drops.
-        /// NO renumber, NO edges rekey — the S8-mandated shape.
+        /// Slab removal: O(degree) row/bucket drops and an O(1) order-entry
+        /// tombstone. NO renumber, NO edges rekey — the S8-mandated shape.
         pub fn remove_node(&mut self, name: &str) -> bool {
             let Some(&slot) = self.node_order.get(name) else {
                 return false;
@@ -3800,10 +4002,8 @@ mod multigraph_storage {
                 }
             }
             self.rows[slot] = IndexMap::new();
-            self.node_order.shift_remove(name);
-            self.slot_names[slot] = None;
+            self.node_order.remove(name);
             self.node_attrs[slot] = AttrMap::new();
-            self.free_slots.push(slot);
             true
         }
 
@@ -3832,16 +4032,12 @@ mod multigraph_storage {
         #[cfg(test)]
         #[must_use]
         pub fn neighbor_names(&self, pos: usize) -> Vec<&str> {
-            let Some((_, &slot)) = self.node_order.get_index(pos) else {
+            let Some((_, slot)) = self.node_order.get_index(pos) else {
                 return Vec::new();
             };
             self.rows[slot]
                 .keys()
-                .map(|&s| {
-                    self.slot_names[s]
-                        .as_deref()
-                        .expect("row references a live slot")
-                })
+                .map(|&s| self.node_order.name(s).expect("row references a live slot"))
                 .collect()
         }
 
@@ -3853,11 +4049,7 @@ mod multigraph_storage {
             Some(
                 self.rows[slot]
                     .keys()
-                    .map(|&s| {
-                        self.slot_names[s]
-                            .as_deref()
-                            .expect("row references a live slot")
-                    })
+                    .map(|&s| self.node_order.name(s).expect("row references a live slot"))
                     .collect(),
             )
         }
@@ -3932,18 +4124,17 @@ mod multigraph_storage {
         }
 
         /// br-r37-c1-2ndmw: the stable SLOT of the node at an insertion-order
-        /// POSITION, in O(1) and without hashing a node key.
+        /// POSITION, without hashing a node key: O(1) until a removal, O(log V)
+        /// after (yr2oc.1).
         ///
         /// This is the missing conversion between the two index spaces. Callers
         /// hold POSITIONS (`get_node_index`, and the cached exact-string index
         /// on the Python side); the edge map is keyed by SLOTS. Feeding one to
         /// the other reports a real edge as ABSENT once a node has been removed
         /// -- see `multigraph_node_slot_and_position_are_distinct_index_spaces`.
-        /// `node_order` maps name to slot in insertion order, so the slot at a
-        /// position is just that entry's value.
         #[must_use]
         pub fn slot_at_position(&self, position: usize) -> Option<usize> {
-            self.node_order.get_index(position).map(|(_, slot)| *slot)
+            self.node_order.slot_at(position)
         }
 
         /// br-r37-c1-thp6w S30: node is isolated (mirror of
@@ -3959,7 +4150,7 @@ mod multigraph_storage {
         pub fn isolates(&self) -> Vec<String> {
             self.node_order
                 .iter()
-                .filter(|(_, slot)| self.rows[**slot].is_empty())
+                .filter(|&(_, slot)| self.rows[slot].is_empty())
                 .map(|(name, _)| name.clone())
                 .collect()
         }
@@ -3968,7 +4159,7 @@ mod multigraph_storage {
         pub fn number_of_isolates(&self) -> usize {
             self.node_order
                 .values()
-                .filter(|&&slot| self.rows[slot].is_empty())
+                .filter(|&slot| self.rows[slot].is_empty())
                 .count()
         }
 
@@ -4127,7 +4318,7 @@ mod multigraph_storage {
             let slot_to_position = self.slot_positions();
             self.node_order
                 .values()
-                .map(|&slot| {
+                .map(|slot| {
                     self.rows[slot]
                         .keys()
                         .map(|&neighbor_slot| slot_to_position[neighbor_slot])
@@ -4139,8 +4330,8 @@ mod multigraph_storage {
         /// br-r37-c1-thp6w S10: slot -> insertion-order position (usize::MAX
         /// for tombstones), rebuilt on demand in O(V).
         fn slot_positions(&self) -> Vec<usize> {
-            let mut pos = vec![usize::MAX; self.slot_names.len()];
-            for (p, (_, &slot)) in self.node_order.iter().enumerate() {
+            let mut pos = vec![usize::MAX; self.node_order.slot_count()];
+            for (p, slot) in self.node_order.values().enumerate() {
                 pos[slot] = p;
             }
             pos
@@ -4157,7 +4348,7 @@ mod multigraph_storage {
             let mut ordered = Vec::with_capacity(self.edge_count);
             let mut seen: std::collections::HashSet<(usize, usize, usize)> =
                 std::collections::HashSet::with_capacity(self.edge_count);
-            for (u_name, &u_slot) in &self.node_order {
+            for (u_name, u_slot) in self.node_order.iter() {
                 for &v_slot in self.rows[u_slot].keys() {
                     let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
                     let Some(bucket) = self.edges.get(&pair) else {
@@ -4167,8 +4358,9 @@ mod multigraph_storage {
                         if !seen.insert((pair.0, pair.1, key)) {
                             continue;
                         }
-                        let v_name = self.slot_names[v_slot]
-                            .as_deref()
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
                             .expect("row references a live slot");
                         let (left, right) = if u_name.as_str() <= v_name {
                             (u_name.as_str(), v_name)
@@ -4187,7 +4379,7 @@ mod multigraph_storage {
             let node_attrs = self
                 .node_order
                 .iter()
-                .filter_map(|(name, &slot)| {
+                .filter_map(|(name, slot)| {
                     let attrs = &self.node_attrs[slot];
                     (!attrs.is_empty()).then(|| (name.clone(), attrs.clone()))
                 })
@@ -4222,14 +4414,11 @@ mod multigraph_storage {
         /// String hash per endpoint plus an `EdgeKey` pair hash instead).
         #[must_use]
         pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
-            let mut slot_to_pos = vec![0usize; self.slot_names.len()];
-            for (pos, (_name, &slot)) in self.node_order.iter().enumerate() {
-                slot_to_pos[slot] = pos;
-            }
+            let slot_to_pos = self.slot_positions();
             let mut ordered = Vec::with_capacity(self.edge_count);
             let mut seen: std::collections::HashSet<(usize, usize, usize)> =
                 std::collections::HashSet::with_capacity(self.edge_count);
-            for (u_name, &u_slot) in &self.node_order {
+            for (u_name, u_slot) in self.node_order.iter() {
                 for &v_slot in self.rows[u_slot].keys() {
                     let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
                     let Some(bucket) = self.edges.get(&pair) else {
@@ -4239,8 +4428,9 @@ mod multigraph_storage {
                         if !seen.insert((pair.0, pair.1, key)) {
                             continue;
                         }
-                        let v_name = self.slot_names[v_slot]
-                            .as_deref()
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
                             .expect("row references a live slot");
                         let (left_pos, right_pos) = if u_name.as_str() <= v_name {
                             (slot_to_pos[u_slot], slot_to_pos[v_slot])
@@ -4266,7 +4456,7 @@ mod multigraph_storage {
             let mut ordered = Vec::with_capacity(self.edge_count);
             let mut seen: std::collections::HashSet<(usize, usize, usize)> =
                 std::collections::HashSet::with_capacity(self.edge_count);
-            for (u_name, &u_slot) in &self.node_order {
+            for (u_name, u_slot) in self.node_order.iter() {
                 for &v_slot in self.rows[u_slot].keys() {
                     let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
                     let Some(bucket) = self.edges.get(&pair) else {
@@ -4276,8 +4466,9 @@ mod multigraph_storage {
                         if !seen.insert((pair.0, pair.1, key)) {
                             continue;
                         }
-                        let v_name = self.slot_names[v_slot]
-                            .as_deref()
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
                             .expect("row references a live slot");
                         let (left, right) = if u_name.as_str() <= v_name {
                             (u_name.as_str(), v_name)
@@ -4324,12 +4515,9 @@ mod multigraph_storage {
                     row.retain(|neighbor, _| !remove_slots.contains(neighbor));
                 }
             }
-            self.node_order
-                .retain(|_, slot| !remove_slots.contains(slot));
+            self.node_order.remove_slots(&remove_slots);
             for &slot in &remove_slots {
-                self.slot_names[slot] = None;
                 self.node_attrs[slot].clear();
-                self.free_slots.push(slot);
             }
             (
                 remove_slots.len(),
@@ -4346,7 +4534,7 @@ mod multigraph_storage {
         /// because pos is unique per neighbor.
         pub fn reorder_rows_for_nx_copy_walk(&mut self) {
             let pos = self.slot_positions();
-            let order_slots: Vec<usize> = self.node_order.values().copied().collect();
+            let order_slots: Vec<usize> = self.node_order.values().collect();
             let mut new_orders: Vec<(usize, Vec<usize>)> = Vec::with_capacity(order_slots.len());
             for &u_slot in &order_slots {
                 let pu = pos[u_slot];
@@ -4684,7 +4872,7 @@ impl MultiGraph {
         let &slot = slab.node_order.get(node)?;
         Some(MgNeighborNames {
             rows: slab.rows[slot].keys(),
-            slot_names: &slab.slot_names,
+            slot_names: slab.node_order.names(),
         })
     }
 
@@ -5167,13 +5355,11 @@ impl MultiGraph {
             use multigraph_storage::MgSlabStorage;
             let mut slab = MgSlabStorage::new();
             slab.node_order.reserve(node_count);
-            slab.slot_names.reserve(node_count);
             slab.node_attrs.reserve(node_count);
             slab.rows.reserve(node_count);
             slab.edges.reserve(lower_bound);
-            for (slot, name) in node_names.iter().enumerate() {
-                slab.node_order.insert(name.clone(), slot);
-                slab.slot_names.push(Some(name.clone()));
+            for name in &node_names {
+                slab.node_order.insert(name.clone());
                 slab.node_attrs.push(AttrMap::new());
                 slab.rows.push(IndexMap::new());
             }
@@ -5263,12 +5449,10 @@ impl MultiGraph {
             use multigraph_storage::MgSlabStorage;
             let mut slab = MgSlabStorage::new();
             slab.node_order.reserve(node_labels.len());
-            slab.slot_names.reserve(node_labels.len());
             slab.node_attrs.reserve(node_labels.len());
             slab.rows.reserve(node_labels.len());
-            for (slot, name) in node_labels.iter().enumerate() {
-                slab.node_order.insert(name.clone(), slot);
-                slab.slot_names.push(Some(name.clone()));
+            for name in &node_labels {
+                slab.node_order.insert(name.clone());
                 slab.node_attrs.push(AttrMap::new());
                 slab.rows.push(IndexMap::new());
             }
@@ -5595,12 +5779,10 @@ impl MultiGraph {
         true
     }
 
-    /// br-r37-c1-mgrnf: batch node removal — the amortised analogue of
-    /// `remove_node`. `MultiGraph::remove_node` pays two O(|V|) `shift_remove`s
-    /// (the `adjacency` and `nodes` IndexMaps preserve insertion order), so a
-    /// caller loop of `k` removals was O(k·|V|). This does each pass ONCE via
-    /// `retain` — O(|V|+|E|) total, matching the simple-`Graph` batch
-    /// (`Graph::remove_nodes_from`) that the directed types already carry.
+    /// br-r37-c1-mgrnf: batch node removal — one O(|V|+|E|) `retain` pass,
+    /// matching the simple-`Graph` batch (`Graph::remove_nodes_from`) that the
+    /// directed types already carry. (`remove_node` itself is O(degree) since
+    /// yr2oc.1, so this pays off only for a large share of the graph.)
     /// Returns `(removed_node_count, removed_edge_instance_count)`.
     pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
     where
@@ -6987,16 +7169,16 @@ mod tests {
             mg_node_order,
             "slab node order"
         );
-        for (name, &slot) in &slab.node_order {
+        for (name, slot) in slab.node_order.iter() {
             assert_eq!(
-                slab.slot_names[slot].as_deref(),
+                slab.node_order.name(slot),
                 Some(name.as_str()),
-                "slot_names desync for {name}"
+                "slot names desync for {name}"
             );
         }
-        for &free in &slab.free_slots {
+        for &free in slab.node_order.free_slots() {
             assert!(
-                slab.slot_names[free].is_none(),
+                slab.node_order.name(free).is_none(),
                 "free slot {free} still named"
             );
             assert!(slab.rows[free].is_empty(), "free slot {free} has row cells");
@@ -7406,8 +7588,8 @@ mod tests {
 
     fn assert_multigraph_storage_invariants(graph: &MultiGraph) {
         let storage = &graph.storage;
-        assert_eq!(storage.slot_names.len(), storage.node_attrs.len());
-        assert_eq!(storage.slot_names.len(), storage.rows.len());
+        assert_eq!(storage.node_order.slot_count(), storage.node_attrs.len());
+        assert_eq!(storage.node_order.slot_count(), storage.rows.len());
         assert_eq!(graph.edge_count, storage.edge_count);
         assert_eq!(
             storage.edge_count,
@@ -7418,25 +7600,36 @@ mod tests {
                 .sum::<usize>()
         );
 
-        let mut live_slots = vec![false; storage.slot_names.len()];
-        for (name, &slot) in &storage.node_order {
+        let mut live_slots = vec![false; storage.node_order.slot_count()];
+        for (position, (name, slot)) in storage.node_order.iter().enumerate() {
             assert!(!live_slots[slot], "slot {slot} is assigned twice");
             live_slots[slot] = true;
-            assert_eq!(storage.slot_names[slot].as_deref(), Some(name.as_str()));
+            assert_eq!(storage.node_order.name(slot), Some(name.as_str()));
+            // yr2oc.1: every positional reader agrees with the order walk.
+            assert_eq!(graph.get_node_index(name), Some(position));
+            assert_eq!(graph.get_node_name(position), Some(name.as_str()));
+            assert_eq!(storage.slot_at_position(position), Some(slot));
         }
         assert_eq!(
             live_slots.iter().filter(|&&live| live).count(),
             graph.node_count()
         );
+        assert_eq!(graph.get_node_name(graph.node_count()), None);
+        assert_eq!(storage.slot_at_position(graph.node_count()), None);
 
         let mut free_slots = BTreeSet::new();
-        for &slot in &storage.free_slots {
+        for &slot in storage.node_order.free_slots() {
             assert!(free_slots.insert(slot), "free slot {slot} listed twice");
             assert!(!live_slots[slot], "live slot {slot} is also free");
-            assert!(storage.slot_names[slot].is_none());
+            assert!(storage.node_order.name(slot).is_none());
             assert!(storage.node_attrs[slot].is_empty());
             assert!(storage.rows[slot].is_empty());
         }
+        assert_eq!(
+            free_slots.len() + graph.node_count(),
+            storage.node_order.slot_count(),
+            "a slot is neither live nor free"
+        );
 
         for (left, row) in storage.rows.iter().enumerate() {
             if !live_slots[left] {
@@ -7604,6 +7797,93 @@ mod tests {
         assert!(attrs.contains_key("weight"));
         assert!(attrs.contains_key("color"));
         assert_multigraph_storage_invariants(&attributed);
+    }
+
+    /// yr2oc.1: runs of O(1) multigraph removals, interleaved with insertions
+    /// that reuse the freed slots and with batch removals, keep every
+    /// positional reader and the stored edges in step with a name-level model.
+    #[test]
+    fn multigraph_removal_runs_keep_positional_readers_in_step_with_names() {
+        use std::collections::BTreeMap;
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        let pair = |u: &str, v: &str| {
+            if u <= v {
+                (u.to_owned(), v.to_owned())
+            } else {
+                (v.to_owned(), u.to_owned())
+            }
+        };
+        for round in 0..30 {
+            let n = 10 + round % 17;
+            let mut g = MultiGraph::strict();
+            let mut order: Vec<String> = Vec::new();
+            let mut edges: BTreeMap<(String, String), usize> = BTreeMap::new();
+            let mut fresh = 0;
+            let add_edge = |g: &mut MultiGraph,
+                            order: &mut Vec<String>,
+                            edges: &mut BTreeMap<(String, String), usize>,
+                            u: String,
+                            v: String| {
+                for node in [&u, &v] {
+                    if !order.contains(node) {
+                        order.push(node.clone());
+                    }
+                }
+                *edges.entry(pair(&u, &v)).or_default() += 1;
+                g.add_edge(u, v).expect("edge");
+            };
+            for _ in 0..3 * n {
+                let (u, v) = (next(n), next(n));
+                add_edge(
+                    &mut g,
+                    &mut order,
+                    &mut edges,
+                    format!("n{u}"),
+                    format!("n{v}"),
+                );
+            }
+            for _ in 0..4 * n {
+                match next(6) {
+                    0..=2 if !order.is_empty() => {
+                        let victim = order.remove(next(order.len()));
+                        edges.retain(|(u, v), _| *u != victim && *v != victim);
+                        assert!(g.remove_node(&victim));
+                        assert!(!g.remove_node(&victim));
+                    }
+                    3 | 4 => {
+                        let u = format!("f{fresh}");
+                        fresh += 1;
+                        let v = if order.is_empty() || next(4) == 0 {
+                            u.clone()
+                        } else {
+                            order[next(order.len())].clone()
+                        };
+                        add_edge(&mut g, &mut order, &mut edges, u, v);
+                    }
+                    5 if order.len() > 2 => {
+                        let doomed = [order[next(order.len())].clone(), "absent".to_owned()];
+                        let removed = g.remove_nodes_from(doomed.iter().map(String::as_str));
+                        assert_eq!(removed.0, 1);
+                        order.retain(|name| *name != doomed[0]);
+                        edges.retain(|(u, v), _| *u != doomed[0] && *v != doomed[0]);
+                    }
+                    _ => {}
+                }
+                assert_eq!(g.nodes_ordered(), order, "round {round}");
+                assert_eq!(g.edge_count(), edges.values().sum::<usize>());
+                for ((u, v), &count) in &edges {
+                    assert_eq!(g.edge_keys_vec(u, v).len(), count, "({u}, {v})");
+                }
+                assert_multigraph_storage_invariants(&g);
+                assert_int_adjacency_matches(&g);
+            }
+        }
     }
 
     /// br-r37-c1-thp6w S14: a fresh bulk-built graph must be WARM from birth
@@ -10126,6 +10406,85 @@ mod tests {
         assert_eq!(order.remove(&last).map(|(_, popped)| popped), Some(true));
         assert!(order.is_dense());
         check(&order, &model);
+    }
+
+    /// yr2oc.1: the multigraph node table against a plain insertion-ordered
+    /// list, through random insertions (reusing freed slots), removals and
+    /// batch removals, with positional reads interleaved so the rank tree is
+    /// both rebuilt and carried through later appends and removals.
+    #[test]
+    fn slot_order_positions_follow_reuse_removals_and_compaction() {
+        use super::SlotOrder;
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        let check = |order: &SlotOrder, model: &[String]| {
+            assert_eq!(order.len(), model.len());
+            assert_eq!(order.keys().cloned().collect::<Vec<_>>(), model);
+            for (position, name) in model.iter().enumerate() {
+                assert_eq!(order.get_index_of(name), Some(position));
+                let (at, slot) = order.get_index(position).expect("live position");
+                assert_eq!(at, name);
+                assert_eq!(order.slot_at(position), Some(slot));
+                assert_eq!(order.get(name), Some(&slot));
+                assert_eq!(order.name(slot), Some(name.as_str()));
+            }
+            assert_eq!(order.slot_at(model.len()), None);
+            assert_eq!(
+                order.slot_count(),
+                order.len() + order.free_slots().len(),
+                "a slot is neither live nor free"
+            );
+            // Compaction keeps the entry list within twice the live nodes.
+            assert!(order.entries.len() <= 2 * order.len());
+        };
+        let mut order = SlotOrder::default();
+        let mut model: Vec<String> = Vec::new();
+        let mut fresh = 0;
+        let mut saw_tombstones = false;
+        for step in 0..3000 {
+            match next(10) {
+                0..=4 => {
+                    let name = format!("v{fresh}");
+                    fresh += 1;
+                    let free_before = order.free_slots().last().copied();
+                    let (slot, grew) = order.insert(name.clone());
+                    // A freed slot is reused, most recently freed first.
+                    assert_eq!(grew, free_before.is_none());
+                    if let Some(reused) = free_before {
+                        assert_eq!(slot, reused);
+                    }
+                    model.push(name);
+                }
+                5..=8 if !model.is_empty() => {
+                    let victim = model.remove(next(model.len()));
+                    let slot = order.remove(&victim).expect("live name");
+                    assert_eq!(order.free_slots().last(), Some(&slot));
+                    assert_eq!(order.remove(&victim), None);
+                }
+                9 if model.len() > 3 => {
+                    let doomed: rustc_hash::FxHashSet<usize> = (0..3)
+                        .map(|_| *order.get(&model[next(model.len())]).expect("live"))
+                        .collect();
+                    model.retain(|name| !doomed.contains(order.get(name).expect("live")));
+                    order.remove_slots(&doomed);
+                }
+                _ => {}
+            }
+            saw_tombstones |= order.entries.len() > order.len();
+            // Read positions on most steps, so later steps meet a built tree.
+            if step % 4 != 3 {
+                check(&order, &model);
+            }
+        }
+        assert!(
+            saw_tombstones,
+            "the run never left a tombstone to rank past"
+        );
     }
 
     #[test]
