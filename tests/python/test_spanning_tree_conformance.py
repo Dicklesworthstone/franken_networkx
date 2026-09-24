@@ -438,3 +438,23 @@ def test_minimum_spanning_tree_total_weight_matches_networkx(
         f"{name} {algorithm}: total weight diverged "
         f"fnx={fr_weight} nx={nr_weight}"
     )
+
+
+@pytest.mark.parametrize("fn_name", ["minimum_spanning_edges", "maximum_spanning_edges"])
+@pytest.mark.parametrize("algorithm", ["random", "Kruskal", ""])
+def test_unknown_algorithm_raises_at_call_like_networkx(fn_name, algorithm):
+    # nro4w.7: networkx's test_unknown_algorithm. fnx's edges functions are
+    # generators and validated only on the first next().
+    message = f"{algorithm} is not a valid choice for an algorithm."
+    with pytest.raises(ValueError, match=message):
+        getattr(nx, fn_name)(nx.Graph(), algorithm=algorithm)
+    with pytest.raises(ValueError, match=message):
+        getattr(fnx, fn_name)(fnx.Graph(), algorithm=algorithm)
+
+
+@pytest.mark.parametrize("fn_name", ["minimum_spanning_edges", "maximum_spanning_edges"])
+def test_unhashable_algorithm_raises_type_error_like_networkx(fn_name):
+    with pytest.raises(TypeError):
+        getattr(nx, fn_name)(nx.Graph(), algorithm=["kruskal"])
+    with pytest.raises(TypeError):
+        getattr(fnx, fn_name)(fnx.Graph(), algorithm=["kruskal"])

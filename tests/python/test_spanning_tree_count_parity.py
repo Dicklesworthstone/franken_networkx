@@ -67,3 +67,37 @@ def test_mst_is_optimal_and_is_a_tree(seed):
         assert nx.is_tree(nx.Graph(rt.edges()))
         assert rt.number_of_edges() == n - 1
         assert mst_weight <= sum(fg[u][v]["weight"] for u, v in rt.edges()) + 1e-9
+
+
+@pytest.mark.parametrize("weight", [None, "w"])
+@pytest.mark.parametrize("seed", range(40))
+def test_multigraph_counts_parallel_edges_like_networkx(seed, weight):
+    # nro4w.7: networkx's Laplacian sums parallel edges (their weights, or 1
+    # each). The native kernel counted each adjacent pair once: networkx's
+    # test_mst gives MultiGraph 8 where fnx said 3.0, and MultiDiGraph
+    # (root=0) 4 where fnx said 1.0.
+    rng = random.Random(seed)
+    n = rng.randint(1, 6)
+    edges = [
+        (rng.randrange(n), rng.randrange(n), rng.choice([1, 2, 0.5, 3]))
+        for _ in range(rng.randint(0, 12))
+    ]
+    for cls_name, root in (("MultiGraph", None), ("MultiDiGraph", 0)):
+        graphs = []
+        for module in (nx, fnx):
+            G = getattr(module, cls_name)()
+            G.add_nodes_from(range(n))
+            for u, v, w in edges:
+                G.add_edge(u, v, w=w)
+            graphs.append(G)
+        expected = nx.number_of_spanning_trees(graphs[0], root=root, weight=weight)
+        assert fnx.number_of_spanning_trees(graphs[1], root=root, weight=weight) == expected
+
+
+def test_networkx_multigraph_examples():
+    G = fnx.MultiGraph([(0, 1), (0, 1), (1, 2), (1, 2), (2, 0)])
+    H = nx.MultiGraph([(0, 1), (0, 1), (1, 2), (1, 2), (2, 0)])
+    assert fnx.number_of_spanning_trees(G) == nx.number_of_spanning_trees(H)
+    assert round(fnx.number_of_spanning_trees(G)) == 8
+    D = fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2), (1, 2)])
+    assert round(fnx.number_of_spanning_trees(D, root=0)) == 4

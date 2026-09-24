@@ -507,3 +507,20 @@ def test_eulerian_path_endpoints_are_odd_degree_vertices():
     end = path[-1][1]
     odd_vertices = {n for n, d in fg.degree() if d % 2 == 1}
     assert {start, end} == odd_vertices
+
+
+@pytest.mark.parametrize("keys", [False, True])
+@pytest.mark.parametrize("source", [None, 2])
+def test_multigraph_eulerian_path_matches_networkx(keys, source):
+    # nro4w.7: networkx's test_eulerian_path_multigraph_undirected. The
+    # undirected multigraph branch collected keyed triples and unpacked them
+    # as pairs when keys=False, so every default call raised ValueError.
+    edges = [(2, 1), (1, 2), (2, 1), (1, 2), (2, 3), (3, 4)]
+    G = fnx.MultiGraph(edges)
+    H = nx.MultiGraph(edges)
+    assert list(fnx.eulerian_path(G, source=source, keys=keys)) == list(
+        nx.eulerian_path(H, source=source, keys=keys)
+    )
+    for bad_source in (1, 3):
+        with pytest.raises(nx.NetworkXError):
+            list(fnx.eulerian_path(G, source=bad_source, keys=keys))

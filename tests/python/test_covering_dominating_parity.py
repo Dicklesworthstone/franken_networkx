@@ -109,3 +109,33 @@ def test_is_edge_cover_goldens():
     assert fnx.is_edge_cover(p4, {(0, 1), (2, 3)})       # covers all 4 nodes
     assert not fnx.is_edge_cover(p4, {(0, 1)})           # nodes 2,3 uncovered
     assert fnx.is_edge_cover(p4, {(0, 1), (1, 2), (2, 3)})
+
+
+@pytest.mark.parametrize(
+    "cover",
+    [{(0, 0), (1, 1)}, {(0, 1), (1, 0)}, {(0, 1)}, {(0, 0)}, {(1, 0, 9)}, set()],
+)
+def test_is_edge_cover_is_node_coverage_like_networkx(cover):
+    # nro4w.7: networkx checks only that every node is an endpoint of some
+    # pair in the cover (``set(G) <= set(chain(*cover))``); the pairs need not
+    # be edges of G. The native check also required them to be edges, so the
+    # self-loop cover of networkx's test_graph_single_edge read False.
+    G = fnx.Graph([(0, 1)])
+    H = nx.Graph([(0, 1)])
+    assert fnx.is_edge_cover(G, cover) == nx.is_edge_cover(H, cover)
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_is_edge_cover_rejects_directed_graphs_like_networkx(cls_name):
+    # networkx decorates is_edge_cover with @not_implemented_for("directed").
+    with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for directed type"):
+        nx.is_edge_cover(getattr(nx, cls_name)([(0, 1)]), {(0, 1)})
+    with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for directed type"):
+        fnx.is_edge_cover(getattr(fnx, cls_name)([(0, 1)]), {(0, 1)})
+
+
+def test_is_edge_cover_accepts_multigraphs_like_networkx():
+    G = fnx.MultiGraph([(0, 1), (0, 1), (1, 2)])
+    H = nx.MultiGraph([(0, 1), (0, 1), (1, 2)])
+    for cover in ({(0, 1), (1, 2)}, {(0, 1)}, {(2, 0), (1, 1)}):
+        assert fnx.is_edge_cover(G, cover) == nx.is_edge_cover(H, cover)

@@ -15357,6 +15357,10 @@ def betweenness_centrality(
                 seed=None,
             )
         sampled_nodes = rng.sample(list(G.nodes()), k)
+        if not sampled_nodes and (len(G) if endpoints else len(G) - 1) >= 2:
+            # networkx's _rescale divides by the sample size once N >= 2; the
+            # native rescale's float 0/0 would return NaN for every node.
+            raise ZeroDivisionError("division by zero")
         return _betweenness_centrality_sampled_rust(
             G,
             sampled_nodes,
@@ -15790,6 +15794,10 @@ def _flow_caps_summary(flowG, capacity):
     """
     import math as _math
     import numbers as _numbers
+    if not isinstance(capacity, str):
+        # networkx accepts any hashable attribute key (``capacity=0``); the
+        # native kernels read capacity by string name only.
+        return True, False
     all_int = True
     for _u, _v, attrs in flowG.edges(data=True):
         cap = attrs.get(capacity, None) if isinstance(attrs, dict) else None
@@ -16480,11 +16488,43 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        return _multigraph_number_of_spanning_trees(G, root, weight)
     if isinstance(weight, str):
         # br-r37-c1-4tmgq: weights written after construction live only in the
         # Python edge dicts until synced into the Rust store the kernel reads.
         _sync_rust_edge_attrs(G, edge_only=True)
     return _raw_number_of_spanning_trees(G, root=root, weight=weight)
+
+
+def _multigraph_number_of_spanning_trees(G, root, weight):
+    """networkx's Kirchhoff/Tutte count for multigraphs.
+
+    nro4w.7: the native kernel counts each adjacent pair once, so parallel
+    edges vanished (MultiGraph 3.0 where networkx counts 8). networkx's
+    Laplacian sums parallel edges (their weights, or 1 each); this is its
+    code over fnx's matrix builders, which sum the same way.
+    """
+    import numpy as np
+
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Graph G must contain at least one node.")
+    if not G.is_directed():
+        if not is_connected(G):
+            return 0
+        G_laplacian = laplacian_matrix(G, weight=weight).toarray()
+        return float(np.linalg.det(G_laplacian[1:, 1:]))
+    if root is None:
+        raise NetworkXError("Input `root` must be provided when G is directed")
+    if root not in G:
+        raise NetworkXError("The node root is not in the graph G.")
+    if not is_weakly_connected(G):
+        return 0
+    nodelist = [root] + [n for n in G if n != root]
+    A = adjacency_matrix(G, nodelist=nodelist, weight=weight)
+    D = np.diag(A.sum(axis=0))
+    G_laplacian = D - A
+    return float(np.linalg.det(G_laplacian[1:, 1:]))
 
 
 def _prim_spanning_edges_native(G, weight, minimum, ignore_nan):
@@ -16789,6 +16829,19 @@ def _boruvka_inproc_full(G, minimum=True, weight="weight", data=True, ignore_nan
                 forest.union(u, v)
 
 
+# networkx's ALGORITHMS table keys (algorithms/tree/mst.py).
+_SPANNING_EDGE_ALGORITHMS = frozenset({"boruvka", "borůvka", "kruskal", "prim"})
+
+
+def _check_spanning_edge_algorithm(algorithm):
+    """nro4w.7: networkx looks ``algorithm`` up when the edges function is
+    called; fnx's edges functions are generators, so their own check fired
+    only on the first ``next()``. Set membership keeps nx's TypeError for an
+    unhashable value."""
+    if algorithm not in _SPANNING_EDGE_ALGORITHMS:
+        raise ValueError(f"{algorithm} is not a valid choice for an algorithm.")
+
+
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``.
 
@@ -16811,6 +16864,7 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    _check_spanning_edge_algorithm(algorithm)
 
     def _gen():
         # br-r37-c1-mstcsr: the native kruskal kernel now reproduces nx's exact
@@ -16930,6 +16984,7 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    _check_spanning_edge_algorithm(algorithm)
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
 
     def _gen():
@@ -17669,7 +17724,7 @@ def eulerian_path(G, source=None, keys=False):
             if keys:
                 yield from reversed([(v, u, k) for u, v, k in circuit])
             else:
-                yield from reversed([(v, u) for u, v in circuit])
+                yield from reversed([(v, u) for u, v, _k in circuit])
         else:
             circuit = list(_simplegraph_eulerian_circuit_inproc(G, source=source))
             yield from reversed([(v, u) for u, v in circuit])
@@ -24229,7 +24284,9 @@ def spanner(G, stretch, weight=None, seed=None):
     # Baswana-Sen kernel faster than both nx and the prior in-process Python
     # kernel. Spanner parity is structural: a valid spanner with the requested
     # stretch and preserved selected-edge attributes.
-    return _raw_spanner(G, stretch, weight=weight, seed=seed)
+    # nro4w.7: networkx's @py_random_state hands the kernel a random.Random
+    # (or numpy RNG); the u64 kernel seed raised TypeError on those.
+    return _raw_spanner(G, stretch, weight=weight, seed=_native_random_seed(seed))
 
 
 # Algorithm functions — tree recognition
@@ -24575,14 +24632,15 @@ def _matching_dict_to_set(matching):
 def is_matching(G, matching):
     """Return True if ``matching`` is a valid matching of ``G``.
 
-    br-matchingport: routes simple undirected graphs through the native
-    Rust validator ``franken_networkx._fnx.is_matching``, and evaluates
-    directed / multigraph cases in-process with exact NetworkX semantics.
+    networkx's exact loop for every graph type. nro4w.7: the native
+    simple-graph validator skipped the 2-tuple check (a 3-tuple counted, a
+    1-tuple raised IndexError), validated every node before the loop (so a
+    missing node raised where networkx returns False on an earlier overlap),
+    leaked canonical keys ("str:1:a") into messages, and skipped
+    matching_dict_to_set's self-loop error.
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed() and not G.is_multigraph():
-        return _fnx.is_matching(G, matching)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     nodes = set()
@@ -24609,8 +24667,6 @@ def is_maximal_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed() and not G.is_multigraph():
-        return _fnx.is_maximal_matching(G, matching)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     edges = set()
@@ -24644,8 +24700,6 @@ def is_perfect_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed() and not G.is_multigraph():
-        return _fnx.is_perfect_matching(G, matching)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     nodes = set()
@@ -25751,7 +25805,6 @@ def _approx_bidirectional_shortest_path_excl(G, raw, source, target, exclude):
 from franken_networkx._fnx import (
     find_cycle as _raw_find_cycle,
     girth as _raw_girth,
-    find_negative_cycle as _raw_find_negative_cycle,
 )
 
 
@@ -25780,39 +25833,19 @@ def girth(G):
 def find_negative_cycle(G, source, weight="weight"):
     """Return a negative cycle reachable from ``source`` using Bellman-Ford.
 
-    The Rust implementation currently rejects directed graphs with
-    NetworkXNotImplemented. Match upstream NetworkX — which supports
-    both directed and undirected negative-cycle discovery — by routing
-    directed inputs through networkx's implementation while keeping
-    undirected inputs on the native path.
+    Every graph runs networkx's own detector and cycle walk in-process, so
+    the returned cycle is the one networkx returns. The former native
+    undirected path found a valid negative cycle but a different one in 189
+    of 400 random graphs, and panicked on a lone negative edge (nro4w.7).
 
-    br-r37-c1-39gx2: hash-validate ``source`` up front for nx-shaped
-    TypeError parity.  nx delegates to bellman_ford which raises
-    TypeError on unhashable; the Rust ``_raw_find_negative_cycle``
-    instead silently treats unhashable as 'no negative cycle' and
-    raises NetworkXError.
-
-    br-r37-c1-gxu9x: also pre-check membership.  nx raises
-    ``NodeNotFound("Source <s> not in G")`` for hashable-but-missing
-    sources; the undirected Rust path silently runs and returns
-    ``NetworkXError("No negative cycle found.")`` instead.
+    br-r37-c1-39gx2 / br-r37-c1-gxu9x: hash-validate and membership-check
+    ``source`` up front for nx's TypeError / ``NodeNotFound`` contracts.
     """
     G = _coerce_arg_to_fnx_graph(G)
     _HASH_PROBE.get(source)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
-    if G.is_directed() or not isinstance(weight, str) or callable(weight):
-        return _find_negative_cycle_inprocess(G, source, weight)
-    try:
-        return _raw_find_negative_cycle(G, source, weight)
-    except NetworkXError as exc:
-        # br-r37-c1-fnegmsg: nx says "No negative cycles detected."
-        # (plural, "detected").  fnx's Rust path says "No negative
-        # cycle found." (singular, "found").  Re-raise with nx's
-        # exact wording for drop-in error-message matching.
-        if "No negative cycle found" in str(exc):
-            raise NetworkXError("No negative cycles detected.") from exc
-        raise
+    return _find_negative_cycle_inprocess(G, source, weight)
 
 
 def _find_negative_cycle_inprocess(G, source, weight):
@@ -25828,8 +25861,18 @@ def _find_negative_cycle_inprocess(G, source, weight):
     else:
         wt = lambda u, v, d: d.get(weight, 1)
 
-    g_succ = {u: {v: wt(u, v, G[u][v]) for v in G[u]} for u in G}
-    n = len(g_succ)
+    # Weighted successors are read lazily, per node, the first time the search
+    # reaches it: networkx's detector usually stops long before visiting the
+    # whole graph, so an up-front O(V + E) weight table cost ~50x nx.
+    succ_cache = {}
+
+    def succ_of(u):
+        weighted = succ_cache.get(u)
+        if weighted is None:
+            weighted = succ_cache[u] = {v: wt(u, v, d) for v, d in G[u].items()}
+        return weighted
+
+    n = len(G)
     inf = float("inf")
     dist = {source: 0}
     pred = {source: []}
@@ -25847,7 +25890,7 @@ def _find_negative_cycle_inprocess(G, source, weight):
         in_q.remove(u)
         if all(pred_u not in in_q for pred_u in pred[u]):
             dist_u = dist[u]
-            for v, w in g_succ[u].items():
+            for v, w in succ_of(u).items():
                 dist_v = dist_u + w
                 if dist_v < dist.get(v, inf):
                     if v in recent_update[u]:
@@ -25897,7 +25940,7 @@ def _find_negative_cycle_inprocess(G, source, weight):
             stack.pop()
             if neg_cycle:
                 neg_cycle.pop()
-            elif v in g_succ.get(v, {}) and g_succ[v][v] < 0:
+            elif v in succ_of(v) and succ_of(v)[v] < 0:
                 return [v, v]
             else:
                 raise NetworkXError("Negative cycle is detected but not found")
@@ -26412,20 +26455,23 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — matching additional
 from franken_networkx._fnx import (
-    is_edge_cover as _raw_is_edge_cover,
     max_weight_clique as _raw_max_weight_clique,
 )
 
 
 def is_edge_cover(G, cover):
-    """Return True iff ``cover`` is an edge cover of *G*.
+    """Return True iff every node of *G* is an endpoint of some edge in ``cover``.
 
-    Second parameter renamed from the Rust binding's ``edges`` to match
-    networkx's public signature ``is_edge_cover(G, cover)``.
+    networkx's definition is node coverage only: ``set(G)`` must be a subset
+    of the endpoints in ``cover``. The cover's pairs are not required to be
+    edges of *G* (``{(0, 0), (1, 1)}`` covers the single edge ``0-1``). The
+    former native check also demanded that every pair be an edge, answering
+    False there (nro4w.7). Directed graphs are rejected, as networkx's
+    ``@not_implemented_for("directed")`` does.
     """
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_is_edge_cover(G, cover)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    return set(G) <= set(_itertools.chain.from_iterable(cover))
 
 
 def _max_weight_clique_native(G, weight):
@@ -60790,31 +60836,6 @@ def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
 
 
 # Isomorphism VF2++ (br-req)
-def _edge_attrs_between(G, u, v):
-    """Return edge attribute payloads between two nodes."""
-    if G.is_multigraph():
-        return [dict(attrs) for attrs in G[u][v].values()]
-    return [dict(G[u][v])]
-
-
-def _edge_attrs_match(left_attrs, right_attrs, edge_match):
-    """Return whether edge attribute payloads can be matched pairwise."""
-    if edge_match is None:
-        return True
-    if len(left_attrs) != len(right_attrs):
-        return False
-
-    used = [False] * len(right_attrs)
-    for left in left_attrs:
-        for index, right in enumerate(right_attrs):
-            if not used[index] and edge_match(left, right):
-                used[index] = True
-                break
-        else:
-            return False
-    return True
-
-
 def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_match):
     """Filter a structural isomorphism mapping through NetworkX-style callbacks."""
     if node_match is not None:
@@ -60823,26 +60844,28 @@ def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_matc
                 return False
 
     if edge_match is not None:
-        edge_iter = (
-            ((u, v) for u, v, _key in G1.edges(keys=True))
-            if G1.is_multigraph()
-            else G1.edges()
-        )
+        # networkx's matchers call edge_match once per mapped node pair with
+        # the two adjacency values G1[u][v] and G2[mu][mv]: the datadicts, or
+        # for multigraphs the keydicts ({key: datadict}) that
+        # categorical_multiedge_match and friends expect. Pairing individual
+        # multigraph datadicts (nro4w.7) handed those helpers bare attribute
+        # values: AttributeError: 'int' object has no attribute 'get'.
+        directed = G1.is_directed()
         seen = set()
-        for u, v in edge_iter:
-            mapped_u = mapping[u]
-            mapped_v = mapping[v]
-            edge_key = (
-                frozenset((u, v))
-                if not G1.is_directed()
-                else (u, v)
-            )
-            if not G1.is_multigraph() and edge_key in seen:
+        for u, v in G1.edges():
+            pair = (u, v) if directed else frozenset((u, v))
+            if pair in seen:
                 continue
-            seen.add(edge_key)
-            left_attrs = _edge_attrs_between(G1, u, v)
-            right_attrs = _edge_attrs_between(G2, mapped_u, mapped_v)
-            if not _edge_attrs_match(left_attrs, right_attrs, edge_match):
+            seen.add(pair)
+            if not edge_match(G1[u][v], G2[mapping[u]][mapping[v]]):
+                return False
+
+    if G1.is_multigraph() or G2.is_multigraph():
+        # The candidate mappings come from the simple-graph structure; the
+        # matchers also demand equal edge multiplicity on every mapped pair
+        # (number_of_edges), which also decides a multigraph / simple pair.
+        for u, v in G1.edges():
+            if G1.number_of_edges(u, v) != G2.number_of_edges(mapping[u], mapping[v]):
                 return False
     return True
 
@@ -60932,6 +60955,12 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     # br-r37-c1-jwdzp: accept nx-typed inputs.
     G1 = _coerce_arg_to_fnx_graph(G1)
     G2 = _coerce_arg_to_fnx_graph(G2)
+    # nro4w.7: networkx picks GraphMatcher / DiGraphMatcher and raises for a
+    # mixed pair before any matching, callbacks or not (fnx returned False
+    # without callbacks). A multigraph / simple-graph pair is NOT rejected:
+    # the matcher compares edge multiplicities, so MultiGraph(P4) ~ P4.
+    if G1.is_directed() != G2.is_directed():
+        raise NetworkXError("Graphs G1 and G2 are not of the same type.")
     if node_match is None and edge_match is None:
         # br-r37-c1-isoprecheck (cc): cheap sound pre-reject before the VF2++
         # rust kernel. faster_could_be_isomorphic is a degree-histogram
@@ -60943,11 +60972,6 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
         if not faster_could_be_isomorphic(G1, G2):
             return False
         return _is_isomorphic_rust(G1, G2)
-
-    if G1.is_directed() != G2.is_directed():
-        raise NetworkXError("G1 and G2 must have the same directedness")
-    if G1.is_multigraph() != G2.is_multigraph():
-        return False
 
     return any(
         _isomorphic_mapping_matches_callbacks(
@@ -68696,12 +68720,14 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
             for v, edge_attrs in nbrs.items()
         )
     else:
-        # Exotic subclasses keep the inline loop: their add_edges_from
-        # raw paths have different malformed-input contracts.
-        for u, nbrs in d.items():
-            for v, edge_attrs in nbrs.items():
-                graph.add_edge(u, v)
-                graph[u][v].update(edge_attrs)
+        # Subclasses and networkx graphs given as create_using: networkx's own
+        # statement, one add_edges_from over the triples. The former
+        # add_edge + graph[u][v].update loop read the edge back through
+        # __getitem__, which is not the adjacency on every class (networkx's
+        # AntiGraph returns the complement: KeyError, nro4w.7).
+        graph.add_edges_from(
+            (u, v, edge_attrs) for u, nbrs in d.items() for v, edge_attrs in nbrs.items()
+        )
 
     return graph
 

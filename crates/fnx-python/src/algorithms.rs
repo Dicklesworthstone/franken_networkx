@@ -21273,122 +21273,6 @@ fn is_simple_path(
 }
 
 // ===========================================================================
-// Matching validators — is_matching, is_maximal_matching, is_perfect_matching
-// ===========================================================================
-
-/// Extract edge pairs from any iterable of 2-tuples (list, set, etc.).
-fn extract_matching_edges(
-    py: Python<'_>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<Vec<(String, String)>> {
-    use pyo3::types::PyDict;
-    // br-matchingdict: nx accepts both ``set`` of (u,v) edges and
-    // ``dict``-form matchings ({u: v, v: u, ...}). For the dict form,
-    // iterating yields keys only, so the per-element ``get_item(0)``
-    // path fails. Detect dict-shape input and read both u and the
-    // mate via ``__getitem__`` instead.
-    if let Ok(dict) = matching.downcast::<PyDict>() {
-        let mut edges = Vec::with_capacity(dict.len());
-        let mut seen = std::collections::HashSet::<(String, String)>::new();
-        for (k, v) in dict.iter() {
-            let u_s = node_key_to_string(py, &k)?;
-            let v_s = node_key_to_string(py, &v)?;
-            // Each unordered pair appears twice (u→v and v→u); skip
-            // the duplicate so the validator sees a clean edge list.
-            let canon = if u_s <= v_s {
-                (u_s.clone(), v_s.clone())
-            } else {
-                (v_s.clone(), u_s.clone())
-            };
-            if seen.insert(canon) {
-                edges.push((u_s, v_s));
-            }
-        }
-        return Ok(edges);
-    }
-
-    let mut edges = Vec::new();
-    for item in matching.try_iter()? {
-        let pair = item?;
-        let u = pair.get_item(0)?;
-        let v = pair.get_item(1)?;
-        edges.push((node_key_to_string(py, &u)?, node_key_to_string(py, &v)?));
-    }
-    Ok(edges)
-}
-
-/// Validate that every endpoint in ``edges`` is a node of ``inner``;
-/// raise a NetworkXError matching nx's wording if not. nx's
-/// ``is_matching`` raises (rather than returning False) when an
-/// edge references a node missing from G.
-fn ensure_matching_nodes_in_graph(
-    inner: &fnx_classes::Graph,
-    edges: &[(String, String)],
-) -> PyResult<()> {
-    for (u, v) in edges {
-        if !inner.has_node(u) {
-            return Err(NetworkXError::new_err(format!(
-                "matching contains edge ({u}, {v}) with node not in G"
-            )));
-        }
-        if !inner.has_node(v) {
-            return Err(NetworkXError::new_err(format!(
-                "matching contains edge ({u}, {v}) with node not in G"
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Return True if `matching` is a valid matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_matching(inner, &edges)))
-}
-
-/// Return True if `matching` is a maximal matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_maximal_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_maximal_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_maximal_matching(inner, &edges)))
-}
-
-/// Return True if `matching` is a perfect matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_perfect_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_perfect_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_perfect_matching(inner, &edges)))
-}
-
-// ===========================================================================
 // simple_cycles, find_cycle
 // ===========================================================================
 
@@ -24826,29 +24710,6 @@ pub fn girth(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<usize>> {
     Ok(py.allow_threads(|| fnx_algorithms::girth(inner)))
 }
 
-#[pyfunction]
-#[pyo3(signature = (g, source, weight = "weight"))]
-pub fn find_negative_cycle(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    source: &Bound<'_, PyAny>,
-    weight: &str,
-) -> PyResult<Vec<PyObject>> {
-    sync_rust_edge_attrs_if_available(g)?;
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "find_negative_cycle")?;
-    let src = node_key_to_string(py, source)?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
-        let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::find_negative_cycle(__wp, &src, weight))
-    };
-    match result {
-        Some(cycle) => Ok(cycle.iter().map(|n| gr.py_node_key(py, n)).collect()),
-        None => Err(crate::NetworkXError::new_err("No negative cycle found.")),
-    }
-}
-
 // ===========================================================================
 // Graph predicates
 // ===========================================================================
@@ -25297,32 +25158,6 @@ pub fn edge_dfs(
 // ===========================================================================
 // Matching algorithms — additional
 // ===========================================================================
-
-#[pyfunction]
-#[pyo3(signature = (g, edges))]
-pub fn is_edge_cover(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    edges: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_edge_cover")?;
-    let inner = gr.undirected();
-    let edge_iter = edges.try_iter()?;
-    let mut edge_pairs: Vec<(String, String)> = Vec::new();
-    for item in edge_iter {
-        let item = item?;
-        let tuple = item.downcast::<pyo3::types::PyTuple>()?;
-        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
-        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        edge_pairs.push((u, v));
-    }
-    let edge_refs: Vec<(&str, &str)> = edge_pairs
-        .iter()
-        .map(|(u, v)| (u.as_str(), v.as_str()))
-        .collect();
-    Ok(py.allow_threads(|| fnx_algorithms::is_edge_cover(inner, &edge_refs)))
-}
 
 #[pyfunction]
 #[pyo3(signature = (g, weight = "weight"))]
@@ -28981,10 +28816,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(path_exists_rust, m)?)?;
     m.add_function(wrap_pyfunction!(path_weight_rust, m)?)?;
     m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
-    // Matching validators
-    m.add_function(wrap_pyfunction!(is_matching, m)?)?;
-    m.add_function(wrap_pyfunction!(is_maximal_matching, m)?)?;
-    m.add_function(wrap_pyfunction!(is_perfect_matching, m)?)?;
     // Cycles
     m.add_function(wrap_pyfunction!(simple_cycles, m)?)?;
     m.add_function(wrap_pyfunction!(find_cycle, m)?)?;
@@ -29049,7 +28880,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_attracting_component, m)?)?;
     // Cycle algorithms — additional
     m.add_function(wrap_pyfunction!(girth, m)?)?;
-    m.add_function(wrap_pyfunction!(find_negative_cycle, m)?)?;
     // Graph predicates
     m.add_function(wrap_pyfunction!(is_graphical, m)?)?;
     m.add_function(wrap_pyfunction!(is_digraphical, m)?)?;
@@ -29066,7 +28896,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(edge_bfs, m)?)?;
     m.add_function(wrap_pyfunction!(edge_dfs, m)?)?;
     // Matching algorithms — additional
-    m.add_function(wrap_pyfunction!(is_edge_cover, m)?)?;
     m.add_function(wrap_pyfunction!(max_weight_clique, m)?)?;
     // DAG algorithms — additional
     m.add_function(wrap_pyfunction!(is_aperiodic, m)?)?;
