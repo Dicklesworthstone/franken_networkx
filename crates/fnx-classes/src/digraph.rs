@@ -600,6 +600,30 @@ impl DiGraph {
         }))
     }
 
+    /// yr2oc.4: the attribute maps of `node`'s out-edges in successor-row
+    /// order. Read by slot: no position translation after a removal.
+    #[must_use]
+    pub fn out_edge_attrs(&self, node: &str) -> Option<impl Iterator<Item = &AttrMap> + '_> {
+        let &slot = self.node_order.get(node)?;
+        Some(self.succ_indices[slot].iter().map(move |&target| {
+            self.edges
+                .get(&(slot, target))
+                .expect("successor rows have matching edge storage")
+        }))
+    }
+
+    /// yr2oc.4: the attribute maps of `node`'s in-edges in predecessor-row
+    /// order. Read by slot: no position translation after a removal.
+    #[must_use]
+    pub fn in_edge_attrs(&self, node: &str) -> Option<impl Iterator<Item = &AttrMap> + '_> {
+        let &slot = self.node_order.get(node)?;
+        Some(self.pred_indices[slot].iter().map(move |&source| {
+            self.edges
+                .get(&(source, slot))
+                .expect("predecessor rows have matching edge storage")
+        }))
+    }
+
     /// Predecessors of `node` (incoming neighbors). Returns `None` if node absent.
     #[must_use]
     pub fn predecessors(&self, node: &str) -> Option<Vec<&str>> {
@@ -4346,6 +4370,19 @@ mod tests {
                 .map(|&p| name_of(p as usize))
                 .collect();
             assert_eq!(csr_succ, succ);
+            // yr2oc.4: the slot-read edge attributes follow the same rows.
+            let out_attrs: Vec<&AttrMap> = g.out_edge_attrs(name).expect("live node").collect();
+            let expected_out: Vec<&AttrMap> = succ
+                .iter()
+                .map(|&t| g.edge_attrs(name, t).expect("edge"))
+                .collect();
+            assert_eq!(out_attrs, expected_out, "out-edges of {name}");
+            let in_attrs: Vec<&AttrMap> = g.in_edge_attrs(name).expect("live node").collect();
+            let expected_in: Vec<&AttrMap> = pred
+                .iter()
+                .map(|&s| g.edge_attrs(s, name).expect("edge"))
+                .collect();
+            assert_eq!(in_attrs, expected_in, "in-edges of {name}");
         }
         assert!(g.successors_indices(names.len()).is_none());
         for ((source, target), attrs) in g.edges_indexed() {

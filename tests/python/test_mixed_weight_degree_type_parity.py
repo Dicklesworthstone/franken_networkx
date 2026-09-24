@@ -229,3 +229,28 @@ def test_mixed_weight_degrees_are_bit_identical_on_random_graphs(class_name):
                 one = getattr(got, view)(node, weight="weight")
                 assert (one, type(one)) == (value, kind), (seed, view, node)
         assert got.size(weight="weight") == want.size(weight="weight"), seed
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weights", ["int", "float"])
+def test_single_node_weighted_degree_after_removals(class_name, weights):
+    """yr2oc.4: between a removal and the next insertion node slots are not
+    node positions. The single-node weighted degree reads a node's edges by
+    slot; reading slot rows as if they were positions (or positions as slots)
+    answers for the wrong node here. Self-loops included, every view."""
+    rng = random.Random(3)
+    got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for _ in range(150):
+        u, v = rng.randrange(30), rng.randrange(30)
+        w = rng.choice([1, 2, 5]) if weights == "int" else rng.choice([0.5, 0.25, 1.5])
+        for graph in (got, want):
+            graph.add_edge(u, v, weight=w)
+    views = ["degree", "in_degree", "out_degree"] if "Di" in class_name else ["degree"]
+    for victim in [3, 17, 0, 11, 25, 8]:
+        for graph in (got, want):
+            graph.remove_node(victim)
+        for node in list(want):
+            for view in views:
+                one = getattr(got, view)(node, weight="weight")
+                expected = getattr(want, view)(node, weight="weight")
+                assert (one, type(one)) == (expected, type(expected)), (victim, view, node)

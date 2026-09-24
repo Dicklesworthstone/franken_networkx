@@ -10917,24 +10917,18 @@ impl PyDiGraph {
             let mut int_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
             let mut all_int = true;
             'nodes: for (node, canonical) in &items {
-                let Some(idx) = self.inner.get_node_index(canonical) else {
-                    all_int = false;
-                    break;
-                };
+                // yr2oc.4: edges read by node (slot), not by position, so a read
+                // after a removal does not rebuild the whole position view.
                 let mut total: i128 = 0;
-                if build_out && let Some(succs) = self.inner.successors_indices(idx) {
-                    for &j in succs {
-                        let w = match self
-                            .inner
-                            .edge_attrs_by_indices(idx, j)
-                            .map(|a| a.get(weight))
-                        {
-                            Some(Some(CgseValue::Int(v))) => i128::from(*v),
-                            Some(Some(_)) => {
+                if build_out && let Some(out_edges) = self.inner.out_edge_attrs(canonical) {
+                    for attrs in out_edges {
+                        let w = match attrs.get(weight) {
+                            Some(CgseValue::Int(v)) => i128::from(*v),
+                            Some(_) => {
                                 all_int = false;
                                 break 'nodes;
                             }
-                            _ => 1,
+                            None => 1,
                         };
                         let Some(t) = total.checked_add(w) else {
                             all_int = false;
@@ -10943,19 +10937,15 @@ impl PyDiGraph {
                         total = t;
                     }
                 }
-                if build_in && let Some(preds) = self.inner.predecessors_indices(idx) {
-                    for &j in preds {
-                        let w = match self
-                            .inner
-                            .edge_attrs_by_indices(j, idx)
-                            .map(|a| a.get(weight))
-                        {
-                            Some(Some(CgseValue::Int(v))) => i128::from(*v),
-                            Some(Some(_)) => {
+                if build_in && let Some(in_edges) = self.inner.in_edge_attrs(canonical) {
+                    for attrs in in_edges {
+                        let w = match attrs.get(weight) {
+                            Some(CgseValue::Int(v)) => i128::from(*v),
+                            Some(_) => {
                                 all_int = false;
                                 break 'nodes;
                             }
-                            _ => 1,
+                            None => 1,
                         };
                         let Some(t) = total.checked_add(w) else {
                             all_int = false;
@@ -10991,23 +10981,15 @@ impl PyDiGraph {
             let mut float_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
             let mut all_float = true;
             'fnodes: for (node, canonical) in &items {
-                let Some(idx) = self.inner.get_node_index(canonical) else {
-                    all_float = false;
-                    break;
-                };
                 let mut fo = 0.0f64;
                 let mut co = 0.0f64;
                 let mut fi = 0.0f64;
                 let mut ci = 0.0f64;
                 let mut saw = false;
-                if build_out && let Some(succs) = self.inner.successors_indices(idx) {
-                    for &j in succs {
-                        let x = match self
-                            .inner
-                            .edge_attrs_by_indices(idx, j)
-                            .map(|a| a.get(weight))
-                        {
-                            Some(Some(CgseValue::Float(v))) => *v,
+                if build_out && let Some(out_edges) = self.inner.out_edge_attrs(canonical) {
+                    for attrs in out_edges {
+                        let x = match attrs.get(weight) {
+                            Some(CgseValue::Float(v)) => *v,
                             _ => {
                                 all_float = false;
                                 break 'fnodes;
@@ -11017,14 +10999,10 @@ impl PyDiGraph {
                         crate::neumaier_add(&mut fo, &mut co, x);
                     }
                 }
-                if build_in && let Some(preds) = self.inner.predecessors_indices(idx) {
-                    for &j in preds {
-                        let x = match self
-                            .inner
-                            .edge_attrs_by_indices(j, idx)
-                            .map(|a| a.get(weight))
-                        {
-                            Some(Some(CgseValue::Float(v))) => *v,
+                if build_in && let Some(in_edges) = self.inner.in_edge_attrs(canonical) {
+                    for attrs in in_edges {
+                        let x = match attrs.get(weight) {
+                            Some(CgseValue::Float(v)) => *v,
                             _ => {
                                 all_float = false;
                                 break 'fnodes;

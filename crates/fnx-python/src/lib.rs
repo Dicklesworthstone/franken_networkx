@@ -19390,49 +19390,45 @@ impl PyGraph {
                 )));
             }
             let canonical = node_key_to_string(py, &node)?;
-            if self.inner.get_node_index(&canonical).is_none() {
+            if !self.inner.has_node(&canonical) {
                 continue;
             }
             items.push((node, canonical));
         }
 
         // br-cc-undegnbint: INT-store fast path — i128 accumulate per node straight
-        // from the CgseValue store via integer index rows (undirected self-loop is
-        // counted twice), reusing the passed nbunch object as the key (== nx). Skips
-        // the per-node PyList + builtins.sum + per-neighbour String-keyed
-        // edge_attr_py_value probe of the exact path (degree(nbunch,w) was 0.58x).
-        // Gated !edges_dirty; bails (whole subset) on any non-int weight / overflow.
+        // from the CgseValue store (undirected self-loop is counted twice), reusing
+        // the passed nbunch object as the key (== nx). Skips the per-node PyList +
+        // builtins.sum + per-neighbour String-keyed edge_attr_py_value probe of the
+        // exact path (degree(nbunch,w) was 0.58x). Gated !edges_dirty; bails (whole
+        // subset) on any non-int weight / overflow. yr2oc.4: the edges are read by
+        // node (slot), not by position, so a read after a removal does not rebuild
+        // the whole position view.
         if !self.edges_dirty.load(Ordering::Relaxed) {
             let mut int_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
             let mut all_int = true;
             'nodes: for (node, canonical) in &items {
-                let Some(idx) = self.inner.get_node_index(canonical) else {
+                let Some(edges) = self.inner.incident_edge_attrs(canonical) else {
                     all_int = false;
                     break;
                 };
                 let mut total: i128 = 0;
-                if let Some(nbrs) = self.inner.neighbors_indices(idx) {
-                    for &j in nbrs {
-                        let w = match self
-                            .inner
-                            .edge_attrs_by_indices(idx, j)
-                            .map(|a| a.get(weight))
-                        {
-                            Some(Some(CgseValue::Int(v))) => i128::from(*v),
-                            Some(Some(_)) => {
-                                all_int = false;
-                                break 'nodes;
-                            }
-                            _ => 1,
-                        };
-                        // Undirected self-loop counts twice.
-                        let contrib = if idx == j { w.checked_mul(2) } else { Some(w) };
-                        let Some(t) = contrib.and_then(|c| total.checked_add(c)) else {
+                for (is_loop, attrs) in edges {
+                    let w = match attrs.get(weight) {
+                        Some(CgseValue::Int(v)) => i128::from(*v),
+                        Some(_) => {
                             all_int = false;
                             break 'nodes;
-                        };
-                        total = t;
-                    }
+                        }
+                        None => 1,
+                    };
+                    // Undirected self-loop counts twice.
+                    let contrib = if is_loop { w.checked_mul(2) } else { Some(w) };
+                    let Some(t) = contrib.and_then(|c| total.checked_add(c)) else {
+                        all_int = false;
+                        break 'nodes;
+                    };
+                    total = t;
                 }
                 match i64::try_from(total) {
                     Ok(t64) => int_pairs.push((
@@ -19462,7 +19458,7 @@ impl PyGraph {
             let mut float_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
             let mut all_float = true;
             'fnodes: for (node, canonical) in &items {
-                let Some(idx) = self.inner.get_node_index(canonical) else {
+                let Some(edges) = self.inner.incident_edge_attrs(canonical) else {
                     all_float = false;
                     break;
                 };
@@ -19470,24 +19466,18 @@ impl PyGraph {
                 let mut c = 0.0f64;
                 let mut selfloop_w: Option<f64> = None;
                 let mut saw = false;
-                if let Some(nbrs) = self.inner.neighbors_indices(idx) {
-                    for &j in nbrs {
-                        let x = match self
-                            .inner
-                            .edge_attrs_by_indices(idx, j)
-                            .map(|a| a.get(weight))
-                        {
-                            Some(Some(CgseValue::Float(v))) => *v,
-                            _ => {
-                                all_float = false;
-                                break 'fnodes;
-                            }
-                        };
-                        saw = true;
-                        neumaier_add(&mut f, &mut c, x);
-                        if idx == j {
-                            selfloop_w = Some(x);
+                for (is_loop, attrs) in edges {
+                    let x = match attrs.get(weight) {
+                        Some(CgseValue::Float(v)) => *v,
+                        _ => {
+                            all_float = false;
+                            break 'fnodes;
                         }
+                    };
+                    saw = true;
+                    neumaier_add(&mut f, &mut c, x);
+                    if is_loop {
+                        selfloop_w = Some(x);
                     }
                 }
                 let value_obj = if !saw {

@@ -1239,6 +1239,24 @@ impl Graph {
         }))
     }
 
+    /// yr2oc.4: the attribute maps of `node`'s incident edges in its
+    /// neighbour-row order, each flagged when it is the self-loop. Read by
+    /// slot, so it needs no position translation after a removal.
+    #[must_use]
+    pub fn incident_edge_attrs(
+        &self,
+        node: &str,
+    ) -> Option<impl Iterator<Item = (bool, &AttrMap)> + '_> {
+        let &slot = self.node_order.get(node)?;
+        Some(self.adj_indices[slot].iter().map(move |&neighbour| {
+            let attrs = self
+                .edges
+                .get(&Self::canon_pair(slot, neighbour))
+                .expect("adjacency entries have matching edge storage");
+            (neighbour == slot, attrs)
+        }))
+    }
+
     /// Return neighbor indices for O(1) traversal. Avoids string hashing
     /// during BFS/DFS. Returns None if node index is out of bounds.
     #[must_use]
@@ -9960,6 +9978,14 @@ mod tests {
                 .map(|&p| g.get_node_name(p).expect("neighbour position"))
                 .collect();
             assert_eq!(by_position, by_name, "row of {name}");
+            // yr2oc.4: the slot-read incident edges follow the same row.
+            let incident: Vec<(bool, &AttrMap)> =
+                g.incident_edge_attrs(name).expect("live node").collect();
+            let expected: Vec<(bool, &AttrMap)> = by_name
+                .iter()
+                .map(|&nbr| (nbr == name, g.edge_attrs(name, nbr).expect("edge")))
+                .collect();
+            assert_eq!(incident, expected, "incident edges of {name}");
         }
         assert!(g.neighbors_indices(names.len()).is_none());
         let by_positions: Vec<(&str, &str)> = g
