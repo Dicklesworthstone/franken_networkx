@@ -67613,9 +67613,19 @@ def to_numpy_array(
     """
     import numpy as np
 
+    # br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.6: networkx assigns the
+    # attribute values through numpy, so numpy decides every conversion and
+    # error. The native builders return float64 values (and fail closed on a
+    # weight that is not a real number), which is only equivalent when the
+    # requested dtype is a float or complex one — an int/bool dtype must see
+    # the exact Python ints, object and structured dtypes the values themselves.
+    requested_dtype = np.dtype(dtype)
+    native_dtype_ok = requested_dtype.names is None and requested_dtype.kind in "fc"
+
     if nodelist is None:
         if (
-            _native_adjacency_arrays_multigraph_default_order_live_checked is not None
+            native_dtype_ok
+            and _native_adjacency_arrays_multigraph_default_order_live_checked is not None
             and multigraph_weight is sum
             and nonedge == 0
             and isinstance(G, MultiDiGraph)
@@ -67643,14 +67653,15 @@ def to_numpy_array(
         nodelist = list(G)
     else:
         nodelist = list(nodelist)
-        if len(set(nodelist)) != len(nodelist):
-            raise NetworkXError("nodelist contains duplicates.")
         missing = set(nodelist) - set(G)
         if missing:
             # br-r37-c1-6cdtz: the DENSE exporters (to_numpy_array,
             # to_pandas_adjacency) keep nx's plural set wording, unlike the
             # sparse/laplacian exporters which report the first missing node.
+            # networkx checks membership before duplicates.
             raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
+        if len(set(nodelist)) != len(nodelist):
+            raise NetworkXError("nodelist contains duplicates.")
 
     matrix = np.full(
         (len(nodelist), len(nodelist)),
@@ -67658,12 +67669,39 @@ def to_numpy_array(
         dtype=dtype,
         order=order,
     )
+    # networkx's corner cases come before any dtype/weight validation.
+    if not nodelist or G.number_of_edges() == 0:
+        return matrix
+    index = {node: i for i, node in enumerate(nodelist)}
+    if matrix.dtype.names:
+        # networkx's structured-dtype branch: weight=None, one field per edge
+        # attribute (default 1.0), simple graphs only.
+        if weight is not None:
+            raise ValueError(
+                "Specifying `weight` not supported for structured dtypes\n."
+                "To create adjacency matrices from structured dtypes, use `weight=None`."
+            )
+        if G.is_multigraph():
+            raise NetworkXError("Structured arrays are not supported for MultiGraphs")
+        rows, cols, datas = [], [], []
+        for u, v, data in G.edges(data=True):
+            if u in index and v in index:
+                rows.append(index[u])
+                cols.append(index[v])
+                datas.append(data)
+        for attr in matrix.dtype.names:
+            attr_data = [data.get(attr, 1.0) for data in datas]
+            matrix[attr][rows, cols] = attr_data
+            if not G.is_directed():
+                matrix[attr][cols, rows] = attr_data
+        return matrix
 
     # br-r37-c1-lqlx2: native Rust COO builder, same fast path as
     # to_scipy_sparse_array.  Scatter (rows, cols, data) into the
     # pre-allocated dense matrix.
     if (
-        _native_adjacency_arrays is not None
+        native_dtype_ok
+        and _native_adjacency_arrays is not None
         and not G.is_multigraph()
         and isinstance(G, (Graph, DiGraph))
         and (weight is None or isinstance(weight, str))
@@ -67695,7 +67733,6 @@ def to_numpy_array(
                 matrix[rows_arr, cols_arr] = data_arr
             return matrix
 
-    index = {node: i for i, node in enumerate(nodelist)}
     if G.is_multigraph():
         # br-r37-c1-iyu0a: native multigraph COO fast path for the default
         # ``multigraph_weight=sum`` aggregation. The native helper emits one
@@ -67706,7 +67743,8 @@ def to_numpy_array(
         # coerces non-numeric/non-finite weights to the default). ~2x over the
         # Python parallel-edge dict-of-lists loop; byte-identical to nx.
         if (
-            multigraph_weight is sum
+            native_dtype_ok
+            and multigraph_weight is sum
             and nonedge == 0
             and isinstance(G, (MultiGraph, MultiDiGraph))
             and (weight is None or isinstance(weight, str))
@@ -67744,40 +67782,35 @@ def to_numpy_array(
                         np.asarray(data, dtype=matrix.dtype),
                     )
                 return matrix
-        edge_values = {}
+        # networkx's reference path, step for step: the missing-attribute
+        # default is 1.0 (``G.edges(data=weight, default=1.0)``; with
+        # weight=None that is every edge), parallel weights are reduced per
+        # (row, col), and the reduced values go into the array in ONE
+        # advanced-index assignment, so numpy converts them as a group.
+        reduced = {}
         for u, v, _, edge_attrs in G.edges(keys=True, data=True):
-            if u not in index or v not in index:
-                continue
-            edge_value = 1 if weight is None else edge_attrs.get(weight, 1)
-            edge_values.setdefault((u, v), []).append(edge_value)
-            if not G.is_directed() and u != v:
-                edge_values.setdefault((v, u), []).append(edge_value)
-        for (u, v), values in edge_values.items():
-            matrix[index[u], index[v]] = multigraph_weight(values)
+            if u in index and v in index:
+                reduced.setdefault((index[u], index[v]), []).append(
+                    edge_attrs.get(weight, 1.0)
+                )
+        rows, cols = np.array(list(reduced.keys())).T
+        weights = [multigraph_weight(values) for values in reduced.values()]
+        matrix[rows, cols] = weights
+        if not G.is_directed():
+            matrix[cols, rows] = weights
         return matrix
 
-    # br-r37-c1-tnaperf: G.edges(data=True) materialises ``(u, v, attrs)``
-    # tuples one-at-a-time through PyO3 (~3.5ms for 1000 edges).
-    # G._adj.items() iterates the adjacency map directly and yields
-    # ``(u, dict_of_v_to_attrs)`` — ~25% faster on a 100-node digraph.
-    # For undirected graphs, every edge appears twice in _adj (from
-    # both endpoints), so we let the natural visit-from-each-side
-    # populate matrix[u, v] and matrix[v, u] without the explicit
-    # symmetric write (an overwrite of the same value is harmless,
-    # but doubles work on a write-heavy path).
-    index = {node: i for i, node in enumerate(nodelist)}
-    is_directed = G.is_directed()
-    weight_is_none = weight is None
-    for u, nbrs in G._adj.items():
-        ui = index.get(u)
-        if ui is None:
-            continue
-        for v, edge_attrs in nbrs.items():
-            vi = index.get(v)
-            if vi is None:
-                continue
-            edge_value = 1 if weight_is_none else edge_attrs.get(weight, 1)
-            matrix[ui, vi] = edge_value
+    # networkx's reference path for simple graphs (see the multigraph branch
+    # above): collect every edge's value, default 1.0, then assign as a group.
+    rows, cols, weights = [], [], []
+    for u, v, edge_attrs in G.edges(data=True):
+        if u in index and v in index:
+            rows.append(index[u])
+            cols.append(index[v])
+            weights.append(edge_attrs.get(weight, 1.0))
+    matrix[rows, cols] = weights
+    if not G.is_directed():
+        matrix[cols, rows] = weights
     return matrix
 
 

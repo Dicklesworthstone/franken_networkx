@@ -3609,6 +3609,32 @@ pub fn graph_has_negative_edge_weight(
     Ok(result)
 }
 
+/// The value a COO builder emits for one edge: the weight attribute as f64,
+/// `default_weight` when the attribute (or `weight_attr`) is absent, and
+/// `None` when it is present but not a Python int/float/bool. Anything else
+/// (complex, None, a list, any `str` — even "3.5", which numpy refuses to cast
+/// alongside numbers — all held as `String`/`Map` in the core) makes the
+/// builders return `None`, so the Python path hands the value to numpy, as
+/// networkx does; substituting the default silently turned `1+2j` into 1.0
+/// (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.6).
+fn coo_edge_weight(
+    attrs: Option<&AttrMap>,
+    weight_attr: Option<&str>,
+    default_weight: f64,
+) -> Option<f64> {
+    use fnx_runtime::CgseValue;
+    match (weight_attr, attrs) {
+        (Some(attr), Some(attrs)) => match attrs.get(attr) {
+            Some(value @ (CgseValue::Int(_) | CgseValue::Float(_) | CgseValue::Bool(_))) => {
+                value.as_f64()
+            }
+            Some(CgseValue::String(_) | CgseValue::Map(_)) => None,
+            None => Some(default_weight),
+        },
+        _ => Some(default_weight),
+    }
+}
+
 /// Build COO-format adjacency arrays (rows, cols, data) directly from
 /// the Rust storage.  Used by the Python ``to_scipy_sparse_array`` /
 /// ``to_numpy_array`` wrappers (br-r37-c1-lqlx2) to skip the per-edge
@@ -3657,9 +3683,9 @@ pub fn adjacency_arrays(
             for (u, v, attrs) in inner.edges_ordered_borrowed() {
                 let Some(&ui) = index.get(u) else { continue };
                 let Some(&vi) = index.get(v) else { continue };
-                let w = weight_attr
-                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                    .unwrap_or(default_weight);
+                let Some(w) = coo_edge_weight(Some(attrs), weight_attr, default_weight) else {
+                    return Ok(None);
+                };
                 rows.push(ui);
                 cols.push(vi);
                 data.push(w);
@@ -3680,9 +3706,9 @@ pub fn adjacency_arrays(
             for (u, v, attrs) in inner.edges_ordered_borrowed() {
                 let Some(&ui) = index.get(u) else { continue };
                 let Some(&vi) = index.get(v) else { continue };
-                let w = weight_attr
-                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                    .unwrap_or(default_weight);
+                let Some(w) = coo_edge_weight(Some(attrs), weight_attr, default_weight) else {
+                    return Ok(None);
+                };
                 rows.push(ui);
                 cols.push(vi);
                 data.push(w);
@@ -3966,13 +3992,13 @@ pub fn adjacency_default_order_arrays(
                     continue;
                 };
                 for &col in neighbors {
-                    let w = inner
-                        .edge_attrs_by_indices(row, col)
-                        .and_then(|attrs| {
-                            weight_attr
-                                .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                        })
-                        .unwrap_or(default_weight);
+                    let Some(w) = coo_edge_weight(
+                        inner.edge_attrs_by_indices(row, col),
+                        weight_attr,
+                        default_weight,
+                    ) else {
+                        return Ok(None);
+                    };
                     rows.push(row);
                     cols.push(col);
                     data.push(w);
@@ -3990,9 +4016,9 @@ pub fn adjacency_default_order_arrays(
             // edge, no per-edge `edges.get(&(u,v))` hash. Order is edge-insertion;
             // COO assembly is order-independent.
             for ((u, v), attrs) in inner.edges_indexed() {
-                let w = weight_attr
-                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                    .unwrap_or(default_weight);
+                let Some(w) = coo_edge_weight(Some(attrs), weight_attr, default_weight) else {
+                    return Ok(None);
+                };
                 rows.push(u);
                 cols.push(v);
                 data.push(w);

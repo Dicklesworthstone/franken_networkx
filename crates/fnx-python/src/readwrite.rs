@@ -2332,12 +2332,20 @@ pub fn adjacency_arrays_multigraph_finite_checked(
         Default,
         Bail,
     }
+    // Only Python int/float/bool values are emitted; a `str` (even "3.5",
+    // which networkx's `sum` of the parallel weights rejects) bails to the
+    // Python path (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.6).
     let resolve = |attrs: &fnx_classes::AttrMap| -> W {
         match attrs.get(weight_attr) {
-            Some(raw) => match raw.as_f64() {
+            Some(
+                raw @ (fnx_runtime::CgseValue::Int(_)
+                | fnx_runtime::CgseValue::Float(_)
+                | fnx_runtime::CgseValue::Bool(_)),
+            ) => match raw.as_f64() {
                 Some(v) if v.is_finite() => W::Val(v),
                 _ => W::Bail,
             },
+            Some(_) => W::Bail,
             None => W::Default,
         }
     };
@@ -2412,11 +2420,10 @@ fn finite_py_weight_typed(raw: &Bound<'_, PyAny>) -> Option<(f64, bool)> {
         let is_int = raw.extract::<i64>().is_ok();
         return Some((value, !is_int));
     }
-    if let Ok(value) = raw.extract::<String>()
-        && let Ok(parsed) = value.parse::<f64>()
-    {
-        return parsed.is_finite().then_some((parsed, true));
-    }
+    // A `str` weight (even "3.5") is not a number to networkx: summing
+    // parallel weights raises TypeError, and a dense assignment refuses the
+    // cast. Bail to the Python path
+    // (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.6).
     None
 }
 
@@ -2432,12 +2439,9 @@ fn stored_multigraph_weight_typed(
             val.is_finite().then_some((val, false))
         }
         Some(fnx_runtime::CgseValue::Bool(b)) => Some((if *b { 1.0 } else { 0.0 }, false)),
-        Some(fnx_runtime::CgseValue::String(s)) => s
-            .parse::<f64>()
-            .ok()
-            .filter(|v| v.is_finite())
-            .map(|v| (v, true)),
-        Some(fnx_runtime::CgseValue::Map(_)) => None,
+        // Not a Python int/float/bool (a `str`, complex, None, a list, a
+        // dict): bail, see `finite_py_weight_typed`.
+        Some(fnx_runtime::CgseValue::String(_) | fnx_runtime::CgseValue::Map(_)) => None,
         None => Some((default_weight, default_weight.fract() != 0.0)),
     }
 }
