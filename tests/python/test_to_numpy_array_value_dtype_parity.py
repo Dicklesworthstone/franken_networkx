@@ -112,3 +112,44 @@ def test_float_weights_still_take_the_native_path(monkeypatch):
     G.add_weighted_edges_from([(0, 1, 2.0), (1, 2, 3.5)])
     A = fnx.to_numpy_array(G)
     assert calls and A[0, 1] == 2.0
+
+
+# --- to_scipy_sparse_array format keyword (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7)
+
+
+@pytest.mark.parametrize("fmt", ["csr", "csc", "coo", "bsr", "lil", "dia", "dok", "any_other"])
+def test_sparse_format_keyword_matches_networkx(fmt):
+    outcomes = []
+    for module in (nx, fnx):
+        try:
+            A = module.to_scipy_sparse_array(module.path_graph(4), format=fmt)
+            outcomes.append(("ok", type(A).__name__, A.format, repr(A.todense().tolist())))
+        except Exception as exc:
+            outcomes.append(("raised", type(exc).__name__, str(exc)))
+    assert outcomes[1] == outcomes[0]
+
+
+def test_backend_result_conversion_keeps_the_sparse_array_type():
+    """networkx passes a backend's result through ``convert_to_nx`` (always in
+    its backend-test mode, the path networkx's own test_convert_scipy takes).
+    scipy's dok_array subclasses dict, and the conversion used to flatten it
+    into a plain dict, losing ``.todense()``."""
+    from franken_networkx.backend import BackendInterface
+
+    A = BackendInterface.convert_to_nx(fnx.to_scipy_sparse_array(fnx.path_graph(4), format="dok"))
+    assert type(A).__name__ == "dok_array"
+    np.testing.assert_array_equal(
+        A.todense(), nx.to_scipy_sparse_array(nx.path_graph(4), format="dok").todense()
+    )
+
+
+def test_backend_result_conversion_preserves_container_subclasses():
+    from collections import OrderedDict, namedtuple
+
+    from franken_networkx.backend import _convert_result_to_nx
+
+    Pair = namedtuple("Pair", "a b")
+    for value in (OrderedDict(a=1), Pair(1, 2), {"a": 1}, [1, 2], (1, 2)):
+        assert _convert_result_to_nx(value) is value
+    converted = _convert_result_to_nx({"g": fnx.path_graph(2)})
+    assert type(converted["g"]) is nx.Graph

@@ -490,15 +490,20 @@ def _convert_result_to_nx(value):
     """
     if isinstance(value, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)):
         return _fnx_to_nx(value)
-    if isinstance(value, dict):
-        return {k: _convert_result_to_nx(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_convert_result_to_nx(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(_convert_result_to_nx(v) for v in value)
-    if isinstance(value, set):
-        # Graphs aren't hashable so a set of fnx graphs is unusual; recurse
-        # only if elements are themselves non-graph (sets of nodes etc.).
+    # br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7: rebuild only the
+    # exact builtin containers, and only when a graph inside was converted.
+    # Subclasses come back as the same object: scipy's dok_array IS a dict
+    # and was flattened into a plain one (losing .todense()), namedtuples
+    # are tuples. Sets are returned as-is (graphs are not hashable).
+    kind = type(value)
+    if kind is dict:
+        converted = {k: _convert_result_to_nx(v) for k, v in value.items()}
+        changed = any(converted[k] is not v for k, v in value.items())
+        return converted if changed else value
+    if kind is list or kind is tuple:
+        converted = [_convert_result_to_nx(v) for v in value]
+        if any(c is not v for c, v in zip(converted, value)):
+            return kind(converted)
         return value
     return value
 

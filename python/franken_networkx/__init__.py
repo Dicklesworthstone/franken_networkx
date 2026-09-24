@@ -67922,6 +67922,16 @@ def from_numpy_array(
     return graph
 
 
+def _sparse_asformat(matrix, format):
+    """networkx's final step of to_scipy_sparse_array: an unknown format is a
+    NetworkXError, raised after every other validation
+    (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7)."""
+    try:
+        return matrix.asformat(format)
+    except ValueError as err:
+        raise NetworkXError(f"Unknown sparse matrix format: {format}") from err
+
+
 def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format="csr"):
     """Return the adjacency matrix of G as a SciPy sparse array.
 
@@ -68082,7 +68092,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                     (data, (rows, cols)),
                     shape=(n, n),
                 )
-            return matrix.asformat(format)
+            return _sparse_asformat(matrix, format)
 
     if default_nodelist:
         nodelist = list(G)
@@ -68178,7 +68188,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                     shape=(len(nodelist), len(nodelist)),
                     dtype=dtype,
                 )
-                return matrix.asformat(format)
+                return _sparse_asformat(matrix, format)
             if _probe_native_missing_default_weight:
                 native_weight = None
             else:
@@ -68224,7 +68234,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                     ),
                     shape=(len(nodelist), len(nodelist)),
                 )
-                return matrix.asformat(format)
+                return _sparse_asformat(matrix, format)
 
         if (
             _probe_native_missing_default_weight
@@ -68262,7 +68272,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                     ),
                     shape=(len(nodelist), len(nodelist)),
                 )
-                return matrix.asformat(format)
+                return _sparse_asformat(matrix, format)
 
         if _probe_native_missing_default_weight and native_index_result is None:
             native_result = None
@@ -68310,7 +68320,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                     shape=(len(nodelist), len(nodelist)),
                     dtype=dtype,
                 )
-            return matrix.asformat(format)
+            return _sparse_asformat(matrix, format)
 
     # br-r37-c1-mexh6: native COO builder for MultiGraph / MultiDiGraph.
     # Emits one COO entry per parallel edge (symmetric for undirected
@@ -68431,7 +68441,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
                 shape=(len(nodelist), len(nodelist)),
                 dtype=dtype,
             )
-        return matrix.asformat(format)
+        return _sparse_asformat(matrix, format)
 
     # br-r37-c1-tssaperf: Python fallback path — multigraph (which
     # needs parallel-edge sum dedup), non-string weight key, or
@@ -68480,7 +68490,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         shape=(len(nodelist), len(nodelist)),
         dtype=dtype,
     )
-    return matrix.asformat(format)
+    return _sparse_asformat(matrix, format)
 
 
 def from_scipy_sparse_array(
