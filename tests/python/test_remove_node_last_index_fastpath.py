@@ -1,13 +1,13 @@
 """Removing the highest-indexed isolated node must skip the renumber and change nothing else.
 
-br-r37-c1-qxtlj. fnx stores nodes in a compact integer index, so removing a node
-renumbers every position above it and repairs adjacency and edge storage - an
-O(|V|+|E|) pass. That floor is architectural. What was NOT architectural is that
-it ran even when there was nothing to renumber: removing the LAST index shifts no
-position, and removing an ISOLATED node detaches no edge, so for a node that is
-both, the whole repair is a no-op over its entire input. It cost the same as any
-other removal anyway - 264.86us on a 12800-node Graph against networkx's 0.61us,
-identical whether the node sat at the first index or the last.
+br-r37-c1-qxtlj. fnx serves nodes by a dense integer position. Removing a node
+used to renumber every position above it with an O(|V|+|E|) repair, even for the
+LAST index with no edges, where there was nothing to renumber (264.86us on a
+12800-node Graph against networkx's 0.61us). Since yr2oc.1 a removal renumbers
+nothing on Graph/DiGraph: it frees the node's slot, and positional readers
+translate slots to positions until the next insertion compacts. Either way, a
+graph that skipped or deferred the repair must be indistinguishable from one that
+did not.
 
 THIS FILE IS ABOUT THE FAST PATH BEING INVISIBLE. Its speed is measured
 elsewhere; what matters here is that a graph which took the shortcut is
@@ -164,3 +164,54 @@ def test_randomised_mutation_sequence_matches_networkx(cls, seed):
         assert _state(got) == _state(want), f"diverged at step {step} (choice {choice})"
 
     assert _state(got) == _state(want)
+
+
+def _positional_state(g, lib):
+    """What the native positional readers serve, in networkx's order."""
+    first = next(iter(g))
+    components = lib.weakly_connected_components if g.is_directed() else lib.connected_components
+    state = {
+        "nodes": list(g),
+        "edges": list(g.edges(data=True)),
+        "rows": [(n, list(g.adj[n])) for n in g],
+        "wdegree": [(n, d, type(d).__name__) for n, d in g.degree(weight="w")],
+        "wdegree_each": [(n, g.degree(n, weight="w")) for n in g],
+        "size": g.size(weight="w"),
+        "bfs": list(lib.bfs_edges(g, first)),
+        "sssp": list(lib.single_source_shortest_path_length(g, first).items()),
+        "components": sorted(sorted(map(str, c)) for c in components(g)),
+    }
+    if g.is_directed():
+        state["preds"] = [(n, list(g.pred[n])) for n in g]
+        state["in_edges"] = list(g.in_edges())
+    return state
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("seed", range(6))
+def test_a_run_of_removals_keeps_positional_readers_matching_networkx(cls, seed):
+    """yr2oc.1: slots and positions stay apart through a run of removals.
+
+    A removal frees its node's slot instead of renumbering the graph, and the
+    graph compacts again only at the next insertion (or once freed slots
+    outnumber live nodes). Everything read by position in between (weighted
+    degree, the BFS / shortest-path / component kernels, edge and in-edge
+    iteration) goes through the slot-to-position translation; reading the slot
+    rows as if they were positions diverges from networkx here.
+    """
+    rng = random.Random(seed)
+    got, want = _both(cls)
+    n = 40
+    for _ in range(4 * n):
+        u, v = rng.randrange(n), rng.randrange(n)
+        w = rng.choice([1, 2, 3, 0.5, 2.25])
+        for g in (got, want):
+            g.add_edge(u, v, w=w)
+    for _ in range(n // 3):
+        victim = rng.choice(list(want)[:-1])
+        for g in (got, want):
+            g.remove_node(victim)
+        assert _positional_state(got, fnx) == _positional_state(want, nx)
+    for g in (got, want):
+        g.add_edge("fresh", victim)
+    assert _positional_state(got, fnx) == _positional_state(want, nx)

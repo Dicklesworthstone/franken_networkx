@@ -195,8 +195,11 @@ pub struct DiGraph {
     slot_names: Vec<Option<String>>,
     node_attrs: Vec<AttrMap>,
     free_slots: Vec<usize>,
-    succ_indices: Vec<Vec<usize>>,
-    pred_indices: Vec<Vec<usize>>,
+    /// Every node's slot equals its position (see `Graph::slots_dense`).
+    slots_dense: bool,
+    /// slot -> successor slots / predecessor slots (see `crate::SlotRows`).
+    succ_indices: crate::SlotRows,
+    pred_indices: crate::SlotRows,
     edges: crate::FxIndexMap<(usize, usize), AttrMap>,
     runtime_policy: RuntimePolicy,
     csr_cache: DiCsrCache,
@@ -215,10 +218,10 @@ impl DiGraph {
             return;
         }
         self.edges.clear();
-        for row in &mut self.succ_indices {
+        for row in self.succ_indices.rows_mut() {
             row.clear();
         }
-        for row in &mut self.pred_indices {
+        for row in self.pred_indices.rows_mut() {
             row.clear();
         }
         self.revision = self.revision.saturating_add(1);
@@ -235,6 +238,7 @@ impl DiGraph {
             slot_names: self.slot_names.clone(),
             node_attrs: self.node_attrs.clone(),
             free_slots: self.free_slots.clone(),
+            slots_dense: self.slots_dense,
             succ_indices: self.succ_indices.clone(),
             pred_indices: self.pred_indices.clone(),
             edges: self.edges.clone(),
@@ -257,8 +261,9 @@ impl DiGraph {
             slot_names: Vec::new(),
             node_attrs: Vec::new(),
             free_slots: Vec::new(),
-            succ_indices: Vec::new(),
-            pred_indices: Vec::new(),
+            slots_dense: true,
+            succ_indices: crate::SlotRows::default(),
+            pred_indices: crate::SlotRows::default(),
             edges: crate::FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             csr_cache: std::sync::Arc::default(),
@@ -276,8 +281,9 @@ impl DiGraph {
             slot_names: Vec::new(),
             node_attrs: Vec::new(),
             free_slots: Vec::new(),
-            succ_indices: Vec::new(),
-            pred_indices: Vec::new(),
+            slots_dense: true,
+            succ_indices: crate::SlotRows::default(),
+            pred_indices: crate::SlotRows::default(),
             edges: crate::FxIndexMap::default(),
             runtime_policy,
             csr_cache: std::sync::Arc::default(),
@@ -350,8 +356,9 @@ impl DiGraph {
             slot_names,
             node_attrs,
             free_slots: Vec::new(),
-            succ_indices,
-            pred_indices,
+            slots_dense: true,
+            succ_indices: crate::SlotRows::new(succ_indices),
+            pred_indices: crate::SlotRows::new(pred_indices),
             edges,
             runtime_policy,
             csr_cache: std::sync::Arc::default(),
@@ -496,18 +503,35 @@ impl DiGraph {
         Some((*self.node_order.get(source)?, *self.node_order.get(target)?))
     }
 
-    /// br-r37-c1-1l8s0: direct slice access to the eager succ index row.
+    /// br-r37-c1-1l8s0: direct slice access to the eager succ index row, by
+    /// node position (through the position view while slots are not dense).
     #[must_use]
     #[inline]
     pub fn successors_indices(&self, idx: usize) -> Option<&[usize]> {
-        self.succ_indices.get(idx).map(Vec::as_slice)
+        if self.slots_dense {
+            self.succ_indices.get(idx).map(Vec::as_slice)
+        } else {
+            self.succ_indices
+                .positions(&self.node_order)
+                .rows
+                .get(idx)
+                .map(Vec::as_slice)
+        }
     }
 
-    /// Direct slice access to the eager pred index row.
+    /// Direct slice access to the eager pred index row, by node position.
     #[must_use]
     #[inline]
     pub fn predecessors_indices(&self, idx: usize) -> Option<&[usize]> {
-        self.pred_indices.get(idx).map(Vec::as_slice)
+        if self.slots_dense {
+            self.pred_indices.get(idx).map(Vec::as_slice)
+        } else {
+            self.pred_indices
+                .positions(&self.node_order)
+                .rows
+                .get(idx)
+                .map(Vec::as_slice)
+        }
     }
 
     pub fn has_edge(&self, source: &str, target: &str) -> bool {
@@ -643,7 +667,7 @@ impl DiGraph {
                     new_row.push(v_idx);
                 }
             }
-            rows[idx] = new_row;
+            rows.rows_mut()[idx] = new_row;
         }
     }
 
@@ -662,6 +686,10 @@ impl DiGraph {
         // appending u to pred[v] reproduces exactly the
         // (pos(u), index-of-v-within-succ[u]) ordering the old sort produced,
         // including parallel-edge multiplicity — byte-identical pred row order.
+        //
+        // Walking the rows in slot order is position order only once slots are
+        // positions.
+        self.ensure_compact();
         let mut new_rows: Vec<Vec<usize>> = self
             .pred_indices
             .iter()
@@ -672,7 +700,7 @@ impl DiGraph {
                 new_rows[v].push(u);
             }
         }
-        self.pred_indices = new_rows;
+        *self.pred_indices.rows_mut() = new_rows;
     }
 
     #[must_use]
@@ -869,7 +897,24 @@ impl DiGraph {
     /// with ONE attr lookup instead of the per-edge `edges.get(&(u,v))` hash that
     /// the successors-then-`edge_attrs_by_indices` path pays.
     pub fn edges_indexed(&self) -> impl Iterator<Item = ((usize, usize), &AttrMap)> + '_ {
-        self.edges.iter().map(|(&pair, attrs)| (pair, attrs))
+        let slot_positions = self.slot_positions();
+        self.edges
+            .iter()
+            .map(move |(&(source, target), attrs)| match slot_positions {
+                Some(positions) => ((positions[source], positions[target]), attrs),
+                None => ((source, target), attrs),
+            })
+    }
+
+    /// slot -> position while a removal has separated them, `None` while every
+    /// slot is its own position.
+    fn slot_positions(&self) -> Option<&[usize]> {
+        (!self.slots_dense).then(|| {
+            self.succ_indices
+                .positions(&self.node_order)
+                .slot_positions
+                .as_slice()
+        })
     }
 
     #[must_use]
@@ -962,15 +1007,15 @@ impl DiGraph {
         let slot = if let Some(reused) = self.free_slots.pop() {
             self.slot_names[reused] = Some(node_ref.to_owned());
             self.node_attrs[reused] = attrs;
-            self.succ_indices[reused].clear();
-            self.pred_indices[reused].clear();
+            self.succ_indices.rows_mut()[reused].clear();
+            self.pred_indices.rows_mut()[reused].clear();
             reused
         } else {
             let slot = self.slot_names.len();
             self.slot_names.push(Some(node_ref.to_owned()));
             self.node_attrs.push(attrs);
-            self.succ_indices.push(Vec::new());
-            self.pred_indices.push(Vec::new());
+            self.succ_indices.rows_mut().push(Vec::new());
+            self.pred_indices.rows_mut().push(Vec::new());
             slot
         };
         let attr_count = self.node_attrs[slot].len();
@@ -986,15 +1031,15 @@ impl DiGraph {
         let slot = if let Some(reused) = self.free_slots.pop() {
             self.slot_names[reused] = Some(node.to_owned());
             self.node_attrs[reused].clear();
-            self.succ_indices[reused].clear();
-            self.pred_indices[reused].clear();
+            self.succ_indices.rows_mut()[reused].clear();
+            self.pred_indices.rows_mut()[reused].clear();
             reused
         } else {
             let slot = self.slot_names.len();
             self.slot_names.push(Some(node.to_owned()));
             self.node_attrs.push(AttrMap::new());
-            self.succ_indices.push(Vec::new());
-            self.pred_indices.push(Vec::new());
+            self.succ_indices.rows_mut().push(Vec::new());
+            self.pred_indices.rows_mut().push(Vec::new());
             slot
         };
         self.node_order.insert(node.to_owned(), slot);
@@ -1007,6 +1052,7 @@ impl DiGraph {
         node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
     ) -> bool {
+        self.compact_before_growth();
         let (changed, existed, attrs_count, _) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
@@ -1080,6 +1126,7 @@ impl DiGraph {
         target: impl AsRef<str>,
         attrs: AttrMap,
     ) -> Result<(), GraphError> {
+        self.compact_before_growth();
         let source = source.as_ref();
         let target = target.as_ref();
 
@@ -1150,8 +1197,8 @@ impl DiGraph {
         };
 
         if new_edge {
-            self.succ_indices[source_slot].push(target_slot);
-            self.pred_indices[target_slot].push(source_slot);
+            self.succ_indices.rows_mut()[source_slot].push(target_slot);
+            self.pred_indices.rows_mut()[target_slot].push(source_slot);
         }
 
         if changed {
@@ -1206,6 +1253,7 @@ impl DiGraph {
         S: Into<String>,
         T: Into<String>,
     {
+        self.compact_before_growth();
         let iterator = edges.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.node_order.reserve(lower_bound);
@@ -1221,15 +1269,15 @@ impl DiGraph {
                     let slot = if let Some(reused) = self.free_slots.pop() {
                         self.slot_names[reused] = Some(source.clone());
                         self.node_attrs[reused].clear();
-                        self.succ_indices[reused].clear();
-                        self.pred_indices[reused].clear();
+                        self.succ_indices.rows_mut()[reused].clear();
+                        self.pred_indices.rows_mut()[reused].clear();
                         reused
                     } else {
                         let slot = self.slot_names.len();
                         self.slot_names.push(Some(source.clone()));
                         self.node_attrs.push(AttrMap::new());
-                        self.succ_indices.push(Vec::new());
-                        self.pred_indices.push(Vec::new());
+                        self.succ_indices.rows_mut().push(Vec::new());
+                        self.pred_indices.rows_mut().push(Vec::new());
                         slot
                     };
                     self.node_order.insert(source.clone(), slot);
@@ -1245,15 +1293,15 @@ impl DiGraph {
                         let slot = if let Some(reused) = self.free_slots.pop() {
                             self.slot_names[reused] = Some(target.clone());
                             self.node_attrs[reused].clear();
-                            self.succ_indices[reused].clear();
-                            self.pred_indices[reused].clear();
+                            self.succ_indices.rows_mut()[reused].clear();
+                            self.pred_indices.rows_mut()[reused].clear();
                             reused
                         } else {
                             let slot = self.slot_names.len();
                             self.slot_names.push(Some(target.clone()));
                             self.node_attrs.push(AttrMap::new());
-                            self.succ_indices.push(Vec::new());
-                            self.pred_indices.push(Vec::new());
+                            self.succ_indices.rows_mut().push(Vec::new());
+                            self.pred_indices.rows_mut().push(Vec::new());
                             slot
                         };
                         self.node_order.insert(target.clone(), slot);
@@ -1266,8 +1314,8 @@ impl DiGraph {
                 continue;
             }
             self.edges.insert(edge_key, AttrMap::new());
-            self.succ_indices[s_slot].push(t_slot);
-            self.pred_indices[t_slot].push(s_slot);
+            self.succ_indices.rows_mut()[s_slot].push(t_slot);
+            self.pred_indices.rows_mut()[t_slot].push(s_slot);
             inserted += 1;
         }
 
@@ -1302,6 +1350,7 @@ impl DiGraph {
     where
         I: IntoIterator<Item = (usize, usize)>,
     {
+        self.compact_before_growth();
         let iterator = edges.into_iter();
         self.edges.reserve(iterator.size_hint().0);
 
@@ -1324,8 +1373,8 @@ impl DiGraph {
                 continue;
             }
             self.edges.insert(edge_key, AttrMap::new());
-            self.succ_indices[s_slot].push(t_slot);
-            self.pred_indices[t_slot].push(s_slot);
+            self.succ_indices.rows_mut()[s_slot].push(t_slot);
+            self.pred_indices.rows_mut()[t_slot].push(s_slot);
             inserted += 1;
         }
 
@@ -1357,6 +1406,7 @@ impl DiGraph {
         I: IntoIterator<Item = N>,
         N: Into<String>,
     {
+        self.compact_before_growth();
         let iterator = nodes.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.node_order.reserve(lower_bound);
@@ -1370,15 +1420,15 @@ impl DiGraph {
             let slot = if let Some(reused) = self.free_slots.pop() {
                 self.slot_names[reused] = Some(node.clone());
                 self.node_attrs[reused].clear();
-                self.succ_indices[reused].clear();
-                self.pred_indices[reused].clear();
+                self.succ_indices.rows_mut()[reused].clear();
+                self.pred_indices.rows_mut()[reused].clear();
                 reused
             } else {
                 let slot = self.slot_names.len();
                 self.slot_names.push(Some(node.clone()));
                 self.node_attrs.push(AttrMap::new());
-                self.succ_indices.push(Vec::new());
-                self.pred_indices.push(Vec::new());
+                self.succ_indices.rows_mut().push(Vec::new());
+                self.pred_indices.rows_mut().push(Vec::new());
                 slot
             };
             self.node_order.insert(node, slot);
@@ -1412,6 +1462,7 @@ impl DiGraph {
     where
         I: IntoIterator<Item = (String, AttrMap)>,
     {
+        self.compact_before_growth();
         let iterator = nodes.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.node_order.reserve(lower_bound);
@@ -1425,15 +1476,15 @@ impl DiGraph {
             let slot = if let Some(reused) = self.free_slots.pop() {
                 self.slot_names[reused] = Some(node.clone());
                 self.node_attrs[reused] = attrs;
-                self.succ_indices[reused].clear();
-                self.pred_indices[reused].clear();
+                self.succ_indices.rows_mut()[reused].clear();
+                self.pred_indices.rows_mut()[reused].clear();
                 reused
             } else {
                 let slot = self.slot_names.len();
                 self.slot_names.push(Some(node.clone()));
                 self.node_attrs.push(attrs);
-                self.succ_indices.push(Vec::new());
-                self.pred_indices.push(Vec::new());
+                self.succ_indices.rows_mut().push(Vec::new());
+                self.pred_indices.rows_mut().push(Vec::new());
                 slot
             };
             self.node_order.insert(node, slot);
@@ -1468,6 +1519,7 @@ impl DiGraph {
     where
         I: IntoIterator<Item = (String, String, AttrMap)>,
     {
+        self.compact_before_growth();
         let iterator = edges.into_iter();
         let (lower_bound, _) = iterator.size_hint();
         self.node_order.reserve(lower_bound);
@@ -1482,15 +1534,15 @@ impl DiGraph {
                     let slot = if let Some(reused) = self.free_slots.pop() {
                         self.slot_names[reused] = Some(source.clone());
                         self.node_attrs[reused].clear();
-                        self.succ_indices[reused].clear();
-                        self.pred_indices[reused].clear();
+                        self.succ_indices.rows_mut()[reused].clear();
+                        self.pred_indices.rows_mut()[reused].clear();
                         reused
                     } else {
                         let slot = self.slot_names.len();
                         self.slot_names.push(Some(source.clone()));
                         self.node_attrs.push(AttrMap::new());
-                        self.succ_indices.push(Vec::new());
-                        self.pred_indices.push(Vec::new());
+                        self.succ_indices.rows_mut().push(Vec::new());
+                        self.pred_indices.rows_mut().push(Vec::new());
                         slot
                     };
                     self.node_order.insert(source.clone(), slot);
@@ -1506,15 +1558,15 @@ impl DiGraph {
                         let slot = if let Some(reused) = self.free_slots.pop() {
                             self.slot_names[reused] = Some(target.clone());
                             self.node_attrs[reused].clear();
-                            self.succ_indices[reused].clear();
-                            self.pred_indices[reused].clear();
+                            self.succ_indices.rows_mut()[reused].clear();
+                            self.pred_indices.rows_mut()[reused].clear();
                             reused
                         } else {
                             let slot = self.slot_names.len();
                             self.slot_names.push(Some(target.clone()));
                             self.node_attrs.push(AttrMap::new());
-                            self.succ_indices.push(Vec::new());
-                            self.pred_indices.push(Vec::new());
+                            self.succ_indices.rows_mut().push(Vec::new());
+                            self.pred_indices.rows_mut().push(Vec::new());
                             slot
                         };
                         self.node_order.insert(target.clone(), slot);
@@ -1537,8 +1589,8 @@ impl DiGraph {
                 continue;
             }
             self.edges.insert(edge_key, attrs);
-            self.succ_indices[s_slot].push(t_slot);
-            self.pred_indices[t_slot].push(s_slot);
+            self.succ_indices.rows_mut()[s_slot].push(t_slot);
+            self.pred_indices.rows_mut()[t_slot].push(s_slot);
             inserted += 1;
         }
         if inserted > 0 || merged_changed {
@@ -1573,6 +1625,7 @@ impl DiGraph {
         I: IntoIterator<Item = (String, String, AttrMap)>,
         N: IntoIterator<Item = String>,
     {
+        self.compact_before_growth();
         for node in new_nodes {
             if self.node_order.contains_key(&node) {
                 continue;
@@ -1580,15 +1633,15 @@ impl DiGraph {
             let slot = if let Some(reused) = self.free_slots.pop() {
                 self.slot_names[reused] = Some(node.clone());
                 self.node_attrs[reused].clear();
-                self.succ_indices[reused].clear();
-                self.pred_indices[reused].clear();
+                self.succ_indices.rows_mut()[reused].clear();
+                self.pred_indices.rows_mut()[reused].clear();
                 reused
             } else {
                 let slot = self.slot_names.len();
                 self.slot_names.push(Some(node.clone()));
                 self.node_attrs.push(AttrMap::new());
-                self.succ_indices.push(Vec::new());
-                self.pred_indices.push(Vec::new());
+                self.succ_indices.rows_mut().push(Vec::new());
+                self.pred_indices.rows_mut().push(Vec::new());
                 slot
             };
             self.node_order.insert(node, slot);
@@ -1615,8 +1668,8 @@ impl DiGraph {
                 continue;
             }
 
-            self.succ_indices[s_slot].push(t_slot);
-            self.pred_indices[t_slot].push(s_slot);
+            self.succ_indices.rows_mut()[s_slot].push(t_slot);
+            self.pred_indices.rows_mut()[t_slot].push(s_slot);
             self.edges.insert(edge_key, attrs);
             inserted += 1;
         }
@@ -1658,6 +1711,7 @@ impl DiGraph {
     where
         I: IntoIterator<Item = (usize, usize, AttrMap)>,
     {
+        self.compact_before_growth();
         let node_count = self.node_order.len();
         let edges = edges.into_iter();
         self.edges.reserve(edges.size_hint().0);
@@ -1690,8 +1744,8 @@ impl DiGraph {
                 continue;
             }
             self.edges.insert(edge_key, attrs);
-            self.succ_indices[s_slot].push(t_slot);
-            self.pred_indices[t_slot].push(s_slot);
+            self.succ_indices.rows_mut()[s_slot].push(t_slot);
+            self.pred_indices.rows_mut()[t_slot].push(s_slot);
             inserted += 1;
         }
         if inserted > 0 || merged_changed {
@@ -1725,8 +1779,9 @@ impl DiGraph {
         self.slot_names = Vec::with_capacity(node_count);
         self.node_attrs = vec![AttrMap::new(); node_count];
         self.free_slots.clear();
-        self.succ_indices = vec![Vec::new(); node_count];
-        self.pred_indices = vec![Vec::new(); node_count];
+        self.slots_dense = true;
+        *self.succ_indices.rows_mut() = vec![Vec::new(); node_count];
+        *self.pred_indices.rows_mut() = vec![Vec::new(); node_count];
         for (i, node) in node_labels.into_iter().enumerate() {
             self.slot_names.push(Some(node.clone()));
             self.node_order.insert(node, i);
@@ -1755,8 +1810,8 @@ impl DiGraph {
                 continue;
             }
             self.edges.insert(edge_key, attrs);
-            self.succ_indices[source_idx].push(target_idx);
-            self.pred_indices[target_idx].push(source_idx);
+            self.succ_indices.rows_mut()[source_idx].push(target_idx);
+            self.pred_indices.rows_mut()[target_idx].push(source_idx);
             inserted += 1;
         }
 
@@ -1855,8 +1910,8 @@ impl DiGraph {
         let pair = (s_slot, t_slot);
         let removed = self.edges.swap_remove(&pair).is_some();
         if removed {
-            self.succ_indices[s_slot].retain(|&i| i != t_slot);
-            self.pred_indices[t_slot].retain(|&i| i != s_slot);
+            self.succ_indices.rows_mut()[s_slot].retain(|&i| i != t_slot);
+            self.pred_indices.rows_mut()[t_slot].retain(|&i| i != s_slot);
             self.revision = self.revision.saturating_add(1);
         }
         removed
@@ -1866,9 +1921,7 @@ impl DiGraph {
     pub fn remove_node(&mut self, node: &str) -> bool {
         let removed = self.remove_node_deferred_compaction(node);
         if removed {
-            // Public node indices and the successor/predecessor slices must
-            // share dense coordinates at every externally observable state.
-            self.ensure_compact();
+            self.compact_when_sparse();
         }
         removed
     }
@@ -1879,18 +1932,20 @@ impl DiGraph {
         };
 
         // 1. Drop incident edges and remove this slot from neighbors' succ/pred rows.
-        let succs = std::mem::take(&mut self.succ_indices[slot]);
+        let succ_rows = self.succ_indices.rows_mut();
+        let pred_rows = self.pred_indices.rows_mut();
+        let succs = std::mem::take(&mut succ_rows[slot]);
         for &t in &succs {
             self.edges.swap_remove(&(slot, t));
             if t != slot {
-                self.pred_indices[t].retain(|&i| i != slot);
+                pred_rows[t].retain(|&i| i != slot);
             }
         }
-        let preds = std::mem::take(&mut self.pred_indices[slot]);
+        let preds = std::mem::take(&mut pred_rows[slot]);
         for &s in &preds {
             self.edges.swap_remove(&(s, slot));
             if s != slot {
-                self.succ_indices[s].retain(|&i| i != slot);
+                succ_rows[s].retain(|&i| i != slot);
             }
         }
 
@@ -1898,18 +1953,36 @@ impl DiGraph {
         self.slot_names[slot] = None;
         self.node_attrs[slot].clear();
 
-        // 3. Slot reclamation / tail trimming.
+        // 3. Slot reclamation / tail trimming. Freeing any other slot leaves
+        // every later node one position below its slot.
         if slot + 1 == self.slot_names.len() && self.free_slots.is_empty() {
             self.slot_names.pop();
             self.node_attrs.pop();
-            self.succ_indices.pop();
-            self.pred_indices.pop();
+            succ_rows.pop();
+            pred_rows.pop();
         } else {
             self.free_slots.push(slot);
+            self.slots_dense = false;
         }
 
         self.revision = self.revision.saturating_add(1);
         true
+    }
+
+    /// Compact once the freed slots outnumber the live nodes (see
+    /// `Graph::compact_when_sparse`).
+    fn compact_when_sparse(&mut self) {
+        if self.free_slots.len() > self.node_order.len() {
+            self.compact_internal();
+        }
+    }
+
+    /// Compact at the first insertion after a run of removals (see
+    /// `Graph::compact_before_growth`).
+    fn compact_before_growth(&mut self) {
+        if !self.slots_dense {
+            self.compact_internal();
+        }
     }
 
     pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
@@ -1925,21 +1998,21 @@ impl DiGraph {
         }
         let removed_edges = old_edge_count.saturating_sub(self.edges.len());
         if removed_nodes > 0 {
-            self.ensure_compact();
+            self.compact_when_sparse();
         }
         (removed_nodes, removed_edges)
     }
 
+    /// Every node's slot is its position (O(1): the flag every removal and
+    /// compaction maintains).
     #[inline]
     #[must_use]
     pub fn is_compact(&self) -> bool {
-        self.free_slots.is_empty()
-            && self.slot_names.len() == self.node_order.len()
-            && self
-                .node_order
-                .iter()
-                .enumerate()
-                .all(|(pos, (_, &slot))| pos == slot)
+        debug_assert!(
+            !self.slots_dense
+                || (self.free_slots.is_empty() && self.slot_names.len() == self.node_order.len())
+        );
+        self.slots_dense
     }
 
     pub fn ensure_compact(&mut self) {
@@ -1966,8 +2039,8 @@ impl DiGraph {
 
             new_slot_names.push(Some(name.clone()));
             new_node_attrs.push(std::mem::take(&mut self.node_attrs[old_slot]));
-            new_succ_indices.push(std::mem::take(&mut self.succ_indices[old_slot]));
-            new_pred_indices.push(std::mem::take(&mut self.pred_indices[old_slot]));
+            new_succ_indices.push(std::mem::take(&mut self.succ_indices.rows_mut()[old_slot]));
+            new_pred_indices.push(std::mem::take(&mut self.pred_indices.rows_mut()[old_slot]));
         }
 
         // Remap neighbor slots in succ_indices and pred_indices
@@ -1993,10 +2066,11 @@ impl DiGraph {
 
         self.slot_names = new_slot_names;
         self.node_attrs = new_node_attrs;
-        self.succ_indices = new_succ_indices;
-        self.pred_indices = new_pred_indices;
+        *self.succ_indices.rows_mut() = new_succ_indices;
+        *self.pred_indices.rows_mut() = new_pred_indices;
         self.edges = new_edges;
         self.free_slots.clear();
+        self.slots_dense = true;
         self.revision = self.revision.saturating_add(1);
     }
 
@@ -2134,8 +2208,9 @@ impl DiGraph {
             slot_names: self.slot_names.clone(),
             node_attrs: self.node_attrs.clone(),
             free_slots: self.free_slots.clone(),
-            succ_indices,
-            pred_indices,
+            slots_dense: self.slots_dense,
+            succ_indices: crate::SlotRows::new(succ_indices),
+            pred_indices: crate::SlotRows::new(pred_indices),
             edges,
             runtime_policy: self.runtime_policy.clone(),
             csr_cache: std::sync::Arc::default(),
@@ -4387,6 +4462,94 @@ mod tests {
         assert!(!g.has_edge("d", "b"));
         assert!(g.has_edge("c", "a")); // not incident to b
         assert_digraph_core_invariants(&g);
+    }
+
+    /// yr2oc.1: every reader that speaks positions agrees with the name-based
+    /// readers (the slot store): successor and predecessor rows, `edges_indexed`,
+    /// and the CSR.
+    fn assert_digraph_positions_agree_with_names(g: &DiGraph) {
+        let names: Vec<String> = g.nodes_ordered().into_iter().map(str::to_owned).collect();
+        let name_of = |p: usize| g.get_node_name(p).expect("position resolves");
+        let csr = g.csr();
+        for (position, name) in names.iter().enumerate() {
+            assert_eq!(g.get_node_index(name), Some(position));
+            let succ: Vec<&str> = g
+                .successors_indices(position)
+                .expect("live position")
+                .iter()
+                .map(|&p| name_of(p))
+                .collect();
+            assert_eq!(
+                succ,
+                g.successors(name).expect("live node"),
+                "succ of {name}"
+            );
+            let pred: Vec<&str> = g
+                .predecessors_indices(position)
+                .expect("live position")
+                .iter()
+                .map(|&p| name_of(p))
+                .collect();
+            assert_eq!(
+                pred,
+                g.predecessors(name).expect("live node"),
+                "pred of {name}"
+            );
+            let csr_succ: Vec<&str> = csr
+                .successors(position)
+                .iter()
+                .map(|&p| name_of(p as usize))
+                .collect();
+            assert_eq!(csr_succ, succ);
+        }
+        assert!(g.successors_indices(names.len()).is_none());
+        for ((source, target), attrs) in g.edges_indexed() {
+            assert_eq!(Some(attrs), g.edge_attrs(name_of(source), name_of(target)));
+        }
+        assert_eq!(g.edges_indexed().count(), g.edge_count());
+    }
+
+    /// yr2oc.1: the directed twin of the Graph test — a run of removals keeps
+    /// slots apart from positions, the positional readers stay in step, and
+    /// the first insertion compacts.
+    #[test]
+    fn removal_runs_keep_directed_positional_readers_in_step_with_names() {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        for round in 0..40 {
+            let n = 12 + round % 20;
+            let mut g = DiGraph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("n{i}"));
+            }
+            for _ in 0..3 * n {
+                let (u, v) = (next(n), next(n));
+                let mut attrs = AttrMap::new();
+                attrs.insert(
+                    "w".into(),
+                    CgseValue::Int(i64::try_from(u * 100 + v).unwrap()),
+                );
+                g.add_edge_with_attrs(format!("n{u}"), format!("n{v}"), attrs)
+                    .expect("edge");
+            }
+            assert!(g.is_compact());
+            for _ in 0..n / 3 {
+                let names: Vec<String> = g.nodes_ordered().into_iter().map(str::to_owned).collect();
+                let victim = names[next(names.len() - 1)].clone();
+                assert!(g.remove_node(&victim));
+                assert!(!g.is_compact(), "round {round}: slots should stay apart");
+                assert_digraph_positions_agree_with_names(&g);
+                assert_digraph_core_invariants(&g);
+            }
+            g.add_edge("fresh", "n0").expect("edge");
+            assert!(g.is_compact());
+            assert_digraph_positions_agree_with_names(&g);
+        }
     }
 
     #[test]

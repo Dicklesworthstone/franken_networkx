@@ -16027,7 +16027,9 @@ impl PyDiGraph {
         slf: PyRef<'_, Self>,
         py: Python<'_>,
     ) -> PyResult<Option<Py<DiGraphGuardedEdgeStreamIter>>> {
-        if !slf.succ_py_keys.is_empty() || !slf.inner.is_compact() {
+        // Positions are safe to walk whether or not slots are compact:
+        // `successors_indices` answers by position either way (yr2oc.1).
+        if !slf.succ_py_keys.is_empty() {
             return Ok(None);
         }
         let node_keys = slf.cached_node_key_tuple(py);
