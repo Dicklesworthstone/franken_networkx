@@ -36,6 +36,35 @@ from franken_networkx._fnx import (
 
 log = logging.getLogger("franken_networkx.backend")
 
+# should_run's ski-rental thresholds (sfq4w.2): k = ceil(B / (r - w)), the calls
+# on one unmutated graph after which converting it pays off, where B is one
+# conversion, r networkx's time per call and w fnx's once converted. Measured
+# 2026-09-24 on a 20k-node / 80k-edge Barabasi-Albert graph (weighted for
+# dijkstra, an oriented copy for the directed kernels). None: fnx is not faster
+# once converted, so these calls never pay for a conversion. Anything absent
+# converts on first use (heavier kernels, where one call recovers the cost).
+_CONVERT_AFTER_USES = {
+    "bfs_edges": 13,
+    "bfs_tree": 3,
+    "dfs_edges": 6,
+    "dfs_preorder_nodes": 5,
+    "connected_components": 7,
+    "number_connected_components": 10,
+    "is_connected": 11,
+    "node_connected_component": 12,
+    "single_source_shortest_path_length": 8,
+    "single_source_shortest_path": 144,
+    "has_path": None,
+    "single_source_dijkstra_path_length": 5,
+    "pagerank": 3,
+    "degree_centrality": 50,
+    "core_number": 2,
+    "strongly_connected_components": 3,
+    "weakly_connected_components": 7,
+    "descendants": 8,
+}
+_RENT_KEY = "franken_networkx: conversion rent"
+
 # Dispatched with the caller's graph unconverted; see convert_from_nx.
 _LIVE_INPUT_ALGORITHMS = frozenset(
     {"lexicographical_topological_sort", "topological_generations", "topological_sort"}
@@ -1004,8 +1033,47 @@ class BackendInterface:
 
     @staticmethod
     def should_run(name, args, kwargs):
-        """Return True if this backend should run (performance heuristic)."""
-        return BackendInterface.can_run(name, args, kwargs)
+        """Whether converting a networkx graph for this call pays off (sfq4w.2).
+
+        networkx asks only when the call needs a conversion; declining makes
+        networkx run the call itself. For the kernels in
+        ``_CONVERT_AFTER_USES`` one conversion costs more than networkx
+        running the kernel, so this is ski rental: each declined call adds
+        1/k of a conversion's cost to the graph's running total, and the call
+        that brings it to one converts. The conversion is then cached on the
+        graph (networkx clears that cache, and this total, on every
+        mutation), so later calls run at fnx's speed. A cold call is never
+        slower than networkx, and total cost stays within twice the best
+        choice made in hindsight. Other algorithms convert at once, as does
+        any call once a conversion is already cached.
+        """
+        can_run = BackendInterface.can_run(name, args, kwargs)
+        if can_run is not True or name not in _CONVERT_AFTER_USES:
+            return can_run
+        graph = args[0] if args else kwargs.get("G")
+        if not hasattr(graph, "__networkx_cache__"):
+            return True
+        import networkx as nx
+
+        cache = graph.__networkx_cache__
+        if cache is None or not nx.config.cache_converted_graphs:
+            reason = f"conversion costs more than networkx running {name}, and caching is off"
+            log.debug("declining %s: %s", name, reason)
+            return reason
+        if cache.get("backends", {}).get("franken_networkx"):
+            return True
+        uses = _CONVERT_AFTER_USES[name]
+        rent = cache.get(_RENT_KEY, 0.0) + (1.0 / uses if uses else 0.0)
+        if rent >= 1.0:
+            log.debug("converting for %s: accumulated rent %.2f", name, rent)
+            return True
+        cache[_RENT_KEY] = rent
+        reason = (
+            f"one conversion costs more than networkx running {name}; converting once "
+            f"this graph's calls have paid for it ({rent:.2f} of 1.0)"
+        )
+        log.debug("declining %s: %s", name, reason)
+        return reason
 
     # Make algorithm functions available as attributes for dispatch
     def __getattr__(self, name):

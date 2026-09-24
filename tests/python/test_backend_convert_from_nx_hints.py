@@ -145,3 +145,76 @@ def test_dispatched_results_still_equal_networkx(cls):
             g, source, backend="franken_networkx"
         ) == nx.single_source_dijkstra_path_length(g, source)
         assert list(nx.bfs_edges(g, source, backend="franken_networkx")) == list(nx.bfs_edges(g, source))
+
+
+# should_run's ski rental (sfq4w.2 part 2): a cheap kernel's first calls on a
+# graph run in networkx (a cold conversion costs more than networkx's own
+# run); the call that brings the graph's accumulated share of a conversion to
+# one converts, and the cached conversion serves every later call.
+
+from franken_networkx.backend import _CONVERT_AFTER_USES, _RENT_KEY
+
+
+def _fresh():
+    return nx.barabasi_albert_graph(200, 3, seed=5)
+
+
+def test_a_cheap_kernel_declines_until_its_calls_pay_for_a_conversion():
+    g = _fresh()
+    k = _CONVERT_AFTER_USES["bfs_tree"]
+    verdicts = [BackendInterface.should_run("bfs_tree", (g, 0), {}) for _ in range(k)]
+    assert all(isinstance(v, str) for v in verdicts[:-1]), verdicts
+    assert verdicts[-1] is True
+    g.add_edge(0, 199)  # networkx clears the cache, and the running total with it
+    assert _RENT_KEY not in g.__networkx_cache__
+    assert isinstance(BackendInterface.should_run("bfs_tree", (g, 0), {}), str)
+
+
+def test_calls_of_different_kernels_share_the_graph_s_total():
+    g = _fresh()
+    pagerank, core = 1 / _CONVERT_AFTER_USES["pagerank"], 1 / _CONVERT_AFTER_USES["core_number"]
+    assert 2 * pagerank < 1.0 <= 2 * pagerank + core  # two pageranks, then core_number pays
+    assert isinstance(BackendInterface.should_run("pagerank", (g,), {}), str)
+    assert isinstance(BackendInterface.should_run("pagerank", (g,), {}), str)
+    assert BackendInterface.should_run("core_number", (g,), {}) is True
+
+
+def test_kernels_that_never_pay_and_heavy_kernels():
+    g = _fresh()
+    assert all(isinstance(BackendInterface.should_run("has_path", (g, 0, 1), {}), str) for _ in range(50))
+    assert "betweenness_centrality" not in _CONVERT_AFTER_USES
+    assert BackendInterface.should_run("betweenness_centrality", (g,), {}) is True
+
+
+def test_a_cached_conversion_means_run_and_no_caching_means_decline():
+    g = _fresh()
+    nx.bfs_tree(g, 0, backend="franken_networkx")  # an explicit backend converts and caches
+    assert g.__networkx_cache__["backends"]["franken_networkx"]
+    assert BackendInterface.should_run("connected_components", (g,), {}) is True
+    h = _fresh()
+    h.__networkx_cache__ = None
+    assert isinstance(BackendInterface.should_run("bfs_tree", (h, 0), {}), str)
+
+
+def test_backend_priority_runs_networkx_until_the_conversion_pays():
+    g = _fresh()
+    saved = list(nx.config.backend_priority.algos)
+    nx.config.backend_priority.algos = ["franken_networkx"]
+    try:
+        # core_number returns a dict, so networkx takes it from the algos list
+        # (graph-returning functions use backend_priority.generators).
+        k = _CONVERT_AFTER_USES["core_number"]
+        for i in range(k - 1):
+            assert nx.core_number(g) == nx.core_number(g, backend="networkx")
+            assert not g.__networkx_cache__.get("backends", {}).get("franken_networkx"), i
+        assert nx.core_number(g) == nx.core_number(g, backend="networkx")
+        assert g.__networkx_cache__["backends"]["franken_networkx"]
+    finally:
+        nx.config.backend_priority.algos = saved
+
+
+def test_every_threshold_names_a_function_fnx_dispatches():
+    from franken_networkx.backend import _SUPPORTED_ALGORITHMS
+
+    assert set(_CONVERT_AFTER_USES) <= set(_SUPPORTED_ALGORITHMS)
+    assert all(k is None or (isinstance(k, int) and k >= 2) for k in _CONVERT_AFTER_USES.values())
