@@ -1,0 +1,44 @@
+{
+  "schema": "fnx-upstream-networkx-ratchet/v1",
+  "networkx_version": "3.6.1",
+  "min_passed": 6808,
+  "allowed_failures": {
+    "networkx.algorithms.connectivity.tests.test_edge_augmentation::test_weight_key": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 2: networkx's minimal_branching rewrites every input weight in place to C - (C - w) (ulp drift, int -> float, input mutated; declared mutates_input=True). fnx picks the same arborescence edges but returns the exact original weights and leaves the input untouched; test mode compares the result graphs exactly. Decision pending: reproduce the side effect or own the divergence.",
+    "networkx.algorithms.tests.test_dag.TestDAG::test_topological_sort6": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 1: networkx detects mutation during iteration lazily (RuntimeError on a new child); fnx flattens precomputed native generations and checks only the final count (NetworkXUnfeasible). Exact parity needs a perf-costed design.",
+    "networkx.algorithms.tests.test_sparsifiers::test_spanner_unweighted_complete_graph": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 3: fnx's spanner is structural by design (a valid spanner with the requested stretch, different random draws); test mode compares the exact edge set with networkx's.",
+    "networkx.algorithms.tests.test_sparsifiers::test_spanner_unweighted_disconnected_graph": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 3: structural spanner, see test_spanner_unweighted_complete_graph.",
+    "networkx.algorithms.tests.test_sparsifiers::test_spanner_unweighted_gnp_graph": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 3: structural spanner, see test_spanner_unweighted_complete_graph.",
+    "networkx.algorithms.tests.test_sparsifiers::test_spanner_weighted_complete_graph": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 3: structural spanner, see test_spanner_unweighted_complete_graph.",
+    "networkx.algorithms.tests.test_sparsifiers::test_spanner_weighted_gnp_graph": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 3: structural spanner, see test_spanner_unweighted_complete_graph."
+  },
+  "plain_networkx_baseline": {
+    "passed": 6816,
+    "failed": 0,
+    "skipped": 78,
+    "xfailed": 1,
+    "seconds": 94.2,
+    "measured": "2026-09-24, networkx 3.6.1, Python 3.14.3, default warning filters"
+  },
+  "last_run": {
+    "networkx_version": "3.6.1",
+    "networkx_dir": "/data/projects/franken_networkx/.venv/lib/python3.14/site-packages/networkx",
+    "python": "3.14.3",
+    "fnx_package": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "fnx_extension": "/data/projects/franken_networkx/python/franken_networkx/_fnx.abi3.so",
+    "fnx_extension_sha256": "90325aeb30115fe33c30d013f2c823ec1e982a9a64aa903409032e740b799234",
+    "fnx_git_sha": "17ddab95c921a85c458f56740e2d56aab792fd7d",
+    "targets": [
+      "networkx"
+    ],
+    "passed": 6808,
+    "failed": 7,
+    "errors": 0,
+    "skipped": 80,
+    "seconds": 522.9,
+    "not_passing_by_file": {
+      "networkx.algorithms.tests.test_sparsifiers": 5,
+      "networkx.algorithms.connectivity.tests.test_edge_augmentation": 1,
+      "networkx.algorithms.tests.test_dag": 1
+    }
+  }
+}

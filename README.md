@@ -44,7 +44,7 @@ That contract is checked by a Python parity test suite of about 1,100 files, by 
 | Adjacency storage | nested `dict` | deterministic `IndexMap`-based, insertion-order preserving |
 | GIL release on heavy work | n/a (pure Python) | yes; hundreds of `py.allow_threads(...)` sites |
 | Declared import/signature surface | NetworkX 3.6.1 FeatureUniverse | **4,129 / 4,129 strictly present**; 0 partial, 0 missing (the classifier rejects shapes declared only through `__signature__`/`__module__` metadata, on classes and functions) |
-| NetworkX's own test suite, fnx as backend | 6,815 tests pass on plain NetworkX 3.6.1 | **6,751 pass (99.1%)**; 55 fail and 9 error with fnx as the backend (2026-09-24) |
+| NetworkX's own test suite, fnx as backend | 6,816 tests pass on plain NetworkX 3.6.1 (0 fail) | **6,808 pass (99.9%)**; 7 fail, 0 error with fnx as the backend (2026-09-24). Each of the 7 is named with its reason in `artifacts/upstream_suite/ratchet_v1.json`, and DSR fails on any other |
 | Backend-dispatch surface | n/a | **313** algorithms registered in `backend.py` |
 | Tie-break determinism | implicit | explicit **CGSE** (13-variant `TieBreakPolicy`) |
 | Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
@@ -81,7 +81,7 @@ The discipline difference is enforced by tooling, not goodwill:
 | **graph-tool** | `Graph` with vertex/edge property maps | no; C++/Python hybrid API | no | strong for analytics + statistics | Boost-backed, very fast, but requires a custom build pipeline (no PyPI wheel). |
 | **rustworkx** | `PyGraph`/`PyDiGraph` with integer node IDs | partial; explicit conversion API | no; integer-index based | growing | High-quality Rust core; intentionally not a drop-in replacement. |
 | **graspologic** / **networkx-cuda** / **cugraph** | various, often GPU-backed | partial; mostly nx-shaped but algorithm coverage varies widely | varies | varies | Often optimize the inner loop of specific algorithms (PageRank, BFS, connected components) but require additional toolchains (CUDA, conda channels). |
-| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and 99.1% of NetworkX's own test suite passing in backend mode, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 313 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
+| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and 99.9% of NetworkX's own test suite passing in backend mode, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 313 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
 
 The honest summary: if the only thing you need is "PageRank on a huge graph as fast as possible" and you don't care about API shape or tie-break semantics, igraph or graph-tool or a GPU library may beat fnx on raw throughput for that single call. If you have an existing NetworkX codebase and you want it to *just work* without rewriting and without subtle behavior changes, fnx is built for that case.
 
@@ -923,11 +923,12 @@ The quality run executes these checks in order (config: `.dsr/repos.d/franken_ne
 | 1 | fmt | `cargo fmt --all -- --check` |
 | 2 | check | `cargo check --workspace --all-targets` |
 | 3 | clippy | `cargo clippy --workspace --all-targets -- -D warnings` |
-| 4 | Rust tests | `cargo test` for `fnx-classes`, `fnx-views`, `fnx-dispatch`, `fnx-convert`, `fnx-algorithms`, `fnx-generators`, `fnx-readwrite`, `fnx-durability`, `fnx-runtime` |
+| 4 | Rust tests | `cargo test` for `fnx-classes`, `fnx-views`, `fnx-dispatch`, `fnx-convert`, `fnx-algorithms`, `fnx-generators`, `fnx-readwrite`, `fnx-durability`, `fnx-runtime`, `fnx-conformance` (including the CGSE complexity-bound gate) and `fnx-cgse` |
 | 5 | docs | `scripts/verify_docs.py`: README/docs links, every Python block in the Markdown and every `examples/*.py` script executed, `docs/coverage.md` drift |
-| 6 | Python parity (subset) | `scripts/run_pytest_guarded.sh` on `test_instance_dict_memory_leak.py`, `test_error_messages.py`, `test_thread_safety.py`, `test_coverage_gaps.py` |
+| 6 | Python parity (subset) and generated reports | `scripts/run_pytest_guarded.sh` on `test_instance_dict_memory_leak.py`, `test_error_messages.py`, `test_thread_safety.py`; the drift checks of `docs/coverage.md` (`test_coverage_gaps.py`) and `docs/unused_raw_exposures.md` (`test_unused_raw_exposures.py`); and the generator tests `test_delegation_ledger.py`, `test_raw_vs_public_audit.py`, `test_upstream_divergence_ledger.py`, `test_api_ergonomics_audit.py`, which run those generators and check their output's contracts but do not compare the committed ledgers |
+| 7 | NetworkX's own test suite | `scripts/run_upstream_networkx_suite.py`: NetworkX 3.6.1's suite with fnx as the test backend (about 7 minutes), held to `artifacts/upstream_suite/ratchet_v1.json`. It fails on any failure the ratchet does not name with a reason, or when the pass count drops below the ratchet's floor. |
 
-Not gated yet, and run on demand: the full Python parity suite (in guarded shards), `cargo test -p fnx-conformance` (including the CGSE complexity-bound gate) and the conformance replay, NetworkX's own test suite with fnx as the backend, the performance harnesses, UBS, the fuzz targets and the RaptorQ scrub. Promoting these into the DSR run is tracked in `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`.
+Not gated yet, and run on demand: the full Python parity suite (in guarded shards), the conformance replay, the performance harnesses, UBS, the fuzz targets and the RaptorQ scrub. Promoting these into the DSR run is tracked in `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`.
 
 ---
 
@@ -951,11 +952,15 @@ maturin develop --release --features pyo3/abi3-py310
 ./scripts/run_pytest_guarded.sh tests/python/test_*shortest*path*.py -v   # one family
 ```
 
-Cross-validate against NetworkX's own test suite with fnx as the backend (run from outside the repository):
+Cross-validate against NetworkX's own test suite with fnx as the backend. The script runs it from a scratch directory under an address-space limit and holds it to the ratchet; `--target` runs one NetworkX test module in seconds:
 
 ```bash
-NETWORKX_TEST_BACKEND=franken_networkx NETWORKX_FALLBACK_TO_NX=True python -m pytest --pyargs networkx
+.venv/bin/python scripts/run_upstream_networkx_suite.py                    # full run, check the ratchet
+.venv/bin/python scripts/run_upstream_networkx_suite.py --target networkx.algorithms.tests.test_dag
+.venv/bin/python scripts/run_upstream_networkx_suite.py --update           # after fixes: drop what now passes, raise the floor
 ```
+
+Do not add `-W ignore` to a manual run: NetworkX's own `test_pajek.py::test_ignored_attribute` then fails on plain NetworkX too.
 
 ### Conformance Testing Methodology
 
