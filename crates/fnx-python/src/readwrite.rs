@@ -18,9 +18,11 @@ use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWrite
 use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
+use pyo3::types::{
+    PyBool, PyByteArray, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString, PyTuple,
+};
 use serde_json::Value as JsonValue;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Read the file content from a path-like or file-like Python object.
@@ -3667,7 +3669,148 @@ pub fn floyd_warshall_dense(
     }
 }
 
+/// The tuple `add_edges_from` receives for one edge: `(u, v)`, or
+/// `(u, v, attrs)` when there are attributes to carry. With `preserve` every
+/// attribute is copied; with `edge_attrs` = `{name: default}` only those,
+/// `default` filling a missing one unless it is None (networkx's own
+/// conversion rule for dispatch hints).
+fn nx_edge_item<'py>(
+    py: Python<'py>,
+    u: &Bound<'py, PyAny>,
+    v: &Bound<'py, PyAny>,
+    data: &Bound<'py, PyAny>,
+    edge_attrs: Option<&Bound<'py, PyDict>>,
+    preserve: bool,
+) -> PyResult<Bound<'py, PyAny>> {
+    let data = data.downcast::<PyDict>()?;
+    let attrs = if preserve {
+        (!data.is_empty()).then(|| data.copy()).transpose()?
+    } else if let Some(wanted) = edge_attrs {
+        let selected = PyDict::new(py);
+        for (attr, default) in wanted.iter() {
+            match data.get_item(&attr)? {
+                Some(value) => selected.set_item(&attr, value)?,
+                None if !default.is_none() => selected.set_item(&attr, default)?,
+                None => {}
+            }
+        }
+        (!selected.is_empty()).then_some(selected)
+    } else {
+        None
+    };
+    Ok(match attrs {
+        Some(d) => PyTuple::new(py, [u.clone(), v.clone(), d.into_any()])?.into_any(),
+        None => PyTuple::new(py, [u.clone(), v.clone()])?.into_any(),
+    })
+}
+
+type NxQueueEntry<'py> = (Bound<'py, PyAny>, Option<usize>, Bound<'py, PyAny>);
+
+fn nx_queue_ready(queues: &[VecDeque<NxQueueEntry<'_>>], u: usize) -> bool {
+    match queues[u].front() {
+        Some((_, Some(v), _)) if *v == u => true,
+        Some((_, Some(v), _)) => queues[*v].front().is_some_and(|(_, w, _)| *w == Some(u)),
+        _ => false,
+    }
+}
+
+/// The edges of a networkx graph's adjacency (`G._adj`) as `add_edges_from`
+/// tuples, in the order whose replay rebuilds every node's neighbor order:
+/// a port of `backend._topo_emit_edges_by_adj` with the same emission order
+/// (per-node queues; an undirected edge goes out when it heads both
+/// endpoints' queues; the same ready queue, edge budget and drain), reading
+/// the dicts once instead of per edge. Attributes follow networkx's dispatch
+/// hints (see `nx_edge_item`). sfq4w.2.
+#[pyfunction]
+#[pyo3(signature = (adj, directed, edge_attrs=None, preserve_edge_attrs=false))]
+pub fn nx_adjacency_edge_batch<'py>(
+    py: Python<'py>,
+    adj: &Bound<'py, PyDict>,
+    directed: bool,
+    edge_attrs: Option<&Bound<'py, PyDict>>,
+    preserve_edge_attrs: bool,
+) -> PyResult<Bound<'py, PyList>> {
+    let out = PyList::empty(py);
+    let item = |u: &Bound<'py, PyAny>, v: &Bound<'py, PyAny>, data: &Bound<'py, PyAny>| {
+        nx_edge_item(py, u, v, data, edge_attrs, preserve_edge_attrs)
+    };
+    if directed {
+        for (u, row) in adj.iter() {
+            for (v, data) in row.downcast::<PyDict>()?.iter() {
+                out.append(item(&u, &v, &data)?)?;
+            }
+        }
+        return Ok(out);
+    }
+    let index = PyDict::new(py);
+    let mut nodes = Vec::with_capacity(adj.len());
+    for (i, u) in adj.keys().iter().enumerate() {
+        index.set_item(&u, i)?;
+        nodes.push(u);
+    }
+    let mut queues: Vec<VecDeque<NxQueueEntry<'py>>> = Vec::with_capacity(nodes.len());
+    for u in &nodes {
+        let row = adj
+            .get_item(u)?
+            .ok_or_else(|| PyRuntimeError::new_err("adjacency changed during conversion"))?;
+        let row = row.downcast::<PyDict>()?;
+        let mut queue = VecDeque::with_capacity(row.len());
+        for (v, data) in row.iter() {
+            let vi = index
+                .get_item(&v)?
+                .map(|i| i.extract::<usize>())
+                .transpose()?;
+            queue.push_back((v, vi, data));
+        }
+        queues.push(queue);
+    }
+    let mut ready: VecDeque<usize> = (0..nodes.len())
+        .filter(|&u| nx_queue_ready(&queues, u))
+        .collect();
+    let budget: usize = queues.iter().map(VecDeque::len).sum();
+    let mut emitted = 0_usize;
+    while let Some(u) = ready.pop_front() {
+        let Some(v) = queues[u].front().and_then(|(_, vi, _)| *vi) else {
+            continue;
+        };
+        if u != v && !queues[v].front().is_some_and(|(_, w, _)| *w == Some(u)) {
+            continue;
+        }
+        let (v_obj, _, data) = queues[u].pop_front().expect("front checked above");
+        if u != v {
+            queues[v].pop_front();
+        }
+        out.append(item(&nodes[u], &v_obj, &data)?)?;
+        emitted += 1;
+        if nx_queue_ready(&queues, u) {
+            ready.push_back(u);
+        }
+        if u != v {
+            if nx_queue_ready(&queues, v) {
+                ready.push_back(v);
+            }
+            if emitted > budget {
+                break;
+            }
+        }
+    }
+    // Defensive drain, as the Python helper: anything the ready queue left.
+    for u in 0..nodes.len() {
+        while let Some((v_obj, vi, data)) = queues[u].pop_front() {
+            if let Some(v) = vi
+                && v != u
+                && let Some(pos) = queues[v].iter().position(|(_, w, _)| *w == Some(u))
+            {
+                queues[v].remove(pos);
+            }
+            out.append(item(&nodes[u], &v_obj, &data)?)?;
+        }
+    }
+    Ok(out)
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(nx_adjacency_edge_batch, m)?)?;
     m.add_function(wrap_pyfunction!(floyd_warshall_dense, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_of_dicts_undirected, m)?)?;
     m.add_function(wrap_pyfunction!(adjacency_dict_shared, m)?)?;

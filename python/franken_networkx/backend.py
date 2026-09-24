@@ -30,6 +30,10 @@ try:
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_graph_has_any_attrs = None
 
+from franken_networkx._fnx import (
+    nx_adjacency_edge_batch as _native_nx_adjacency_edge_batch,
+)
+
 log = logging.getLogger("franken_networkx.backend")
 
 # Dispatched with the caller's graph unconverted; see convert_from_nx.
@@ -486,6 +490,65 @@ def _nx_to_fnx(G):
     return _from_nx_graph(G)
 
 
+def _hinted_attrs(data, wanted, preserve):
+    """networkx's dispatch conversion rule for one node or edge dict."""
+    if preserve:
+        return dict(data)
+    if wanted:
+        return {
+            attr: data.get(attr, default)
+            for attr, default in wanted.items()
+            if default is not None or attr in data
+        }
+    return {}
+
+
+def _nx_to_fnx_for_dispatch(
+    G, *, edge_attrs, node_attrs, preserve_edge_attrs, preserve_node_attrs, preserve_graph_attrs
+):
+    """Convert a networkx graph for a dispatched call, carrying only what it needs (sfq4w.2).
+
+    networkx tells ``convert_from_nx`` which attributes the algorithm reads
+    (``edge_attrs`` / ``node_attrs`` as {name: default}) or that it keeps them
+    all (``preserve_*_attrs``); its own loopback backend converts exactly
+    that. Copying every attribute dict regardless was most of the conversion
+    toll. The edges of a simple graph come from ``nx_adjacency_edge_batch``,
+    the native port of ``_topo_emit_edges_by_adj`` (same order, so every
+    node's neighbor order is kept) that builds the ``add_edges_from`` tuples
+    in the same pass. Anything but networkx's own four classes (a view, a
+    subclass that reinterprets ``_adj`` such as the approximation module's
+    ``_AntiGraph``) keeps the full ``_from_nx_graph`` conversion.
+    """
+    import networkx as nx
+
+    adj = getattr(G, "_adj", None)
+    if type(G) not in (nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph) or type(adj) is not dict:
+        return _nx_to_fnx(G)
+    from franken_networkx.readwrite import _empty_like_nx_graph
+
+    result = _empty_like_nx_graph(G)
+    if preserve_graph_attrs:
+        result.graph.update(G.graph)
+    if preserve_node_attrs or node_attrs:
+        result.add_nodes_from(
+            (n, _hinted_attrs(d, node_attrs, preserve_node_attrs)) for n, d in G._node.items()
+        )
+    else:
+        result.add_nodes_from(G._node)
+    if G.is_multigraph():
+        result.add_edges_from(
+            (u, v, key, _hinted_attrs(d, edge_attrs, preserve_edge_attrs))
+            for u, v, key, d in G.edges(keys=True, data=True)
+        )
+    else:
+        result.add_edges_from(
+            _native_nx_adjacency_edge_batch(
+                adj, G.is_directed(), edge_attrs or None, bool(preserve_edge_attrs)
+            )
+        )
+    return result
+
+
 def _convert_result_to_nx(value):
     """Recursively convert fnx graphs to nx graphs inside common containers.
 
@@ -895,7 +958,14 @@ class BackendInterface:
         """
         if name in _LIVE_INPUT_ALGORITHMS:
             return G
-        return _nx_to_fnx(G)
+        return _nx_to_fnx_for_dispatch(
+            G,
+            edge_attrs=edge_attrs,
+            node_attrs=node_attrs,
+            preserve_edge_attrs=preserve_edge_attrs or preserve_all_attrs,
+            preserve_node_attrs=preserve_node_attrs or preserve_all_attrs,
+            preserve_graph_attrs=preserve_graph_attrs or preserve_all_attrs,
+        )
 
     @staticmethod
     def convert_to_nx(result, *, name=None):
