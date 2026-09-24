@@ -16453,12 +16453,9 @@ from franken_networkx._fnx import (
     is_regular as _raw_is_regular,
     is_forest as _raw_is_forest,
     is_tree as _raw_is_tree,
-    maximum_spanning_arborescence as _raw_maximum_spanning_arborescence,
     number_of_spanning_trees as _raw_number_of_spanning_trees,
     minimum_spanning_edges as _raw_minimum_spanning_edges,
     prim_spanning_edges as _raw_prim_spanning_edges,
-    minimum_branching as _raw_minimum_branching,
-    minimum_spanning_arborescence as _raw_minimum_spanning_arborescence,
     multigraph_minimum_spanning_tree as _raw_multigraph_minimum_spanning_tree,
     minimum_spanning_tree as _raw_minimum_spanning_tree,
     partition_spanning_tree as _raw_partition_spanning_tree,
@@ -17082,34 +17079,6 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     return _gen()
 
 
-def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_attrs):
-    """br-r37-c1-xy4xf: the Rust branching/arborescence binding coerces
-    weights to f64, so an int weight comes back as float. nx preserves
-    the original type. Walk each retained edge in the result and copy
-    its attrs from the source so weight types match nx exactly.
-
-    When ``preserve_attrs`` is False, only the named weight attribute
-    is copied (matching nx's contract: non-weight attrs are dropped).
-    """
-    from copy import deepcopy as _deepcopy
-
-    for u, v in list(result.edges()):
-        result[u][v].clear()
-        if source.has_edge(u, v):
-            src_attrs = dict(source[u][v])
-            if preserve_attrs:
-                # Copy everything (preserving original types).
-                if attr_name not in src_attrs:
-                    src_attrs[attr_name] = default
-                result[u][v].update(_deepcopy(src_attrs))
-            else:
-                # Only the weight attr — preserve its original type.
-                weight_value = src_attrs.get(attr_name, default)
-                result[u][v][attr_name] = weight_value
-        else:
-            result[u][v][attr_name] = default
-
-
 def _branching_partition_graph_for_networkx(G, partition):
     """Convert fnx EdgePartition attributes before NetworkX delegation."""
     graph = _networkx_graph_for_parity(G)
@@ -17152,40 +17121,10 @@ def _branching_structural_nx(G, nx_name, attr, default):
         _raise_translated_networkx_exception(exc)
 
 
-def _minimum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.minimum_branching(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
 def _maximum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
     nx_g = _branching_partition_graph_for_networkx(G, partition)
     try:
         return _nx.algorithms.tree.branchings.maximum_branching(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
-def _minimum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.minimum_spanning_arborescence(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
-def _maximum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.maximum_spanning_arborescence(
             nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
         )
     except Exception as exc:
@@ -17216,48 +17155,14 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     so drop-in callers using MultiDiGraph keep working.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if partition is not None or not G.is_directed() or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
 
-        # br-r37-c1-p80x1.14: the UNDIRECTED class was paying a FAITHFUL fnx->nx
-        # conversion, networkx's call, and a conversion back, where the directed class
-        # uses the native kernel. Measured on an n=400 empty-result workload, that is
-        # 220.0M Ir/call against the directed path's 44.7M - 4.9x more expensive on
-        # ITSELF for the same answer - and 0.777x against networkx.
-        #
-        # networkx's output here carries ONLY the `attr` weight: extra edge attributes,
-        # node attributes and graph attributes are all dropped (verified). So a
-        # structural copy carrying nodes in order and edges in order with just `attr` is
-        # byte-identical, and the attribute copy was pure overhead.
-        #
-        # SCOPE, and every clause is load-bearing:
-        #   * preserve_attrs=True DOES keep the extra edge attributes in the output, so a
-        #     structural copy would lose them - excluded;
-        #   * a multigraph would lose its parallel edges to an nx.Graph copy - excluded;
-        #   * partition routes through _branching_partition_graph_for_networkx, a
-        #     different input entirely - excluded;
-        #   * `attr` is carried through rather than hardcoded, since callers may use
-        #     another key (attr="cost" works in networkx).
-        if (
-            partition is None
-            and not G.is_directed()
-            and not G.is_multigraph()
-            and not preserve_attrs
-        ):
-            return _from_nx_graph(
-                _branching_structural_nx(G, "minimum_branching", attr, default)
-            )
-        nx_result = _minimum_branching_inproc(
-            G, attr=attr, default=default,
-            preserve_attrs=preserve_attrs, partition=partition,
-        )
-        return _from_nx_graph(nx_result)
-    result = _raw_minimum_branching(
-        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-    )
-    # br-r37-c1-xy4xf: restore original weight types from G.
-    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
-    return result
+    def negate(w):
+        return -w
+
+    # networkx negates every weight in place, runs maximum_branching and
+    # negates back (see _branching_round_trip): exact for numbers, but an
+    # edge without ``attr`` ends up carrying ``default``.
+    return _branching_round_trip(G, attr, default, preserve_attrs, partition, negate, negate)
 
 
 def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -17306,48 +17211,62 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     return _from_nx_graph(nx_result)
 
 
+def _branching_round_trip(G, attr, default, preserve_attrs, partition, forward, backward):
+    """networkx's minimum / minimal / spanning-arborescence wrappers, as written.
+
+    nro4w.7: networkx rewrites every edge weight of G in place, runs
+    maximum_branching on that, then rewrites G's weights and the result's
+    back. The round trip is not exact in floating point (0.1 comes back as
+    0.09999999999999964 from minimal_branching's C - (C - w)), it turns int
+    weights into floats when the transform does, and it writes ``attr`` onto
+    edges that lacked it; networkx declares these functions mutates_input for
+    that reason. fnx used to return the exact original weights and leave G
+    alone, so its results and inputs differed from networkx's after the call
+    (under the test backend: test_edge_augmentation::test_weight_key). The
+    selection itself runs on the transformed weights, as in networkx, so
+    near-ties after rounding break the same way. fnx's maximum_branching
+    equals networkx's exactly (0 of 200 random weighted digraphs differ).
+    """
+    for _, _, d in G.edges(data=True):
+        d[attr] = forward(d.get(attr, default))
+    B = maximum_branching(G, attr, default, preserve_attrs, partition)
+    for _, _, d in G.edges(data=True):
+        d[attr] = backward(d.get(attr, default))
+    for _, _, d in B.edges(data=True):
+        d[attr] = backward(d.get(attr, default))
+    return B
+
+
+def _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition):
+    max_weight = -float("inf")
+    min_weight = float("inf")
+    for _, _, w in G.edges(data=attr, default=default):
+        if w > max_weight:
+            max_weight = w
+        if w < min_weight:
+            min_weight = w
+
+    def transform(w):
+        # networkx's expression, in its evaluation order: the float result
+        # depends on it.
+        return max_weight + 1 + (max_weight - min_weight) - w
+
+    return _branching_round_trip(G, attr, default, preserve_attrs, partition, transform, transform)
+
+
 def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1.
+    """networkx's minimum_spanning_arborescence: minimal_branching's in-place
+    weight round trip, then the arborescence check (see _branching_round_trip).
 
-    br-r37-c1-ugod2: nx raises NetworkXNotImplemented('not implemented
-    for undirected type') for undirected input — translate the Rust
-    binding's custom message to match.
-
-    br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel only
-    matches simple DiGraph and rejects MultiDiGraph with a custom
-    message, while nx accepts MultiDiGraph.
+    Undirected input goes through the whole round trip before is_arborescence
+    raises NetworkXNotImplemented, exactly as in networkx, so G's weights are
+    rewritten even then. No arborescence raises the base NetworkXException.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    if partition is not None or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _minimum_spanning_arborescence_inproc(
-            G,
-            attr=attr,
-            default=default,
-            preserve_attrs=preserve_attrs,
-            partition=partition,
-        )
-        return _from_nx_graph(nx_result)
-    if isinstance(attr, str):
-        # br-r37-c1-4tmgq: sync post-construction edge attribute writes into the
-        # Rust store before the native branching kernel reads ``attr``.
-        _sync_rust_edge_attrs(G, edge_only=True)
-    try:
-        result = _raw_minimum_spanning_arborescence(
-            G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-        )
-    except NetworkXError as exc:
-        # br-r37-c1-6f4uj: nx raises the BASE NetworkXException (not the
-        # NetworkXError subclass) when no spanning arborescence exists; the
-        # native binding raises NetworkXError. Re-raise as the base class so
-        # the exact exception type matches nx.
-        if "spanning arborescence in G" in str(exc):
-            raise NetworkXException(str(exc)) from exc
-        raise
-    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
-    return result
+    B = _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition)
+    if not is_arborescence(B):
+        raise NetworkXException("No minimum spanning arborescence in G.")
+    return B
 
 
 def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -17364,56 +17283,39 @@ def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_
     Once registered, ``nx.algorithms.tree.minimal_branching(fnx_graph)``
     routes through this implementation (after the ``__networkx_backend__``
     class attribute tags fnx graphs as belonging to the franken_networkx
-    backend). The implementation delegates to nx's pure-Python kernel via
-    the existing parity bridge.
+    backend). It is networkx's in-place weight round trip over fnx's
+    maximum_branching (see _branching_round_trip); the former delegation
+    to networkx ran on a converted copy, so the caller's graph never saw
+    networkx's weight rewrite.
     """
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.minimal_branching(
-            nx_g, attr=attr, default=default,
-            preserve_attrs=preserve_attrs, partition=partition,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    G = _coerce_arg_to_fnx_graph(G)
+    return _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition)
 
 
 def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1.
-
-    br-r37-c1-ugod2: same nx-message alignment as minimum_spanning_arborescence.
-
-    br-r37-c1-s8x7z: also delegate MultiDiGraph (Rust kernel rejects
-    multigraph but nx accepts).
+    """networkx's maximum_spanning_arborescence: its own in-place weight shift
+    and back (see _branching_round_trip), then the arborescence check, which
+    is also where undirected input raises NetworkXNotImplemented.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    if partition is not None or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _maximum_spanning_arborescence_inproc(
-            G,
-            attr=attr,
-            default=default,
-            preserve_attrs=preserve_attrs,
-            partition=partition,
-        )
-        return _from_nx_graph(nx_result)
-    if isinstance(attr, str):
-        # br-r37-c1-4tmgq: see minimum_spanning_arborescence.
-        _sync_rust_edge_attrs(G, edge_only=True)
-    try:
-        result = _raw_maximum_spanning_arborescence(
-            G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-        )
-    except NetworkXError as exc:
-        # br-r37-c1-6f4uj: match nx's base NetworkXException for the
-        # no-arborescence case (see minimum_spanning_arborescence).
-        if "spanning arborescence in G" in str(exc):
-            raise NetworkXException(str(exc)) from exc
-        raise
-    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
-    return result
+    min_weight = float("inf")
+    max_weight = -float("inf")
+    for _, _, w in G.edges(data=attr, default=default):
+        if w < min_weight:
+            min_weight = w
+        if w > max_weight:
+            max_weight = w
+
+    def forward(w):
+        return w - min_weight + 1 - (min_weight - max_weight)
+
+    def backward(w):
+        return w + min_weight - 1 + (min_weight - max_weight)
+
+    B = _branching_round_trip(G, attr, default, preserve_attrs, partition, forward, backward)
+    if not is_arborescence(B):
+        raise NetworkXException("No maximum spanning arborescence in G.")
+    return B
 
 
 def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
