@@ -3329,6 +3329,10 @@ class AdjacencyView(_Mapping):
                 # pyclass was added for; the flag is certified at no cost on G[u]
                 # (1.1587x before / 1.1580x after vs networkx, common-mode 0.9999).
                 view = _private_writable_class(_fnx.AtlasView)(owner, node)
+                # 2b0a6eb64 moved this call into the sibling branches and left
+                # this one without it: Graph._adj[u][v] = ... then raised
+                # "this private view has no owning graph to write to".
+                _private_mark_child(self, view, owner, node)
             elif (
                 getattr(self, "_fnx_multi_edge_owner", None) is not None
                 or (owner is not None and getattr(owner, "is_multigraph", lambda: False)())

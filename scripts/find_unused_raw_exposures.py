@@ -207,9 +207,6 @@ TRIAGE = {
     "_raw_negative_edge_cycle": ("keep-public-api",
         "wrapper routes through inprocess cycle detection for heuristic and "
         "weight handling; raw kept as direct-Rust API"),
-    "_raw_node_connectivity": ("keep-public-api",
-        "wrapper handles s/t pairs, flow_func, and auxiliary network flow; "
-        "raw kept as direct-Rust API"),
 }
 
 
