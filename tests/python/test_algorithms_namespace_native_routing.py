@@ -183,10 +183,19 @@ def test_sample_function_routed(name):
     assert getattr(fnx_algorithms, name) is not getattr(nx, name)
 
 
+# Pure value enums that fnx re-exports BY IDENTITY (like the exception classes):
+# a look-alike copy is not is/==/isinstance-equal to networkx's members and does
+# not pickle (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1).
+_SHARED_WITH_NETWORKX = {"EdgePartition"}
+
+
 @pytest.mark.parametrize("name", _CLASSES)
 def test_class_routed_to_fnx(name):
     assert getattr(fnx_algorithms, name) is getattr(fnx, name)
-    assert getattr(fnx_algorithms, name) is not getattr(nx, name)
+    if name in _SHARED_WITH_NETWORKX:
+        assert getattr(fnx, name) is getattr(nx, name)
+    else:
+        assert getattr(fnx_algorithms, name) is not getattr(nx, name)
 
 
 def test_routed_function_values_match_networkx():
@@ -1020,7 +1029,10 @@ def test_flattened_bridges_namespace_routes_to_leaf_module(monkeypatch, name):
         assert args == ("graph",)
         return marker
 
-    monkeypatch.setattr(fnx_algorithms.bridges, name, sentinel)
+    # ``fnx_algorithms.bridges`` is the bridges FUNCTION (networkx namespace
+    # parity: ``nx.algorithms.bridges`` is the function, not the submodule), so
+    # patch the leaf module the flattened wrappers call at run time.
+    monkeypatch.setattr(fnx_algorithms._fnx_bridges, name, sentinel)
     if name == "has_bridges":
         assert fnx_algorithms.has_bridges("graph") is marker
     else:

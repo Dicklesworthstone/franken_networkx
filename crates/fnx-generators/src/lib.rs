@@ -283,7 +283,19 @@ impl GraphGenerator {
         r: usize,
         h: usize,
     ) -> Result<GenerationReport, GenerationError> {
-        let total_nodes = balanced_tree_node_count(r, h);
+        let Some(total_nodes) = balanced_tree_node_count(r, h) else {
+            let reason = format!("node count overflow for r={r}, h={h}");
+            self.record(
+                "balanced_tree",
+                DecisionAction::FailClosed,
+                0.95,
+                reason.clone(),
+            );
+            return Err(GenerationError::FailClosed {
+                operation: "balanced_tree",
+                reason,
+            });
+        };
         let (n, warnings) = self.validate_n("balanced_tree", total_nodes, MAX_N_GENERIC)?;
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
 
@@ -316,7 +328,7 @@ impl GraphGenerator {
                 self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
                 GenerationError::FailClosed { operation, reason }
             })?;
-            if node_count > MAX_N_GENERIC {
+            if self.exceeds_budget(node_count, MAX_N_GENERIC) {
                 let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
                 self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
                 return Err(GenerationError::FailClosed { operation, reason });
@@ -370,7 +382,7 @@ impl GraphGenerator {
             operation,
             reason: format!("node count overflow for n={n}, k={k}"),
         })?;
-        if node_count > MAX_N_GENERIC {
+        if self.exceeds_budget(node_count, MAX_N_GENERIC) {
             let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -392,7 +404,7 @@ impl GraphGenerator {
                 reason: format!("edge count overflow for n={n}, k={k}"),
             })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -640,7 +652,7 @@ impl GraphGenerator {
             });
         }
 
-        if m1 > MAX_N_COMPLETE {
+        if self.exceeds_budget(m1, MAX_N_COMPLETE) {
             let reason = format!("m1={m1} exceeds max_allowed={MAX_N_COMPLETE}");
             self.record(
                 "barbell_graph",
@@ -671,7 +683,7 @@ impl GraphGenerator {
                 }
             })?;
 
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(
                 "barbell_graph",
@@ -742,7 +754,7 @@ impl GraphGenerator {
         }
 
         let node_count = 1usize << n;
-        if node_count > MAX_N_GENERIC {
+        if self.exceeds_budget(node_count, MAX_N_GENERIC) {
             let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(
                 "binomial_tree",
@@ -805,7 +817,7 @@ impl GraphGenerator {
             });
         }
 
-        if m > MAX_N_COMPLETE {
+        if self.exceeds_budget(m, MAX_N_COMPLETE) {
             let reason = format!("m={m} exceeds max_allowed={MAX_N_COMPLETE}");
             self.record(
                 "lollipop_graph",
@@ -833,7 +845,7 @@ impl GraphGenerator {
             }
         })?;
 
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(
                 "lollipop_graph",
@@ -912,7 +924,7 @@ impl GraphGenerator {
             }
         })?;
 
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(
                 "tadpole_graph",
@@ -1928,14 +1940,14 @@ impl GraphGenerator {
                     })?;
         }
 
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
         }
 
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2009,7 +2021,7 @@ impl GraphGenerator {
                 operation,
                 reason: format!("node count overflow for l={l}, k={k}"),
             })?;
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2031,7 +2043,7 @@ impl GraphGenerator {
             0
         };
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2087,7 +2099,7 @@ impl GraphGenerator {
                 operation,
                 reason: format!("node count overflow for l={l}, k={k}"),
             })?;
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2106,7 +2118,7 @@ impl GraphGenerator {
                     reason: format!("edge count overflow for l={l}, k={k}"),
                 })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2166,7 +2178,7 @@ impl GraphGenerator {
                 ),
             }
         })?;
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2198,7 +2210,7 @@ impl GraphGenerator {
             }
         })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2268,7 +2280,7 @@ impl GraphGenerator {
                 operation,
                 reason: format!("node count overflow for n={n}, k={k}"),
             })?;
-        if total_nodes > MAX_N_GENERIC {
+        if self.exceeds_budget(total_nodes, MAX_N_GENERIC) {
             let reason = format!("node count {total_nodes} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2287,7 +2299,7 @@ impl GraphGenerator {
                     reason: format!("edge count overflow for n={n}, k={k}"),
                 })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2347,7 +2359,7 @@ impl GraphGenerator {
                 operation,
                 reason: format!("node count overflow for n={n}"),
             })?;
-        if n4 > MAX_N_GENERIC {
+        if self.exceeds_budget(n4, MAX_N_GENERIC) {
             let reason = format!("node count {n4} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2378,7 +2390,7 @@ impl GraphGenerator {
                 })?
         };
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2504,7 +2516,7 @@ impl GraphGenerator {
     ) -> Result<Graph, GenerationError> {
         let source_snapshot = source.snapshot();
         let source_n = source_snapshot.nodes.len();
-        if source_n > MAX_N_GENERIC {
+        if self.exceeds_budget(source_n, MAX_N_GENERIC) {
             let reason = format!("node count {source_n} exceeds max_allowed={MAX_N_GENERIC}");
             return Err(GenerationError::FailClosed { operation, reason });
         }
@@ -2535,7 +2547,7 @@ impl GraphGenerator {
         let _ = graph.extend_existing_index_edges_unrecorded(initial_edges);
 
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if graph.edge_count() > max_dense_edges {
+        if self.exceeds_budget(graph.edge_count(), max_dense_edges) {
             let reason = format!(
                 "edge count {} exceeds max_allowed={max_dense_edges}",
                 graph.edge_count()
@@ -2553,7 +2565,7 @@ impl GraphGenerator {
                     operation,
                     reason: "node count overflow during Mycielski iteration".to_owned(),
                 })?;
-            if projected_nodes > MAX_N_GENERIC {
+            if self.exceeds_budget(projected_nodes, MAX_N_GENERIC) {
                 let reason =
                     format!("node count {projected_nodes} exceeds max_allowed={MAX_N_GENERIC}");
                 return Err(GenerationError::FailClosed { operation, reason });
@@ -2566,7 +2578,7 @@ impl GraphGenerator {
                     operation,
                     reason: "edge count overflow during Mycielski iteration".to_owned(),
                 })?;
-            if projected_edges > max_dense_edges {
+            if self.exceeds_budget(projected_edges, max_dense_edges) {
                 let reason =
                     format!("edge count {projected_edges} exceeds max_allowed={max_dense_edges}");
                 return Err(GenerationError::FailClosed { operation, reason });
@@ -2663,7 +2675,7 @@ impl GraphGenerator {
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
         }
-        if n > MAX_N_GENERIC {
+        if self.exceeds_budget(n, MAX_N_GENERIC) {
             let reason = format!("node count {n} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2678,7 +2690,7 @@ impl GraphGenerator {
                 reason: format!("edge count overflow for k={k}, n={n}"),
             })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2757,13 +2769,13 @@ impl GraphGenerator {
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
         }
-        if n > MAX_N_GENERIC {
+        if self.exceeds_budget(n, MAX_N_GENERIC) {
             let reason = format!("node count {n} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
         }
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if m > max_dense_edges {
+        if self.exceeds_budget(m, max_dense_edges) {
             let reason = format!("edge count {m} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2855,7 +2867,7 @@ impl GraphGenerator {
         intervals: &[(i64, i64)],
     ) -> Result<GenerationReport, GenerationError> {
         let operation = "interval_graph";
-        if intervals.len() > MAX_N_COMPLETE {
+        if self.exceeds_budget(intervals.len(), MAX_N_COMPLETE) {
             let reason = format!(
                 "interval count {} exceeds max_allowed={MAX_N_COMPLETE}",
                 intervals.len()
@@ -2935,7 +2947,7 @@ impl GraphGenerator {
                 operation,
                 reason: format!("node count overflow for dimension {n}"),
             })?;
-        if node_count > MAX_N_GENERIC {
+        if self.exceeds_budget(node_count, MAX_N_GENERIC) {
             let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -2948,7 +2960,7 @@ impl GraphGenerator {
                 reason: format!("edge count overflow for dimension {n}"),
             })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -3001,7 +3013,7 @@ impl GraphGenerator {
                 operation,
                 reason: format!("node count overflow for m={m}, n={n}"),
             })?;
-        if node_count > MAX_N_GENERIC {
+        if self.exceeds_budget(node_count, MAX_N_GENERIC) {
             let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -3032,7 +3044,7 @@ impl GraphGenerator {
                 reason: format!("edge count overflow for m={m}, n={n}"),
             })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -3107,7 +3119,7 @@ impl GraphGenerator {
             operation,
             reason: format!("node count overflow for dim={dim:?}"),
         })?;
-        if node_count > MAX_N_GENERIC {
+        if self.exceeds_budget(node_count, MAX_N_GENERIC) {
             let reason = format!("node count {node_count} exceeds max_allowed={MAX_N_GENERIC}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -3115,7 +3127,7 @@ impl GraphGenerator {
 
         let edge_count = grid_graph_edge_count(operation, dim, &periodic_flags)?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if edge_count > max_dense_edges {
+        if self.exceeds_budget(edge_count, max_dense_edges) {
             let reason = format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -3230,7 +3242,7 @@ impl GraphGenerator {
                 reason: format!("edge count overflow for n={initial_clique_size}"),
             })?;
         let max_dense_edges = MAX_N_COMPLETE * (MAX_N_COMPLETE - 1) / 2;
-        if initial_edges > max_dense_edges {
+        if self.exceeds_budget(initial_edges, max_dense_edges) {
             let reason =
                 format!("edge count {initial_edges} exceeds max_allowed={max_dense_edges}");
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
@@ -3266,7 +3278,7 @@ impl GraphGenerator {
 
             if !retained_edges.is_empty() {
                 edge_count += retained_edges.len();
-                if edge_count > max_dense_edges {
+                if self.exceeds_budget(edge_count, max_dense_edges) {
                     let reason =
                         format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
                     self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
@@ -3335,7 +3347,7 @@ impl GraphGenerator {
 
             if !retained_edges.is_empty() {
                 edge_count += retained_edges.len();
-                if edge_count > max_dense_edges {
+                if self.exceeds_budget(edge_count, max_dense_edges) {
                     let reason =
                         format!("edge count {edge_count} exceeds max_allowed={max_dense_edges}");
                     self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
@@ -4049,19 +4061,28 @@ impl GraphGenerator {
         Ok(self.finish_graph_report(graph, warnings))
     }
 
+    /// The `MAX_N_*` size budgets are a hardened-mode defence against
+    /// resource-exhaustion inputs. networkx has no size caps, so strict mode
+    /// builds every size networkx builds: refusing a legal `n` there is an
+    /// observable incompatibility, not a repair. Overflow checks are separate
+    /// and apply in both modes.
+    fn exceeds_budget(&self, count: usize, max_allowed: usize) -> bool {
+        self.mode == CompatibilityMode::Hardened && count > max_allowed
+    }
+
     fn validate_n(
         &mut self,
         operation: &'static str,
         n: usize,
         max_allowed: usize,
     ) -> Result<(usize, Vec<String>), GenerationError> {
-        if n <= max_allowed {
+        if !self.exceeds_budget(n, max_allowed) {
             return Ok((n, Vec::new()));
         }
 
         let reason = format!("n={n} exceeds max_allowed={max_allowed}");
         let action = self.runtime_policy.action_for(0.55, false);
-        if self.mode == CompatibilityMode::Strict || action == DecisionAction::FailClosed {
+        if action == DecisionAction::FailClosed {
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
         }
@@ -5599,23 +5620,22 @@ fn ring_lattice_edges(n: usize, half_k: usize) -> Vec<(usize, usize)> {
     edges
 }
 
-fn balanced_tree_node_count(r: usize, h: usize) -> usize {
+/// Node count of the balanced `r`-ary tree of height `h`, or `None` when it
+/// overflows `usize`.
+fn balanced_tree_node_count(r: usize, h: usize) -> Option<usize> {
+    if r == 1 {
+        return h.checked_add(1);
+    }
     let mut total = 1usize;
     let mut level_nodes = 1usize;
     for _ in 0..h {
-        level_nodes = match level_nodes.checked_mul(r) {
-            Some(value) => value,
-            None => return MAX_N_GENERIC + 1,
-        };
-        total = match total.checked_add(level_nodes) {
-            Some(value) => value,
-            None => return MAX_N_GENERIC + 1,
-        };
-        if total > MAX_N_GENERIC {
-            return total;
+        level_nodes = level_nodes.checked_mul(r)?;
+        total = total.checked_add(level_nodes)?;
+        if level_nodes == 0 {
+            break;
         }
     }
-    total
+    Some(total)
 }
 
 fn checked_binomial(n: usize, k: usize) -> Option<usize> {
@@ -6465,7 +6485,7 @@ mod cpython_set_tests {
 mod tests {
     use super::{
         GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC, MAX_N_STAR,
-        random_regular_edge_insertion_order,
+        balanced_tree_node_count, random_regular_edge_insertion_order,
     };
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
@@ -9909,16 +9929,19 @@ mod tests {
     }
 
     #[test]
-    fn full_rary_tree_rejects_n_beyond_generic_limit() {
-        let mut generator = GraphGenerator::strict();
-        let err = generator
+    fn full_rary_tree_node_budget_is_hardened_only() {
+        let report = GraphGenerator::strict()
             .full_rary_tree(2, MAX_N_GENERIC + 1)
-            .expect_err("full r-ary tree should reject oversized n");
+            .expect("strict mode builds every size networkx builds");
+        assert_eq!(report.graph.node_count(), MAX_N_GENERIC + 1);
+        assert_eq!(report.graph.edge_count(), MAX_N_GENERIC);
+        assert!(report.warnings.is_empty());
 
-        assert_eq!(
-            err.to_string(),
-            "generator `full_rary_tree` failed closed: n=100001 exceeds max_allowed=100000"
-        );
+        let clamped = GraphGenerator::hardened()
+            .full_rary_tree(2, MAX_N_GENERIC + 1)
+            .expect("hardened mode clamps oversize n");
+        assert_eq!(clamped.graph.node_count(), MAX_N_GENERIC);
+        assert!(!clamped.warnings.is_empty());
     }
 
     #[test]
@@ -9976,15 +9999,33 @@ mod tests {
     }
 
     #[test]
-    fn balanced_tree_rejects_node_count_beyond_generic_limit() {
-        let mut generator = GraphGenerator::strict();
-        let err = generator
+    fn balanced_tree_node_budget_is_hardened_only() {
+        let report = GraphGenerator::strict()
             .balanced_tree(2, 16)
-            .expect_err("balanced tree should reject oversized node count");
+            .expect("strict mode builds every size networkx builds");
+        assert_eq!(report.graph.node_count(), 131_071);
+        assert_eq!(report.graph.edge_count(), 131_070);
 
+        let clamped = GraphGenerator::hardened()
+            .balanced_tree(2, 16)
+            .expect("hardened mode clamps oversize n");
+        assert_eq!(clamped.graph.node_count(), MAX_N_GENERIC);
+        assert!(!clamped.warnings.is_empty());
+    }
+
+    #[test]
+    fn balanced_tree_counts_nodes_exactly_and_fails_closed_on_overflow() {
+        assert_eq!(balanced_tree_node_count(2, 16), Some(131_071));
+        assert_eq!(balanced_tree_node_count(1, 9), Some(10));
+        assert_eq!(balanced_tree_node_count(0, usize::MAX), Some(1));
+        assert_eq!(balanced_tree_node_count(2, 64), None);
+
+        let err = GraphGenerator::strict()
+            .balanced_tree(2, 64)
+            .expect_err("2^65 - 1 nodes overflow usize");
         assert_eq!(
             err.to_string(),
-            "generator `balanced_tree` failed closed: n=131071 exceeds max_allowed=100000"
+            "generator `balanced_tree` failed closed: node count overflow for r=2, h=64"
         );
     }
 
@@ -10054,12 +10095,18 @@ mod tests {
     }
 
     #[test]
-    fn dorogovtsev_goltsev_mendes_graph_rejects_oversized_generation() {
-        let mut generator = GraphGenerator::strict();
-        let err = generator
+    fn dorogovtsev_goltsev_mendes_graph_node_budget_is_hardened_only() {
+        // networkx has no size cap: strict builds (3^12 + 3) / 2 nodes and
+        // 3^12 edges, past the 100k budget.
+        let report = GraphGenerator::strict()
             .dorogovtsev_goltsev_mendes_graph(12)
-            .expect_err("DGM graph should reject oversized node count");
+            .expect("strict mode builds every size networkx builds");
+        assert_eq!(report.graph.node_count(), 265_722);
+        assert_eq!(report.graph.edge_count(), 531_441);
 
+        let err = GraphGenerator::hardened()
+            .dorogovtsev_goltsev_mendes_graph(12)
+            .expect_err("hardened mode keeps the node budget");
         assert_eq!(
             err.to_string(),
             "generator `dorogovtsev_goltsev_mendes_graph` failed closed: node count 265722 exceeds max_allowed=100000"
@@ -10156,11 +10203,11 @@ mod tests {
     }
 
     #[test]
-    fn kneser_graph_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn kneser_graph_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .kneser_graph(20, 5)
-            .expect_err("dense Kneser graph should fail closed");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -10594,8 +10641,8 @@ mod tests {
     }
 
     #[test]
-    fn binomial_tree_rejects_orders_beyond_node_limit() {
-        let mut generator = GraphGenerator::strict();
+    fn binomial_tree_hardened_budget_rejects_orders_beyond_node_limit() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .binomial_tree(17)
             .expect_err("order 17 exceeds MAX_N_GENERIC nodes");
@@ -12092,11 +12139,11 @@ mod tests {
     }
 
     #[test]
-    fn complete_multipartite_graph_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn complete_multipartite_graph_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .complete_multipartite_graph(&[MAX_N_COMPLETE, MAX_N_COMPLETE])
-            .expect_err("dense multipartite graph should reject excessive edge count");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -12156,11 +12203,11 @@ mod tests {
     }
 
     #[test]
-    fn caveman_graph_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn caveman_graph_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .caveman_graph(2, 2001)
-            .expect_err("dense caveman graph should reject excessive edge count");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -12235,11 +12282,11 @@ mod tests {
     }
 
     #[test]
-    fn connected_caveman_graph_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn connected_caveman_graph_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .connected_caveman_graph(2, 2001)
-            .expect_err("dense connected caveman graph should reject excessive edge count");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -12326,11 +12373,11 @@ mod tests {
     }
 
     #[test]
-    fn ring_of_cliques_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn ring_of_cliques_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .ring_of_cliques(2, 2001)
-            .expect_err("dense ring of cliques should reject excessive edge count");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -12421,11 +12468,11 @@ mod tests {
     }
 
     #[test]
-    fn windmill_graph_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn windmill_graph_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .windmill_graph(2, 2001)
-            .expect_err("dense windmill graph should reject excessive edge count");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -12523,11 +12570,11 @@ mod tests {
     }
 
     #[test]
-    fn sudoku_graph_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn sudoku_graph_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .sudoku_graph(17)
-            .expect_err("dense sudoku graph should reject excessive edge count");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -12686,9 +12733,9 @@ mod tests {
             "generator `mycielski_graph` failed closed: must satisfy n >= 1"
         );
 
-        let dense = generator
+        let dense = GraphGenerator::hardened()
             .mycielski_graph(15)
-            .expect_err("large Mycielski graph should reject excessive edge count");
+            .expect_err("hardened mode keeps the dense-edge budget");
         assert_eq!(
             dense.to_string(),
             "generator `mycielski_graph` failed closed: edge count 5555555 exceeds max_allowed=1999000"
@@ -12811,11 +12858,11 @@ mod tests {
     }
 
     #[test]
-    fn hnm_harary_graph_rejects_dense_edge_count() {
-        let mut generator = GraphGenerator::strict();
+    fn hnm_harary_graph_hardened_budget_rejects_dense_edge_count() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .hnm_harary_graph(2001, 1_999_001)
-            .expect_err("dense Harary graph should fail closed");
+            .expect_err("hardened mode keeps the dense-edge budget");
 
         assert_eq!(
             err.to_string(),
@@ -12880,9 +12927,15 @@ mod tests {
                 (value, value)
             })
             .collect::<Vec<(i64, i64)>>();
-        let err = generator
+        let built = generator
             .interval_graph(&oversized)
-            .expect_err("oversized interval input should fail closed");
+            .expect("strict mode builds every size networkx builds");
+        assert_eq!(built.graph.node_count(), MAX_N_COMPLETE + 1);
+        assert_eq!(built.graph.edge_count(), 0);
+
+        let err = GraphGenerator::hardened()
+            .interval_graph(&oversized)
+            .expect_err("hardened mode keeps the interval budget");
         assert_eq!(
             err.to_string(),
             "generator `interval_graph` failed closed: interval count 2001 exceeds max_allowed=2000"
@@ -12932,11 +12985,11 @@ mod tests {
     }
 
     #[test]
-    fn hypercube_graph_rejects_node_count_beyond_generic_limit() {
-        let mut generator = GraphGenerator::strict();
+    fn hypercube_graph_hardened_budget_rejects_node_count_beyond_generic_limit() {
+        let mut generator = GraphGenerator::hardened();
         let err = generator
             .hypercube_graph(17)
-            .expect_err("oversized hypercube should fail closed");
+            .expect_err("hardened mode keeps the node budget");
 
         assert_eq!(
             err.to_string(),
@@ -13002,9 +13055,15 @@ mod tests {
         assert_eq!(empty.graph.node_count(), 0);
         assert_eq!(empty.graph.edge_count(), 0);
 
-        let err = generator
+        let built = generator
             .grid_2d_graph(MAX_N_GENERIC + 1, 1, (false, false))
-            .expect_err("oversized grid should fail closed");
+            .expect("strict mode builds every size networkx builds");
+        assert_eq!(built.graph.node_count(), MAX_N_GENERIC + 1);
+        assert_eq!(built.graph.edge_count(), MAX_N_GENERIC);
+
+        let err = GraphGenerator::hardened()
+            .grid_2d_graph(MAX_N_GENERIC + 1, 1, (false, false))
+            .expect_err("hardened mode keeps the node budget");
         assert_eq!(
             err.to_string(),
             "generator `grid_2d_graph` failed closed: node count 100001 exceeds max_allowed=100000"
@@ -13102,9 +13161,15 @@ mod tests {
         assert_eq!(empty_axis.graph.node_count(), 0);
         assert_eq!(empty_axis.graph.edge_count(), 0);
 
-        let err = generator
+        let built = generator
             .grid_graph(&[MAX_N_GENERIC + 1], &[])
-            .expect_err("oversized grid graph should fail closed");
+            .expect("strict mode builds every size networkx builds");
+        assert_eq!(built.graph.node_count(), MAX_N_GENERIC + 1);
+        assert_eq!(built.graph.edge_count(), MAX_N_GENERIC);
+
+        let err = GraphGenerator::hardened()
+            .grid_graph(&[MAX_N_GENERIC + 1], &[])
+            .expect_err("hardened mode keeps the node budget");
         assert_eq!(
             err.to_string(),
             "generator `grid_graph` failed closed: node count 100001 exceeds max_allowed=100000"
@@ -14465,21 +14530,41 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_fails_for_excessive_node_count() {
-        let mut generator = GraphGenerator::strict();
-        let err = generator
-            .complete_graph(MAX_N_COMPLETE + 1)
-            .expect_err("strict mode should fail closed for oversize n");
-        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    fn size_budgets_apply_in_hardened_mode_only() {
+        // networkx has no size caps, so strict passes every n through; the
+        // decision is checked directly because K_2001 is two million edges.
+        let mut strict = GraphGenerator::strict();
+        assert_eq!(
+            strict
+                .validate_n("complete_graph", MAX_N_COMPLETE + 1, MAX_N_COMPLETE)
+                .expect("strict mode has no size budget"),
+            (MAX_N_COMPLETE + 1, Vec::new())
+        );
+        assert!(!strict.exceeds_budget(usize::MAX, 0));
+
+        let mut hardened = GraphGenerator::hardened();
+        let (n, warnings) = hardened
+            .validate_n("complete_graph", MAX_N_COMPLETE + 1, MAX_N_COMPLETE)
+            .expect("hardened mode clamps oversize n");
+        assert_eq!(n, MAX_N_COMPLETE);
+        assert!(!warnings.is_empty());
+        assert!(hardened.exceeds_budget(1, 0));
+        assert!(!hardened.exceeds_budget(0, 0));
     }
 
     #[test]
-    fn strict_mode_fails_for_excessive_star_spokes() {
-        let mut generator = GraphGenerator::strict();
-        let err = generator
+    fn star_graph_spoke_budget_is_hardened_only() {
+        let report = GraphGenerator::strict()
             .star_graph(MAX_N_STAR + 1)
-            .expect_err("strict mode should fail closed for oversize n");
-        assert!(matches!(err, GenerationError::FailClosed { .. }));
+            .expect("strict mode builds every size networkx builds");
+        assert_eq!(report.graph.node_count(), MAX_N_STAR + 2);
+        assert_eq!(report.graph.edge_count(), MAX_N_STAR + 1);
+
+        let clamped = GraphGenerator::hardened()
+            .star_graph(MAX_N_STAR + 1)
+            .expect("hardened mode clamps oversize n");
+        assert_eq!(clamped.graph.edge_count(), MAX_N_STAR);
+        assert!(!clamped.warnings.is_empty());
     }
 
     #[test]
@@ -14558,10 +14643,13 @@ mod tests {
             "P2C007-DC-2 cycle closure ordering drift"
         );
 
-        let oversized = generator.complete_graph(MAX_N_COMPLETE + 1);
+        // A size that overflows usize fails closed in every mode (networkx
+        // cannot build it either). A merely large size is built: the MAX_N_*
+        // budgets are hardened-only.
+        let overflow = generator.balanced_tree(2, usize::BITS as usize);
         assert!(
-            matches!(oversized, Err(GenerationError::FailClosed { .. })),
-            "P2C007-EC-2 strict unknown-incompatibility path must fail closed"
+            matches!(overflow, Err(GenerationError::FailClosed { .. })),
+            "P2C007 strict overflowing size must fail closed"
         );
 
         let records = generator.evidence_ledger().records();
@@ -14584,18 +14672,16 @@ mod tests {
             "cycle_graph decision record missing"
         );
         assert!(
-            records
-                .iter()
-                .filter(|record| record.operation == "complete_graph")
-                .count()
-                >= 2,
-            "complete_graph should record both allow and fail-closed pathways"
+            records.iter().any(|record| {
+                record.operation == "complete_graph" && record.action == DecisionAction::Allow
+            }),
+            "complete_graph allow record missing"
         );
         assert!(
             records.iter().any(|record| {
-                record.operation == "complete_graph" && record.action == DecisionAction::FailClosed
+                record.operation == "balanced_tree" && record.action == DecisionAction::FailClosed
             }),
-            "packet-007 strict oversized complete_graph must emit fail-closed evidence"
+            "packet-007 strict overflowing balanced_tree must emit fail-closed evidence"
         );
 
         let mut environment = BTreeMap::new();
@@ -14609,7 +14695,7 @@ mod tests {
         environment.insert("invariant_id".to_owned(), "P2C007-IV-1".to_owned());
         environment.insert(
             "input_digest".to_owned(),
-            stable_digest_hex("empty=4;path=5;cycle=5;complete=4;oversized=true"),
+            stable_digest_hex("empty=4;path=5;cycle=5;complete=4;overflow=true"),
         );
         environment.insert(
             "output_digest".to_owned(),

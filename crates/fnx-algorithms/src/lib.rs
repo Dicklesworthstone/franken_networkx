@@ -33535,45 +33535,39 @@ pub fn find_negative_cycle(graph: &Graph, source: &str, weight_attr: &str) -> Op
         }
     }
 
-    // Relax n-1 times
-    for _ in 0..n - 1 {
+    // Relax n times. A node relaxed in the n-th pass has a predecessor chain
+    // of at least n edges, so walking it n steps back lands on a negative
+    // cycle. (Tracing from a node found by a separate check pass, without
+    // recording that relaxation, could walk back to the source's unset
+    // predecessor: a lone negative undirected edge panicked on it.)
+    let mut last_relaxed = None;
+    for _ in 0..n {
+        last_relaxed = None;
         for &(u, v, w) in &edges {
             if dist[u] + w < dist[v] {
                 dist[v] = dist[u] + w;
                 pred[v] = u;
+                last_relaxed = Some(v);
             }
         }
+        // A pass that relaxes nothing has converged: no reachable negative cycle.
+        last_relaxed?;
     }
 
-    // Check for negative cycle (n-th relaxation)
-    for &(u, v, w) in &edges {
-        if dist[u] + w < dist[v] {
-            // Found a node in a negative cycle
-            // Trace back to find the cycle
-            let mut visited = vec![false; n];
-            let mut cur = v;
-            // Follow predecessors n times to ensure we're in the cycle
-            for _ in 0..n {
-                cur = pred[cur];
-            }
-            let cycle_start = cur;
-            let mut cycle = vec![nodes[cycle_start].to_owned()];
-            cur = pred[cycle_start];
-            while cur != cycle_start {
-                cycle.push(nodes[cur].to_owned());
-                cur = pred[cur];
-                if visited[cur] {
-                    break;
-                }
-                visited[cur] = true;
-            }
-            cycle.push(nodes[cycle_start].to_owned());
-            cycle.reverse();
-            return Some(cycle);
-        }
+    let mut cur = last_relaxed?;
+    for _ in 0..n {
+        cur = pred[cur];
     }
-
-    None
+    let cycle_start = cur;
+    let mut cycle = vec![nodes[cycle_start].to_owned()];
+    cur = pred[cycle_start];
+    while cur != cycle_start {
+        cycle.push(nodes[cur].to_owned());
+        cur = pred[cur];
+    }
+    cycle.push(nodes[cycle_start].to_owned());
+    cycle.reverse();
+    Some(cycle)
 }
 
 // ===========================================================================
@@ -79436,6 +79430,31 @@ mod tests {
         // Cycle should start and end with the same node
         assert_eq!(cycle.first(), cycle.last());
         assert!(cycle.len() >= 3);
+    }
+
+    #[test]
+    fn test_find_negative_cycle_single_negative_edge_from_either_end() {
+        // networkx: find_negative_cycle(G, 1) == [1, 0, 1]. The old trace
+        // walked back to the source's unset predecessor and panicked
+        // (index out of bounds: the index is usize::MAX).
+        let mut g = Graph::strict();
+        g.add_edge_with_attrs("0", "1", attrs([("weight", "-1.0")]))
+            .unwrap();
+        for source in ["0", "1"] {
+            let cycle = find_negative_cycle(&g, source, "weight").expect("a 2-cycle");
+            assert_eq!(cycle.len(), 3);
+            assert_eq!(cycle.first(), cycle.last());
+            assert_ne!(cycle[0], cycle[1]);
+        }
+    }
+
+    #[test]
+    fn test_find_negative_cycle_unreachable_cycle_is_none() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("s");
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "-1.0")]))
+            .unwrap();
+        assert_eq!(find_negative_cycle(&g, "s", "weight"), None);
     }
 
     // -----------------------------------------------------------------------

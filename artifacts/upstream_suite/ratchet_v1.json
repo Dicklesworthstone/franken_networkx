@@ -1,0 +1,36 @@
+{
+  "schema": "fnx-upstream-networkx-ratchet/v1",
+  "networkx_version": "3.6.1",
+  "min_passed": 6814,
+  "allowed_failures": {
+    "networkx.algorithms.tests.test_dag.TestDAG::test_topological_sort6": "br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7 item 1: networkx detects mutation during iteration lazily (RuntimeError on a new child); fnx flattens precomputed native generations and checks only the final count (NetworkXUnfeasible). Exact parity needs a perf-costed design."
+  },
+  "plain_networkx_baseline": {
+    "passed": 6816,
+    "failed": 0,
+    "skipped": 78,
+    "xfailed": 1,
+    "seconds": 94.2,
+    "measured": "2026-09-24, networkx 3.6.1, Python 3.14.3, default warning filters"
+  },
+  "last_run": {
+    "networkx_version": "3.6.1",
+    "networkx_dir": "/data/projects/franken_networkx/.venv/lib/python3.14/site-packages/networkx",
+    "python": "3.14.3",
+    "fnx_package": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "fnx_extension": "/data/projects/franken_networkx/python/franken_networkx/_fnx.abi3.so",
+    "fnx_extension_sha256": "10d728afa2c9d8c7ac7277f8be8759182c5d4878f5f216cea91d0c35c8149edb",
+    "fnx_git_sha": "5bd3ff559b18efc77534a3103eb51187f1ae04c6",
+    "targets": [
+      "networkx"
+    ],
+    "passed": 6814,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 80,
+    "seconds": 353.4,
+    "not_passing_by_file": {
+      "networkx.algorithms.tests.test_dag": 1
+    }
+  }
+}

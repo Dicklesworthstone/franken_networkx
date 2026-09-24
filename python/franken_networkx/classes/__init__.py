@@ -398,13 +398,17 @@ _install_fnx_native_class_types()
 
 
 def _install_native_graph_predicate_signatures():
-    """Keep native graph predicate introspection aligned with NetworkX."""
+    """Keep native graph predicate introspection aligned with NetworkX.
+
+    The CLASS signatures are not overridden: the constructors' real call shape
+    is networkx's ``(*args, backend=None, **kwargs)``
+    (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1).
+    """
     for _class_name in _FNX_NATIVE_CLASS_TYPES:
         _native_class = globals().get(_class_name)
         _networkx_class = getattr(_nx_classes, _class_name, None)
         if _native_class is None or _networkx_class is None:
             continue
-        _native_class.__signature__ = _inspect.signature(_networkx_class)
         for _method_name in ("is_directed", "is_multigraph"):
             _native_method = getattr(_native_class, _method_name, None)
             _networkx_method = getattr(_networkx_class, _method_name, None)

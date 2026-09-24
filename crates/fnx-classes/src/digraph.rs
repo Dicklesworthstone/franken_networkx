@@ -881,6 +881,22 @@ impl DiGraph {
         self.runtime_policy.drain_decision_records()
     }
 
+    /// Record a bounded recovery performed outside the graph (e.g. a reader
+    /// skipping a malformed line in hardened mode) in this graph's ledger.
+    pub fn record_external_recovery(
+        &mut self,
+        operation: impl Into<std::borrow::Cow<'static, str>>,
+        rationale: impl Into<std::borrow::Cow<'static, str>>,
+    ) {
+        self.runtime_policy.record(
+            operation,
+            DecisionAction::FullValidate,
+            0.7,
+            rationale,
+            Vec::new(),
+        );
+    }
+
     #[must_use]
     pub fn runtime_policy(&self) -> &RuntimePolicy {
         &self.runtime_policy
@@ -2851,6 +2867,22 @@ impl MultiDiGraph {
 
     pub fn drain_decision_records(&mut self) -> Vec<DecisionRecord> {
         self.runtime_policy.drain_decision_records()
+    }
+
+    /// Record a bounded recovery performed outside the graph (e.g. a reader
+    /// skipping a malformed line in hardened mode) in this graph's ledger.
+    pub fn record_external_recovery(
+        &mut self,
+        operation: impl Into<std::borrow::Cow<'static, str>>,
+        rationale: impl Into<std::borrow::Cow<'static, str>>,
+    ) {
+        self.runtime_policy.record(
+            operation,
+            DecisionAction::FullValidate,
+            0.7,
+            rationale,
+            Vec::new(),
+        );
     }
 
     #[must_use]

@@ -534,3 +534,30 @@ def test_minimum_cut_value_uses_custom_flow_func_and_forwards_kwargs():
     nr = nx.minimum_cut_value(ng, "s", "t", flow_func=sentinel, marker="nx")
     assert calls == [("s", "t", "capacity", "nx")]
     assert fr == nr
+
+
+def _int_keyed_flow_graph(module):
+    # networkx's test_mincost.py::test_digraph3: attribute keys 0 and 1.
+    G = module.DiGraph()
+    for u, v, cap, cost in [
+        ("s", "a", 2, 4), ("s", "b", 2, 1), ("a", "b", 5, 2),
+        ("a", "t", 1, 5), ("b", "a", 1, 3), ("b", "t", 3, 2),
+    ]:
+        G.add_edge(u, v)
+        G[u][v].update({0: cap, 1: cost})
+    return G
+
+
+def test_non_string_attribute_keys_reach_networkx_results():
+    # nro4w.7: networkx accepts any hashable attribute key; the native
+    # max-flow kernels take capacity by string name, so capacity=0 raised
+    # TypeError before any flow was computed.
+    fg, ng = _int_keyed_flow_graph(fnx), _int_keyed_flow_graph(nx)
+    fsol = fnx.max_flow_min_cost(fg, "s", "t", capacity=0, weight=1)
+    nsol = nx.max_flow_min_cost(ng, "s", "t", capacity=0, weight=1)
+    assert fsol == nsol
+    assert fnx.cost_of_flow(fg, fsol, weight=1) == nx.cost_of_flow(ng, nsol, weight=1) == 23
+    for name in ("maximum_flow", "maximum_flow_value", "minimum_cut", "minimum_cut_value"):
+        assert getattr(fnx, name)(fg, "s", "t", capacity=0) == getattr(nx, name)(
+            ng, "s", "t", capacity=0
+        ), name

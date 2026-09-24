@@ -104,7 +104,21 @@ def test_the_marker_forgiveness_is_reachable_on_a_real_method():
         )
 
 
-def test_public_coverage_has_no_networkx_delegated_exports():
+# The drawing helpers ARE networkx's code (the graph is converted and networkx's
+# matplotlib functions draw it; README "Drawing is delegated"). This list used
+# to be empty only because those wrappers deliberately hid their forwarding
+# target from the classifier (br-r37-c1-hiplx); since
+# br-r37-c1-rc0923-epic-honest-measurement-vbneu.1 they name it. Any OTHER
+# export that gains a visible networkx route still fails this lock.
+_OWNED_NETWORKX_DELEGATED_EXPORTS = [
+    "draw_networkx",
+    "draw_networkx_edge_labels",
+    "draw_networkx_edges",
+    "draw_networkx_nodes",
+]
+
+
+def test_public_coverage_has_no_undocumented_networkx_delegated_exports():
     coverage_matrix = _load_coverage_matrix_script()
     exports, _duplicates = coverage_matrix["load_public_exports"]()
     delegated_exports = sorted(
@@ -113,7 +127,7 @@ def test_public_coverage_has_no_networkx_delegated_exports():
         if coverage_matrix["classify_export"](obj) == "NX_DELEGATED"
     )
 
-    assert delegated_exports == []
+    assert delegated_exports == _OWNED_NETWORKX_DELEGATED_EXPORTS
 
 
 def test_generated_coverage_matrix_document_is_current():

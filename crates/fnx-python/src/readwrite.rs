@@ -102,8 +102,25 @@ fn write_output_bytes(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) ->
     Ok(())
 }
 
+/// Surface a hardened-mode read's recoveries (skipped malformed lines or
+/// elements) as Python `RuntimeWarning`s (nro4w.10). Strict-mode reads stay
+/// silent: they fail closed instead, and the few notes a strict read can
+/// record (a GraphML directed-flag note, Pajek's declared vertex count) are
+/// ones networkx does not emit.
+fn warn_hardened_read_recoveries(
+    py: Python<'_>,
+    mode: CompatibilityMode,
+    warnings: &[String],
+) -> PyResult<()> {
+    if mode == CompatibilityMode::Hardened {
+        crate::generators::warn_recoveries(py, warnings)?;
+    }
+    Ok(())
+}
+
 /// Convert a `ReadWriteReport` into a `PyGraph`.
 fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGraph> {
+    warn_hardened_read_recoveries(py, report.graph.mode(), &report.warnings)?;
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
     let mut inner = RustGraph::with_runtime_policy(g.runtime_policy().clone());
@@ -182,6 +199,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
 
 /// Convert a `DiReadWriteReport` into a `PyDiGraph`.
 fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult<PyDiGraph> {
+    warn_hardened_read_recoveries(py, report.graph.mode(), &report.warnings)?;
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
     let mut inner = RustDiGraph::with_runtime_policy(g.runtime_policy().clone());
@@ -343,6 +361,16 @@ fn digraph_absorb_graph_bidirected(
                         return Ok(false);
                     }
                 }
+            } else if let Some(core) = src.inner.edge_attrs(u, v)
+                && !core.is_empty()
+            {
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is LAZY — an edge whose Python dict was never
+                // materialised (every edge of a generator-built graph) keeps its
+                // attrs only in the core. Reading the mirror alone made
+                // DiGraph(karate_club_graph()) silently drop every weight.
+                amap = core.clone();
+                mirror.update(attr_map_to_pydict(py, &amap)?.bind(py).as_mapping())?;
             }
             edge_py_attrs.insert(PyDiGraph::edge_key(u, v), mirror.unbind());
             edges_bulk.push((u.clone(), (*v).to_owned(), amap));
@@ -450,6 +478,11 @@ fn multigraph_absorb_graph(
                     return Ok(false);
                 }
             }
+        } else if let Some(core) = src.inner.edge_attrs(&u, &v) {
+            // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): an
+            // unmaterialised mirror means the core holds the attrs; reading the
+            // mirror alone made MultiGraph(karate_club_graph()) drop every weight.
+            amap = core.clone();
         }
         let _ = inner.add_edge_with_key_and_attrs(u, v, 0, amap);
     }
@@ -2317,12 +2350,20 @@ pub fn adjacency_arrays_multigraph_finite_checked(
         Default,
         Bail,
     }
+    // Only Python int/float/bool values are emitted; a `str` (even "3.5",
+    // which networkx's `sum` of the parallel weights rejects) bails to the
+    // Python path (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.6).
     let resolve = |attrs: &fnx_classes::AttrMap| -> W {
         match attrs.get(weight_attr) {
-            Some(raw) => match raw.as_f64() {
+            Some(
+                raw @ (fnx_runtime::CgseValue::Int(_)
+                | fnx_runtime::CgseValue::Float(_)
+                | fnx_runtime::CgseValue::Bool(_)),
+            ) => match raw.as_f64() {
                 Some(v) if v.is_finite() => W::Val(v),
                 _ => W::Bail,
             },
+            Some(_) => W::Bail,
             None => W::Default,
         }
     };
@@ -2397,11 +2438,10 @@ fn finite_py_weight_typed(raw: &Bound<'_, PyAny>) -> Option<(f64, bool)> {
         let is_int = raw.extract::<i64>().is_ok();
         return Some((value, !is_int));
     }
-    if let Ok(value) = raw.extract::<String>()
-        && let Ok(parsed) = value.parse::<f64>()
-    {
-        return parsed.is_finite().then_some((parsed, true));
-    }
+    // A `str` weight (even "3.5") is not a number to networkx: summing
+    // parallel weights raises TypeError, and a dense assignment refuses the
+    // cast. Bail to the Python path
+    // (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.6).
     None
 }
 
@@ -2417,12 +2457,9 @@ fn stored_multigraph_weight_typed(
             val.is_finite().then_some((val, false))
         }
         Some(fnx_runtime::CgseValue::Bool(b)) => Some((if *b { 1.0 } else { 0.0 }, false)),
-        Some(fnx_runtime::CgseValue::String(s)) => s
-            .parse::<f64>()
-            .ok()
-            .filter(|v| v.is_finite())
-            .map(|v| (v, true)),
-        Some(fnx_runtime::CgseValue::Map(_)) => None,
+        // Not a Python int/float/bool (a `str`, complex, None, a list, a
+        // dict): bail, see `finite_py_weight_typed`.
+        Some(fnx_runtime::CgseValue::String(_) | fnx_runtime::CgseValue::Map(_)) => None,
         None => Some((default_weight, default_weight.fract() != 0.0)),
     }
 }
@@ -2952,6 +2989,12 @@ pub fn adjacency_csr_bytes_default_order_unweighted(
                         return Ok(None);
                     }
                 }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is lazy — unmaterialised edges keep their attrs only in
+                // the core, so the mirror alone cannot prove absence.
+                if pg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
+                }
             }
             let inner = &pg.inner;
             let mut rows = Vec::with_capacity(inner.node_count());
@@ -2966,6 +3009,11 @@ pub fn adjacency_csr_bytes_default_order_unweighted(
                     if dict.bind(py).contains(attr)? {
                         return Ok(None);
                     }
+                }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): see
+                // the undirected arm — the lazy mirror cannot prove absence.
+                if dg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
                 }
             }
             let inner = &dg.inner;

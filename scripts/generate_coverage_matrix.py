@@ -40,6 +40,7 @@ import re
 import subprocess  # nosec B404 - fixed interpreter and repo-owned extractor
 import sys
 import textwrap
+import types
 from collections import Counter, defaultdict
 from functools import lru_cache
 from pathlib import Path
@@ -458,6 +459,98 @@ def _surface_signature(obj) -> str | None:
         return None
 
 
+def _declared_class_signature_spoof(obj) -> bool:
+    """A class whose OWN ``__dict__`` carries ``__signature__`` declares a call
+    shape that its constructor does not implement; ``inspect.signature`` reads
+    the override without looking at ``__new__``/``__init__``. Observed defect:
+    07924ecdd flipped the four graph-class rows to present this way while
+    ``backend=`` validation and positional ``multigraph_input`` still differed
+    (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1). Callables are NOT
+    covered: forwarding wrappers legitimately attach ``__signature__`` (as
+    networkx's own dispatchables do), so only behaviour can judge them. A
+    class that IS networkx's own object (re-exported by identity) is exempt:
+    its ``__signature__`` is networkx's, not an override."""
+    if not inspect.isclass(obj) or "__signature__" not in vars(obj):
+        return False
+    module_name = getattr(obj, "__module__", "") or ""
+    return not (module_name.startswith("networkx") and not _type_module_spoof(obj))
+
+
+def _declared_callable_signature_spoof(obj) -> bool:
+    """A Python function whose OWN ``__dict__`` declares ``__signature__``
+    while its code has a different call shape AND it names no forwarding
+    target (``__wrapped__``): the declared shape is then metadata only.
+    Observed defect: the drawing wrappers carried networkx's signature over a
+    ``(G, *args, **kwargs)`` body with the forwarding target deliberately
+    left out (br-r37-c1-hiplx), so they were classified as present fnx code
+    while delegating to networkx
+    (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1). Forwarders that
+    name their target are judged by behaviour tests instead
+    (tests/python/test_function_backend_keyword_parity.py). The namespace
+    routers (``getattr(<module>, _name)(*args, **kwargs)``, late-bound so
+    monkeypatching works) are resolved to their target, and the declared
+    shape must equal the target's."""
+    if not isinstance(obj, types.FunctionType) or "__signature__" not in vars(obj):
+        return False
+    if getattr(obj, "__wrapped__", None) is not None:
+        return False
+    code_only = types.FunctionType(
+        obj.__code__, obj.__globals__, obj.__name__, obj.__defaults__, obj.__closure__
+    )
+    code_only.__kwdefaults__ = obj.__kwdefaults__
+    try:
+        if str(inspect.signature(code_only)) == str(obj.__signature__):
+            return False
+        target = _router_target(obj)
+        if target is None:
+            return True
+        return str(inspect.signature(target)) != str(obj.__signature__)
+    except (TypeError, ValueError):
+        return True
+
+
+def _router_target(fn):
+    """The function a namespace router forwards to, or None. Routers close
+    over exactly one name string and call ``getattr(<module>, <name>)``, the
+    module being a global of the router's module or ``franken_networkx``
+    imported in-body."""
+    names = [
+        c.cell_contents
+        for c in fn.__closure__ or ()
+        if isinstance(c.cell_contents, str)
+    ]
+    if len(names) != 1:
+        return None
+    name = names[0]
+    for global_name in fn.__code__.co_names:
+        holder = fn.__globals__.get(global_name)
+        if isinstance(holder, types.ModuleType):
+            return getattr(holder, name, None)
+    if "franken_networkx" in fn.__code__.co_names:
+        return getattr(importlib.import_module("franken_networkx"), name, None)
+    return None
+
+
+def _type_module_spoof(obj_type) -> bool:
+    """A type that claims a ``networkx`` module in ``__module__`` but is not
+    the object that module actually holds under its ``__qualname__``.
+    Observed defect: a look-alike ``EdgePartition`` enum with ``__module__``
+    rewritten to ``networkx.algorithms.tree.mst`` (not ``is``/``==`` to nx's,
+    and unpicklable) was classified present."""
+    module_name = getattr(obj_type, "__module__", "") or ""
+    if not module_name.startswith("networkx"):
+        return False
+    try:
+        holder = importlib.import_module(module_name)
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-except
+        return True
+    for part in getattr(obj_type, "__qualname__", "").split("."):
+        holder = getattr(holder, part, None)
+        if holder is None:
+            return True
+    return holder is not obj_type
+
+
 def _signature_matches_ignoring_self_marker(
     reference: str | None, franken: str | None
 ) -> bool:
@@ -728,7 +821,14 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
                     f"{franken_type.__module__}.{franken_type.__qualname__}"
                 )
                 franken_value_repr = _surface_stable_repr(resolved_member)
-                if (
+                if _type_module_spoof(franken_type):
+                    row["status"] = "partial"
+                    row["detail"] = (
+                        f"class attribute type `{franken_type_name}` claims a "
+                        "networkx module but is not that module's object "
+                        "(spelled, not shared)"
+                    )
+                elif (
                     franken_type_name == reference_row["type_name"]
                     and franken_value_repr == reference_row["value_repr"]
                 ):
@@ -802,6 +902,31 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
             rows.append(row)
             continue
 
+        if reference_row["kind"] == "class" and (
+            _declared_class_signature_spoof(franken_obj)
+            or _type_module_spoof(franken_obj)
+        ):
+            row["status"] = "partial"
+            row["detail"] = (
+                "class surface is declared, not implemented: its "
+                "`__signature__`/`__module__` metadata is overridden rather "
+                "than provided by the constructor or the networkx object itself"
+            )
+            rows.append(row)
+            continue
+
+        if reference_row["kind"] == "callable" and _declared_callable_signature_spoof(
+            franken_obj
+        ):
+            row["status"] = "partial"
+            row["detail"] = (
+                "call shape is declared, not implemented: `__signature__` is "
+                "assigned over a different code signature and no forwarding "
+                "target (`__wrapped__`) is named"
+            )
+            rows.append(row)
+            continue
+
         if reference_row["kind"] in {"callable", "class"}:
             reference_call_shape = reference_row.get("signature")
             if (
@@ -835,7 +960,13 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
             f"{franken_type.__module__}.{franken_type.__qualname__}"
         )
         franken_value_repr = _surface_stable_repr(franken_obj)
-        if (
+        if _type_module_spoof(franken_type):
+            row["status"] = "partial"
+            row["detail"] = (
+                f"value type `{franken_type_name}` claims a networkx module but "
+                "is not that module's object (spelled, not shared)"
+            )
+        elif (
             franken_type_name == reference_row["type_name"]
             and franken_value_repr == reference_row["value_repr"]
         ):

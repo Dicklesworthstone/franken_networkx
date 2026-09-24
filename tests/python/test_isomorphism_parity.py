@@ -2,6 +2,7 @@ import inspect
 import networkx as nx
 import operator
 import pytest
+import random
 import re
 from builtins import ValueError as BuiltinValueError
 
@@ -1209,3 +1210,79 @@ def test_graph_edit_distance_roots_error_contract_matches_networkx_without_fallb
 
     with pytest.raises(fnx_exc_type, match=re.escape(str(expected))):
         list(fnx.optimize_edit_paths(fnx.path_graph(3), fnx.path_graph(3), roots=roots))
+
+
+def test_mixed_directedness_raises_before_the_degree_precheck():
+    # nro4w.7: networkx's test_is_isomorphic. The degree-histogram pre-reject
+    # answered False for P4 vs its directed copy before the type check ran.
+    G = fnx.path_graph(4)
+    with pytest.raises(fnx.NetworkXError, match="Graphs G1 and G2 are not of the same type."):
+        fnx.is_isomorphic(G.to_directed(), G)
+    with pytest.raises(nx.NetworkXError, match="Graphs G1 and G2 are not of the same type."):
+        nx.is_isomorphic(nx.path_graph(4).to_directed(), nx.path_graph(4))
+
+
+def test_multigraph_edge_match_receives_keydicts_like_networkx():
+    # nro4w.7: networkx hands edge_match the two keydicts of each mapped node
+    # pair; categorical_multiedge_match reads them. fnx paired datadicts and
+    # the helper crashed on a bare attribute value.
+    edge_match = nx.algorithms.isomorphism.categorical_multiedge_match("c", 0)
+    edges = [(0, 1, {"c": 1}), (0, 1, {"c": 2}), (1, 2, {"c": 1})]
+    other = [(5, 4, {"c": 2}), (5, 4, {"c": 1}), (4, 3, {"c": 1})]
+    for cls_name in ("MultiGraph", "MultiDiGraph"):
+        expected = nx.is_isomorphic(
+            getattr(nx, cls_name)(edges), getattr(nx, cls_name)(other), edge_match=edge_match
+        )
+        actual = fnx.is_isomorphic(
+            getattr(fnx, cls_name)(edges), getattr(fnx, cls_name)(other), edge_match=edge_match
+        )
+        assert actual == expected
+
+
+def _isomorphic_outcome(module, c1, c2, n, e1, e2, edge_match):
+    a = getattr(module, c1)()
+    a.add_nodes_from(range(n))
+    a.add_edges_from(e1)
+    b = getattr(module, c2)()
+    b.add_nodes_from(range(n))
+    b.add_edges_from(e2)
+    try:
+        if edge_match is None:
+            return module.is_isomorphic(a, b)
+        return module.is_isomorphic(a, b, edge_match=edge_match)
+    except Exception as exc:  # the error contract is part of the parity
+        return type(exc).__name__, str(exc)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_random_class_pairs_match_networkx(seed):
+    """Every class pairing, with and without edge_match, parallel edges and
+    self-loops included. Before nro4w.7 about a quarter of these differed:
+    mixed multigraph / simple pairs, multiplicity mismatches, and mixed
+    directedness hidden behind the degree pre-reject."""
+    iso = nx.algorithms.isomorphism
+    classes = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+    rng = random.Random(seed)
+    for _ in range(150):
+        n = rng.randint(1, 5)
+        e1 = [(rng.randrange(n), rng.randrange(n), {"c": rng.randint(0, 1)})
+              for _ in range(rng.randint(0, 6))]
+        perm = list(range(n))
+        rng.shuffle(perm)
+        if rng.random() < 0.7:
+            e2 = [(perm[u], perm[v], dict(d)) for u, v, d in e1]
+        else:
+            e2 = [(rng.randrange(n), rng.randrange(n), {"c": rng.randint(0, 1)})
+                  for _ in range(len(e1))]
+        c1 = rng.choice(classes)
+        c2 = c1 if rng.random() < 0.6 else rng.choice(classes)
+        multi = c1.startswith("Multi") and c2.startswith("Multi")
+        simple = not c1.startswith("Multi") and not c2.startswith("Multi")
+        edge_match = rng.choice(
+            [None, lambda a, b: True]
+            + ([iso.categorical_multiedge_match("c", 0)] if multi else [])
+            + ([iso.categorical_edge_match("c", 0)] if simple else [])
+        )
+        expected = _isomorphic_outcome(nx, c1, c2, n, e1, e2, edge_match)
+        actual = _isomorphic_outcome(fnx, c1, c2, n, e1, e2, edge_match)
+        assert actual == expected, (c1, c2, edge_match is not None, e1, e2)

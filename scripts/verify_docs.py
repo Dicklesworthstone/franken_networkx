@@ -206,6 +206,42 @@ def validate_generated_docs(python_bin: str) -> list[str]:
         return []
 
 
+RELEASE_MENTION_RES = (
+    re.compile(r"franken-networkx\s*=\s*\"==([0-9][^\"]*)\""),
+    re.compile(r"franken-networkx==([0-9][0-9A-Za-z.+-]*)"),
+    re.compile(r"PyPI's current release is `?([0-9][0-9A-Za-z.+-]*[0-9A-Za-z])`?"),
+    re.compile(r"PyPI \(release ([0-9][0-9A-Za-z.+-]*[0-9A-Za-z])\)"),
+)
+
+
+def published_pypi_release() -> str:
+    """The latest version actually on PyPI, recorded at release time in
+    ``[tool.franken_networkx] pypi_release`` (pyproject's own ``version`` is
+    the NEXT release, not a published one)."""
+    import tomllib
+
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        return tomllib.load(fh)["tool"]["franken_networkx"]["pypi_release"]
+
+
+def validate_release_mentions(text: str, published: str) -> list[str]:
+    """Every install pin and "current PyPI release" statement must name the
+    published release. br-r37-c1-rc0923-epic-docs-truth-structure-8813x.1: the
+    README pinned ``==0.2.0`` (never on PyPI, so the documented install
+    failed) while also calling ``v0.2.2`` published and ``0.2.1`` current."""
+    failures = []
+    for pattern in RELEASE_MENTION_RES:
+        for match in pattern.finditer(text):
+            if match.group(1) != published:
+                line = text.count("\n", 0, match.start()) + 1
+                failures.append(
+                    f"README.md:{line}: names release {match.group(1)!r} but the "
+                    f"published PyPI release is {published!r} "
+                    "([tool.franken_networkx] pypi_release in pyproject.toml)"
+                )
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--python-bin", default=sys.executable)
@@ -213,6 +249,11 @@ def main() -> int:
 
     failures: list[str] = []
     failures.extend(validate_generated_docs(args.python_bin))
+    failures.extend(
+        validate_release_mentions(
+            (ROOT / "README.md").read_text(encoding="utf-8"), published_pypi_release()
+        )
+    )
 
     for path in markdown_sources():
         failures.extend(run_markdown(path, args.python_bin))

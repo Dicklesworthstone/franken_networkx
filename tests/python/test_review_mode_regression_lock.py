@@ -5027,11 +5027,19 @@ def test_write_gexf_classified_as_py_wrapper_not_nx_delegated():
     # write_gexf must be classified as PY_WRAPPER
     assert _gcm.classify_export(fnx.write_gexf) == "PY_WRAPPER"
 
-    # No exports may be NX_DELEGATED
+    # No export may be NX_DELEGATED except the drawing helpers, which are
+    # networkx's matplotlib code by design and say so via __wrapped__ since
+    # br-r37-c1-rc0923-epic-honest-measurement-vbneu.1 (they had hidden it,
+    # br-r37-c1-hiplx). See test_coverage_gaps.py.
     exports, _ = _gcm.load_public_exports()
-    delegated = [name for name, obj in exports
-                 if _gcm.classify_export(obj) == "NX_DELEGATED"]
-    assert delegated == []
+    delegated = sorted(name for name, obj in exports
+                       if _gcm.classify_export(obj) == "NX_DELEGATED")
+    assert delegated == [
+        "draw_networkx",
+        "draw_networkx_edge_labels",
+        "draw_networkx_edges",
+        "draw_networkx_nodes",
+    ]
 
     # Byte-parity preserved: simple-graph and multi-graph
     # branches still produce nx-matching output (single-quoted

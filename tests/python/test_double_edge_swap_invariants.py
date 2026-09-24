@@ -1,8 +1,7 @@
 """double_edge_swap / connected_double_edge_swap degree-preservation invariants.
 
-The double-edge-swap rewiring functions are randomized (and fnx's RNG diverges
-from networkx's, so they cannot be parity-tested), but they have exact defining
-invariants:
+The double-edge-swap rewiring functions are randomized, but they have exact
+defining invariants:
   - a double edge swap removes two edges and adds two, so it PRESERVES every
     node's degree (hence the whole degree sequence) and the edge count;
   - connected_double_edge_swap additionally PRESERVES connectivity.
@@ -13,8 +12,11 @@ so each test also pins that the rewiring actually happened. Degrees are compared
 PER NODE rather than as a sorted sequence: swapping two nodes' degrees preserves
 the sequence but is not a legal double edge swap.
 
-The rewiring cannot be parity-tested, but the error contracts are not random —
-they are compared against networkx directly.
+Since br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.4 the seeded rewiring is
+networkx's algorithm step for step, so connected_double_edge_swap is also
+compared against networkx's result for the same seed (seeded parity for the
+other swaps lives in test_edge_swap_seed_parity.py). The error contracts are
+compared against networkx directly.
 
 No mocks: real fnx.
 """
@@ -73,15 +75,22 @@ def test_connected_swap_preserves_degree_and_connectivity(seed):
 
     h = g.copy()
     swaps = fnx.connected_double_edge_swap(h, nswap=5, seed=seed)
+    reference = nx.Graph(); reference.add_nodes_from(g.nodes()); reference.add_edges_from(g.edges())
+    nx_swaps = nx.connected_double_edge_swap(reference, nswap=5, seed=seed)
 
     assert sorted(d for _, d in h.degree()) == deg_before
     assert h.number_of_edges() == edges_before
     assert fnx.is_connected(h)                                # connectivity kept
     assert dict(h.degree()) == dict(g.degree())               # per node, not just the sequence
     assert set(h.nodes()) == set(g.nodes())
-    assert _edge_set(h) != _edge_set(g)                       # not a no-op
+    # Same seed, same rewiring as networkx. networkx's windowed algorithm can
+    # roll every attempt back (it does for seeds 7, 11 and 31 here), so "not a
+    # no-op" holds exactly when networkx itself rewired.
+    assert swaps == nx_swaps
+    assert _edge_set(h) == _edge_set(reference)
+    assert (_edge_set(h) != _edge_set(g)) == (nx_swaps > 0)
     # Returns the number of successful swaps, which cannot exceed the request.
-    assert isinstance(swaps, int) and 0 < swaps <= 5
+    assert isinstance(swaps, int) and 0 <= swaps <= 5
 
 
 def test_swap_keeps_no_self_loops_or_multi_edges():

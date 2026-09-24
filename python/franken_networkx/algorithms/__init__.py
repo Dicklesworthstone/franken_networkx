@@ -2623,11 +2623,10 @@ def is_semiconnected(G, *, backend=None, **backend_kwargs):
 
 _fnx_bridges = _importlib.import_module("franken_networkx.bridges")
 _sys.modules[f"{__name__}.bridges"] = _fnx_bridges
-bridges = _fnx_bridges  # Override in module globals
 
 
-# ``bridges`` itself is a callable module, but these two flattened helpers are
-# functions. Spell their public call contracts out so the generic native-router
+# ``bridges`` is rebound to the public function at the end of this module; these
+# two flattened helpers are functions too. Spell their public call contracts out so the generic native-router
 # pass below does not demote them to ``*args, **kwargs``.
 def has_bridges(G, root=None, *, backend=None, **backend_kwargs):
     return _fnx_bridges.has_bridges(
@@ -4648,29 +4647,11 @@ def __dir__():
     return sorted(set(globals()) | set(dir(_src)))
 
 
-import types as _types
-
-
-class _FnxAlgorithmsModule(_types.ModuleType):
-    """Module proxy guaranteeing that public callable function surfaces are not shadowed."""
-
-    def __getattribute__(self, name):
-        if name == "bridges":
-            return getattr(self, "_fnx_public_bridges", super().__getattribute__(name))
-        if name == "reciprocity":
-            return getattr(self, "_fnx_public_reciprocity", super().__getattribute__(name))
-        return super().__getattribute__(name)
-
-
-import franken_networkx as _fnx_for_bindings
-
-_fnx_public_bridges = getattr(_fnx_for_bindings, "_fnx_public_bridges", _fnx_for_bindings.bridges)
-_fnx_public_reciprocity = getattr(_fnx_for_bindings, "_fnx_public_reciprocity", _fnx_for_bindings.reciprocity)
-
-_algo_module = _sys.modules[__name__]
-_algo_module.__class__ = _FnxAlgorithmsModule
-_algo_module._fnx_public_bridges = _fnx_public_bridges
-_algo_module._fnx_public_reciprocity = _fnx_public_reciprocity
-_algo_module.bridges = _fnx_public_bridges
-_algo_module.reciprocity = _fnx_public_reciprocity
+# As in networkx, ``algorithms.bridges`` / ``algorithms.reciprocity`` name the
+# FUNCTIONS (``from .bridges import *`` rebinds them over the submodules); the
+# leaf modules stay reachable through ``sys.modules`` and ``_fnx_bridges`` /
+# ``_fnx_reciprocity``, which the flattened wrappers above call at run time.
+# Plain rebinding at the end of package init replaces the 07924ecdd
+# module-class swap (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1).
+bridges = _fnx_bridges.bridges
 

@@ -76,16 +76,31 @@ def test_inner_attr_mutation_propagates_in_both(cls_name):
 
 @pytest.mark.parametrize("cls_name", MULTI)
 def test_return_type_matches(cls_name):
-    """Both libraries return a MutableMapping.
+    """Both libraries return a real ``dict``.
 
-    NetworkX returns builtins.dict; fnx returns MultiEdgeKeyView or
-    MultiDiEdgeKeyView to provide safe write-through into the native Rust store.
+    br-r37-c1-rc0923-epic-honest-measurement-vbneu.3 restores this from the
+    weakened "both are MutableMapping" form: fnx returned a ``MultiEdgeKeyView``
+    that json/pickle/copy/``|`` rejected. fnx's keydict is a ``dict`` subclass
+    (it forwards writes to the graph), so ``type(d) is dict`` cannot hold; every
+    dict-only operation networkx callers use must behave identically instead,
+    and serialising copies are plain dicts, as networkx's are.
     """
+    import copy
+    import json
+    import pickle
+
     gnx, gfx = _pair(cls_name)
-    assert isinstance(gnx.get_edge_data("a", "b"), MutableMapping)
-    assert isinstance(gfx.get_edge_data("a", "b"), MutableMapping)
-    assert isinstance(gnx.get_edge_data("a", "b"), Mapping)
-    assert isinstance(gfx.get_edge_data("a", "b"), Mapping)
+    want, got = gnx.get_edge_data("a", "b"), gfx.get_edge_data("a", "b")
+    assert type(want) is dict
+    assert isinstance(got, dict) and isinstance(got, MutableMapping) and isinstance(got, Mapping)
+    assert json.dumps(got, sort_keys=True) == json.dumps(want, sort_keys=True)
+    for clone in (pickle.loads(pickle.dumps(got)), copy.copy(got), copy.deepcopy(got), got | {}, got.copy(), dict(got)):
+        assert type(clone) is dict
+        assert clone == want
+    deep = copy.deepcopy(got)
+    deep[0]["w"] = -1.0  # a deep copy is detached from the graph
+    assert gfx["a"]["b"][0]["w"] == 1.0
+    assert got == want and repr(got) == repr(want)
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
@@ -249,3 +264,125 @@ def test_the_enumeration_is_not_vacuous():
         "the incumbent no longer returns its live row; this whole file needs "
         "re-deriving against the new networkx contract"
     )
+
+
+# --- held keydicts under random mutation, against networkx ------------------
+
+
+def _random_ops(rng, n_ops):
+    nodes = ["a", "b", "c", "d"]
+    ops = []
+    for _ in range(n_ops):
+        u, v = rng.choice(nodes), rng.choice(nodes)
+        ops.append(rng.choice([
+            ("add_edge", u, v, rng.choice([None, 0, 1, 2, "k"]), rng.randint(0, 9)),
+            ("remove_edge", u, v),
+            ("remove_node", u),
+            ("hold", u, v),
+            ("set_through", u, v, rng.choice([0, 1, 5, "x"]), rng.randint(0, 9)),
+            ("del_through", u, v),
+            ("pop_through", u, v),
+            ("clear_through", u, v),
+            ("clear_edges",),
+            ("mutate_attr", u, v),
+        ]))
+    return ops
+
+
+def _apply(G, held, op):
+    kind = op[0]
+    try:
+        if kind == "add_edge":
+            _, u, v, key, w = op
+            G.add_edge(u, v, key=key, w=w) if key is not None else G.add_edge(u, v, w=w)
+        elif kind == "remove_edge":
+            G.remove_edge(op[1], op[2])
+        elif kind == "remove_node":
+            G.remove_node(op[1])
+        elif kind == "hold":
+            d = G.get_edge_data(op[1], op[2])
+            if d is not None:
+                held.append(d)
+        elif kind == "set_through" and held:
+            held[-1][op[3]] = {"w": op[4]}
+        elif kind == "del_through" and held and held[-1]:
+            del held[-1][next(iter(held[-1]))]
+        elif kind == "pop_through" and held and held[-1]:
+            held[-1].pop(next(iter(held[-1])))
+        elif kind == "clear_through" and held:
+            held[-1].clear()
+        elif kind == "clear_edges":
+            G.clear_edges()
+        elif kind == "mutate_attr" and held and held[-1]:
+            next(iter(held[-1].values()))["w"] = 42
+    except (nx.NetworkXError, KeyError) as exc:
+        return type(exc).__name__
+    return None
+
+
+def _snapshot(G, held):
+    edges = sorted(repr(e) for e in G.edges(keys=True, data=True))
+    return (
+        edges,
+        G.number_of_edges(),
+        [[(repr(k), dict(d)) for k, d in h.items()] for h in held],
+        sorted(repr((u, v)) for u in G for v in G[u]),
+    )
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+@pytest.mark.parametrize("seed", range(60))
+def test_held_keydicts_track_random_mutations_like_networkx(cls_name, seed):
+    """Every read path agrees with networkx after random graph-side and
+    keydict-side mutations, including dicts held across them (detached ones
+    keep their keys on node removal / clear_edges, emptied ones on edge
+    removal, ghost pairs reuse their keydict)."""
+    import random
+
+    ops = _random_ops(random.Random(seed), 40)
+    runs = []
+    for mod in (nx, fnx):
+        G = getattr(mod, cls_name)()
+        G.add_edges_from([("a", "b"), ("a", "b"), ("b", "c"), ("c", "a")])
+        held, errors = [], []
+        for op in ops:
+            errors.append(_apply(G, held, op))
+        runs.append((_snapshot(G, held), errors))
+    assert runs[1] == runs[0]
+
+
+def _held_outcome(mod, cls_name, action):
+    G = getattr(mod, cls_name)()
+    G.add_edge("a", "b", w=1)
+    G.add_edge("a", "b", w=2)
+    G.add_edge("b", "c")
+    held = G.get_edge_data("a", "b")
+    if action == "remove_edges_through_graph":
+        G.remove_edge("a", "b")
+        G.remove_edge("a", "b")
+    elif action == "delete_keys_through_dict":
+        del held[0]
+        del held[1]
+    elif action == "remove_node":
+        G.remove_node("b")
+    elif action == "clear_edges":
+        G.clear_edges()
+    elif action == "clear":
+        G.clear()
+    after_action = {k: dict(d) for k, d in held.items()}
+    pair_visible = "b" in G["a"] if "a" in G else None
+    G.add_edge("a", "b", w=9)
+    return after_action, pair_visible, {k: dict(d) for k, d in held.items()}, G.get_edge_data("a", "b") is held
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+@pytest.mark.parametrize(
+    "action",
+    ["remove_edges_through_graph", "delete_keys_through_dict", "remove_node", "clear_edges", "clear"],
+)
+def test_held_keydict_lifecycle_matches_networkx(cls_name, action):
+    """What a held keydict shows after its pair is emptied or detached, and
+    whether a re-added edge lands in it: emptied-and-detached after graph-side
+    edge removal, a reused "ghost" after deleting its keys through the dict,
+    detached with keys intact after node removal / clear_edges / clear."""
+    assert _held_outcome(fnx, cls_name, action) == _held_outcome(nx, cls_name, action)

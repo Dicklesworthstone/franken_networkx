@@ -116,3 +116,25 @@ def test_negative_evidence_dimension_probes_are_not_relative_links() -> None:
     unexpected = [failure for failure in failures if "missing relative link target" in failure]
     if unexpected:
         raise AssertionError(f"dimension probes must not be parsed as links: {unexpected!r}")
+
+
+def test_release_mentions_must_name_the_published_release() -> None:
+    """br-r37-c1-rc0923-epic-docs-truth-structure-8813x.1: the README pinned a
+    version that was never on PyPI; every pin/"current release" line is now
+    checked against the recorded published release."""
+    verify_docs = _load_verify_docs_script()
+    check = verify_docs["validate_release_mentions"]
+    good = 'franken-networkx = "==0.2.1"\nPyPI\'s current release is `0.2.1`\n'
+    assert check(good, "0.2.1") == []
+    stale = 'franken-networkx = "==0.2.0"\npip install franken-networkx==0.2.2\n'
+    failures = check(stale, "0.2.1")
+    assert len(failures) == 2 and "0.2.0" in failures[0] and "0.2.2" in failures[1]
+
+
+def test_readme_release_mentions_match_the_recorded_pypi_release() -> None:
+    verify_docs = _load_verify_docs_script()
+    readme = (_repo_root() / "README.md").read_text(encoding="utf-8")
+    published = verify_docs["published_pypi_release"]()
+    assert verify_docs["validate_release_mentions"](readme, published) == []
+    # the README must actually state the release, so the check is not vacuous
+    assert f"PyPI's current release is `{published}`" in readme

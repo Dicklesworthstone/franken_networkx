@@ -120,3 +120,65 @@ def test_custom_attr_name():
     assert f == n
     for u, v, d in f:
         assert isinstance(d["cost"], int)
+
+
+# nro4w.7: networkx rewrites the INPUT's weights in place and back (minimal
+# branching's C - (C - w), maximum_spanning_arborescence's shift, minimum
+# branching's negation), so both the result's weights and the input's after
+# the call carry that round trip (e.g. 0.1 -> 0.09999999999999964), and edges
+# without the attribute gain it. The native kernels also chose a different
+# arborescence or edge order in ~20% of random cases. fnx now runs networkx's
+# wrappers over its maximum_branching, which already matched networkx exactly.
+_ROUND_TRIP_FUNCTIONS = [
+    "maximum_branching",
+    "minimum_branching",
+    "maximum_spanning_arborescence",
+    "minimum_spanning_arborescence",
+]
+
+
+def _call(module, name, G):
+    fn = getattr(module, name)
+    try:
+        H = fn(G)
+    except Exception as exc:
+        return type(exc).__name__, str(exc)
+    return type(H).__name__, list(H.nodes), list(H.edges(data=True))
+
+
+@pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph", "Graph"])
+@pytest.mark.parametrize("name", _ROUND_TRIP_FUNCTIONS)
+def test_result_and_input_after_the_call_match_networkx(name, cls_name):
+    import random
+
+    rng = random.Random(f"{name}-{cls_name}")
+    for _ in range(80):
+        n = rng.randint(1, 8)
+        edges = [
+            (rng.randrange(n), rng.randrange(n),
+             {"weight": rng.choice([1, 2, 3, 0.5, 0.1, 7.3, -2])} if rng.random() < 0.85 else {})
+            for _ in range(rng.randint(0, 20))
+        ]
+        edges = [e for e in edges if e[0] != e[1]]
+        outcomes = []
+        for module in (nx, fnx):
+            G = getattr(module, cls_name)()
+            G.add_nodes_from(range(n))
+            G.add_edges_from(edges)
+            outcomes.append((_call(module, name, G), list(G.edges(data=True))))
+        assert outcomes[1] == outcomes[0], (edges,)
+
+
+@pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+def test_minimum_spanning_arborescence_weight_round_trip_example():
+    # networkx's test_edge_augmentation::test_weight_key reached this through
+    # minimum_spanning_arborescence; the drift is networkx's, reproduced.
+    edges = [(0, 1, {"weight": 0.1}), (0, 2, {"weight": 0.7}), (1, 2, {"weight": 0.2})]
+    G = fnx.DiGraph(edges)
+    H = nx.DiGraph(edges)
+    A = fnx.minimum_spanning_arborescence(G)
+    B = nx.minimum_spanning_arborescence(H)
+    assert list(A.edges(data=True)) == list(B.edges(data=True))
+    assert list(G.edges(data=True)) == list(H.edges(data=True))
+    assert list(G.edges(data=True)) != edges  # networkx's own drift, kept

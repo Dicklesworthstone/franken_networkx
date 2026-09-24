@@ -2655,40 +2655,6 @@ fn extract_init_partition(
     Ok((included, excluded))
 }
 
-fn extract_edge_partition_from_attr(
-    py: Python<'_>,
-    dg: &PyDiGraph,
-    partition_attr: &str,
-) -> PyResult<(Vec<(String, String)>, Vec<(String, String)>)> {
-    let mut included = Vec::new();
-    let mut excluded = Vec::new();
-    for (left, right, _) in dg.inner.edges_ordered_borrowed() {
-        let key = PyDiGraph::edge_key(left, right);
-        let Some(attrs) = dg.edge_py_attrs.get(&key) else {
-            continue;
-        };
-        let attrs = attrs.bind(py);
-        let Ok(value) = attrs.get_item(partition_attr) else {
-            continue;
-        };
-        let Some(value) = value else {
-            continue;
-        };
-        let value_str = value.str()?;
-        let raw = value_str.to_str()?;
-        match raw {
-            "EdgePartition.INCLUDED" | "INCLUDED" | "Included" | "included" => {
-                included.push((left.to_owned(), right.to_owned()));
-            }
-            "EdgePartition.EXCLUDED" | "EXCLUDED" | "Excluded" | "excluded" => {
-                excluded.push((left.to_owned(), right.to_owned()));
-            }
-            _ => {}
-        }
-    }
-    Ok((included, excluded))
-}
-
 fn shuffled_spanning_edges_with_random(
     py: Python<'_>,
     inner: &fnx_classes::Graph,
@@ -2712,6 +2678,22 @@ fn ensure_random_spanning_weight_key(py: Python<'_>, pg: &PyGraph, weight: &str)
     for attrs in pg.edge_py_attrs.values() {
         if attrs.bind(py).get_item(weight)?.is_none() {
             return Err(pyo3::exceptions::PyKeyError::new_err(weight.to_owned()));
+        }
+    }
+    // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): unmaterialised
+    // edges keep their attrs only in the core; check those too.
+    if pg.edge_py_attrs.len() < pg.inner.edge_count() {
+        let names = pg.inner.nodes_ordered();
+        for (u, v, attrs) in pg.inner.edges_ordered_indices_borrowed() {
+            if pg
+                .edge_py_attrs
+                .contains_key(&PyGraph::edge_key(names[u], names[v]))
+            {
+                continue;
+            }
+            if !attrs.contains_key(weight) {
+                return Err(pyo3::exceptions::PyKeyError::new_err(weight.to_owned()));
+            }
         }
     }
     Ok(())
@@ -3593,6 +3575,32 @@ pub fn graph_has_negative_edge_weight(
     Ok(result)
 }
 
+/// The value a COO builder emits for one edge: the weight attribute as f64,
+/// `default_weight` when the attribute (or `weight_attr`) is absent, and
+/// `None` when it is present but not a Python int/float/bool. Anything else
+/// (complex, None, a list, any `str` — even "3.5", which numpy refuses to cast
+/// alongside numbers — all held as `String`/`Map` in the core) makes the
+/// builders return `None`, so the Python path hands the value to numpy, as
+/// networkx does; substituting the default silently turned `1+2j` into 1.0
+/// (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.6).
+fn coo_edge_weight(
+    attrs: Option<&AttrMap>,
+    weight_attr: Option<&str>,
+    default_weight: f64,
+) -> Option<f64> {
+    use fnx_runtime::CgseValue;
+    match (weight_attr, attrs) {
+        (Some(attr), Some(attrs)) => match attrs.get(attr) {
+            Some(value @ (CgseValue::Int(_) | CgseValue::Float(_) | CgseValue::Bool(_))) => {
+                value.as_f64()
+            }
+            Some(CgseValue::String(_) | CgseValue::Map(_)) => None,
+            None => Some(default_weight),
+        },
+        _ => Some(default_weight),
+    }
+}
+
 /// Build COO-format adjacency arrays (rows, cols, data) directly from
 /// the Rust storage.  Used by the Python ``to_scipy_sparse_array`` /
 /// ``to_numpy_array`` wrappers (br-r37-c1-lqlx2) to skip the per-edge
@@ -3641,9 +3649,9 @@ pub fn adjacency_arrays(
             for (u, v, attrs) in inner.edges_ordered_borrowed() {
                 let Some(&ui) = index.get(u) else { continue };
                 let Some(&vi) = index.get(v) else { continue };
-                let w = weight_attr
-                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                    .unwrap_or(default_weight);
+                let Some(w) = coo_edge_weight(Some(attrs), weight_attr, default_weight) else {
+                    return Ok(None);
+                };
                 rows.push(ui);
                 cols.push(vi);
                 data.push(w);
@@ -3664,9 +3672,9 @@ pub fn adjacency_arrays(
             for (u, v, attrs) in inner.edges_ordered_borrowed() {
                 let Some(&ui) = index.get(u) else { continue };
                 let Some(&vi) = index.get(v) else { continue };
-                let w = weight_attr
-                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                    .unwrap_or(default_weight);
+                let Some(w) = coo_edge_weight(Some(attrs), weight_attr, default_weight) else {
+                    return Ok(None);
+                };
                 rows.push(ui);
                 cols.push(vi);
                 data.push(w);
@@ -3713,6 +3721,12 @@ pub fn adjacency_index_arrays(
                         return Ok(None);
                     }
                 }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is lazy — unmaterialised edges keep their attrs only in
+                // the core, so the mirror alone cannot prove absence.
+                if pg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
+                }
             }
             let inner = &pg.inner;
             let edge_count = inner.edge_count();
@@ -3736,6 +3750,11 @@ pub fn adjacency_index_arrays(
                     if dict.bind(py).contains(attr)? {
                         return Ok(None);
                     }
+                }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): see
+                // the undirected arm — the lazy mirror cannot prove absence.
+                if dg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
                 }
             }
             let inner = &dg.inner;
@@ -3855,6 +3874,12 @@ pub fn adjacency_default_order_index_arrays(
                         return Ok(None);
                     }
                 }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
+                // mirror is lazy — unmaterialised edges keep their attrs only in
+                // the core, so the mirror alone cannot prove absence.
+                if pg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
+                }
             }
             let inner = &pg.inner;
             let mut rows = Vec::with_capacity(inner.edge_count() * 2);
@@ -3876,6 +3901,11 @@ pub fn adjacency_default_order_index_arrays(
                     if dict.bind(py).contains(attr)? {
                         return Ok(None);
                     }
+                }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): see
+                // the undirected arm — the lazy mirror cannot prove absence.
+                if dg.inner.any_edge_has_attr(attr) {
+                    return Ok(None);
                 }
             }
             let inner = &dg.inner;
@@ -3928,13 +3958,13 @@ pub fn adjacency_default_order_arrays(
                     continue;
                 };
                 for &col in neighbors {
-                    let w = inner
-                        .edge_attrs_by_indices(row, col)
-                        .and_then(|attrs| {
-                            weight_attr
-                                .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                        })
-                        .unwrap_or(default_weight);
+                    let Some(w) = coo_edge_weight(
+                        inner.edge_attrs_by_indices(row, col),
+                        weight_attr,
+                        default_weight,
+                    ) else {
+                        return Ok(None);
+                    };
                     rows.push(row);
                     cols.push(col);
                     data.push(w);
@@ -3952,9 +3982,9 @@ pub fn adjacency_default_order_arrays(
             // edge, no per-edge `edges.get(&(u,v))` hash. Order is edge-insertion;
             // COO assembly is order-independent.
             for ((u, v), attrs) in inner.edges_indexed() {
-                let w = weight_attr
-                    .and_then(|attr| attrs.get(attr).and_then(|val| val.as_f64()))
-                    .unwrap_or(default_weight);
+                let Some(w) = coo_edge_weight(Some(attrs), weight_attr, default_weight) else {
+                    return Ok(None);
+                };
                 rows.push(u);
                 cols.push(v);
                 data.push(w);
@@ -4420,6 +4450,15 @@ pub fn graph_has_explicit_nonunit_weight_fast(
             Err(_) => Ok(true),
         }
     };
+    // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2: `edge_py_attrs` is a
+    // LAZY mirror — it only holds edges whose Python dict has been materialised.
+    // A graph built natively (generators, batch constructors) has none until
+    // something like `edges(data=True)` runs, so scanning the mirror alone
+    // answered "no non-unit weight" for karate_club_graph and
+    // `community.modularity` silently took the unweighted path (0.3905 instead
+    // of 0.4266). A materialised dict stays authoritative for its edge (it holds
+    // post-construction Python mutations); every other edge is read from the
+    // native store. Erring toward "non-unit" only costs the fast path.
     let has_nonunit = match &gr {
         GraphRef::Undirected(pg) => {
             let mut found = false;
@@ -4427,6 +4466,21 @@ pub fn graph_has_explicit_nonunit_weight_fast(
                 if dict_has_nonunit(dict)? {
                     found = true;
                     break;
+                }
+            }
+            if !found && pg.edge_py_attrs.len() < pg.inner.edge_count() {
+                let names = pg.inner.nodes_ordered();
+                for (u, v, attrs) in pg.inner.edges_ordered_indices_borrowed() {
+                    if pg
+                        .edge_py_attrs
+                        .contains_key(&PyGraph::edge_key(names[u], names[v]))
+                    {
+                        continue;
+                    }
+                    if attrs.get(weight_attr).is_some_and(cgse_value_is_nonunit) {
+                        found = true;
+                        break;
+                    }
                 }
             }
             Some(found)
@@ -4439,11 +4493,37 @@ pub fn graph_has_explicit_nonunit_weight_fast(
                     break;
                 }
             }
+            if !found && dg.edge_py_attrs.len() < dg.inner.edge_count() {
+                let names = dg.inner.nodes_ordered();
+                for (u, v, attrs) in dg.inner.edges_ordered_indices_borrowed() {
+                    if dg
+                        .edge_py_attrs
+                        .contains_key(&(names[u].to_owned(), names[v].to_owned()))
+                    {
+                        continue;
+                    }
+                    if attrs.get(weight_attr).is_some_and(cgse_value_is_nonunit) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
             Some(found)
         }
         GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
     };
     Ok(has_nonunit)
+}
+
+/// Python's ``value != 1`` for a native attribute value (``True == 1`` in
+/// Python, so only ``Bool(false)`` is non-unit among booleans; NaN != 1).
+fn cgse_value_is_nonunit(value: &fnx_runtime::CgseValue) -> bool {
+    match value {
+        fnx_runtime::CgseValue::Bool(b) => !*b,
+        fnx_runtime::CgseValue::Int(i) => *i != 1,
+        fnx_runtime::CgseValue::Float(f) => *f != 1.0,
+        fnx_runtime::CgseValue::String(_) | fnx_runtime::CgseValue::Map(_) => true,
+    }
 }
 
 /// Native O(|E|) scan for any non-finite or non-numeric edge weight
@@ -10800,126 +10880,6 @@ pub fn maximum_branching(
     }
 }
 
-/// Return a minimum branching of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn minimum_branching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    if partition.is_some() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "edge partition constraints are not implemented for minimum_branching.",
-        ));
-    }
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let result =
-            py.allow_threads(move || fnx_algorithms::minimum_branching(inner, &attr_name, default));
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "minimum_branching is only implemented for directed graphs.",
-        ))
-    }
-}
-
-/// Return a maximum spanning arborescence of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn maximum_spanning_arborescence(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        if dg.inner.node_count() == 0 {
-            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
-        }
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let (included_edges, excluded_edges) = match partition {
-            Some(partition_attr) => extract_edge_partition_from_attr(py, dg, partition_attr)?,
-            None => (Vec::new(), Vec::new()),
-        };
-        let result = py.allow_threads(move || {
-            if included_edges.is_empty() && excluded_edges.is_empty() {
-                fnx_algorithms::maximum_spanning_arborescence(inner, &attr_name, default)
-            } else {
-                fnx_algorithms::maximum_spanning_arborescence_with_edge_partition(
-                    inner,
-                    &attr_name,
-                    default,
-                    &included_edges,
-                    &excluded_edges,
-                )
-            }
-        });
-        let result = result
-            .ok_or_else(|| NetworkXError::new_err("No maximum spanning arborescence in G."))?;
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "maximum_spanning_arborescence is only implemented for directed graphs.",
-        ))
-    }
-}
-
-/// Return a minimum spanning arborescence of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn minimum_spanning_arborescence(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        if dg.inner.node_count() == 0 {
-            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
-        }
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let (included_edges, excluded_edges) = match partition {
-            Some(partition_attr) => extract_edge_partition_from_attr(py, dg, partition_attr)?,
-            None => (Vec::new(), Vec::new()),
-        };
-        let result = py.allow_threads(move || {
-            if included_edges.is_empty() && excluded_edges.is_empty() {
-                fnx_algorithms::minimum_spanning_arborescence(inner, &attr_name, default)
-            } else {
-                fnx_algorithms::minimum_spanning_arborescence_with_edge_partition(
-                    inner,
-                    &attr_name,
-                    default,
-                    &included_edges,
-                    &excluded_edges,
-                )
-            }
-        });
-        let result = result
-            .ok_or_else(|| NetworkXError::new_err("No minimum spanning arborescence in G."))?;
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "minimum_spanning_arborescence is only implemented for directed graphs.",
-        ))
-    }
-}
-
 // ===========================================================================
 // Euler algorithms
 // ===========================================================================
@@ -11723,7 +11683,6 @@ pub fn stochastic_graph_copy_multidigraph(
         pred_key_rows: None,
         edge_keydict_cache: None,
         live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
-        live_edge_key_views: HashMap::new(),
         edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -16075,7 +16034,6 @@ pub fn multidigraph_transitive_closure(
         pred_key_rows: None,
         edge_keydict_cache: None,
         live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
-        live_edge_key_views: HashMap::new(),
         edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -16734,34 +16692,6 @@ fn rust_graph_to_py_binary(
         py_graph
             .edge_py_attrs
             .insert(ek, pyo3::types::PyDict::new(py).unbind());
-    }
-    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
-}
-
-fn rust_graph_to_py_with_source_edge_attrs(
-    py: Python<'_>,
-    result: &fnx_classes::Graph,
-    source_gr: &GraphRef<'_>,
-) -> PyResult<PyObject> {
-    let mut py_graph =
-        PyGraph::new_empty_with_policy(py, source_gr.undirected().runtime_policy().clone())?;
-    for node in result.nodes_ordered() {
-        let py_key = source_gr.py_node_key(py, node);
-        py_graph.node_key_map.insert(node.to_owned(), py_key);
-        py_graph
-            .node_py_attrs
-            .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
-        py_graph.inner.add_node(node);
-    }
-    for (left, right, _) in result.edges_ordered_borrowed() {
-        let _ = py_graph.inner.add_edge(left, right);
-        let ek = PyGraph::edge_key(left, right);
-        let attrs = if let Some(source_attrs) = source_gr.edge_attrs_for_undirected(left, right) {
-            source_attrs.bind(py).copy()?.unbind()
-        } else {
-            pyo3::types::PyDict::new(py).unbind()
-        };
-        py_graph.edge_py_attrs.insert(ek, attrs);
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
@@ -20058,27 +19988,6 @@ fn large_clique_size(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     Ok(result.len())
 }
 
-/// Compute a graph spanner with the given stretch.
-#[pyfunction]
-#[pyo3(signature = (g, stretch, weight=None, seed=None))]
-fn spanner(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    stretch: f64,
-    weight: Option<&str>,
-    seed: Option<u64>,
-) -> PyResult<PyObject> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "spanner")?;
-    let inner = gr.undirected();
-    let result = py
-        .allow_threads(|| fnx_algorithms::spanner(inner, stretch, weight, seed))
-        .map_err(|err| match err {
-            fnx_algorithms::SpannerError::InvalidStretch => PyValueError::new_err(err.to_string()),
-        })?;
-    rust_graph_to_py_with_source_edge_attrs(py, &result, &gr)
-}
-
 /// Fastest isomorphism pre-check (order + size only).
 #[pyfunction]
 #[pyo3(signature = (g1, g2))]
@@ -21158,122 +21067,6 @@ fn is_simple_path(
             }
         }
     }
-}
-
-// ===========================================================================
-// Matching validators — is_matching, is_maximal_matching, is_perfect_matching
-// ===========================================================================
-
-/// Extract edge pairs from any iterable of 2-tuples (list, set, etc.).
-fn extract_matching_edges(
-    py: Python<'_>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<Vec<(String, String)>> {
-    use pyo3::types::PyDict;
-    // br-matchingdict: nx accepts both ``set`` of (u,v) edges and
-    // ``dict``-form matchings ({u: v, v: u, ...}). For the dict form,
-    // iterating yields keys only, so the per-element ``get_item(0)``
-    // path fails. Detect dict-shape input and read both u and the
-    // mate via ``__getitem__`` instead.
-    if let Ok(dict) = matching.downcast::<PyDict>() {
-        let mut edges = Vec::with_capacity(dict.len());
-        let mut seen = std::collections::HashSet::<(String, String)>::new();
-        for (k, v) in dict.iter() {
-            let u_s = node_key_to_string(py, &k)?;
-            let v_s = node_key_to_string(py, &v)?;
-            // Each unordered pair appears twice (u→v and v→u); skip
-            // the duplicate so the validator sees a clean edge list.
-            let canon = if u_s <= v_s {
-                (u_s.clone(), v_s.clone())
-            } else {
-                (v_s.clone(), u_s.clone())
-            };
-            if seen.insert(canon) {
-                edges.push((u_s, v_s));
-            }
-        }
-        return Ok(edges);
-    }
-
-    let mut edges = Vec::new();
-    for item in matching.try_iter()? {
-        let pair = item?;
-        let u = pair.get_item(0)?;
-        let v = pair.get_item(1)?;
-        edges.push((node_key_to_string(py, &u)?, node_key_to_string(py, &v)?));
-    }
-    Ok(edges)
-}
-
-/// Validate that every endpoint in ``edges`` is a node of ``inner``;
-/// raise a NetworkXError matching nx's wording if not. nx's
-/// ``is_matching`` raises (rather than returning False) when an
-/// edge references a node missing from G.
-fn ensure_matching_nodes_in_graph(
-    inner: &fnx_classes::Graph,
-    edges: &[(String, String)],
-) -> PyResult<()> {
-    for (u, v) in edges {
-        if !inner.has_node(u) {
-            return Err(NetworkXError::new_err(format!(
-                "matching contains edge ({u}, {v}) with node not in G"
-            )));
-        }
-        if !inner.has_node(v) {
-            return Err(NetworkXError::new_err(format!(
-                "matching contains edge ({u}, {v}) with node not in G"
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Return True if `matching` is a valid matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_matching(inner, &edges)))
-}
-
-/// Return True if `matching` is a maximal matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_maximal_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_maximal_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_maximal_matching(inner, &edges)))
-}
-
-/// Return True if `matching` is a perfect matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_perfect_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_perfect_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_perfect_matching(inner, &edges)))
 }
 
 // ===========================================================================
@@ -24714,29 +24507,6 @@ pub fn girth(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<usize>> {
     Ok(py.allow_threads(|| fnx_algorithms::girth(inner)))
 }
 
-#[pyfunction]
-#[pyo3(signature = (g, source, weight = "weight"))]
-pub fn find_negative_cycle(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    source: &Bound<'_, PyAny>,
-    weight: &str,
-) -> PyResult<Vec<PyObject>> {
-    sync_rust_edge_attrs_if_available(g)?;
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "find_negative_cycle")?;
-    let src = node_key_to_string(py, source)?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
-        let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::find_negative_cycle(__wp, &src, weight))
-    };
-    match result {
-        Some(cycle) => Ok(cycle.iter().map(|n| gr.py_node_key(py, n)).collect()),
-        None => Err(crate::NetworkXError::new_err("No negative cycle found.")),
-    }
-}
-
 // ===========================================================================
 // Graph predicates
 // ===========================================================================
@@ -25185,32 +24955,6 @@ pub fn edge_dfs(
 // ===========================================================================
 // Matching algorithms — additional
 // ===========================================================================
-
-#[pyfunction]
-#[pyo3(signature = (g, edges))]
-pub fn is_edge_cover(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    edges: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_edge_cover")?;
-    let inner = gr.undirected();
-    let edge_iter = edges.try_iter()?;
-    let mut edge_pairs: Vec<(String, String)> = Vec::new();
-    for item in edge_iter {
-        let item = item?;
-        let tuple = item.downcast::<pyo3::types::PyTuple>()?;
-        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
-        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        edge_pairs.push((u, v));
-    }
-    let edge_refs: Vec<(&str, &str)> = edge_pairs
-        .iter()
-        .map(|(u, v)| (u.as_str(), v.as_str()))
-        .collect();
-    Ok(py.allow_threads(|| fnx_algorithms::is_edge_cover(inner, &edge_refs)))
-}
 
 #[pyfunction]
 #[pyo3(signature = (g, weight = "weight"))]
@@ -28637,10 +28381,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(prim_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(bipartite_hopcroft_karp_matching, m)?)?;
     m.add_function(wrap_pyfunction!(approx_average_clustering, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_spanning_arborescence, m)?)?;
     // Euler
     m.add_function(wrap_pyfunction!(is_eulerian, m)?)?;
     m.add_function(wrap_pyfunction!(has_eulerian_path, m)?)?;
@@ -28705,9 +28445,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(maximum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_spanning_arborescence, m)?)?;
     // Strongly connected components
     m.add_function(wrap_pyfunction!(strongly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;
@@ -28852,7 +28589,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(max_clique, m)?)?;
     m.add_function(wrap_pyfunction!(clique_removal, m)?)?;
     m.add_function(wrap_pyfunction!(large_clique_size, m)?)?;
-    m.add_function(wrap_pyfunction!(spanner, m)?)?;
     // Tree recognition
     m.add_function(wrap_pyfunction!(is_arborescence, m)?)?;
     m.add_function(wrap_pyfunction!(is_branching, m)?)?;
@@ -28869,10 +28605,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(path_exists_rust, m)?)?;
     m.add_function(wrap_pyfunction!(path_weight_rust, m)?)?;
     m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
-    // Matching validators
-    m.add_function(wrap_pyfunction!(is_matching, m)?)?;
-    m.add_function(wrap_pyfunction!(is_maximal_matching, m)?)?;
-    m.add_function(wrap_pyfunction!(is_perfect_matching, m)?)?;
     // Cycles
     m.add_function(wrap_pyfunction!(simple_cycles, m)?)?;
     m.add_function(wrap_pyfunction!(find_cycle, m)?)?;
@@ -28937,7 +28669,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_attracting_component, m)?)?;
     // Cycle algorithms — additional
     m.add_function(wrap_pyfunction!(girth, m)?)?;
-    m.add_function(wrap_pyfunction!(find_negative_cycle, m)?)?;
     // Graph predicates
     m.add_function(wrap_pyfunction!(is_graphical, m)?)?;
     m.add_function(wrap_pyfunction!(is_digraphical, m)?)?;
@@ -28954,7 +28685,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(edge_bfs, m)?)?;
     m.add_function(wrap_pyfunction!(edge_dfs, m)?)?;
     // Matching algorithms — additional
-    m.add_function(wrap_pyfunction!(is_edge_cover, m)?)?;
     m.add_function(wrap_pyfunction!(max_weight_clique, m)?)?;
     // DAG algorithms — additional
     m.add_function(wrap_pyfunction!(is_aperiodic, m)?)?;
@@ -33535,7 +33265,6 @@ mod tests {
                 neighbor_key_rows: None,
                 edge_keydict_cache: None,
                 live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
-                live_edge_key_views: HashMap::new(),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

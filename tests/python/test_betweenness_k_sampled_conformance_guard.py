@@ -171,3 +171,33 @@ def test_k_sampled_edge_betweenness_uses_native_route(monkeypatch, normalized):
     assert set(fr) == set(nr)
     for e in nr:
         assert fr[e] == pytest.approx(nr[e], abs=1e-9)
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("endpoints", [False, True])
+@pytest.mark.parametrize("normalized", [True, False])
+def test_k_zero_raises_zero_division_like_networkx(directed, endpoints, normalized):
+    # nro4w.7: networkx's _rescale divides by the sample size; the native
+    # sampled rescale's float 0/0 returned NaN for every node instead.
+    create = fnx.DiGraph if directed else None
+    G = fnx.cycle_graph(4, create_using=create)
+    with pytest.raises(ZeroDivisionError):
+        nx.betweenness_centrality(
+            nx.cycle_graph(4, create_using=nx.DiGraph if directed else None),
+            k=0, endpoints=endpoints, normalized=normalized,
+        )
+    with pytest.raises(ZeroDivisionError):
+        fnx.betweenness_centrality(G, k=0, endpoints=endpoints, normalized=normalized)
+
+
+@pytest.mark.parametrize("endpoints", [False, True])
+def test_k_zero_below_two_pairs_returns_networkx_zeros(endpoints):
+    # N = n (endpoints) or n - 1 < 2: networkx skips the rescale entirely.
+    for n in (1, 2):
+        try:
+            expected = nx.betweenness_centrality(nx.path_graph(n), k=0, endpoints=endpoints)
+        except ZeroDivisionError:
+            with pytest.raises(ZeroDivisionError):
+                fnx.betweenness_centrality(fnx.path_graph(n), k=0, endpoints=endpoints)
+        else:
+            assert fnx.betweenness_centrality(fnx.path_graph(n), k=0, endpoints=endpoints) == expected

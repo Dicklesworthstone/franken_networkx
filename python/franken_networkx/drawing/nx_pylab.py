@@ -146,21 +146,18 @@ def _delegate_draw(name, G, *args, **kwargs):
 
 
 def _wrap_nx_drawing(name):
-    """Build a thin delegator whose introspectable signature matches nx.
+    """Build a thin delegator to networkx's drawing function ``name``.
 
-    nx exposes per-arg surfaces (e.g. draw_networkx_edges has 18 keyword
-    parameters). The previous wrappers used (G, *args, **kwargs), which
-    collapsed inspect.signature() output. We copy nx's __doc__ /
-    __name__ / __qualname__ / __signature__ so introspection lines up
-    (br-r37-c1-hz9k5).
-
-    br-r37-c1-hiplx: avoid functools.wraps because it sets
-    __wrapped__, which makes inspect.getsource() (and the coverage
-    classifier) follow back to nx's source — flagging the wrapper
-    as NX_DELEGATED. Manual attribute copy preserves
-    introspection without leaking the underlying source.
+    These functions ARE networkx's: the graph is converted and networkx's
+    matplotlib code draws it. ``__wrapped__`` says so, which gives
+    ``inspect.signature()`` nx's full per-argument surface (br-r37-c1-hz9k5)
+    and lets the coverage classifier see the delegation.
+    br-r37-c1-rc0923-epic-honest-measurement-vbneu.1: the previous version
+    (br-r37-c1-hiplx) copied a borrowed ``__signature__`` and deliberately
+    omitted ``__wrapped__`` so the classifier would NOT count these as
+    networkx-delegated; the docs then reported them as fnx code.
     """
-    import inspect as _inspect_mod
+    import functools as _functools
     import networkx as nx
 
     nx_func = getattr(nx, name)
@@ -168,14 +165,10 @@ def _wrap_nx_drawing(name):
     def wrapper(G, *args, **kwargs):
         return _delegate_draw(name, G, *args, **kwargs)
 
-    wrapper.__name__ = nx_func.__name__
-    wrapper.__qualname__ = nx_func.__qualname__
-    wrapper.__doc__ = nx_func.__doc__
-    try:
-        wrapper.__signature__ = _inspect_mod.signature(nx_func)
-    except (TypeError, ValueError):
-        pass
-    return wrapper
+    # Keep fnx's own __module__; take the public identity and docs from nx.
+    return _functools.update_wrapper(
+        wrapper, nx_func, assigned=("__name__", "__qualname__", "__doc__")
+    )
 
 
 draw = _wrap_nx_drawing("draw")
