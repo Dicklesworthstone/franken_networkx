@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import importlib.util
 import stat
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "fuzz_corpus_replay.py"
@@ -78,6 +81,44 @@ def test_the_build_queues_for_a_worker_and_instruments_only_the_target(tmp_path)
     flags = command[command.index("--config") + 1]
     assert flags.startswith("build.rustflags=[") and "-Cpasses=sancov-module" in flags
     assert '"--cfg","fuzzing"' in flags
+
+
+class _FakeRun:
+    """Stands in for subprocess.run, returning the given exit codes in turn."""
+
+    def __init__(self, codes):
+        self.codes, self.calls = list(codes), 0
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        return subprocess.CompletedProcess(args, self.codes.pop(0))
+
+
+def test_the_build_retries_rch_refusals_a_bounded_number_of_times(tmp_path, monkeypatch, capsys):
+    # The second DSR run on 2026-09-24 failed this check: every rch worker was
+    # under critical pressure or short of slots, which RCH_QUEUE_WHEN_BUSY
+    # does not wait out.
+    monkeypatch.setattr(replay.time, "sleep", lambda seconds: None)
+    fake = _FakeRun([103, 103, 0])
+    monkeypatch.setattr(replay.subprocess, "run", fake)
+    replay.build(2, tmp_path, attempts=5, wait_seconds=1)
+    assert fake.calls == 3
+    assert capsys.readouterr().out.count("rch admitted no worker") == 2
+
+    fake = _FakeRun([103] * 3)
+    monkeypatch.setattr(replay.subprocess, "run", fake)
+    with pytest.raises(SystemExit, match="exit 103, attempt 3 of 3"):
+        replay.build(2, tmp_path, attempts=3, wait_seconds=1)
+    assert fake.calls == 3
+
+
+def test_a_real_build_failure_is_not_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(replay.time, "sleep", lambda seconds: None)
+    fake = _FakeRun([101, 0])
+    monkeypatch.setattr(replay.subprocess, "run", fake)
+    with pytest.raises(SystemExit, match="exit 101, attempt 1 of 20"):
+        replay.build(2, tmp_path)
+    assert fake.calls == 1
 
 
 def test_the_repo_declares_a_corpus_for_every_fuzz_bin():

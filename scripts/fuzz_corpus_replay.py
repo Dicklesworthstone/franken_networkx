@@ -37,6 +37,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FUZZ = ROOT / "fuzz"
 TRIPLE = "x86_64-unknown-linux-gnu"
+RCH_RETRYABLE = 103  # "remote required; refusing local fallback (no admissible workers ...) — retryable"
 BIN_RE = re.compile(r'^\[\[bin\]\]\s*\nname\s*=\s*"([^"]+)"', re.MULTILINE)
 # cargo-fuzz's instrumentation with its sanitizer set to none. Passing
 # --target keeps these flags off build scripts and proc macros.
@@ -75,11 +76,24 @@ def build_command(jobs: int, fuzz_dir: Path = FUZZ) -> tuple[list[str], dict[str
     return command, env
 
 
-def build(jobs: int, fuzz_dir: Path = FUZZ) -> None:
+def build(jobs: int, fuzz_dir: Path = FUZZ, attempts: int = 20, wait_seconds: int = 60) -> None:
+    """Build every fuzz target on an rch worker.
+
+    rch exits RCH_RETRYABLE when no worker is admissible at all (critical
+    pressure, too few slots), which RCH_QUEUE_WHEN_BUSY does not cover. That
+    refusal is retried a bounded number of times, each one announced; any
+    other failure, or the last refusal, fails the build.
+    """
     command, env = build_command(jobs, fuzz_dir)
-    proc = subprocess.run(command, cwd=fuzz_dir.parent, env=env, timeout=5400, check=False)  # nosec B603 B607
-    if proc.returncode != 0:
-        raise SystemExit(f"fuzz build failed (exit {proc.returncode})")
+    for attempt in range(1, attempts + 1):
+        proc = subprocess.run(command, cwd=fuzz_dir.parent, env=env, timeout=5400, check=False)  # nosec B603 B607
+        if proc.returncode == 0:
+            return
+        if proc.returncode != RCH_RETRYABLE or attempt == attempts:
+            raise SystemExit(f"fuzz build failed (exit {proc.returncode}, attempt {attempt} of {attempts})")
+        print(f"rch admitted no worker (exit {RCH_RETRYABLE}); attempt {attempt} of {attempts}, "
+              f"retrying in {wait_seconds}s", flush=True)
+        time.sleep(wait_seconds)
 
 
 def replay(name: str, *, fuzz_dir: Path = FUZZ, budget_seconds: int = 0, input_timeout: int = 60,
