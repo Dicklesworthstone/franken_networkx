@@ -2700,43 +2700,6 @@ fn ensure_random_spanning_weight_key(py: Python<'_>, pg: &PyGraph, weight: &str)
     Ok(())
 }
 
-fn directed_branching_to_pydigraph(
-    py: Python<'_>,
-    dg: &PyDiGraph,
-    edges: &[fnx_algorithms::BranchingEdge],
-    attr: &str,
-    preserve_attrs: bool,
-) -> PyResult<PyDiGraph> {
-    let runtime_policy = dg.inner.runtime_policy().clone();
-    let mut tree = PyDiGraph::new_empty_with_policy(py, runtime_policy.clone())?;
-    for node in dg.inner.nodes_ordered() {
-        let py_key = dg.py_node_key(py, node);
-        tree.node_key_map.insert(node.to_owned(), py_key);
-        tree.node_py_attrs
-            .insert(node.to_owned(), PyDict::new(py).unbind());
-        tree.inner.add_node(node);
-    }
-    for edge in edges {
-        let _ = tree.inner.add_edge(&edge.left, &edge.right);
-        let attrs = if preserve_attrs {
-            match dg
-                .edge_py_attrs
-                .get(&(edge.left.clone(), edge.right.clone()))
-            {
-                Some(dict) => dict.bind(py).copy()?,
-                None => PyDict::new(py),
-            }
-        } else {
-            PyDict::new(py)
-        };
-        attrs.set_item(attr, edge.weight)?;
-        tree.edge_py_attrs
-            .insert((edge.left.clone(), edge.right.clone()), attrs.unbind());
-    }
-    tree.inner.set_runtime_policy(runtime_policy);
-    Ok(tree)
-}
-
 // ---------------------------------------------------------------------------
 // shortest_path
 // ---------------------------------------------------------------------------
@@ -10875,36 +10838,6 @@ pub fn random_spanning_tree(
         .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
         .collect::<Vec<_>>();
     undirected_spanning_edges_to_pygraph(py, pg, &edge_pairs)
-}
-
-/// Return a maximum branching of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn maximum_branching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    if partition.is_some() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "edge partition constraints are not implemented for maximum_branching.",
-        ));
-    }
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let result =
-            py.allow_threads(move || fnx_algorithms::maximum_branching(inner, &attr_name, default));
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "maximum_branching is only implemented for directed graphs.",
-        ))
-    }
 }
 
 // ===========================================================================
@@ -28566,7 +28499,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Spanning trees
     m.add_function(wrap_pyfunction!(maximum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_spanning_edges, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
     // Strongly connected components
     m.add_function(wrap_pyfunction!(strongly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;
