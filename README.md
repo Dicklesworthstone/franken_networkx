@@ -68,7 +68,7 @@ There are several existing approaches to "faster NetworkX." Each has tradeoffs t
 
 The discipline difference is enforced by tooling, not goodwill:
 
-- The Python parity suite (`tests/python/`, about 1,100 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording. It is run in guarded shards; the DSR quality run executes four of its files today (making the whole suite a gate is `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`).
+- The Python parity suite (`tests/python/`, about 1,100 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording. The DSR quality run executes the whole suite in guarded shards (`scripts/run_python_parity_suite.py`; 68,318 passed and 0 failed on 2026-09-24).
 - The generated coverage matrix under `docs/` is compared on every DSR quality run, so `__all__` drift, a signature change, or an export that gains a directly visible NetworkX route fails it.
 - The CGSE complexity-witness ledger gives every algorithm execution a reproducible length-prefixed Blake3 receipt, so behavioral parity can be regression-locked, not just spot-checked.
 
@@ -927,8 +927,9 @@ The quality run executes these checks in order (config: `.dsr/repos.d/franken_ne
 | 5 | docs | `scripts/verify_docs.py`: README/docs links, every Python block in the Markdown and every `examples/*.py` script executed, `docs/coverage.md` drift |
 | 6 | Python parity (subset) and generated reports | `scripts/run_pytest_guarded.sh` on `test_instance_dict_memory_leak.py`, `test_error_messages.py`, `test_thread_safety.py`; the drift checks of `docs/coverage.md` (`test_coverage_gaps.py`) and `docs/unused_raw_exposures.md` (`test_unused_raw_exposures.py`); and the generator tests `test_delegation_ledger.py`, `test_raw_vs_public_audit.py`, `test_upstream_divergence_ledger.py`, `test_api_ergonomics_audit.py`, which run those generators and check their output's contracts but do not compare the committed ledgers |
 | 7 | NetworkX's own test suite | `scripts/run_upstream_networkx_suite.py`: NetworkX 3.6.1's suite with fnx as the test backend (about 7 minutes), held to `artifacts/upstream_suite/ratchet_v1.json`. It fails on any failure the ratchet does not name with a reason, or when the pass count drops below the ratchet's floor. |
+| 8 | Full Python parity suite | `scripts/run_python_parity_suite.py --workers 4`: every `tests/python/test_*.py` file in shards of explicit file lists, each through `scripts/run_pytest_guarded.sh`; fails on any failed, errored or timed-out shard and refuses to start with less than 20 GB free disk. On 2026-09-24: 1,101 files, 68,318 passed, 0 failed, 28 minutes with 4 workers. |
 
-Not gated yet, and run on demand: the full Python parity suite (in guarded shards), the conformance replay, the performance harnesses, UBS, the fuzz targets and the RaptorQ scrub. Promoting these into the DSR run is tracked in `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`.
+Not gated yet, and run on demand: the conformance replay, the performance harnesses, UBS, the fuzz targets and the RaptorQ scrub. Promoting these into the DSR run is tracked in `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`.
 
 ---
 
@@ -2655,7 +2656,7 @@ The security doctrine in `AGENTS.md` covers four threat surfaces:
 In rough priority order (`bv --robot-triage` shows the current bead backlog):
 
 1. **Strict/Hardened runtime mode exposure** (shipped in `br-r37-c1-9a8bo`). Process-wide and thread-local mode switches via `fnx.config` and context managers, read kwargs, `DecisionRecord` ledger, and 24+24 parity/recovery fixtures.
-2. **One quality authority that runs the whole evidence set.** GitHub Actions is retired (its last run, `34406228506` on 2026-09-09, was green); DSR is now the only quality and release authority, and bringing the full Python parity suite, the conformance harness, fuzz smoke and NetworkX's own test suite under it is `br-r37-c1-rc0923-epic-evidence-authority-hhj5p`.
+2. **One quality authority that runs the whole evidence set.** GitHub Actions is retired (its last run, `34406228506` on 2026-09-09, was green); DSR is now the only quality and release authority. It runs the full Python parity suite, the conformance crate's tests and NetworkX's own test suite (held to a ratchet); bringing the conformance replay and fuzz smoke under it is the rest of `br-r37-c1-rc0923-epic-evidence-authority-hhj5p`.
 3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining NetworkX-bound exports.** On the default path, 35 of 41 commonly used functions execute no NetworkX code; the always-NetworkX ones today are `max_weight_matching`, `min_weight_matching`, `maximum_branching`, weighted/self-loop Louvain, greedy modularity, `simple_cycles` and `k_components`, and several functions still reach NetworkX for specific argument shapes. Move them to native kernels while preserving the parity contract.
