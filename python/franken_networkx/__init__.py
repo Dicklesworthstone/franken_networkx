@@ -2929,12 +2929,90 @@ class AtlasView(_Mapping):
 # an extension type a virtual ``collections.abc.Mapping`` subclass on its own.
 # Register it once so callers see the same abstract type as NetworkX's view.
 _Mapping.register(_fnx.AtlasView)
-if hasattr(_fnx, "MultiEdgeKeyView"):
-    _Mapping.register(_fnx.MultiEdgeKeyView)
-    _MutableMapping.register(_fnx.MultiEdgeKeyView)
-if hasattr(_fnx, "MultiDiEdgeKeyView"):
-    _Mapping.register(_fnx.MultiDiEdgeKeyView)
-    _MutableMapping.register(_fnx.MultiDiEdgeKeyView)
+
+
+class _MultiEdgeKeydict(dict):
+    """A multigraph edge's keydict: ``G.get_edge_data(u, v)`` / ``G._adj[u][v]``.
+
+    br-r37-c1-rc0923-epic-honest-measurement-vbneu.3. networkx returns its own
+    storage dict here, so this is a real ``dict``: json, pickle, copy, ``|`` and
+    ``isinstance(d, dict)`` behave as in networkx (pickle/copy give a plain
+    ``dict``, like networkx's). The graph keeps its contents in step with every
+    edge mutation (from Rust, through the C-level dict API, which bypasses the
+    overrides below). Writes made through it are forwarded to the graph —
+    inserting a key adds an edge, deleting one removes it — as they are in
+    networkx. Once the graph drops it (node removal, ``clear``, the pair's last
+    edge removed through the graph) ``_fnx_graph`` is ``None`` and it is an
+    ordinary dict.
+    """
+
+    __slots__ = ("_fnx_graph", "_fnx_u", "_fnx_v")
+
+    def __init__(self, *args, **kwargs):
+        self._fnx_graph = None
+        dict.__init__(self, *args, **kwargs)
+
+    def __setitem__(self, key, datadict):
+        graph = self._fnx_graph
+        if graph is None:
+            dict.__setitem__(self, key, datadict)
+        else:
+            graph._fnx_keydict_store(self._fnx_u, self._fnx_v, key, datadict)
+
+    def __delitem__(self, key):
+        graph = self._fnx_graph
+        if graph is None:
+            dict.__delitem__(self, key)
+        else:
+            graph._fnx_keydict_remove(self, self._fnx_u, self._fnx_v, key)
+
+    def pop(self, key, *default):
+        if len(default) > 1:
+            raise TypeError(f"pop expected at most 2 arguments, got {1 + len(default)}")
+        if key in self:
+            datadict = self[key]
+            del self[key]
+            return datadict
+        if default:
+            return default[0]
+        raise KeyError(key)
+
+    def popitem(self):
+        if not self:
+            raise KeyError("popitem(): dictionary is empty")
+        key = next(reversed(self))
+        datadict = self[key]
+        del self[key]
+        return key, datadict
+
+    def clear(self):
+        for key in list(self):
+            del self[key]
+
+    def setdefault(self, key, default=None):
+        if key not in self:
+            self[key] = {} if default is None else default
+        return self[key]
+
+    def update(self, other=(), /, **kwargs):
+        if hasattr(other, "keys"):
+            for key in other.keys():
+                self[key] = other[key]
+        else:
+            for key, datadict in other:
+                self[key] = datadict
+        for key, datadict in kwargs.items():
+            self[key] = datadict
+
+    def __ior__(self, other):
+        self.update(other)
+        return self
+
+    def __reduce__(self):
+        return (dict, (dict(self),))
+
+
+_fnx._set_multigraph_keydict_class(_MultiEdgeKeydict)
 
 
 def _graph_is_filtered(graph, _depth=0):

@@ -122,17 +122,25 @@ def test_warm_read_then_attribute_mutation_is_visible(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
-def test_the_returned_mapping_is_a_copy_not_the_cache(cls_name):
+def test_writing_into_the_result_keeps_every_reader_consistent(cls_name):
     """Writing into the result must not corrupt what the next reader sees.
 
-    The cache hands back a shallow COPY precisely so a caller's `d[k] = {}`
-    cannot invent a key that `G.edges` does not have.
+    Reconciled under br-r37-c1-rc0923-epic-honest-measurement-vbneu.3. This
+    used to pin a COPY contract (`d[7] = {...}` must NOT appear on the next
+    read). networkx has no such contract: `get_edge_data(u, v)` returns its own
+    keydict, so the write creates a real edge. What the test protects is the
+    part that matters for a cache — the mapping, `G.edges` and the edge count
+    agree after the write, exactly as in networkx.
     """
     gnx, gfx, u, v = _pair(cls_name)
-    got = gfx.get_edge_data(u, v)
-    got[7] = {"weight": 7.0}
-    assert 7 not in gfx.get_edge_data(u, v)
+    for graph in (gnx, gfx):
+        graph.get_edge_data(u, v)[7] = {"weight": 7.0}
+    assert 7 in gfx.get_edge_data(u, v)
     assert _same(gnx, gfx, u, v)
+    assert sorted(map(repr, gfx.edges(keys=True, data=True))) == sorted(
+        map(repr, gnx.edges(keys=True, data=True))
+    )
+    assert gfx.number_of_edges() == gnx.number_of_edges()
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
