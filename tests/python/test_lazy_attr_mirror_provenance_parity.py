@@ -52,6 +52,51 @@ def test_modularity_uses_weights_on_generator_graphs(gen, touch):
     )
 
 
+def _karate_rows():
+    return list(nx.karate_club_graph().edges(data=True))
+
+
+def _via_add_edges_from():
+    G = fnx.Graph()
+    G.add_edges_from(_karate_rows())
+    return G
+
+
+def _via_add_weighted_edges_from():
+    G = fnx.Graph()
+    G.add_weighted_edges_from((u, v, d["weight"]) for u, v, d in _karate_rows())
+    return G
+
+
+# Every construction path the graph core has for weighted edges; each yields a
+# graph whose Python attr mirror may or may not be materialised.
+PROVENANCE = {
+    "generator": fnx.karate_club_graph,
+    "add_edges_from": _via_add_edges_from,
+    "add_weighted_edges_from": _via_add_weighted_edges_from,
+    "from_networkx": lambda: fnx.Graph(nx.karate_club_graph()),
+    "copy": lambda: fnx.karate_club_graph().copy(),
+    "subgraph_copy": lambda: fnx.karate_club_graph().subgraph(range(34)).copy(),
+}
+
+
+@pytest.mark.parametrize("provenance", sorted(PROVENANCE))
+def test_weight_readers_agree_across_provenance(provenance, touch):
+    gnx = nx.karate_club_graph()
+    comms = [set(c) for c in nx.community.louvain_communities(gnx, seed=7)]
+    gfx = touch(PROVENANCE[provenance]())
+    assert fnx.community.modularity(gfx, comms) == pytest.approx(
+        nx.community.modularity(gnx, comms), abs=1e-12
+    )
+    # Edge-list builds order nodes by first appearance, so fix the node order.
+    nodelist = list(range(34))
+    np.testing.assert_allclose(
+        fnx.to_scipy_sparse_array(fnx.DiGraph(gfx), nodelist=nodelist).toarray(),
+        nx.to_scipy_sparse_array(nx.DiGraph(gnx), nodelist=nodelist).toarray(),
+    )
+    assert fnx.MultiGraph(gfx).size(weight="weight") == pytest.approx(gnx.size(weight="weight"))
+
+
 def _edge_rows(G):
     if G.is_multigraph():
         return [(str(u), str(v), k, dict(d)) for u, v, k, d in G.edges(keys=True, data=True)]
