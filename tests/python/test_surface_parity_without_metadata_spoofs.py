@@ -52,6 +52,49 @@ def test_classifier_flags_declared_class_signature():
         assert not cm._declared_class_signature_spoof(getattr(fnx, name))
 
 
+def test_classifier_flags_declared_callable_signature_without_forwarding_target():
+    cm = _coverage_matrix()
+
+    def spoofed(*args, **kwargs):
+        return None
+
+    spoofed.__signature__ = inspect.signature(nx.shortest_path)
+    assert cm._declared_callable_signature_spoof(spoofed)
+
+    def honest(G, source=None):
+        return None
+
+    honest.__signature__ = inspect.signature(honest)  # declared == code
+    assert not cm._declared_callable_signature_spoof(honest)
+    # Forwarders that name their target (drawing delegates to networkx; the
+    # dispatch wrappers forward to fnx kernels) are left to behaviour tests.
+    for name in ("draw", "draw_networkx_edges", "pagerank", "shortest_path"):
+        assert not cm._declared_callable_signature_spoof(getattr(fnx, name))
+    # Namespace routers are resolved to their target: honest when the
+    # declared shape IS the target's, flagged when it is not.
+    assert not cm._declared_callable_signature_spoof(fnx_algorithms.adamic_adar_index)
+    assert not cm._declared_callable_signature_spoof(fnx_algorithms.all_pairs_dijkstra)
+
+    def _make_router(_name):
+        def _routed(*args, **kwargs):
+            return getattr(fnx, _name)(*args, **kwargs)
+
+        _routed.__signature__ = inspect.signature(nx.shortest_path)  # not density's
+        return _routed
+
+    assert cm._declared_callable_signature_spoof(_make_router("density"))
+
+
+def test_drawing_names_its_networkx_target():
+    """The drawing helpers delegate to networkx and must say so (vbneu.1)."""
+    for name in ("draw", "draw_networkx", "draw_networkx_nodes", "draw_networkx_edges",
+                 "draw_networkx_labels", "draw_networkx_edge_labels"):
+        fn = getattr(fnx.drawing.nx_pylab, name)
+        assert fn.__wrapped__ is getattr(nx, name)
+        assert inspect.signature(fn) == inspect.signature(getattr(nx, name))
+        assert fn.__module__.startswith("franken_networkx")
+
+
 def test_classifier_flags_type_claiming_a_networkx_module_it_is_not_in():
     cm = _coverage_matrix()
 
