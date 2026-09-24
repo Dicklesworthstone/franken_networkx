@@ -80,7 +80,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
 /// clamp the caller cannot see hands back a smaller graph than was asked for
 /// with nothing to say so (nro4w.9). Strict mode never produces these; it
 /// fails closed or builds what networkx builds.
-fn warn_recoveries(py: Python<'_>, warnings: &[String]) -> PyResult<()> {
+pub(crate) fn warn_recoveries(py: Python<'_>, warnings: &[String]) -> PyResult<()> {
     let category = py.get_type::<PyRuntimeWarning>();
     for warning in warnings {
         let message = std::ffi::CString::new(warning.as_str())

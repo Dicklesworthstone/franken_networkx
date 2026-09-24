@@ -471,3 +471,24 @@ def test_unsupported_graphml_attr_type_strict_fails_closed_hardened_records():
     assert G.nodes["a"]["z"] == "1+2j"
     reasons = [r["rationale"] for r in G.decision_records() if r["action"] == "full_validate"]
     assert any("unsupported attr.type `complex`" in reason for reason in reasons)
+
+
+def test_hardened_read_recovery_warns_at_the_call_site():
+    """nro4w.10: the recovery above is recorded in G.decision_records(), but a
+    caller who does not query that ledger had no signal. It now also arrives
+    as a RuntimeWarning naming the recovery."""
+    payload = UNSUPPORTED_ATTR_TYPE_GRAPHML.encode()
+    with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+        G = fnx.read_graphml(io.BytesIO(payload), mode="hardened")
+    assert G.nodes["a"]["z"] == "1+2j"
+
+
+def test_strict_and_clean_hardened_reads_emit_no_recovery_warnings():
+    import warnings
+
+    clean = UNSUPPORTED_ATTR_TYPE_GRAPHML.replace('attr.type="complex"', 'attr.type="string"').encode()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        for mode in ("strict", "hardened"):
+            G = fnx.read_graphml(io.BytesIO(clean), mode=mode)
+            assert G.nodes["a"]["z"] == "1+2j"

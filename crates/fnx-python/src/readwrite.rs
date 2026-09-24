@@ -102,8 +102,25 @@ fn write_output_bytes(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) ->
     Ok(())
 }
 
+/// Surface a hardened-mode read's recoveries (skipped malformed lines or
+/// elements) as Python `RuntimeWarning`s (nro4w.10). Strict-mode reads stay
+/// silent: they fail closed instead, and the few notes a strict read can
+/// record (a GraphML directed-flag note, Pajek's declared vertex count) are
+/// ones networkx does not emit.
+fn warn_hardened_read_recoveries(
+    py: Python<'_>,
+    mode: CompatibilityMode,
+    warnings: &[String],
+) -> PyResult<()> {
+    if mode == CompatibilityMode::Hardened {
+        crate::generators::warn_recoveries(py, warnings)?;
+    }
+    Ok(())
+}
+
 /// Convert a `ReadWriteReport` into a `PyGraph`.
 fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGraph> {
+    warn_hardened_read_recoveries(py, report.graph.mode(), &report.warnings)?;
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
     let mut inner = RustGraph::with_runtime_policy(g.runtime_policy().clone());
@@ -182,6 +199,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
 
 /// Convert a `DiReadWriteReport` into a `PyDiGraph`.
 fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult<PyDiGraph> {
+    warn_hardened_read_recoveries(py, report.graph.mode(), &report.warnings)?;
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
     let mut inner = RustDiGraph::with_runtime_policy(g.runtime_policy().clone());
