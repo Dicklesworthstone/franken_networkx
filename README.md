@@ -451,7 +451,7 @@ for w in &witnesses {
 
 Or use the `verify_complexity_bound(&witness)` and `assert_complexity_within_bounds(&witness)` helpers shipped from `fnx_cgse`. Two runs on the same graph with the same policy produce identical `decision_path_blake3` hashes; any ordering drift manifests as a hash mismatch, making non-determinism a regression-locked property.
 
-This makes complexity regressions a regression-lockable property, not a folklore expectation: `crates/fnx-conformance/tests/cgse_complexity_bound_gate.rs` (landed 2026-09-03) asserts for all 12 V1 reference algorithms that a witness is emitted, matches the pinned registry policy and dominant term, stays within `analytic_upper_bound`, and is hash-identical across runs — with a negative case proving an inflated operation count is rejected. It runs with `cargo test -p fnx-conformance`, which the DSR quality run does not include yet (see [Quality Gates](#quality-gates)).
+This makes complexity regressions a regression-lockable property, not a folklore expectation: `crates/fnx-conformance/tests/cgse_complexity_bound_gate.rs` (landed 2026-09-03) asserts for all 12 V1 reference algorithms that a witness is emitted, matches the pinned registry policy and dominant term, stays within `analytic_upper_bound`, and is hash-identical across runs — with a negative case proving an inflated operation count is rejected. It runs with `cargo test -p fnx-conformance`, which is part of the DSR quality run (see [Quality Gates](#quality-gates)).
 
 ### Tie-break policies in action
 
@@ -916,7 +916,7 @@ Only the first of these is machine-enforced today; the rest are audits that are 
 
 The only quality, build and release authority for this repository is DSR (Doodlestein Self-Releaser): `dsr quality --tool franken_networkx`, `dsr build franken_networkx`, `dsr release franken_networkx <version>`. The GitHub Actions workflows under `.github/workflows/` are kept for reference only and are not run.
 
-The quality run executes these checks in order (config: `.dsr/repos.d/franken_networkx.yaml`):
+The quality run executes these checks in order. `dsr quality` reads them from the `franken_networkx` entry of `~/.config/dsr/repos.yaml` on the host; `.dsr/repos.d/franken_networkx.yaml` in this repository mirrors that entry's checks and is the reviewed copy (`dsr quality --tool franken_networkx --dry-run` lists what will actually run):
 
 | # | Check | Command |
 |---|---|---|
@@ -929,7 +929,7 @@ The quality run executes these checks in order (config: `.dsr/repos.d/franken_ne
 | 7 | NetworkX's own test suite | `scripts/run_upstream_networkx_suite.py`: NetworkX 3.6.1's suite with fnx as the test backend (about 7 minutes), held to `artifacts/upstream_suite/ratchet_v1.json`. It fails on any failure the ratchet does not name with a reason, or when the pass count drops below the ratchet's floor. |
 | 8 | Full Python parity suite | `scripts/run_python_parity_suite.py --workers 4`: every `tests/python/test_*.py` file in shards of explicit file lists, each through `scripts/run_pytest_guarded.sh`; fails on any failed, errored or timed-out shard and refuses to start with less than 20 GB free disk. On 2026-09-24: 1,101 files, 68,318 passed, 0 failed, 28 minutes with 4 workers. |
 
-Not gated yet, and run on demand: the conformance replay, the performance harnesses, UBS, the fuzz targets and the RaptorQ scrub. Promoting these into the DSR run is tracked in `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`.
+The conformance fixture replay runs inside check 4 (`fnx-conformance`'s `smoke_report_is_stable` replays every fixture against the current build and requires 0 mismatches); the committed reports under `artifacts/conformance/latest/` are refreshed on demand with `cargo run -p fnx-conformance --bin run_smoke`, and `scripts/verify_conformance_freshness.py` checks their age, not their correctness. Not gated yet, and run on demand: the performance harnesses, UBS, the fuzz targets and the RaptorQ scrub. Promoting these into the DSR run is tracked in `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`.
 
 ---
 
