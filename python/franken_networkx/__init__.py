@@ -31,6 +31,7 @@ from collections.abc import (
     MutableMapping as _MutableMapping,
     Set as _Set,
 )
+import bisect as _bisect
 from copy import deepcopy as _deepcopy
 from dataclasses import dataclass as _dataclass, field as _field
 from enum import Enum as _Enum
@@ -43243,6 +43244,24 @@ def triads_by_type(G):
 # ---------------------------------------------------------------------------
 
 
+def _swap_degree_cdf(degrees):
+    """networkx 3.6.1 ``utils.cumulative_distribution``, exactly (the swaps'
+    RNG draws are only nx-identical if the CDF is bit-identical)."""
+    cdf = [0.0]
+    cumulative = 0.0
+    for element in degrees:
+        cumulative += element
+        cdf.append(cumulative)
+    return [element / cumulative for element in cdf]
+
+
+def _swap_draw(n, cdf, rng):
+    """networkx 3.6.1 ``utils.discrete_sequence(n, cdistribution=cdf, seed=rng)``:
+    all ``n`` uniforms are drawn before any is mapped through the CDF."""
+    uniforms = [rng.random() for _ in range(n)]
+    return [_bisect.bisect_left(cdf, s) - 1 for s in uniforms]
+
+
 def _edge_swap_networkx_exact(G, nswap, max_tries, seed, *, directed):
     """``networkx`` 3.6.1 ``double_edge_swap`` / ``directed_edge_swap``, step for step.
 
@@ -43260,22 +43279,16 @@ def _edge_swap_networkx_exact(G, nswap, max_tries, seed, *, directed):
     only accepted swaps touch ``G``, in nx's order, so ``G`` also ends with
     nx's adjacency order.
     """
-    from networkx.utils import (
-        create_py_random_state,
-        cumulative_distribution,
-        discrete_sequence,
-    )
-
-    rng = create_py_random_state(seed)
+    rng = _create_py_random_state(seed)
     keys, degrees = zip(*G.degree())
-    cdf = cumulative_distribution(degrees)
+    cdf = _swap_degree_cdf(degrees)
 
     if directed:
         succ = {node: dict.fromkeys(G.succ[node]) for node in keys}
         tries = 0
         swapcount = 0
         while swapcount < nswap:
-            start = keys[discrete_sequence(1, cdistribution=cdf, seed=rng)[0]]
+            start = keys[_swap_draw(1, cdf, rng)[0]]
             tries += 1
             if tries > max_tries:
                 raise NetworkXAlgorithmError(
@@ -43325,7 +43338,7 @@ def _edge_swap_networkx_exact(G, nswap, max_tries, seed, *, directed):
     n = 0
     swapcount = 0
     while swapcount < nswap:
-        ui, xi = discrete_sequence(2, cdistribution=cdf, seed=rng)
+        ui, xi = _swap_draw(2, cdf, rng)
         if ui == xi:
             continue
         u = keys[ui]
@@ -45052,27 +45065,21 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
     if len(G) < 4:
         raise NetworkXError("Graph has fewer than four nodes.")
     # br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.4: networkx 3.6.1's
-    # windowed algorithm step for step (degree-weighted sources via
-    # ``discrete_sequence``, nx's RNG consumption, window growth/halving, the
-    # small-window ``has_path`` undo and the large-window ``is_connected``
+    # windowed algorithm step for step (degree-weighted sources via nx's
+    # ``discrete_sequence`` draw, nx's RNG consumption, window growth/halving,
+    # the small-window ``has_path`` undo and the large-window ``is_connected``
     # rollback). fnx's previous uniform-edge-pick algorithm returned a
     # different graph for the same seed and was never owned in the
     # upstream-divergence ledger.
-    from networkx.utils import (
-        create_py_random_state,
-        cumulative_distribution,
-        discrete_sequence,
-    )
-
-    rng = create_py_random_state(seed)
+    rng = _create_py_random_state(seed)
     n = 0
     swapcount = 0
     dk = [node for node, _ in G.degree()]
-    cdf = cumulative_distribution([d for _, d in G.degree()])
+    cdf = _swap_degree_cdf([d for _, d in G.degree()])
     window = 1
 
     def _pick():
-        ui, xi = discrete_sequence(2, cdistribution=cdf, seed=rng)
+        ui, xi = _swap_draw(2, cdf, rng)
         if ui == xi:
             return None
         u = dk[ui]
