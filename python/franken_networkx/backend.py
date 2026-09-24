@@ -62,6 +62,9 @@ _CONVERT_AFTER_USES = {
     "strongly_connected_components": 3,
     "weakly_connected_components": 7,
     "descendants": 8,
+    # Also dispatched from inside networkx's own pagerank and other matrix
+    # routines: without an entry, a declined pagerank converted anyway.
+    "to_scipy_sparse_array": 4,
 }
 _RENT_KEY = "franken_networkx: conversion rent"
 

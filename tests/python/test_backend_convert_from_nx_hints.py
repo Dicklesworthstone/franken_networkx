@@ -218,3 +218,16 @@ def test_every_threshold_names_a_function_fnx_dispatches():
 
     assert set(_CONVERT_AFTER_USES) <= set(_SUPPORTED_ALGORITHMS)
     assert all(k is None or (isinstance(k, int) and k >= 2) for k in _CONVERT_AFTER_USES.values())
+
+
+def test_a_declined_pagerank_does_not_convert_through_its_nested_dispatch():
+    # networkx's pagerank dispatches to_scipy_sparse_array itself; before that
+    # entry existed, the nested call converted the graph on the first pagerank.
+    g = _fresh()
+    saved = list(nx.config.backend_priority.algos)
+    nx.config.backend_priority.algos = ["franken_networkx"]
+    try:
+        assert nx.pagerank(g) == nx.pagerank(g, backend="networkx")
+        assert not g.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    finally:
+        nx.config.backend_priority.algos = saved
