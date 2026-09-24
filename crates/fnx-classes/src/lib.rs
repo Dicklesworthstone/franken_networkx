@@ -1293,6 +1293,23 @@ impl Graph {
         self.runtime_policy.drain_decision_records()
     }
 
+    /// Record a bounded recovery performed OUTSIDE the graph (e.g. a reader
+    /// that skipped a malformed input line in hardened mode) in this graph's
+    /// evidence ledger, so `decision_records()` reports it like a native one.
+    pub fn record_external_recovery(
+        &mut self,
+        operation: impl Into<std::borrow::Cow<'static, str>>,
+        rationale: impl Into<std::borrow::Cow<'static, str>>,
+    ) {
+        self.runtime_policy.record(
+            operation,
+            DecisionAction::FullValidate,
+            0.7,
+            rationale,
+            Vec::new(),
+        );
+    }
+
     #[must_use]
     pub fn runtime_policy(&self) -> &RuntimePolicy {
         &self.runtime_policy
@@ -4608,6 +4625,23 @@ impl MultiGraph {
 
     pub fn drain_decision_records(&mut self) -> Vec<DecisionRecord> {
         self.runtime_policy.drain_decision_records()
+    }
+
+    /// Record a bounded recovery performed OUTSIDE the graph (e.g. a reader
+    /// that skipped a malformed input line in hardened mode) in this graph's
+    /// evidence ledger, so `decision_records()` reports it like a native one.
+    pub fn record_external_recovery(
+        &mut self,
+        operation: impl Into<std::borrow::Cow<'static, str>>,
+        rationale: impl Into<std::borrow::Cow<'static, str>>,
+    ) {
+        self.runtime_policy.record(
+            operation,
+            DecisionAction::FullValidate,
+            0.7,
+            rationale,
+            Vec::new(),
+        );
     }
 
     #[must_use]

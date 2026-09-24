@@ -9423,6 +9423,12 @@ impl PyMultiGraph {
         Ok(list)
     }
 
+    /// Internal: log a hardened-mode recovery that a Python-side reader
+    /// performed (e.g. a skipped malformed line) in this graph's ledger.
+    fn _fnx_record_recovery(&mut self, operation: String, rationale: String) {
+        self.inner.record_external_recovery(operation, rationale);
+    }
+
     fn number_of_nodes(&self) -> usize {
         self.inner.node_count()
     }
@@ -15846,6 +15852,12 @@ impl PyGraph {
             list.append(decision_record_to_pydict(py, &record)?)?;
         }
         Ok(list)
+    }
+
+    /// Internal: log a hardened-mode recovery that a Python-side reader
+    /// performed (e.g. a skipped malformed line) in this graph's ledger.
+    fn _fnx_record_recovery(&mut self, operation: String, rationale: String) {
+        self.inner.record_external_recovery(operation, rationale);
     }
 
     // ---- Counts ----

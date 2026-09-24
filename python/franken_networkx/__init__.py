@@ -28751,6 +28751,144 @@ def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="ut
     )
 
 
+_EDGELIST_LINE_SKIP = object()
+_EDGELIST_LINE_SHORT = object()
+
+
+def _parse_edgelist_line_nx(line, comments, delimiter, nodetype, data):
+    """One line of ``networkx.parse_edgelist`` (3.6.1), returned instead of added.
+
+    Returns ``_EDGELIST_LINE_SKIP`` for a comment/blank line,
+    ``_EDGELIST_LINE_SHORT`` for a line nx would silently skip (< 2 fields),
+    or ``(u, v, edgedata)``; raises nx's own TypeError/IndexError otherwise.
+    """
+    from ast import literal_eval
+
+    if comments is not None:
+        p = line.find(comments)
+        if p >= 0:
+            line = line[:p]
+    if not line.strip():
+        return _EDGELIST_LINE_SKIP
+    s = line.rstrip("\n").split(delimiter)
+    if len(s) < 2:
+        return _EDGELIST_LINE_SHORT
+    u = s.pop(0)
+    v = s.pop(0)
+    d = s
+    if nodetype is not None:
+        try:
+            u = nodetype(u)
+            v = nodetype(v)
+        except Exception as err:
+            raise TypeError(f"Failed to convert nodes {u},{v} to type {nodetype}.") from err
+    if len(d) == 0 or data is False:
+        return u, v, {}
+    if data is True:
+        try:
+            edgedata_str = ",".join(d) if delimiter == "," else " ".join(d)
+            return u, v, dict(literal_eval(edgedata_str.strip()))
+        except Exception as err:
+            raise TypeError(f"Failed to convert edge data ({d}) to dictionary.") from err
+    if len(d) != len(data):
+        raise IndexError(f"Edge data {d} and data_keys {data} are not the same length")
+    edgedata = {}
+    for (edge_key, edge_type), edge_value in zip(data, d):
+        try:
+            edge_value = edge_type(edge_value)
+        except Exception as err:
+            raise TypeError(
+                f"Failed to convert {edge_key} data {edge_value} to type {edge_type}."
+            ) from err
+        edgedata.update({edge_key: edge_value})
+    return u, v, edgedata
+
+
+def _parse_edgelist_line_fnx_token(line, comments, delimiter, nodetype, data):
+    """fnx's native ``left right k=v;k2=v2`` attribute-token form, accepted by
+    the mode-aware reader as a fallback where the nx dict literal fails.
+    Decoded by the Rust engine itself so its grammar stays the single source."""
+    if data is not True or delimiter is not None:
+        return None
+    if comments is not None:
+        p = line.find(comments)
+        if p >= 0:
+            line = line[:p]
+    fields = line.split()
+    if len(fields) != 3 or not ("=" in fields[2] or fields[2] == "-"):
+        return None
+    try:
+        one = _rust_read_edgelist(_io.StringIO(" ".join(fields) + "\n"), mode="strict")
+    except Exception:
+        return None
+    edges = list(one.edges(data=True))
+    if len(edges) != 1:
+        return None
+    u, v = fields[0], fields[1]
+    if nodetype is not None:
+        try:
+            u, v = nodetype(u), nodetype(v)
+        except Exception:
+            return None
+    return u, v, dict(edges[0][2])
+
+
+def _read_edgelist_in_mode(path, mode, *, comments, delimiter, create_using, nodetype, data, encoding):
+    """Strict/hardened ``read_edgelist`` over NetworkX's edge-list format.
+
+    br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.3: the mode-aware path used
+    to hand the file to the Rust engine's own ``left right k=v`` parser, which
+    treats NetworkX's dict-literal lines (exactly what ``write_edgelist``
+    writes) as malformed. Hardened mode therefore "recovered" every line away
+    and returned an EMPTY graph for fnx's own output, and explicit strict mode
+    rejected it. Now every line is parsed the way ``networkx.parse_edgelist``
+    parses it (honouring comments/delimiter/create_using/nodetype/data), with
+    the native ``k=v`` token accepted as a fallback. Lines nx would silently
+    skip (fewer than two fields) or reject: strict fails closed, hardened skips
+    the line and records a FullValidate decision on the returned graph.
+    """
+    effective = mode if mode is not None else _rust_get_compatibility_mode()
+    with compatibility_mode(effective):
+        G = empty_graph(0, create_using)
+    hardened = effective == "hardened"
+    record = getattr(G, "_fnx_record_recovery", None)
+
+    def _reject(lineno, detail, exc=None):
+        reason = f"line {lineno} malformed: {detail}"
+        if not hardened:
+            if exc is not None:
+                raise exc
+            raise OSError(f"readwrite `read_edgelist` failed closed: {reason}")
+        if record is not None:
+            record("read_edgelist", reason)
+
+    def _consume(lines):
+        for lineno, line in enumerate(lines, 1):
+            if not isinstance(line, str):
+                line = line.decode(encoding)
+            try:
+                parsed = _parse_edgelist_line_nx(line, comments, delimiter, nodetype, data)
+            except (TypeError, IndexError) as exc:
+                parsed = _parse_edgelist_line_fnx_token(
+                    line, comments, delimiter, nodetype, data
+                )
+                if parsed is None:
+                    _reject(lineno, str(exc), exc)
+                    continue
+            if parsed is _EDGELIST_LINE_SKIP:
+                continue
+            if parsed is _EDGELIST_LINE_SHORT:
+                _reject(lineno, "expected `left right [attrs]`")
+                continue
+            u, v, edgedata = parsed
+            G.add_edge(u, v, **edgedata)
+        return G
+
+    if hasattr(path, "read") and not isinstance(path, (str, bytes)):
+        return _consume(path)
+    return _read_decoded_lines_via_open_file(path, encoding, _consume)
+
+
 def read_edgelist(
     path,
     comments="#",
@@ -28773,15 +28911,16 @@ def read_edgelist(
     mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
-        if (
-            comments == "#"
-            and delimiter is None
-            and (create_using is None or create_using is Graph)
-            and nodetype is None
-            and (data is True or data is False)
-            and edgetype is None
-        ):
-            return _rust_read_edgelist(path, mode=mode)
+        return _read_edgelist_in_mode(
+            path,
+            mode,
+            comments=comments,
+            delimiter=delimiter,
+            create_using=create_using,
+            nodetype=nodetype,
+            data=data,
+            encoding=encoding,
+        )
     if (
         comments == "#"
         and delimiter is None

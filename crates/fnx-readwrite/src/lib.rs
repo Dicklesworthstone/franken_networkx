@@ -2008,6 +2008,30 @@ impl EdgeListEngine {
                     self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.6);
                     attr_type = "string".to_owned();
                 }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.3: networkx's
+                // GraphMLReader only knows these type names (case-sensitive
+                // ``self.python_type[attr_type]``) and raises KeyError on any
+                // other, e.g. ``attr.type="complex"``. Strict fails closed like
+                // it; hardened reads the value as a string and records why —
+                // instead of both modes silently accepting it.
+                const NX_GRAPHML_TYPES: [&str; 8] = [
+                    "integer", "yfiles", "string", "int", "long", "float", "double", "boolean",
+                ];
+                if !NX_GRAPHML_TYPES.contains(&attr_type.as_str()) {
+                    let warning = format!(
+                        "graphml key has unsupported attr.type `{attr_type}`: id={key_id} name={attr_name}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    attr_type = "string".to_owned();
+                }
                 key_registry.insert(
                     key_id.clone(),
                     GraphmlKeyDef {

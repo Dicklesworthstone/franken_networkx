@@ -436,3 +436,38 @@ def test_planted_negative_unknown_features_fail_closed_in_hardened_mode():
     with fnx.compatibility_mode("hardened"):
         with pytest.raises(Exception, match="incompatible edge metadata|failed closed"):
             fnx.read_json_graph(io.StringIO(planted_negative_json))
+
+
+# ===========================================================================
+# 5. GraphML attr.type outside networkx's vocabulary
+#    (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.3)
+# ===========================================================================
+
+UNSUPPORTED_ATTR_TYPE_GRAPHML = """<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="node" attr.name="z" attr.type="complex"/>
+  <graph edgedefault="undirected">
+    <node id="a"><data key="d0">1+2j</data></node>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"""
+
+
+def test_unsupported_graphml_attr_type_strict_fails_closed_hardened_records():
+    """networkx raises KeyError for attr.type="complex"; the default path matches
+    it, strict must fail closed (it used to accept the value silently as a
+    string), and hardened reads it as a string AND records the recovery."""
+    import networkx as nx
+
+    payload = UNSUPPORTED_ATTR_TYPE_GRAPHML.encode()
+    with pytest.raises(KeyError):
+        nx.read_graphml(io.BytesIO(payload))
+    with pytest.raises(KeyError):
+        fnx.read_graphml(io.BytesIO(payload))
+    with pytest.raises(Exception, match="unsupported attr.type `complex`"):
+        fnx.read_graphml(io.BytesIO(payload), mode="strict")
+    G = fnx.read_graphml(io.BytesIO(payload), mode="hardened")
+    assert G.nodes["a"]["z"] == "1+2j"
+    reasons = [r["rationale"] for r in G.decision_records() if r["action"] == "full_validate"]
+    assert any("unsupported attr.type `complex`" in reason for reason in reasons)
