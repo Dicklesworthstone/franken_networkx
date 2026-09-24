@@ -32,6 +32,11 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 log = logging.getLogger("franken_networkx.backend")
 
+# Dispatched with the caller's graph unconverted; see convert_from_nx.
+_LIVE_INPUT_ALGORITHMS = frozenset(
+    {"lexicographical_topological_sort", "topological_generations", "topological_sort"}
+)
+
 # ---------------------------------------------------------------------------
 # Supported algorithm registry
 # ---------------------------------------------------------------------------
@@ -879,7 +884,17 @@ class BackendInterface:
         name=None,
         graph_name=None,
     ):
-        """Convert a NetworkX graph to a FrankenNetworkX graph."""
+        """Convert a NetworkX graph to a FrankenNetworkX graph.
+
+        The lazy topological sorts are defined on the LIVE input: they raise
+        ``RuntimeError`` when the caller mutates the graph mid-iteration
+        (networkx's test_dag.py::test_topological_sort6), which a converted
+        copy can never see. They get the caller's graph unconverted and run
+        networkx's loop on it, as networkx's own loopback test backend does
+        (nro4w.11).
+        """
+        if name in _LIVE_INPUT_ALGORITHMS:
+            return G
         return _nx_to_fnx(G)
 
     @staticmethod

@@ -22126,6 +22126,30 @@ pub struct TopologicalGenerationsResult {
     pub witness: ComplexityWitness,
 }
 
+/// Kahn's generations as far as they go, with what networkx's lazy
+/// `topological_generations` loop holds at every generation boundary.
+///
+/// networkx processes generation k (decrementing its children's in-degree
+/// on the LIVE graph) just before yielding it. A caller that mutates the
+/// graph between two yields makes networkx continue from its state at that
+/// boundary: `in_degree` minus every decrement in `scanned[..gen_offsets[k]]`,
+/// with generation k as the zero-in-degree list. Indices are positions in
+/// `DiGraph::nodes_ordered()`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopologicalGenerationsTrace {
+    /// Per generation: (node, zeroing parent), in networkx's order.
+    pub generations: Vec<Vec<(usize, Option<usize>)>>,
+    /// Nodes whose in-degree never reached zero (on or behind a cycle), in
+    /// node order. Empty exactly when the graph is acyclic.
+    pub unprocessed: Vec<usize>,
+    /// Each node's in-degree before any processing.
+    pub in_degree: Vec<usize>,
+    /// (parent, child) of every successor edge scanned, in scan order.
+    pub scanned: Vec<(usize, usize)>,
+    /// `gen_offsets[k]` is `scanned.len()` when processing generation k began.
+    pub gen_offsets: Vec<usize>,
+}
+
 /// Check whether a directed graph is acyclic (a DAG).
 ///
 /// Returns `true` if the graph has no directed cycles. An empty graph is a DAG.
@@ -22395,6 +22419,37 @@ fn topological_sort_orig_string(digraph: &DiGraph) -> Option<TopologicalSortResu
 /// Matches `networkx.topological_generations`.
 #[must_use]
 pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGenerationsResult> {
+    let trace = topological_generations_trace(digraph);
+    if !trace.unprocessed.is_empty() {
+        return None; // cycle detected
+    }
+    let nodes = digraph.nodes_ordered();
+    Some(TopologicalGenerationsResult {
+        witness: ComplexityWitness {
+            algorithm: "kahn_topological_generations".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: nodes.len(),
+            edges_scanned: trace.scanned.len(),
+            queue_peak: 0,
+        },
+        generations: trace
+            .generations
+            .iter()
+            .map(|generation| {
+                generation
+                    .iter()
+                    .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
+                    .collect()
+            })
+            .collect(),
+    })
+}
+
+/// Kahn's generations of `digraph` up to the first boundary with no
+/// zero-in-degree node, and the state networkx's lazy loop needs to resume
+/// at any boundary. See [`TopologicalGenerationsTrace`].
+#[must_use]
+pub fn topological_generations_trace(digraph: &DiGraph) -> TopologicalGenerationsTrace {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::TopologicalSort);
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
@@ -22415,26 +22470,29 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     // indegree hits zero while scanning the previous generation). The old
     // lexicographic sort_unstable diverged on both (and string-sorted
     // "10" before "2").
+    let seed = in_degree.clone();
     let mut current_gen: Vec<(usize, Option<usize>)> = (0..n)
         .filter(|&i| in_degree[i] == 0)
         .map(|i| (i, None))
         .collect();
 
-    let mut generations: Vec<Vec<(String, Option<String>)>> = Vec::new();
-    let mut total_processed = 0usize;
-    let mut edges_scanned = 0usize;
+    let mut generations: Vec<Vec<(usize, Option<usize>)>> = Vec::new();
+    let mut gen_offsets: Vec<usize> = Vec::new();
+    let mut scanned: Vec<(usize, usize)> = Vec::with_capacity(digraph.edge_count());
+    let mut processed = vec![false; n];
 
     while !current_gen.is_empty() {
+        gen_offsets.push(scanned.len());
         let mut next_gen: Vec<(usize, Option<usize>)> = Vec::new();
         for &(node, _) in &current_gen {
-            total_processed += 1;
+            processed[node] = true;
             // Emission-only CGSE witness for the parity-exact Kahn kernel the
             // public topological_sort/topological_generations routes take
             // (reality-check bead rc-cgse-witness-routes-obp8v). No behavior change.
             cgse_record_decision(&mut cgse_sink, nodes[node], "processed");
             if let Some(succs) = digraph.successors_indices(node) {
                 for &succ in succs {
-                    edges_scanned += 1;
+                    scanned.push((node, succ));
                     in_degree[succ] -= 1;
                     if in_degree[succ] == 0 {
                         next_gen.push((succ, Some(node)));
@@ -22442,25 +22500,7 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
                 }
             }
         }
-
-        generations.push(
-            current_gen
-                .iter()
-                .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
-                .collect(),
-        );
-
-        current_gen = next_gen;
-    }
-
-    if total_processed != n {
-        cgse_publish(
-            CgseReferenceAlgorithm::TopologicalSort,
-            digraph.node_count(),
-            digraph.edge_count(),
-            cgse_sink,
-        );
-        return None; // cycle detected
+        generations.push(std::mem::replace(&mut current_gen, next_gen));
     }
 
     cgse_publish(
@@ -22469,16 +22509,13 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
         digraph.edge_count(),
         cgse_sink,
     );
-    Some(TopologicalGenerationsResult {
+    TopologicalGenerationsTrace {
         generations,
-        witness: ComplexityWitness {
-            algorithm: "kahn_topological_generations".to_owned(),
-            complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched: total_processed,
-            edges_scanned,
-            queue_peak: 0,
-        },
-    })
+        unprocessed: (0..n).filter(|&i| !processed[i]).collect(),
+        in_degree: seed,
+        scanned,
+        gen_offsets,
+    }
 }
 
 /// br-r37-c1-topogenidx A/B baseline: the pre-lever String-keyed Kahn's generations.
@@ -54761,6 +54798,7 @@ mod tests {
         MaximalIndependentSetError,
         ModularityError,
         SpannerError,
+        TopologicalGenerationsTrace,
         adamic_adar_index,
         all_pairs_all_shortest_paths,
         all_pairs_bellman_ford_path,
@@ -55160,6 +55198,7 @@ mod tests {
         to_edgelist,
         to_prufer_sequence,
         topological_generations,
+        topological_generations_trace,
         topological_sort,
         transitive_closure,
         transitive_reduction,
@@ -72097,6 +72136,70 @@ mod tests {
         g.add_edge("x", "y").expect("edge");
         g.add_edge("y", "x").expect("edge");
         assert!(topological_generations(&g).is_none());
+    }
+
+    /// networkx's in-degree map before processing generation `k`.
+    fn remaining_before(trace: &TopologicalGenerationsTrace, k: usize) -> Vec<usize> {
+        let mut remaining = trace.in_degree.clone();
+        for &(_, child) in &trace.scanned[..trace.gen_offsets[k]] {
+            remaining[child] -= 1;
+        }
+        remaining
+    }
+
+    #[test]
+    fn topological_generations_trace_keeps_the_prefix_before_a_cycle() {
+        // 0 -> 1 <-> 2, 0 -> 3: networkx yields [0], [3], then raises.
+        let mut g = DiGraph::strict();
+        for (u, v) in [("0", "1"), ("1", "2"), ("2", "1"), ("0", "3")] {
+            g.add_edge(u, v).expect("edge");
+        }
+        let trace = topological_generations_trace(&g);
+        assert_eq!(trace.generations, vec![vec![(0, None)], vec![(3, Some(0))]]);
+        assert_eq!(trace.unprocessed, vec![1, 2]);
+        assert_eq!(trace.in_degree, vec![0, 2, 1, 1]);
+        assert_eq!(trace.scanned, vec![(0, 1), (0, 3)]);
+        assert_eq!(trace.gen_offsets, vec![0, 2]);
+        assert_eq!(remaining_before(&trace, 0), vec![0, 2, 1, 1]);
+        assert_eq!(remaining_before(&trace, 1), vec![0, 1, 1, 0]);
+        assert!(topological_generations(&g).is_none());
+    }
+
+    #[test]
+    fn topological_generations_trace_boundaries_match_kahn_state() {
+        // a -> b -> d, a -> c -> d, c -> e
+        let mut g = DiGraph::strict();
+        for (u, v) in [("a", "b"), ("b", "d"), ("a", "c"), ("c", "d"), ("c", "e")] {
+            g.add_edge(u, v).expect("edge");
+        }
+        let trace = topological_generations_trace(&g);
+        assert!(trace.unprocessed.is_empty());
+        assert_eq!(trace.gen_offsets.len(), trace.generations.len());
+        let generation_of = |node: usize| {
+            trace
+                .generations
+                .iter()
+                .position(|generation| generation.iter().any(|&(n, _)| n == node))
+                .expect("every node of a DAG has a generation")
+        };
+        for k in 0..trace.generations.len() {
+            let remaining = remaining_before(&trace, k);
+            for node in 0..g.node_count() {
+                // Generations up to k have reached zero; later ones have not.
+                assert_eq!(
+                    remaining[node] == 0,
+                    generation_of(node) <= k,
+                    "k={k} node={node}"
+                );
+            }
+        }
+        let names: Vec<Vec<String>> = topological_generations(&g)
+            .expect("DAG")
+            .generations
+            .into_iter()
+            .map(|generation| generation.into_iter().map(|(n, _)| n).collect())
+            .collect();
+        assert_eq!(names, vec![vec!["a"], vec!["b", "c"], vec!["d", "e"]]);
     }
 
     // -----------------------------------------------------------------------

@@ -7105,45 +7105,71 @@ fn multidigraph_number_scc_orig_hashmap(mdg: &fnx_classes::digraph::MultiDiGraph
     count
 }
 
-/// br-r37-c1-11m92 (cc): topological sort of a MultiDiGraph via generation-based Kahn
-/// over an integer CSR of INSERTION-ORDER DISTINCT successors. Verified to reproduce
-/// nx.topological_sort's exact order (multiplicity-invariant: a node hits in-degree 0
-/// once all distinct parents are processed). Returns None on a cycle. No DiGraph build.
-fn multidigraph_topological_sort<'a>(
-    mdg: &'a fnx_classes::digraph::MultiDiGraph,
-) -> Option<Vec<&'a str>> {
-    // br-r37-c1-hi50t (cc): run the generation-based Kahn over the pre-existing
-    // revision-keyed integer CSR instead of rebuilding an inline `HashMap<&str,usize>`
-    // + per-node `successors()` String Vec + dedup adjacency each call. The CSR
-    // successor rows are the same distinct successors in the same order (the former
-    // dedup `HashSet` was redundant — `mdg.successors` keys are already distinct), and
-    // the distinct in-degree of j is exactly `csr.predecessors(j).len()`, so both the
-    // zero-set (index order) and the per-generation expansion are byte-identical → the
-    // emitted order matches nx.topological_sort exactly. Wins warm (cache) and cold
-    // (flat CSR build < HashMap/String rebuild).
-    let nodes = mdg.nodes_ordered();
-    let n = nodes.len();
+/// br-r37-c1-11m92 (cc): topological generations of a MultiDiGraph via Kahn over an
+/// integer CSR of INSERTION-ORDER DISTINCT successors, as a
+/// `fnx_algorithms::TopologicalGenerationsTrace` over `mdg.nodes_ordered()` positions.
+/// Reproduces nx.topological_generations' exact order (multiplicity-invariant: a node
+/// hits in-degree 0 once all distinct parents are processed). In-degrees and the scan
+/// log count DISTINCT edges; the caller adds parallel-edge multiplicities. No DiGraph
+/// build.
+fn multidigraph_generations_trace(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> fnx_algorithms::TopologicalGenerationsTrace {
+    let n = mdg.node_count();
     let csr = mdg.csr();
     let mut indeg: Vec<usize> = (0..n).map(|j| csr.predecessors(j).len()).collect();
-    let mut zero: Vec<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
-    let mut out: Vec<&'a str> = Vec::with_capacity(n);
-    while !zero.is_empty() {
-        let mut nxt: Vec<usize> = Vec::new();
-        for &u in &zero {
-            out.push(nodes[u]);
+    let seed = indeg.clone();
+    let mut current: Vec<(usize, Option<usize>)> = (0..n)
+        .filter(|&i| indeg[i] == 0)
+        .map(|i| (i, None))
+        .collect();
+    let mut generations = Vec::new();
+    let mut gen_offsets = Vec::new();
+    let mut scanned = Vec::with_capacity(csr.succ_targets.len());
+    let mut processed = vec![false; n];
+    while !current.is_empty() {
+        gen_offsets.push(scanned.len());
+        let mut next = Vec::new();
+        for &(u, _) in &current {
+            processed[u] = true;
             for &raw in csr.successors(u) {
                 let v = raw as usize;
                 if v < n {
+                    scanned.push((u, v));
                     indeg[v] -= 1;
                     if indeg[v] == 0 {
-                        nxt.push(v);
+                        next.push((v, Some(u)));
                     }
                 }
             }
         }
-        zero = nxt;
+        generations.push(std::mem::replace(&mut current, next));
     }
-    if out.len() == n { Some(out) } else { None }
+    fnx_algorithms::TopologicalGenerationsTrace {
+        generations,
+        unprocessed: (0..n).filter(|&i| !processed[i]).collect(),
+        in_degree: seed,
+        scanned,
+        gen_offsets,
+    }
+}
+
+/// The node order `multidigraph_generations_trace` yields, or None on a cycle.
+#[cfg(test)]
+fn multidigraph_topological_sort(mdg: &fnx_classes::digraph::MultiDiGraph) -> Option<Vec<&str>> {
+    let trace = multidigraph_generations_trace(mdg);
+    if !trace.unprocessed.is_empty() {
+        return None;
+    }
+    let nodes = mdg.nodes_ordered();
+    Some(
+        trace
+            .generations
+            .iter()
+            .flatten()
+            .map(|&(u, _)| nodes[u])
+            .collect(),
+    )
 }
 
 /// Frozen pre-`br-r37-c1-hi50t` inline-`HashMap` generation-Kahn route — rebuilds the
@@ -13325,82 +13351,134 @@ pub fn dfs_postorder_nodes(
 // DAG Algorithms
 // ===========================================================================
 
-/// Return a topological sort of the nodes in a directed graph.
-///
-/// Raises ``NetworkXError`` if the graph is undirected.
-/// Raises ``HasACycle`` if the graph contains a cycle.
+/// networkx's `indegree_map` at every generation boundary of one
+/// `topological_generations_state` call, so the lazy Python loop can
+/// continue networkx's algorithm on the live graph once the caller mutates
+/// it. In-degrees count parallel edges, as `G.in_degree()` does.
+#[pyclass(frozen, name = "TopologicalGenerationsState")]
+pub struct TopologicalGenerationsState {
+    keys: Vec<PyObject>,
+    in_degree: Vec<usize>,
+    scanned: Vec<(usize, usize)>,
+    gen_offsets: Vec<usize>,
+    multiplicity: HashMap<(usize, usize), usize>,
+}
+
+#[pymethods]
+impl TopologicalGenerationsState {
+    /// networkx's in-degree map just before generation `k` is processed:
+    /// every node whose in-degree has not yet reached zero.
+    fn indegree_map<'py>(&self, py: Python<'py>, k: usize) -> PyResult<Bound<'py, PyDict>> {
+        let mut remaining = self.in_degree.clone();
+        let end = self
+            .gen_offsets
+            .get(k)
+            .copied()
+            .unwrap_or(self.scanned.len());
+        for &(parent, child) in &self.scanned[..end] {
+            remaining[child] -= self
+                .multiplicity
+                .get(&(parent, child))
+                .copied()
+                .unwrap_or(1);
+        }
+        let map = PyDict::new(py);
+        for (key, &count) in self.keys.iter().zip(&remaining) {
+            if count > 0 {
+                map.set_item(key.bind(py), count)?;
+            }
+        }
+        Ok(map)
+    }
+}
+
+/// Topological generations as far as they go, the nodes left over (on or
+/// behind a cycle), and the state networkx's lazy loop holds at each
+/// generation boundary. networkx yields the generations before a cycle and
+/// only then raises; a caller that mutates the graph mid-iteration makes it
+/// continue on the live graph (nro4w.11).
 #[pyfunction]
-pub fn topological_sort(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+pub fn topological_generations_state(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<(
+    Vec<Vec<PyObject>>,
+    Vec<PyObject>,
+    TopologicalGenerationsState,
+)> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(NetworkXError::new_err(
             "Topological sort not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::MultiDirected { mdg, .. } = &gr {
-        // br-r37-c1-11m92: generation-Kahn over the multidigraph CSR, no conversion.
+    let (trace, nodes) = if let GraphRef::MultiDirected { mdg, .. } = &gr {
         let inner = &mdg.inner;
-        return match py.allow_threads(|| multidigraph_topological_sort(inner)) {
-            Some(order) => Ok(order.iter().map(|&n| gr.py_node_key(py, n)).collect()),
-            None => Err(crate::HasACycle::new_err(
-                "Graph contains a cycle, topological sort is not possible.",
-            )),
-        };
-    }
-    {
+        (
+            py.allow_threads(|| multidigraph_generations_trace(inner)),
+            inner.nodes_ordered(),
+        )
+    } else {
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        match py.allow_threads(|| fnx_algorithms::topological_sort(dg_ref)) {
-            Some(result) => Ok(result.order.iter().map(|n| gr.py_node_key(py, n)).collect()),
-            None => Err(crate::HasACycle::new_err(
-                "Graph contains a cycle, topological sort is not possible.",
-            )),
-        }
-    }
-}
-
-/// Return a list of generations in topological order.
-///
-/// Each generation is a list of nodes with the same topological depth.
-/// Matches `networkx.topological_generations`.
-#[pyfunction]
-pub fn topological_generations(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-) -> PyResult<Vec<Vec<PyObject>>> {
-    let gr = extract_graph(g)?;
-    if !gr.is_directed() {
-        return Err(NetworkXError::new_err(
-            "Topological generations not defined on undirected graphs.",
-        ));
-    }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        match py.allow_threads(|| fnx_algorithms::topological_generations(dg_ref)) {
-            Some(result) => {
-                // re-audit 2026-06-06: generation 0 carries node-map
-                // objects (nx reads G.in_degree()); later members carry
-                // the ZEROING parent's succ-row object (nx appends the
-                // child from the parent's adjacency scan).
-                let gens: Vec<Vec<PyObject>> = result
-                    .generations
-                    .iter()
-                    .map(|generation| {
-                        generation
-                            .iter()
-                            .map(|(n, parent)| match parent {
-                                Some(p) => gr.py_row_key(py, p, n),
-                                None => gr.py_node_key(py, n),
-                            })
-                            .collect()
-                    })
-                    .collect();
-                Ok(gens)
+        (
+            py.allow_threads(|| fnx_algorithms::topological_generations_trace(dg_ref)),
+            dg_ref.nodes_ordered(),
+        )
+    };
+    let mut keys: Vec<Option<PyObject>> = (0..nodes.len()).map(|_| None).collect();
+    // Generation 0 carries node-map objects (nx reads G.in_degree()); later
+    // members carry the zeroing parent's succ-row object (nx appends the child
+    // from the parent's adjacency scan).
+    let generations: Vec<Vec<PyObject>> = trace
+        .generations
+        .iter()
+        .map(|generation| {
+            generation
+                .iter()
+                .map(|&(node, parent)| {
+                    let key = match parent {
+                        Some(p) => gr.py_row_key(py, nodes[p], nodes[node]),
+                        None => gr.py_node_key(py, nodes[node]),
+                    };
+                    keys[node] = Some(key.clone_ref(py));
+                    key
+                })
+                .collect()
+        })
+        .collect();
+    let unprocessed: Vec<PyObject> = trace
+        .unprocessed
+        .iter()
+        .map(|&node| {
+            let key = gr.py_node_key(py, nodes[node]);
+            keys[node] = Some(key.clone_ref(py));
+            key
+        })
+        .collect();
+    let mut in_degree = trace.in_degree;
+    let mut multiplicity = HashMap::new();
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        for (source, target, count) in mdg.inner.parallel_edge_counts() {
+            if let (Some(s), Some(t)) = (
+                mdg.inner.get_node_index(source),
+                mdg.inner.get_node_index(target),
+            ) {
+                multiplicity.insert((s, t), count);
+                in_degree[t] += count - 1;
             }
-            None => Err(crate::HasACycle::new_err(
-                "Graph contains a cycle, topological generations is not possible.",
-            )),
         }
     }
+    let state = TopologicalGenerationsState {
+        keys: keys
+            .into_iter()
+            .map(|key| key.expect("every node is in a generation or left over"))
+            .collect(),
+        in_degree,
+        scanned: trace.scanned,
+        gen_offsets: trace.gen_offsets,
+        multiplicity,
+    };
+    Ok((generations, unprocessed, state))
 }
 
 /// Return the longest path in a DAG.
@@ -28412,8 +28490,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dfs_preorder_nodes, m)?)?;
     m.add_function(wrap_pyfunction!(dfs_postorder_nodes, m)?)?;
     // DAG algorithms
-    m.add_function(wrap_pyfunction!(topological_sort, m)?)?;
-    m.add_function(wrap_pyfunction!(topological_generations, m)?)?;
+    m.add_function(wrap_pyfunction!(topological_generations_state, m)?)?;
+    m.add_class::<TopologicalGenerationsState>()?;
     m.add_function(wrap_pyfunction!(dag_longest_path, m)?)?;
     m.add_function(wrap_pyfunction!(dag_longest_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_topological_sort, m)?)?;

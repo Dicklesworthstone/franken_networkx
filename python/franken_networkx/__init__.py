@@ -22880,8 +22880,7 @@ from franken_networkx._fnx import (
     descendants as _raw_descendants,
     is_directed_acyclic_graph as _raw_is_directed_acyclic_graph,
     lexicographic_topological_sort as _raw_lexicographic_topological_sort,
-    topological_sort as _raw_topological_sort,
-    topological_generations as _raw_topological_generations,
+    topological_generations_state as _raw_topological_generations_state,
 )
 
 
@@ -23076,107 +23075,83 @@ def descendants(G, source):
 def topological_sort(G):
     """Yield nodes in topological order.
 
-    Matches nx's Kahn's-algorithm tie-break order: zero-in-degree nodes
-    are queued in graph insertion order (br-codtrav). The Rust native
-    uses a different tie-break, so we re-implement Kahn's in Python so
-    the emitted order is byte-identical to nx's on DAG fixtures.
-
-    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
-    (br-zzcm7).
+    networkx's definition: the nodes of ``topological_generations(G)`` in
+    order, so its tie-break order, its acyclic prefix before
+    ``NetworkXUnfeasible`` on a cyclic graph, and its ``RuntimeError`` when
+    the caller mutates ``G`` mid-iteration all carry over (nro4w.11).
     """
-    if not G.is_directed():
-        raise NetworkXError("Topological sort not defined on undirected graphs.")
-    from collections import deque as _deque
+    for generation in topological_generations(G):
+        yield from generation
 
-    # br-r37-c1-toposucc: walk the successor adjacency (``G.succ[u].items()``)
-    # directly instead of ``G.edges(u)`` per node. ``G.edges(u)`` materialised a
-    # full guarded _EdgeListWithSetAlgebra (nbunch_iter + per-call view churn)
-    # for every popped node, making topological_sort ~34x slower than nx; the
-    # adjacency walk is the same primitive nx uses and is O(out-degree) per node.
-    # Parallel edges are counted via ``len(keydict)`` for MultiDiGraph parity
-    # (a single successor with k parallel edges contributes k to in-degree, and
-    # the same FIFO queue/insertion-order tie-break is preserved exactly).
-    succ = G.succ
-    indegree = {v: 0 for v in G}
-    if G.is_multigraph():
-        # br-r37-c1-11m92 (cc): the native MultiDiGraph topological_sort now reproduces
-        # nx's generation-Kahn order (CSR of insertion-order DISTINCT successors;
-        # multiplicity-invariant since a node hits in-degree 0 once all distinct parents
-        # are processed). Route to the Rust CSR Kahn instead of replaying Kahn in Python
-        # per node (was ~6x slower than nx; the native path is ~5x faster, parity-exact).
-        # The native binding raises nx.HasACycle on a cycle; nx.topological_sort raises
-        # NetworkXUnfeasible, so translate for exact-parity (HasACycle is NOT a subclass).
-        try:
-            _order = _raw_topological_sort(G)
-        except _NetworkXHasACycle:
-            raise NetworkXUnfeasible(
-                "Graph contains a cycle, topological sort is not possible."
-            ) from None
-        yield from _order
-        return
+
+def topological_generations(G):
+    """Yield the generations of ``G`` in topological order, as networkx does.
+
+    networkx processes generation k on the LIVE graph just before yielding
+    it: a node removed by then raises ``RuntimeError``, an edge added to a
+    new child raises ``RuntimeError``, and nodes whose in-degree never
+    reaches zero (a cycle, or an edge added among unprocessed nodes) raise
+    ``NetworkXUnfeasible`` after the last generation. On fnx's own DiGraph
+    and MultiDiGraph the generations come from the native kernel; if the
+    graph's revision has moved when networkx would process generation k,
+    networkx's loop continues on the live graph from the native kernel's
+    in-degree state at that boundary (nro4w.11). Any other directed graph
+    (a subclass, a view, a networkx graph) runs networkx's loop as written.
+    """
+    if type(G) is DiGraph or type(G) is MultiDiGraph:
+        yield from _topological_generations_native(G)
     else:
-        # Exact DiGraph: native topological_generations already implements
-        # NetworkX's Kahn FIFO generation order, so flatten those generation
-        # vectors instead of replaying Kahn in Python for every node.
-        # Keep the previous final len(G) guard so node-count mutations during
-        # iteration retain the old observable FNX outcome.
-        if type(G) is DiGraph:
-            _count = 0
-            for _generation in topological_generations(G):
-                for u in _generation:
-                    yield u
-                    _count += 1
-            if _count != len(G):
-                raise NetworkXUnfeasible(
-                    "Graph contains a cycle or graph changed during iteration"
-                )
+        yield from _topological_generations_as_networkx(G)
+
+
+def _topological_generations_native(G):
+    generations, leftover, state = _raw_topological_generations_state(G)
+    revision = G._fnx_revision
+    start = revision()
+    for k, generation in enumerate(generations):
+        if revision() != start:
+            yield from _topological_generations_live(
+                G, generation, state.indegree_map(k), G.is_multigraph()
+            )
             return
-        else:
-            for u in G:
-                for v in succ[u]:
-                    indegree[v] += 1
-            queue = _deque(v for v in G if indegree[v] == 0)
-            _count = 0
-            while queue:
-                u = queue.popleft()
-                yield u
-                _count += 1
-                for v in succ[u]:
-                    indegree[v] -= 1
-                    if indegree[v] == 0:
-                        queue.append(v)
-    if _count != len(G):
+        yield generation
+    if leftover:
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
         )
 
 
+def _topological_generations_as_networkx(G):
+    if not G.is_directed():
+        raise NetworkXError("Topological sort not defined on undirected graphs.")
+    indegree_map = {v: d for v, d in G.in_degree() if d > 0}
+    zero_indegree = [v for v, d in G.in_degree() if d == 0]
+    yield from _topological_generations_live(
+        G, zero_indegree, indegree_map, G.is_multigraph()
+    )
 
 
-def topological_generations(G):
-    """Yield per-generation sets of nodes in topological order.
-
-    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
-    (br-zzcm7).
-    """
-    G = _coerce_arg_to_fnx_graph(G)
-    try:
-        yield from _raw_topological_generations(G)
-    except HasACycle as exc:
+def _topological_generations_live(G, zero_indegree, indegree_map, multigraph):
+    """networkx's generation loop from a given state, on the live graph."""
+    while zero_indegree:
+        this_generation = zero_indegree
+        zero_indegree = []
+        for node in this_generation:
+            if node not in G:
+                raise RuntimeError("Graph changed during iteration")
+            for child in G.neighbors(node):
+                try:
+                    indegree_map[child] -= len(G[node][child]) if multigraph else 1
+                except KeyError as err:
+                    raise RuntimeError("Graph changed during iteration") from err
+                if indegree_map[child] == 0:
+                    zero_indegree.append(child)
+                    del indegree_map[child]
+        yield this_generation
+    if indegree_map:
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
-        ) from exc
-    except NetworkXError as exc:
-        # br-r37-c1-1ewpw: nx uses "Topological sort not defined on
-        # undirected graphs." for both topological_sort AND
-        # topological_generations. The Rust binding uses
-        # "Topological generations not defined ...". Translate so
-        # drop-in code matching the message text works.
-        if "Topological generations not defined" in str(exc):
-            raise NetworkXError(
-                "Topological sort not defined on undirected graphs."
-            ) from exc
-        raise
+        )
 
 
 def _dag_longest_path_digraph_native(G, weight, default_weight):
@@ -58163,6 +58138,22 @@ def lexicographical_topological_sort(G, key=None):
     def create_tuple(node):
         return key(node), nodeid_map[node], node
 
+    # nro4w.11: networkx processes each node's out-edges on the LIVE graph just
+    # before yielding it, so a caller that mutates G mid-iteration sees
+    # RuntimeError or NetworkXUnfeasible. The bulk precompute below is only valid
+    # while G is unchanged: fnx's own graphs expose a structural revision to
+    # check before each node; any other graph runs networkx's loop as written.
+    if type(G) is not DiGraph and type(G) is not MultiDiGraph:
+        indegree_map = {v: d for v, d in G.in_degree() if d > 0}
+        zero_indegree = [create_tuple(v) for v, d in G.in_degree() if d == 0]
+        heapq.heapify(zero_indegree)
+        yield from _lexicographical_topological_sort_live(
+            G, zero_indegree, indegree_map, create_tuple
+        )
+        return
+    revision = G._fnx_revision
+    start = revision()
+
     # br-r37-c1-lextopo-snap: the previous loop called ``G.successors(node)``
     # once per popped node — V fnx Python-wrapper round-trips
     # (vars/_native_successor_row_dict), ~0.5s and the whole ~1.8x gap vs nx on
@@ -58185,17 +58176,57 @@ def lexicographical_topological_sort(G, key=None):
             in_deg[v] += 1
     heap = [create_tuple(n) for n in nodes if in_deg[n] == 0]
     heapq.heapify(heap)
-    yielded = 0
-    total = len(nodes)
+    reached_zero = len(heap)
     while heap:
         _, _, node = heapq.heappop(heap)
-        yield node
-        yielded += 1
+        if revision() != start:
+            # networkx's indegree_map is every node whose count is still positive.
+            heapq.heappush(heap, create_tuple(node))
+            yield from _lexicographical_topological_sort_live(
+                G, heap, {v: d for v, d in in_deg.items() if d > 0}, create_tuple
+            )
+            return
         for s in succ[node]:
             in_deg[s] -= 1
             if in_deg[s] == 0:
-                heapq.heappush(heap, create_tuple(s))
-    if yielded != total:
+                reached_zero += 1
+                _lexicographical_heappush(heap, create_tuple(s))
+        yield node
+    if reached_zero != len(nodes):
+        raise NetworkXUnfeasible(
+            "Graph contains a cycle or graph changed during iteration"
+        )
+
+
+def _lexicographical_heappush(heap, item):
+    import heapq
+
+    try:
+        heapq.heappush(heap, item)
+    except TypeError as err:
+        raise TypeError(
+            f"{err}\nConsider using `key=` parameter to resolve ambiguities in the sort order."
+        )
+
+
+def _lexicographical_topological_sort_live(G, zero_indegree, indegree_map, create_tuple):
+    """networkx's lexicographical loop from a given state, on the live graph."""
+    import heapq
+
+    while zero_indegree:
+        _, _, node = heapq.heappop(zero_indegree)
+        if node not in G:
+            raise RuntimeError("Graph changed during iteration")
+        for _, child in G.edges(node):
+            try:
+                indegree_map[child] -= 1
+            except KeyError as err:
+                raise RuntimeError("Graph changed during iteration") from err
+            if indegree_map[child] == 0:
+                _lexicographical_heappush(zero_indegree, create_tuple(child))
+                del indegree_map[child]
+        yield node
+    if indegree_map:
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
         )

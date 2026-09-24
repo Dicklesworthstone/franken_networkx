@@ -2444,6 +2444,15 @@ impl MultiDiGraph {
             .map(|keys| keys.iter())
     }
 
+    /// Every (source, target) pair joined by more than one edge, with its
+    /// edge count, in edge insertion order.
+    pub fn parallel_edge_counts(&self) -> impl Iterator<Item = (&str, &str, usize)> {
+        self.edges
+            .iter()
+            .filter(|(_, keys)| keys.len() > 1)
+            .map(|(edge, keys)| (edge.source.as_str(), edge.target.as_str(), keys.len()))
+    }
+
     #[must_use]
     pub fn revision(&self) -> u64 {
         self.revision
@@ -4391,6 +4400,29 @@ mod tests {
 
         assert_eq!(g.number_of_selfloops(), 3);
         assert_multidigraph_core_invariants(&g);
+    }
+
+    #[test]
+    fn multidigraph_parallel_edge_counts_lists_only_repeated_pairs() {
+        let mut g = MultiDiGraph::strict();
+        for (u, v) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("a", "b"),
+            ("c", "c"),
+            ("c", "c"),
+            ("a", "b"),
+        ] {
+            let _ = g.add_edge(u, v).expect("edge add should succeed");
+        }
+        let _ = g.add_edge("b", "a").expect("edge add should succeed");
+        let counts: Vec<_> = g.parallel_edge_counts().collect();
+        assert_eq!(counts, vec![("a", "b", 3), ("c", "c", 2)]);
+
+        let mut simple = MultiDiGraph::strict();
+        let _ = simple.add_edge("a", "b").expect("edge add should succeed");
+        let _ = simple.add_edge("b", "a").expect("edge add should succeed");
+        assert_eq!(simple.parallel_edge_counts().count(), 0);
     }
 
     // br-r37-c1-p6bxu: A/B substrate bench for MultiDiGraph::remove_node

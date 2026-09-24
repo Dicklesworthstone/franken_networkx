@@ -5176,6 +5176,12 @@ impl PyMultiDiGraph {
         self.inner.record_external_recovery(operation, rationale);
     }
 
+    /// Internal: the structural revision, which every node or edge mutation
+    /// advances. Lets a lazy algorithm tell that the graph changed under it.
+    fn _fnx_revision(&self) -> u64 {
+        self.inner.revision()
+    }
+
     fn number_of_nodes(&self) -> usize {
         self.inner.node_count()
     }
@@ -13529,6 +13535,12 @@ impl PyDiGraph {
     /// performed (e.g. a skipped malformed line) in this graph's ledger.
     fn _fnx_record_recovery(&mut self, operation: String, rationale: String) {
         self.inner.record_external_recovery(operation, rationale);
+    }
+
+    /// Internal: the structural revision, which every node or edge mutation
+    /// advances. Lets a lazy algorithm tell that the graph changed under it.
+    fn _fnx_revision(&self) -> u64 {
+        self.inner.revision()
     }
 
     // ---- Counts ----

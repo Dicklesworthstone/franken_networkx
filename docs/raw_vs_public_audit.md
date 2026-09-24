@@ -8,11 +8,11 @@ Functions audited: **51**
 
 | classification | count | meaning |
 |----------------|-------|---------|
-| `identical` | 20 | raw and public agree on every fixture, both match nx — public could call raw directly |
-| `untestable-not-exposed` | 7 | raw or public not exposed in the audited shape; manual review |
+| `identical` | 19 | raw and public agree on every fixture, both match nx — public could call raw directly |
+| `untestable-not-exposed` | 8 | raw or public not exposed in the audited shape; manual review |
 | `wrapper-corrected` | 24 | raw and public disagree, public matches nx — wrapper is necessary |
 
-## identical (20)
+## identical (19)
 
 ### `articulation_points`
 
@@ -392,27 +392,6 @@ Functions audited: **51**
 | two-components | `{0: [0], 1: [0, 1]}` | `{0: [0], 1: [0, 1]}` | `{0: [0], 1: [0, 1]}` |
 | negative-weights-digraph | `{0: [0], 1: [0, 1], 2: [0, 1, 2]}` | `{0: [0], 1: [0, 1], 2: [0, 1, 2]}` | `{0: [0], 1: [0, 1], 2: [0, 1, 2]}` |
 
-### `topological_sort`
-
-| fixture | raw | public | nx |
-|---------|-----|--------|-----|
-| path-5 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| cycle-6 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| star-5 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| complete-4 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| weighted-path-5 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| weighted-postmut-5 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| bipartite-3-3 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| petersen | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| digraph-chain-5 | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` |
-| multigraph-path-5 | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| multidigraph-chain-5 | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` | `[0, 1, 2, 3, 4]` |
-| empty | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| single-node | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| selfloop-path | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| two-components | raises NetworkXError | raises NetworkXError | raises NetworkXError |
-| negative-weights-digraph | `[0, 1, 2]` | `[0, 1, 2]` | `[0, 1, 2]` |
-
 ### `triangles`
 
 | fixture | raw | public | nx |
@@ -434,7 +413,7 @@ Functions audited: **51**
 | two-components | `{0: 0, 1: 0, 2: 0, 3: 0}` | `{0: 0, 1: 0, 2: 0, 3: 0}` | `{0: 0, 1: 0, 2: 0, 3: 0}` |
 | negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
 
-## untestable-not-exposed (7)
+## untestable-not-exposed (8)
 
 ### `density`
 
@@ -465,6 +444,10 @@ Functions audited: **51**
 ### `square_clustering`
 
 - `_raw_square_clustering` not exposed
+
+### `topological_sort`
+
+- `_raw_topological_sort` not exposed
 
 ## wrapper-corrected (24)
 
