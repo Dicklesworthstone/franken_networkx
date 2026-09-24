@@ -29925,35 +29925,43 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
     if !graph.has_node(source) || !graph.has_node(target) {
         return Ok(None);
     }
-    if source == target {
-        return Ok(Some(vec![source.to_string()]));
-    }
 
     let zero_h = |_: &str| Ok(0.0);
     let h: AstarHeuristic<'_, E> = heuristic.unwrap_or(&zero_h);
 
-    // br-r37-c1-astie: tie-break among equal f-scores must match nx, which
-    // pushes ``(f, next(counter), node, ...)`` onto its heap — i.e. FIFO by
-    // insertion order, NOT by node identity. The previous ``other.node.cmp``
-    // tie-break returned a different (still valid) shortest path than nx when
-    // multiple equal-cost paths exist (e.g. unit-weight grids). Carry a
-    // monotonic counter and break ties on it (smaller counter = earlier
-    // pushed = pops first) so ``astar_path`` reproduces nx's chosen path.
-    #[derive(PartialEq)]
-    struct State {
+    // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.1: this is a line-for-line
+    // mirror of networkx.astar_path's bookkeeping. The previous kernel closed a
+    // node on its first pop (a `visited` set) and never relaxed it again, which
+    // is only optimal for CONSISTENT heuristics; with an admissible but
+    // inconsistent heuristic it returned a longer path than nx (networkx
+    // GH #3464, test_astar_directed3: cost 43 instead of 42). nx instead keeps
+    // `enqueued[v] = (best queued cost, cached h)` and `explored[v] = parent`,
+    // re-expands a node whenever an entry at its best queued cost pops again,
+    // stores the parent in the heap entry (committed only at expansion), and
+    // calls the heuristic once per node, on first enqueue (never for the
+    // source) — so a side-effecting heuristic observes nx's exact call pattern.
+    //
+    // br-r37-c1-astie: ties among equal f-scores pop FIFO by push order (nx
+    // pushes ``(f, next(counter), node, dist, parent)``), not by node identity.
+    struct Entry {
         f_score: f64,
-        g_score: f64,
         counter: u64,
         node: usize,
+        dist: f64,
+        parent: usize,
     }
-
-    impl Eq for State {}
-    impl PartialOrd for State {
+    impl PartialEq for Entry {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmp(other) == Ordering::Equal
+        }
+    }
+    impl Eq for Entry {}
+    impl PartialOrd for Entry {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             Some(self.cmp(other))
         }
     }
-    impl Ord for State {
+    impl Ord for Entry {
         fn cmp(&self, other: &Self) -> Ordering {
             other
                 .f_score
@@ -29963,6 +29971,9 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
         }
     }
 
+    // `usize::MAX` stands for nx's `None` parent (the source's entry).
+    const NO_PARENT: usize = usize::MAX;
+
     let Some(source_idx) = graph.get_node_index(source) else {
         return Ok(None);
     };
@@ -29971,32 +29982,34 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
     };
     let names = graph.nodes_ordered();
     let node_count = names.len();
-    let mut g_scores: Vec<f64> = vec![f64::INFINITY; node_count];
-    let mut came_from: Vec<usize> = vec![usize::MAX; node_count];
+    let mut enqueued: Vec<Option<(f64, f64)>> = vec![None; node_count];
+    let mut explored = vec![false; node_count];
+    let mut explored_parent = vec![NO_PARENT; node_count];
     let mut heap = BinaryHeap::new();
-    let mut visited = vec![false; node_count];
     let mut counter: u64 = 0;
 
-    g_scores[source_idx] = 0.0;
-    heap.push(State {
-        f_score: h(source)?,
-        g_score: 0.0,
+    heap.push(Entry {
+        f_score: 0.0,
         counter,
         node: source_idx,
+        dist: 0.0,
+        parent: NO_PARENT,
     });
     counter += 1;
 
-    while let Some(State { node, g_score, .. }) = heap.pop() {
-        if node == target_idx {
-            let mut path_indices = vec![target_idx];
-            let mut current = target_idx;
-            while current != source_idx {
-                let prev = came_from[current];
-                if prev == usize::MAX {
-                    return Ok(None);
-                }
-                path_indices.push(prev);
-                current = prev;
+    while let Some(Entry {
+        node: curnode,
+        dist,
+        parent,
+        ..
+    }) = heap.pop()
+    {
+        if curnode == target_idx {
+            let mut path_indices = vec![curnode];
+            let mut node = parent;
+            while node != NO_PARENT {
+                path_indices.push(node);
+                node = explored_parent[node];
             }
             path_indices.reverse();
             return Ok(Some(
@@ -30007,37 +30020,47 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
             ));
         }
 
-        if visited[node] {
-            continue;
+        if explored[curnode] {
+            // Only the source is explored with a `None` parent: never revisit it.
+            if explored_parent[curnode] == NO_PARENT {
+                continue;
+            }
+            // A stale entry: a cheaper one for this node is (or was) queued.
+            if let Some((qcost, _)) = enqueued[curnode]
+                && qcost < dist
+            {
+                continue;
+            }
         }
-        visited[node] = true;
 
-        if g_score > g_scores[node] {
-            continue;
-        }
+        explored[curnode] = true;
+        explored_parent[curnode] = parent;
 
         // GraphView::neighbors_indices yields successors for DiGraph and
-        // neighbors for Graph. Keeping the hot loop on integer rows avoids the
-        // small-graph String hashing tax that dominated this single-pair path.
-        if let Some(nbrs) = graph.neighbors_indices(node) {
-            for &nbr in nbrs {
-                if visited[nbr] {
-                    continue;
-                }
-                let w = graph.edge_weight_by_indices(node, nbr, Some(weight_attr));
-                let tentative_g = g_score + w;
-                let current_g = g_scores[nbr];
-                if tentative_g < current_g {
-                    g_scores[nbr] = tentative_g;
-                    came_from[nbr] = node;
-                    heap.push(State {
-                        f_score: tentative_g + h(names[nbr])?,
-                        g_score: tentative_g,
-                        counter,
-                        node: nbr,
-                    });
-                    counter += 1;
-                }
+        // neighbors for Graph, in adjacency insertion order (nx's
+        // ``G._adj[curnode].items()`` order).
+        if let Some(nbrs) = graph.neighbors_indices(curnode) {
+            for &neighbor in nbrs {
+                let cost = graph.edge_weight_by_indices(curnode, neighbor, Some(weight_attr));
+                let ncost = dist + cost;
+                let heur = match enqueued[neighbor] {
+                    Some((qcost, cached_h)) => {
+                        if qcost <= ncost {
+                            continue;
+                        }
+                        cached_h
+                    }
+                    None => h(names[neighbor])?,
+                };
+                enqueued[neighbor] = Some((ncost, heur));
+                heap.push(Entry {
+                    f_score: ncost + heur,
+                    counter,
+                    node: neighbor,
+                    dist: ncost,
+                    parent: curnode,
+                });
+                counter += 1;
             }
         }
     }
@@ -75842,6 +75865,62 @@ mod tests {
 
         assert_eq!(astar_length, dijkstra_length);
         assert_eq!(astar_length, Some(4.0));
+    }
+
+    /// networkx GH #3464 / test_astar_directed3: an admissible but INCONSISTENT
+    /// heuristic (h(n5)=36 > w(n5,n2)+h(n2)=13). A kernel that closes a node on its
+    /// first pop returns n5->n1->n0 (cost 43); nx re-expands and returns cost 42.
+    #[test]
+    fn test_astar_inconsistent_heuristic_reexpands_like_networkx() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge_with_attrs("n5", "n1", attrs([("weight", "11")]));
+        let _ = g.add_edge_with_attrs("n5", "n2", attrs([("weight", "9")]));
+        let _ = g.add_edge_with_attrs("n2", "n1", attrs([("weight", "1")]));
+        let _ = g.add_edge_with_attrs("n1", "n0", attrs([("weight", "32")]));
+        let h = |node: &str| {
+            Ok::<_, ()>(match node {
+                "n5" => 36.0,
+                "n2" => 4.0,
+                _ => 0.0,
+            })
+        };
+        let path = astar_path(&g, "n5", "n0", "weight", Some(&h)).expect("no heuristic error");
+        assert_eq!(
+            path,
+            Some(vec![
+                "n5".to_owned(),
+                "n2".to_owned(),
+                "n1".to_owned(),
+                "n0".to_owned()
+            ])
+        );
+        let length = astar_path_length(&g, "n5", "n0", "weight", Some(&h)).expect("no error");
+        assert_eq!(length, Some(42.0));
+    }
+
+    /// nx calls ``heuristic(neighbor, target)`` once per node, when it is first
+    /// enqueued, and never for the source; re-relaxations reuse the cached value.
+    #[test]
+    fn test_astar_heuristic_call_pattern_matches_networkx() {
+        use std::cell::RefCell;
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge_with_attrs("s", "a", attrs([("weight", "1")]));
+        let _ = g.add_edge_with_attrs("s", "b", attrs([("weight", "1")]));
+        let _ = g.add_edge_with_attrs("a", "t", attrs([("weight", "1")]));
+        let _ = g.add_edge_with_attrs("b", "t", attrs([("weight", "1")]));
+        let _ = g.add_edge_with_attrs("t", "s", attrs([("weight", "1")]));
+        let calls = RefCell::new(Vec::<String>::new());
+        let h = |node: &str| {
+            calls.borrow_mut().push(node.to_owned());
+            Ok::<_, ()>(0.0)
+        };
+        let path = astar_path(&g, "s", "t", "weight", Some(&h)).expect("no heuristic error");
+        assert_eq!(
+            path,
+            Some(vec!["s".to_owned(), "a".to_owned(), "t".to_owned()])
+        );
+        // Trace of networkx 3.6.1 astar_path on this graph: h(a), h(b), h(t).
+        assert_eq!(*calls.borrow(), vec!["a", "b", "t"]);
     }
 
     #[test]
