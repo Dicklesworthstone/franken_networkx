@@ -1124,11 +1124,17 @@ def modularity(
     weight: str = "weight",
 ) -> float: ...
 def label_propagation_communities(g: Graph) -> list[list[Any]]: ...
-def greedy_modularity_communities(
-    g: Graph,
-    resolution: float = 1.0,
-    weight: str = "weight",
-) -> list[list[Any]]: ...
+def networkx_greedy_modularity_merges(
+    sources: list[int],
+    targets: list[int],
+    weights: list[float],
+    a: list[float],
+    b: Optional[list[float]],
+    q0: float,
+    resolution: float,
+    cutoff: float,
+    best_n: float,
+) -> tuple[list[tuple[int, int]], bool]: ...
 
 # ---------------------------------------------------------------------------
 # Graph operators

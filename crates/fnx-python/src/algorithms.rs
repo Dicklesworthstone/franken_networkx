@@ -19000,22 +19000,60 @@ fn label_propagation_communities(
         .collect())
 }
 
+/// networkx's `greedy_modularity_communities` merges as `(merges, exhausted)` (see
+/// `fnx_algorithms::networkx_greedy_modularity_merges`), for the Python wrapper to
+/// replay into networkx's communities. Node ids are label ranks; edge `i` is
+/// `(sources[i], targets[i])` weighing `weights[i]`; `b` is `None` for an
+/// undirected graph. A NaN gain raises `ValueError`.
 #[pyfunction]
-#[pyo3(signature = (g, resolution=1.0, weight="weight"))]
-fn greedy_modularity_communities(
+#[pyo3(signature = (sources, targets, weights, a, b, q0, resolution, cutoff, best_n))]
+pub fn networkx_greedy_modularity_merges(
     py: Python<'_>,
-    g: &Bound<'_, PyAny>,
+    sources: Vec<usize>,
+    targets: Vec<usize>,
+    weights: Vec<f64>,
+    a: Vec<f64>,
+    b: Option<Vec<f64>>,
+    q0: f64,
     resolution: f64,
-    weight: &str,
-) -> PyResult<Vec<Vec<PyObject>>> {
-    let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    let result = py
-        .allow_threads(|| fnx_algorithms::greedy_modularity_communities(inner, resolution, weight));
-    Ok(result
+    cutoff: f64,
+    best_n: f64,
+) -> PyResult<(Vec<(usize, usize)>, bool)> {
+    let n = a.len();
+    if sources.len() != targets.len() || sources.len() != weights.len() {
+        return Err(PyValueError::new_err(
+            "sources, targets and weights must have the same length",
+        ));
+    }
+    if b.as_ref().is_some_and(|b| b.len() != n) {
+        return Err(PyValueError::new_err("a and b must have the same length"));
+    }
+    if sources.iter().chain(&targets).any(|&node| node >= n) {
+        return Err(PyValueError::new_err("node index out of range"));
+    }
+    let edges: Vec<(usize, usize, f64)> = sources
         .into_iter()
-        .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
-        .collect())
+        .zip(targets)
+        .zip(weights)
+        .map(|((u, v), weight)| (u, v, weight))
+        .collect();
+    let run = py.allow_threads(|| {
+        fnx_algorithms::networkx_greedy_modularity_merges(
+            &edges,
+            &a,
+            b.as_deref(),
+            q0,
+            resolution,
+            cutoff,
+            best_n,
+        )
+    });
+    match run {
+        Ok(run) => Ok((run.merges, run.exhausted)),
+        Err(error) => Err(PyValueError::new_err(format!(
+            "networkx's merge order is not reproducible here: {error:?}"
+        ))),
+    }
 }
 
 // ===========================================================================
@@ -28618,7 +28656,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(louvain_communities, m)?)?;
     m.add_function(wrap_pyfunction!(modularity, m)?)?;
     m.add_function(wrap_pyfunction!(label_propagation_communities, m)?)?;
-    m.add_function(wrap_pyfunction!(greedy_modularity_communities, m)?)?;
+    m.add_function(wrap_pyfunction!(networkx_greedy_modularity_merges, m)?)?;
     // Graph operators
     m.add_function(wrap_pyfunction!(union, m)?)?;
     m.add_function(wrap_pyfunction!(intersection, m)?)?;

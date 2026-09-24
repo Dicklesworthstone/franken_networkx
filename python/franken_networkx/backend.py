@@ -364,6 +364,9 @@ _SUPPORTED_ALGORITHMS = {
     "is_dominating_set": fnx.is_dominating_set,
     # Community detection
     "louvain_communities": fnx.community.louvain_communities,
+    # br-r37-c1-epic-native-algorithms-1g0lj.3: networkx's CNM loop natively. Its
+    # fallback calls networkx with backend="networkx", so this cannot ping-pong.
+    "greedy_modularity_communities": fnx.community.greedy_modularity_communities,
     # br-r37-c1-ecua7: registered using the private backend-only impl
     # so ``fnx.community.modularity`` stays AttributeError (matching nx's namespace
     # — nx exposes modularity only at nx.community.modularity).

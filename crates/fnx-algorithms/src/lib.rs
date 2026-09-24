@@ -29125,266 +29125,439 @@ fn label_propagation_communities_orig_string(graph: &Graph) -> Vec<Vec<String>> 
 // Community Detection — Greedy Modularity (CNM)
 // ===========================================================================
 
-/// Greedy modularity communities (Clauset-Newman-Moore algorithm).
+/// One `_HeapElement(priority, (row, col))` of networkx's `MappedQueue`.
+type NxHeapElement = (f64, usize, usize);
+
+/// `_HeapElement.__lt__`: the priorities, then the `(row, col)` tuples when they are equal.
+fn nx_heap_element_lt(left: &NxHeapElement, right: &NxHeapElement) -> bool {
+    if left.0 == right.0 {
+        (left.1, left.2) < (right.1, right.2)
+    } else {
+        left.0 < right.0
+    }
+}
+
+/// networkx's `MappedQueue` (`networkx.utils.mapped_queue`): a binary min-heap of
+/// `_HeapElement`s plus an element -> position map, sifting as networkx does.
+#[derive(Debug, Default)]
+struct NxMappedQueue {
+    heap: Vec<NxHeapElement>,
+    position: HashMap<(usize, usize), usize>,
+}
+
+impl NxMappedQueue {
+    /// `MappedQueue(data)`: `heapq.heapify` over the elements in the given order.
+    fn heapify(heap: Vec<NxHeapElement>) -> Self {
+        let position = heap
+            .iter()
+            .enumerate()
+            .map(|(pos, element)| ((element.1, element.2), pos))
+            .collect();
+        let mut queue = Self { heap, position };
+        for pos in (0..queue.heap.len() / 2).rev() {
+            queue.sift_up_to(pos, pos);
+        }
+        queue
+    }
+
+    fn len(&self) -> usize {
+        self.heap.len()
+    }
+
+    /// `heap[0]`.
+    fn top(&self) -> Option<NxHeapElement> {
+        self.heap.first().copied()
+    }
+
+    /// `push`: nothing happens (and `false`) when the element is already queued.
+    fn push(&mut self, element: NxHeapElement) -> bool {
+        let key = (element.1, element.2);
+        if self.position.contains_key(&key) {
+            return false;
+        }
+        let pos = self.heap.len();
+        self.heap.push(element);
+        self.position.insert(key, pos);
+        self.sift_down(0, pos);
+        true
+    }
+
+    fn pop(&mut self) -> Option<NxHeapElement> {
+        let element = self.top()?;
+        self.position.remove(&(element.1, element.2));
+        let last = self.heap.pop()?;
+        if self.heap.is_empty() {
+            return Some(element);
+        }
+        self.heap[0] = last;
+        self.position.insert((last.1, last.2), 0);
+        self.sift_up_to(0, 0);
+        Some(element)
+    }
+
+    /// `update(elt, new)`: `new` takes `elt`'s slot and sifts. `None` where networkx
+    /// raises `KeyError`.
+    fn update(&mut self, element: (usize, usize), new: NxHeapElement) -> Option<()> {
+        let pos = self.position.remove(&element)?;
+        self.heap[pos] = new;
+        self.position.insert((new.1, new.2), pos);
+        self.sift_up_to(pos, 0);
+        Some(())
+    }
+
+    /// `remove(elt)`: the last element takes its slot and sifts. `None` where networkx
+    /// raises `KeyError`.
+    fn remove(&mut self, element: (usize, usize)) -> Option<()> {
+        let pos = self.position.remove(&element)?;
+        let last = self.heap.pop()?;
+        if pos == self.heap.len() {
+            return Some(());
+        }
+        self.heap[pos] = last;
+        self.position.insert((last.1, last.2), pos);
+        self.sift_up_to(pos, 0);
+        Some(())
+    }
+
+    /// `_siftup`: the smaller child moves up until `pos` is a leaf, then the element sifts
+    /// back up, no higher than `floor` (0 in `MappedQueue`, the start in `heapify`).
+    fn sift_up_to(&mut self, mut pos: usize, floor: usize) {
+        let end = self.heap.len();
+        let element = self.heap[pos];
+        let mut child = 2 * pos + 1;
+        while child < end {
+            let right = child + 1;
+            if right < end && !nx_heap_element_lt(&self.heap[child], &self.heap[right]) {
+                child = right;
+            }
+            let moved = self.heap[child];
+            self.heap[pos] = moved;
+            self.position.insert((moved.1, moved.2), pos);
+            pos = child;
+            child = 2 * pos + 1;
+        }
+        self.heap[pos] = element;
+        self.sift_down(floor, pos);
+    }
+
+    /// `_siftdown`: the element at `pos` swaps with its parent until it is not smaller.
+    fn sift_down(&mut self, start: usize, mut pos: usize) {
+        let element = self.heap[pos];
+        while pos > start {
+            let parent = (pos - 1) >> 1;
+            let above = self.heap[parent];
+            if !nx_heap_element_lt(&element, &above) {
+                break;
+            }
+            self.heap[pos] = above;
+            self.position.insert((above.1, above.2), pos);
+            pos = parent;
+        }
+        self.heap[pos] = element;
+        self.position.insert((element.1, element.2), pos);
+    }
+}
+
+/// The merges networkx's `greedy_modularity_communities` makes, in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkxGreedyModularityMerges {
+    /// `(u, v)` per merge: community `u` joins community `v` and `u`'s entry is deleted.
+    pub merges: Vec<(usize, usize)>,
+    /// The generator ran out before the loop stopped; networkx then merges the largest
+    /// communities pairwise down to `best_n`.
+    pub exhausted: bool,
+}
+
+/// Where [`networkx_greedy_modularity_merges`] cannot repeat networkx.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkxGreedyModularityError {
+    /// A merge gain was NaN. networkx's heap order is then no longer total, and its
+    /// result depends on the iteration order of CPython sets.
+    NanGain,
+    /// A queue lookup failed where networkx itself raises `KeyError` or `IndexError`.
+    Inconsistent,
+}
+
+/// networkx's `b` dict: the same dict as `a` for an undirected graph (`b` is `None`).
+fn nx_greedy_modularity_b(a: &[f64], b: Option<&[f64]>, node: usize) -> f64 {
+    b.map_or(a[node], |b| b[node])
+}
+
+/// The merges of networkx 3.6's `greedy_modularity_communities`, step for step.
 ///
-/// Returns a list of communities sorted deterministically.
-/// Matches `networkx.community.greedy_modularity_communities(G, resolution=..., weight=...)`.
+/// `_greedy_modularity_communities_generator` (with its `MappedQueue`s) driven by
+/// `greedy_modularity_communities`'s loop. Node ids are `0..a.len()`, numbered in the
+/// order of the node labels they stand for: networkx breaks equal-priority ties by
+/// comparing `(row, col)` label tuples. `edges` is `G.edges(data=weight, default=1)` with
+/// the weights as floats, self-loops included (networkx skips them). `a`, `b` and `q0` are
+/// the generator's `a` and `b` dicts and `1 / m`; `b` is `None` for an undirected graph,
+/// where networkx's `b` is `a`.
+///
+/// It stops where networkx's loop does: at most `cutoff` communities left, a negative
+/// gain with at most `best_n` left, or the generator ran out (`exhausted`). Within one
+/// merge networkx visits the neighbouring communities in CPython set order; that order
+/// changes only the heaps' internal layout, never their minimum, while every gain is
+/// ordered. So a NaN gain is an error rather than a guess.
+///
+/// # Errors
+///
+/// [`NetworkxGreedyModularityError::NanGain`] for a NaN gain, and
+/// [`NetworkxGreedyModularityError::Inconsistent`] where networkx would raise from a
+/// queue lookup.
+pub fn networkx_greedy_modularity_merges(
+    edges: &[(usize, usize, f64)],
+    a: &[f64],
+    b: Option<&[f64]>,
+    q0: f64,
+    resolution: f64,
+    cutoff: f64,
+    best_n: f64,
+) -> Result<NetworkxGreedyModularityMerges, NetworkxGreedyModularityError> {
+    use NetworkxGreedyModularityError::{Inconsistent, NanGain};
+
+    let n = a.len();
+    let mut a = a.to_vec();
+    let mut b = b.map(<[f64]>::to_vec);
+
+    // dq_dict: the summed weight between adjacent nodes, then its merge gain.
+    let mut dq: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
+    for &(u, v, wt) in edges {
+        if u == v {
+            continue;
+        }
+        *dq[u].entry(v).or_insert(0.0) += wt;
+        *dq[v].entry(u).or_insert(0.0) += wt;
+    }
+    for u in 0..n {
+        let b_u = nx_greedy_modularity_b(&a, b.as_deref(), u);
+        for (&v, value) in &mut dq[u] {
+            let b_v = nx_greedy_modularity_b(&a, b.as_deref(), v);
+            let gain = q0 * *value - resolution * (a[u] * b_v + b_u * a[v]);
+            if gain.is_nan() {
+                return Err(NanGain);
+            }
+            *value = gain;
+        }
+    }
+
+    // dq_heap (one queue per row) and H (each row's best).
+    let mut rows: Vec<NxMappedQueue> = dq
+        .iter()
+        .enumerate()
+        .map(|(u, row)| {
+            NxMappedQueue::heapify(row.iter().map(|(&v, &gain)| (-gain, u, v)).collect())
+        })
+        .collect();
+    let mut queue = NxMappedQueue::heapify(rows.iter().filter_map(NxMappedQueue::top).collect());
+
+    let mut merges = Vec::new();
+    let mut communities = n;
+    loop {
+        // `while len(communities) > cutoff` (a NaN cutoff ends it, as in Python), then
+        // the generator's `while len(H) > 1`.
+        if (communities as f64).partial_cmp(&cutoff) != Some(std::cmp::Ordering::Greater) {
+            return Ok(NetworkxGreedyModularityMerges {
+                merges,
+                exhausted: false,
+            });
+        }
+        if queue.len() <= 1 {
+            return Ok(NetworkxGreedyModularityMerges {
+                merges,
+                exhausted: true,
+            });
+        }
+        let (negated, u, v) = queue.pop().ok_or(Inconsistent)?;
+        if -negated < 0.0 && communities as f64 <= best_n {
+            return Ok(NetworkxGreedyModularityMerges {
+                merges,
+                exhausted: false,
+            });
+        }
+
+        rows[u].pop().ok_or(Inconsistent)?;
+        if let Some(next) = rows[u].top() {
+            queue.push(next);
+        }
+        let v_top = rows[v].top().ok_or(Inconsistent)?;
+        rows[v].remove((v, u)).ok_or(Inconsistent)?;
+        if (v_top.1, v_top.2) == (v, u) {
+            queue.remove((v, u)).ok_or(Inconsistent)?;
+            if let Some(next) = rows[v].top() {
+                queue.push(next);
+            }
+        }
+        merges.push((u, v));
+        communities -= 1;
+
+        // Every community next to u or v, each marked with whether it was next to v.
+        let next_to_v: Vec<usize> = dq[v].keys().copied().filter(|&w| w != u).collect();
+        let next_to_u_only: Vec<usize> = dq[u]
+            .keys()
+            .copied()
+            .filter(|&w| w != v && !dq[v].contains_key(&w))
+            .collect();
+        let neighbours = next_to_v
+            .into_iter()
+            .map(|w| (w, true))
+            .chain(next_to_u_only.into_iter().map(|w| (w, false)));
+        for (w, in_v) in neighbours {
+            let from_u = dq[u].get(&w).copied();
+            let from_v = dq[v].get(&w).copied();
+            let gain = match (from_u, from_v) {
+                (Some(du), Some(dv)) => dv + du,
+                (None, Some(dv)) => {
+                    let b_w = nx_greedy_modularity_b(&a, b.as_deref(), w);
+                    let b_u = nx_greedy_modularity_b(&a, b.as_deref(), u);
+                    dv - resolution * (a[u] * b_w + a[w] * b_u)
+                }
+                (Some(du), None) => {
+                    let b_w = nx_greedy_modularity_b(&a, b.as_deref(), w);
+                    let b_v = nx_greedy_modularity_b(&a, b.as_deref(), v);
+                    du - resolution * (a[v] * b_w + a[w] * b_v)
+                }
+                (None, None) => return Err(Inconsistent),
+            };
+            if gain.is_nan() {
+                return Err(NanGain);
+            }
+            for (row, col) in [(v, w), (w, v)] {
+                dq[row].insert(col, gain);
+                let old_top = rows[row].top();
+                let element = (-gain, row, col);
+                if in_v {
+                    rows[row].update((row, col), element).ok_or(Inconsistent)?;
+                } else {
+                    rows[row].push(element);
+                }
+                match old_top {
+                    None => {
+                        queue.push(element);
+                    }
+                    Some(old) => {
+                        let new_top = rows[row].top().ok_or(Inconsistent)?;
+                        if (old.1, old.2) != (new_top.1, new_top.2) || old.0 != new_top.0 {
+                            queue.update((old.1, old.2), new_top).ok_or(Inconsistent)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // u's pairs leave every row and H.
+        let next_to_u: Vec<usize> = dq[u].keys().copied().collect();
+        for w in next_to_u {
+            dq[w].remove(&u).ok_or(Inconsistent)?;
+            if w == v {
+                continue;
+            }
+            for (row, col) in [(w, u), (u, w)] {
+                let top = rows[row].top().ok_or(Inconsistent)?;
+                rows[row].remove((row, col)).ok_or(Inconsistent)?;
+                if (top.1, top.2) == (row, col) {
+                    queue.remove((row, col)).ok_or(Inconsistent)?;
+                    if let Some(next) = rows[row].top() {
+                        queue.push(next);
+                    }
+                }
+            }
+        }
+        dq[u] = HashMap::new();
+        rows[u] = NxMappedQueue::default();
+        a[v] += a[u];
+        a[u] = 0.0;
+        if let Some(b) = b.as_mut() {
+            b[v] += b[u];
+            b[u] = 0.0;
+        }
+    }
+}
+
+/// Greedy modularity communities (Clauset-Newman-Moore), as networkx's
+/// `greedy_modularity_communities(G, weight=weight_attr, resolution=resolution)` with the
+/// default `cutoff` and `best_n`, over [`networkx_greedy_modularity_merges`]: node labels
+/// break ties, and the communities come in networkx's order (largest first, equal sizes
+/// in node order), each with its members sorted.
+///
+/// An empty `weight_attr` weighs every edge 1, as do missing or non-numeric weights.
+/// Weighted degrees are summed left to right where networkx's `sum` compensates, so
+/// fractional weights can differ from networkx in the last bits. With no edges, zero total
+/// weight or a NaN gain, every node is its own community (networkx raises
+/// `ZeroDivisionError` for zero total weight).
 #[must_use]
 pub fn greedy_modularity_communities(
     graph: &Graph,
     resolution: f64,
     weight_attr: &str,
 ) -> Vec<Vec<String>> {
-    // br-r37-c1-gmodmat: `single_materialize = true` folds the three setup passes'
-    // `edges_ordered_borrowed()` rebuilds (each a full `Vec<(&str,&str,&AttrMap)>` with a
-    // per-edge `edges.get(&(u,t))` HashMap lookup) into ONE materialization.
-    greedy_modularity_communities_impl(graph, resolution, weight_attr, true)
-}
-
-/// Inner impl for `greedy_modularity_communities`. `single_materialize` controls ONLY the
-/// setup edge-list rebuild: `true` (production) materializes `edges_ordered_borrowed()` once
-/// and the m/degree/dq passes reuse it; `false` (the pre-lever baseline, used by the A/B)
-/// rebuilds it per pass. The merge loop and result are identical, so the two paths are
-/// byte-identical by construction.
-fn greedy_modularity_communities_impl(
-    graph: &Graph,
-    resolution: f64,
-    weight_attr: &str,
-    single_materialize: bool,
-) -> Vec<Vec<String>> {
-    let n = graph.node_count();
-    if n == 0 {
-        return Vec::new();
-    }
-
     let nodes = graph.nodes_ordered();
-    let unweighted = weight_attr.is_empty();
-    let edge_weight = |attrs: &AttrMap| -> f64 {
-        if unweighted {
-            1.0
-        } else {
-            attrs
-                .get(weight_attr)
-                .and_then(|val| val.as_f64())
-                .filter(|value| value.is_finite() && *value >= 0.0)
-                .unwrap_or(1.0)
-        }
-    };
-
-    // Materialize the edge list ONCE when single_materialize; otherwise each setup pass
-    // rebuilds it (the old behaviour). `edges_pass!()` yields the cached slice or a fresh
-    // rebuild bound to a per-pass temporary.
-    let cached_edges = if single_materialize {
-        Some(graph.edges_ordered_indices_borrowed())
-    } else {
-        None
-    };
-    macro_rules! for_each_edge {
-        (|$u:ident, $v:ident, $attrs:ident| $body:block) => {{
-            match cached_edges.as_deref() {
-                Some(__e) => {
-                    for &($u, $v, $attrs) in __e $body
-                }
-                None => {
-                    for ($u, $v, $attrs) in graph.edges_ordered_indices_borrowed() $body
-                }
-            }
-        }};
+    let n = nodes.len();
+    let singletons = || nodes.iter().map(|&node| vec![node.to_owned()]).collect();
+    let mut by_label: Vec<usize> = (0..n).collect();
+    by_label.sort_by(|&left, &right| nodes[left].cmp(nodes[right]));
+    let mut rank = vec![0; n];
+    for (position, &node) in by_label.iter().enumerate() {
+        rank[node] = position;
     }
 
-    // Compute m (total edge weight)
-    let mut m = 0.0;
-    for_each_edge!(|_left, _right, attrs| {
-        m += edge_weight(attrs);
-    });
-
-    if m == 0.0 {
-        return nodes.iter().map(|&nd| vec![nd.to_owned()]).collect();
-    }
-
-    // Weighted degree (a_i = k_i / (2m))
-    let mut degree = vec![0.0; n];
-    for_each_edge!(|left_idx, right_idx, attrs| {
-        let w = edge_weight(attrs);
-        if left_idx == right_idx {
-            degree[left_idx] += 2.0 * w;
-        } else {
-            degree[left_idx] += w;
-            degree[right_idx] += w;
-        }
-    });
-    let a: Vec<f64> = degree.into_iter().map(|deg| deg / (2.0 * m)).collect();
-
-    // Each node starts in its own community (indexed by node index).
-    // community[i] = canonical community id for node i.
-    let mut community: Vec<usize> = (0..n).collect();
-    // comm_a[c] = sum of a_i for all nodes in community c
-    let mut comm_a: Vec<f64> = a.clone();
-    // alive[c] = whether community c still exists
-    let mut alive: Vec<bool> = vec![true; n];
-
-    // Sparse delta-Q matrix: dq[i][j] = deltaQ for merging communities i and j.
-    // Only stored for adjacent community pairs (connected by at least one edge).
-    let mut dq: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
-
-    // Initialize delta-Q for each non-self edge. NetworkX scales undirected
-    // weights as w / m and subtracts both directed degree-product terms.
-    for_each_edge!(|u, v, attrs| {
-        if u != v {
-            let w = edge_weight(attrs);
-            let delta = (w / m) - (2.0 * resolution * a[u] * a[v]);
-            *dq[u].entry(v).or_insert(0.0) += delta;
-            *dq[v].entry(u).or_insert(0.0) += delta;
-        }
-    });
-
-    // Use a BinaryHeap: (deltaQ, -(min(ci,cj)), -(max(ci,cj))) for deterministic tie-break
-    use std::collections::BinaryHeap;
-
-    #[derive(PartialEq)]
-    struct MergeCandidate {
-        delta: f64,
-        ci: usize,
-        cj: usize,
-    }
-
-    impl Eq for MergeCandidate {}
-
-    impl PartialOrd for MergeCandidate {
-        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl Ord for MergeCandidate {
-        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-            self.delta
-                .partial_cmp(&other.delta)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| other.ci.cmp(&self.ci))
-                .then_with(|| other.cj.cmp(&self.cj))
-        }
-    }
-
-    let mut heap: BinaryHeap<MergeCandidate> = BinaryHeap::new();
-    for ci in 0..n {
-        for (&cj, &d) in &dq[ci] {
-            if ci < cj {
-                heap.push(MergeCandidate { delta: d, ci, cj });
-            }
-        }
-    }
-
-    // Greedy merge loop
-    while let Some(MergeCandidate { delta, ci, cj }) = heap.pop() {
-        // Skip stale entries (communities already merged)
-        if !alive[ci] || !alive[cj] {
-            continue;
-        }
-        // Check delta is still current
-        let current_delta = dq[ci].get(&cj).copied().unwrap_or(f64::NEG_INFINITY);
-        if (current_delta - delta).abs() > 1e-12 {
-            continue; // Stale
-        }
-        if delta < 0.0 {
-            break; // No more beneficial merges
-        }
-
-        // Match NetworkX's heap tie-break and mutation order: the lower row
-        // community is deleted, and the higher tuple element survives.
-        alive[ci] = false;
-
-        // Update community assignments
-        for c in &mut community {
-            if *c == ci {
-                *c = cj;
-            }
-        }
-
-        // Save old a values before merge
-        let a_ci = comm_a[ci];
-        let a_cj = comm_a[cj];
-
-        // Update comm_a
-        comm_a[cj] += comm_a[ci];
-
-        // Collect all neighbors of both ci and cj (excluding each other)
-        let ci_nbrs: HashSet<usize> = dq[ci]
-            .keys()
-            .copied()
-            .filter(|&k| k != cj && alive[k])
-            .collect();
-        let cj_nbrs: HashSet<usize> = dq[cj]
-            .keys()
-            .copied()
-            .filter(|&k| k != ci && alive[k])
-            .collect();
-        let all_nbrs: HashSet<usize> = ci_nbrs.union(&cj_nbrs).copied().collect();
-
-        // Drain ci's entries; cj remains the surviving community row.
-        let ci_dq: HashMap<usize, f64> = std::mem::take(&mut dq[ci]);
-
-        for ck in &all_nbrs {
-            let ck = *ck;
-            let in_ci = ci_nbrs.contains(&ck);
-            let in_cj = cj_nbrs.contains(&ck);
-            let d_ci = ci_dq.get(&ck).copied();
-            let d_cj = dq[cj].get(&ck).copied();
-            let new_d = if in_ci && in_cj {
-                d_ci.unwrap_or(0.0) + d_cj.unwrap_or(0.0)
-            } else if in_cj {
-                d_cj.unwrap_or(0.0) - (2.0 * resolution * a_ci * comm_a[ck])
+    let edges: Vec<(usize, usize, f64)> = graph
+        .edges_ordered_indices_borrowed()
+        .into_iter()
+        .map(|(u, v, attrs)| {
+            let weight = if weight_attr.is_empty() {
+                1.0
             } else {
-                d_ci.unwrap_or(0.0) - (2.0 * resolution * a_cj * comm_a[ck])
+                attrs
+                    .get(weight_attr)
+                    .and_then(|value| value.as_f64())
+                    .unwrap_or(1.0)
             };
+            (rank[u], rank[v], weight)
+        })
+        .collect();
+    let mut degree = vec![0.0; n];
+    for &(u, v, weight) in &edges {
+        degree[u] += weight;
+        degree[v] += weight;
+    }
+    let m = if weight_attr.is_empty() {
+        edges.len() as f64
+    } else {
+        degree.iter().sum::<f64>() / 2.0
+    };
+    if edges.is_empty() || m == 0.0 {
+        return singletons();
+    }
+    let q0 = 1.0 / m;
+    let a: Vec<f64> = degree.iter().map(|&deg| deg * q0 * 0.5).collect();
+    let Ok(run) =
+        networkx_greedy_modularity_merges(&edges, &a, None, q0, resolution, 1.0, n as f64)
+    else {
+        return singletons();
+    };
 
-            dq[cj].insert(ck, new_d);
-            dq[ck].insert(cj, new_d);
-            dq[ck].remove(&ci);
-
-            let (lo, hi) = if cj < ck { (cj, ck) } else { (ck, cj) };
-            heap.push(MergeCandidate {
-                delta: new_d,
-                ci: lo,
-                cj: hi,
-            });
+    // networkx's `communities` dict: one entry per node in node order; a merge keeps the
+    // union in v's entry and deletes u's.
+    let mut communities: IndexMap<usize, Vec<usize>> =
+        (0..n).map(|node| (rank[node], vec![node])).collect();
+    for (u, v) in run.merges {
+        let moved = communities.shift_remove(&u).unwrap_or_default();
+        if let Some(members) = communities.get_mut(&v) {
+            members.extend(moved);
         }
-
-        // Remove the dead cross-entry from the surviving row.
-        dq[cj].remove(&ci);
     }
-
-    // Collect final communities
-    let mut intermediate: Vec<(usize, Vec<usize>)> = Vec::new();
-    for rep in 0..n {
-        if alive[rep] {
-            let mut comm_indices = Vec::new();
-            for (idx, &c) in community.iter().enumerate() {
-                if c == rep {
-                    comm_indices.push(idx);
-                }
-            }
-            let min_idx = comm_indices.first().copied().unwrap_or(usize::MAX);
-            intermediate.push((min_idx, comm_indices));
-        }
-    }
-    // Sort communities by size descending, ties broken by min node index ascending
-    intermediate.sort_by(|(a_min, a_indices), (b_min, b_indices)| {
-        b_indices
-            .len()
-            .cmp(&a_indices.len())
-            .then_with(|| a_min.cmp(b_min))
-    });
-
-    let mut result = Vec::with_capacity(intermediate.len());
-    for (_, comm_indices) in intermediate {
-        let mut comm: Vec<String> = comm_indices
-            .into_iter()
-            .map(|idx| nodes[idx].to_owned())
-            .collect();
-        comm.sort();
-        result.push(comm);
-    }
+    let mut result: Vec<Vec<String>> = communities
+        .into_values()
+        .map(|members| {
+            let mut labels: Vec<String> = members
+                .into_iter()
+                .map(|node| nodes[node].to_owned())
+                .collect();
+            labels.sort();
+            labels
+        })
+        .collect();
+    result.sort_by_key(|members| std::cmp::Reverse(members.len()));
     result
 }
 
@@ -55763,6 +55936,7 @@ mod tests {
         ModularityError,
         NetworkxBranchingError,
         NetworkxBranchingPlan,
+        NetworkxGreedyModularityError,
         PartitionState,
         SpannerError,
         TopologicalGenerationsTrace,
@@ -56073,6 +56247,7 @@ mod tests {
         // Connectivity and cuts — additional
         navigable_small_world_graph,
         negative_edge_cycle,
+        networkx_greedy_modularity_merges,
         networkx_maximum_branching_plan,
         node_boundary,
         node_boundary_directed,
@@ -65343,106 +65518,6 @@ mod tests {
         println!("IDC_AB n={n} deg={deg} rounds={rounds} (>1 = no-alloc faster)");
         report("NOALLOC_vs_string", &paired(true, false));
         report("NULL_noalloc_vs_noalloc", &paired(true, true));
-    }
-
-    /// br-r37-c1-gmodmat: paired-interleaved median A/B for `greedy_modularity_communities`
-    /// with the edge list materialized ONCE (`single_materialize=true`, production) vs the
-    /// pre-lever 3× `edges_ordered_borrowed()` rebuild (`false`), in ONE binary / ONE worker
-    /// with a NULL control. The two paths run the SAME impl (bit-identical merge loop), so
-    /// the parity assert is exact. `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib greedy_modularity_gmodmat_ab -- --ignored --nocapture`.
-    #[test]
-    #[ignore = "measurement; run with --release --ignored --nocapture"]
-    fn greedy_modularity_gmodmat_ab() {
-        use std::hint::black_box;
-        use std::time::Instant;
-
-        // 50 communities of 100 nodes: dense within (ring + chords), sparse between,
-        // deterministic (no rng). Enough merges to exercise the O(E log E) heap loop so the
-        // setup's edge-rebuild share is measured against a realistic total.
-        let comms = 50usize;
-        let per = 100usize;
-        let n = comms * per;
-        let mut g = Graph::strict();
-        for i in 0..n {
-            let _ = g.add_node(format!("n{i}"));
-        }
-        for c in 0..comms {
-            let base = c * per;
-            for k in 0..per {
-                for step in [1usize, 2, 3, 5] {
-                    let a = base + k;
-                    let b = base + (k + step) % per;
-                    if a != b {
-                        let _ = g.add_edge(format!("n{a}"), format!("n{b}"));
-                    }
-                }
-            }
-        }
-        for c in 0..comms {
-            let a = c * per;
-            let b = ((c + 1) % comms) * per + 7;
-            let _ = g.add_edge(format!("n{a}"), format!("n{b}"));
-        }
-
-        // Byte-exact parity: materialize-once == 3×-rebuild.
-        assert_eq!(
-            super::greedy_modularity_communities_impl(&g, 1.0, "", true),
-            super::greedy_modularity_communities_impl(&g, 1.0, "", false),
-            "materialize-once greedy_modularity must equal the 3×-rebuild baseline"
-        );
-
-        let time = |lever: bool| -> f64 {
-            let t0 = Instant::now();
-            black_box(super::greedy_modularity_communities_impl(
-                &g, 1.0, "", lever,
-            ));
-            t0.elapsed().as_secs_f64()
-        };
-        for _ in 0..3 {
-            black_box(time(true));
-            black_box(time(false));
-        }
-        let median = |v: &[f64]| {
-            let mut s = v.to_vec();
-            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            s[s.len() / 2]
-        };
-        let rounds = 61usize;
-        let paired = |cand: bool, base: bool| -> Vec<f64> {
-            let mut v = Vec::with_capacity(rounds);
-            for r in 0..rounds {
-                let (tb, tc) = if r % 2 == 0 {
-                    let b = time(base);
-                    let c = time(cand);
-                    (b, c)
-                } else {
-                    let c = time(cand);
-                    let b = time(base);
-                    (b, c)
-                };
-                v.push(tb / tc);
-            }
-            v
-        };
-        let report = |name: &str, ratios: &[f64]| {
-            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
-            let mut sorted = ratios.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            println!(
-                "GMODMAT_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
-                 p5_p95=[{:.4},{:.4}]",
-                median(ratios),
-                sorted[rounds * 5 / 100],
-                sorted[rounds * 95 / 100],
-            );
-        };
-        println!(
-            "GMODMAT_AB n={n} edges={} rounds={rounds} (>1 = materialize-once faster)",
-            g.edge_count()
-        );
-        report("MAT1_vs_MAT3", &paired(true, false));
-        report("NULL_mat1_vs_mat1", &paired(true, true));
     }
 
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
@@ -76449,6 +76524,90 @@ mod tests {
         let _ = g.add_edge("c", "d");
         let comms = greedy_modularity_communities(&g, 1.0, "weight");
         assert!(comms.len() >= 2);
+    }
+
+    /// Unweighted `(edges, a, q0)` for `networkx_greedy_modularity_merges`, the edges given
+    /// in networkx's `G.edges()` order over nodes `0..n`.
+    fn unweighted_modularity_input(
+        n: usize,
+        edges: &[(usize, usize)],
+    ) -> (Vec<(usize, usize, f64)>, Vec<f64>, f64) {
+        let mut degree = vec![0usize; n];
+        for &(u, v) in edges {
+            degree[u] += 1;
+            degree[v] += 1;
+        }
+        let q0 = 1.0 / edges.len() as f64;
+        let a = degree.iter().map(|&d| d as f64 * q0 * 0.5).collect();
+        let weighted = edges.iter().map(|&(u, v)| (u, v, 1.0)).collect();
+        (weighted, a, q0)
+    }
+
+    // Expected merges below are networkx 3.6.1's, read from its generator's
+    // `communities` dict after each step.
+    #[test]
+    fn networkx_greedy_modularity_merges_two_triangles() {
+        let (edges, a, q0) = unweighted_modularity_input(
+            6,
+            &[(0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5)],
+        );
+        let run = networkx_greedy_modularity_merges(&edges, &a, None, q0, 1.0, 1.0, 6.0)
+            .expect("finite gains");
+        assert_eq!(run.merges, vec![(0, 1), (1, 2), (4, 5), (3, 5)]);
+        assert!(!run.exhausted);
+    }
+
+    #[test]
+    fn networkx_greedy_modularity_merges_cutoff_and_best_n() {
+        let path: Vec<(usize, usize)> = (0..5).map(|i| (i, i + 1)).collect();
+        let (edges, a, q0) = unweighted_modularity_input(6, &path);
+        let merges = |cutoff: f64, best_n: f64| {
+            networkx_greedy_modularity_merges(&edges, &a, None, q0, 1.0, cutoff, best_n)
+                .expect("finite gains")
+                .merges
+        };
+        // The first negative gain stops it at three communities...
+        assert_eq!(merges(1.0, 6.0), vec![(0, 1), (4, 5), (2, 3)]);
+        // ...cutoff stops it earlier, and best_n keeps it merging past negative gains.
+        assert_eq!(merges(4.0, 6.0), vec![(0, 1), (4, 5)]);
+        assert_eq!(merges(1.0, 2.0), vec![(0, 1), (4, 5), (2, 3), (1, 3)]);
+    }
+
+    #[test]
+    fn networkx_greedy_modularity_merges_reports_exhaustion_and_nan() {
+        // Two separate edges: both merge, then H is empty with two communities left.
+        let (edges, a, q0) = unweighted_modularity_input(4, &[(0, 1), (2, 3)]);
+        let run = networkx_greedy_modularity_merges(&edges, &a, None, q0, 1.0, 1.0, 4.0)
+            .expect("finite gains");
+        assert_eq!(run.merges, vec![(0, 1), (2, 3)]);
+        assert!(run.exhausted);
+        // 0 * inf: the gain is NaN, where networkx's heap order stops being total.
+        assert_eq!(
+            networkx_greedy_modularity_merges(
+                &[(0, 1, f64::INFINITY)],
+                &[0.5, 0.5],
+                None,
+                0.0,
+                1.0,
+                1.0,
+                2.0
+            ),
+            Err(NetworkxGreedyModularityError::NanGain)
+        );
+    }
+
+    #[test]
+    fn greedy_modularity_ties_follow_label_order_not_insertion_order() {
+        // networkx on the path e-d-c-b-a: [{a, b, c}, {d, e}]. Breaking the equal gains by
+        // insertion position instead would give [{c, d, e}, {a, b}].
+        let mut g = Graph::strict();
+        for (u, v) in [("e", "d"), ("d", "c"), ("c", "b"), ("b", "a")] {
+            let _ = g.add_edge(u, v);
+        }
+        assert_eq!(
+            greedy_modularity_communities(&g, 1.0, ""),
+            vec![vec!["a", "b", "c"], vec!["d", "e"]]
+        );
     }
 
     // =======================================================================

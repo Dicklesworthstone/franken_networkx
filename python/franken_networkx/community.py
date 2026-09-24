@@ -21,6 +21,9 @@ import networkx.algorithms.community as _nx_community
 from networkx.algorithms.community import *  # noqa: F401,F403
 
 import franken_networkx as _fnx
+from franken_networkx._fnx import (
+    networkx_greedy_modularity_merges as _native_greedy_modularity_merges,
+)
 
 
 def modularity(G, communities, weight="weight", resolution=1, *, backend=None, **backend_kwargs):
@@ -316,6 +319,108 @@ def louvain_communities(
     )
 
 
+def _as_exact_float(value):
+    """``value`` when a float of it is what networkx's arithmetic uses, else ``None``."""
+    if type(value) is float or (type(value) is int and -(2**53) <= value <= 2**53):
+        return value
+    return None
+
+
+def _greedy_modularity_communities_native(G, weight, resolution, cutoff, best_n):
+    """networkx's greedy_modularity_communities, the merge loop native.
+
+    br-r37-c1-epic-native-algorithms-1g0lj.3: networkx 3.6's body with its
+    ``_greedy_modularity_communities_generator`` replaced by
+    ``networkx_greedy_modularity_merges``. The generator's setup (``m``, ``q0``,
+    the ``a``/``b`` degree dicts, the edge weights) is computed here from ``G``'s
+    own API exactly as networkx computes it; node labels are ranked so the
+    native heaps break equal gains as networkx's ``_HeapElement`` compares
+    ``(u, v)`` label tuples; and the merges are replayed into networkx's
+    ``communities`` dict, so even the frozensets are built the same way.
+
+    ``None`` where that cannot hold: node labels not all ``int`` or all ``str``
+    (other labels may not compare, or compare in ways ranks cannot carry),
+    weights, resolution, cutoff or best_n that are not plain ints within 2**53
+    or floats, or a NaN gain.
+    """
+    if not G.size():
+        return [{n} for n in G]
+    if cutoff < 1 or cutoff > G.number_of_nodes():
+        raise ValueError(f"cutoff must be between 1 and {len(G)}. Got {cutoff}.")
+    if best_n is not None:
+        if best_n < 1 or best_n > G.number_of_nodes():
+            raise ValueError(f"best_n must be between 1 and {len(G)}. Got {best_n}.")
+        if best_n < cutoff:
+            raise ValueError(f"Must have best_n >= cutoff. Got {best_n} < {cutoff}")
+        if best_n == 1:
+            return [set(G)]
+    else:
+        best_n = G.number_of_nodes()
+    if any(_as_exact_float(value) is None for value in (resolution, cutoff, best_n)):
+        return None
+
+    nodes = list(G)
+    label_type = type(nodes[0])
+    if label_type not in (int, str) or any(type(node) is not label_type for node in nodes):
+        return None
+    order = sorted(nodes)
+    rank = {node: position for position, node in enumerate(order)}
+    sources, targets, weights = [], [], []
+    for u, v, wt in G.edges(data=weight, default=1):
+        if _as_exact_float(wt) is None:
+            return None
+        sources.append(rank[u])
+        targets.append(rank[v])
+        weights.append(float(wt))
+
+    directed = G.is_directed()
+    m = G.size(weight)
+    q0 = 1 / m
+    if directed:
+        a = {node: deg_out * q0 for node, deg_out in G.out_degree(weight=weight)}
+        b = {node: deg_in * q0 for node, deg_in in G.in_degree(weight=weight)}
+    else:
+        a = b = {node: deg * q0 * 0.5 for node, deg in G.degree(weight=weight)}
+    a_ranked = [0.0] * len(order)
+    for node, value in a.items():
+        a_ranked[rank[node]] = value
+    b_ranked = None
+    if directed:
+        b_ranked = [0.0] * len(order)
+        for node, value in b.items():
+            b_ranked[rank[node]] = value
+    try:
+        merges, exhausted = _native_greedy_modularity_merges(
+            sources,
+            targets,
+            weights,
+            a_ranked,
+            b_ranked,
+            q0,
+            float(resolution),
+            float(cutoff),
+            float(best_n),
+        )
+    except ValueError:
+        return None
+
+    communities = {n: frozenset([n]) for n in nodes}
+    for u, v in merges:
+        u = order[u]
+        v = order[v]
+        communities[v] = frozenset(communities[u] | communities[v])
+        del communities[u]
+    communities = communities.values()
+    if exhausted:
+        communities = sorted(communities, key=len, reverse=True)
+        while len(communities) > best_n:
+            comm1, comm2, *rest = communities
+            communities = [comm1 ^ comm2]
+            communities.extend(rest)
+        return communities
+    return sorted(communities, key=len, reverse=True)
+
+
 def greedy_modularity_communities(
     G,
     weight=None,
@@ -328,15 +433,19 @@ def greedy_modularity_communities(
 ):
     """Find communities using Clauset-Newman-Moore greedy modularity.
 
-    br-r37-c1-z4rnj: the native CNM route can find a higher-modularity
-    partition than NetworkX after choosing a different equal-gain merge.
-    That is a behavioral divergence even though both results are valid.
-    Delegate the public surface to NetworkX until the native heap-update and
-    tie-survivor sequence is proven exact over a substantially broader corpus.
+    br-r37-c1-z4rnj retired the old native CNM route: its tie-breaks and stale
+    heap entries picked different equal-gain merges than networkx (valid
+    partitions, different answers). The native route is now networkx's own
+    loop step for step (``_greedy_modularity_communities_native``); graphs it
+    cannot repeat exactly run networkx's code, pinned to ``backend="networkx"``
+    so drop-in mode cannot route the call back here.
     """
     _fnx._validate_backend_dispatch_keywords(
         "greedy_modularity_communities", backend, backend_kwargs
     )
+    result = _greedy_modularity_communities_native(G, weight, resolution, cutoff, best_n)
+    if result is not None:
+        return result
     graph = _fnx._networkx_graph_for_parity(G) if isinstance(
         G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
     ) else G
@@ -346,6 +455,7 @@ def greedy_modularity_communities(
         resolution=resolution,
         cutoff=cutoff,
         best_n=best_n,
+        backend="networkx",
     )
 
 

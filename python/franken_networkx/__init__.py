@@ -20617,7 +20617,6 @@ def dominating_set(G, start_with=None):
 from franken_networkx._fnx import (
     louvain_communities as _raw_louvain_communities,
     modularity as _raw_modularity,
-    greedy_modularity_communities as _raw_greedy_modularity_communities,
 )
 
 
