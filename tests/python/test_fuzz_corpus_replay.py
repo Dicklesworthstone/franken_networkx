@@ -129,14 +129,45 @@ def test_the_repo_declares_a_corpus_for_every_fuzz_bin():
 
 def test_a_passing_replay_runs_the_corpus_and_the_reproducers_once(tmp_path):
     fuzz = _fuzz_dir(tmp_path, {"fuzz_a": PASS}, reproducers=["fuzz_a"])
-    result = replay.replay("fuzz_a", fuzz_dir=fuzz, input_timeout=9, rss_limit_mb=123)
+    result = replay.replay(
+        "fuzz_a", artifacts_out=tmp_path / "out", fuzz_dir=fuzz, input_timeout=9, rss_limit_mb=123
+    )
     assert result["ok"], result
     assert result["summary"].startswith("Done 3 runs")
     argv = (fuzz / "fuzz_a.argv").read_text().split()
     assert argv[:2] == [str(fuzz / "corpus" / "fuzz_a"), str(fuzz / "artifacts" / "fuzz_a")]
     assert "-runs=0" in argv and not any(a.startswith("-max_total_time") for a in argv)
     assert "-timeout=9" in argv and "-rss_limit_mb=123" in argv
-    assert f"-artifact_prefix={fuzz / 'artifacts' / 'fuzz_a'}/" in argv
+    assert f"-artifact_prefix={tmp_path / 'out' / 'fuzz_a'}/" in argv
+
+
+# A crash as libFuzzer reports it: the failing input written to -artifact_prefix.
+CRASH_WRITES_REPRODUCER = (
+    'for a in "$@"; do case "$a" in -artifact_prefix=*) p="${a#-artifact_prefix=}";; esac; done\n'
+    'printf boom > "${p}crash-deadbeef"\n' + CRASH
+)
+
+
+def test_a_failing_input_is_written_outside_the_source_tree(tmp_path):
+    # A DSR run on 2026-09-24 (planted fuzz panic) was discarded as a moving
+    # source because libFuzzer wrote the reproducer into fuzz/artifacts/.
+    fuzz = _fuzz_dir(tmp_path, {"fuzz_a": CRASH_WRITES_REPRODUCER})
+    before = sorted(str(p) for p in fuzz.rglob("*"))
+    result = replay.replay("fuzz_a", artifacts_out=tmp_path / "out", fuzz_dir=fuzz)
+    assert not result["ok"]
+    written = tmp_path / "out" / "fuzz_a" / "crash-deadbeef"
+    assert written.read_text() == "boom"
+    assert str(written) in result["log"] and str(fuzz / "artifacts" / "fuzz_a") in result["log"]
+    after = sorted(str(p) for p in fuzz.rglob("*") if not p.name.endswith(".argv"))
+    assert after == [p for p in before if not p.endswith(".argv")]
+
+
+def test_main_puts_reproducers_in_the_dsr_run_directory(tmp_path, monkeypatch, capsys):
+    fuzz = _fuzz_dir(tmp_path, {"fuzz_a": CRASH_WRITES_REPRODUCER})
+    monkeypatch.setenv("DSR_QUALITY_RUN_DIR", str(tmp_path / "dsr-run"))
+    assert replay.main(["--no-build", "--fuzz-dir", str(fuzz)]) == 1
+    assert (tmp_path / "dsr-run" / "fuzz-artifacts" / "fuzz_a" / "crash-deadbeef").exists()
+    assert "crash-deadbeef" in capsys.readouterr().out
 
 
 # libFuzzer writes the inputs it finds into the first directory on its command line.
@@ -146,7 +177,7 @@ WRITES_TO_FIRST_DIR = 'echo found > "$1/new-input"\n' + PASS
 def test_a_budget_fuzzes_after_the_replay_without_touching_the_committed_corpus(tmp_path):
     fuzz = _fuzz_dir(tmp_path, {"fuzz_a": WRITES_TO_FIRST_DIR}, reproducers=["fuzz_a"])
     corpus = fuzz / "corpus" / "fuzz_a"
-    result = replay.replay("fuzz_a", fuzz_dir=fuzz, budget_seconds=5)
+    result = replay.replay("fuzz_a", artifacts_out=tmp_path / "out", fuzz_dir=fuzz, budget_seconds=5)
     assert result["ok"], result
     argv = (fuzz / "fuzz_a.argv").read_text().split()
     assert "-max_total_time=5" in argv and "-runs=0" not in argv
@@ -158,7 +189,7 @@ def test_a_budget_fuzzes_after_the_replay_without_touching_the_committed_corpus(
 
 def test_a_crashing_input_fails_the_target_and_keeps_the_log(tmp_path):
     fuzz = _fuzz_dir(tmp_path, {"fuzz_a": CRASH})
-    result = replay.replay("fuzz_a", fuzz_dir=fuzz)
+    result = replay.replay("fuzz_a", artifacts_out=tmp_path / "out", fuzz_dir=fuzz)
     assert not result["ok"]
     assert result["summary"].startswith("exit 77")
     assert "deadly signal" in result["log"] and "index out of bounds" in result["log"]
@@ -166,18 +197,19 @@ def test_a_crashing_input_fails_the_target_and_keeps_the_log(tmp_path):
 
 def test_exit_zero_without_a_run_count_is_not_a_pass(tmp_path):
     fuzz = _fuzz_dir(tmp_path, {"fuzz_a": SILENT})
-    assert not replay.replay("fuzz_a", fuzz_dir=fuzz)["ok"]
+    assert not replay.replay("fuzz_a", artifacts_out=tmp_path / "out", fuzz_dir=fuzz)["ok"]
 
 
 def test_a_missing_binary_fails(tmp_path):
     fuzz = _fuzz_dir(tmp_path, {"fuzz_a": None})
-    result = replay.replay("fuzz_a", fuzz_dir=fuzz)
+    result = replay.replay("fuzz_a", artifacts_out=tmp_path / "out", fuzz_dir=fuzz)
     assert not result["ok"] and "missing binary" in result["summary"]
 
 
 def test_main_exits_nonzero_and_names_the_failing_target(tmp_path, capsys):
     fuzz = _fuzz_dir(tmp_path, {"fuzz_a": PASS, "fuzz_b": CRASH, "fuzz_c": PASS})
-    assert replay.main(["--no-build", "--fuzz-dir", str(fuzz)]) == 1
+    out_dir = str(tmp_path / "out")
+    assert replay.main(["--no-build", "--fuzz-dir", str(fuzz), "--artifacts-out", out_dir]) == 1
     out = capsys.readouterr().out
     assert "FAIL fuzz_b" in out
     assert "TOTAL 3 targets, 1 failed: ['fuzz_b']" in out
@@ -185,7 +217,8 @@ def test_main_exits_nonzero_and_names_the_failing_target(tmp_path, capsys):
 
 def test_main_passes_only_when_every_target_passes(tmp_path, capsys):
     fuzz = _fuzz_dir(tmp_path, {"fuzz_a": PASS, "fuzz_c": PASS})
-    assert replay.main(["--no-build", "--fuzz-dir", str(fuzz)]) == 0
+    out_dir = str(tmp_path / "out")
+    assert replay.main(["--no-build", "--fuzz-dir", str(fuzz), "--artifacts-out", out_dir]) == 0
     out = capsys.readouterr().out
     assert "TOTAL 2 targets, 0 failed" in out and "cpu-seconds, budget 0s per target" in out
 

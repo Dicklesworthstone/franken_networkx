@@ -11,10 +11,14 @@ committed crash / timeout / oom reproducers under fuzz/artifacts/<target>/:
 * ``--budget-seconds N`` runs every input, then mutates for N seconds.
 
 A panic, an input slower than --input-timeout, or one using more than
---rss-limit-mb fails the target, and libFuzzer writes the failing input to
-fuzz/artifacts/<target>/, which later runs replay. Inputs found while
-mutating go to a temporary directory, never into the committed corpus. The
-CPU-seconds each target used are reported.
+--rss-limit-mb fails the target. libFuzzer writes the failing input under
+--artifacts-out (the DSR run directory when DSR runs this, else a fresh
+temporary directory), never into the source tree: a file appearing in the
+tree mid-run makes DSR discard the whole run as a moving source. The report
+names the file; committing it under fuzz/artifacts/<target>/ makes every
+later run replay it. Inputs found while mutating go to a temporary directory,
+never into the committed corpus. The CPU-seconds each target used are
+reported.
 
     scripts/fuzz_corpus_replay.py                       # build remotely, replay all
     scripts/fuzz_corpus_replay.py --budget-seconds 5    # replay, then 5 s of fuzzing each
@@ -96,19 +100,23 @@ def build(jobs: int, fuzz_dir: Path = FUZZ, attempts: int = 20, wait_seconds: in
         time.sleep(wait_seconds)
 
 
-def replay(name: str, *, fuzz_dir: Path = FUZZ, budget_seconds: int = 0, input_timeout: int = 60,
-           rss_limit_mb: int = 4096) -> dict:
-    """Run target ``name`` over its corpus and reproducers, then fuzz for ``budget_seconds``."""
+def replay(name: str, *, artifacts_out: Path, fuzz_dir: Path = FUZZ, budget_seconds: int = 0,
+           input_timeout: int = 60, rss_limit_mb: int = 4096) -> dict:
+    """Run target ``name`` over its corpus and reproducers, then fuzz for ``budget_seconds``.
+
+    A failing input is written under ``artifacts_out / name``, outside the tree.
+    """
     binary = binary_path(fuzz_dir, name)
     if not binary.exists():
         return {"target": name, "ok": False, "summary": f"missing binary {binary}", "log": "", "cpu_seconds": 0.0}
-    artifacts = fuzz_dir / "artifacts" / name
+    committed = fuzz_dir / "artifacts" / name
     inputs = [fuzz_dir / "corpus" / name]
-    if artifacts.is_dir():
-        inputs.append(artifacts)
-    artifacts.mkdir(parents=True, exist_ok=True)
+    if committed.is_dir():
+        inputs.append(committed)
+    written = artifacts_out / name
+    written.mkdir(parents=True, exist_ok=True)
     mode = [f"-max_total_time={budget_seconds}"] if budget_seconds > 0 else ["-runs=0"]
-    limits = [f"-timeout={input_timeout}", f"-rss_limit_mb={rss_limit_mb}", f"-artifact_prefix={artifacts}/"]
+    limits = [f"-timeout={input_timeout}", f"-rss_limit_mb={rss_limit_mb}", f"-artifact_prefix={written}/"]
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     start = time.monotonic()
     with tempfile.TemporaryDirectory(prefix=f"{name}-new-") as found:
@@ -128,11 +136,15 @@ def replay(name: str, *, fuzz_dir: Path = FUZZ, budget_seconds: int = 0, input_t
     done = [line for line in log.splitlines() if line.startswith("Done ")]
     ok = proc.returncode == 0 and bool(done)
     summary = done[-1] if ok else f"exit {proc.returncode}"
+    tail = "\n".join(log.splitlines()[-25:])
+    reproducers = sorted(str(p) for p in written.iterdir())
+    if reproducers:
+        tail += "\nreproducer(s), copy into " + str(committed) + "/ to replay on every run:\n" + "\n".join(reproducers)
     return {
         "target": name,
         "ok": ok,
         "summary": f"{summary} ({time.monotonic() - start:.1f}s wall, {cpu} cpu-s)",
-        "log": "" if ok else "\n".join(log.splitlines()[-25:]),
+        "log": "" if ok else tail,
         "cpu_seconds": cpu,
     }
 
@@ -146,20 +158,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--budget-seconds", type=int, default=0, help="seconds of fuzzing per target after the replay")
     parser.add_argument("--input-timeout", type=int, default=60, help="seconds allowed per input")
     parser.add_argument("--rss-limit-mb", type=int, default=4096)
+    parser.add_argument("--artifacts-out", type=Path,
+                        help="where failing inputs go (default: $DSR_QUALITY_RUN_DIR/fuzz-artifacts, "
+                             "else a fresh temporary directory)")
     args = parser.parse_args(argv)
 
     targets = args.target or fuzz_targets(args.fuzz_dir)
     if not targets:
         print("no fuzz targets with a committed corpus")
         return 2
+    artifacts_out = args.artifacts_out
+    if artifacts_out is None:
+        run_dir = os.environ.get("DSR_QUALITY_RUN_DIR")
+        artifacts_out = (Path(run_dir) / "fuzz-artifacts" if run_dir
+                         else Path(tempfile.mkdtemp(prefix="fnx-fuzz-artifacts-")))
     if not args.no_build:
         build(args.jobs, args.fuzz_dir)
 
     failed = []
     cpu_total = 0.0
     for name in targets:
-        result = replay(name, fuzz_dir=args.fuzz_dir, budget_seconds=args.budget_seconds,
-                        input_timeout=args.input_timeout, rss_limit_mb=args.rss_limit_mb)
+        result = replay(name, artifacts_out=artifacts_out, fuzz_dir=args.fuzz_dir,
+                        budget_seconds=args.budget_seconds, input_timeout=args.input_timeout,
+                        rss_limit_mb=args.rss_limit_mb)
         cpu_total += result["cpu_seconds"]
         print(f"{'ok  ' if result['ok'] else 'FAIL'} {name}: {result['summary']}", flush=True)
         if not result["ok"]:
