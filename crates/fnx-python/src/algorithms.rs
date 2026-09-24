@@ -16850,34 +16850,6 @@ fn rust_graph_to_py_binary(
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
 
-fn rust_graph_to_py_with_source_edge_attrs(
-    py: Python<'_>,
-    result: &fnx_classes::Graph,
-    source_gr: &GraphRef<'_>,
-) -> PyResult<PyObject> {
-    let mut py_graph =
-        PyGraph::new_empty_with_policy(py, source_gr.undirected().runtime_policy().clone())?;
-    for node in result.nodes_ordered() {
-        let py_key = source_gr.py_node_key(py, node);
-        py_graph.node_key_map.insert(node.to_owned(), py_key);
-        py_graph
-            .node_py_attrs
-            .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
-        py_graph.inner.add_node(node);
-    }
-    for (left, right, _) in result.edges_ordered_borrowed() {
-        let _ = py_graph.inner.add_edge(left, right);
-        let ek = PyGraph::edge_key(left, right);
-        let attrs = if let Some(source_attrs) = source_gr.edge_attrs_for_undirected(left, right) {
-            source_attrs.bind(py).copy()?.unbind()
-        } else {
-            pyo3::types::PyDict::new(py).unbind()
-        };
-        py_graph.edge_py_attrs.insert(ek, attrs);
-    }
-    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
-}
-
 /// Convert a Rust Graph to a Python Graph using NetworkX-style integer labels
 /// when the canonical keys are numeric.
 fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> PyResult<PyObject> {
@@ -20168,27 +20140,6 @@ fn large_clique_size(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::max_clique_approx(inner));
     Ok(result.len())
-}
-
-/// Compute a graph spanner with the given stretch.
-#[pyfunction]
-#[pyo3(signature = (g, stretch, weight=None, seed=None))]
-fn spanner(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    stretch: f64,
-    weight: Option<&str>,
-    seed: Option<u64>,
-) -> PyResult<PyObject> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "spanner")?;
-    let inner = gr.undirected();
-    let result = py
-        .allow_threads(|| fnx_algorithms::spanner(inner, stretch, weight, seed))
-        .map_err(|err| match err {
-            fnx_algorithms::SpannerError::InvalidStretch => PyValueError::new_err(err.to_string()),
-        })?;
-    rust_graph_to_py_with_source_edge_attrs(py, &result, &gr)
 }
 
 /// Fastest isomorphism pre-check (order + size only).
@@ -28799,7 +28750,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(max_clique, m)?)?;
     m.add_function(wrap_pyfunction!(clique_removal, m)?)?;
     m.add_function(wrap_pyfunction!(large_clique_size, m)?)?;
-    m.add_function(wrap_pyfunction!(spanner, m)?)?;
     // Tree recognition
     m.add_function(wrap_pyfunction!(is_arborescence, m)?)?;
     m.add_function(wrap_pyfunction!(is_branching, m)?)?;

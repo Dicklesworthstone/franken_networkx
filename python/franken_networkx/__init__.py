@@ -24167,7 +24167,6 @@ from franken_networkx._fnx import (
     max_clique as _raw_max_clique,
     maximum_independent_set as _raw_maximum_independent_set,
     min_weighted_vertex_cover as _raw_min_weighted_vertex_cover,
-    spanner as _raw_spanner,
 )
 
 
@@ -24284,13 +24283,139 @@ def spanner(G, stretch, weight=None, seed=None):
         raise ValueError("stretch must be at least 1")
     if G.number_of_nodes() == 0:
         raise ValueError("math domain error")
-    # br-r37-c1-va1lb: index-space residual state makes the native Rust
-    # Baswana-Sen kernel faster than both nx and the prior in-process Python
-    # kernel. Spanner parity is structural: a valid spanner with the requested
-    # stretch and preserved selected-edge attributes.
-    # nro4w.7: networkx's @py_random_state hands the kernel a random.Random
-    # (or numpy RNG); the u64 kernel seed raised TypeError on those.
-    return _raw_spanner(G, stretch, weight=weight, seed=_native_random_seed(seed))
+    return _spanner_inproc(G, stretch, weight, _create_py_random_state(seed))
+
+
+def _spanner_inproc(G, stretch, weight, seed):
+    """networkx's Baswana-Sen spanner, step for step, over plain dicts.
+
+    nro4w.7: the native kernel (br-r37-c1-va1lb) built a valid spanner but
+    not networkx's: its random draws and tie-breaks differ, so the same seed
+    gave different edges. This follows networkx's sparsifiers.py exactly:
+
+    - the residual graph is networkx's ``G.copy()`` (adjacency order of the
+      copy, not of G) held as a dict of dicts, so its node and neighbour
+      iteration is networkx's;
+    - edge weights are networkx's unique tie-breakers, ``(id(u), id(v))`` or
+      ``(w, id(u), id(v))`` with (u, v) oriented as ``G.edges()`` yields it;
+    - one ``seed.random()`` per center of ``set(clustering.values())``, and
+      the size-limit retry, in networkx's order;
+    - the spanner's edges are added in the order networkx adds them.
+
+    Ties break on ``id``, so the result equals networkx's whenever both see
+    the same node objects (always for small ints); that is networkx's own
+    reproducibility contract.
+    """
+    import math
+
+    k = (stretch + 1) // 2
+    nodes = list(G)
+    # The tie-breakers are ids, so they must be ids of objects that stay alive
+    # for the whole call: fnx may hand out a fresh int object per iteration,
+    # whose id could be reused and collide. One snapshot's objects serve.
+    canonical = {node: node for node in nodes}
+    radj = {node: {} for node in nodes}
+    for u, nbrs in G.adj.items():
+        for v in nbrs:
+            radj[u][v] = None
+            radj[v][u] = None
+    if weight:
+        for u, v, data in G.edges(data=True):
+            radj[u][v] = radj[v][u] = (data[weight], id(canonical[u]), id(canonical[v]))
+    else:
+        for u, v in G.edges():
+            radj[u][v] = radj[v][u] = (id(canonical[u]), id(canonical[v]))
+
+    added = []
+
+    def add_to_spanner(u, v):
+        added.append((u, v, radj[u][v][0]) if weight else (u, v))
+
+    def lightest_edge_dicts(clustering, node):
+        neighbor_of = {}
+        weight_of = {}
+        for neighbor, edge_weight in radj[node].items():
+            center = clustering[neighbor]
+            if center not in weight_of or edge_weight < weight_of[center]:
+                neighbor_of[center] = neighbor
+                weight_of[center] = edge_weight
+        return neighbor_of, weight_of
+
+    def remove_edge(u, v):
+        del radj[u][v]
+        if u != v:
+            del radj[v][u]
+
+    clustering = {v: v for v in nodes}
+    sample_prob = math.pow(len(nodes), -1 / k)
+    size_limit = 2 * math.pow(len(nodes), 1 + 1 / k)
+    i = 0
+    while i < k - 1:
+        sampled_centers = set()
+        for center in set(clustering.values()):
+            if seed.random() < sample_prob:
+                sampled_centers.add(center)
+        edges_to_add = set()
+        edges_to_remove = set()
+        new_clustering = {}
+        for v in radj:
+            if clustering[v] in sampled_centers:
+                continue
+            neighbor_of, weight_of = lightest_edge_dicts(clustering, v)
+            neighboring_sampled_centers = set(weight_of.keys()) & sampled_centers
+            if not neighboring_sampled_centers:
+                for neighbor in neighbor_of.values():
+                    edges_to_add.add((v, neighbor))
+                for neighbor in radj[v]:
+                    edges_to_remove.add((v, neighbor))
+            else:
+                closest_center = min(neighboring_sampled_centers, key=weight_of.get)
+                closest_center_weight = weight_of[closest_center]
+                edges_to_add.add((v, neighbor_of[closest_center]))
+                new_clustering[v] = closest_center
+                for center, edge_weight in weight_of.items():
+                    if edge_weight < closest_center_weight:
+                        edges_to_add.add((v, neighbor_of[center]))
+                for neighbor in radj[v]:
+                    nbr_cluster = clustering[neighbor]
+                    if (
+                        nbr_cluster == closest_center
+                        or weight_of[nbr_cluster] < closest_center_weight
+                    ):
+                        edges_to_remove.add((v, neighbor))
+        if len(edges_to_add) > size_limit:
+            continue
+        i = i + 1
+        for u, v in edges_to_add:
+            add_to_spanner(u, v)
+        for u, v in edges_to_remove:
+            if u in radj and v in radj[u]:
+                remove_edge(u, v)
+        for node, center in clustering.items():
+            if center in sampled_centers:
+                new_clustering[node] = center
+        clustering = new_clustering
+        for u in radj:
+            for v in list(radj[u]):
+                if clustering[u] == clustering[v]:
+                    remove_edge(u, v)
+        for v in list(radj):
+            if v not in clustering:
+                for nbr in list(radj[v]):
+                    remove_edge(v, nbr)
+                del radj[v]
+    for v in radj:
+        neighbor_of, _ = lightest_edge_dicts(clustering, v)
+        for neighbor in neighbor_of.values():
+            add_to_spanner(v, neighbor)
+
+    H = Graph()
+    H.add_nodes_from(nodes)
+    if weight:
+        H.add_edges_from((u, v, {weight: value}) for u, v, value in added)
+    else:
+        H.add_edges_from(added)
+    return H
 
 
 # Algorithm functions — tree recognition
