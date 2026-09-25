@@ -2,11 +2,10 @@
 
 The Python ``franken_networkx.is_matching`` /
 ``is_maximal_matching`` / ``is_perfect_matching`` previously
-delegated every call to nx via ``_call_networkx_for_parity``.
-The native port routes simple-graph cases through
-``franken_networkx._fnx.is_matching`` (and friends) backed by
-``fnx_algorithms::is_matching`` — directed and multigraph cases
-still bridge to nx since that's nx's documented behavior.
+delegated every call to nx via ``_call_networkx_for_parity``, then
+routed simple graphs through native validators. Since nro4w.7 every
+graph runs networkx's exact loop in-process: the native validators
+diverged on invalid input (see the tests at the end of this file).
 
 This harness validates 50+ inputs across:
 
@@ -353,3 +352,54 @@ def test_random_graph_max_matching_outputs_satisfy_predicates(seed):
     # *original* graph — but only if their edge sets agree.
     if set(fg.edges()) == set(ng.edges()):
         assert fr == nr, f"seed={seed}: fnx={fr} nx={nr}"
+
+
+# nro4w.7: the native simple-graph validators diverged from networkx on
+# invalid input: a 3-tuple edge counted as a pair, a 1-tuple raised
+# IndexError, every node was validated before the loop (networkx returns
+# False on an earlier overlap), canonical keys leaked into messages
+# ("str:1:a"), and a dict matching's self-loop error was skipped.
+_INVALID_INPUT_CASES = [
+    ("path4", {(0, 5)}),
+    ("path4", {(5, 0)}),
+    ("path4", {(0, 5), (2, 3)}),
+    ("path4", {(5, 5), (2, 3)}),
+    ("path4", {(0, 1, 2), (2, 3)}),
+    ("path4", {(0,), (2, 3)}),
+    ("path4", [(0, 1), (1, 2), (0, 9)]),
+    ("path4", [(0, 1), (0, 9)]),
+    ("path4", {0: 0, 1: 2}),
+    ("path4", {0: 1, 1: 0, 2: 3, 3: 2}),
+    ("path4", {(0, 0), (1, 2), (2, 3)}),
+    ("path4", {(0, 3), (1, 2)}),
+    ("strings", [("a", "b"), ("a", "z")]),
+    ("strings", [("a", "b", "c")]),
+]
+
+
+def _invalid_input_graph(module, name):
+    if name == "strings":
+        return module.Graph([("a", "b"), ("b", "c")])
+    return module.path_graph(4)
+
+
+def _outcome(fn, G, matching):
+    try:
+        return fn(G, matching)
+    except Exception as exc:  # the error contract is part of the parity
+        return type(exc).__name__, str(exc)
+
+
+@pytest.mark.parametrize(
+    "fn_name", ["is_matching", "is_maximal_matching", "is_perfect_matching"]
+)
+@pytest.mark.parametrize("case", range(len(_INVALID_INPUT_CASES)))
+def test_invalid_inputs_match_networkx(fn_name, case):
+    graph_name, matching = _INVALID_INPUT_CASES[case]
+    expected = _outcome(
+        getattr(nx, fn_name), _invalid_input_graph(nx, graph_name), matching
+    )
+    actual = _outcome(
+        getattr(fnx, fn_name), _invalid_input_graph(fnx, graph_name), matching
+    )
+    assert actual == expected

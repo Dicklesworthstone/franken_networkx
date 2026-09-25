@@ -1,0 +1,32 @@
+{
+  "schema": "fnx-upstream-networkx-ratchet/v1",
+  "networkx_version": "3.6.1",
+  "min_passed": 6815,
+  "allowed_failures": {},
+  "plain_networkx_baseline": {
+    "passed": 6816,
+    "failed": 0,
+    "skipped": 78,
+    "xfailed": 1,
+    "seconds": 94.2,
+    "measured": "2026-09-24, networkx 3.6.1, Python 3.14.3, default warning filters"
+  },
+  "last_run": {
+    "networkx_version": "3.6.1",
+    "networkx_dir": "/data/projects/.worktrees/fnx-rc0924-nro4w11/.venv/lib/python3.14/site-packages/networkx",
+    "python": "3.14.3",
+    "fnx_package": "/data/projects/.worktrees/fnx-rc0924-nro4w11/python/franken_networkx/__init__.py",
+    "fnx_extension": "/data/projects/.worktrees/fnx-rc0924-nro4w11/python/franken_networkx/_fnx.abi3.so",
+    "fnx_extension_sha256": "c7a3e098ea5673a9849eb7562d1e55cbda1bbc3f5c51060d76d4fa688c5a60ee",
+    "fnx_git_sha": "042bcadaba3774c6d42b0981a9f23f89aa7d1a88",
+    "targets": [
+      "networkx"
+    ],
+    "passed": 6815,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 80,
+    "seconds": 320.2,
+    "not_passing_by_file": {}
+  }
+}

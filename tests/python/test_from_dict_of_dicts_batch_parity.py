@@ -99,3 +99,28 @@ def test_kernels_exact_after_batched_build():
     assert dict(fnx.single_source_dijkstra_path_length(gf, src)) == dict(
         nx.single_source_dijkstra_path_length(gn, src)
     )
+
+
+def _symmetric_dod():
+    shared = {"w": 1}
+    return {0: {1: shared, 2: {}}, 1: {0: shared}, 2: {0: {}}}
+
+
+class _NoLookupGraph(fnx.Graph):
+    def __getitem__(self, n):
+        raise KeyError(n)
+
+
+class _NxNoLookupGraph(nx.Graph):
+    def __getitem__(self, n):
+        raise KeyError(n)
+
+
+def test_subclass_create_using_is_not_read_back_like_networkx():
+    # nro4w.7: the subclass branch did add_edge + graph[u][v].update(...);
+    # networkx makes one add_edges_from call and never reads the edge back.
+    # networkx's approximation tests build an AntiGraph (whose G[u] is the
+    # complement) this way: KeyError under the fnx test backend.
+    G = fnx.from_dict_of_dicts(_symmetric_dod(), create_using=_NoLookupGraph)
+    H = nx.from_dict_of_dicts(_symmetric_dod(), create_using=_NxNoLookupGraph)
+    assert sorted(G.edges(data=True)) == sorted(H.edges(data=True))

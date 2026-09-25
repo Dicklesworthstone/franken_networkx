@@ -13,7 +13,8 @@ use crate::{
 use fnx_classes::AttrMap;
 use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::{
-    PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError, PyZeroDivisionError,
+    PyException, PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError,
+    PyZeroDivisionError,
 };
 use pyo3::prelude::*;
 use pyo3::types::{
@@ -2655,40 +2656,6 @@ fn extract_init_partition(
     Ok((included, excluded))
 }
 
-fn extract_edge_partition_from_attr(
-    py: Python<'_>,
-    dg: &PyDiGraph,
-    partition_attr: &str,
-) -> PyResult<(Vec<(String, String)>, Vec<(String, String)>)> {
-    let mut included = Vec::new();
-    let mut excluded = Vec::new();
-    for (left, right, _) in dg.inner.edges_ordered_borrowed() {
-        let key = PyDiGraph::edge_key(left, right);
-        let Some(attrs) = dg.edge_py_attrs.get(&key) else {
-            continue;
-        };
-        let attrs = attrs.bind(py);
-        let Ok(value) = attrs.get_item(partition_attr) else {
-            continue;
-        };
-        let Some(value) = value else {
-            continue;
-        };
-        let value_str = value.str()?;
-        let raw = value_str.to_str()?;
-        match raw {
-            "EdgePartition.INCLUDED" | "INCLUDED" | "Included" | "included" => {
-                included.push((left.to_owned(), right.to_owned()));
-            }
-            "EdgePartition.EXCLUDED" | "EXCLUDED" | "Excluded" | "excluded" => {
-                excluded.push((left.to_owned(), right.to_owned()));
-            }
-            _ => {}
-        }
-    }
-    Ok((included, excluded))
-}
-
 fn shuffled_spanning_edges_with_random(
     py: Python<'_>,
     inner: &fnx_classes::Graph,
@@ -2731,43 +2698,6 @@ fn ensure_random_spanning_weight_key(py: Python<'_>, pg: &PyGraph, weight: &str)
         }
     }
     Ok(())
-}
-
-fn directed_branching_to_pydigraph(
-    py: Python<'_>,
-    dg: &PyDiGraph,
-    edges: &[fnx_algorithms::BranchingEdge],
-    attr: &str,
-    preserve_attrs: bool,
-) -> PyResult<PyDiGraph> {
-    let runtime_policy = dg.inner.runtime_policy().clone();
-    let mut tree = PyDiGraph::new_empty_with_policy(py, runtime_policy.clone())?;
-    for node in dg.inner.nodes_ordered() {
-        let py_key = dg.py_node_key(py, node);
-        tree.node_key_map.insert(node.to_owned(), py_key);
-        tree.node_py_attrs
-            .insert(node.to_owned(), PyDict::new(py).unbind());
-        tree.inner.add_node(node);
-    }
-    for edge in edges {
-        let _ = tree.inner.add_edge(&edge.left, &edge.right);
-        let attrs = if preserve_attrs {
-            match dg
-                .edge_py_attrs
-                .get(&(edge.left.clone(), edge.right.clone()))
-            {
-                Some(dict) => dict.bind(py).copy()?,
-                None => PyDict::new(py),
-            }
-        } else {
-            PyDict::new(py)
-        };
-        attrs.set_item(attr, edge.weight)?;
-        tree.edge_py_attrs
-            .insert((edge.left.clone(), edge.right.clone()), attrs.unbind());
-    }
-    tree.inner.set_runtime_policy(runtime_policy);
-    Ok(tree)
 }
 
 // ---------------------------------------------------------------------------
@@ -7139,45 +7069,71 @@ fn multidigraph_number_scc_orig_hashmap(mdg: &fnx_classes::digraph::MultiDiGraph
     count
 }
 
-/// br-r37-c1-11m92 (cc): topological sort of a MultiDiGraph via generation-based Kahn
-/// over an integer CSR of INSERTION-ORDER DISTINCT successors. Verified to reproduce
-/// nx.topological_sort's exact order (multiplicity-invariant: a node hits in-degree 0
-/// once all distinct parents are processed). Returns None on a cycle. No DiGraph build.
-fn multidigraph_topological_sort<'a>(
-    mdg: &'a fnx_classes::digraph::MultiDiGraph,
-) -> Option<Vec<&'a str>> {
-    // br-r37-c1-hi50t (cc): run the generation-based Kahn over the pre-existing
-    // revision-keyed integer CSR instead of rebuilding an inline `HashMap<&str,usize>`
-    // + per-node `successors()` String Vec + dedup adjacency each call. The CSR
-    // successor rows are the same distinct successors in the same order (the former
-    // dedup `HashSet` was redundant — `mdg.successors` keys are already distinct), and
-    // the distinct in-degree of j is exactly `csr.predecessors(j).len()`, so both the
-    // zero-set (index order) and the per-generation expansion are byte-identical → the
-    // emitted order matches nx.topological_sort exactly. Wins warm (cache) and cold
-    // (flat CSR build < HashMap/String rebuild).
-    let nodes = mdg.nodes_ordered();
-    let n = nodes.len();
+/// br-r37-c1-11m92 (cc): topological generations of a MultiDiGraph via Kahn over an
+/// integer CSR of INSERTION-ORDER DISTINCT successors, as a
+/// `fnx_algorithms::TopologicalGenerationsTrace` over `mdg.nodes_ordered()` positions.
+/// Reproduces nx.topological_generations' exact order (multiplicity-invariant: a node
+/// hits in-degree 0 once all distinct parents are processed). In-degrees and the scan
+/// log count DISTINCT edges; the caller adds parallel-edge multiplicities. No DiGraph
+/// build.
+fn multidigraph_generations_trace(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> fnx_algorithms::TopologicalGenerationsTrace {
+    let n = mdg.node_count();
     let csr = mdg.csr();
     let mut indeg: Vec<usize> = (0..n).map(|j| csr.predecessors(j).len()).collect();
-    let mut zero: Vec<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
-    let mut out: Vec<&'a str> = Vec::with_capacity(n);
-    while !zero.is_empty() {
-        let mut nxt: Vec<usize> = Vec::new();
-        for &u in &zero {
-            out.push(nodes[u]);
+    let seed = indeg.clone();
+    let mut current: Vec<(usize, Option<usize>)> = (0..n)
+        .filter(|&i| indeg[i] == 0)
+        .map(|i| (i, None))
+        .collect();
+    let mut generations = Vec::new();
+    let mut gen_offsets = Vec::new();
+    let mut scanned = Vec::with_capacity(csr.succ_targets.len());
+    let mut processed = vec![false; n];
+    while !current.is_empty() {
+        gen_offsets.push(scanned.len());
+        let mut next = Vec::new();
+        for &(u, _) in &current {
+            processed[u] = true;
             for &raw in csr.successors(u) {
                 let v = raw as usize;
                 if v < n {
+                    scanned.push((u, v));
                     indeg[v] -= 1;
                     if indeg[v] == 0 {
-                        nxt.push(v);
+                        next.push((v, Some(u)));
                     }
                 }
             }
         }
-        zero = nxt;
+        generations.push(std::mem::replace(&mut current, next));
     }
-    if out.len() == n { Some(out) } else { None }
+    fnx_algorithms::TopologicalGenerationsTrace {
+        generations,
+        unprocessed: (0..n).filter(|&i| !processed[i]).collect(),
+        in_degree: seed,
+        scanned,
+        gen_offsets,
+    }
+}
+
+/// The node order `multidigraph_generations_trace` yields, or None on a cycle.
+#[cfg(test)]
+fn multidigraph_topological_sort(mdg: &fnx_classes::digraph::MultiDiGraph) -> Option<Vec<&str>> {
+    let trace = multidigraph_generations_trace(mdg);
+    if !trace.unprocessed.is_empty() {
+        return None;
+    }
+    let nodes = mdg.nodes_ordered();
+    Some(
+        trace
+            .generations
+            .iter()
+            .flatten()
+            .map(|&(u, _)| nodes[u])
+            .collect(),
+    )
 }
 
 /// Frozen pre-`br-r37-c1-hi50t` inline-`HashMap` generation-Kahn route — rebuilds the
@@ -10884,156 +10840,6 @@ pub fn random_spanning_tree(
     undirected_spanning_edges_to_pygraph(py, pg, &edge_pairs)
 }
 
-/// Return a maximum branching of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn maximum_branching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    if partition.is_some() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "edge partition constraints are not implemented for maximum_branching.",
-        ));
-    }
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let result =
-            py.allow_threads(move || fnx_algorithms::maximum_branching(inner, &attr_name, default));
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "maximum_branching is only implemented for directed graphs.",
-        ))
-    }
-}
-
-/// Return a minimum branching of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn minimum_branching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    if partition.is_some() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "edge partition constraints are not implemented for minimum_branching.",
-        ));
-    }
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let result =
-            py.allow_threads(move || fnx_algorithms::minimum_branching(inner, &attr_name, default));
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "minimum_branching is only implemented for directed graphs.",
-        ))
-    }
-}
-
-/// Return a maximum spanning arborescence of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn maximum_spanning_arborescence(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        if dg.inner.node_count() == 0 {
-            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
-        }
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let (included_edges, excluded_edges) = match partition {
-            Some(partition_attr) => extract_edge_partition_from_attr(py, dg, partition_attr)?,
-            None => (Vec::new(), Vec::new()),
-        };
-        let result = py.allow_threads(move || {
-            if included_edges.is_empty() && excluded_edges.is_empty() {
-                fnx_algorithms::maximum_spanning_arborescence(inner, &attr_name, default)
-            } else {
-                fnx_algorithms::maximum_spanning_arborescence_with_edge_partition(
-                    inner,
-                    &attr_name,
-                    default,
-                    &included_edges,
-                    &excluded_edges,
-                )
-            }
-        });
-        let result = result
-            .ok_or_else(|| NetworkXError::new_err("No maximum spanning arborescence in G."))?;
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "maximum_spanning_arborescence is only implemented for directed graphs.",
-        ))
-    }
-}
-
-/// Return a minimum spanning arborescence of a directed graph.
-#[pyfunction]
-#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
-pub fn minimum_spanning_arborescence(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    attr: &str,
-    default: f64,
-    preserve_attrs: bool,
-    partition: Option<&str>,
-) -> PyResult<PyDiGraph> {
-    let gr = extract_graph(g)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        if dg.inner.node_count() == 0 {
-            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
-        }
-        let inner = &dg.inner;
-        let attr_name = attr.to_owned();
-        let (included_edges, excluded_edges) = match partition {
-            Some(partition_attr) => extract_edge_partition_from_attr(py, dg, partition_attr)?,
-            None => (Vec::new(), Vec::new()),
-        };
-        let result = py.allow_threads(move || {
-            if included_edges.is_empty() && excluded_edges.is_empty() {
-                fnx_algorithms::minimum_spanning_arborescence(inner, &attr_name, default)
-            } else {
-                fnx_algorithms::minimum_spanning_arborescence_with_edge_partition(
-                    inner,
-                    &attr_name,
-                    default,
-                    &included_edges,
-                    &excluded_edges,
-                )
-            }
-        });
-        let result = result
-            .ok_or_else(|| NetworkXError::new_err("No minimum spanning arborescence in G."))?;
-        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
-    } else {
-        Err(crate::NetworkXNotImplemented::new_err(
-            "minimum_spanning_arborescence is only implemented for directed graphs.",
-        ))
-    }
-}
-
 // ===========================================================================
 // Euler algorithms
 // ===========================================================================
@@ -11845,7 +11651,7 @@ pub fn stochastic_graph_copy_multidigraph(
         succ_py_keys: PyDiGraph::clone_row_keys(py, &graph.succ_py_keys),
         pred_py_keys: HashMap::new(),
         node_py_attrs,
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         has_remapped_int_key: graph.has_remapped_int_key,
         edge_py_keys: graph
             .edge_py_keys
@@ -13479,82 +13285,206 @@ pub fn dfs_postorder_nodes(
 // DAG Algorithms
 // ===========================================================================
 
-/// Return a topological sort of the nodes in a directed graph.
-///
-/// Raises ``NetworkXError`` if the graph is undirected.
-/// Raises ``HasACycle`` if the graph contains a cycle.
+/// networkx's `indegree_map` at every generation boundary of one
+/// `topological_generations_state` call, so the lazy Python loop can
+/// continue networkx's algorithm on the live graph once the caller mutates
+/// it. In-degrees count parallel edges, as `G.in_degree()` does.
+#[pyclass(frozen, name = "TopologicalGenerationsState")]
+pub struct TopologicalGenerationsState {
+    keys: Vec<PyObject>,
+    in_degree: Vec<usize>,
+    scanned: Vec<(usize, usize)>,
+    gen_offsets: Vec<usize>,
+    multiplicity: HashMap<(usize, usize), usize>,
+}
+
+#[pymethods]
+impl TopologicalGenerationsState {
+    /// networkx's in-degree map just before generation `k` is processed:
+    /// every node whose in-degree has not yet reached zero.
+    fn indegree_map<'py>(&self, py: Python<'py>, k: usize) -> PyResult<Bound<'py, PyDict>> {
+        let mut remaining = self.in_degree.clone();
+        let end = self
+            .gen_offsets
+            .get(k)
+            .copied()
+            .unwrap_or(self.scanned.len());
+        for &(parent, child) in &self.scanned[..end] {
+            remaining[child] -= self
+                .multiplicity
+                .get(&(parent, child))
+                .copied()
+                .unwrap_or(1);
+        }
+        let map = PyDict::new(py);
+        for (key, &count) in self.keys.iter().zip(&remaining) {
+            if count > 0 {
+                map.set_item(key.bind(py), count)?;
+            }
+        }
+        Ok(map)
+    }
+}
+
+/// Topological generations as far as they go, the nodes left over (on or
+/// behind a cycle), and the state networkx's lazy loop holds at each
+/// generation boundary. networkx yields the generations before a cycle and
+/// only then raises; a caller that mutates the graph mid-iteration makes it
+/// continue on the live graph (nro4w.11).
 #[pyfunction]
-pub fn topological_sort(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+pub fn topological_generations_state(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<(
+    Vec<Vec<PyObject>>,
+    Vec<PyObject>,
+    TopologicalGenerationsState,
+)> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(NetworkXError::new_err(
             "Topological sort not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::MultiDirected { mdg, .. } = &gr {
-        // br-r37-c1-11m92: generation-Kahn over the multidigraph CSR, no conversion.
+    let (trace, nodes) = if let GraphRef::MultiDirected { mdg, .. } = &gr {
         let inner = &mdg.inner;
-        return match py.allow_threads(|| multidigraph_topological_sort(inner)) {
-            Some(order) => Ok(order.iter().map(|&n| gr.py_node_key(py, n)).collect()),
-            None => Err(crate::HasACycle::new_err(
-                "Graph contains a cycle, topological sort is not possible.",
-            )),
-        };
-    }
-    {
+        (
+            py.allow_threads(|| multidigraph_generations_trace(inner)),
+            inner.nodes_ordered(),
+        )
+    } else {
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        match py.allow_threads(|| fnx_algorithms::topological_sort(dg_ref)) {
-            Some(result) => Ok(result.order.iter().map(|n| gr.py_node_key(py, n)).collect()),
-            None => Err(crate::HasACycle::new_err(
-                "Graph contains a cycle, topological sort is not possible.",
-            )),
+        (
+            py.allow_threads(|| fnx_algorithms::topological_generations_trace(dg_ref)),
+            dg_ref.nodes_ordered(),
+        )
+    };
+    let mut keys: Vec<Option<PyObject>> = (0..nodes.len()).map(|_| None).collect();
+    // Generation 0 carries node-map objects (nx reads G.in_degree()); later
+    // members carry the zeroing parent's succ-row object (nx appends the child
+    // from the parent's adjacency scan).
+    let generations: Vec<Vec<PyObject>> = trace
+        .generations
+        .iter()
+        .map(|generation| {
+            generation
+                .iter()
+                .map(|&(node, parent)| {
+                    let key = match parent {
+                        Some(p) => gr.py_row_key(py, nodes[p], nodes[node]),
+                        None => gr.py_node_key(py, nodes[node]),
+                    };
+                    keys[node] = Some(key.clone_ref(py));
+                    key
+                })
+                .collect()
+        })
+        .collect();
+    let unprocessed: Vec<PyObject> = trace
+        .unprocessed
+        .iter()
+        .map(|&node| {
+            let key = gr.py_node_key(py, nodes[node]);
+            keys[node] = Some(key.clone_ref(py));
+            key
+        })
+        .collect();
+    let mut in_degree = trace.in_degree;
+    let mut multiplicity = HashMap::new();
+    if let GraphRef::MultiDirected { mdg, .. } = &gr {
+        for (source, target, count) in mdg.inner.parallel_edge_counts() {
+            if let (Some(s), Some(t)) = (
+                mdg.inner.get_node_index(source),
+                mdg.inner.get_node_index(target),
+            ) {
+                multiplicity.insert((s, t), count);
+                in_degree[t] += count - 1;
+            }
         }
+    }
+    let state = TopologicalGenerationsState {
+        keys: keys
+            .into_iter()
+            .map(|key| key.expect("every node is in a generation or left over"))
+            .collect(),
+        in_degree,
+        scanned: trace.scanned,
+        gen_offsets: trace.gen_offsets,
+        multiplicity,
+    };
+    Ok((generations, unprocessed, state))
+}
+
+/// networkx's `maximum_branching` as a plan for the Python wrapper: the last
+/// level's branching keys and, per contraction from the last, the circuit
+/// keys added back and the key removed (see
+/// `fnx_algorithms::networkx_maximum_branching_plan`). Edge k is
+/// `(sources[k], targets[k], weights[k])`; `partitions[k]` is 1 for
+/// INCLUDED, 2 for EXCLUDED, anything else OPEN. Raises what networkx raises
+/// when a circuit cannot be unwound.
+#[pyfunction]
+#[pyo3(signature = (sources, targets, weights, partitions=None))]
+pub fn networkx_maximum_branching_plan(
+    py: Python<'_>,
+    sources: Vec<usize>,
+    targets: Vec<usize>,
+    weights: Vec<f64>,
+    partitions: Option<Vec<u8>>,
+) -> PyResult<(Vec<usize>, Vec<(Vec<usize>, usize)>)> {
+    let n = sources.len();
+    if targets.len() != n || weights.len() != n || partitions.as_ref().is_some_and(|p| p.len() != n)
+    {
+        return Err(PyValueError::new_err(
+            "edge columns must have the same length",
+        ));
+    }
+    let edges: Vec<(usize, usize, f64, fnx_algorithms::PartitionState)> = (0..n)
+        .map(|k| {
+            let state = match partitions.as_ref().map(|p| p[k]) {
+                Some(1) => fnx_algorithms::PartitionState::Included,
+                Some(2) => fnx_algorithms::PartitionState::Excluded,
+                _ => fnx_algorithms::PartitionState::Open,
+            };
+            (sources[k], targets[k], weights[k], state)
+        })
+        .collect();
+    match py.allow_threads(|| fnx_algorithms::networkx_maximum_branching_plan(&edges)) {
+        Ok(plan) => Ok((plan.initial, plan.steps)),
+        Err(fnx_algorithms::NetworkxBranchingError::NoMinimumEdge) => Err(PyException::new_err(())),
+        Err(fnx_algorithms::NetworkxBranchingError::NoIncomingEdge) => Err(PyException::new_err(
+            "Couldn't find edge incoming to merged node.",
+        )),
     }
 }
 
-/// Return a list of generations in topological order.
-///
-/// Each generation is a list of nodes with the same topological depth.
-/// Matches `networkx.topological_generations`.
+/// networkx's `max_weight_matching` as its `mate` dict items in insertion
+/// order (see `fnx_algorithms::networkx_max_weight_matching_mate`), for the
+/// Python wrapper to turn into networkx's result set. `adjacency[v]` is
+/// `[(w, weight), ...]` in `G.neighbors(v)` order over `list(G)` positions;
+/// it must be symmetric, as an undirected graph's is.
 #[pyfunction]
-pub fn topological_generations(
+#[pyo3(signature = (adjacency, maxcardinality=false))]
+pub fn networkx_max_weight_matching_mate(
     py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-) -> PyResult<Vec<Vec<PyObject>>> {
-    let gr = extract_graph(g)?;
-    if !gr.is_directed() {
-        return Err(NetworkXError::new_err(
-            "Topological generations not defined on undirected graphs.",
-        ));
-    }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        match py.allow_threads(|| fnx_algorithms::topological_generations(dg_ref)) {
-            Some(result) => {
-                // re-audit 2026-06-06: generation 0 carries node-map
-                // objects (nx reads G.in_degree()); later members carry
-                // the ZEROING parent's succ-row object (nx appends the
-                // child from the parent's adjacency scan).
-                let gens: Vec<Vec<PyObject>> = result
-                    .generations
-                    .iter()
-                    .map(|generation| {
-                        generation
-                            .iter()
-                            .map(|(n, parent)| match parent {
-                                Some(p) => gr.py_row_key(py, p, n),
-                                None => gr.py_node_key(py, n),
-                            })
-                            .collect()
-                    })
-                    .collect();
-                Ok(gens)
+    adjacency: Vec<Vec<(usize, f64)>>,
+    maxcardinality: bool,
+) -> PyResult<Vec<(usize, usize)>> {
+    let n = adjacency.len();
+    let mut pairs = HashSet::new();
+    for (v, row) in adjacency.iter().enumerate() {
+        for &(w, _) in row {
+            if w >= n {
+                return Err(PyValueError::new_err("neighbor index out of range"));
             }
-            None => Err(crate::HasACycle::new_err(
-                "Graph contains a cycle, topological generations is not possible.",
-            )),
+            pairs.insert((v, w));
         }
     }
+    if pairs.iter().any(|&(v, w)| !pairs.contains(&(w, v))) {
+        return Err(PyValueError::new_err("adjacency must be symmetric"));
+    }
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::networkx_max_weight_matching_mate(&adjacency, maxcardinality)
+    }))
 }
 
 /// Return the longest path in a DAG.
@@ -16196,7 +16126,10 @@ pub fn multidigraph_transitive_closure(
         succ_py_keys: PyDiGraph::clone_row_keys(py, &mdg.succ_py_keys),
         pred_py_keys: HashMap::new(),
         node_py_attrs: HashMap::with_capacity(mdg.node_py_attrs.len()),
-        edge_py_attrs: HashMap::with_capacity(mdg.edge_py_attrs.len()),
+        edge_py_attrs: rustc_hash::FxHashMap::with_capacity_and_hasher(
+            mdg.edge_py_attrs.len(),
+            rustc_hash::FxBuildHasher,
+        ),
         edge_py_keys: HashMap::with_capacity(mdg.edge_py_keys.len()),
         has_remapped_int_key: mdg.has_remapped_int_key,
         graph_attrs: mdg.graph_attrs.bind(py).copy()?.unbind(),
@@ -16281,13 +16214,13 @@ pub fn transitive_closure(
             inner: result,
             node_key_map,
             node_py_attrs,
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(),
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
             pred_row_py: HashMap::new(),
             graph_attrs: pyo3::types::PyDict::new(py).unbind(),
             nodes_seq: 0,
@@ -16846,34 +16779,6 @@ fn rust_graph_to_py_binary(
         py_graph
             .edge_py_attrs
             .insert(ek, pyo3::types::PyDict::new(py).unbind());
-    }
-    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
-}
-
-fn rust_graph_to_py_with_source_edge_attrs(
-    py: Python<'_>,
-    result: &fnx_classes::Graph,
-    source_gr: &GraphRef<'_>,
-) -> PyResult<PyObject> {
-    let mut py_graph =
-        PyGraph::new_empty_with_policy(py, source_gr.undirected().runtime_policy().clone())?;
-    for node in result.nodes_ordered() {
-        let py_key = source_gr.py_node_key(py, node);
-        py_graph.node_key_map.insert(node.to_owned(), py_key);
-        py_graph
-            .node_py_attrs
-            .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
-        py_graph.inner.add_node(node);
-    }
-    for (left, right, _) in result.edges_ordered_borrowed() {
-        let _ = py_graph.inner.add_edge(left, right);
-        let ek = PyGraph::edge_key(left, right);
-        let attrs = if let Some(source_attrs) = source_gr.edge_attrs_for_undirected(left, right) {
-            source_attrs.bind(py).copy()?.unbind()
-        } else {
-            pyo3::types::PyDict::new(py).unbind()
-        };
-        py_graph.edge_py_attrs.insert(ek, attrs);
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
@@ -19098,22 +19003,60 @@ fn label_propagation_communities(
         .collect())
 }
 
+/// networkx's `greedy_modularity_communities` merges as `(merges, exhausted)` (see
+/// `fnx_algorithms::networkx_greedy_modularity_merges`), for the Python wrapper to
+/// replay into networkx's communities. Node ids are label ranks; edge `i` is
+/// `(sources[i], targets[i])` weighing `weights[i]`; `b` is `None` for an
+/// undirected graph. A NaN gain raises `ValueError`.
 #[pyfunction]
-#[pyo3(signature = (g, resolution=1.0, weight="weight"))]
-fn greedy_modularity_communities(
+#[pyo3(signature = (sources, targets, weights, a, b, q0, resolution, cutoff, best_n))]
+pub fn networkx_greedy_modularity_merges(
     py: Python<'_>,
-    g: &Bound<'_, PyAny>,
+    sources: Vec<usize>,
+    targets: Vec<usize>,
+    weights: Vec<f64>,
+    a: Vec<f64>,
+    b: Option<Vec<f64>>,
+    q0: f64,
     resolution: f64,
-    weight: &str,
-) -> PyResult<Vec<Vec<PyObject>>> {
-    let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    let result = py
-        .allow_threads(|| fnx_algorithms::greedy_modularity_communities(inner, resolution, weight));
-    Ok(result
+    cutoff: f64,
+    best_n: f64,
+) -> PyResult<(Vec<(usize, usize)>, bool)> {
+    let n = a.len();
+    if sources.len() != targets.len() || sources.len() != weights.len() {
+        return Err(PyValueError::new_err(
+            "sources, targets and weights must have the same length",
+        ));
+    }
+    if b.as_ref().is_some_and(|b| b.len() != n) {
+        return Err(PyValueError::new_err("a and b must have the same length"));
+    }
+    if sources.iter().chain(&targets).any(|&node| node >= n) {
+        return Err(PyValueError::new_err("node index out of range"));
+    }
+    let edges: Vec<(usize, usize, f64)> = sources
         .into_iter()
-        .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
-        .collect())
+        .zip(targets)
+        .zip(weights)
+        .map(|((u, v), weight)| (u, v, weight))
+        .collect();
+    let run = py.allow_threads(|| {
+        fnx_algorithms::networkx_greedy_modularity_merges(
+            &edges,
+            &a,
+            b.as_deref(),
+            q0,
+            resolution,
+            cutoff,
+            best_n,
+        )
+    });
+    match run {
+        Ok(run) => Ok((run.merges, run.exhausted)),
+        Err(error) => Err(PyValueError::new_err(format!(
+            "networkx's merge order is not reproducible here: {error:?}"
+        ))),
+    }
 }
 
 // ===========================================================================
@@ -20168,27 +20111,6 @@ fn large_clique_size(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::max_clique_approx(inner));
     Ok(result.len())
-}
-
-/// Compute a graph spanner with the given stretch.
-#[pyfunction]
-#[pyo3(signature = (g, stretch, weight=None, seed=None))]
-fn spanner(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    stretch: f64,
-    weight: Option<&str>,
-    seed: Option<u64>,
-) -> PyResult<PyObject> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "spanner")?;
-    let inner = gr.undirected();
-    let result = py
-        .allow_threads(|| fnx_algorithms::spanner(inner, stretch, weight, seed))
-        .map_err(|err| match err {
-            fnx_algorithms::SpannerError::InvalidStretch => PyValueError::new_err(err.to_string()),
-        })?;
-    rust_graph_to_py_with_source_edge_attrs(py, &result, &gr)
 }
 
 /// Fastest isomorphism pre-check (order + size only).
@@ -21270,122 +21192,6 @@ fn is_simple_path(
             }
         }
     }
-}
-
-// ===========================================================================
-// Matching validators — is_matching, is_maximal_matching, is_perfect_matching
-// ===========================================================================
-
-/// Extract edge pairs from any iterable of 2-tuples (list, set, etc.).
-fn extract_matching_edges(
-    py: Python<'_>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<Vec<(String, String)>> {
-    use pyo3::types::PyDict;
-    // br-matchingdict: nx accepts both ``set`` of (u,v) edges and
-    // ``dict``-form matchings ({u: v, v: u, ...}). For the dict form,
-    // iterating yields keys only, so the per-element ``get_item(0)``
-    // path fails. Detect dict-shape input and read both u and the
-    // mate via ``__getitem__`` instead.
-    if let Ok(dict) = matching.downcast::<PyDict>() {
-        let mut edges = Vec::with_capacity(dict.len());
-        let mut seen = std::collections::HashSet::<(String, String)>::new();
-        for (k, v) in dict.iter() {
-            let u_s = node_key_to_string(py, &k)?;
-            let v_s = node_key_to_string(py, &v)?;
-            // Each unordered pair appears twice (u→v and v→u); skip
-            // the duplicate so the validator sees a clean edge list.
-            let canon = if u_s <= v_s {
-                (u_s.clone(), v_s.clone())
-            } else {
-                (v_s.clone(), u_s.clone())
-            };
-            if seen.insert(canon) {
-                edges.push((u_s, v_s));
-            }
-        }
-        return Ok(edges);
-    }
-
-    let mut edges = Vec::new();
-    for item in matching.try_iter()? {
-        let pair = item?;
-        let u = pair.get_item(0)?;
-        let v = pair.get_item(1)?;
-        edges.push((node_key_to_string(py, &u)?, node_key_to_string(py, &v)?));
-    }
-    Ok(edges)
-}
-
-/// Validate that every endpoint in ``edges`` is a node of ``inner``;
-/// raise a NetworkXError matching nx's wording if not. nx's
-/// ``is_matching`` raises (rather than returning False) when an
-/// edge references a node missing from G.
-fn ensure_matching_nodes_in_graph(
-    inner: &fnx_classes::Graph,
-    edges: &[(String, String)],
-) -> PyResult<()> {
-    for (u, v) in edges {
-        if !inner.has_node(u) {
-            return Err(NetworkXError::new_err(format!(
-                "matching contains edge ({u}, {v}) with node not in G"
-            )));
-        }
-        if !inner.has_node(v) {
-            return Err(NetworkXError::new_err(format!(
-                "matching contains edge ({u}, {v}) with node not in G"
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// Return True if `matching` is a valid matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_matching(inner, &edges)))
-}
-
-/// Return True if `matching` is a maximal matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_maximal_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_maximal_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_maximal_matching(inner, &edges)))
-}
-
-/// Return True if `matching` is a perfect matching of `G`.
-#[pyfunction]
-#[pyo3(signature = (g, matching))]
-fn is_perfect_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    matching: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_perfect_matching")?;
-    let inner = gr.undirected();
-    let edges = extract_matching_edges(py, matching)?;
-    ensure_matching_nodes_in_graph(inner, &edges)?;
-    Ok(py.allow_threads(|| fnx_algorithms::is_perfect_matching(inner, &edges)))
 }
 
 // ===========================================================================
@@ -24826,29 +24632,6 @@ pub fn girth(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<usize>> {
     Ok(py.allow_threads(|| fnx_algorithms::girth(inner)))
 }
 
-#[pyfunction]
-#[pyo3(signature = (g, source, weight = "weight"))]
-pub fn find_negative_cycle(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    source: &Bound<'_, PyAny>,
-    weight: &str,
-) -> PyResult<Vec<PyObject>> {
-    sync_rust_edge_attrs_if_available(g)?;
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "find_negative_cycle")?;
-    let src = node_key_to_string(py, source)?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
-        let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::find_negative_cycle(__wp, &src, weight))
-    };
-    match result {
-        Some(cycle) => Ok(cycle.iter().map(|n| gr.py_node_key(py, n)).collect()),
-        None => Err(crate::NetworkXError::new_err("No negative cycle found.")),
-    }
-}
-
 // ===========================================================================
 // Graph predicates
 // ===========================================================================
@@ -25297,32 +25080,6 @@ pub fn edge_dfs(
 // ===========================================================================
 // Matching algorithms — additional
 // ===========================================================================
-
-#[pyfunction]
-#[pyo3(signature = (g, edges))]
-pub fn is_edge_cover(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    edges: &Bound<'_, PyAny>,
-) -> PyResult<bool> {
-    let gr = extract_graph(g)?;
-    require_undirected(&gr, "is_edge_cover")?;
-    let inner = gr.undirected();
-    let edge_iter = edges.try_iter()?;
-    let mut edge_pairs: Vec<(String, String)> = Vec::new();
-    for item in edge_iter {
-        let item = item?;
-        let tuple = item.downcast::<pyo3::types::PyTuple>()?;
-        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
-        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        edge_pairs.push((u, v));
-    }
-    let edge_refs: Vec<(&str, &str)> = edge_pairs
-        .iter()
-        .map(|(u, v)| (u.as_str(), v.as_str()))
-        .collect();
-    Ok(py.allow_threads(|| fnx_algorithms::is_edge_cover(inner, &edge_refs)))
-}
 
 #[pyfunction]
 #[pyo3(signature = (g, weight = "weight"))]
@@ -26499,7 +26256,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26508,7 +26265,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26627,7 +26384,7 @@ pub fn ego_graph_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26636,7 +26393,7 @@ pub fn ego_graph_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26776,7 +26533,7 @@ pub fn full_join_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26785,7 +26542,7 @@ pub fn full_join_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26824,7 +26581,7 @@ pub fn identified_nodes_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26833,7 +26590,7 @@ pub fn identified_nodes_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26931,7 +26688,7 @@ pub fn dedensify_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26940,7 +26697,7 @@ pub fn dedensify_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27112,7 +26869,7 @@ pub fn quotient_graph_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -27121,7 +26878,7 @@ pub fn quotient_graph_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27687,7 +27444,7 @@ pub fn gomory_hu_tree_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -27696,7 +27453,7 @@ pub fn gomory_hu_tree_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27754,7 +27511,7 @@ pub fn snap_aggregation_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -27763,7 +27520,7 @@ pub fn snap_aggregation_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -28749,10 +28506,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(prim_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(bipartite_hopcroft_karp_matching, m)?)?;
     m.add_function(wrap_pyfunction!(approx_average_clustering, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_spanning_arborescence, m)?)?;
     // Euler
     m.add_function(wrap_pyfunction!(is_eulerian, m)?)?;
     m.add_function(wrap_pyfunction!(has_eulerian_path, m)?)?;
@@ -28784,8 +28537,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dfs_preorder_nodes, m)?)?;
     m.add_function(wrap_pyfunction!(dfs_postorder_nodes, m)?)?;
     // DAG algorithms
-    m.add_function(wrap_pyfunction!(topological_sort, m)?)?;
-    m.add_function(wrap_pyfunction!(topological_generations, m)?)?;
+    m.add_function(wrap_pyfunction!(topological_generations_state, m)?)?;
+    m.add_function(wrap_pyfunction!(networkx_maximum_branching_plan, m)?)?;
+    m.add_function(wrap_pyfunction!(networkx_max_weight_matching_mate, m)?)?;
+    m.add_class::<TopologicalGenerationsState>()?;
     m.add_function(wrap_pyfunction!(dag_longest_path, m)?)?;
     m.add_function(wrap_pyfunction!(dag_longest_path_length, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_topological_sort, m)?)?;
@@ -28816,10 +28571,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Spanning trees
     m.add_function(wrap_pyfunction!(maximum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_spanning_edges, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
-    m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;
-    m.add_function(wrap_pyfunction!(minimum_spanning_arborescence, m)?)?;
     // Strongly connected components
     m.add_function(wrap_pyfunction!(strongly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;
@@ -28908,7 +28659,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(louvain_communities, m)?)?;
     m.add_function(wrap_pyfunction!(modularity, m)?)?;
     m.add_function(wrap_pyfunction!(label_propagation_communities, m)?)?;
-    m.add_function(wrap_pyfunction!(greedy_modularity_communities, m)?)?;
+    m.add_function(wrap_pyfunction!(networkx_greedy_modularity_merges, m)?)?;
     // Graph operators
     m.add_function(wrap_pyfunction!(union, m)?)?;
     m.add_function(wrap_pyfunction!(intersection, m)?)?;
@@ -28964,7 +28715,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(max_clique, m)?)?;
     m.add_function(wrap_pyfunction!(clique_removal, m)?)?;
     m.add_function(wrap_pyfunction!(large_clique_size, m)?)?;
-    m.add_function(wrap_pyfunction!(spanner, m)?)?;
     // Tree recognition
     m.add_function(wrap_pyfunction!(is_arborescence, m)?)?;
     m.add_function(wrap_pyfunction!(is_branching, m)?)?;
@@ -28981,10 +28731,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(path_exists_rust, m)?)?;
     m.add_function(wrap_pyfunction!(path_weight_rust, m)?)?;
     m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
-    // Matching validators
-    m.add_function(wrap_pyfunction!(is_matching, m)?)?;
-    m.add_function(wrap_pyfunction!(is_maximal_matching, m)?)?;
-    m.add_function(wrap_pyfunction!(is_perfect_matching, m)?)?;
     // Cycles
     m.add_function(wrap_pyfunction!(simple_cycles, m)?)?;
     m.add_function(wrap_pyfunction!(find_cycle, m)?)?;
@@ -29049,7 +28795,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_attracting_component, m)?)?;
     // Cycle algorithms — additional
     m.add_function(wrap_pyfunction!(girth, m)?)?;
-    m.add_function(wrap_pyfunction!(find_negative_cycle, m)?)?;
     // Graph predicates
     m.add_function(wrap_pyfunction!(is_graphical, m)?)?;
     m.add_function(wrap_pyfunction!(is_digraphical, m)?)?;
@@ -29066,7 +28811,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(edge_bfs, m)?)?;
     m.add_function(wrap_pyfunction!(edge_dfs, m)?)?;
     // Matching algorithms — additional
-    m.add_function(wrap_pyfunction!(is_edge_cover, m)?)?;
     m.add_function(wrap_pyfunction!(max_weight_clique, m)?)?;
     // DAG algorithms — additional
     m.add_function(wrap_pyfunction!(is_aperiodic, m)?)?;
@@ -33626,7 +33370,7 @@ mod tests {
                 inner: MultiGraph::new(CompatibilityMode::Hardened),
                 node_key_map: HashMap::new(),
                 node_py_attrs: HashMap::new(),
-                edge_py_attrs: HashMap::new(),
+                edge_py_attrs: rustc_hash::FxHashMap::default(),
                 adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
                 edge_py_keys: HashMap::new(),
                 edge_mirrors_stale: false,

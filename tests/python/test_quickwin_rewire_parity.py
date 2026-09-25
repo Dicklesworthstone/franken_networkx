@@ -159,29 +159,38 @@ def test_all_pairs_node_connectivity_preserves_networkx_iteration_order(monkeypa
     assert list(subset[1]) == [3]
 
 
-def test_all_pairs_node_connectivity_honors_callable_flow_func(monkeypatch):
-    graph = fnx.path_graph(4)
-    sentinel = {"used": {"flow": 1}}
-    seen = {}
+@pytest.mark.parametrize("nbunch", [None, [0, 2, 3]])
+@pytest.mark.parametrize("directed", [False, True])
+def test_all_pairs_node_connectivity_honors_callable_flow_func(nbunch, directed):
+    """The caller's flow_func computes every pair, as in networkx.
 
-    def flow_func(*args, **kwargs):
-        raise AssertionError("sentinel flow_func should be forwarded, not called here")
+    This used to pin the ROUTE (a monkeypatched networkx function had to
+    receive flow_func unchanged); be19b0a4f replaced that delegation with an
+    in-process port, which calls flow_func itself, and the route lock went red.
+    The contract is the result and the use of flow_func: same answer as
+    networkx and the same number of flow_func calls, so an implementation that
+    ignored flow_func and ran its own kernel fails here."""
+    from networkx.algorithms.flow import shortest_augmenting_path
 
-    def fake_all_pairs_node_connectivity(converted, *args, **kwargs):
-        seen["graph_type"] = type(converted).__name__
-        seen["kwargs"] = kwargs
-        return sentinel
+    calls = {"nx": 0, "fnx": 0}
 
-    monkeypatch.setattr(nx, "all_pairs_node_connectivity", fake_all_pairs_node_connectivity)
+    def counting(tag):
+        def flow_func(*args, **kwargs):
+            calls[tag] += 1
+            return shortest_augmenting_path(*args, **kwargs)
 
-    assert (
-        fnx.all_pairs_node_connectivity(graph, nbunch=[0, 2], flow_func=flow_func)
-        == sentinel
+        return flow_func
+
+    create = {"create_using": nx.DiGraph} if directed else {}
+    expected = nx.all_pairs_node_connectivity(
+        nx.cycle_graph(6, **create), nbunch=nbunch, flow_func=counting("nx")
     )
-    assert seen["graph_type"] == "Graph"
-    assert seen["kwargs"]["nbunch"] == [0, 2]
-    assert seen["kwargs"]["flow_func"] is flow_func
-    assert seen["kwargs"]["backend"] == "networkx"
+    create = {"create_using": fnx.DiGraph} if directed else {}
+    actual = fnx.all_pairs_node_connectivity(
+        fnx.cycle_graph(6, **create), nbunch=nbunch, flow_func=counting("fnx")
+    )
+    assert actual == expected
+    assert calls["fnx"] == calls["nx"] > 0
 
 
 def test_all_pairs_node_connectivity_validates_flow_func():

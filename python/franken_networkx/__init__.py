@@ -3329,6 +3329,10 @@ class AdjacencyView(_Mapping):
                 # pyclass was added for; the flag is certified at no cost on G[u]
                 # (1.1587x before / 1.1580x after vs networkx, common-mode 0.9999).
                 view = _private_writable_class(_fnx.AtlasView)(owner, node)
+                # 2b0a6eb64 moved this call into the sibling branches and left
+                # this one without it: Graph._adj[u][v] = ... then raised
+                # "this private view has no owning graph to write to".
+                _private_mark_child(self, view, owner, node)
             elif (
                 getattr(self, "_fnx_multi_edge_owner", None) is not None
                 or (owner is not None and getattr(owner, "is_multigraph", lambda: False)())
@@ -15357,6 +15361,10 @@ def betweenness_centrality(
                 seed=None,
             )
         sampled_nodes = rng.sample(list(G.nodes()), k)
+        if not sampled_nodes and (len(G) if endpoints else len(G) - 1) >= 2:
+            # networkx's _rescale divides by the sample size once N >= 2; the
+            # native rescale's float 0/0 would return NaN for every node.
+            raise ZeroDivisionError("division by zero")
         return _betweenness_centrality_sampled_rust(
             G,
             sampled_nodes,
@@ -15508,17 +15516,6 @@ def maximal_matching(G):
     return _raw_maximal_matching(G)
 
 
-def _min_weight_matching_structural_nx(G, weight):
-    """In-process nx delegation for ``min_weight_matching`` preserving exact adjacency order."""
-    from franken_networkx.backend import _fnx_to_nx
-
-    _H = G if isinstance(G, _nx.Graph) else _fnx_to_nx(G)
-    try:
-        return _nx.min_weight_matching(_H, weight=weight, backend="networkx")
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
 def min_weight_matching(G, weight="weight"):
     """Compute a minimum-weight matching in the graph.
 
@@ -15559,7 +15556,56 @@ def min_weight_matching(G, weight="weight"):
     # decides the blossom traversal and hence which orientation each pair ends up with.
     # Verified byte-identical to the faithful path over 120 random graphs including
     # permuted node insertion order and attributed graphs.
-    return _min_weight_matching_structural_nx(G, weight)
+    #
+    # 1g0lj.1: max_weight_matching now reproduces the mate order natively, so this is
+    # networkx's own body over it: the inverted graph is built the way networkx builds it
+    # (an fnx Graph keeps networkx's node and adjacency order for the same insertions).
+    if len(G.edges) == 0:
+        return max_weight_matching(G, maxcardinality=True, weight=weight)
+    g_edges = list(G.edges(data=weight, default=1))
+    max_weight = 1 + max(w for _, _, w in g_edges)
+    inverted = Graph()
+    inverted.add_weighted_edges_from(((u, v, max_weight - w) for u, v, w in g_edges), weight=weight)
+    return max_weight_matching(inverted, maxcardinality=True, weight=weight)
+
+
+def _max_weight_matching_native(G, maxcardinality, weight):
+    """networkx's ``max_weight_matching`` through the native port (1g0lj.1).
+
+    ``networkx_max_weight_matching_mate`` repeats networkx's blossom
+    algorithm step for step over ``list(G)`` positions and ``G.neighbors``
+    order and returns its ``mate`` dict items in insertion order; this is
+    networkx's ``matching_dict_to_set`` over them, so the matching and every
+    pair's direction match. Returns None, for networkx's own code to run,
+    where f64 arithmetic would not equal networkx's: a weight that is not an
+    int or a finite float, or an int beyond 2**48.
+    """
+    nodes = list(G)
+    if not nodes:
+        return set()
+    index = {n: i for i, n in enumerate(nodes)}
+    adjacency = []
+    for u in nodes:
+        row = []
+        for v, d in G.adj[u].items():
+            w = d.get(weight, 1)
+            kind = type(w)
+            if kind is float:
+                if not _math.isfinite(w):
+                    return None
+            elif (kind is int or kind is bool) and -(2**48) <= w <= 2**48:
+                w = float(w)
+            else:
+                return None
+            row.append((index[v], w))
+        adjacency.append(row)
+    edges = set()
+    for u, v in _raw_networkx_max_weight_matching_mate(adjacency, bool(maxcardinality)):
+        edge = (nodes[u], nodes[v])
+        if (edge[1], edge[0]) in edges or edge in edges:
+            continue
+        edges.add(edge)
+    return edges
 
 
 def _max_weight_matching_structural_nx(G, maxcardinality, weight):
@@ -15606,6 +15652,9 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    native = _max_weight_matching_native(G, maxcardinality, weight)
+    if native is not None:
+        return native
     return _max_weight_matching_structural_nx(
         G, maxcardinality=maxcardinality, weight=weight
     )
@@ -15790,6 +15839,10 @@ def _flow_caps_summary(flowG, capacity):
     """
     import math as _math
     import numbers as _numbers
+    if not isinstance(capacity, str):
+        # networkx accepts any hashable attribute key (``capacity=0``); the
+        # native kernels read capacity by string name only.
+        return True, False
     all_int = True
     for _u, _v, attrs in flowG.edges(data=True):
         cap = attrs.get(capacity, None) if isinstance(attrs, dict) else None
@@ -16441,12 +16494,9 @@ from franken_networkx._fnx import (
     is_regular as _raw_is_regular,
     is_forest as _raw_is_forest,
     is_tree as _raw_is_tree,
-    maximum_spanning_arborescence as _raw_maximum_spanning_arborescence,
     number_of_spanning_trees as _raw_number_of_spanning_trees,
     minimum_spanning_edges as _raw_minimum_spanning_edges,
     prim_spanning_edges as _raw_prim_spanning_edges,
-    minimum_branching as _raw_minimum_branching,
-    minimum_spanning_arborescence as _raw_minimum_spanning_arborescence,
     multigraph_minimum_spanning_tree as _raw_multigraph_minimum_spanning_tree,
     minimum_spanning_tree as _raw_minimum_spanning_tree,
     partition_spanning_tree as _raw_partition_spanning_tree,
@@ -16480,11 +16530,43 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        return _multigraph_number_of_spanning_trees(G, root, weight)
     if isinstance(weight, str):
         # br-r37-c1-4tmgq: weights written after construction live only in the
         # Python edge dicts until synced into the Rust store the kernel reads.
         _sync_rust_edge_attrs(G, edge_only=True)
     return _raw_number_of_spanning_trees(G, root=root, weight=weight)
+
+
+def _multigraph_number_of_spanning_trees(G, root, weight):
+    """networkx's Kirchhoff/Tutte count for multigraphs.
+
+    nro4w.7: the native kernel counts each adjacent pair once, so parallel
+    edges vanished (MultiGraph 3.0 where networkx counts 8). networkx's
+    Laplacian sums parallel edges (their weights, or 1 each); this is its
+    code over fnx's matrix builders, which sum the same way.
+    """
+    import numpy as np
+
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Graph G must contain at least one node.")
+    if not G.is_directed():
+        if not is_connected(G):
+            return 0
+        G_laplacian = laplacian_matrix(G, weight=weight).toarray()
+        return float(np.linalg.det(G_laplacian[1:, 1:]))
+    if root is None:
+        raise NetworkXError("Input `root` must be provided when G is directed")
+    if root not in G:
+        raise NetworkXError("The node root is not in the graph G.")
+    if not is_weakly_connected(G):
+        return 0
+    nodelist = [root] + [n for n in G if n != root]
+    A = adjacency_matrix(G, nodelist=nodelist, weight=weight)
+    D = np.diag(A.sum(axis=0))
+    G_laplacian = D - A
+    return float(np.linalg.det(G_laplacian[1:, 1:]))
 
 
 def _prim_spanning_edges_native(G, weight, minimum, ignore_nan):
@@ -16789,6 +16871,19 @@ def _boruvka_inproc_full(G, minimum=True, weight="weight", data=True, ignore_nan
                 forest.union(u, v)
 
 
+# networkx's ALGORITHMS table keys (algorithms/tree/mst.py).
+_SPANNING_EDGE_ALGORITHMS = frozenset({"boruvka", "borůvka", "kruskal", "prim"})
+
+
+def _check_spanning_edge_algorithm(algorithm):
+    """nro4w.7: networkx looks ``algorithm`` up when the edges function is
+    called; fnx's edges functions are generators, so their own check fired
+    only on the first ``next()``. Set membership keeps nx's TypeError for an
+    unhashable value."""
+    if algorithm not in _SPANNING_EDGE_ALGORITHMS:
+        raise ValueError(f"{algorithm} is not a valid choice for an algorithm.")
+
+
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``.
 
@@ -16811,6 +16906,7 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    _check_spanning_edge_algorithm(algorithm)
 
     def _gen():
         # br-r37-c1-mstcsr: the native kruskal kernel now reproduces nx's exact
@@ -16930,6 +17026,7 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    _check_spanning_edge_algorithm(algorithm)
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
 
     def _gen():
@@ -17023,34 +17120,6 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     return _gen()
 
 
-def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_attrs):
-    """br-r37-c1-xy4xf: the Rust branching/arborescence binding coerces
-    weights to f64, so an int weight comes back as float. nx preserves
-    the original type. Walk each retained edge in the result and copy
-    its attrs from the source so weight types match nx exactly.
-
-    When ``preserve_attrs`` is False, only the named weight attribute
-    is copied (matching nx's contract: non-weight attrs are dropped).
-    """
-    from copy import deepcopy as _deepcopy
-
-    for u, v in list(result.edges()):
-        result[u][v].clear()
-        if source.has_edge(u, v):
-            src_attrs = dict(source[u][v])
-            if preserve_attrs:
-                # Copy everything (preserving original types).
-                if attr_name not in src_attrs:
-                    src_attrs[attr_name] = default
-                result[u][v].update(_deepcopy(src_attrs))
-            else:
-                # Only the weight attr — preserve its original type.
-                weight_value = src_attrs.get(attr_name, default)
-                result[u][v][attr_name] = weight_value
-        else:
-            result[u][v][attr_name] = default
-
-
 def _branching_partition_graph_for_networkx(G, partition):
     """Convert fnx EdgePartition attributes before NetworkX delegation."""
     graph = _networkx_graph_for_parity(G)
@@ -17072,7 +17141,7 @@ def _branching_structural_nx(G, nx_name, attr, default):
 
     br-r37-c1-p80x1.14. Lives in a private helper so the public wrappers keep no direct
     ``_nx.*`` reference, matching ``_greedy_color_structural_nx`` and
-    ``_min_weight_matching_structural_nx``. Nodes in order, edges in order, carrying only
+    ``_max_weight_matching_structural_nx``. Nodes in order, edges in order, carrying only
     the caller's ``attr`` - which is all networkx's own output retains when
     ``preserve_attrs`` is false. Mirrors the input's directedness, since a branching on a
     DiGraph is a different problem from one on a Graph.
@@ -17093,40 +17162,10 @@ def _branching_structural_nx(G, nx_name, attr, default):
         _raise_translated_networkx_exception(exc)
 
 
-def _minimum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.minimum_branching(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
 def _maximum_branching_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
     nx_g = _branching_partition_graph_for_networkx(G, partition)
     try:
         return _nx.algorithms.tree.branchings.maximum_branching(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
-def _minimum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.minimum_spanning_arborescence(
-            nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-
-
-def _maximum_spanning_arborescence_inproc(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.maximum_spanning_arborescence(
             nx_g, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition, backend="networkx",
         )
     except Exception as exc:
@@ -17157,48 +17196,92 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     so drop-in callers using MultiDiGraph keep working.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if partition is not None or not G.is_directed() or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
 
-        # br-r37-c1-p80x1.14: the UNDIRECTED class was paying a FAITHFUL fnx->nx
-        # conversion, networkx's call, and a conversion back, where the directed class
-        # uses the native kernel. Measured on an n=400 empty-result workload, that is
-        # 220.0M Ir/call against the directed path's 44.7M - 4.9x more expensive on
-        # ITSELF for the same answer - and 0.777x against networkx.
-        #
-        # networkx's output here carries ONLY the `attr` weight: extra edge attributes,
-        # node attributes and graph attributes are all dropped (verified). So a
-        # structural copy carrying nodes in order and edges in order with just `attr` is
-        # byte-identical, and the attribute copy was pure overhead.
-        #
-        # SCOPE, and every clause is load-bearing:
-        #   * preserve_attrs=True DOES keep the extra edge attributes in the output, so a
-        #     structural copy would lose them - excluded;
-        #   * a multigraph would lose its parallel edges to an nx.Graph copy - excluded;
-        #   * partition routes through _branching_partition_graph_for_networkx, a
-        #     different input entirely - excluded;
-        #   * `attr` is carried through rather than hardcoded, since callers may use
-        #     another key (attr="cost" works in networkx).
-        if (
-            partition is None
-            and not G.is_directed()
-            and not G.is_multigraph()
-            and not preserve_attrs
-        ):
-            return _from_nx_graph(
-                _branching_structural_nx(G, "minimum_branching", attr, default)
-            )
-        nx_result = _minimum_branching_inproc(
-            G, attr=attr, default=default,
-            preserve_attrs=preserve_attrs, partition=partition,
-        )
-        return _from_nx_graph(nx_result)
-    result = _raw_minimum_branching(
-        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-    )
-    # br-r37-c1-xy4xf: restore original weight types from G.
-    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
-    return result
+    def negate(w):
+        return -w
+
+    # networkx negates every weight in place, runs maximum_branching and
+    # negates back (see _branching_round_trip): exact for numbers, but an
+    # edge without ``attr`` ends up carrying ``default``.
+    return _branching_round_trip(G, attr, default, preserve_attrs, partition, negate, negate)
+
+
+_EDMONDS_CANDIDATE_ATTR = "edmonds' secret candidate attribute"
+
+
+def _maximum_branching_native(G, attr, default, preserve_attrs, partition):
+    """networkx's ``maximum_branching`` through the native plan (sfq4w.4).
+
+    The kernel repeats networkx's Edmonds step for step over integer edge
+    keys and returns the history of networkx's final ``set`` of keys; replaying
+    it here gives networkx's result edge ORDER, which comes from that set.
+    Returns None, for networkx's own code to run, where the plan would not be
+    exact: a weight that is not an int or float, an int too large for f64
+    arithmetic to stay exact through the contractions, or an attribute name
+    equal to networkx's private candidate attribute.
+    """
+    if attr == _EDMONDS_CANDIDATE_ATTR or partition == _EDMONDS_CANDIDATE_ATTR:
+        return None
+    if preserve_attrs or partition is not None:
+        rows = list(G.edges(data=True))
+        if preserve_attrs and any(_EDMONDS_CANDIDATE_ATTR in d for _, _, d in rows):
+            return None
+        weights = [d.get(attr, default) for _, _, d in rows]
+    else:
+        rows = list(G.edges(data=attr, default=default))
+        weights = [w for _, _, w in rows]
+    # Each contraction can move a weight by twice the largest one.
+    bound = 2**53 // (2 * len(rows) + 2)
+    ids = {}
+    sources, targets, floats = [], [], []
+    for (u, v, _), w in zip(rows, weights):
+        kind = type(w)
+        if kind is float:
+            floats.append(w)
+        elif (kind is int or kind is bool) and -bound <= w <= bound:
+            floats.append(float(w))
+        else:
+            return None
+        sources.append(ids.setdefault(u, len(ids)))
+        targets.append(ids.setdefault(v, len(ids)))
+    parts = None
+    if partition is not None:
+        parts = []
+        for _, _, d in rows:
+            value = d.get(partition)
+            if value == EdgePartition.EXCLUDED:
+                parts.append(2)
+            elif value == EdgePartition.INCLUDED:
+                parts.append(1)
+            else:
+                parts.append(0)
+    initial, steps = _raw_networkx_maximum_branching_plan(sources, targets, floats, parts)
+    # networkx takes set() of a DICT (its edge index): CPython sizes the table
+    # for a dict in one step but grows it while inserting from a list, and the
+    # table size decides where small int keys collide, hence the order.
+    kept = set(dict.fromkeys(initial))
+    for circuit, removed in steps:
+        kept.update(circuit)
+        kept.remove(removed)
+    H = G.__class__()
+    H.add_nodes_from(G)
+    for key in kept:
+        u, v, data = rows[key]
+        dd = {attr: weights[key]}
+        if preserve_attrs:
+            # networkx's G^0 edge data, then its result data without the
+            # weight's second copy or the candidate marker.
+            d = {attr: weights[key]}
+            if data.get(partition) is not None:
+                d[partition] = data.get(partition)
+            for k, value in data.items():
+                if k != attr:
+                    d[k] = value
+            for k, value in d.items():
+                if k not in (attr, _EDMONDS_CANDIDATE_ATTR):
+                    dd[k] = value
+        H.add_edge(u, v, **dd)
+    return H
 
 
 def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -17211,13 +17294,16 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel
     rejects MultiDiGraph but nx accepts it.
 
-    br-r37-c1-kb9hm: the native Edmonds kernel does not preserve
+    br-r37-c1-kb9hm: the old native Edmonds kernel did not preserve
     NetworkX's incoming-edge iteration order through tie-rich cycle
-    contractions. Equal-weight optimums can therefore return a
-    different observable edge set. Delegate until the native kernel
-    has a full tie-break proof corpus.
+    contractions. sfq4w.4: ``_maximum_branching_native`` runs a
+    step-for-step port instead (edge order included); the networkx
+    delegation below remains for weights that port does not cover.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    H = _maximum_branching_native(G, attr, default, preserve_attrs, partition)
+    if H is not None:
+        return H
     from franken_networkx.readwrite import _from_nx_graph
 
     # br-r37-c1-p80x1.14: the delegation above stays - br-r37-c1-kb9hm rejected the native
@@ -17247,48 +17333,62 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     return _from_nx_graph(nx_result)
 
 
+def _branching_round_trip(G, attr, default, preserve_attrs, partition, forward, backward):
+    """networkx's minimum / minimal / spanning-arborescence wrappers, as written.
+
+    nro4w.7: networkx rewrites every edge weight of G in place, runs
+    maximum_branching on that, then rewrites G's weights and the result's
+    back. The round trip is not exact in floating point (0.1 comes back as
+    0.09999999999999964 from minimal_branching's C - (C - w)), it turns int
+    weights into floats when the transform does, and it writes ``attr`` onto
+    edges that lacked it; networkx declares these functions mutates_input for
+    that reason. fnx used to return the exact original weights and leave G
+    alone, so its results and inputs differed from networkx's after the call
+    (under the test backend: test_edge_augmentation::test_weight_key). The
+    selection itself runs on the transformed weights, as in networkx, so
+    near-ties after rounding break the same way. fnx's maximum_branching
+    equals networkx's exactly (0 of 200 random weighted digraphs differ).
+    """
+    for _, _, d in G.edges(data=True):
+        d[attr] = forward(d.get(attr, default))
+    B = maximum_branching(G, attr, default, preserve_attrs, partition)
+    for _, _, d in G.edges(data=True):
+        d[attr] = backward(d.get(attr, default))
+    for _, _, d in B.edges(data=True):
+        d[attr] = backward(d.get(attr, default))
+    return B
+
+
+def _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition):
+    max_weight = -float("inf")
+    min_weight = float("inf")
+    for _, _, w in G.edges(data=attr, default=default):
+        if w > max_weight:
+            max_weight = w
+        if w < min_weight:
+            min_weight = w
+
+    def transform(w):
+        # networkx's expression, in its evaluation order: the float result
+        # depends on it.
+        return max_weight + 1 + (max_weight - min_weight) - w
+
+    return _branching_round_trip(G, attr, default, preserve_attrs, partition, transform, transform)
+
+
 def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1.
+    """networkx's minimum_spanning_arborescence: minimal_branching's in-place
+    weight round trip, then the arborescence check (see _branching_round_trip).
 
-    br-r37-c1-ugod2: nx raises NetworkXNotImplemented('not implemented
-    for undirected type') for undirected input — translate the Rust
-    binding's custom message to match.
-
-    br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel only
-    matches simple DiGraph and rejects MultiDiGraph with a custom
-    message, while nx accepts MultiDiGraph.
+    Undirected input goes through the whole round trip before is_arborescence
+    raises NetworkXNotImplemented, exactly as in networkx, so G's weights are
+    rewritten even then. No arborescence raises the base NetworkXException.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    if partition is not None or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _minimum_spanning_arborescence_inproc(
-            G,
-            attr=attr,
-            default=default,
-            preserve_attrs=preserve_attrs,
-            partition=partition,
-        )
-        return _from_nx_graph(nx_result)
-    if isinstance(attr, str):
-        # br-r37-c1-4tmgq: sync post-construction edge attribute writes into the
-        # Rust store before the native branching kernel reads ``attr``.
-        _sync_rust_edge_attrs(G, edge_only=True)
-    try:
-        result = _raw_minimum_spanning_arborescence(
-            G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-        )
-    except NetworkXError as exc:
-        # br-r37-c1-6f4uj: nx raises the BASE NetworkXException (not the
-        # NetworkXError subclass) when no spanning arborescence exists; the
-        # native binding raises NetworkXError. Re-raise as the base class so
-        # the exact exception type matches nx.
-        if "spanning arborescence in G" in str(exc):
-            raise NetworkXException(str(exc)) from exc
-        raise
-    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
-    return result
+    B = _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition)
+    if not is_arborescence(B):
+        raise NetworkXException("No minimum spanning arborescence in G.")
+    return B
 
 
 def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -17305,56 +17405,39 @@ def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_
     Once registered, ``nx.algorithms.tree.minimal_branching(fnx_graph)``
     routes through this implementation (after the ``__networkx_backend__``
     class attribute tags fnx graphs as belonging to the franken_networkx
-    backend). The implementation delegates to nx's pure-Python kernel via
-    the existing parity bridge.
+    backend). It is networkx's in-place weight round trip over fnx's
+    maximum_branching (see _branching_round_trip); the former delegation
+    to networkx ran on a converted copy, so the caller's graph never saw
+    networkx's weight rewrite.
     """
-    nx_g = _branching_partition_graph_for_networkx(G, partition)
-    try:
-        return _nx.algorithms.tree.branchings.minimal_branching(
-            nx_g, attr=attr, default=default,
-            preserve_attrs=preserve_attrs, partition=partition,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    G = _coerce_arg_to_fnx_graph(G)
+    return _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition)
 
 
 def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1.
-
-    br-r37-c1-ugod2: same nx-message alignment as minimum_spanning_arborescence.
-
-    br-r37-c1-s8x7z: also delegate MultiDiGraph (Rust kernel rejects
-    multigraph but nx accepts).
+    """networkx's maximum_spanning_arborescence: its own in-place weight shift
+    and back (see _branching_round_trip), then the arborescence check, which
+    is also where undirected input raises NetworkXNotImplemented.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    if partition is not None or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _maximum_spanning_arborescence_inproc(
-            G,
-            attr=attr,
-            default=default,
-            preserve_attrs=preserve_attrs,
-            partition=partition,
-        )
-        return _from_nx_graph(nx_result)
-    if isinstance(attr, str):
-        # br-r37-c1-4tmgq: see minimum_spanning_arborescence.
-        _sync_rust_edge_attrs(G, edge_only=True)
-    try:
-        result = _raw_maximum_spanning_arborescence(
-            G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
-        )
-    except NetworkXError as exc:
-        # br-r37-c1-6f4uj: match nx's base NetworkXException for the
-        # no-arborescence case (see minimum_spanning_arborescence).
-        if "spanning arborescence in G" in str(exc):
-            raise NetworkXException(str(exc)) from exc
-        raise
-    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
-    return result
+    min_weight = float("inf")
+    max_weight = -float("inf")
+    for _, _, w in G.edges(data=attr, default=default):
+        if w < min_weight:
+            min_weight = w
+        if w > max_weight:
+            max_weight = w
+
+    def forward(w):
+        return w - min_weight + 1 - (min_weight - max_weight)
+
+    def backward(w):
+        return w + min_weight - 1 + (min_weight - max_weight)
+
+    B = _branching_round_trip(G, attr, default, preserve_attrs, partition, forward, backward)
+    if not is_arborescence(B):
+        raise NetworkXException("No maximum spanning arborescence in G.")
+    return B
 
 
 def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
@@ -17669,7 +17752,7 @@ def eulerian_path(G, source=None, keys=False):
             if keys:
                 yield from reversed([(v, u, k) for u, v, k in circuit])
             else:
-                yield from reversed([(v, u) for u, v in circuit])
+                yield from reversed([(v, u) for u, v, _k in circuit])
         else:
             circuit = list(_simplegraph_eulerian_circuit_inproc(G, source=source))
             yield from reversed([(v, u) for u, v in circuit])
@@ -20356,8 +20439,6 @@ from franken_networkx._fnx import (
     sudoku_graph as _rust_sudoku_graph,
 )
 
-_RUST_GENERATOR_MAX_N_GENERIC = 100_000
-
 # Algorithm functions — single-source shortest paths
 from franken_networkx._fnx import (
     single_source_shortest_path as _raw_single_source_shortest_path,
@@ -20536,7 +20617,6 @@ def dominating_set(G, start_with=None):
 from franken_networkx._fnx import (
     louvain_communities as _raw_louvain_communities,
     modularity as _raw_modularity,
-    greedy_modularity_communities as _raw_greedy_modularity_communities,
 )
 
 
@@ -22921,8 +23001,9 @@ from franken_networkx._fnx import (
     descendants as _raw_descendants,
     is_directed_acyclic_graph as _raw_is_directed_acyclic_graph,
     lexicographic_topological_sort as _raw_lexicographic_topological_sort,
-    topological_sort as _raw_topological_sort,
-    topological_generations as _raw_topological_generations,
+    topological_generations_state as _raw_topological_generations_state,
+    networkx_maximum_branching_plan as _raw_networkx_maximum_branching_plan,
+    networkx_max_weight_matching_mate as _raw_networkx_max_weight_matching_mate,
 )
 
 
@@ -23117,107 +23198,83 @@ def descendants(G, source):
 def topological_sort(G):
     """Yield nodes in topological order.
 
-    Matches nx's Kahn's-algorithm tie-break order: zero-in-degree nodes
-    are queued in graph insertion order (br-codtrav). The Rust native
-    uses a different tie-break, so we re-implement Kahn's in Python so
-    the emitted order is byte-identical to nx's on DAG fixtures.
-
-    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
-    (br-zzcm7).
+    networkx's definition: the nodes of ``topological_generations(G)`` in
+    order, so its tie-break order, its acyclic prefix before
+    ``NetworkXUnfeasible`` on a cyclic graph, and its ``RuntimeError`` when
+    the caller mutates ``G`` mid-iteration all carry over (nro4w.11).
     """
-    if not G.is_directed():
-        raise NetworkXError("Topological sort not defined on undirected graphs.")
-    from collections import deque as _deque
+    for generation in topological_generations(G):
+        yield from generation
 
-    # br-r37-c1-toposucc: walk the successor adjacency (``G.succ[u].items()``)
-    # directly instead of ``G.edges(u)`` per node. ``G.edges(u)`` materialised a
-    # full guarded _EdgeListWithSetAlgebra (nbunch_iter + per-call view churn)
-    # for every popped node, making topological_sort ~34x slower than nx; the
-    # adjacency walk is the same primitive nx uses and is O(out-degree) per node.
-    # Parallel edges are counted via ``len(keydict)`` for MultiDiGraph parity
-    # (a single successor with k parallel edges contributes k to in-degree, and
-    # the same FIFO queue/insertion-order tie-break is preserved exactly).
-    succ = G.succ
-    indegree = {v: 0 for v in G}
-    if G.is_multigraph():
-        # br-r37-c1-11m92 (cc): the native MultiDiGraph topological_sort now reproduces
-        # nx's generation-Kahn order (CSR of insertion-order DISTINCT successors;
-        # multiplicity-invariant since a node hits in-degree 0 once all distinct parents
-        # are processed). Route to the Rust CSR Kahn instead of replaying Kahn in Python
-        # per node (was ~6x slower than nx; the native path is ~5x faster, parity-exact).
-        # The native binding raises nx.HasACycle on a cycle; nx.topological_sort raises
-        # NetworkXUnfeasible, so translate for exact-parity (HasACycle is NOT a subclass).
-        try:
-            _order = _raw_topological_sort(G)
-        except _NetworkXHasACycle:
-            raise NetworkXUnfeasible(
-                "Graph contains a cycle, topological sort is not possible."
-            ) from None
-        yield from _order
-        return
+
+def topological_generations(G):
+    """Yield the generations of ``G`` in topological order, as networkx does.
+
+    networkx processes generation k on the LIVE graph just before yielding
+    it: a node removed by then raises ``RuntimeError``, an edge added to a
+    new child raises ``RuntimeError``, and nodes whose in-degree never
+    reaches zero (a cycle, or an edge added among unprocessed nodes) raise
+    ``NetworkXUnfeasible`` after the last generation. On fnx's own DiGraph
+    and MultiDiGraph the generations come from the native kernel; if the
+    graph's revision has moved when networkx would process generation k,
+    networkx's loop continues on the live graph from the native kernel's
+    in-degree state at that boundary (nro4w.11). Any other directed graph
+    (a subclass, a view, a networkx graph) runs networkx's loop as written.
+    """
+    if type(G) is DiGraph or type(G) is MultiDiGraph:
+        yield from _topological_generations_native(G)
     else:
-        # Exact DiGraph: native topological_generations already implements
-        # NetworkX's Kahn FIFO generation order, so flatten those generation
-        # vectors instead of replaying Kahn in Python for every node.
-        # Keep the previous final len(G) guard so node-count mutations during
-        # iteration retain the old observable FNX outcome.
-        if type(G) is DiGraph:
-            _count = 0
-            for _generation in topological_generations(G):
-                for u in _generation:
-                    yield u
-                    _count += 1
-            if _count != len(G):
-                raise NetworkXUnfeasible(
-                    "Graph contains a cycle or graph changed during iteration"
-                )
+        yield from _topological_generations_as_networkx(G)
+
+
+def _topological_generations_native(G):
+    generations, leftover, state = _raw_topological_generations_state(G)
+    revision = G._fnx_revision
+    start = revision()
+    for k, generation in enumerate(generations):
+        if revision() != start:
+            yield from _topological_generations_live(
+                G, generation, state.indegree_map(k), G.is_multigraph()
+            )
             return
-        else:
-            for u in G:
-                for v in succ[u]:
-                    indegree[v] += 1
-            queue = _deque(v for v in G if indegree[v] == 0)
-            _count = 0
-            while queue:
-                u = queue.popleft()
-                yield u
-                _count += 1
-                for v in succ[u]:
-                    indegree[v] -= 1
-                    if indegree[v] == 0:
-                        queue.append(v)
-    if _count != len(G):
+        yield generation
+    if leftover:
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
         )
 
 
+def _topological_generations_as_networkx(G):
+    if not G.is_directed():
+        raise NetworkXError("Topological sort not defined on undirected graphs.")
+    indegree_map = {v: d for v, d in G.in_degree() if d > 0}
+    zero_indegree = [v for v, d in G.in_degree() if d == 0]
+    yield from _topological_generations_live(
+        G, zero_indegree, indegree_map, G.is_multigraph()
+    )
 
 
-def topological_generations(G):
-    """Yield per-generation sets of nodes in topological order.
-
-    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
-    (br-zzcm7).
-    """
-    G = _coerce_arg_to_fnx_graph(G)
-    try:
-        yield from _raw_topological_generations(G)
-    except HasACycle as exc:
+def _topological_generations_live(G, zero_indegree, indegree_map, multigraph):
+    """networkx's generation loop from a given state, on the live graph."""
+    while zero_indegree:
+        this_generation = zero_indegree
+        zero_indegree = []
+        for node in this_generation:
+            if node not in G:
+                raise RuntimeError("Graph changed during iteration")
+            for child in G.neighbors(node):
+                try:
+                    indegree_map[child] -= len(G[node][child]) if multigraph else 1
+                except KeyError as err:
+                    raise RuntimeError("Graph changed during iteration") from err
+                if indegree_map[child] == 0:
+                    zero_indegree.append(child)
+                    del indegree_map[child]
+        yield this_generation
+    if indegree_map:
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
-        ) from exc
-    except NetworkXError as exc:
-        # br-r37-c1-1ewpw: nx uses "Topological sort not defined on
-        # undirected graphs." for both topological_sort AND
-        # topological_generations. The Rust binding uses
-        # "Topological generations not defined ...". Translate so
-        # drop-in code matching the message text works.
-        if "Topological generations not defined" in str(exc):
-            raise NetworkXError(
-                "Topological sort not defined on undirected graphs."
-            ) from exc
-        raise
+        )
 
 
 def _dag_longest_path_digraph_native(G, weight, default_weight):
@@ -24110,7 +24167,6 @@ from franken_networkx._fnx import (
     max_clique as _raw_max_clique,
     maximum_independent_set as _raw_maximum_independent_set,
     min_weighted_vertex_cover as _raw_min_weighted_vertex_cover,
-    spanner as _raw_spanner,
 )
 
 
@@ -24227,11 +24283,139 @@ def spanner(G, stretch, weight=None, seed=None):
         raise ValueError("stretch must be at least 1")
     if G.number_of_nodes() == 0:
         raise ValueError("math domain error")
-    # br-r37-c1-va1lb: index-space residual state makes the native Rust
-    # Baswana-Sen kernel faster than both nx and the prior in-process Python
-    # kernel. Spanner parity is structural: a valid spanner with the requested
-    # stretch and preserved selected-edge attributes.
-    return _raw_spanner(G, stretch, weight=weight, seed=seed)
+    return _spanner_inproc(G, stretch, weight, _create_py_random_state(seed))
+
+
+def _spanner_inproc(G, stretch, weight, seed):
+    """networkx's Baswana-Sen spanner, step for step, over plain dicts.
+
+    nro4w.7: the native kernel (br-r37-c1-va1lb) built a valid spanner but
+    not networkx's: its random draws and tie-breaks differ, so the same seed
+    gave different edges. This follows networkx's sparsifiers.py exactly:
+
+    - the residual graph is networkx's ``G.copy()`` (adjacency order of the
+      copy, not of G) held as a dict of dicts, so its node and neighbour
+      iteration is networkx's;
+    - edge weights are networkx's unique tie-breakers, ``(id(u), id(v))`` or
+      ``(w, id(u), id(v))`` with (u, v) oriented as ``G.edges()`` yields it;
+    - one ``seed.random()`` per center of ``set(clustering.values())``, and
+      the size-limit retry, in networkx's order;
+    - the spanner's edges are added in the order networkx adds them.
+
+    Ties break on ``id``, so the result equals networkx's whenever both see
+    the same node objects (always for small ints); that is networkx's own
+    reproducibility contract.
+    """
+    import math
+
+    k = (stretch + 1) // 2
+    nodes = list(G)
+    # The tie-breakers are ids, so they must be ids of objects that stay alive
+    # for the whole call: fnx may hand out a fresh int object per iteration,
+    # whose id could be reused and collide. One snapshot's objects serve.
+    canonical = {node: node for node in nodes}
+    radj = {node: {} for node in nodes}
+    for u, nbrs in G.adj.items():
+        for v in nbrs:
+            radj[u][v] = None
+            radj[v][u] = None
+    if weight:
+        for u, v, data in G.edges(data=True):
+            radj[u][v] = radj[v][u] = (data[weight], id(canonical[u]), id(canonical[v]))
+    else:
+        for u, v in G.edges():
+            radj[u][v] = radj[v][u] = (id(canonical[u]), id(canonical[v]))
+
+    added = []
+
+    def add_to_spanner(u, v):
+        added.append((u, v, radj[u][v][0]) if weight else (u, v))
+
+    def lightest_edge_dicts(clustering, node):
+        neighbor_of = {}
+        weight_of = {}
+        for neighbor, edge_weight in radj[node].items():
+            center = clustering[neighbor]
+            if center not in weight_of or edge_weight < weight_of[center]:
+                neighbor_of[center] = neighbor
+                weight_of[center] = edge_weight
+        return neighbor_of, weight_of
+
+    def remove_edge(u, v):
+        del radj[u][v]
+        if u != v:
+            del radj[v][u]
+
+    clustering = {v: v for v in nodes}
+    sample_prob = math.pow(len(nodes), -1 / k)
+    size_limit = 2 * math.pow(len(nodes), 1 + 1 / k)
+    i = 0
+    while i < k - 1:
+        sampled_centers = set()
+        for center in set(clustering.values()):
+            if seed.random() < sample_prob:
+                sampled_centers.add(center)
+        edges_to_add = set()
+        edges_to_remove = set()
+        new_clustering = {}
+        for v in radj:
+            if clustering[v] in sampled_centers:
+                continue
+            neighbor_of, weight_of = lightest_edge_dicts(clustering, v)
+            neighboring_sampled_centers = set(weight_of.keys()) & sampled_centers
+            if not neighboring_sampled_centers:
+                for neighbor in neighbor_of.values():
+                    edges_to_add.add((v, neighbor))
+                for neighbor in radj[v]:
+                    edges_to_remove.add((v, neighbor))
+            else:
+                closest_center = min(neighboring_sampled_centers, key=weight_of.get)
+                closest_center_weight = weight_of[closest_center]
+                edges_to_add.add((v, neighbor_of[closest_center]))
+                new_clustering[v] = closest_center
+                for center, edge_weight in weight_of.items():
+                    if edge_weight < closest_center_weight:
+                        edges_to_add.add((v, neighbor_of[center]))
+                for neighbor in radj[v]:
+                    nbr_cluster = clustering[neighbor]
+                    if (
+                        nbr_cluster == closest_center
+                        or weight_of[nbr_cluster] < closest_center_weight
+                    ):
+                        edges_to_remove.add((v, neighbor))
+        if len(edges_to_add) > size_limit:
+            continue
+        i = i + 1
+        for u, v in edges_to_add:
+            add_to_spanner(u, v)
+        for u, v in edges_to_remove:
+            if u in radj and v in radj[u]:
+                remove_edge(u, v)
+        for node, center in clustering.items():
+            if center in sampled_centers:
+                new_clustering[node] = center
+        clustering = new_clustering
+        for u in radj:
+            for v in list(radj[u]):
+                if clustering[u] == clustering[v]:
+                    remove_edge(u, v)
+        for v in list(radj):
+            if v not in clustering:
+                for nbr in list(radj[v]):
+                    remove_edge(v, nbr)
+                del radj[v]
+    for v in radj:
+        neighbor_of, _ = lightest_edge_dicts(clustering, v)
+        for neighbor in neighbor_of.values():
+            add_to_spanner(v, neighbor)
+
+    H = Graph()
+    H.add_nodes_from(nodes)
+    if weight:
+        H.add_edges_from((u, v, {weight: value}) for u, v, value in added)
+    else:
+        H.add_edges_from(added)
+    return H
 
 
 # Algorithm functions — tree recognition
@@ -24577,14 +24761,15 @@ def _matching_dict_to_set(matching):
 def is_matching(G, matching):
     """Return True if ``matching`` is a valid matching of ``G``.
 
-    br-matchingport: routes simple undirected graphs through the native
-    Rust validator ``franken_networkx._fnx.is_matching``, and evaluates
-    directed / multigraph cases in-process with exact NetworkX semantics.
+    networkx's exact loop for every graph type. nro4w.7: the native
+    simple-graph validator skipped the 2-tuple check (a 3-tuple counted, a
+    1-tuple raised IndexError), validated every node before the loop (so a
+    missing node raised where networkx returns False on an earlier overlap),
+    leaked canonical keys ("str:1:a") into messages, and skipped
+    matching_dict_to_set's self-loop error.
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed() and not G.is_multigraph():
-        return _fnx.is_matching(G, matching)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     nodes = set()
@@ -24611,8 +24796,6 @@ def is_maximal_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed() and not G.is_multigraph():
-        return _fnx.is_maximal_matching(G, matching)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     edges = set()
@@ -24646,8 +24829,6 @@ def is_perfect_matching(G, matching):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if not G.is_directed() and not G.is_multigraph():
-        return _fnx.is_perfect_matching(G, matching)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     nodes = set()
@@ -25753,7 +25934,6 @@ def _approx_bidirectional_shortest_path_excl(G, raw, source, target, exclude):
 from franken_networkx._fnx import (
     find_cycle as _raw_find_cycle,
     girth as _raw_girth,
-    find_negative_cycle as _raw_find_negative_cycle,
 )
 
 
@@ -25782,39 +25962,19 @@ def girth(G):
 def find_negative_cycle(G, source, weight="weight"):
     """Return a negative cycle reachable from ``source`` using Bellman-Ford.
 
-    The Rust implementation currently rejects directed graphs with
-    NetworkXNotImplemented. Match upstream NetworkX — which supports
-    both directed and undirected negative-cycle discovery — by routing
-    directed inputs through networkx's implementation while keeping
-    undirected inputs on the native path.
+    Every graph runs networkx's own detector and cycle walk in-process, so
+    the returned cycle is the one networkx returns. The former native
+    undirected path found a valid negative cycle but a different one in 189
+    of 400 random graphs, and panicked on a lone negative edge (nro4w.7).
 
-    br-r37-c1-39gx2: hash-validate ``source`` up front for nx-shaped
-    TypeError parity.  nx delegates to bellman_ford which raises
-    TypeError on unhashable; the Rust ``_raw_find_negative_cycle``
-    instead silently treats unhashable as 'no negative cycle' and
-    raises NetworkXError.
-
-    br-r37-c1-gxu9x: also pre-check membership.  nx raises
-    ``NodeNotFound("Source <s> not in G")`` for hashable-but-missing
-    sources; the undirected Rust path silently runs and returns
-    ``NetworkXError("No negative cycle found.")`` instead.
+    br-r37-c1-39gx2 / br-r37-c1-gxu9x: hash-validate and membership-check
+    ``source`` up front for nx's TypeError / ``NodeNotFound`` contracts.
     """
     G = _coerce_arg_to_fnx_graph(G)
     _HASH_PROBE.get(source)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
-    if G.is_directed() or not isinstance(weight, str) or callable(weight):
-        return _find_negative_cycle_inprocess(G, source, weight)
-    try:
-        return _raw_find_negative_cycle(G, source, weight)
-    except NetworkXError as exc:
-        # br-r37-c1-fnegmsg: nx says "No negative cycles detected."
-        # (plural, "detected").  fnx's Rust path says "No negative
-        # cycle found." (singular, "found").  Re-raise with nx's
-        # exact wording for drop-in error-message matching.
-        if "No negative cycle found" in str(exc):
-            raise NetworkXError("No negative cycles detected.") from exc
-        raise
+    return _find_negative_cycle_inprocess(G, source, weight)
 
 
 def _find_negative_cycle_inprocess(G, source, weight):
@@ -25830,8 +25990,18 @@ def _find_negative_cycle_inprocess(G, source, weight):
     else:
         wt = lambda u, v, d: d.get(weight, 1)
 
-    g_succ = {u: {v: wt(u, v, G[u][v]) for v in G[u]} for u in G}
-    n = len(g_succ)
+    # Weighted successors are read lazily, per node, the first time the search
+    # reaches it: networkx's detector usually stops long before visiting the
+    # whole graph, so an up-front O(V + E) weight table cost ~50x nx.
+    succ_cache = {}
+
+    def succ_of(u):
+        weighted = succ_cache.get(u)
+        if weighted is None:
+            weighted = succ_cache[u] = {v: wt(u, v, d) for v, d in G[u].items()}
+        return weighted
+
+    n = len(G)
     inf = float("inf")
     dist = {source: 0}
     pred = {source: []}
@@ -25849,7 +26019,7 @@ def _find_negative_cycle_inprocess(G, source, weight):
         in_q.remove(u)
         if all(pred_u not in in_q for pred_u in pred[u]):
             dist_u = dist[u]
-            for v, w in g_succ[u].items():
+            for v, w in succ_of(u).items():
                 dist_v = dist_u + w
                 if dist_v < dist.get(v, inf):
                     if v in recent_update[u]:
@@ -25899,7 +26069,7 @@ def _find_negative_cycle_inprocess(G, source, weight):
             stack.pop()
             if neg_cycle:
                 neg_cycle.pop()
-            elif v in g_succ.get(v, {}) and g_succ[v][v] < 0:
+            elif v in succ_of(v) and succ_of(v)[v] < 0:
                 return [v, v]
             else:
                 raise NetworkXError("Negative cycle is detected but not found")
@@ -26414,20 +26584,23 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — matching additional
 from franken_networkx._fnx import (
-    is_edge_cover as _raw_is_edge_cover,
     max_weight_clique as _raw_max_weight_clique,
 )
 
 
 def is_edge_cover(G, cover):
-    """Return True iff ``cover`` is an edge cover of *G*.
+    """Return True iff every node of *G* is an endpoint of some edge in ``cover``.
 
-    Second parameter renamed from the Rust binding's ``edges`` to match
-    networkx's public signature ``is_edge_cover(G, cover)``.
+    networkx's definition is node coverage only: ``set(G)`` must be a subset
+    of the endpoints in ``cover``. The cover's pairs are not required to be
+    edges of *G* (``{(0, 0), (1, 1)}`` covers the single edge ``0-1``). The
+    former native check also demanded that every pair be an edge, answering
+    False there (nro4w.7). Directed graphs are rejected, as networkx's
+    ``@not_implemented_for("directed")`` does.
     """
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_is_edge_cover(G, cover)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    return set(G) <= set(_itertools.chain.from_iterable(cover))
 
 
 def _max_weight_clique_native(G, weight):
@@ -28982,6 +29155,11 @@ def _read_edgelist_in_mode(path, mode, *, comments, delimiter, create_using, nod
             raise OSError(f"readwrite `read_edgelist` failed closed: {reason}")
         if record is not None:
             record("read_edgelist", reason)
+        # nro4w.10: the ledger reaches only callers who query it; a hardened
+        # recovery also arrives at the call site, as the native readers' do.
+        import warnings as _warnings
+
+        _warnings.warn(reason, RuntimeWarning, stacklevel=2)
 
     def _consume(lines):
         for lineno, line in enumerate(lines, 1):
@@ -36266,8 +36444,6 @@ def balanced_tree(r, h, create_using=None):
     ):
         n = h + 1 if r == 1 else (1 - r ** (h + 1)) // (1 - r)
         if type(r) is int and type(h) is int:
-            if n > _RUST_GENERATOR_MAX_N_GENERIC:
-                return _rust_balanced_tree(r, h)
             return _rust_full_rary_tree_native(r, n)
         return _rust_balanced_tree(r, h)
     if r == 1:
@@ -36294,8 +36470,6 @@ def full_rary_tree(r, n, create_using=None):
         return empty_graph(n, create_using)
     if create_using is None:
         if type(r) is int and type(n) is int and r >= 0 and n >= 0:
-            if n > _RUST_GENERATOR_MAX_N_GENERIC:
-                return _rust_full_rary_tree(r, n)
             return _rust_full_rary_tree_native(r, n)
         return _rust_full_rary_tree(r, n)
 
@@ -36598,13 +36772,9 @@ def circular_ladder_graph(n, create_using=None):
     n ∈ {0, 1, 2} (franken_networkx-uwa6w).
 
     br-r37-c1-3bdal: use the generator-native path only where it is
-    order-compatible and within the generator guardrails.
+    order-compatible.
     """
-    if (
-        create_using is None
-        and isinstance(n, _numbers.Integral)
-        and 3 <= n <= _RUST_GENERATOR_MAX_N_GENERIC // 2
-    ):
+    if create_using is None and isinstance(n, _numbers.Integral) and n >= 3:
         return _rust_circular_ladder_graph_native(int(n))
 
     G = ladder_graph(n, create_using)
@@ -58096,6 +58266,22 @@ def lexicographical_topological_sort(G, key=None):
     def create_tuple(node):
         return key(node), nodeid_map[node], node
 
+    # nro4w.11: networkx processes each node's out-edges on the LIVE graph just
+    # before yielding it, so a caller that mutates G mid-iteration sees
+    # RuntimeError or NetworkXUnfeasible. The bulk precompute below is only valid
+    # while G is unchanged: fnx's own graphs expose a structural revision to
+    # check before each node; any other graph runs networkx's loop as written.
+    if type(G) is not DiGraph and type(G) is not MultiDiGraph:
+        indegree_map = {v: d for v, d in G.in_degree() if d > 0}
+        zero_indegree = [create_tuple(v) for v, d in G.in_degree() if d == 0]
+        heapq.heapify(zero_indegree)
+        yield from _lexicographical_topological_sort_live(
+            G, zero_indegree, indegree_map, create_tuple
+        )
+        return
+    revision = G._fnx_revision
+    start = revision()
+
     # br-r37-c1-lextopo-snap: the previous loop called ``G.successors(node)``
     # once per popped node — V fnx Python-wrapper round-trips
     # (vars/_native_successor_row_dict), ~0.5s and the whole ~1.8x gap vs nx on
@@ -58118,17 +58304,57 @@ def lexicographical_topological_sort(G, key=None):
             in_deg[v] += 1
     heap = [create_tuple(n) for n in nodes if in_deg[n] == 0]
     heapq.heapify(heap)
-    yielded = 0
-    total = len(nodes)
+    reached_zero = len(heap)
     while heap:
         _, _, node = heapq.heappop(heap)
-        yield node
-        yielded += 1
+        if revision() != start:
+            # networkx's indegree_map is every node whose count is still positive.
+            heapq.heappush(heap, create_tuple(node))
+            yield from _lexicographical_topological_sort_live(
+                G, heap, {v: d for v, d in in_deg.items() if d > 0}, create_tuple
+            )
+            return
         for s in succ[node]:
             in_deg[s] -= 1
             if in_deg[s] == 0:
-                heapq.heappush(heap, create_tuple(s))
-    if yielded != total:
+                reached_zero += 1
+                _lexicographical_heappush(heap, create_tuple(s))
+        yield node
+    if reached_zero != len(nodes):
+        raise NetworkXUnfeasible(
+            "Graph contains a cycle or graph changed during iteration"
+        )
+
+
+def _lexicographical_heappush(heap, item):
+    import heapq
+
+    try:
+        heapq.heappush(heap, item)
+    except TypeError as err:
+        raise TypeError(
+            f"{err}\nConsider using `key=` parameter to resolve ambiguities in the sort order."
+        )
+
+
+def _lexicographical_topological_sort_live(G, zero_indegree, indegree_map, create_tuple):
+    """networkx's lexicographical loop from a given state, on the live graph."""
+    import heapq
+
+    while zero_indegree:
+        _, _, node = heapq.heappop(zero_indegree)
+        if node not in G:
+            raise RuntimeError("Graph changed during iteration")
+        for _, child in G.edges(node):
+            try:
+                indegree_map[child] -= 1
+            except KeyError as err:
+                raise RuntimeError("Graph changed during iteration") from err
+            if indegree_map[child] == 0:
+                _lexicographical_heappush(zero_indegree, create_tuple(child))
+                del indegree_map[child]
+        yield node
+    if indegree_map:
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
         )
@@ -60800,31 +61026,6 @@ def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
 
 
 # Isomorphism VF2++ (br-req)
-def _edge_attrs_between(G, u, v):
-    """Return edge attribute payloads between two nodes."""
-    if G.is_multigraph():
-        return [dict(attrs) for attrs in G[u][v].values()]
-    return [dict(G[u][v])]
-
-
-def _edge_attrs_match(left_attrs, right_attrs, edge_match):
-    """Return whether edge attribute payloads can be matched pairwise."""
-    if edge_match is None:
-        return True
-    if len(left_attrs) != len(right_attrs):
-        return False
-
-    used = [False] * len(right_attrs)
-    for left in left_attrs:
-        for index, right in enumerate(right_attrs):
-            if not used[index] and edge_match(left, right):
-                used[index] = True
-                break
-        else:
-            return False
-    return True
-
-
 def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_match):
     """Filter a structural isomorphism mapping through NetworkX-style callbacks."""
     if node_match is not None:
@@ -60833,26 +61034,28 @@ def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_matc
                 return False
 
     if edge_match is not None:
-        edge_iter = (
-            ((u, v) for u, v, _key in G1.edges(keys=True))
-            if G1.is_multigraph()
-            else G1.edges()
-        )
+        # networkx's matchers call edge_match once per mapped node pair with
+        # the two adjacency values G1[u][v] and G2[mu][mv]: the datadicts, or
+        # for multigraphs the keydicts ({key: datadict}) that
+        # categorical_multiedge_match and friends expect. Pairing individual
+        # multigraph datadicts (nro4w.7) handed those helpers bare attribute
+        # values: AttributeError: 'int' object has no attribute 'get'.
+        directed = G1.is_directed()
         seen = set()
-        for u, v in edge_iter:
-            mapped_u = mapping[u]
-            mapped_v = mapping[v]
-            edge_key = (
-                frozenset((u, v))
-                if not G1.is_directed()
-                else (u, v)
-            )
-            if not G1.is_multigraph() and edge_key in seen:
+        for u, v in G1.edges():
+            pair = (u, v) if directed else frozenset((u, v))
+            if pair in seen:
                 continue
-            seen.add(edge_key)
-            left_attrs = _edge_attrs_between(G1, u, v)
-            right_attrs = _edge_attrs_between(G2, mapped_u, mapped_v)
-            if not _edge_attrs_match(left_attrs, right_attrs, edge_match):
+            seen.add(pair)
+            if not edge_match(G1[u][v], G2[mapping[u]][mapping[v]]):
+                return False
+
+    if G1.is_multigraph() or G2.is_multigraph():
+        # The candidate mappings come from the simple-graph structure; the
+        # matchers also demand equal edge multiplicity on every mapped pair
+        # (number_of_edges), which also decides a multigraph / simple pair.
+        for u, v in G1.edges():
+            if G1.number_of_edges(u, v) != G2.number_of_edges(mapping[u], mapping[v]):
                 return False
     return True
 
@@ -60942,6 +61145,12 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     # br-r37-c1-jwdzp: accept nx-typed inputs.
     G1 = _coerce_arg_to_fnx_graph(G1)
     G2 = _coerce_arg_to_fnx_graph(G2)
+    # nro4w.7: networkx picks GraphMatcher / DiGraphMatcher and raises for a
+    # mixed pair before any matching, callbacks or not (fnx returned False
+    # without callbacks). A multigraph / simple-graph pair is NOT rejected:
+    # the matcher compares edge multiplicities, so MultiGraph(P4) ~ P4.
+    if G1.is_directed() != G2.is_directed():
+        raise NetworkXError("Graphs G1 and G2 are not of the same type.")
     if node_match is None and edge_match is None:
         # br-r37-c1-isoprecheck (cc): cheap sound pre-reject before the VF2++
         # rust kernel. faster_could_be_isomorphic is a degree-histogram
@@ -60953,11 +61162,6 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
         if not faster_could_be_isomorphic(G1, G2):
             return False
         return _is_isomorphic_rust(G1, G2)
-
-    if G1.is_directed() != G2.is_directed():
-        raise NetworkXError("G1 and G2 must have the same directedness")
-    if G1.is_multigraph() != G2.is_multigraph():
-        return False
 
     return any(
         _isomorphic_mapping_matches_callbacks(
@@ -68706,12 +68910,14 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
             for v, edge_attrs in nbrs.items()
         )
     else:
-        # Exotic subclasses keep the inline loop: their add_edges_from
-        # raw paths have different malformed-input contracts.
-        for u, nbrs in d.items():
-            for v, edge_attrs in nbrs.items():
-                graph.add_edge(u, v)
-                graph[u][v].update(edge_attrs)
+        # Subclasses and networkx graphs given as create_using: networkx's own
+        # statement, one add_edges_from over the triples. The former
+        # add_edge + graph[u][v].update loop read the edge back through
+        # __getitem__, which is not the adjacency on every class (networkx's
+        # AntiGraph returns the complement: KeyError, nro4w.7).
+        graph.add_edges_from(
+            (u, v, edge_attrs) for u, nbrs in d.items() for v, edge_attrs in nbrs.items()
+        )
 
     return graph
 

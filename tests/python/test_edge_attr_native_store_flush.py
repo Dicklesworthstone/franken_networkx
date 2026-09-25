@@ -201,10 +201,6 @@ _MST_WEIGHTS = {("a", "b"): 1.0, ("b", "c"): 1.0, ("a", "c"): 10.0}
 _CORRECT_MST = [("a", "b"), ("b", "c")]
 _STALE_MST = [("a", "b"), ("a", "c")]
 
-# one genuinely negative edge: invisible if the weights are not seen.
-_NEG_WEIGHTS = {("a", "b"): -5.0, ("b", "c"): 1.0, ("a", "c"): 1.0}
-_CORRECT_CYCLE = ["a", "b", "a"]
-
 
 def _prim(graph):
     edges = fnx._fnx.prim_spanning_edges(
@@ -228,18 +224,7 @@ def test_flush_repairs_prim():
     assert _prim(graph) == _CORRECT_MST
 
 
-def test_find_negative_cycle_is_correct_when_edge_attrs_reach_the_store():
-    """The control."""
-    graph = _weighted_triangle("at_construction", _NEG_WEIGHTS)
-    assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
-
-
-def test_find_negative_cycle_synchronizes_post_construction_edge_attrs():
-    graph = _weighted_triangle("written_after", _NEG_WEIGHTS)
-    assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
-
-
-def test_flush_repairs_find_negative_cycle():
-    graph = _weighted_triangle("written_after", _NEG_WEIGHTS)
-    fnx._sync_rust_edge_attrs(graph)
-    assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
+# find_negative_cycle's native binding was removed under nro4w.7: the public
+# function now runs networkx's detector in-process over the Python view, and
+# test_find_negative_cycle_parity.py covers attributes written after
+# construction through it.

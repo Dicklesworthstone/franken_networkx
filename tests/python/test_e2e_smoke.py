@@ -208,7 +208,18 @@ def test_backend_multigraph_conversion_roundtrip(fnx):
     mg.add_edge("a", "b", key=7, weight=2.5)
     mg.add_edge("a", "b", key=9, capacity=4)
 
-    fnx_mg = BackendInterface.convert_from_nx(mg)
+    # networkx passes these hints when an algorithm keeps attributes; without
+    # them the conversion is topology only, as networkx's own loopback
+    # backend does (sfq4w.2).
+    keep_all = dict(preserve_edge_attrs=True, preserve_node_attrs=True, preserve_graph_attrs=True)
+    bare_mg = BackendInterface.convert_from_nx(mg)
+    check(
+        "backend without hints converts topology only",
+        bare_mg.number_of_edges("a", "b") == 2
+        and dict(bare_mg.graph) == {}
+        and all(not d for *_, d in bare_mg.edges(keys=True, data=True)),
+    )
+    fnx_mg = BackendInterface.convert_from_nx(mg, **keep_all)
     check("backend converts nx.MultiGraph to fnx.MultiGraph", isinstance(fnx_mg, fnx.MultiGraph))
     check(
         "backend can_run accepts multigraph shortest_path",
@@ -244,7 +255,7 @@ def test_backend_multigraph_conversion_roundtrip(fnx):
     mdg.add_edge("x", "y", key=4, cost=8)
     mdg.add_edge("y", "x", key=2, weight=5.0)
 
-    fnx_mdg = BackendInterface.convert_from_nx(mdg)
+    fnx_mdg = BackendInterface.convert_from_nx(mdg, **keep_all)
     check(
         "backend converts nx.MultiDiGraph to fnx.MultiDiGraph",
         isinstance(fnx_mdg, fnx.MultiDiGraph),

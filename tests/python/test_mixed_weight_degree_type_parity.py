@@ -25,6 +25,8 @@ when the accumulator is added.
 
 from __future__ import annotations
 
+import random
+
 import networkx as nx
 import pytest
 
@@ -179,3 +181,76 @@ def test_isolated_zero_and_negative_weights_keep_networkxs_types(class_name):
     assert _typed_degrees(got) == _typed_degrees(want)
     assert _typed_degrees(got)["isolated"][1] == "int"
     assert got.size(weight="weight") == want.size(weight="weight")
+
+
+def _promotion_graph(lib, class_name):
+    graph = getattr(lib, class_name)()
+    for other, weight in (("a", 3), ("b", 0.2), ("c", 0.1), ("d", 0.1)):
+        graph.add_edge("hub", other, weight=weight)
+    return graph
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_the_promoting_add_is_not_compensated(class_name):
+    """CPython's `sum` leaves its integer loop with a plain `3 + 0.2`.
+
+    Only the float adds after the promotion are Neumaier-compensated, so
+    `sum([3, 0.2, 0.1, 0.1])` is 3.4000000000000004. Compensating the promoting
+    add too gives 3.4, and 3.4 != 3.4000000000000004, so the value comparison
+    catches it (1 in 20 random mixed lists differed that way).
+    """
+    want = _typed_degrees(_promotion_graph(nx, class_name))
+    assert want["hub"] == (3.4000000000000004, "float")
+    assert _typed_degrees(_promotion_graph(fnx, class_name)) == want
+    assert _promotion_graph(fnx, class_name).size(weight="weight") == _promotion_graph(
+        nx, class_name
+    ).size(weight="weight")
+
+
+def _random_mixed(lib, class_name, seed):
+    rng = random.Random(seed)
+    graph = getattr(lib, class_name)()
+    for _ in range(60):
+        weight = rng.choice([1, 2, 3, -7, 0.1, 0.2, 0.7, 1e16, 1.5e-8])
+        graph.add_edge(rng.randrange(12), rng.randrange(12), weight=weight)
+    return graph
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_mixed_weight_degrees_are_bit_identical_on_random_graphs(class_name):
+    views = ["degree", "in_degree", "out_degree"] if "Di" in class_name else ["degree"]
+    for seed in range(80):
+        got, want = _random_mixed(fnx, class_name, seed), _random_mixed(nx, class_name, seed)
+        for view in views:
+            got_all = [(n, d, type(d)) for n, d in getattr(got, view)(weight="weight")]
+            want_all = [(n, d, type(d)) for n, d in getattr(want, view)(weight="weight")]
+            assert got_all == want_all, (seed, view)
+            for node, value, kind in want_all:
+                one = getattr(got, view)(node, weight="weight")
+                assert (one, type(one)) == (value, kind), (seed, view, node)
+        assert got.size(weight="weight") == want.size(weight="weight"), seed
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weights", ["int", "float"])
+def test_single_node_weighted_degree_after_removals(class_name, weights):
+    """yr2oc.4: between a removal and the next insertion node slots are not
+    node positions. The single-node weighted degree reads a node's edges by
+    slot; reading slot rows as if they were positions (or positions as slots)
+    answers for the wrong node here. Self-loops included, every view."""
+    rng = random.Random(3)
+    got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for _ in range(150):
+        u, v = rng.randrange(30), rng.randrange(30)
+        w = rng.choice([1, 2, 5]) if weights == "int" else rng.choice([0.5, 0.25, 1.5])
+        for graph in (got, want):
+            graph.add_edge(u, v, weight=w)
+    views = ["degree", "in_degree", "out_degree"] if "Di" in class_name else ["degree"]
+    for victim in [3, 17, 0, 11, 25, 8]:
+        for graph in (got, want):
+            graph.remove_node(victim)
+        for node in list(want):
+            for view in views:
+                one = getattr(got, view)(node, weight="weight")
+                expected = getattr(want, view)(node, weight="weight")
+                assert (one, type(one)) == (expected, type(expected)), (victim, view, node)

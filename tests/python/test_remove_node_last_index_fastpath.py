@@ -1,13 +1,13 @@
 """Removing the highest-indexed isolated node must skip the renumber and change nothing else.
 
-br-r37-c1-qxtlj. fnx stores nodes in a compact integer index, so removing a node
-renumbers every position above it and repairs adjacency and edge storage - an
-O(|V|+|E|) pass. That floor is architectural. What was NOT architectural is that
-it ran even when there was nothing to renumber: removing the LAST index shifts no
-position, and removing an ISOLATED node detaches no edge, so for a node that is
-both, the whole repair is a no-op over its entire input. It cost the same as any
-other removal anyway - 264.86us on a 12800-node Graph against networkx's 0.61us,
-identical whether the node sat at the first index or the last.
+br-r37-c1-qxtlj. fnx serves nodes by a dense integer position. Removing a node
+used to renumber every position above it with an O(|V|+|E|) repair, even for the
+LAST index with no edges, where there was nothing to renumber (264.86us on a
+12800-node Graph against networkx's 0.61us). Since yr2oc.1 a removal renumbers
+nothing on Graph/DiGraph: it frees the node's slot, and positional readers
+translate slots to positions until the next insertion compacts. Either way, a
+graph that skipped or deferred the repair must be indistinguishable from one that
+did not.
 
 THIS FILE IS ABOUT THE FAST PATH BEING INVISIBLE. Its speed is measured
 elsewhere; what matters here is that a graph which took the shortcut is
@@ -164,3 +164,108 @@ def test_randomised_mutation_sequence_matches_networkx(cls, seed):
         assert _state(got) == _state(want), f"diverged at step {step} (choice {choice})"
 
     assert _state(got) == _state(want)
+
+
+def _positional_state(g, lib):
+    """What the native positional readers serve, in networkx's order."""
+    first = next(iter(g))
+    components = lib.weakly_connected_components if g.is_directed() else lib.connected_components
+    keyed = {"keys": True} if g.is_multigraph() else {}
+    state = {
+        "nodes": list(g),
+        "edges": list(g.edges(data=True, **keyed)),
+        "rows": [(n, list(g.adj[n])) for n in g],
+        "wdegree": [(n, d, type(d).__name__) for n, d in g.degree(weight="w")],
+        "wdegree_each": [(n, g.degree(n, weight="w")) for n in g],
+        "size": g.size(weight="w"),
+        "bfs": list(lib.bfs_edges(g, first)),
+        "sssp": list(lib.single_source_shortest_path_length(g, first).items()),
+        "components": sorted(sorted(map(str, c)) for c in components(g)),
+    }
+    if g.is_directed():
+        state["preds"] = [(n, list(g.pred[n])) for n in g]
+        state["in_edges"] = list(g.in_edges(**keyed))
+    return state
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("seed", range(6))
+def test_a_run_of_removals_keeps_positional_readers_matching_networkx(cls, seed):
+    """yr2oc.1: slots and positions stay apart through a run of removals.
+
+    A removal tombstones the node's entry in the node order instead of
+    renumbering the graph, so until the order compacts a node's position is its
+    rank among the live entries, not its slot. `Graph`/`DiGraph` compact at the
+    next insertion, `MultiGraph` reuses the freed slot for the next new node,
+    and all four compact once tombstones outnumber live nodes. Everything read
+    by position in between (weighted degree, the BFS / shortest-path /
+    component kernels, edge and in-edge iteration) goes through that
+    translation; reading slots as positions diverges from networkx here.
+    """
+    rng = random.Random(seed)
+    got, want = _both(cls)
+    n = 40
+    for _ in range(4 * n):
+        u, v = rng.randrange(n), rng.randrange(n)
+        w = rng.choice([1, 2, 3, 0.5, 2.25])
+        for g in (got, want):
+            g.add_edge(u, v, w=w)
+    for _ in range(n // 3):
+        victim = rng.choice(list(want)[:-1])
+        for g in (got, want):
+            g.remove_node(victim)
+        assert _positional_state(got, fnx) == _positional_state(want, nx)
+    for g in (got, want):
+        g.add_edge("fresh", victim)
+    assert _positional_state(got, fnx) == _positional_state(want, nx)
+    # Removals interleaved with insertions: new nodes land in reused slots
+    # (MultiGraph) or after tombstones (MultiDiGraph).
+    for step in range(2 * n):
+        if rng.random() < 0.5 and len(want) > 2:
+            victim = rng.choice(list(want))
+            for g in (got, want):
+                g.remove_node(victim)
+        else:
+            u, v = f"x{step}", rng.choice(list(want))
+            for g in (got, want):
+                g.add_edge(u, v, w=step)
+        assert _positional_state(got, fnx) == _positional_state(want, nx), step
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("build", ["one_by_one", "batch_then_touched", "batch"])
+def test_removed_edges_leave_no_attributes_behind(cls, build):
+    """yr2oc.1: removing a node drops its edges' attribute mirrors.
+
+    `remove_node` walks the incident edges' Python attribute mirrors only when
+    a mirror holds anything. A graph built edge by edge fills them eagerly, a
+    batch-built one leaves them empty until an attribute is touched. Whatever
+    the mirrors held, re-adding a removed edge bare must come back bare, as it
+    does in networkx; a stale mirror entry would hand the old attributes back.
+    """
+    rng = random.Random(len(cls) + len(build))
+    got, want = _both(cls)
+    n = 30
+    edges = [(rng.randrange(n), rng.randrange(n)) for _ in range(3 * n)]
+    for g in (got, want):
+        if build == "one_by_one":
+            for i, (u, v) in enumerate(edges):
+                g.add_edge(u, v, w=i)
+        else:
+            g.add_edges_from(edges)
+    if build == "batch_then_touched":
+        for i, (u, v) in enumerate(edges[::3]):
+            for g in (got, want):
+                for key in list(g[u][v]) if g.is_multigraph() else [None]:
+                    data = g[u][v][key] if key is not None else g[u][v]
+                    data["w"] = i
+    victims = rng.sample(range(n), n // 3)
+    for victim in victims:
+        for g in (got, want):
+            g.remove_node(victim)
+    for u, v in edges:
+        if u in victims or v in victims:
+            for g in (got, want):
+                g.add_edge(u, v)
+    keyed = {"keys": True} if got.is_multigraph() else {}
+    assert list(got.edges(data=True, **keyed)) == list(want.edges(data=True, **keyed))

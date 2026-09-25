@@ -6,8 +6,10 @@
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{PyGraph, PyNodeKeyMap, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
-use fnx_generators::GraphGenerator;
-use pyo3::exceptions::PyValueError;
+use fnx_generators::{
+    DiGenerationReport, GenerationReport, GraphGenerator, MultiDiGenerationReport,
+};
+use pyo3::exceptions::{PyRuntimeWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PySet, PyTuple};
 use std::collections::HashMap;
@@ -48,7 +50,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -57,7 +59,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -72,6 +74,40 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
     })
 }
 
+/// Hardened mode recovers from some inputs (a size over its budget is clamped
+/// to the budget, an out-of-range probability to [0, 1]) and records why in
+/// the report's warnings. Surface each one as a Python `RuntimeWarning`: a
+/// clamp the caller cannot see hands back a smaller graph than was asked for
+/// with nothing to say so (nro4w.9). Strict mode never produces these; it
+/// fails closed or builds what networkx builds.
+pub(crate) fn warn_recoveries(py: Python<'_>, warnings: &[String]) -> PyResult<()> {
+    let category = py.get_type::<PyRuntimeWarning>();
+    for warning in warnings {
+        let message = std::ffi::CString::new(warning.as_str())
+            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+        PyErr::warn(py, &category, &message, 1)?;
+    }
+    Ok(())
+}
+
+fn generated_pygraph(py: Python<'_>, report: GenerationReport) -> PyResult<PyGraph> {
+    warn_recoveries(py, &report.warnings)?;
+    report_to_pygraph(py, report.graph)
+}
+
+fn generated_pydigraph(py: Python<'_>, report: DiGenerationReport) -> PyResult<PyDiGraph> {
+    warn_recoveries(py, &report.warnings)?;
+    report_to_pydigraph(py, report.graph)
+}
+
+fn generated_pymultidigraph(
+    py: Python<'_>,
+    report: MultiDiGenerationReport,
+) -> PyResult<PyMultiDiGraph> {
+    warn_recoveries(py, &report.warnings)?;
+    report_to_pymultidigraph(py, report.graph)
+}
+
 fn report_to_pydigraph(
     py: Python<'_>,
     graph: fnx_classes::digraph::DiGraph,
@@ -80,13 +116,13 @@ fn report_to_pydigraph(
         inner: graph,
         node_key_map: HashMap::new(),
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_index: HashMap::new(),
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         succ_row_py: HashMap::new(),
-        succ_row_py_by_index: HashMap::new(),
-        pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
+        succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+        pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
         pred_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -146,7 +182,7 @@ fn report_to_pymultidigraph(
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_keys: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_remapped_int_key: false,
@@ -216,7 +252,7 @@ pub fn empty_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
     let report = gg
         .empty_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a path graph with ``n`` nodes: 0-1-2-...(n-1).
@@ -226,7 +262,7 @@ pub fn path_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
     let report = gg
         .path_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a cycle graph with ``n`` nodes: 0-1-2-...(n-1)-0.
@@ -236,7 +272,7 @@ pub fn cycle_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
     let report = gg
         .cycle_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a star graph with ``n`` outer nodes (n+1 nodes total).
@@ -248,7 +284,7 @@ pub fn star_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
     let report = gg
         .star_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 #[pyfunction]
@@ -257,7 +293,7 @@ pub fn circular_ladder_graph_native(py: Python<'_>, n: usize) -> PyResult<PyGrap
     let report = gg
         .circular_ladder_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Build the default non-periodic 2-D grid graph in one native call.
@@ -281,7 +317,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -290,7 +326,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -339,7 +375,7 @@ fn tuple_lattice_pygraph(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs,
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -348,7 +384,7 @@ fn tuple_lattice_pygraph(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -532,7 +568,7 @@ pub fn grid_graph_native(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -541,7 +577,7 @@ pub fn grid_graph_native(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -610,7 +646,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -619,7 +655,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -682,7 +718,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -691,7 +727,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -713,7 +749,11 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
 /// nodes through ``report_to_pygraph``.
 #[pyfunction]
 pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyGraph> {
-    if n > MAX_NATIVE_RARY_N {
+    // Like the fnx-generators budgets, this cap is a hardened-mode defence;
+    // strict mode builds every size networkx builds.
+    if crate::active_compatibility_mode() == fnx_runtime::CompatibilityMode::Hardened
+        && n > MAX_NATIVE_RARY_N
+    {
         return Err(PyValueError::new_err(format!(
             "FailClosed {{ operation: \"full_rary_tree\", reason: \"n={n} exceeds max_allowed={MAX_NATIVE_RARY_N}\" }}"
         )));
@@ -754,7 +794,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -763,7 +803,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -785,7 +825,7 @@ pub fn complete_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
     let report = gg
         .complete_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a random graph using the Erdős-Rényi G(n,p) model.
@@ -811,7 +851,7 @@ pub fn gnp_random_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult
     let report = gg
         .gnp_random_graph(n, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a directed Erdős–Rényi G(n, p) digraph (native; nx-exact for a given
@@ -822,7 +862,7 @@ pub fn gnp_random_digraph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResu
     let report = gg
         .gnp_random_digraph(n, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    Py::new(py, report_to_pydigraph(py, report.graph)?)
+    Py::new(py, generated_pydigraph(py, report)?)
 }
 
 /// Return an Erdős–Rényi G(n, m) graph with EXACTLY m edges (native; nx-exact
@@ -835,7 +875,7 @@ pub fn gnm_random_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> PyResu
     let report = gg
         .gnm_random_graph(n, m, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a directed G(n, m) digraph with EXACTLY m edges (native; nx-exact for
@@ -851,7 +891,7 @@ pub fn gnm_random_digraph(
     let report = gg
         .gnm_random_digraph(n, m, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    Py::new(py, report_to_pydigraph(py, report.graph)?)
+    Py::new(py, generated_pydigraph(py, report)?)
 }
 
 /// Return a Watts-Strogatz small-world graph.
@@ -880,7 +920,7 @@ pub fn watts_strogatz_graph(
     let report = gg
         .watts_strogatz_graph(n, k, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a random graph using Barabasi-Albert preferential attachment.
@@ -899,7 +939,7 @@ pub fn barabasi_albert_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> P
     let report = gg
         .barabasi_albert_graph(n, m, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return an Erdős–Rényi random graph (alias for ``gnp_random_graph``).
@@ -924,7 +964,7 @@ pub fn newman_watts_strogatz_graph(
     let report = gg
         .newman_watts_strogatz_graph(n, k, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a connected Watts-Strogatz small-world graph.
@@ -943,7 +983,7 @@ pub fn connected_watts_strogatz_graph(
     let report = gg
         .connected_watts_strogatz_graph(n, k, p, tries, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return a random d-regular graph on n nodes.
@@ -956,7 +996,7 @@ pub fn random_regular_graph(py: Python<'_>, d: usize, n: usize, seed: u64) -> Py
     let report = gg
         .random_regular_graph(n, d, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 #[pyfunction]
@@ -987,7 +1027,7 @@ pub fn random_lobster_graph_lazy_int(
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -996,7 +1036,7 @@ pub fn random_lobster_graph_lazy_int(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -1090,7 +1130,7 @@ pub fn random_regular_graph_pyset_order(
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -1099,7 +1139,7 @@ pub fn random_regular_graph_pyset_order(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -1129,7 +1169,7 @@ pub fn powerlaw_cluster_graph(
     let report = gg
         .powerlaw_cluster_graph(n, m, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    generated_pygraph(py, report)
 }
 
 /// Return an undirected stochastic block model graph.
@@ -1184,7 +1224,7 @@ pub fn fast_gnp_random_graph(
         let report = gg
             .fast_gnp_random_digraph(n, p, actual_seed)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-        return Ok(report_to_pydigraph(py, report.graph)?
+        return Ok(generated_pydigraph(py, report)?
             .into_pyobject(py)?
             .into_any()
             .unbind());
@@ -1193,7 +1233,7 @@ pub fn fast_gnp_random_graph(
     let report = gg
         .fast_gnp_random_graph(n, p, actual_seed, false)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    Ok(report_to_pygraph(py, report.graph)?
+    Ok(generated_pygraph(py, report)?
         .into_pyobject(py)?
         .into_any()
         .unbind())
@@ -1214,7 +1254,7 @@ pub fn gn_graph(
     let report = gg
         .gn_graph(n, actual_seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    Py::new(py, report_to_pydigraph(py, report.graph)?)
+    Py::new(py, generated_pydigraph(py, report)?)
 }
 
 /// Return a growing network with redirection digraph (GNR model).
@@ -1233,7 +1273,7 @@ pub fn gnr_graph(
     let report = gg
         .gnr_graph(n, p, actual_seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    Py::new(py, report_to_pydigraph(py, report.graph)?)
+    Py::new(py, generated_pydigraph(py, report)?)
 }
 
 /// Return a growing network with copying digraph (GNC model).
@@ -1251,7 +1291,7 @@ pub fn gnc_graph(
     let report = gg
         .gnc_graph(n, actual_seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    Py::new(py, report_to_pydigraph(py, report.graph)?)
+    Py::new(py, generated_pydigraph(py, report)?)
 }
 
 /// Return a scale-free directed graph.
@@ -1286,7 +1326,7 @@ pub fn scale_free_graph(
             actual_seed,
         )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    Py::new(py, report_to_pymultidigraph(py, report.graph)?)
+    Py::new(py, generated_pymultidigraph(py, report)?)
 }
 
 // ---------------------------------------------------------------------------

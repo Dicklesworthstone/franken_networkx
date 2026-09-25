@@ -30,7 +30,48 @@ try:
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_graph_has_any_attrs = None
 
+from franken_networkx._fnx import (
+    nx_adjacency_edge_batch as _native_nx_adjacency_edge_batch,
+)
+
 log = logging.getLogger("franken_networkx.backend")
+
+# should_run's ski-rental thresholds (sfq4w.2): k = ceil(B / (r - w)), the calls
+# on one unmutated graph after which converting it pays off, where B is one
+# conversion, r networkx's time per call and w fnx's once converted. Measured
+# 2026-09-24 on a 20k-node / 80k-edge Barabasi-Albert graph (weighted for
+# dijkstra, an oriented copy for the directed kernels). None: fnx is not faster
+# once converted, so these calls never pay for a conversion. Anything absent
+# converts on first use (heavier kernels, where one call recovers the cost).
+_CONVERT_AFTER_USES = {
+    "bfs_edges": 13,
+    "bfs_tree": 3,
+    "dfs_edges": 6,
+    "dfs_preorder_nodes": 5,
+    "connected_components": 7,
+    "number_connected_components": 10,
+    "is_connected": 11,
+    "node_connected_component": 12,
+    "single_source_shortest_path_length": 8,
+    "single_source_shortest_path": 144,
+    "has_path": None,
+    "single_source_dijkstra_path_length": 5,
+    "pagerank": 3,
+    "degree_centrality": 50,
+    "core_number": 2,
+    "strongly_connected_components": 3,
+    "weakly_connected_components": 7,
+    "descendants": 8,
+    # Also dispatched from inside networkx's own pagerank and other matrix
+    # routines: without an entry, a declined pagerank converted anyway.
+    "to_scipy_sparse_array": 4,
+}
+_RENT_KEY = "franken_networkx: conversion rent"
+
+# Dispatched with the caller's graph unconverted; see convert_from_nx.
+_LIVE_INPUT_ALGORITHMS = frozenset(
+    {"lexicographical_topological_sort", "topological_generations", "topological_sort"}
+)
 
 # ---------------------------------------------------------------------------
 # Supported algorithm registry
@@ -323,6 +364,9 @@ _SUPPORTED_ALGORITHMS = {
     "is_dominating_set": fnx.is_dominating_set,
     # Community detection
     "louvain_communities": fnx.community.louvain_communities,
+    # br-r37-c1-epic-native-algorithms-1g0lj.3: networkx's CNM loop natively. Its
+    # fallback calls networkx with backend="networkx", so this cannot ping-pong.
+    "greedy_modularity_communities": fnx.community.greedy_modularity_communities,
     # br-r37-c1-ecua7: registered using the private backend-only impl
     # so ``fnx.community.modularity`` stays AttributeError (matching nx's namespace
     # — nx exposes modularity only at nx.community.modularity).
@@ -479,6 +523,65 @@ def _nx_to_fnx(G):
     from franken_networkx.readwrite import _from_nx_graph
 
     return _from_nx_graph(G)
+
+
+def _hinted_attrs(data, wanted, preserve):
+    """networkx's dispatch conversion rule for one node or edge dict."""
+    if preserve:
+        return dict(data)
+    if wanted:
+        return {
+            attr: data.get(attr, default)
+            for attr, default in wanted.items()
+            if default is not None or attr in data
+        }
+    return {}
+
+
+def _nx_to_fnx_for_dispatch(
+    G, *, edge_attrs, node_attrs, preserve_edge_attrs, preserve_node_attrs, preserve_graph_attrs
+):
+    """Convert a networkx graph for a dispatched call, carrying only what it needs (sfq4w.2).
+
+    networkx tells ``convert_from_nx`` which attributes the algorithm reads
+    (``edge_attrs`` / ``node_attrs`` as {name: default}) or that it keeps them
+    all (``preserve_*_attrs``); its own loopback backend converts exactly
+    that. Copying every attribute dict regardless was most of the conversion
+    toll. The edges of a simple graph come from ``nx_adjacency_edge_batch``,
+    the native port of ``_topo_emit_edges_by_adj`` (same order, so every
+    node's neighbor order is kept) that builds the ``add_edges_from`` tuples
+    in the same pass. Anything but networkx's own four classes (a view, a
+    subclass that reinterprets ``_adj`` such as the approximation module's
+    ``_AntiGraph``) keeps the full ``_from_nx_graph`` conversion.
+    """
+    import networkx as nx
+
+    adj = getattr(G, "_adj", None)
+    if type(G) not in (nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph) or type(adj) is not dict:
+        return _nx_to_fnx(G)
+    from franken_networkx.readwrite import _empty_like_nx_graph
+
+    result = _empty_like_nx_graph(G)
+    if preserve_graph_attrs:
+        result.graph.update(G.graph)
+    if preserve_node_attrs or node_attrs:
+        result.add_nodes_from(
+            (n, _hinted_attrs(d, node_attrs, preserve_node_attrs)) for n, d in G._node.items()
+        )
+    else:
+        result.add_nodes_from(G._node)
+    if G.is_multigraph():
+        result.add_edges_from(
+            (u, v, key, _hinted_attrs(d, edge_attrs, preserve_edge_attrs))
+            for u, v, key, d in G.edges(keys=True, data=True)
+        )
+    else:
+        result.add_edges_from(
+            _native_nx_adjacency_edge_batch(
+                adj, G.is_directed(), edge_attrs or None, bool(preserve_edge_attrs)
+            )
+        )
+    return result
 
 
 def _convert_result_to_nx(value):
@@ -879,8 +982,25 @@ class BackendInterface:
         name=None,
         graph_name=None,
     ):
-        """Convert a NetworkX graph to a FrankenNetworkX graph."""
-        return _nx_to_fnx(G)
+        """Convert a NetworkX graph to a FrankenNetworkX graph.
+
+        The lazy topological sorts are defined on the LIVE input: they raise
+        ``RuntimeError`` when the caller mutates the graph mid-iteration
+        (networkx's test_dag.py::test_topological_sort6), which a converted
+        copy can never see. They get the caller's graph unconverted and run
+        networkx's loop on it, as networkx's own loopback test backend does
+        (nro4w.11).
+        """
+        if name in _LIVE_INPUT_ALGORITHMS:
+            return G
+        return _nx_to_fnx_for_dispatch(
+            G,
+            edge_attrs=edge_attrs,
+            node_attrs=node_attrs,
+            preserve_edge_attrs=preserve_edge_attrs or preserve_all_attrs,
+            preserve_node_attrs=preserve_node_attrs or preserve_all_attrs,
+            preserve_graph_attrs=preserve_graph_attrs or preserve_all_attrs,
+        )
 
     @staticmethod
     def convert_to_nx(result, *, name=None):
@@ -919,8 +1039,47 @@ class BackendInterface:
 
     @staticmethod
     def should_run(name, args, kwargs):
-        """Return True if this backend should run (performance heuristic)."""
-        return BackendInterface.can_run(name, args, kwargs)
+        """Whether converting a networkx graph for this call pays off (sfq4w.2).
+
+        networkx asks only when the call needs a conversion; declining makes
+        networkx run the call itself. For the kernels in
+        ``_CONVERT_AFTER_USES`` one conversion costs more than networkx
+        running the kernel, so this is ski rental: each declined call adds
+        1/k of a conversion's cost to the graph's running total, and the call
+        that brings it to one converts. The conversion is then cached on the
+        graph (networkx clears that cache, and this total, on every
+        mutation), so later calls run at fnx's speed. A cold call is never
+        slower than networkx, and total cost stays within twice the best
+        choice made in hindsight. Other algorithms convert at once, as does
+        any call once a conversion is already cached.
+        """
+        can_run = BackendInterface.can_run(name, args, kwargs)
+        if can_run is not True or name not in _CONVERT_AFTER_USES:
+            return can_run
+        graph = args[0] if args else kwargs.get("G")
+        if not hasattr(graph, "__networkx_cache__"):
+            return True
+        import networkx as nx
+
+        cache = graph.__networkx_cache__
+        if cache is None or not nx.config.cache_converted_graphs:
+            reason = f"conversion costs more than networkx running {name}, and caching is off"
+            log.debug("declining %s: %s", name, reason)
+            return reason
+        if cache.get("backends", {}).get("franken_networkx"):
+            return True
+        uses = _CONVERT_AFTER_USES[name]
+        rent = cache.get(_RENT_KEY, 0.0) + (1.0 / uses if uses else 0.0)
+        if rent >= 1.0:
+            log.debug("converting for %s: accumulated rent %.2f", name, rent)
+            return True
+        cache[_RENT_KEY] = rent
+        reason = (
+            f"one conversion costs more than networkx running {name}; converting once "
+            f"this graph's calls have paid for it ({rent:.2f} of 1.0)"
+        )
+        log.debug("declining %s: %s", name, reason)
+        return reason
 
     # Make algorithm functions available as attributes for dispatch
     def __getattr__(self, name):

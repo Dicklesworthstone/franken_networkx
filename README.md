@@ -44,14 +44,14 @@ That contract is checked by a Python parity test suite of about 1,100 files, by 
 | Adjacency storage | nested `dict` | deterministic `IndexMap`-based, insertion-order preserving |
 | GIL release on heavy work | n/a (pure Python) | yes; hundreds of `py.allow_threads(...)` sites |
 | Declared import/signature surface | NetworkX 3.6.1 FeatureUniverse | **4,129 / 4,129 strictly present**; 0 partial, 0 missing (the classifier rejects shapes declared only through `__signature__`/`__module__` metadata, on classes and functions) |
-| NetworkX's own test suite, fnx as backend | 6,815 tests pass on plain NetworkX 3.6.1 | **6,751 pass (99.1%)**; 55 fail and 9 error with fnx as the backend (2026-09-24) |
+| NetworkX's own test suite, fnx as backend | 6,816 tests pass on plain NetworkX 3.6.1 (0 fail) | **6,815 pass, 0 fail, 0 error** with fnx as the backend (2026-09-24; 80 skipped against plain NetworkX's 78 skipped and 1 xfailed). `artifacts/upstream_suite/ratchet_v1.json` holds that floor with no allowed failures, and DSR fails on any failure |
 | Backend-dispatch surface | n/a | **313** algorithms registered in `backend.py` |
 | Tie-break determinism | implicit | explicit **CGSE** (13-variant `TieBreakPolicy`) |
 | Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
 | Strict vs hardened parsing | n/a | mode-aware `CgsePolicyEngine` with fail-closed defaults |
 | Durable conformance artifacts | n/a | RaptorQ erasure-coded sidecars with decode-proof receipts |
 | Fuzz harness | none | **33** cargo-fuzz binaries across parsers + algorithm families |
-| Quality gate | project CI | **DSR** (`dsr quality --tool franken_networkx`): fmt → check → clippy `-D warnings` → Rust tests (9 crates) → docs/examples/coverage drift → 4 guarded Python parity files; see [Quality Gates](#quality-gates) |
+| Quality gate | project CI | **DSR** (`dsr quality --tool franken_networkx`): fmt → check → clippy `-D warnings` → Rust tests (11 crates, conformance fixture replay included) → fuzz smoke (33 targets) → docs/examples/coverage drift → generated-report checks → NetworkX's own suite → the full Python parity suite; see [Quality Gates](#quality-gates) |
 
 ---
 
@@ -68,7 +68,7 @@ There are several existing approaches to "faster NetworkX." Each has tradeoffs t
 
 The discipline difference is enforced by tooling, not goodwill:
 
-- The Python parity suite (`tests/python/`, about 1,100 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording. It is run in guarded shards; the DSR quality run executes four of its files today (making the whole suite a gate is `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`).
+- The Python parity suite (`tests/python/`, about 1,100 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording. The DSR quality run executes the whole suite in guarded shards (`scripts/run_python_parity_suite.py`; 68,318 passed and 0 failed on 2026-09-24).
 - The generated coverage matrix under `docs/` is compared on every DSR quality run, so `__all__` drift, a signature change, or an export that gains a directly visible NetworkX route fails it.
 - The CGSE complexity-witness ledger gives every algorithm execution a reproducible length-prefixed Blake3 receipt, so behavioral parity can be regression-locked, not just spot-checked.
 
@@ -81,7 +81,7 @@ The discipline difference is enforced by tooling, not goodwill:
 | **graph-tool** | `Graph` with vertex/edge property maps | no; C++/Python hybrid API | no | strong for analytics + statistics | Boost-backed, very fast, but requires a custom build pipeline (no PyPI wheel). |
 | **rustworkx** | `PyGraph`/`PyDiGraph` with integer node IDs | partial; explicit conversion API | no; integer-index based | growing | High-quality Rust core; intentionally not a drop-in replacement. |
 | **graspologic** / **networkx-cuda** / **cugraph** | various, often GPU-backed | partial; mostly nx-shaped but algorithm coverage varies widely | varies | varies | Often optimize the inner loop of specific algorithms (PageRank, BFS, connected components) but require additional toolchains (CUDA, conda channels). |
-| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and 99.1% of NetworkX's own test suite passing in backend mode, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 313 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
+| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and every test of NetworkX's own suite that runs in backend mode passing, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 313 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
 
 The honest summary: if the only thing you need is "PageRank on a huge graph as fast as possible" and you don't care about API shape or tie-break semantics, igraph or graph-tool or a GPU library may beat fnx on raw throughput for that single call. If you have an existing NetworkX codebase and you want it to *just work* without rewriting and without subtle behavior changes, fnx is built for that case.
 
@@ -451,7 +451,7 @@ for w in &witnesses {
 
 Or use the `verify_complexity_bound(&witness)` and `assert_complexity_within_bounds(&witness)` helpers shipped from `fnx_cgse`. Two runs on the same graph with the same policy produce identical `decision_path_blake3` hashes; any ordering drift manifests as a hash mismatch, making non-determinism a regression-locked property.
 
-This makes complexity regressions a regression-lockable property, not a folklore expectation: `crates/fnx-conformance/tests/cgse_complexity_bound_gate.rs` (landed 2026-09-03) asserts for all 12 V1 reference algorithms that a witness is emitted, matches the pinned registry policy and dominant term, stays within `analytic_upper_bound`, and is hash-identical across runs — with a negative case proving an inflated operation count is rejected. It runs with `cargo test -p fnx-conformance`, which the DSR quality run does not include yet (see [Quality Gates](#quality-gates)).
+This makes complexity regressions a regression-lockable property, not a folklore expectation: `crates/fnx-conformance/tests/cgse_complexity_bound_gate.rs` (landed 2026-09-03) asserts for all 12 V1 reference algorithms that a witness is emitted, matches the pinned registry policy and dominant term, stays within `analytic_upper_bound`, and is hash-identical across runs — with a negative case proving an inflated operation count is rejected. It runs with `cargo test -p fnx-conformance`, which is part of the DSR quality run (see [Quality Gates](#quality-gates)).
 
 ### Tie-break policies in action
 
@@ -797,7 +797,7 @@ Why the strict parity: existing NetworkX code routinely does `except nx.NetworkX
 ### Parity coverage today
 
 - Runtime census (2026-09-23, NetworkX frames counted with `sys.monitoring` on the default call path): **35 of 41** commonly used functions execute no NetworkX code — shortest paths, the main centralities (pagerank, betweenness, closeness, harmonic, katz, hits, eigenvector), components, cuts, connectivity, flow, min-cost flow, MST, coloring, isomorphism, planarity, distance measures, cliques, cores, transitive closure.
-- Always-NetworkX today: `max_weight_matching`, `min_weight_matching`, `maximum_branching`, weighted/self-loop `louvain_communities`, `greedy_modularity_communities`, `simple_cycles`, `k_components`. Several other functions reach NetworkX only for specific argument shapes (custom `flow_func`, user callables, some `k`/`seed` combinations), and 112 submodule callables are NetworkX's own function objects re-exported.
+- Always-NetworkX today: weighted/self-loop `louvain_communities`, `simple_cycles`, `k_components`. (`max_weight_matching`, `min_weight_matching`, `maximum_branching` with its family, and `greedy_modularity_communities` now run networkx's algorithms natively, results identical including order and, for matchings, pair direction.) Several other functions reach NetworkX only for specific argument shapes (custom `flow_func`, user callables, some `k`/`seed` combinations), and 112 submodule callables are NetworkX's own function objects re-exported.
 - Wrapper-patched exports — the Rust kernel runs the algorithm but the Python wrapper post-processes output ordering to match NetworkX's iteration semantics — are enumerated with exact counts in `raw_vs_public_audit.md`.
 - **1** raw-known-gap row and **1** owner-acknowledged limitation in `upstream_divergence_ledger.md`; the public wrappers hide both behind fallbacks.
 
@@ -809,7 +809,7 @@ The project defends against:
 
 - **Malformed graph ingestion.** Every parser (`fnx-readwrite`) is cargo-fuzz hardened with 33 corpus-seeded targets covering edgelist, adjlist, GraphML, GML, JSON, Pajek, GEXF, node-link, attribute-value, and multigraph variants.
 - **Attribute confusion.** `CgseValue` is a typed serde-compatible value with a controlled set of variants. GraphML/GML parsers validate keys, scope attributes, reject empty keys, escape `#` in edgelist attrs, and enforce typed parsing (so `bool=0/1` doesn't become an integer downstream).
-- **Algorithmic denial vectors.** Algorithms follow NetworkX on non-finite weights (NaN, ±∞) in every mode — shortest-path kernels route such inputs to NetworkX-exact paths rather than guess. The readers fail closed in strict mode on malformed or unknown input (malformed directed flags, namespace-prefix abuse, unknown GraphML attribute types) and apply bounded, logged recovery in hardened mode.
+- **Algorithmic denial vectors.** Algorithms follow NetworkX on non-finite weights (NaN, ±∞) in every mode — shortest-path kernels route such inputs to NetworkX-exact paths rather than guess. The readers fail closed in strict mode on malformed or unknown input (malformed directed flags, namespace-prefix abuse, unknown GraphML attribute types) and apply bounded, logged recovery in hardened mode. Generator size budgets (100,000 nodes; 20,000 for G(n, p)-style random generators; 2,000-node or 1,999,000-edge dense graphs) apply in hardened mode only, where an over-budget size is clamped to the budget with a Python `RuntimeWarning` naming the clamp: strict mode builds every size NetworkX builds, and only a size that overflows `usize` fails closed.
 - **Stack-safety on deep graphs.** Traversal-heavy algorithms (DFS, planarity, transitive closure) avoid unbounded recursion.
 
 The minimum security bar (per [AGENTS.md](AGENTS.md)):
@@ -916,18 +916,21 @@ Only the first of these is machine-enforced today; the rest are audits that are 
 
 The only quality, build and release authority for this repository is DSR (Doodlestein Self-Releaser): `dsr quality --tool franken_networkx`, `dsr build franken_networkx`, `dsr release franken_networkx <version>`. The GitHub Actions workflows under `.github/workflows/` are kept for reference only and are not run.
 
-The quality run executes these checks in order (config: `.dsr/repos.d/franken_networkx.yaml`):
+The quality run executes these checks in order. `dsr quality` reads them from the `franken_networkx` entry of `~/.config/dsr/repos.yaml` on the host; `.dsr/repos.d/franken_networkx.yaml` in this repository mirrors that entry's checks and is the reviewed copy (`dsr quality --tool franken_networkx --dry-run` lists what will actually run):
 
 | # | Check | Command |
 |---|---|---|
 | 1 | fmt | `cargo fmt --all -- --check` |
 | 2 | check | `cargo check --workspace --all-targets` |
 | 3 | clippy | `cargo clippy --workspace --all-targets -- -D warnings` |
-| 4 | Rust tests | `cargo test` for `fnx-classes`, `fnx-views`, `fnx-dispatch`, `fnx-convert`, `fnx-algorithms`, `fnx-generators`, `fnx-readwrite`, `fnx-durability`, `fnx-runtime` |
-| 5 | docs | `scripts/verify_docs.py`: README/docs links, every Python block in the Markdown and every `examples/*.py` script executed, `docs/coverage.md` drift |
-| 6 | Python parity (subset) | `scripts/run_pytest_guarded.sh` on `test_instance_dict_memory_leak.py`, `test_error_messages.py`, `test_thread_safety.py`, `test_coverage_gaps.py` |
+| 4 | Rust tests | `cargo test` for `fnx-classes`, `fnx-views`, `fnx-dispatch`, `fnx-convert`, `fnx-algorithms`, `fnx-generators`, `fnx-readwrite`, `fnx-durability`, `fnx-runtime`, `fnx-conformance` (including the CGSE complexity-bound gate) and `fnx-cgse` |
+| 5 | fuzz smoke | `scripts/fuzz_corpus_replay.py --budget-seconds 10`: the 33 fuzz targets are built on an rch worker with cargo-fuzz's coverage instrumentation (no sanitizer), each replays every committed corpus input and every reproducer under `fuzz/artifacts/<target>/`, then fuzzes for 10 seconds. A panic, an input over 60 s or over 4 GB RSS fails it, and the failing input is written to `fuzz/artifacts/<target>/` for later runs to replay. |
+| 6 | docs | `scripts/verify_docs.py`: README/docs links, every Python block in the Markdown and every `examples/*.py` script executed, `docs/coverage.md` drift |
+| 7 | Python parity (subset) and generated reports | `scripts/run_pytest_guarded.sh` on `test_instance_dict_memory_leak.py`, `test_error_messages.py`, `test_thread_safety.py`; the drift checks of `docs/coverage.md` (`test_coverage_gaps.py`) and `docs/unused_raw_exposures.md` (`test_unused_raw_exposures.py`); and the generator tests `test_delegation_ledger.py`, `test_raw_vs_public_audit.py`, `test_upstream_divergence_ledger.py`, `test_api_ergonomics_audit.py`, which run those generators and check their output's contracts but do not compare the committed ledgers |
+| 8 | NetworkX's own test suite | `scripts/run_upstream_networkx_suite.py`: NetworkX 3.6.1's suite with fnx as the test backend (about 7 minutes), held to `artifacts/upstream_suite/ratchet_v1.json`. It fails on any failure the ratchet does not name with a reason, or when the pass count drops below the ratchet's floor. |
+| 9 | Full Python parity suite | `scripts/run_python_parity_suite.py --workers 4`: every `tests/python/test_*.py` file in shards of explicit file lists, each through `scripts/run_pytest_guarded.sh`; fails on any failed, errored or timed-out shard and refuses to start with less than 20 GB free disk. On 2026-09-24: 1,101 files, 68,318 passed, 0 failed, 28 minutes with 4 workers. |
 
-Not gated yet, and run on demand: the full Python parity suite (in guarded shards), `cargo test -p fnx-conformance` (including the CGSE complexity-bound gate) and the conformance replay, NetworkX's own test suite with fnx as the backend, the performance harnesses, UBS, the fuzz targets and the RaptorQ scrub. Promoting these into the DSR run is tracked in `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1`.
+The conformance fixture replay runs inside check 4 (`fnx-conformance`'s `smoke_report_is_stable` replays every fixture against the current build and requires 0 mismatches); the committed reports under `artifacts/conformance/latest/` are refreshed on demand with `cargo run -p fnx-conformance --bin run_smoke`, and `scripts/verify_conformance_freshness.py` checks their age, not their correctness. Not gated, and run on demand: the performance harnesses (their measurement substrate is `br-r37-c1-rc0923-epic-honest-measurement-vbneu.4`), UBS, fuzzing campaigns longer than the smoke budget or under a sanitizer, and the RaptorQ scrub (`br-r37-c1-rc0923-epic-crown-jewels-csmqh.2`).
 
 ---
 
@@ -951,11 +954,15 @@ maturin develop --release --features pyo3/abi3-py310
 ./scripts/run_pytest_guarded.sh tests/python/test_*shortest*path*.py -v   # one family
 ```
 
-Cross-validate against NetworkX's own test suite with fnx as the backend (run from outside the repository):
+Cross-validate against NetworkX's own test suite with fnx as the backend. The script runs it from a scratch directory under an address-space limit and holds it to the ratchet; `--target` runs one NetworkX test module in seconds:
 
 ```bash
-NETWORKX_TEST_BACKEND=franken_networkx NETWORKX_FALLBACK_TO_NX=True python -m pytest --pyargs networkx
+.venv/bin/python scripts/run_upstream_networkx_suite.py                    # full run, check the ratchet
+.venv/bin/python scripts/run_upstream_networkx_suite.py --target networkx.algorithms.tests.test_dag
+.venv/bin/python scripts/run_upstream_networkx_suite.py --update           # after fixes: drop what now passes, raise the floor
 ```
+
+Do not add `-W ignore` to a manual run: NetworkX's own `test_pajek.py::test_ignored_attribute` then fails on plain NetworkX too.
 
 ### Conformance Testing Methodology
 
@@ -1177,12 +1184,12 @@ median-CI gate; reproduce with
 | `tutte_graph` | *not decidable* | Measured 2026-08-08 at `1.2860×` but CI `0.9036–1.3563×` STRADDLES 1.0, so no verdict is claimed despite clean A/A nulls (0.9997/0.9997). The published `0.76×` is superseded but not replaced with a number. Split out of the old combined karate/tutte row precisely because the two no longer share a verdict. |
 | `read_multiline_adjlist` | **0.7981×** | Parser is not native; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.70×) |
 | `read_gml` | **0.92×** | GML parse path; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 0.9234×, CI [0.9169, 0.9253] contains the published figure) |
-| `G.remove_node(n)` | **0.018× → 0.0007×** (n=1,600 → 25,600, non-tail node) | Super-linear where nx is O(degree). The 2026-09-21 slot-tombstone storage did not fix it: a downstream index-coordinate bug (`br-r37-c1-as50i`) was repaired by compacting the whole store on every public removal, so each removal is O(V+E) on `Graph`/`DiGraph` (1.3–1.6× slower than before that change); `MultiGraph`/`MultiDiGraph` pay an O(V) `shift_remove` (0.14× / 0.056× at 25.6k). Only the tail node is fast (0.28–0.47×). Measured 2026-09-23 (fresh graph per repetition, 200 removals, min of 3, same process, `harness=ad-hoc scaling probe`, `same_host=thinkstation1`). Open: `br-r37-c1-epic-storage-architecture-yr2oc.1`. |
+| `G.remove_node(n)` | **0.52× → 1.75×** on `Graph`, **0.78× → 1.31×** on `DiGraph`, **0.60× → 0.76×** on `MultiGraph`, **0.32× → 0.45×** on `MultiDiGraph` (n=1,600 → 25,600, non-tail node) | `Graph`/`DiGraph` removal is O(degree), like nx's: the node's slot is tombstoned in O(1) and positions are ranks answered by a Fenwick tree until the next insertion compacts. The per-call cost is a flat ~2.5–3.5 µs, so it loses where nx's removal is cheaper (`Graph` 0.52× / 0.53× at 1.6k / 6.4k nodes, `DiGraph` 0.78× at 1.6k) and wins where nx's grows (`Graph` 1.75× at 25.6k, `DiGraph` 1.78× / 1.31× at 6.4k / 25.6k). `MultiGraph` removal is O(degree) as well (its insertion order tombstones apart from the slots, which are reused), but it loses at every size, 0.60× / 0.60× / 0.76× at 1.6k / 6.4k / 25.6k (median of 3 runs, loadavg ~5). Those graphs are built with `add_edges_from`, which leaves the Python attribute mirrors of the edges empty, and removal skips them when they are; a graph built one `add_edge` at a time fills them and loses more (0.27–0.30×). `MultiDiGraph` removal is O(degree) too (its node table tombstones and its row maps are unordered) and loses more, 0.32× / 0.51× / 0.45×: its String-keyed store frees about seven blocks per incident edge, and cutting its instruction count by 38% moved no wall-clock time; a slot-keyed store like `MultiGraph`'s is the lever left. With an attribute on every edge a removal also updates the Python attribute mirrors of each incident edge (11–17 µs per removal at 1.6k–25.6k; 0.2–0.5× in read-then-remove loops). Measured 2026-09-24 (fresh graph per repetition, 200 removals, min of 3, same process, loaded host, `harness=ad-hoc scaling probe`, `same_host=thinkstation1`). Open: `br-r37-c1-epic-storage-architecture-yr2oc.1`. |
 | `MultiGraph`/`MultiDiGraph.get_edge_data(u, v)` (unkeyed) | **0.57–0.62×** per call, flat from 1 to 16 parallel edges; consuming it (items + one attribute read) **0.73–0.89×** | Since 2026-09-24 it returns the pair's live keydict as a real `dict` kept in step with every edge mutation (was 0.2482× → 0.0274× when it rebuilt a dict per call, then a non-`dict` view whose consumption cost 0.16–0.40×). `json`/`pickle`/`copy`/`|` behave as in nx; it is a `dict` subclass that forwards writes to the graph, so `type(d) is dict` is False. Same-process sanity probe, 2026-09-24, loaded host (load 46), no A/A null. |
 | Attributed-graph memory | **3.4×** nx's RSS (1.8× via `set_edge_attributes`) | Edge attributes are stored twice (native `AttrMap` + Python dict); unattributed graphs use 0.63× of nx's memory. See "Memory considerations". Sanity measurement, 2026-09-24, no A/A null. |
 | Backend mode on an nx graph, conversion cache off | **0.026–0.40×** for cheap kernels | Every call converts the nx graph first (a few µs per edge): `single_source_shortest_path_length` 0.026×, `connected_components` 0.031×, `pagerank` 0.21×, weighted `single_source_dijkstra` 0.40× on a 20k-node BA graph. With NetworkX's default conversion cache on, the same calls win 1.7–17×. Same-process sanity probe, 2026-09-23, no A/A null. Tracked: `br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.2`. |
-| `G.has_edge(u, v)` / `list(G.neighbors(n))` | **0.52× / 0.75×** | Per-call micro-ops, 5,000 calls on a 20k-node graph. Same-process sanity probe, 2026-09-23, no A/A null. Tracked: `br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.3`. |
-| `louvain_communities` / `greedy_modularity_communities` (weighted) | **0.92× / 0.84×** | Both run NetworkX's own code on weighted input, plus the conversion. Same-process sanity probe, 2026-09-23, no A/A null. |
+| `G.has_edge(u, v)` / `list(G.neighbors(n))` | int nodes: **1.17–1.42×** / **1.05–1.12×**, except `has_edge` on present edges of a graph whose int nodes arrived out of order (**0.975×**); str nodes: **1.02–1.28×** / **1.05–1.06×**, except `DiGraph.has_edge` on present edges (**0.975×**) | `Graph` and `DiGraph`, 20k-node BA graph, 400 calls per slot. Balanced-square A/B with A/A nulls (`scripts/balanced_square_ab.py --workload claim-has-edge-neighbors --calls-per-slot 128`), every row admitted, pinned to one CPU, thinkstation1, 2026-09-25: int rows ELF `476699fdfcd1`, str rows ELF `73d0af80fbab` from the same harness with str-named nodes. Tracked: `br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.3`. |
+| `louvain_communities` (weighted) | **0.92×** | Runs NetworkX's own code on weighted input, plus the conversion. Same-process sanity probe, 2026-09-23, no A/A null. |
 | `G[u][v]` | **0.36×** | The inner subscript is the loss; `G[u]` alone wins 1.16× (`br-r37-c1-ey6ob`, 2026-09-01, `same_host=thinkstation1`). A 2026-09-02 sanity probe with no null read 0.96× on a different shape (repeated lookups of one edge on n=2,000), so the ratio is shape-dependent; the bead's figure stands as the measured row. Open. |
 
 The `add_edge` row was re-measured on 2026-08-04 (`br-r37-c1-8n3j3`, `br-r37-c1-eo88t`): 4,000
@@ -1233,7 +1240,7 @@ The native algorithm implementations in `fnx-algorithms` favor textbook complexi
 
 ### Matching
 
-- **Maximum-weight matching.** A native Rust port of Edmonds' blossom-shrinking algorithm exists (`_fnx.max_weight_matching`, sign-parameterised for min/max with the `maxcardinality` flag), but the public `max_weight_matching` delegates to NetworkX: on graphs with several equally optimal matchings the native kernel picked a different valid matching, and returned some pairs in the opposite `(u, v)` direction, than nx's DFS augmenting-path traversal (`br-r37-c1-kpnc8`). Drop-in code compares matchings against reference pair sets, so the wrapper mirrors nx exactly, including its `NetworkXNotImplemented` on directed and multigraph input. `min_weight_matching` is a Python wrapper over the same route. Both appear as `nx-fallback` / `py-wrapper` in `docs/delegation_ledger.md`.
+- **Maximum-weight matching.** The public `max_weight_matching` runs `networkx_max_weight_matching_mate`, a step-for-step Rust port of networkx's blossom algorithm (`br-r37-c1-epic-native-algorithms-1g0lj.1`): it makes every order-dependent choice in networkx's order and returns networkx's `mate` insertion order, so on graphs with several optimal matchings it picks networkx's, with networkx's `(u, v)` direction for each pair (an earlier native kernel did neither, `br-r37-c1-kpnc8`). Weights other than ints within ±2⁴⁸ and finite floats keep networkx's own code. `min_weight_matching` is networkx's body over it (the inverted graph built as networkx builds it). Both raise `NetworkXNotImplemented` on directed and multigraph input, as networkx does.
 - **Maximal matching.** Greedy with canonical edge enumeration; suitable as a lower-bound approximation.
 - **Bipartite matching helpers (`hopcroft_karp_matching`, `eppstein_matching`, `minimum_weight_full_matching`).** Live under `fnx.bipartite.*` and currently delegate to the upstream `networkx.algorithms.bipartite` reference. Tracked in `docs/delegation_ledger.md`.
 
@@ -1257,7 +1264,7 @@ The `fnx.community` submodule mirrors `nx.algorithms.community`. Most algorithms
 
 - **Louvain (`louvain_communities`).** A native Rust kernel (`_raw_louvain_communities`) handles a plain unweighted `fnx.Graph` without self-loops. Every other shape (weights, self-loops, directed, multigraph, nx input) converts and routes through `nx.algorithms.community.louvain_communities`, pinned to the networkx backend so a global `backend_priority` cannot recurse (`br-r37-c1-egjfn`); nx's multi-level Louvain produces wrong partitions against a raw fnx graph, hence the conversion.
 - **Label propagation (`label_propagation_communities`).** A Python implementation over native `greedy_color` and adjacency for `fnx.Graph`; multigraph, view and non-fnx inputs route through nx (`br-r37-c1-cy2me`).
-- **Greedy modularity (`greedy_modularity_communities`).** Currently routes through NetworkX against a converted graph. The former native CNM public route was retired after an insertion-order-sensitive partition divergence (`br-r37-c1-z4rnj`).
+- **Greedy modularity (`greedy_modularity_communities`).** Runs `networkx_greedy_modularity_merges`, a step-for-step Rust port of networkx 3.6's Clauset-Newman-Moore loop (`br-r37-c1-epic-native-algorithms-1g0lj.3`): its `MappedQueue` heaps with equal gains broken by node label, as networkx's `_HeapElement` compares them, and the same float arithmetic from the same setup values. The merges are replayed into networkx's `communities` dict, so the result is networkx's: the same communities in the same order, each frozenset built the same way. Measured 12.3–13.4× faster than networkx on 2,000–5,000-node graphs (weighted and unweighted) with identical results; same-process interleaved probe, 3 rounds, A/A null 0.96–1.03, loaded host (load 39), 2026-09-24. Graphs whose node labels are not all `int` or all `str`, weights other than ints within 2⁵³ and floats, and NaN gains keep networkx's own code, which is also the backend-mode fallback, pinned so it cannot recurse. An earlier native route was retired for picking different equal-gain merges (`br-r37-c1-z4rnj`).
 - **K-clique communities, Girvan-Newman, asyn_fluidc, Kernighan-Lin bisection.** Mixed: some native, some delegated. Check `docs/delegation_ledger.md` for the canonical state of each.
 - **`community.modularity`.** Computed natively against fnx adjacency.
 
@@ -2157,7 +2164,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("franken_networkx").setLevel(logging.DEBUG)
 ```
 
-Logging is sparse: 17 Rust call sites in all (a few shortest-path kernels at INFO, some graph mutations at DEBUG). There is no `tracing` instrumentation and `RUST_LOG` is not read; configure levels through Python's `logging`. The backend dispatch layer does not log dispatch decisions today.
+Logging is sparse: 11 Rust call sites in all (ten in shortest-path kernels at INFO, `add_node` at DEBUG). `add_edge`, `remove_edge` and `remove_node` do not log: resolving the logger cost about 500 instructions per call on those paths. There is no `tracing` instrumentation and `RUST_LOG` is not read; configure levels through Python's `logging`. The backend dispatch layer does not log dispatch decisions today.
 
 ### Container image notes
 
@@ -2315,7 +2322,7 @@ The CHK iterative dominator algorithm is exactly what production compilers use.
 
 ### Adversarial graph ingestion
 
-Parsing untrusted graphs (e.g. social-network exports from third-party tools) benefits from the strict-vs-hardened mode toggle and the fuzz-hardened parsers. The repository carries 33 cargo-fuzz targets; the former CI smoke job ran 15 of them for about a CPU-minute each, so treat the parsers as fuzz-exercised rather than fuzz-proven, and apply your own resource limits before feeding `read_graphml(untrusted_path)` to a public-facing service.
+Parsing untrusted graphs (e.g. social-network exports from third-party tools) benefits from the strict-vs-hardened mode toggle and the fuzz-hardened parsers. The repository carries 33 cargo-fuzz targets. Every DSR quality run replays their committed corpora and fuzzes each target for 10 seconds (on 2026-09-24: 4.76 million executions, 361 CPU-seconds, no failures; the slowest targets, the random generators and polynomial metrics, managed only 709 and 1,364 executions). Treat the parsers as fuzz-exercised rather than fuzz-proven, and apply your own resource limits before feeding `read_graphml(untrusted_path)` to a public-facing service.
 
 ---
 
@@ -2442,12 +2449,14 @@ Analytics kernels are where fnx wins (the per-family table above ranges from abo
 
 | Operation | Workload / shape | fnx vs NetworkX | Root cause | Status |
 |---|---|---|---|---|
-| `remove_node(u)`, any node but the last | `Graph`/`DiGraph`, n = 1.6k → 25.6k, ~4n edges | **0.018× → 0.0007×** (O(V+E) per removal) | every public removal compacts the whole store (`ensure_compact`) | **Open** — `br-r37-c1-epic-storage-architecture-yr2oc.1` (reopened) |
-| `remove_node(u)` | `MultiGraph` / `MultiDiGraph`, n = 25.6k | 0.14× / 0.056× | O(V) node-order `shift_remove` | Open — same bead |
+| `remove_node(u)`, any node but the last | `Graph`/`DiGraph`, n = 1.6k → 25.6k, ~4n edges | **0.52× → 1.75×** / **0.78× → 1.31×** (O(degree) per removal) | flat ~2.5–3.5 µs per call: `Graph` still loses at 1.6k and 6.4k nodes, wins at 25.6k | **Open** — `br-r37-c1-epic-storage-architecture-yr2oc.1` (multigraph classes) |
+| `remove_node(u)`, any node but the last | `MultiGraph`, n = 1.6k → 25.6k, ~4n edges | 0.60× → 0.76× (O(degree) per removal); 0.27–0.30× when built one `add_edge` at a time | a constant per call; a graph built edge by edge also pays its edges' Python attribute mirrors | Open — same bead; mirrors: `br-r37-c1-wzoa7`, `br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.1` |
+| `remove_node(u)`, any node but the last | `MultiDiGraph`, n = 1.6k → 25.6k, ~4n edges | 0.32× → 0.45× (O(degree) per removal) | the String-keyed store frees ~7 blocks per incident edge | Open — same bead (slot-keyed store) |
+| `remove_node` on a graph with edge attributes, with a single-node read between removals | `Graph`/`DiGraph`, n = 1.6k → 25.6k, one attribute per edge | 0.2–0.5× | each removal updates the Python attribute mirrors of the incident edges | Open |
 | `copy.copy(G)` | n = 10 → 10k | 1.34× → **0.0031×** (O(n)); attr dicts not shared as in nx | fnx copies the graph, nx aliases it | Open — `br-r37-c1-epic-storage-architecture-yr2oc.3` |
 | attributed graph memory | 800k edges, 1–2 edge attrs | **3.4–4.3× nx's RSS** (unattributed: 0.63×) | two attribute stores (Python dicts + native) | Open — `br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.1` |
-| backend mode, cold conversion | nx graph, 80k edges, cheap kernel (BFS, components) | **~0.03×** first call / after mutation (3–4 µs per edge to convert); warm cache 1.7–47× | `convert_from_nx` converts everything; `should_run` has no cost model | Open — `…sfq4w.2` |
-| `G.has_edge(u, v)` / `list(G.neighbors(n))` | 5,000 probes, n = 20k | 0.52× / 0.75× | per-call boundary cost | Open — `…sfq4w.3` |
+| backend mode, cold conversion | nx graph, 80k edges, cheap kernel (BFS, components, sssp, dijkstra) | converting costs 0.12–0.34× of networkx's own run (0.66 µs per edge topology-only, 1.5 at 400k edges; attributes copied only as networkx's hints ask), so `should_run` lets networkx run a cheap kernel's first calls (~1.0×) and converts once the graph's calls have paid for it; 20 repeated calls 1.04–6.9×, warm cache 1.7–47× | conversion still builds one Python tuple per edge (0.3 µs/edge target not met) | Open — `…sfq4w.2` |
+| `G.has_edge(u, v)`, present edge | `Graph`/`DiGraph`, n = 20k, int nodes added out of order; `DiGraph` with str nodes | 0.975× / 0.975× | three hash probes (u, v, the edge) where nx does two dict lookups | Open — `…sfq4w.3` |
 | `G[u][v]` | direct edge attribute probe | 0.36× (bead figure; 0.83× in the 2026-09-23 probe) | inner subscript builds an AtlasView proxy | Open — `br-r37-c1-ey6ob` |
 | `MultiGraph`/`MultiDiGraph.get_edge_data(u, v)` | unkeyed, 1–16 parallel edges | 0.57–0.62× per call, flat in parallel edges; consumption 0.73–0.89× | a registry lookup per call where nx does two dict lookups; the keydict itself is a real `dict` (2026-09-24) | Open (per-call cost) |
 
@@ -2576,7 +2585,7 @@ pub struct MultiGraph {
 Three design choices fall out of this layout:
 
 - **Insertion order everywhere.** The node and edge maps are `IndexMap`s and the integer adjacency rows are plain `Vec`s appended in insertion order, so iteration order is the order the user built the graph. This is the structural guarantee that lets fnx match NetworkX's iteration order without sorting.
-- **Adjacency and edge attributes live in separate containers.** Adjacency lookups (`G[u]`, `G.neighbors(u)`) walk integer rows and never touch attribute payloads. Edge-attribute mutations (`G[u][v]["weight"] = 2`) are constant-time on the index-canonical `(min, max)` key and don't disturb the neighbor iteration order. The price is paid on node removal: the index-keyed edge map is rekeyed, which is the super-linear `remove_node` cost tracked in `br-r37-c1-remove-node-is-quadratic-tv8wd`.
+- **Adjacency and edge attributes live in separate containers.** Adjacency lookups (`G[u]`, `G.neighbors(u)`) walk integer rows and never touch attribute payloads. Edge-attribute mutations (`G[u][v]["weight"] = 2`) are constant-time on the index-canonical `(min, max)` key and don't disturb the neighbor iteration order. The edge map is keyed by node slot, and a removal frees its slot instead of renumbering, so the map is rekeyed only when the store compacts: at the first insertion after a run of removals, or once freed slots outnumber live nodes. On `Graph`/`DiGraph` the node order itself tombstones too, so a removal costs O(degree). `MultiGraph` keeps reusing freed slots and tombstones a separate insertion-order list, so its removal is O(degree) as well; `MultiDiGraph`'s node table tombstones and its String-keyed row maps are unordered, so its removal is O(degree) too (`br-r37-c1-epic-storage-architecture-yr2oc.1`).
 - **`DiGraph` keeps `succ_indices` and `pred_indices` as separate adjacency rows.** `in_degree(v)` and `out_degree(v)` are O(1) lookups, not full edge walks.
 
 The `revision` counter is incremented on every mutation; the cached snapshot views in `fnx-views` and the Python view classes carry the revision they last saw, so view invalidation is a single integer compare.
@@ -2638,7 +2647,7 @@ The security doctrine in `AGENTS.md` covers four threat surfaces:
 
 | Surface | Threat | Mitigation |
 |---|---|---|
-| **Parser input** | Malformed GraphML / GML / GEXF / JSON / edgelist / Pajek crashes the process or escalates to memory corruption. | `#![forbid(unsafe_code)]` workspace-wide. 8 cargo-fuzz parser targets with persisted corpora (run on demand; not part of the DSR quality run). Strict mode rejects malformed input; hardened mode applies bounded recovery (e.g., default attribute, skip malformed node) and logs the recovery as a `DecisionRecord`. |
+| **Parser input** | Malformed GraphML / GML / GEXF / JSON / edgelist / Pajek crashes the process or escalates to memory corruption. | `#![forbid(unsafe_code)]` workspace-wide. 8 cargo-fuzz parser targets with persisted corpora; every DSR quality run replays each corpus and fuzzes each target for 10 seconds (check 5). Strict mode rejects malformed input; hardened mode applies bounded recovery (e.g., default attribute, skip malformed node) and logs the recovery as a `DecisionRecord`. |
 | **Attribute confusion** | Attacker-supplied attribute tricks downstream code into treating a string as a number, or smuggling a callable through a deserialized graph. | `CgseValue` is a closed-variant sum type. Parsers reject mixed-type lists where the format spec forbids them. Boolean parsing accepts only the spec's literal forms (`0/1/"true"/"false"` per format). |
 | **Algorithmic denial** | Adversarial graphs trigger pathological behavior (Dijkstra-with-`-∞`, A*-with-`NaN`-heuristic, planarity bombs, super-linear matching). | Algorithms that can't handle non-finite or negative weights either reject the input fast-closed or delegate to a slower-but-correct nx path. The complexity-witness ledger turns observed-vs-bound mismatches into a test failure (`cargo test -p fnx-conformance`). Stack-safety for deep DFS / planarity / transitive-closure paths. |
 | **Reproducibility loss** | A future release silently changes algorithm output and breaks downstream pipelines. | RaptorQ-encoded conformance + perf artifact bundles. Decode-drill proofs. Golden snapshots locked in `tests/python/test_*_golden.py`. CGSE policy registry pinned in source. `docs/coverage.md` drift fails the DSR quality run. |
@@ -2650,10 +2659,10 @@ The security doctrine in `AGENTS.md` covers four threat surfaces:
 In rough priority order (`bv --robot-triage` shows the current bead backlog):
 
 1. **Strict/Hardened runtime mode exposure** (shipped in `br-r37-c1-9a8bo`). Process-wide and thread-local mode switches via `fnx.config` and context managers, read kwargs, `DecisionRecord` ledger, and 24+24 parity/recovery fixtures.
-2. **One quality authority that runs the whole evidence set.** GitHub Actions is retired (its last run, `34406228506` on 2026-09-09, was green); DSR is now the only quality and release authority, and bringing the full Python parity suite, the conformance harness, fuzz smoke and NetworkX's own test suite under it is `br-r37-c1-rc0923-epic-evidence-authority-hhj5p`.
+2. **One quality authority that runs the whole evidence set.** GitHub Actions is retired (its last run, `34406228506` on 2026-09-09, was green); DSR is now the only quality and release authority. It runs the full Python parity suite, the conformance crate's tests with the fixture replay, NetworkX's own test suite (held to a ratchet) and a fuzz smoke over all 33 targets. What `br-r37-c1-rc0923-epic-evidence-authority-hhj5p.1` still needs is a recorded DSR run of the whole set that passes on main, and one that fails on a planted failure.
 3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
-5. **Tail closure on the remaining NetworkX-bound exports.** On the default path, 35 of 41 commonly used functions execute no NetworkX code; the always-NetworkX ones today are `max_weight_matching`, `min_weight_matching`, `maximum_branching`, weighted/self-loop Louvain, greedy modularity, `simple_cycles` and `k_components`, and several functions still reach NetworkX for specific argument shapes. Move them to native kernels while preserving the parity contract.
+5. **Tail closure on the remaining NetworkX-bound exports.** On the default path, 35 of 41 commonly used functions executed no NetworkX code in the 2026-09-23 census; since then `maximum_branching` and its family, `max_weight_matching`, `min_weight_matching` and `greedy_modularity_communities` run natively too. The always-NetworkX ones today are weighted/self-loop Louvain, `simple_cycles` and `k_components`, and several functions still reach NetworkX for specific argument shapes. Move them to native kernels while preserving the parity contract.
 6. **Release cadence.** Ship `main` to PyPI (current release: `0.2.1`); subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
 
 ---

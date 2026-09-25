@@ -150,9 +150,6 @@ TRIAGE = {
     "_raw_global_node_connectivity": ("keep-public-api",
         "br-r37-c1-ccr8k: fnx-only top-level removed; raw kept for "
         "direct callers (use node_connectivity for nx parity)"),
-    "_raw_greedy_modularity_communities": ("keep-public-api",
-        "br-r37-c1-uwm5v: fnx.community.X falls through to nx; "
-        "raw kept as direct-Rust API"),
     "_raw_large_clique_size": ("keep-public-api",
         "br-r37-c1-dytcs: fnx.approximation.large_clique_size falls "
         "through to nx; raw kept as direct-Rust API"),
@@ -207,9 +204,6 @@ TRIAGE = {
     "_raw_negative_edge_cycle": ("keep-public-api",
         "wrapper routes through inprocess cycle detection for heuristic and "
         "weight handling; raw kept as direct-Rust API"),
-    "_raw_node_connectivity": ("keep-public-api",
-        "wrapper handles s/t pairs, flow_func, and auxiliary network flow; "
-        "raw kept as direct-Rust API"),
 }
 
 

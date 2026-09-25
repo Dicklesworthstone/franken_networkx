@@ -1,5 +1,10 @@
 """The branching family converts STRUCTURALLY, and only where that is sound.
 
+Since sfq4w.4, ``maximum_branching`` (and through it the rest of the family) runs
+networkx's Edmonds natively and matches networkx's result exactly, edge order included
+(the tests at the end of this file). What follows describes the networkx delegation it
+still falls back to for weights the native plan does not cover.
+
 br-r37-c1-p80x1.14. ``maximum_branching`` delegates to networkx for every class
 (br-r37-c1-kb9hm: the native Edmonds kernel does not reproduce nx's incoming-edge
 iteration order through tie-rich cycle contractions), and ``minimum_branching`` delegates
@@ -125,3 +130,138 @@ def test_partition_still_takes_the_faithful_route():
     assert _outcome(
         lambda: fnx.maximum_branching(fg, partition="partition")
     ) == _outcome(lambda: nx.maximum_branching(ng, partition="partition"))
+
+
+# sfq4w.4: maximum_branching runs networkx's Edmonds natively
+# (networkx_maximum_branching_plan) and replays the history of networkx's final
+# set of edge keys, so the result's edge ORDER matches too. These compare order,
+# attribute order and value types, and the caller's graph after the call (the
+# round-trip wrappers rewrite its weights in place, as networkx does).
+
+import sys
+
+BRANCHING_FAMILY = (
+    "maximum_branching",
+    "minimum_branching",
+    "minimal_branching",
+    "maximum_spanning_arborescence",
+    "minimum_spanning_arborescence",
+)
+
+
+def _exact(graph):
+    edges = graph.edges(keys=True, data=True) if graph.is_multigraph() else graph.edges(data=True)
+    return (
+        type(graph).__name__,
+        [repr(n) for n in graph.nodes()],
+        [tuple(repr(x) for x in e[:-1]) + (repr(list(e[-1].items())),) for e in edges],
+    )
+
+
+def _exact_outcome(module, fn, build, **kwargs):
+    graph = build(module)
+    try:
+        result = ("ok", _exact(getattr(module, fn)(graph, **kwargs)))
+    except Exception as exc:  # noqa: BLE001 - the exception IS the observation
+        result = ("raise", type(exc).__name__, tuple(map(str, exc.args)))
+    return result, _exact(graph)
+
+
+def _tie_heavy(cls, seed, attr="weight", partition=None):
+    """Small graphs with many equal weights, self-loops and (multigraph) parallel edges."""
+
+    def build(module):
+        rng = random.Random(seed)
+        n = rng.randint(1, 9)
+        labels = [f"n{i}" if seed % 4 == 0 else i for i in range(n)]
+        if seed % 2:
+            rng.shuffle(labels)
+        graph = getattr(module, cls)()
+        graph.add_nodes_from(labels)
+        for _ in range(rng.randint(0, 3 * n)):
+            u, v = rng.choice(labels), rng.choice(labels)
+            if u == v and rng.random() < 0.7:
+                continue
+            data = {}
+            if rng.random() < 0.9:
+                data[attr] = rng.choice([-1, 0, 1, 1, 2, 2, 3]) if seed % 3 else rng.choice([0.5, 1.0, 1.0, 2.5])
+            if partition is not None:
+                data[partition] = rng.choice(
+                    [nx.EdgePartition.OPEN, nx.EdgePartition.INCLUDED, nx.EdgePartition.EXCLUDED, None, None]
+                )
+            data["tag"] = rng.randint(0, 3)
+            graph.add_edge(u, v, **data)
+        return graph
+
+    return build
+
+
+@pytest.mark.parametrize("fn", BRANCHING_FAMILY)
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph", "Graph", "MultiGraph"])
+def test_family_matches_networkx_exactly_on_tie_heavy_graphs(fn, cls):
+    for seed in range(120):
+        build = _tie_heavy(cls, seed)
+        for preserve_attrs in (False, True):
+            assert _exact_outcome(fnx, fn, build, preserve_attrs=preserve_attrs) == _exact_outcome(
+                nx, fn, build, preserve_attrs=preserve_attrs
+            ), (seed, preserve_attrs)
+
+
+@pytest.mark.parametrize("fn", BRANCHING_FAMILY)
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_family_matches_networkx_exactly_with_partitions(fn, cls):
+    for seed in range(120):
+        build = _tie_heavy(cls, seed, partition="part")
+        for preserve_attrs in (False, True):
+            assert _exact_outcome(
+                fnx, fn, build, partition="part", preserve_attrs=preserve_attrs
+            ) == _exact_outcome(nx, fn, build, partition="part", preserve_attrs=preserve_attrs), (
+                seed,
+                preserve_attrs,
+            )
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [
+        [2**60, 1, 2],  # an int too large for exact f64 arithmetic
+        [1, "2", 3],  # not a number: networkx's own comparison error
+        [1, None, 3],
+    ],
+)
+def test_weights_the_plan_does_not_cover_still_match_networkx(weights):
+    def build(module):
+        graph = module.DiGraph()
+        for (u, v), w in zip([(0, 1), (1, 2), (2, 0)], weights):
+            graph.add_edge(u, v, weight=w)
+        return graph
+
+    assert _exact_outcome(fnx, "maximum_branching", build) == _exact_outcome(
+        nx, "maximum_branching", build
+    )
+
+
+def _networkx_frames(call):
+    root = nx.__file__.rsplit("/", 1)[0]
+    seen = []
+
+    def profile(frame, event, arg):
+        if event == "call" and frame.f_code.co_filename.startswith(root):
+            seen.append(frame.f_code.co_name)
+
+    sys.setprofile(profile)
+    try:
+        call()
+    finally:
+        sys.setprofile(None)
+    return seen
+
+
+@pytest.mark.parametrize("fn", ["maximum_branching", "minimum_branching"])
+def test_default_path_runs_no_networkx_code(fn):
+    graph = fnx.gnp_random_graph(60, 0.1, seed=4, directed=True)
+    rng = random.Random(4)
+    for u, v in graph.edges():
+        graph[u][v]["weight"] = rng.randint(1, 9)
+    frames = _networkx_frames(lambda: getattr(fnx, fn)(graph))
+    assert frames == [], frames[:10]
