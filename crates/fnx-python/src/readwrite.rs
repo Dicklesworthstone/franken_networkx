@@ -143,7 +143,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         node_py_attrs.insert(canonical, d.unbind());
     }
 
-    let mut edge_py_attrs = HashMap::new();
+    let mut edge_py_attrs = rustc_hash::FxHashMap::default();
     for (es_left, es_right, es_attrs) in g.edges_ordered_borrowed() {
         let left = raw_to_canonical
             .get(es_left)
@@ -222,7 +222,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         node_py_attrs.insert(canonical, d.unbind());
     }
 
-    let mut edge_py_attrs = HashMap::new();
+    let mut edge_py_attrs = rustc_hash::FxHashMap::default();
     for (es_left, es_right, es_attrs) in g.edges_ordered_borrowed() {
         let left = raw_to_canonical
             .get(es_left)
@@ -345,7 +345,8 @@ fn digraph_absorb_graph_bidirected(
         nodes_bulk.push((nid.clone(), amap));
     }
 
-    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
+        rustc_hash::FxHashMap::default();
     let mut edges_bulk: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
     for u in &nodes {
         let Some(nbrs) = src.inner.neighbors(u) else {
@@ -488,7 +489,8 @@ fn multigraph_absorb_graph(
         }
         let _ = inner.add_edge_with_key_and_attrs(u, v, 0, amap);
     }
-    let edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>> = HashMap::new();
+    let edge_py_attrs: rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>> =
+        rustc_hash::FxHashMap::default();
 
     let Ok(mut dst) = mg.extract::<PyRefMut<'_, PyMultiGraph>>() else {
         return Ok(false);
@@ -821,7 +823,8 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
     let mut inner = RustGraph::new(CompatibilityMode::Strict);
     let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
     let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
-    let edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    let edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
+        rustc_hash::FxHashMap::default();
     let mut nodes_order: Vec<String> = Vec::new();
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut canon_cache: HashMap<&str, String> = HashMap::new();
@@ -1173,7 +1176,8 @@ fn parse_edgelist_simple_content(
 
     let edge_hint: usize = chunks.iter().map(|chunk| chunk.edges.len()).sum();
     let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::with_capacity(edge_hint);
-    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
+        rustc_hash::FxHashMap::default();
     for (chunk, remap) in chunks.iter().zip(&remaps) {
         for &(local_u, local_v, weight) in &chunk.edges {
             let u = remap[local_u as usize] as usize;

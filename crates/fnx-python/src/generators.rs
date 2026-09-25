@@ -50,7 +50,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -116,7 +116,7 @@ fn report_to_pydigraph(
         inner: graph,
         node_key_map: HashMap::new(),
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_index: HashMap::new(),
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -182,7 +182,7 @@ fn report_to_pymultidigraph(
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_keys: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_remapped_int_key: false,
@@ -317,7 +317,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -375,7 +375,7 @@ fn tuple_lattice_pygraph(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs,
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -568,7 +568,7 @@ pub fn grid_graph_native(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -646,7 +646,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -718,7 +718,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -794,7 +794,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -1027,7 +1027,7 @@ pub fn random_lobster_graph_lazy_int(
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -1130,7 +1130,7 @@ pub fn random_regular_graph_pyset_order(
         lazy_int_node_stop,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: HashMap::new(),
         edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),

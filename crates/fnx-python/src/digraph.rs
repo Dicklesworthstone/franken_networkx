@@ -115,7 +115,7 @@ pub struct PyDiGraph {
     pub(crate) node_key_map: HashMap<String, PyObject>,
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     /// Per-edge Python attrs. Key is (source, target) — NOT canonicalized.
-    pub(crate) edge_py_attrs: HashMap<(String, String), Py<PyDict>>,
+    pub(crate) edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>>,
     /// br-r37-c1-z6uka: per-SUCC-row display objects — nx `_succ[u][v]`
     /// keeps the v object passed in the creating add_edge call. Sparse:
     /// empty for uniform-key graphs (see PyGraph::adj_py_keys).
@@ -515,7 +515,7 @@ pub struct PyMultiDiGraph {
     /// br-r37-c1-z6uka: per-PRED-row display objects.
     pub(crate) pred_py_keys: HashMap<(String, String), PyObject>,
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
-    pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+    pub(crate) edge_py_attrs: rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>>,
     pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
     /// br-paralleladd (bt): see PyMultiGraph::has_remapped_int_key. True once an
     /// int public key is remapped off its internal key, which is the only thing
@@ -1869,7 +1869,8 @@ impl PyMultiDiGraph {
             nodes_bulk.push((node.clone(), rust_attrs));
         }
 
-        let mut edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>> = HashMap::new();
+        let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>> =
+            rustc_hash::FxHashMap::default();
         let mut edges_bulk: Vec<(String, String, usize, AttrMap)> = Vec::new();
         for u in &nodes {
             let Some(neighbors) = source.inner.neighbors(u) else {
@@ -2010,7 +2011,8 @@ impl PyMultiDiGraph {
             nodes_bulk.push((node.clone(), rust_attrs));
         }
 
-        let mut edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>> = HashMap::new();
+        let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>> =
+            rustc_hash::FxHashMap::default();
         let mut edges_bulk: Vec<(String, String, usize, AttrMap)> = Vec::new();
         for u in &nodes {
             let Some(neighbors) = source.inner.successors(u) else {
@@ -3089,7 +3091,7 @@ impl PyMultiDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_keys: HashMap::new(),
             has_remapped_int_key: false,
             graph_attrs: PyDict::new(py).unbind(),
@@ -8878,7 +8880,7 @@ impl PyMultiDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_keys: HashMap::new(),
             has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: crate::deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
@@ -8946,7 +8948,7 @@ impl PyMultiDiGraph {
             node_key_map: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_keys: HashMap::new(),
             // br-paralleladd (bt): cross-type MDG->MG conversion may carry
             // remapped int keys; stay on the always-correct slow auto-key path.
@@ -9229,7 +9231,10 @@ impl PyMultiDiGraph {
             succ_py_keys: PyDiGraph::clone_row_keys(py, &self.succ_py_keys),
             pred_py_keys: HashMap::new(),
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
-            edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
+            edge_py_attrs: rustc_hash::FxHashMap::with_capacity_and_hasher(
+                self.edge_py_attrs.len(),
+                rustc_hash::FxBuildHasher,
+            ),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
             has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -9446,7 +9451,7 @@ impl PyMultiDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_keys: HashMap::new(),
             has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -9540,7 +9545,7 @@ impl PyMultiDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_keys: HashMap::new(),
             has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -9655,7 +9660,7 @@ impl PyMultiDiGraph {
             node_key_map: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_keys: HashMap::new(),
             // br-paralleladd (bt): cross-type MDG->MG conversion may carry
             // remapped int keys; stay on the always-correct slow auto-key path.
@@ -9750,7 +9755,7 @@ impl PyMultiDiGraph {
             succ_py_keys: HashMap::new(),
             pred_py_keys: PyDiGraph::clone_row_keys(py, &self.succ_py_keys),
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
             has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -12609,7 +12614,7 @@ impl PyDiGraph {
             inner: DiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -14801,7 +14806,7 @@ impl PyDiGraph {
                 inner: self.inner.reversed(),
                 node_key_map: HashMap::with_capacity(self.node_key_map.len()),
                 node_py_attrs: HashMap::new(),
-                edge_py_attrs: HashMap::new(),
+                edge_py_attrs: rustc_hash::FxHashMap::default(),
                 edge_py_attrs_by_index: HashMap::new(),
                 succ_py_keys: HashMap::new(),
                 pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys),
@@ -14834,7 +14839,7 @@ impl PyDiGraph {
             inner: DiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
@@ -15088,7 +15093,10 @@ impl PyDiGraph {
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
-            edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
+            edge_py_attrs: rustc_hash::FxHashMap::with_capacity_and_hasher(
+                self.edge_py_attrs.len(),
+                rustc_hash::FxBuildHasher,
+            ),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(),                               // br-r37-c1-z6uka
@@ -15263,8 +15271,11 @@ impl PyDiGraph {
         }
         let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_with_attrs);
 
-        let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> =
-            HashMap::with_capacity(self.edge_py_attrs.len());
+        let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(
+                self.edge_py_attrs.len(),
+                rustc_hash::FxBuildHasher,
+            );
         let source_edges = self.inner.edges_ordered_borrowed();
         let mut edges_with_attrs: Vec<(String, String, AttrMap)> =
             Vec::with_capacity(source_edges.len());
@@ -15334,7 +15345,7 @@ impl PyDiGraph {
             inner: DiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -15441,7 +15452,7 @@ impl PyDiGraph {
                 .induced_subgraph_ordered(&indices, self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
@@ -15530,7 +15541,7 @@ impl PyDiGraph {
             inner: DiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
@@ -19986,7 +19997,7 @@ mod tests {
 
     fn multidigraph_edge_attr_snapshot(
         py: Python<'_>,
-        map: &HashMap<(String, String, usize), Py<PyDict>>,
+        map: &rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>>,
     ) -> PyResult<Vec<(String, String, usize, String)>> {
         let mut snapshot = map
             .iter()

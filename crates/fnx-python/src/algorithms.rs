@@ -11651,7 +11651,7 @@ pub fn stochastic_graph_copy_multidigraph(
         succ_py_keys: PyDiGraph::clone_row_keys(py, &graph.succ_py_keys),
         pred_py_keys: HashMap::new(),
         node_py_attrs,
-        edge_py_attrs: HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         has_remapped_int_key: graph.has_remapped_int_key,
         edge_py_keys: graph
             .edge_py_keys
@@ -16126,7 +16126,10 @@ pub fn multidigraph_transitive_closure(
         succ_py_keys: PyDiGraph::clone_row_keys(py, &mdg.succ_py_keys),
         pred_py_keys: HashMap::new(),
         node_py_attrs: HashMap::with_capacity(mdg.node_py_attrs.len()),
-        edge_py_attrs: HashMap::with_capacity(mdg.edge_py_attrs.len()),
+        edge_py_attrs: rustc_hash::FxHashMap::with_capacity_and_hasher(
+            mdg.edge_py_attrs.len(),
+            rustc_hash::FxBuildHasher,
+        ),
         edge_py_keys: HashMap::with_capacity(mdg.edge_py_keys.len()),
         has_remapped_int_key: mdg.has_remapped_int_key,
         graph_attrs: mdg.graph_attrs.bind(py).copy()?.unbind(),
@@ -16211,7 +16214,7 @@ pub fn transitive_closure(
             inner: result,
             node_key_map,
             node_py_attrs,
-            edge_py_attrs: HashMap::new(),
+            edge_py_attrs: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
@@ -26253,7 +26256,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26381,7 +26384,7 @@ pub fn ego_graph_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26530,7 +26533,7 @@ pub fn full_join_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26578,7 +26581,7 @@ pub fn identified_nodes_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26685,7 +26688,7 @@ pub fn dedensify_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -26866,7 +26869,7 @@ pub fn quotient_graph_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -27441,7 +27444,7 @@ pub fn gomory_hu_tree_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -27508,7 +27511,7 @@ pub fn snap_aggregation_rust(
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
-        edge_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: std::collections::HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
@@ -33367,7 +33370,7 @@ mod tests {
                 inner: MultiGraph::new(CompatibilityMode::Hardened),
                 node_key_map: HashMap::new(),
                 node_py_attrs: HashMap::new(),
-                edge_py_attrs: HashMap::new(),
+                edge_py_attrs: rustc_hash::FxHashMap::default(),
                 adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
                 edge_py_keys: HashMap::new(),
                 edge_mirrors_stale: false,

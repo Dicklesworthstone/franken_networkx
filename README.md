@@ -2164,7 +2164,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("franken_networkx").setLevel(logging.DEBUG)
 ```
 
-Logging is sparse: 17 Rust call sites in all (a few shortest-path kernels at INFO, some graph mutations at DEBUG). There is no `tracing` instrumentation and `RUST_LOG` is not read; configure levels through Python's `logging`. The backend dispatch layer does not log dispatch decisions today.
+Logging is sparse: 11 Rust call sites in all (ten in shortest-path kernels at INFO, `add_node` at DEBUG). `add_edge`, `remove_edge` and `remove_node` do not log: resolving the logger cost about 500 instructions per call on those paths. There is no `tracing` instrumentation and `RUST_LOG` is not read; configure levels through Python's `logging`. The backend dispatch layer does not log dispatch decisions today.
 
 ### Container image notes
 
