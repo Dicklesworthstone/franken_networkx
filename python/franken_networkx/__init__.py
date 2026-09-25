@@ -29155,6 +29155,11 @@ def _read_edgelist_in_mode(path, mode, *, comments, delimiter, create_using, nod
             raise OSError(f"readwrite `read_edgelist` failed closed: {reason}")
         if record is not None:
             record("read_edgelist", reason)
+        # nro4w.10: the ledger reaches only callers who query it; a hardened
+        # recovery also arrives at the call site, as the native readers' do.
+        import warnings as _warnings
+
+        _warnings.warn(reason, RuntimeWarning, stacklevel=2)
 
     def _consume(lines):
         for lineno, line in enumerate(lines, 1):

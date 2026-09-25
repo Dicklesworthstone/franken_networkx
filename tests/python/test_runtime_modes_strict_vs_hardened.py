@@ -492,3 +492,25 @@ def test_strict_and_clean_hardened_reads_emit_no_recovery_warnings():
         for mode in ("strict", "hardened"):
             G = fnx.read_graphml(io.BytesIO(clean), mode=mode)
             assert G.nodes["a"]["z"] == "1+2j"
+
+
+def test_hardened_read_edgelist_recovery_warns_at_the_call_site(tmp_path):
+    """nro4w.10, the edge-list reader: its hardened recoveries run in Python
+    and reached only the decision ledger, never the caller. A malformed line
+    must now warn, naming the line, and a clean hardened read of fnx's own
+    write_edgelist output must not."""
+    import warnings
+
+    bad = tmp_path / "bad.edgelist"
+    bad.write_text("a b {'weight': 1}\nthis line is {not valid\nb c {'weight': 2}\n")
+    with pytest.warns(RuntimeWarning, match="line 2 malformed"):
+        G = fnx.read_edgelist(bad, mode="hardened")
+    assert sorted(G.edges()) == [("a", "b"), ("b", "c")]
+
+    good = tmp_path / "good.edgelist"
+    H = fnx.Graph()
+    H.add_edge("a", "b", weight=1)
+    fnx.write_edgelist(H, good)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        assert fnx.read_edgelist(good, mode="hardened").number_of_edges() == 1
