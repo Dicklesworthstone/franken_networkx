@@ -11637,13 +11637,13 @@ pub fn stochastic_graph_copy_multidigraph(
 
     let new_graph = PyMultiDiGraph {
         graph_id: crate::digraph::next_multidigraph_id(),
-        edge_py_attrs_by_index: HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
         pred_key_rows: None,
         edge_keydict_cache: None,
         live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
-        edge_keydict_by_index: HashMap::new(),
+        edge_keydict_by_index: rustc_hash::FxHashMap::default(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner,
@@ -16112,13 +16112,13 @@ pub fn multidigraph_transitive_closure(
 
     let mut result = PyMultiDiGraph {
         graph_id: crate::digraph::next_multidigraph_id(),
-        edge_py_attrs_by_index: HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
         pred_key_rows: None,
         edge_keydict_cache: None,
         live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
-        edge_keydict_by_index: HashMap::new(),
+        edge_keydict_by_index: rustc_hash::FxHashMap::default(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner,
@@ -16218,7 +16218,7 @@ pub fn transitive_closure(
             node_key_map,
             node_py_attrs,
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_attrs_by_index: HashMap::new(),
+            edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
@@ -26261,13 +26261,13 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -26389,13 +26389,13 @@ pub fn ego_graph_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -26538,13 +26538,13 @@ pub fn full_join_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -26586,13 +26586,13 @@ pub fn identified_nodes_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -26693,13 +26693,13 @@ pub fn dedensify_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -26874,13 +26874,13 @@ pub fn quotient_graph_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -27449,13 +27449,13 @@ pub fn gomory_hu_tree_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -27516,13 +27516,13 @@ pub fn snap_aggregation_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
-        edge_py_attrs_by_index: std::collections::HashMap::new(),
+        edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
-        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -33368,8 +33368,8 @@ mod tests {
         ensure_python();
         Python::attach(|py| {
             let mut multigraph = PyMultiGraph {
-                edge_keydict_by_index: HashMap::new(),
-                edge_py_attrs_by_index: HashMap::new(),
+                edge_keydict_by_index: rustc_hash::FxHashMap::default(),
+                edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
                 inner: MultiGraph::new(CompatibilityMode::Hardened),
                 node_key_map: HashMap::new(),
                 node_py_attrs: HashMap::new(),
