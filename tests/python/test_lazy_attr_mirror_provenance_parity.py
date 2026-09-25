@@ -279,3 +279,136 @@ def test_nan_attribute_keeps_the_callers_object():
         data = graph[0][1]
         outcomes[name] = (data["w"] is nan, data == {"w": nan})
     assert outcomes["fnx"] == outcomes["nx"] == (True, True)
+
+
+def _lazy_weighted_with(lib, cls, extra):
+    graph = getattr(lib, cls)()
+    ring = [(i, (i + 1) % 12, float(i % 4) + 1.5) for i in range(12)]
+    graph.add_weighted_edges_from(ring + extra)
+    return graph
+
+
+def _outcome(call):
+    try:
+        return ("ok", call())
+    except Exception as exc:  # noqa: BLE001 - the raise is the contract
+        return (type(exc).__name__, exc.args)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_dijkstra_sees_a_negative_weight_held_only_in_the_store(cls):
+    """The delegation check scanned only the Python mirrors, so a negative
+    weight on a lazily mirrored DiGraph ran the native kernel (distance 1.0)
+    where networkx raises."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = _lazy_weighted_with(lib, cls, [(20, 21, -7.0), (21, 20, 3.0)])
+        outcomes[name] = _outcome(lambda: lib.single_source_dijkstra_path_length(graph, 20))
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_floyd_warshall_numpy_reads_weights_held_only_in_the_store(cls):
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = _lazy_weighted_with(lib, cls, [])
+        outcomes[name] = lib.floyd_warshall_numpy(graph).tolist()
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
+# THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
+# graphs with IDENTICAL content - one built edge by edge (each edge gets an
+# eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the
+# attributes live only in the native store) - must give identical results. A
+# difference is a reader that trusts the mirror alone. This found the Dijkstra
+# delegation check and floyd_warshall_numpy (br-r37-c1-qry3d) and the spanning
+# tree builder (br-r37-c1-7ila9); networkx is not needed as an oracle here.
+import inspect as _inspect
+import itertools as _itertools
+import math as _math
+
+_PROVENANCE_RING = [(i, (i + 1) % 24, float(i % 5) + 1.5) for i in range(24)]
+_PROVENANCE_CHORDS = [(i, (i + 7) % 24, float(i % 3) + 2.25) for i in range(0, 24, 2)]
+_PROVENANCE_EDGE_SETS = {
+    "positive": _PROVENANCE_RING + _PROVENANCE_CHORDS,
+    "negative": _PROVENANCE_RING + _PROVENANCE_CHORDS + [(30, 31, -7.0), (31, 30, 3.0)],
+}
+_PROVENANCE_FILL = {
+    "source": 0, "target": 12, "s": 0, "t": 12, "u": 0, "v": 12, "n": 0, "node": 0,
+    "k": 2, "seed": 1, "cutoff": None, "sources": [0, 3], "targets": [12],
+    "max_iter": 200, "nodelist": None, "weight": "weight", "capacity": "weight",
+    "nbunch": None, "normalized": True, "ebunch": [(0, 12), (3, 9)],
+}
+
+
+def _provenance_graph(cls, edges, lazy):
+    graph = getattr(fnx, cls)()
+    if lazy:
+        graph.add_weighted_edges_from(edges)
+    else:
+        for u, v, w in edges:
+            graph.add_edge(u, v, weight=w)
+    return graph
+
+
+def _provenance_norm(value, depth=0):
+    if depth > 4:
+        return repr(type(value))
+    if isinstance(value, float):
+        return "nan" if _math.isnan(value) else round(value, 6)
+    if isinstance(value, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)):
+        return (sorted(map(repr, value.nodes(data=True))), sorted(map(repr, value.edges(data=True))))
+    if isinstance(value, dict):
+        return sorted(((repr(k), _provenance_norm(v, depth + 1)) for k, v in value.items()), key=repr)
+    if isinstance(value, (list, tuple)):
+        return [_provenance_norm(v, depth + 1) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(repr(_provenance_norm(v, depth + 1)) for v in value)
+    if hasattr(value, "toarray"):
+        return _provenance_norm(value.toarray().tolist(), depth + 1)
+    if hasattr(value, "tolist"):
+        return _provenance_norm(value.tolist(), depth + 1)
+    if _inspect.isgenerator(value) or type(value).__name__ in ("generator", "map", "zip"):
+        return _provenance_norm(list(_itertools.islice(value, 200)), depth + 1)
+    return repr(value)
+
+
+def _provenance_call(fn, graph):
+    kwargs = {}
+    for param in list(_inspect.signature(fn).parameters.values())[1:]:
+        if param.name in _PROVENANCE_FILL:
+            kwargs[param.name] = _PROVENANCE_FILL[param.name]
+        elif param.default is _inspect.Parameter.empty and param.kind in (
+            param.POSITIONAL_OR_KEYWORD,
+            param.KEYWORD_ONLY,
+        ):
+            return None  # needs an argument this contract cannot invent
+    try:
+        return ("ok", _provenance_norm(fn(graph, **kwargs)))
+    except Exception as exc:  # noqa: BLE001 - the raise is part of the answer
+        return ("raise", type(exc).__name__, str(exc)[:80])
+
+
+def _weighted_public_callables():
+    names = []
+    for name in sorted(dir(fnx)):
+        fn = getattr(fnx, name)
+        if name.startswith("_") or not callable(fn) or isinstance(fn, type):
+            continue
+        try:
+            parameters = _inspect.signature(fn).parameters
+        except (TypeError, ValueError):
+            continue
+        if "weight" in parameters or "capacity" in parameters:
+            names.append(name)
+    return names
+
+
+@pytest.mark.parametrize("name", _weighted_public_callables())
+def test_weighted_callable_does_not_depend_on_mirror_provenance(name):
+    fn = getattr(fnx, name)
+    for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        for label, edges in _PROVENANCE_EDGE_SETS.items():
+            eager = _provenance_call(fn, _provenance_graph(cls, edges, lazy=False))
+            lazy = _provenance_call(fn, _provenance_graph(cls, edges, lazy=True))
+            assert eager == lazy, f"{name} on {cls} ({label} weights): eager {eager!r:.160} lazy {lazy!r:.160}"

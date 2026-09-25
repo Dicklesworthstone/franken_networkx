@@ -4701,6 +4701,46 @@ fn stored_dijkstra_weight_flags(
     }
 }
 
+/// Fold the weights of the edges that have NO Python mirror into the flags the
+/// mirror scan computed. Such an edge (the lazy mirror every attributed batch
+/// and reader leaves) holds its attributes only in the native store, so a
+/// mirror-only scan never saw its weight: a DiGraph built with
+/// add_weighted_edges_from ran the native kernel on a negative weight instead
+/// of delegating, and returned a wrong distance where networkx raises.
+///
+/// `has_mirror` answers for one edge; a graph whose every edge is mirrored is
+/// skipped by the caller, so the eager case pays nothing.
+fn fold_store_only_dijkstra_weights<'a>(
+    edges: impl IntoIterator<Item = (&'a str, &'a str, &'a AttrMap)>,
+    has_mirror: impl Fn(&str, &str) -> bool,
+    weight_attr: &str,
+    flags: &mut (bool, bool, bool),
+    int_magnitude_total: &mut u128,
+) {
+    use fnx_runtime::CgseValue;
+    for (u, v, attrs) in edges {
+        if has_mirror(u, v) {
+            continue;
+        }
+        match attrs.get(weight_attr) {
+            Some(CgseValue::Int(value)) => {
+                flags.0 |= *value < 0;
+                *int_magnitude_total =
+                    int_magnitude_total.saturating_add(u128::from(value.unsigned_abs()));
+            }
+            Some(CgseValue::Float(value)) => {
+                flags.0 |= *value < 0.0;
+                flags.1 |= !value.is_finite();
+            }
+            Some(CgseValue::Bool(_)) => {
+                *int_magnitude_total = int_magnitude_total.saturating_add(1);
+            }
+            Some(CgseValue::String(_) | CgseValue::Map(_)) => flags.2 = true,
+            None => {}
+        }
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (g, weight_attr, require_exact_string_nodes=false))]
 pub fn check_dijkstra_edge_weights_fast(
@@ -4742,6 +4782,17 @@ pub fn check_dijkstra_edge_weights_fast(
                     break;
                 }
             }
+            if pg.edge_py_attrs.len() < pg.inner.edge_count() {
+                let mut flags = (has_negative, has_nonfinite, has_nonnumeric);
+                fold_store_only_dijkstra_weights(
+                    pg.inner.edges_ordered_borrowed(),
+                    |u, v| pg.edge_py_attrs.contains_key(&PyGraph::edge_key(u, v)),
+                    weight_attr,
+                    &mut flags,
+                    &mut int_magnitude_total,
+                );
+                (has_negative, has_nonfinite, has_nonnumeric) = flags;
+            }
             has_nonfinite |= int_magnitude_total > MAX_EXACT_F64_INT;
             Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
         }
@@ -4774,6 +4825,17 @@ pub fn check_dijkstra_edge_weights_fast(
                 if has_negative && has_nonfinite && has_nonnumeric {
                     break;
                 }
+            }
+            if dg.edge_py_attrs.len() < dg.inner.edge_count() {
+                let mut flags = (has_negative, has_nonfinite, has_nonnumeric);
+                fold_store_only_dijkstra_weights(
+                    dg.inner.edges_ordered_borrowed(),
+                    |u, v| dg.edge_py_attrs.contains_key(&PyDiGraph::edge_key(u, v)),
+                    weight_attr,
+                    &mut flags,
+                    &mut int_magnitude_total,
+                );
+                (has_negative, has_nonfinite, has_nonnumeric) = flags;
             }
             has_nonfinite |= int_magnitude_total > MAX_EXACT_F64_INT;
             Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))

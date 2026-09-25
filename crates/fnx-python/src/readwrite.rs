@@ -3615,13 +3615,29 @@ fn floyd_warshall_dense_inplace(dist: &mut [f64], n: usize) {
 /// 1.0 when the key is absent (matches nx `to_numpy_array`'s `data.get(weight,
 /// 1)`); a present-but-non-numeric value raises (as nx would when assembling the
 /// float matrix).
-fn fw_edge_weight(py: Python<'_>, attrs: Option<&Py<PyDict>>, weight: &str) -> PyResult<f64> {
+/// The edge's weight from its Python mirror when it has one, else from the
+/// native store: an edge without a mirror (the lazy mirror every attributed
+/// batch and reader leaves) keeps its attributes only there, and reading the
+/// mirror alone made `floyd_warshall_numpy` treat such a graph as unweighted.
+/// A stored value goes through its Python form so a non-numeric weight raises
+/// exactly as a mirrored one does.
+fn fw_edge_weight(
+    py: Python<'_>,
+    attrs: Option<&Py<PyDict>>,
+    stored: Option<&fnx_classes::AttrMap>,
+    weight: &str,
+) -> PyResult<f64> {
     match attrs {
         Some(d) => match d.bind(py).get_item(weight)? {
             Some(val) => val.extract::<f64>(),
             None => Ok(1.0),
         },
-        None => Ok(1.0),
+        None => match stored.and_then(|stored| stored.get(weight)) {
+            Some(value) => crate::cgse_value_to_py(py, value)?
+                .bind(py)
+                .extract::<f64>(),
+            None => Ok(1.0),
+        },
     }
 }
 
@@ -3662,7 +3678,12 @@ pub fn floyd_warshall_dense(
                             continue;
                         }
                         let ek = PyGraph::edge_key(u, v);
-                        let w = fw_edge_weight(py, pg.edge_py_attrs.get(&ek), weight)?;
+                        let mirror = pg.edge_py_attrs.get(&ek);
+                        let stored = mirror
+                            .is_none()
+                            .then(|| pg.inner.edge_attrs(u, v))
+                            .flatten();
+                        let w = fw_edge_weight(py, mirror, stored, weight)?;
                         let cell = &mut dist[iu * n + iv];
                         if w < *cell {
                             *cell = w;
@@ -3693,7 +3714,12 @@ pub fn floyd_warshall_dense(
                             continue;
                         }
                         let ek = PyDiGraph::edge_key(u, v);
-                        let w = fw_edge_weight(py, dg.edge_py_attrs.get(&ek), weight)?;
+                        let mirror = dg.edge_py_attrs.get(&ek);
+                        let stored = mirror
+                            .is_none()
+                            .then(|| dg.inner.edge_attrs(u, v))
+                            .flatten();
+                        let w = fw_edge_weight(py, mirror, stored, weight)?;
                         let cell = &mut dist[iu * n + iv];
                         if w < *cell {
                             *cell = w;
