@@ -2022,6 +2022,11 @@ pub(crate) struct NodeIndexLookupCache {
     /// Integer subclasses stay on the canonical path because their Python
     /// equality or hash can be observable.
     missing_exact_int_keys: Py<PySet>,
+    /// sfq4w.3: exact built-in int key -> node position, for present nodes
+    /// only. A Rust map: probing `entries` cost a Python dict lookup plus a
+    /// conversion of the stored index object, ~157 Ir per endpoint of
+    /// `has_edge`. Bounded by the node set and cleared with the rest.
+    exact_int_positions: std::sync::Mutex<rustc_hash::FxHashMap<i64, usize>>,
 }
 
 impl NodeIndexLookupCache {
@@ -2035,7 +2040,14 @@ impl NodeIndexLookupCache {
             missing_exact_int_keys: PySet::empty(py)
                 .expect("an empty set is always constructible")
                 .unbind(),
+            exact_int_positions: std::sync::Mutex::default(),
         }
+    }
+
+    fn exact_int_positions(&self) -> std::sync::MutexGuard<'_, rustc_hash::FxHashMap<i64, usize>> {
+        self.exact_int_positions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn invalidate_if_stale(&self, py: Python<'_>, nodes_seq: u64) {
@@ -2043,8 +2055,34 @@ impl NodeIndexLookupCache {
             self.entries.bind(py).clear();
             self.present_keys.bind(py).clear();
             self.missing_exact_int_keys.bind(py).clear();
+            self.exact_int_positions().clear();
             self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
         }
+    }
+
+    /// sfq4w.3: the positions of the nodes exact built-in ints name, from the
+    /// Rust map under one lock, or from `resolve` (the canonical lookup) on a
+    /// first probe. `None` when absent; absent keys are not remembered, so a
+    /// stream of missing probes cannot grow the map past the node set.
+    /// Resolving a later key when an earlier one is absent is unobservable: no
+    /// Python hash runs for an exact int.
+    fn exact_int_positions_of<const N: usize>(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        keys: [i64; N],
+        resolve: impl Fn(i64) -> Option<usize>,
+    ) -> [Option<usize>; N] {
+        self.invalidate_if_stale(py, nodes_seq);
+        let mut positions = self.exact_int_positions();
+        keys.map(|key| {
+            if let Some(&position) = positions.get(&key) {
+                return Some(position);
+            }
+            let position = resolve(key)?;
+            positions.insert(key, position);
+            Some(position)
+        })
     }
 
     fn get(
@@ -2054,11 +2092,14 @@ impl NodeIndexLookupCache {
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
         self.invalidate_if_stale(py, nodes_seq);
-        self.entries
+        // sfq4w.3: the stored index is always a non-negative exact int, so
+        // read it through the signed conversion: `extract::<usize>` goes
+        // through `PyLong_AsUnsignedLongLong`, which cost 160 Ir per probe.
+        Ok(self
+            .entries
             .bind(py)
             .get_item(key)?
-            .map(|index| index.extract::<usize>())
-            .transpose()
+            .and_then(|index| exact_int_node_index(&index)))
     }
 
     fn insert(&self, py: Python<'_>, public_key: &Bound<'_, PyAny>, index: usize) -> PyResult<()> {
@@ -2117,6 +2158,7 @@ impl NodeIndexLookupCache {
         self.entries.bind(py).clear();
         self.present_keys.bind(py).clear();
         self.missing_exact_int_keys.bind(py).clear();
+        self.exact_int_positions().clear();
         self.nodes_seq.store(u64::MAX, Ordering::Relaxed);
     }
 }
@@ -3298,7 +3340,9 @@ pub(crate) struct PyGraph {
     /// borrowed-canonical probe copies and hashes the key's bytes, making a hit
     /// O(node key length). Holds the SAME dict object under both keys, stamped
     /// with `nodes_seq` on the identical argument the twin above documents.
-    pub(crate) neighbor_key_rows_by_index: HashMap<usize, (u64, Py<PyDict>)>,
+    /// sfq4w.3: FxHash, as the core's maps are; SipHash on the `usize` key
+    /// was 146 of the 940 Ir of a `G.neighbors(n)` call.
+    pub(crate) neighbor_key_rows_by_index: rustc_hash::FxHashMap<usize, (u64, Py<PyDict>)>,
     /// Graph-level attribute dict.
     pub(crate) graph_attrs: Py<PyDict>,
     /// Monotonic counter bumped on every node add/remove (br-r37-c1-39d82).
@@ -3503,8 +3547,20 @@ impl PyGraph {
         py: Python<'_>,
         node: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyDict>> {
-        if node_key_can_use_index_lookaside(node)
-            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+        // sfq4w.3: an exact int resolves through the lookaside's Rust int
+        // map, not its Python dict (~300 Ir of a 940 Ir call); resolved once
+        // here and reused by both inserts below.
+        let index = if node.is_exact_instance_of::<PyInt>()
+            && let Ok(key) = node.extract::<i64>()
+        {
+            let [index] = self.cached_exact_int_node_indices(py, [key]);
+            index
+        } else if node_key_can_use_index_lookaside(node) {
+            self.cached_exact_string_node_index(py, node)?
+        } else {
+            None
+        };
+        if let Some(index) = index
             && let Some((seq, row)) = self.neighbor_key_rows_by_index.get(&index)
             && *seq == self.nodes_seq
         {
@@ -3515,9 +3571,7 @@ impl PyGraph {
                 .get(canonical)
                 .map(|row| row.clone_ref(py))
         })? {
-            if node_key_can_use_index_lookaside(node)
-                && let Some(index) = self.cached_exact_string_node_index(py, node)?
-            {
+            if let Some(index) = index {
                 let seq = self.nodes_seq;
                 self.neighbor_key_rows_by_index
                     .insert(index, (seq, row.clone_ref(py)));
@@ -3541,9 +3595,7 @@ impl PyGraph {
             row.set_item(py_neighbor, py.None())?;
         }
         let row = row.unbind();
-        if node_key_can_use_index_lookaside(node)
-            && let Some(index) = self.cached_exact_string_node_index(py, node)?
-        {
+        if let Some(index) = index {
             let seq = self.nodes_seq;
             self.neighbor_key_rows_by_index
                 .insert(index, (seq, row.clone_ref(py)));
@@ -4152,7 +4204,7 @@ impl PyGraph {
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -4236,6 +4288,20 @@ impl PyGraph {
         self.has_edge_node_index_cache
             .insert(py, public_key.bind(py), index)?;
         Ok(Some(index))
+    }
+
+    /// sfq4w.3: the positions of the nodes exact built-in ints name (an int's
+    /// canonical key is its bare decimal), through the lookaside's Rust map.
+    fn cached_exact_int_node_indices<const N: usize>(
+        &self,
+        py: Python<'_>,
+        keys: [i64; N],
+    ) -> [Option<usize>; N] {
+        self.has_edge_node_index_cache
+            .exact_int_positions_of(py, self.nodes_seq, keys, |key| {
+                let mut buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+                self.inner.get_node_index(write_int_decimal(&mut buf, key))
+            })
     }
 
     #[inline]
@@ -16555,24 +16621,39 @@ impl PyGraph {
         // `G.has_edge("missing", Unhashable())` is False in nx, and hashing
         // both up front made it a TypeError here. The v-side guard is applied
         // at the general path below, after the u lookup.
-        require_hashable_node_key(u)?;
-        // cc-hasedgeintidx: identity-int fast path. `G.has_edge(u, v)` on int nodes
-        // otherwise pays 2 `i.to_string()` heap allocs + 2 String-hash
-        // `get_index_of` (vs nx's 2 int-dict lookups). When u and v are EXACT ints
-        // (bool excluded: it's an int subclass with canonical "0"/"1") that fit in
-        // usize AND the node stored at each index IS that int (verified per call —
-        // any removal / re-add / remap that broke index==value fails the check and
-        // falls through), resolve the edge straight by index: no alloc, no String
-        // hash. `node_index_matches_int` is O(1) index access + a no-alloc parse.
+        //
+        // cc-hasedgeintidx / sfq4w.3: identity-int fast path. When every node's
+        // name is the decimal of its position (int nodes added 0, 1, 2, ...), an
+        // EXACT int (bool excluded: it is an int subclass) is its own position,
+        // or absent when it is past the last one: one index probe, no String.
+        // An exact int's hash cannot raise, so this runs before the guard. The
+        // property is kept current by the node table, so a graph whose int
+        // nodes arrived out of order goes straight to the lookaside below
+        // instead of parsing one node name per endpoint on every call only to
+        // find it is not its position.
         if u.is_exact_instance_of::<PyInt>()
             && v.is_exact_instance_of::<PyInt>()
-            && let Ok(iu) = u.extract::<usize>()
-            && let Ok(iv) = v.extract::<usize>()
-            && self.inner.node_index_matches_int(iu)
-            && self.inner.node_index_matches_int(iv)
+            && self.inner.node_names_are_positions()
+            && let Some(iu) = exact_int_node_index(u)
+            && let Some(iv) = exact_int_node_index(v)
         {
-            return Ok(self.inner.has_edge_by_indices(iu, iv));
+            let n = self.inner.node_count();
+            return Ok(iu < n && iv < n && self.inner.has_edge_by_indices(iu, iv));
         }
+        // sfq4w.3: exact ints on any other graph resolve through the
+        // lookaside's Rust int map rather than a Python dict probe. An absent
+        // endpoint answers False, as networkx does.
+        if u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(ku) = u.extract::<i64>()
+            && let Ok(kv) = v.extract::<i64>()
+        {
+            return Ok(match self.cached_exact_int_node_indices(py, [ku, kv]) {
+                [Some(ui), Some(vi)] => self.inner.has_edge_by_indices(ui, vi),
+                _ => false,
+            });
+        }
+        require_hashable_node_key(u)?;
         // Exact strings are the dominant edge-view probe shape.  Reuse the
         // same value-keyed Python cache as PyMultiGraph so equal, distinct
         // strings resolve straight to compact indices without rebuilding two
@@ -17492,7 +17573,7 @@ impl PyGraph {
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -17707,7 +17788,7 @@ impl PyGraph {
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -17797,7 +17878,7 @@ impl PyGraph {
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -17926,7 +18007,7 @@ impl PyGraph {
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -18014,7 +18095,7 @@ impl PyGraph {
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -19642,7 +19723,7 @@ impl PyGraph {
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             node_py_attrs: self
                 .node_py_attrs
                 .iter()

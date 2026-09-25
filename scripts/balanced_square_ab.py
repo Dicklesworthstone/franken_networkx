@@ -2858,7 +2858,57 @@ def workload_multi_nbunch_iter(reps: int):
     return build, ops
 
 
+def workload_claim_has_edge_neighbors(reps: int):
+    """sfq4w.3: `has_edge` on exact-int endpoints and `list(G.neighbors(n))`,
+    `Graph` and `DiGraph`.
+
+    Two node orders, because since sfq4w.3 `has_edge` takes different paths
+    on them: nodes added 0, 1, 2, ... ("ordered": every name is its position,
+    so an int IS its position) and nodes arriving in edge order ("unordered":
+    the lookaside's Rust int map). Present edges, and random pairs (mostly
+    absent). The probe ints are the fixture's own objects in both arms.
+    Control: `len(G)`, which no edge lookup can touch.
+    """
+    nodes = 20000
+    edges = list(nx.barabasi_albert_graph(nodes, 4, seed=1).edges())
+
+    def build(module):
+        graphs = {}
+        for cls in ("Graph", "DiGraph"):
+            for order in ("ordered", "unordered"):
+                graph = getattr(module, cls)()
+                if order == "ordered":
+                    graph.add_nodes_from(range(nodes))
+                graph.add_edges_from(edges)
+                graphs[(cls, order)] = graph
+        # The harness gates on one graph; the fixture carries all four.
+        return graphs[("Graph", "unordered")], graphs
+
+    def ops(_graph, graphs):
+        rng = random.Random(3)
+        present = [edges[rng.randrange(len(edges))] for _ in range(reps)]
+        pairs = [(rng.randrange(nodes), rng.randrange(nodes)) for _ in range(reps)]
+        table = {}
+        for (cls, order), graph in graphs.items():
+            name = "G" if cls == "Graph" else "D"
+            table[f"{name}.has_edge {order} present"] = lambda g=graph: sum(
+                1 for u, v in present if g.has_edge(u, v)
+            )
+            table[f"{name}.has_edge {order} random"] = lambda g=graph: sum(
+                1 for u, v in pairs if g.has_edge(u, v)
+            )
+            table[f"list({name}.neighbors(n)) {order}"] = lambda g=graph: sum(
+                len(list(g.neighbors(u))) for u, _ in pairs
+            )
+        control = graphs[("Graph", "unordered")]
+        table["CONTROL len(G)"] = lambda: sum(len(control) for _ in range(reps))
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
+    "claim-has-edge-neighbors": workload_claim_has_edge_neighbors,
     "view-reads": workload_view_reads,
     "multi-nbunch-iter": workload_multi_nbunch_iter,
     "undirected-nbunch": workload_undirected_nbunch,

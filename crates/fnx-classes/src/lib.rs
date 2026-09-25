@@ -105,6 +105,30 @@ pub(crate) struct NodeOrder {
     pub(crate) names: Vec<Option<String>>,
     live: usize,
     ranks: std::sync::OnceLock<NodeRanks>,
+    /// sfq4w.3: every node's name is the decimal of its position (int nodes
+    /// added as 0, 1, 2, ...). Computed on first use, then kept current: an
+    /// append checks its one name, a removal of any but the last node clears it.
+    names_are_positions: std::sync::OnceLock<bool>,
+}
+
+/// `name` is exactly the decimal spelling of `n` (no sign, no leading zero).
+fn is_decimal_of(name: &str, mut n: usize) -> bool {
+    let digits = name.as_bytes();
+    let mut i = digits.len();
+    loop {
+        if i == 0 {
+            return false;
+        }
+        i -= 1;
+        #[allow(clippy::cast_possible_truncation)]
+        if digits[i] != b'0' + (n % 10) as u8 {
+            return false;
+        }
+        n /= 10;
+        if n == 0 {
+            return i == 0;
+        }
+    }
 }
 
 /// Rank/select over the live entries of a node table: a Fenwick tree of 0/1
@@ -249,6 +273,11 @@ impl NodeOrder {
         debug_assert!(!self.slots.contains_key(&name));
         let slot = self.names.len();
         self.slots.insert(name.clone(), slot);
+        if let Some(flag) = self.names_are_positions.get_mut()
+            && *flag
+        {
+            *flag = is_decimal_of(&name, self.live);
+        }
         self.names.push(Some(name));
         if let Some(ranks) = self.ranks.get_mut() {
             ranks.push(true);
@@ -273,8 +302,20 @@ impl NodeOrder {
             if let Some(ranks) = self.ranks.get_mut() {
                 ranks.remove(slot);
             }
+            // Every later node moved down a position.
+            self.names_are_positions = std::sync::OnceLock::from(false);
         }
         Some((slot, popped))
+    }
+
+    /// sfq4w.3: is every node's name the decimal of its position? O(V) on
+    /// first use, O(1) after (see the field).
+    pub(crate) fn names_are_positions(&self) -> bool {
+        *self.names_are_positions.get_or_init(|| {
+            self.keys()
+                .enumerate()
+                .all(|(position, name)| is_decimal_of(name, position))
+        })
     }
 
     fn ranks(&self) -> &NodeRanks {
@@ -1393,6 +1434,14 @@ impl Graph {
         self.node_order
             .get_index(idx)
             .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
+    }
+
+    /// sfq4w.3: every node's name is the decimal of its position, so an int
+    /// key `k` IS the node at position `k` when `k < node_count()` and is
+    /// absent otherwise. O(V) on first use, kept current in O(1) after.
+    #[must_use]
+    pub fn node_names_are_positions(&self) -> bool {
+        self.node_order.names_are_positions()
     }
 
     /// cc-hasedgeintidx: undirected edge existence by node INDEX (canonical
@@ -10405,6 +10454,84 @@ mod tests {
         assert_eq!(order.remove(&last).map(|(_, popped)| popped), Some(true));
         assert!(order.is_dense());
         check(&order, &model);
+    }
+
+    /// sfq4w.3: `names_are_positions` is never true when some name is not the
+    /// decimal of its position, through random appends and removals, and a
+    /// fresh table computes it exactly. `is_decimal_of` accepts only the
+    /// canonical spelling.
+    #[test]
+    fn names_are_positions_is_never_true_when_a_name_is_off_position() {
+        use super::{NodeOrder, is_decimal_of};
+        assert!(is_decimal_of("0", 0));
+        assert!(is_decimal_of("10", 10));
+        assert!(is_decimal_of(&usize::MAX.to_string(), usize::MAX));
+        for (name, n) in [
+            ("", 0),
+            ("00", 0),
+            ("01", 1),
+            ("+1", 1),
+            ("-1", 1),
+            ("1 ", 1),
+            ("11", 1),
+            ("1", 11),
+            ("str:1:1", 1),
+        ] {
+            assert!(!is_decimal_of(name, n), "{name:?} spelled {n}");
+        }
+        let truth = |names: &[String]| {
+            names
+                .iter()
+                .enumerate()
+                .all(|(position, name)| *name == position.to_string())
+        };
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        for round in 0..200 {
+            let mut order = NodeOrder::default();
+            let mut model: Vec<String> = Vec::new();
+            for step in 0..40 {
+                match next(5) {
+                    // Mostly the next position, sometimes any other name.
+                    0..=2 => {
+                        let name = if next(4) == 0 {
+                            format!("{}", next(50))
+                        } else {
+                            model.len().to_string()
+                        };
+                        if !order.contains_key(&name) {
+                            order.push(name.clone());
+                            model.push(name);
+                        }
+                    }
+                    3 if !model.is_empty() => {
+                        let victim = model.pop().expect("non-empty");
+                        order.remove(&victim);
+                    }
+                    4 if !model.is_empty() => {
+                        let victim = model.remove(next(model.len()));
+                        order.remove(&victim);
+                    }
+                    _ => {}
+                }
+                if step % 3 == 0 {
+                    let flag = order.names_are_positions();
+                    assert!(
+                        !flag || truth(&model),
+                        "round {round} step {step}: {model:?}"
+                    );
+                    assert_eq!(
+                        NodeOrder::from_names(model.clone()).names_are_positions(),
+                        truth(&model)
+                    );
+                }
+            }
+        }
     }
 
     /// yr2oc.1: the multigraph node table against a plain insertion-ordered

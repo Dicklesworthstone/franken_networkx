@@ -7,6 +7,8 @@ node identity, hash-equal collapsing (1 / 1.0 / True, 0 / False), distinctness
 of int vs str, large ints, negatives, floats, and tuple keys all match nx.
 """
 
+import random
+
 import networkx as nx
 import pytest
 
@@ -357,3 +359,73 @@ def test_range_fast_path_materializes_int_keys_for_native_algorithms():
     assert dict(fnx.all_pairs_shortest_path_length(Gf)) == dict(
         nx.all_pairs_shortest_path_length(Gx)
     )
+
+
+# sfq4w.3: `has_edge` resolves EXACT-int endpoints without building a canonical
+# String: by position while every node's name is its position (int nodes added
+# 0, 1, 2, ...), otherwise through a Rust int -> position map that is cleared
+# whenever the node set changes. Every step below is a way for either shortcut
+# to answer from a stale or wrong position; the probe set mixes in the keys that
+# must NOT take them (bools, floats, str, negatives, ints wider than i64).
+_INT_EDGE_CLASSES = [(nx.Graph, fnx.Graph), (nx.DiGraph, fnx.DiGraph)]
+
+
+def _assert_int_has_edge_matches(Gx, Gf, extra=()):
+    probe = list(Gx) + [-1, -7, 10**30, True, False, 1.0, 2.5, "1", 999, *extra]
+    for u in probe:
+        for v in probe:
+            assert Gf.has_edge(u, v) is Gx.has_edge(u, v), (type(Gf).__name__, u, v)
+    # `neighbors` (and `predecessors`) resolve an int node through the same map.
+    rows = ["neighbors", "predecessors"] if Gx.is_directed() else ["neighbors"]
+    for n in probe:
+        for row in rows:
+            if n in Gx:
+                assert list(getattr(Gf, row)(n)) == list(getattr(Gx, row)(n)), (row, n)
+            else:
+                with pytest.raises(nx.NetworkXError):
+                    getattr(Gx, row)(n)
+                with pytest.raises(nx.NetworkXError):
+                    getattr(Gf, row)(n)
+
+
+@pytest.mark.parametrize("nx_cls,fnx_cls", _INT_EDGE_CLASSES)
+@pytest.mark.parametrize("order", ["positions", "shuffled"])
+def test_int_has_edge_matches_networkx_through_node_churn(nx_cls, fnx_cls, order):
+    rng = random.Random(len(order))
+    n = 20
+    nodes = list(range(n))
+    if order == "shuffled":
+        rng.shuffle(nodes)
+    edges = [(rng.randrange(n), rng.randrange(n)) for _ in range(3 * n)]
+    Gx, Gf = nx_cls(), fnx_cls()
+    for g in (Gx, Gf):
+        g.add_nodes_from(nodes)
+        g.add_edges_from(edges)
+    _assert_int_has_edge_matches(Gx, Gf)
+    steps = [
+        lambda g: g.remove_node(5),  # every later node moves down a position
+        lambda g: g.add_edge(5, 0),  # ... and 5 comes back at the end
+        lambda g: g.remove_node(list(g)[-1]),  # a tail removal keeps the rest
+        lambda g: g.add_edge(n, 1),  # a new tail node
+        lambda g: g.add_edge(-3, 2),  # a negative int node
+        lambda g: g.remove_node(0),
+        lambda g: g.clear(),
+        lambda g: g.add_edges_from([(0, 1), (1, 2), (2, 2)]),  # positions again
+        lambda g: g.add_edges_from([(4, 3)]),  # 4 before 3: no longer
+    ]
+    for step in steps:
+        for g in (Gx, Gf):
+            step(g)
+        _assert_int_has_edge_matches(Gx, Gf)
+
+
+@pytest.mark.parametrize("nx_cls,fnx_cls", _INT_EDGE_CLASSES)
+def test_int_has_edge_finds_nodes_added_as_hash_equal_keys(nx_cls, fnx_cls):
+    # int 1 and True, 2 and 2.0, 0 and 0.0 are one node each in networkx; an
+    # int probe must reach the node whichever spelling added it.
+    Gx, Gf = nx_cls(), fnx_cls()
+    for g in (Gx, Gf):
+        g.add_edge(True, 2.0)
+        g.add_edge(0.0, 3)
+        g.add_edge(3, 1)
+    _assert_int_has_edge_matches(Gx, Gf, extra=[0, 1, 2, 3, 2.0, 0.0])

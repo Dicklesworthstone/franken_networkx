@@ -184,7 +184,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -258,8 +258,8 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         succ_row_py: HashMap::new(),
-        succ_row_py_by_index: HashMap::new(),
-        pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
+        succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+        pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
         pred_row_py: HashMap::new(),
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
@@ -901,7 +901,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -1216,7 +1216,7 @@ fn parse_edgelist_simple_content(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

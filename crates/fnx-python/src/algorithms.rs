@@ -16216,8 +16216,8 @@ pub fn transitive_closure(
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(),
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
             pred_row_py: HashMap::new(),
             graph_attrs: pyo3::types::PyDict::new(py).unbind(),
             nodes_seq: 0,
@@ -26262,7 +26262,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26390,7 +26390,7 @@ pub fn ego_graph_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26539,7 +26539,7 @@ pub fn full_join_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26587,7 +26587,7 @@ pub fn identified_nodes_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26694,7 +26694,7 @@ pub fn dedensify_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26875,7 +26875,7 @@ pub fn quotient_graph_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27450,7 +27450,7 @@ pub fn gomory_hu_tree_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27517,7 +27517,7 @@ pub fn snap_aggregation_rust(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

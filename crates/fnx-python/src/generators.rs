@@ -59,7 +59,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -121,8 +121,8 @@ fn report_to_pydigraph(
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         succ_row_py: HashMap::new(),
-        succ_row_py_by_index: HashMap::new(),
-        pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
+        succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+        pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
         pred_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -326,7 +326,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -384,7 +384,7 @@ fn tuple_lattice_pygraph(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -577,7 +577,7 @@ pub fn grid_graph_native(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -655,7 +655,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -727,7 +727,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -803,7 +803,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -1036,7 +1036,7 @@ pub fn random_lobster_graph_lazy_int(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -1139,7 +1139,7 @@ pub fn random_regular_graph_pyset_order(
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
-        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

@@ -559,6 +559,12 @@ impl DiGraph {
             .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
     }
 
+    /// sfq4w.3: see `Graph::node_names_are_positions`.
+    #[must_use]
+    pub fn node_names_are_positions(&self) -> bool {
+        self.node_order.names_are_positions()
+    }
+
     #[must_use]
     pub fn get_node_index(&self, node: &str) -> Option<usize> {
         self.node_order.get_index_of(node)

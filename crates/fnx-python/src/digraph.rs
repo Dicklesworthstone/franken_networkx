@@ -145,7 +145,8 @@ pub struct PyDiGraph {
     /// manifestations from a twin entry outliving a cleared map and serving a
     /// dict in-place maintenance could no longer reach. Both `.remove()` sites
     /// bump `nodes_seq` on the next lines, so removals self-invalidate.
-    pub(crate) succ_row_py_by_index: HashMap<usize, (u64, Py<PyDict>)>,
+    /// sfq4w.3: FxHash on the `usize` key, as `PyGraph`'s twin.
+    pub(crate) succ_row_py_by_index: rustc_hash::FxHashMap<usize, (u64, Py<PyDict>)>,
     /// br-r37-c1-predrow-8vytj: the node-INDEX twin of `pred_row_py`, mirroring
     /// `succ_row_py_by_index` above.
     ///
@@ -161,7 +162,7 @@ pub struct PyDiGraph {
     /// outliving a cleared map serves a dict that in-place maintenance can no
     /// longer reach, which br-r37-c1-txkrn recorded five wrong-answer
     /// manifestations of.
-    pub(crate) pred_row_py_by_index: HashMap<usize, (u64, Py<PyDict>)>,
+    pub(crate) pred_row_py_by_index: rustc_hash::FxHashMap<usize, (u64, Py<PyDict>)>,
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
     pub(crate) nodes_seq: u64,
@@ -12613,8 +12614,8 @@ impl PyDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
@@ -12702,6 +12703,20 @@ impl PyDiGraph {
         self.has_edge_node_index_cache
             .insert(py, public_key.bind(py), index)?;
         Ok(Some(index))
+    }
+
+    /// sfq4w.3: see `PyGraph::cached_exact_int_node_indices`.
+    fn cached_exact_int_node_indices<const N: usize>(
+        &self,
+        py: Python<'_>,
+        keys: [i64; N],
+    ) -> [Option<usize>; N] {
+        self.has_edge_node_index_cache
+            .exact_int_positions_of(py, self.nodes_seq, keys, |key| {
+                let mut buf = ArrayString::<{ crate::CANONICAL_KEY_STACK_BUF }>::new();
+                self.inner
+                    .get_node_index(crate::write_int_decimal(&mut buf, key))
+            })
     }
 
     #[inline]
@@ -14293,8 +14308,16 @@ impl PyDiGraph {
         //
         // A hit is existence proof, so `has_node` is skipped on it -- the same
         // reasoning the string-keyed hit above already relies on.
+        //
+        // sfq4w.3: an exact int resolves through the lookaside's Rust int map;
+        // it used to take the canonical String path below on every call.
         let index = if n.is_exact_instance_of::<PyString>() {
             self.cached_exact_string_node_index(py, n)?
+        } else if n.is_exact_instance_of::<PyInt>()
+            && let Ok(key) = n.extract::<i64>()
+        {
+            let [index] = self.cached_exact_int_node_indices(py, [key]);
+            index
         } else {
             None
         };
@@ -14377,8 +14400,15 @@ impl PyDiGraph {
             };
         }
         let mut this = slf.borrow_mut();
+        // sfq4w.3: exact ints through the lookaside's Rust int map, as in
+        // `successors`.
         let index = if n.is_exact_instance_of::<PyString>() {
             this.cached_exact_string_node_index(py, n)?
+        } else if n.is_exact_instance_of::<PyInt>()
+            && let Ok(key) = n.extract::<i64>()
+        {
+            let [index] = this.cached_exact_int_node_indices(py, [key]);
+            index
         } else {
             None
         };
@@ -14672,19 +14702,29 @@ impl PyDiGraph {
         // `self._succ[u]` raises KeyError for an absent `u` before `v` is ever
         // hashed, so `has_edge("missing", Unhashable())` is False there and was
         // a TypeError here.
-        require_hashable_node_key(u)?;
-        // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
-        // cc-hasedgeintidx) — exact int u,v at their own index resolve straight
-        // by index (source-major), skipping 2 `i.to_string()` heap allocs.
-        if u.is_exact_instance_of::<PyInt>()
-            && v.is_exact_instance_of::<PyInt>()
-            && let Ok(iu) = u.extract::<usize>()
-            && let Ok(iv) = v.extract::<usize>()
-            && self.inner.node_index_matches_int(iu)
-            && self.inner.node_index_matches_int(iv)
-        {
-            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        //
+        // br-r37-c1-04z53 (cc) / sfq4w.3: exact ints, as in PyGraph::has_edge —
+        // their own positions when the node names are the positions, else the
+        // lookaside's Rust int map. An exact int's hash cannot raise, so both
+        // run before the guard, and an absent endpoint answers False.
+        if u.is_exact_instance_of::<PyInt>() && v.is_exact_instance_of::<PyInt>() {
+            if self.inner.node_names_are_positions()
+                && let Some(iu) = crate::exact_int_node_index(u)
+                && let Some(iv) = crate::exact_int_node_index(v)
+            {
+                let n = self.inner.node_count();
+                return Ok(iu < n && iv < n && self.inner.has_edge_by_indices(iu, iv));
+            }
+            if let Ok(ku) = u.extract::<i64>()
+                && let Ok(kv) = v.extract::<i64>()
+            {
+                return Ok(match self.cached_exact_int_node_indices(py, [ku, kv]) {
+                    [Some(ui), Some(vi)] => self.inner.has_edge_by_indices(ui, vi),
+                    _ => false,
+                });
+            }
         }
+        require_hashable_node_key(u)?;
         if u.is_exact_instance_of::<PyString>() && v.is_exact_instance_of::<PyString>() {
             let u_index = self.cached_exact_string_node_index(py, u)?;
             let v_index = self.cached_exact_string_node_index(py, v)?;
@@ -14751,8 +14791,8 @@ impl PyDiGraph {
                 succ_py_keys: HashMap::new(),
                 pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys),
                 succ_row_py: HashMap::new(),
-                succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-                pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+                succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+                pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
                 pred_row_py: HashMap::new(),
                 graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
                 nodes_seq: 0,
@@ -14784,8 +14824,8 @@ impl PyDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -15038,8 +15078,8 @@ impl PyDiGraph {
             succ_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(),                               // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -15242,8 +15282,8 @@ impl PyDiGraph {
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -15284,8 +15324,8 @@ impl PyDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -15391,8 +15431,8 @@ impl PyDiGraph {
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -15480,8 +15520,8 @@ impl PyDiGraph {
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -17921,8 +17961,8 @@ impl PyDiGraph {
             succ_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
             pred_py_keys: Self::clone_row_keys(py, &self.pred_py_keys), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
-            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
-            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
+            succ_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-sznaj
+            pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             node_py_attrs: self
                 .node_py_attrs
