@@ -3,6 +3,7 @@
 //! These views provide dict-like read access to graph data and reflect
 //! the current state of the graph (they are "live" views backed by Py<PyGraph>).
 
+use crate::digraph::PyDiGraph;
 use crate::{
     NetworkXError, NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict,
     node_key_can_use_index_lookaside, node_key_to_string,
@@ -2030,9 +2031,9 @@ impl AdjacencyView {
 // raised on fnx; the fix is a writable SUBCLASS of the row view, so that reads
 // stay the same function objects (see
 // tests/python/test_private_adj_read_path_stays_native.py, which measured a
-// wrapper at ~1.55x and rejected it). DiGraph is fixed already because its row
-// is the Python `AtlasView`. Graph's row is THIS type, and without `subclass`
-// `type("X", (AtlasView,), {})` raises "not an acceptable base type".
+// wrapper at ~1.55x and rejected it). Graph's and DiGraph's rows are THIS type,
+// and without `subclass` `type("X", (AtlasView,), {})` raises "not an
+// acceptable base type".
 //
 // UNBUILT: committed under a disk freeze, so it is compiled and measured later.
 // This type is on br-r37-c1-ey6ob's hot `G[u]` C-slot path, and `subclass` sets
@@ -2044,7 +2045,7 @@ pub struct AtlasView {
     /// `AdjacencyView::__getitem__` hands out an AtlasView holding its OWN
     /// clone of the graph handle, so this view is on the same cycle and needs
     /// the same treatment (br-r37-c1-5gam7).
-    graph: Option<Py<PyGraph>>,
+    graph: Option<RowGraph>,
     node: String,
     /// The persistent row mirror once a mapping-wide operation has requested
     /// it. The graph mutators update this dictionary in place; retaining it
@@ -2068,18 +2069,57 @@ pub struct AtlasView {
     node_index: Option<(u64, usize)>,
 }
 
+/// The graph a native row reads. A `DiGraph` row is one side of a node's
+/// adjacency: its successors (`G[u]`, `G.adj[u]`, `G.succ[u]`) or its
+/// predecessors (`G.pred[u]`). networkx gives every one of these rows the same
+/// type, `AtlasView`, so fnx serves them from this one class too; the directed
+/// `DiAtlasView` is a different name, which is why routing DiGraph rows there
+/// was refused (br-r37-c1-ktsxn).
+enum RowGraph {
+    Undirected(Py<PyGraph>),
+    Directed { graph: Py<PyDiGraph>, pred: bool },
+}
+
 impl AtlasView {
     pub(crate) fn new(graph: Py<PyGraph>, node: String) -> Self {
         Self {
-            graph: Some(graph),
+            graph: Some(RowGraph::Undirected(graph)),
             node,
             row: None,
             node_index: None,
         }
     }
 
-    fn graph(&self) -> PyResult<&Py<PyGraph>> {
+    fn owner(&self) -> PyResult<&RowGraph> {
         self.graph.as_ref().ok_or_else(cleared_view_error)
+    }
+
+    fn graph(&self) -> PyResult<&Py<PyGraph>> {
+        match self.owner()? {
+            RowGraph::Undirected(graph) => Ok(graph),
+            RowGraph::Directed { .. } => Err(PyTypeError::new_err(
+                "internal: undirected row operation on a directed row",
+            )),
+        }
+    }
+
+    /// This row's position, resolved once per view and stamped with the
+    /// `nodes_seq` it was resolved under (see `node_index`).
+    fn row_index(
+        &mut self,
+        nodes_seq: u64,
+        resolve: impl FnOnce(&str) -> Option<usize>,
+    ) -> Option<usize> {
+        match self.node_index {
+            Some((seq, index)) if seq == nodes_seq => Some(index),
+            _ => {
+                let resolved = resolve(self.node.as_str());
+                if let Some(index) = resolved {
+                    self.node_index = Some((nodes_seq, index));
+                }
+                resolved
+            }
+        }
     }
 
     /// Materialise the persistent `{neighbour: shared_edge_attr_dict}` row
@@ -2089,6 +2129,23 @@ impl AtlasView {
     fn materialize(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         if let Some(row) = &self.row {
             return Ok(row.clone_ref(py));
+        }
+        if let RowGraph::Directed { graph, pred } = self.owner()? {
+            // The DiGraph mutators keep these rows current in place, exactly
+            // as the Graph ones keep `adj_row_py`.
+            let pred = *pred;
+            let graph = graph.clone_ref(py);
+            let mut graph = graph.borrow_mut(py);
+            if !graph.inner.has_node(&self.node) {
+                return Err(PyKeyError::new_err((self.node.clone(),)));
+            }
+            let row = if pred {
+                graph.predecessor_row_dict_by_canonical(py, &self.node)?
+            } else {
+                graph.successor_row_dict_by_canonical(py, &self.node)?
+            };
+            self.row = Some(row.clone_ref(py));
+            return Ok(row);
         }
         let graph = self.graph()?.clone_ref(py);
         let mut graph = graph.borrow_mut(py);
@@ -2124,6 +2181,60 @@ impl AtlasView {
         Ok(row)
     }
 
+    /// `G[u][v]` on a DiGraph row: the same index-keyed probe and fill as the
+    /// Graph path below it in `__getitem__` and as the directed single-edge
+    /// accessor `_fnx_edge_attr_dict_fast`, oriented by the row's side. A
+    /// successor row of `u` reads edge `(u, v)`; a predecessor row reads
+    /// `(v, u)`. The dict returned is the one the graph stores, so a write
+    /// through it is a live edge-attribute write, and the edge store is
+    /// marked dirty as that accessor marks it.
+    fn directed_getitem(
+        &mut self,
+        py: Python<'_>,
+        graph: &Py<PyDiGraph>,
+        pred: bool,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        let mut g = graph.borrow_mut(py);
+        let nodes_seq = g.nodes_seq;
+        let u_index = self.row_index(nodes_seq, |node| g.inner.get_node_index(node));
+        let v_index = match u_index {
+            Some(_) if node_key_can_use_index_lookaside(v) => {
+                g.cached_exact_string_node_index(py, v)?
+            }
+            _ => None,
+        };
+        let pair = u_index.zip(v_index).map(|(u_index, v_index)| {
+            if pred {
+                (v_index, u_index)
+            } else {
+                (u_index, v_index)
+            }
+        });
+        if let Some((source, target)) = pair
+            && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, source, target)
+        {
+            g.mark_edges_dirty();
+            return Ok(attrs);
+        }
+        let mut v_buf = ArrayString::new();
+        let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
+        let (source, target) = if pred {
+            (v_key.as_str(), self.node.as_str())
+        } else {
+            (self.node.as_str(), v_key.as_str())
+        };
+        if !g.inner.has_edge(source, target) {
+            return Err(PyKeyError::new_err((v.clone().unbind(),)));
+        }
+        g.mark_edges_dirty();
+        let attrs = g.materialize_edge_py_attrs(py, source, target);
+        if let Some((source, target)) = pair {
+            g.remember_edge_py_attrs_by_index(py, source, target, &attrs);
+        }
+        Ok(attrs)
+    }
+
     fn copy_row(py: Python<'_>, row: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
         let result = PyDict::new(py);
         for (key, value) in row.iter() {
@@ -2137,7 +2248,11 @@ impl AtlasView {
 #[pymethods]
 impl AtlasView {
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.graph)?;
+        match &self.graph {
+            Some(RowGraph::Undirected(graph)) => visit.call(graph)?,
+            Some(RowGraph::Directed { graph, .. }) => visit.call(graph)?,
+            None => {}
+        }
         visit.call(&self.row)
     }
 
@@ -2146,13 +2261,36 @@ impl AtlasView {
         self.row = None;
     }
 
+    /// `graph` is a `Graph` or a `DiGraph`; `pred` picks a DiGraph's
+    /// predecessor row and is ignored for a `Graph`.
     #[new]
-    fn py_new(py: Python<'_>, graph: Py<PyGraph>, node: &Bound<'_, PyAny>) -> PyResult<Self> {
+    #[pyo3(signature = (graph, node, pred=false))]
+    fn py_new(
+        py: Python<'_>,
+        graph: &Bound<'_, PyAny>,
+        node: &Bound<'_, PyAny>,
+        pred: bool,
+    ) -> PyResult<Self> {
         let canonical = node_key_to_string(py, node)?;
-        if !graph.borrow(py).inner.has_node(&canonical) {
+        if let Ok(digraph) = graph.downcast::<PyDiGraph>() {
+            if !digraph.borrow().inner.has_node(&canonical) {
+                return Err(crate::missing_key_error(node));
+            }
+            return Ok(Self {
+                graph: Some(RowGraph::Directed {
+                    graph: digraph.clone().unbind(),
+                    pred,
+                }),
+                node: canonical,
+                row: None,
+                node_index: None,
+            });
+        }
+        let graph = graph.downcast::<PyGraph>()?;
+        if !graph.borrow().inner.has_node(&canonical) {
             return Err(crate::missing_key_error(node));
         }
-        Ok(Self::new(graph, canonical))
+        Ok(Self::new(graph.clone().unbind(), canonical))
     }
 
     fn __getitem__(&mut self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
@@ -2164,9 +2302,9 @@ impl AtlasView {
         //
         // br-r37-c1-espyz fixed exactly this on `__contains__` of this same
         // class and stopped there; `__getitem__` and the `get` that delegates to
-        // it kept the gap. Simple Graph is the only class where it is publicly
-        // reachable, because its row IS this native view — the other three carry
-        // a Python wrapper whose own hash masks it.
+        // it kept the gap. Graph and DiGraph are the classes where it is
+        // publicly reachable, because their rows ARE this native view — the
+        // multigraph rows carry a Python wrapper whose own hash masks it.
         //
         // Guarded ahead of BOTH branches, not just the unmaterialised one. The
         // materialised branch already raises through `PyDict::get_item`, so
@@ -2180,8 +2318,15 @@ impl AtlasView {
             let Some(attrs) = row.bind(py).get_item(v)? else {
                 return Err(PyKeyError::new_err((v.clone().unbind(),)));
             };
-            self.graph()?.borrow(py).mark_edges_dirty();
+            match self.owner()? {
+                RowGraph::Undirected(graph) => graph.borrow(py).mark_edges_dirty(),
+                RowGraph::Directed { graph, .. } => graph.borrow(py).mark_edges_dirty(),
+            }
             return Ok(attrs.downcast::<PyDict>()?.clone().unbind());
+        }
+        if let RowGraph::Directed { graph, pred } = self.owner()? {
+            let (graph, pred) = (graph.clone_ref(py), *pred);
+            return self.directed_getitem(py, &graph, pred, v);
         }
         // br-r37-c1-ey6ob: `G[u][v]`'s inner subscript. `self.node` is ALREADY
         // canonical, so this call only ever had to canonicalize `v` — and it did
@@ -2201,16 +2346,7 @@ impl AtlasView {
         // subscript on it, seq-stamped so a node removal that renumbers indices
         // forces a re-resolve rather than naming a different node.
         let nodes_seq = g.nodes_seq;
-        let u_index = match self.node_index {
-            Some((seq, index)) if seq == nodes_seq => Some(index),
-            _ => {
-                let resolved = g.inner.get_node_index(self.node.as_str());
-                if let Some(index) = resolved {
-                    self.node_index = Some((nodes_seq, index));
-                }
-                resolved
-            }
-        };
+        let u_index = self.row_index(nodes_seq, |node| g.inner.get_node_index(node));
         if let Some(u_index) = u_index
             && node_key_can_use_index_lookaside(v)
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
@@ -2283,19 +2419,37 @@ impl AtlasView {
             return row.bind(py).contains(v);
         }
         // br-r37-c1-ey6ob: borrowed canonical probe (see `__getitem__`).
-        let graph = self.graph()?;
-        crate::with_node_key_str(py, v, |v_canon| {
-            graph.borrow(py).inner.has_edge(&self.node, v_canon)
-        })
+        match self.owner()? {
+            RowGraph::Undirected(graph) => crate::with_node_key_str(py, v, |v_canon| {
+                graph.borrow(py).inner.has_edge(&self.node, v_canon)
+            }),
+            RowGraph::Directed { graph, pred } => crate::with_node_key_str(py, v, |v_canon| {
+                let graph = graph.borrow(py);
+                if *pred {
+                    graph.inner.has_edge(v_canon, &self.node)
+                } else {
+                    graph.inner.has_edge(&self.node, v_canon)
+                }
+            }),
+        }
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
         if let Some(row) = &self.row {
             return row.bind(py).len();
         }
-        self.graph
-            .as_ref()
-            .map_or(0, |graph| graph.borrow(py).inner.neighbor_count(&self.node))
+        match &self.graph {
+            None => 0,
+            Some(RowGraph::Undirected(graph)) => graph.borrow(py).inner.neighbor_count(&self.node),
+            Some(RowGraph::Directed { graph, pred }) => {
+                let graph = graph.borrow(py);
+                if *pred {
+                    graph.inner.in_degree(&self.node)
+                } else {
+                    graph.inner.out_degree(&self.node)
+                }
+            }
+        }
     }
 
     fn __iter__(&mut self, py: Python<'_>) -> PyResult<PyObject> {
@@ -2378,9 +2532,9 @@ impl AtlasView {
     // is touched, so the nested borrow that broke the reflected path cannot
     // recur.
     //
-    // Only simple `Graph` rows reach this class, via the `type(owner) is Graph`
-    // fast path in `AdjacencyView.__getitem__`; the other three classes are
-    // Python-backed, were already correct, and are the control in
+    // `Graph` and `DiGraph` rows reach this class, via the exact-type routes in
+    // `AdjacencyView.__getitem__`; the multigraph rows are Python-backed, were
+    // already correct, and are the control in
     // `tests/python/test_view_repr_and_equality_parity.py`.
     fn __eq__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         if slf.is(other) {

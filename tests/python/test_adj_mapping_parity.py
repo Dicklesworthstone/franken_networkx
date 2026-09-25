@@ -163,9 +163,86 @@ def test_graph_row_uses_native_mapping_slot_without_losing_atlas_contract():
     nrow[1]["seen"] = True
     assert fg.edges[0, 1]["seen"] is True
 
-    restored = pickle.loads(pickle.dumps(frow))  # nosec B301 - trusted round trip
-    assert dict(restored) == dict(frow)
+    # The pickle contract without unpickling: the row serialises, and the
+    # reconstructor its __reduce__ names rebuilds the same mapping.
+    assert pickle.dumps(frow)
+    rebuild, args = frow.__reduce__()
+    assert dict(rebuild(*args)) == dict(frow)
 
+    fg.remove_node(0)
+    ng.remove_node(0)
+    assert dict(frow) == dict(nrow)
+
+
+DIRECTED_ROWS = {
+    "G[u]": lambda g, u: g[u],
+    "G.adj[u]": lambda g, u: g.adj[u],
+    "G.succ[u]": lambda g, u: g.succ[u],
+    "G.pred[u]": lambda g, u: g.pred[u],
+}
+
+
+def _outcome(call):
+    try:
+        return ("ok", call())
+    except Exception as exc:  # noqa: BLE001 - the exception is the contract
+        return (type(exc).__name__, exc.args)
+
+
+@pytest.mark.parametrize("access", sorted(DIRECTED_ROWS))
+def test_digraph_row_keeps_the_atlas_contract(access):
+    """A DiGraph row answers like networkx's, on both sides of the node.
+
+    The predecessor row of u reads edge (v, u) and the successor row edge
+    (u, v); a row that read the wrong side would hand out the other edge's
+    dict, which the identity checks against G.edges catch. A weight written
+    through the row must reach the native weighted kernels.
+    """
+    from collections.abc import Mapping
+
+    edges = [(0, 1, {"weight": 1}), (0, 2, {"weight": 2}), (3, 0, {"weight": 3}),
+             (0, 0, {"weight": 4}), (2, 1, {"weight": 5})]
+    fg, ng = fnx.DiGraph(), nx.DiGraph()
+    for graph in (fg, ng):
+        graph.add_edges_from(edges)
+    row_of = DIRECTED_ROWS[access]
+    pred = access == "G.pred[u]"
+    frow, nrow = row_of(fg, 0), row_of(ng, 0)
+
+    assert type(frow).__name__ == type(nrow).__name__ == "AtlasView"
+    assert isinstance(frow, Mapping)
+    assert len(frow) == len(nrow)
+    assert list(frow) == list(nrow)
+    assert list(frow.items()) == list(nrow.items())
+    assert list(frow.values()) == list(nrow.values())
+    assert frow.keys() & {1, 3, 9} == nrow.keys() & {1, 3, 9}
+    assert dict(frow) == dict(nrow) and frow == nrow
+    assert frow.copy() == nrow.copy()
+    assert (repr(frow), str(frow)) == (repr(nrow), str(nrow))
+    for probe in (1, 3, 0, 9, "0"):
+        assert (probe in frow) == (probe in nrow)
+        assert _outcome(lambda: dict(frow[probe])) == _outcome(lambda: dict(nrow[probe]))
+        assert frow.get(probe, "d") == nrow.get(probe, "d")
+    assert _outcome(lambda: frow[[1]]) == _outcome(lambda: nrow[[1]])
+
+    other = 3 if pred else 1
+    edge = (other, 0) if pred else (0, other)
+    assert frow[other] is fg.edges[edge]
+    assert frow[0] is fg.edges[0, 0]
+    frow[other]["weight"] = 100
+    nrow[other]["weight"] = 100
+    assert fg.edges[edge]["weight"] == 100
+    source, target = (3, 1) if pred else (0, 1)
+    assert fnx.dijkstra_path_length(fg, source, target) == nx.dijkstra_path_length(ng, source, target)
+
+    # The pickle contract without unpickling: the row serialises, and the
+    # reconstructor its __reduce__ names rebuilds the same mapping.
+    assert pickle.dumps(frow)
+    rebuild, args = frow.__reduce__()
+    assert dict(rebuild(*args)) == dict(frow)
+
+    # A held row outlives its node; networkx keeps the row dict and deletes
+    # only the entries its removal loops reach (the self-loop, on one side).
     fg.remove_node(0)
     ng.remove_node(0)
     assert dict(frow) == dict(nrow)

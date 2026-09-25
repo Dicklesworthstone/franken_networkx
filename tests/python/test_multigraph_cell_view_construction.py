@@ -100,7 +100,7 @@ def _pair(cls_name, *, length=3):
 # 1. class-level defaults
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
-    "field", ["_fnx_live_keydict", "_fnx_kd_cache", "_fnx_edge_fast"]
+    "field", ["_fnx_kd_cache", "_fnx_edge_fast"]
 )
 def test_class_default_fields_do_not_leak_between_instances(field):
     """A class default must still be written PER INSTANCE.
@@ -137,16 +137,17 @@ def test_class_default_fields_do_not_leak_between_instances(field):
 
 
 @pytest.mark.parametrize(
-    "field", ["_fnx_live_keydict", "_fnx_kd_cache", "_fnx_edge_fast"]
+    "field", ["_fnx_kd_cache", "_fnx_edge_fast"]
 )
 def test_non_multi_views_keep_instance_storage_for_the_read_path(field):
     """The class default is deliberately NOT applied to non-multigraph views.
 
     A class default is an instance-dict MISS, so every read of a never-written
-    field pays the type-dict fallback afterwards. A `DiGraph` row is built once
-    and then reads all three fields on every subscript, and its owner is None so
-    they are never written — making them class-level cost that row a disjoint
-    4-5 percent (0.4911/0.5185x -> 0.4778/0.4627x vs networkx). This asserts the
+    field pays the type-dict fallback afterwards. A simple-graph row is built
+    once and then reads these fields on every subscript, and with no owner they
+    are never written — making them class-level cost the DiGraph row, when it
+    was this class, a disjoint 4-5 percent (0.4911/0.5185x -> 0.4778/0.4627x vs
+    networkx). This asserts the
     branch that buys the construction saving only where the reads do not pay for
     it; without it, the fields would be absent from `vars()` here too.
     """
@@ -161,7 +162,6 @@ def test_non_multi_views_keep_instance_storage_for_the_read_path(field):
 def test_class_default_fields_are_readable_before_any_write():
     """Every read site must resolve through the class, not raise."""
     view = fnx.AtlasView(lambda: {"n": {}})
-    assert view._fnx_live_keydict is None
     assert view._fnx_kd_cache is None
     assert view._fnx_edge_fast is None
     # And the Mapping surface still works on a never-written instance.

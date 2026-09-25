@@ -2528,16 +2528,15 @@ class AtlasView(_Mapping):
     # dict, so every read of a never-written field pays the type-dict fallback
     # on top. That is the right trade for a multigraph CELL, which is
     # constructed per subscript and whose `__getitem__` short-circuits on
-    # `_fnx_multi_edge_owner` before touching any of the three. It is the wrong
-    # trade for a `DiGraph` row, which is built once and then reads
-    # `_fnx_live_keydict`, `_fnx_kd_cache` and `_fnx_edge_fast` on EVERY
-    # subscript — and whose owner is None, so `_keydict()` returns early and
-    # those fields are never written at all. Measured: making them
-    # unconditionally class-level moved `DiGraph G[u][v]` from 0.4911/0.5185x to
-    # 0.4778/0.4627x, a disjoint 4-5 percent LOSS on a row this lever has no
-    # business touching, while the multigraph rows gained. The branch below buys
-    # the construction saving only where the reads do not pay for it.
-    _fnx_live_keydict = None
+    # `_fnx_multi_edge_owner` before touching any of the fields. It is the wrong
+    # trade for a simple-graph row (today a Graph or DiGraph SUBCLASS's, or one
+    # of a graph with assigned private storage; exact Graph and DiGraph rows are
+    # the native AtlasView), which is built once and then reads `_fnx_kd_cache`
+    # and `_fnx_edge_fast` on EVERY subscript. Measured when DiGraph rows were
+    # still this class: making them unconditionally class-level moved
+    # `DiGraph G[u][v]` from 0.4911/0.5185x to 0.4778/0.4627x, a disjoint 4-5
+    # percent LOSS, while the multigraph rows gained. The branch below buys the
+    # construction saving only where the reads do not pay for it.
     _fnx_kd_cache = None
     _fnx_edge_fast = None
     # br-r37-c1-hotrow: the per-ROW constants of the native fast path, bundled
@@ -2593,13 +2592,6 @@ class AtlasView(_Mapping):
         # is a C-level dict iterator. Values still come from _atlas(), keeping
         # live edge-attribute identity and avoiding hidden attr materialization.
         self._fnx_multi_edge_owner = multi_edge_owner
-        # br-r37-c1-v9auw: exact Graph/DiGraph rows use a Rust-maintained live
-        # PyDict mirror. Once materialized, this handle remains authoritative:
-        # edge add/remove/clear mutate it in place, while remove-node/clear leave
-        # captured row objects detached-but-readable exactly like nx's inner
-        # adjacency dicts. This lets every neighbor lookup skip mutation-counter
-        # reads without sacrificing liveness.
-        #   `_fnx_live_keydict` — class default None, see above.
         # br-r37-c1-spg9n: ((nodes_seq, edges_seq), keydict) — the row's
         # {nbr: <value>} keydict, cached on the (already per-node-cached) view so
         # iteration/len/membership are pure-Python dict ops like nx's
@@ -2612,9 +2604,8 @@ class AtlasView(_Mapping):
         #   `_fnx_edge_fast` — class default None, see above.
         if multi_edge_owner is None:
             # Not a multigraph cell: this view will be read many times per
-            # construction, so pay the three stores once and keep every later
-            # read an instance-dict hit. See the class-default note above.
-            self._fnx_live_keydict = None
+            # construction, so pay the stores once and keep every later read
+            # an instance-dict hit. See the class-default note above.
             self._fnx_kd_cache = None
             self._fnx_edge_fast = None
             self._fnx_hot = None
@@ -2722,9 +2713,6 @@ class AtlasView(_Mapping):
     def _keydict(self):
         if self._fnx_multi_edge_owner is not None:
             return self._multi_edge_keydict(True)
-        live = self._fnx_live_keydict
-        if live is not None:
-            return live
         owner = self._fnx_owner
         if owner is None:
             return None
@@ -2739,38 +2727,17 @@ class AtlasView(_Mapping):
             owner, self._fnx_row_kind, self._fnx_row_node, self._atlas
         )
         if keydict is not None:
-            if type(owner) in (Graph, DiGraph) and not _has_networkx_private_storage(owner):
-                self._fnx_live_keydict = keydict
-            else:
-                self._fnx_kd_cache = (tok, keydict)
+            # Token-checked: this class serves only subclass and
+            # private-storage rows now, where the untokened live row that exact
+            # Graph/DiGraph rows hold (br-r37-c1-v9auw) does not apply.
+            self._fnx_kd_cache = (tok, keydict)
         return keydict
 
     def __len__(self):
-        # br-r37-c1-rowlenlive: inline the LIVE-keydict hit that `_keydict()`
-        # answers on its own first line for a non-multi row. `len()` is a slot
-        # dispatch into this Python frame, and delegating to `_keydict()` added a
-        # SECOND Python frame to a body that then does nothing but `len()` a dict
-        # it already had.
-        #
-        # Measured on a DiGraph row, per call: len(row) 113.0ns against
-        # networkx's 59.8ns (0.53x), with `len(r._keydict())` at 69.4ns - i.e.
-        # ~45ns of the gap was the extra frame, not the lookup. Inlining measures
-        # 54.4ns, which is FASTER than networkx.
-        #
-        # This is exactly what `_keydict()` returns for this case, so it is a
-        # frame removal and not a semantic change; anything it does not answer
-        # falls through to the unchanged body below. Graph rows never reach it
-        # (they carry no owner, so `_keydict()` returns None and the atlas path
-        # already serves them at 1.20x).
-        #
-        # MEASURED AND REJECTED: routing this to `len(self._atlas())` instead.
-        # The atlas costs 383.0ns against the keydict's 64.6ns on the same row,
-        # so that "simplification" would have been a 3.6x REGRESSION (113ns ->
-        # 412ns). The existing code already picks the cheaper of the two.
-        if self._fnx_multi_edge_owner is None:
-            _live = self._fnx_live_keydict
-            if _live is not None:
-                return len(_live)
+        # MEASURED AND REJECTED: routing a simple row's length to
+        # `len(self._atlas())`. The atlas cost 383.0ns against the keydict's
+        # 64.6ns on the same row, so that "simplification" would have been a
+        # 3.6x REGRESSION. The body below picks the cheaper of the two.
         if self._fnx_multi_edge_owner is not None:
             # Do not pay the owner/private/token helper on the cold length-only
             # path: the native exact-size method is the shipped 118-153x seam.
@@ -2803,15 +2770,6 @@ class AtlasView(_Mapping):
             except KeyError:
                 return False
             return True
-        # br-r37-c1-i44vx: serve an already-resolved live keydict WITHOUT the
-        # _keydict() frame, mirroring __getitem__'s br-r37-c1-atlasget hunk
-        # above. _keydict() returns this same object as its first branch after
-        # the multi-edge check, so this is the identical answer with one Python
-        # frame removed — and the frame was a third of the membership cost on a
-        # row whose native dict is already cached.
-        live = self._fnx_live_keydict
-        if live is not None:
-            return node in live
         keydict = self._keydict()
         if keydict is not None:
             return node in keydict
@@ -2841,9 +2799,6 @@ class AtlasView(_Mapping):
         # (O(degree)); the single-edge fetch returns the SAME live edge_py_attrs
         # dict materialize_edge_py_attrs(u, v) caches, so identity + mutation
         # reflection match the keydict path exactly.
-        live = self._fnx_live_keydict
-        if live is not None:
-            return live[node]
         owner = self._fnx_owner
         cached = self._fnx_kd_cache
         if cached is not None and owner is not None:
@@ -3333,6 +3288,13 @@ class AdjacencyView(_Mapping):
                 # this one without it: Graph._adj[u][v] = ... then raised
                 # "this private view has no owning graph to write to".
                 _private_mark_child(self, view, owner, node)
+            elif type(owner) is DiGraph and not _has_networkx_private_storage(owner):
+                # The public DiGraph row is the native AtlasView too, so its
+                # private twin is the same writable subclass, on the same side.
+                view = _private_writable_class(_fnx.AtlasView)(
+                    owner, node, self._fnx_row_kind == "pred"
+                )
+                _private_mark_child(self, view, owner, node)
             elif (
                 getattr(self, "_fnx_multi_edge_owner", None) is not None
                 or (owner is not None and getattr(owner, "is_multigraph", lambda: False)())
@@ -3371,6 +3333,12 @@ class AdjacencyView(_Mapping):
             # Python AtlasView frame while retaining the same persistent row
             # mirror for Mapping-wide operations and detached-row parity.
             view = _fnx.AtlasView(owner, node)
+        elif type(owner) is DiGraph and not _has_networkx_private_storage(owner):
+            # The same native row for a DiGraph's successor or predecessor
+            # side, under the same class name networkx uses for both. The
+            # Python AtlasView's frame was the whole directed/undirected gap
+            # on G[u][v] (br-r37-c1-ktsxn, br-r37-c1-ey6ob).
+            view = _fnx.AtlasView(owner, node, self._fnx_row_kind == "pred")
         else:
             # br-r37-c1-2ndmw: POSITIONAL. Same five arguments, same order as the
             # signature; keyword matching alone was 132 ns of this 606.5 ns call.
@@ -51812,14 +51780,10 @@ def _private_directed_adj_mapping(self, fallback):
 # lock caught it. What follows is the design the lock prescribes -- a SUBCLASS,
 # which inherits the identical read functions and adds `__setitem__` alongside.
 #
-# SCOPE: DiGraph only, for two different reasons that are worth keeping apart.
-#   Graph    blocked in RUST. Its public row is the native `_fnx.AtlasView`
-#            (br-r37-c1-ey6ob's C-slot win), and that pyclass was not declared
-#            `subclass`, so no writable row subclass can be built in Python.
-#            Handing it the Python `AtlasView` instead would make the private
-#            row's read methods differ from the public row's -- exactly what the
-#            lock forbids. crates/fnx-python/src/views.rs now carries the
-#            `subclass` attribute; it is UNBUILT under the disk freeze.
+# SCOPE: Graph and DiGraph.
+#   Graph,   whose public rows are the native `_fnx.AtlasView` (a `subclass`
+#   DiGraph  pyclass), get a writable subclass of that native type, so the
+#            private row's read methods ARE the public row's.
 #   Multi*   blocked in PYTHON. A twin can be built, but its READS diverge from
 #            the public view's and the lock's
 #            `test_private_adj_reads_agree_with_the_public_view` catches it, so

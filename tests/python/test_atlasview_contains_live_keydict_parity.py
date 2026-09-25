@@ -1,24 +1,16 @@
-"""br-r37-c1-i44vx — the inlined live-keydict fast path in AtlasView.__contains__.
+"""Row membership ``v in G.adj[u]`` stays live and matches networkx.
 
-``v in G.adj[u]`` used to reach its answer through a ``_keydict()`` frame even
-when the row's live keydict was already resolved. ``__getitem__`` on the same
-class had long inlined that check (the br-r37-c1-atlasget hunk); ``__contains__``
-had not. Inlining it returns the identical object — ``_keydict()`` yields
-``self._fnx_live_keydict`` as its first branch after the multi-edge check — so
-this is a PERFORMANCE change with no intended behavioural component.
+br-r37-c1-i44vx inlined a live-keydict fast path into the Python
+``AtlasView.__contains__`` — a row cache held with no revision token, so if it
+ever stopped tracking the graph, membership would answer from a stale row.
+Every assertion below is differential against live networkx across a mutation
+sequence, which is what locks that liveness.
 
-WHAT THEREFORE NEEDS LOCKING is that the dict served without the frame is the
-same dict the frame would have served, and that it is still LIVE. The live
-keydict is cached with no revision token, so if it ever stopped tracking the
-graph, membership would answer from a stale row and the fast path would be the
-thing that made it visible. Every assertion below is differential against live
-networkx across a mutation sequence.
-
-SCOPE, measured rather than assumed: DiGraph is the only class whose adjacency
-row is the Python ``AtlasView``. Graph, MultiGraph and MultiDiGraph rows are the
-native pyclass and never reach this code. They are covered here anyway, as
-controls — the fast path must not change them, and if a future routing change
-brings one of them onto the Python class these assertions are already waiting.
+The Python branch itself is gone: the only exact class whose row was the Python
+``AtlasView`` was DiGraph, and its rows moved to the native ``AtlasView``, whose
+own persistent row mirror is the same Rust-maintained dict. The differential
+tests keep covering all four classes, and the scope test below fails if a
+routing change ever brings an exact class back onto the Python row.
 """
 
 from __future__ import annotations
@@ -125,31 +117,51 @@ def test_answer_does_not_depend_on_whether_the_row_was_read_first(cls_name):
             assert (v in row_fx) == (v in row_nx), (cls_name, warm, v)
 
 
-def test_digraph_is_the_class_this_lever_actually_reaches():
+class _DiGraphSubclass(fnx.DiGraph):
+    pass
+
+
+def test_no_exact_class_reaches_the_python_row():
     """Pins the scope claim so it cannot rot silently.
 
-    If routing changes and another class lands on the Python AtlasView, this
-    fails and whoever changed it learns the fast path now applies more widely —
+    If routing changes and a class lands on the Python AtlasView, this fails
+    and whoever changed it learns the fast path now applies more widely —
     which is a fine outcome, but it should be a decision, not a surprise.
+
+    The last exact class on it was DiGraph, whose rows moved to the native
+    AtlasView. A SUBCLASS of DiGraph still gets the Python row (the native
+    routes are exact-type), which the second half pins.
     """
     on_python_class = []
     for cls_name in CLASSES:
         graph = _build(fnx, cls_name)
-        if hasattr(graph.adj["n0"], "_fnx_live_keydict"):
+        if type(graph.adj["n0"]) is fnx.AtlasView:
             on_python_class.append(cls_name)
-    assert on_python_class == ["DiGraph"], (
+    assert on_python_class == [], (
         "the set of classes whose adjacency row is the Python AtlasView "
         f"changed: {on_python_class}"
     )
+    subclass_graph = _DiGraphSubclass()
+    subclass_graph.add_edge("n0", "n1")
+    assert type(subclass_graph.adj["n0"]) is fnx.AtlasView
 
 
-def test_the_fast_path_is_actually_entered_for_digraph():
-    """Non-vacuity: prove the inlined branch is live, not dead code."""
-    graph = _build(fnx, "DiGraph")
-    row = graph.adj["n0"]
-    assert row._fnx_live_keydict is None, "expected a cold row"
-    assert "n1" in row
-    assert row._fnx_live_keydict is not None, (
-        "the live keydict was never resolved, so the inlined branch is dead"
-    )
-    assert "n1" in row._fnx_live_keydict
+def test_a_digraph_subclass_row_matches_networkx_and_stays_live():
+    """The Python row that subclasses still get, against networkx."""
+
+    class NxSubclass(nx.DiGraph):
+        pass
+
+    gnx, gfx = NxSubclass(), _DiGraphSubclass()
+    for graph in (gnx, gfx):
+        for i in range(12):
+            graph.add_edge(f"n{i}", f"n{(i * 5 + 1) % 12}")
+    row_nx, row_fx = gnx.adj["n0"], gfx.adj["n0"]
+    for step in (lambda g: g.add_edge("n0", "n7"), lambda g: g.remove_edge("n0", "n1")):
+        for v in ("n1", "n7", "absent"):
+            assert (v in row_fx) == (v in row_nx), v
+        step(gnx)
+        step(gfx)
+    for v in ("n1", "n7", "absent"):
+        assert (v in row_fx) == (v in row_nx), v
+    assert list(row_fx) == list(row_nx)

@@ -12718,7 +12718,7 @@ impl PyDiGraph {
             .insert((source, target), (seq, attrs.clone_ref(py)));
     }
 
-    fn cached_exact_string_node_index(
+    pub(crate) fn cached_exact_string_node_index(
         &self,
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
@@ -12776,7 +12776,12 @@ impl PyDiGraph {
         *self.in_edges_data_attr_cache.lock().unwrap() = None;
     }
 
-    fn materialize_edge_py_attrs(&mut self, py: Python<'_>, u: &str, v: &str) -> Py<PyDict> {
+    pub(crate) fn materialize_edge_py_attrs(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+    ) -> Py<PyDict> {
         let key = Self::edge_key(u, v);
         if let Some(attrs) = self.edge_py_attrs.get(&key) {
             return attrs.clone_ref(py);
@@ -12917,7 +12922,7 @@ impl PyDiGraph {
         Ok(())
     }
 
-    fn successor_row_dict_by_canonical(
+    pub(crate) fn successor_row_dict_by_canonical(
         &mut self,
         py: Python<'_>,
         canonical: &str,
@@ -12947,7 +12952,7 @@ impl PyDiGraph {
         Ok(row)
     }
 
-    fn predecessor_row_dict_by_canonical(
+    pub(crate) fn predecessor_row_dict_by_canonical(
         &mut self,
         py: Python<'_>,
         canonical: &str,
@@ -13820,7 +13825,14 @@ impl PyDiGraph {
             for u in preds {
                 let ek = Self::edge_key(u, &canonical);
                 self.edge_py_attrs.remove(&ek);
-                self.cached_succ_remove_key(py, u, &canonical);
+                // networkx's second loop walks `_pred[n]` AFTER its first loop
+                // deleted `_pred[n][n]`, so a self-loop never reaches
+                // `del _succ[n][n]`: a held successor row of the removed node
+                // keeps its self-loop entry. The core still lists the self-loop
+                // here, so skip it to delete what networkx deletes.
+                if u != canonical {
+                    self.cached_succ_remove_key(py, u, &canonical);
+                }
                 had_incident_edges = true;
             }
         }
