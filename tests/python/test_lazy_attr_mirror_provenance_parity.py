@@ -241,3 +241,41 @@ def test_store_rebuilt_multidigraph_edges_keep_value_type_and_order(op, shape):
             for u, v, k, d in sorted(result.edges(keys=True, data=True), key=repr)
         ]
     assert outcomes["fnx"] == outcomes["nx"]
+
+
+def _lazy_spanning_input(lib):
+    graph = lib.Graph()
+    ring = [(i, (i + 1) % 30, float(i % 5) + 1) for i in range(30)]
+    chords = [(i, (i + 7) % 30, float(i % 3) + 2) for i in range(30)]
+    graph.add_weighted_edges_from(ring + chords)
+    return graph
+
+
+def test_partition_spanning_tree_of_a_lazy_mirror_keeps_edge_attributes():
+    trees = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        trees[name] = sorted(lib.partition_spanning_tree(_lazy_spanning_input(lib)).edges(data=True))
+    assert trees["fnx"] == trees["nx"]
+
+
+def test_random_spanning_tree_of_a_lazy_mirror_samples_by_its_weights():
+    """networkx returns the tree WITHOUT attributes; the weights only drive the
+    sampling, so a run that lost them would sample a different tree."""
+    trees = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        tree = lib.random_spanning_tree(_lazy_spanning_input(lib), weight="weight", seed=3)
+        trees[name] = sorted(tree.edges(data=True))
+    assert trees["fnx"] == trees["nx"]
+
+
+def test_nan_attribute_keeps_the_callers_object():
+    """A NaN rebuilt from the store is a different object and NaN != NaN, so a
+    dict holding it stops comparing equal to networkx's; the batch keeps it."""
+    nan = float("nan")
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = lib.Graph()
+        graph.add_edges_from([(i, i + 1, {"w": nan}) for i in range(20)])
+        data = graph[0][1]
+        outcomes[name] = (data["w"] is nan, data == {"w": nan})
+    assert outcomes["fnx"] == outcomes["nx"] == (True, True)

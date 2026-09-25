@@ -2584,25 +2584,43 @@ fn undirected_spanning_edges_to_pygraph(
     let mut tree = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     tree.graph_attrs = pg.graph_attrs.bind(py).copy()?.unbind();
 
+    // An input node or edge with a Python dict is authoritative there; one
+    // without keeps its attributes only in the native store (the lazy mirror
+    // every attributed batch and reader leaves). Substituting an empty dict
+    // for the latter returned every spanning tree of such a graph with its
+    // weights gone. So the tree's store gets the authoritative attributes, and
+    // it gets a Python dict only where the input had one.
     for node in pg.inner.nodes_ordered() {
         let py_key = pg.py_node_key(py, node);
         tree.node_key_map.insert(node.to_owned(), py_key);
-        let node_attrs = match pg.node_py_attrs.get(node) {
-            Some(attrs) => attrs.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+        let core_attrs = match pg.node_py_attrs.get(node) {
+            Some(attrs) => {
+                let copied = attrs.bind(py).copy()?;
+                let core_attrs = crate::py_dict_to_attr_map(&copied)?;
+                tree.node_py_attrs.insert(node.to_owned(), copied.unbind());
+                core_attrs
+            }
+            None => pg.inner.node_attrs(node).cloned().unwrap_or_default(),
         };
-        tree.node_py_attrs.insert(node.to_owned(), node_attrs);
-        tree.inner.add_node(node);
+        tree.inner.add_node_with_attrs(node, core_attrs);
     }
 
     for (left, right) in edges {
-        let _ = tree.inner.add_edge(left, right);
         let edge_key = PyGraph::edge_key(left, right);
-        let edge_attrs = match pg.edge_py_attrs.get(&edge_key) {
-            Some(attrs) => attrs.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+        let core_attrs = match pg.edge_py_attrs.get(&edge_key) {
+            Some(attrs) => {
+                let copied = attrs.bind(py).copy()?;
+                let core_attrs = crate::py_dict_to_attr_map(&copied)?;
+                tree.edge_py_attrs.insert(edge_key, copied.unbind());
+                core_attrs
+            }
+            None => pg
+                .inner
+                .edge_attrs(left, right)
+                .cloned()
+                .unwrap_or_default(),
         };
-        tree.edge_py_attrs.insert(edge_key, edge_attrs);
+        let _ = tree.inner.add_edge_with_attrs(left, right, core_attrs);
     }
 
     tree.inner.set_runtime_policy(runtime_policy);
@@ -33390,6 +33408,16 @@ mod tests {
             .expect("tree conversion should work");
             assert_eq!(tree.inner.mode(), CompatibilityMode::Hardened);
             assert_eq!(tree.inner.runtime_policy(), &expected_policy);
+            // The source edge's weight lives only in the native store (no
+            // Python dict), and the tree must carry it rather than `{}`.
+            assert_eq!(
+                tree.inner
+                    .edge_attrs("a", "b")
+                    .and_then(|attrs| attrs.get("weight"))
+                    .cloned(),
+                Some(1.0.into())
+            );
+            assert!(tree.edge_py_attrs.is_empty());
         });
     }
 

@@ -2492,11 +2492,17 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
 /// The KEY must round-trip too: the store keys attributes by String, so a
 /// non-str key (`add_edges_from([(u, v, {5: 1.5}), ...])` is legal networkx)
 /// came back from the lazy mirror as `'5'`.
+///
+/// A NaN float does not round-trip either: the value rebuilt from the store is
+/// a NEW NaN object, and since NaN != NaN, a dict holding it no longer
+/// compares equal to one holding the caller's (networkx's dicts compare equal
+/// through identity). So NaN keeps the caller's object too.
 pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
     d.iter().all(|(k, v)| {
         k.is_exact_instance_of::<PyString>()
             && (v.is_exact_instance_of::<PyBool>()
-                || v.is_exact_instance_of::<PyFloat>()
+                || v.downcast_exact::<PyFloat>()
+                    .is_ok_and(|value| !value.value().is_nan())
                 || v.is_exact_instance_of::<PyString>()
                 || (v.is_exact_instance_of::<PyInt>() && v.extract::<i64>().is_ok()))
     })
