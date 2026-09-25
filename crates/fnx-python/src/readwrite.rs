@@ -1777,7 +1777,12 @@ pub fn to_dict_of_dicts_undirected(
                                 inner_dict.set_item(dg.py_node_key(py, v), edge_dict.bind(py))?;
                             }
                             None => {
-                                let edge_dict = PyDict::new(py);
+                                // No mirror yet: the native store holds the
+                                // attributes (see the cached twin above).
+                                let edge_dict = match dg.inner.edge_attrs(u, v) {
+                                    Some(attrs) => attr_map_to_pydict(py, attrs)?,
+                                    None => PyDict::new(py).unbind(),
+                                };
                                 inner_dict.set_item(dg.py_node_key(py, v), edge_dict)?;
                             }
                         }
@@ -2096,11 +2101,14 @@ fn rebuild_dict_of_dicts_digraph_cache(py: Python<'_>, dg: &mut PyDiGraph) -> Py
             let Some(v_key) = py_node_keys.get(v_idx) else {
                 continue;
             };
-            let edge_key = PyDiGraph::edge_key(u, v);
-            let edge_dict = dg
-                .edge_py_attrs
-                .entry(edge_key)
-                .or_insert_with(|| PyDict::new(py).unbind());
+            // The row holds the edge's LIVE dict, as networkx's does. An edge
+            // whose attributes are held only in the native store (the lazy
+            // mirror every attributed batch, add_weighted_edges_from and
+            // reader leaves) must be seeded from that store: installing an
+            // empty dict here made it the authoritative copy, so the first
+            // to_dict_of_dicts / is_weighted / adjacency() on such a DiGraph
+            // reported no attributes and then erased them for every later read.
+            let edge_dict = dg.materialize_edge_py_attrs(py, u, v);
             row.set_item(v_key.bind(py), edge_dict.bind(py))?;
         }
         if let Some(u_key) = py_node_keys.get(u_idx) {
@@ -3516,33 +3524,56 @@ pub fn node_link_data_simple(
 /// materialized list-like return behavior while avoiding Python adjacency
 /// wrapper traversal for every edge.
 #[pyfunction]
+///
+/// Each triple carries the edge's LIVE dict, as networkx's `G.edges(data=True)`
+/// does. An edge whose attributes are held only in the native store (the lazy
+/// mirror the attributed batches and readers leave) is materialised from it;
+/// substituting `{}` there dropped every attribute column from
+/// `to_pandas_edgelist` on such a graph. Materialising needs the graph
+/// mutably, so a graph already borrowed falls back to the Python path (`None`).
+///
+/// One pass hands out the dicts that exist, exactly as before; only the edges
+/// without one are remembered and filled in by a second pass, so a graph whose
+/// mirrors are all materialised pays nothing extra (collecting owned endpoint
+/// Strings for every edge up front cost +77% Ir per edge).
 pub fn to_edgelist_simple(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<Py<PyList>>> {
-    let gr = extract_graph(g)?;
     let result = PyList::empty(py);
-    match &gr {
-        GraphRef::Undirected(pg) => {
-            for (u, v, _attrs) in pg.inner.edges_ordered_borrowed() {
-                let ek = PyGraph::edge_key(u, v);
-                let attrs = pg
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                result.append((pg.py_node_key(py, u), pg.py_node_key(py, v), attrs))?;
+    let mut lazy: Vec<(usize, PyObject, PyObject, String, String)> = Vec::new();
+    if let Ok(mut pg) = g.extract::<PyRefMut<'_, PyGraph>>() {
+        for (index, (u, v, _attrs)) in pg.inner.edges_ordered_borrowed().into_iter().enumerate() {
+            let (py_u, py_v) = (pg.py_node_key(py, u), pg.py_node_key(py, v));
+            match pg.edge_py_attrs.get(&PyGraph::edge_key(u, v)) {
+                Some(attrs) => result.append((py_u, py_v, attrs.clone_ref(py)))?,
+                None => {
+                    result.append(py.None())?;
+                    lazy.push((index, py_u, py_v, u.to_owned(), v.to_owned()));
+                }
             }
         }
-        GraphRef::Directed { dg, .. } => {
-            for (u, v, _attrs) in dg.inner.edges_ordered_borrowed() {
-                let ek = PyDiGraph::edge_key(u, v);
-                let attrs = dg
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                result.append((dg.py_node_key(py, u), dg.py_node_key(py, v), attrs))?;
-            }
+        for (index, py_u, py_v, u, v) in lazy {
+            let attrs = pg.materialize_edge_py_attrs(py, &u, &v);
+            result.set_item(index, (py_u, py_v, attrs))?;
         }
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
+        return Ok(Some(result.unbind()));
     }
-    Ok(Some(result.unbind()))
+    if let Ok(mut dg) = g.extract::<PyRefMut<'_, PyDiGraph>>() {
+        for (index, (u, v, _attrs)) in dg.inner.edges_ordered_borrowed().into_iter().enumerate() {
+            let (py_u, py_v) = (dg.py_node_key(py, u), dg.py_node_key(py, v));
+            match dg.edge_py_attrs.get(&PyDiGraph::edge_key(u, v)) {
+                Some(attrs) => result.append((py_u, py_v, attrs.clone_ref(py)))?,
+                None => {
+                    result.append(py.None())?;
+                    lazy.push((index, py_u, py_v, u.to_owned(), v.to_owned()));
+                }
+            }
+        }
+        for (index, py_u, py_v, u, v) in lazy {
+            let attrs = dg.materialize_edge_py_attrs(py, &u, &v);
+            result.set_item(index, (py_u, py_v, attrs))?;
+        }
+        return Ok(Some(result.unbind()));
+    }
+    Ok(None)
 }
 
 /// br-r37-c1-fwdense: cache-friendly in-place min-plus Floyd-Warshall over a

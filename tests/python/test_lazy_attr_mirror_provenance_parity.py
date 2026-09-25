@@ -144,3 +144,57 @@ def test_random_spanning_tree_missing_weight_key_raises_like_networkx():
         nx.random_spanning_tree(nx.karate_club_graph(), weight="missing", seed=1)
     with pytest.raises(KeyError):
         fnx.random_spanning_tree(G, weight="missing", seed=1)
+
+
+# A graph whose edge attributes sit only in the native store until a read: the
+# attributed batch (20 edges, past its minimum), parse_edgelist, and copy()
+# all leave the mirror lazy. On such a DiGraph the dict-of-dicts cache,
+# adjacency() and the pandas edgelist used to treat the missing mirror as `{}`
+# - and the first two then INSTALLED that empty dict, so the attributes were
+# gone for every later read too.
+LAZY_EDGES = [(i, i + 1, float(i) + 0.5) for i in range(20)]
+
+
+def _lazy_weighted(lib, cls):
+    graph = getattr(lib, cls)()
+    graph.add_weighted_edges_from(LAZY_EDGES)
+    return graph
+
+
+def _lazy_parsed(lib, cls):
+    lines = [f"{u} {v} {w}" for u, v, w in LAZY_EDGES]
+    return lib.parse_edgelist(
+        lines, nodetype=int, data=[("weight", float)], create_using=getattr(lib, cls)
+    )
+
+
+def _lazy_copied(lib, cls):
+    return _lazy_weighted(lib, cls).copy()
+
+
+LAZY_PROVENANCE = {"add_weighted_edges_from": _lazy_weighted, "parse_edgelist": _lazy_parsed, "copy": _lazy_copied}
+
+READERS_FIRST = {
+    "to_dict_of_dicts": lambda lib, g: lib.to_dict_of_dicts(g),
+    "is_weighted": lambda lib, g: lib.is_weighted(g),
+    "is_negatively_weighted": lambda lib, g: lib.is_negatively_weighted(g),
+    "adjacency": lambda lib, g: [(n, dict(row)) for n, row in g.adjacency()],
+    "to_edgelist": lambda lib, g: sorted((u, v, dict(d)) for u, v, d in lib.to_edgelist(g)),
+    "to_pandas_edgelist": lambda lib, g: lib.to_pandas_edgelist(g)
+    .sort_values(["source", "target"])
+    .to_dict("records"),
+}
+
+
+@pytest.mark.parametrize("reader", sorted(READERS_FIRST))
+@pytest.mark.parametrize("provenance", sorted(LAZY_PROVENANCE))
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_first_reader_of_a_lazy_mirror_sees_and_keeps_the_attributes(cls, provenance, reader):
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = LAZY_PROVENANCE[provenance](lib, cls)
+        first = READERS_FIRST[reader](lib, graph)
+        after = sorted((u, v, dict(d)) for u, v, d in graph.edges(data=True))
+        outcomes[name] = (first, after)
+    assert outcomes["fnx"][0] == outcomes["nx"][0], f"{reader} read the lazy edges wrongly"
+    assert outcomes["fnx"][1] == outcomes["nx"][1], f"{reader} erased the edge attributes"

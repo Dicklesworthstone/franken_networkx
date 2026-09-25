@@ -14639,24 +14639,43 @@ impl PyDiGraph {
     /// lambda chain per node (~135x slower than nx). Inner ``{succ: attrs}``
     /// dicts reuse the live ``edge_py_attrs`` references (directed edge_key), in
     /// node x successor adjacency order.
-    fn _native_adjacency_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+    ///
+    /// The values are the edges' LIVE dicts, so an edge whose attributes are
+    /// held only in the native store is materialised from it (and kept): a
+    /// fresh empty dict here reported such an edge as attribute-less.
+    fn _native_adjacency_dict(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         if self.inner.edge_count() > 0 {
             self.mark_edges_dirty();
         }
+        // One pass hands out the dicts that exist; only the edges without one
+        // are remembered and materialised afterwards (with `&mut self`), so a
+        // fully materialised graph pays nothing extra.
         let result = PyDict::new(py);
+        let mut lazy: Vec<(Py<PyDict>, PyObject, String, String)> = Vec::new();
         for node in self.inner.nodes_ordered() {
             let py_node = self.py_node_key(py, node);
             let succs_dict = PyDict::new(py);
             for successor in self.inner.successors(node).unwrap_or_default() {
                 let py_succ = self.py_succ_key(py, node, successor) /* br-r37-c1-z6uka */;
-                let ek = Self::edge_key(node, successor);
-                let attrs = self
-                    .edge_py_attrs
-                    .get(&ek)
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                succs_dict.set_item(&py_succ, attrs.bind(py))?;
+                match self.edge_py_attrs.get(&Self::edge_key(node, successor)) {
+                    Some(attrs) => succs_dict.set_item(&py_succ, attrs.bind(py))?,
+                    None => {
+                        // Placeholder keeps the successor order; replaced below.
+                        succs_dict.set_item(&py_succ, py.None())?;
+                        lazy.push((
+                            succs_dict.clone().unbind(),
+                            py_succ,
+                            node.to_owned(),
+                            successor.to_owned(),
+                        ));
+                    }
+                }
             }
             result.set_item(py_node, succs_dict)?;
+        }
+        for (succs_dict, py_succ, node, successor) in lazy {
+            let attrs = self.materialize_edge_py_attrs(py, &node, &successor);
+            succs_dict.bind(py).set_item(py_succ, attrs.bind(py))?;
         }
         Ok(result.unbind())
     }
