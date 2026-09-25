@@ -198,3 +198,46 @@ def test_first_reader_of_a_lazy_mirror_sees_and_keeps_the_attributes(cls, proven
         outcomes[name] = (first, after)
     assert outcomes["fnx"][0] == outcomes["nx"][0], f"{reader} read the lazy edges wrongly"
     assert outcomes["fnx"][1] == outcomes["nx"][1], f"{reader} erased the edge attributes"
+
+
+# The native store keys attributes by String and keeps them in a BTreeMap, so
+# a dict rebuilt from it has str keys, sorted, and scalar values of bounded
+# size. A site may leave an edge to be rebuilt only when that loses nothing.
+NON_STR_KEY_DATA = {"int key": {5: 1.5}, "tuple key": {(1, 2): 3.0}, "mixed": {5: 1.5, "w": 2.0}}
+
+
+@pytest.mark.parametrize("shape", sorted(NON_STR_KEY_DATA))
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_non_str_attr_keys_survive_the_attributed_batch(cls, shape):
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(lib, cls)()
+        graph.add_edges_from([(i, i + 1, dict(NON_STR_KEY_DATA[shape])) for i in range(20)])
+        data = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+        outcomes[name] = [(key, type(key).__name__, value) for key, value in data.items()]
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
+STORE_REBUILT_EDGE_DATA = {
+    "big int": {"weight": 2, "tag": 2**70},
+    "unsorted keys": {"weight": 1, "color": "red"},
+    "no weight, later key": {"zeta": 1},
+    "sorted scalars": {"alpha": 1, "weight": 3.0},
+}
+
+
+@pytest.mark.parametrize("shape", sorted(STORE_REBUILT_EDGE_DATA))
+@pytest.mark.parametrize("op", ["reverse", "stochastic_graph"])
+def test_store_rebuilt_multidigraph_edges_keep_value_type_and_order(op, shape):
+    data = STORE_REBUILT_EDGE_DATA[shape]
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = lib.MultiDiGraph()
+        graph.add_edge(0, 1, **data)
+        graph.add_edge(0, 2, **{**data, "weight": 5} if "weight" in data else data)
+        result = graph.reverse() if op == "reverse" else lib.stochastic_graph(graph)
+        outcomes[name] = [
+            (u, v, k, [(key, type(value).__name__, value) for key, value in d.items()])
+            for u, v, k, d in sorted(result.edges(keys=True, data=True), key=repr)
+        ]
+    assert outcomes["fnx"] == outcomes["nx"]

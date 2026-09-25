@@ -2488,13 +2488,44 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
 /// stringifies (or lossily floats) them, corrupting the value (e.g. a `pos` tuple ->
 /// '(x, y)' string, as in waxman_graph). Returning false routes the batch to the
 /// per-node `add_node` path, which keeps the real Python object in the mirror.
+///
+/// The KEY must round-trip too: the store keys attributes by String, so a
+/// non-str key (`add_edges_from([(u, v, {5: 1.5}), ...])` is legal networkx)
+/// came back from the lazy mirror as `'5'`.
 pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
-    d.iter().all(|(_, v)| {
-        v.is_exact_instance_of::<PyBool>()
-            || v.is_exact_instance_of::<PyFloat>()
-            || v.is_exact_instance_of::<PyString>()
-            || (v.is_exact_instance_of::<PyInt>() && v.extract::<i64>().is_ok())
+    d.iter().all(|(k, v)| {
+        k.is_exact_instance_of::<PyString>()
+            && (v.is_exact_instance_of::<PyBool>()
+                || v.is_exact_instance_of::<PyFloat>()
+                || v.is_exact_instance_of::<PyString>()
+                || (v.is_exact_instance_of::<PyInt>() && v.extract::<i64>().is_ok()))
     })
+}
+
+/// A dict that a site may drop in favour of rebuilding it from the store
+/// later: batch-lossless, AND its keys already in the store's order. The store
+/// is an `AttrMap` (a `BTreeMap`), so a dict rebuilt from it lists its keys
+/// sorted, while networkx keeps insertion order: `{'weight', 'color'}` came
+/// back as `['color', 'weight']` from `MultiDiGraph.reverse()`. The batch
+/// constructors that keep the caller's dict as the mirror do not need this.
+pub(crate) fn attr_dict_round_trips_through_store(d: &Bound<'_, PyDict>) -> bool {
+    if !attr_dict_is_batch_lossless(d) {
+        return false;
+    }
+    let mut previous: Option<Bound<'_, PyString>> = None;
+    for key in d.keys() {
+        let Ok(key) = key.downcast_into::<PyString>() else {
+            return false;
+        };
+        if let Some(prev) = &previous {
+            match (prev.to_str(), key.to_str()) {
+                (Ok(prev), Ok(current)) if prev < current => {}
+                _ => return false,
+            }
+        }
+        previous = Some(key);
+    }
+    true
 }
 
 /// br-r37-c1-edgebatchlossless (cc): true iff every 3-tuple edge's attr dict in the

@@ -1695,16 +1695,6 @@ impl PyMultiDiGraph {
         }
     }
 
-    fn py_dict_is_lossless_attr_map(attrs: &Bound<'_, PyDict>) -> bool {
-        attrs.iter().all(|(key, value)| {
-            key.is_exact_instance_of::<PyString>()
-                && (value.is_exact_instance_of::<PyBool>()
-                    || value.is_exact_instance_of::<PyInt>()
-                    || value.is_exact_instance_of::<PyFloat>()
-                    || value.is_exact_instance_of::<PyString>())
-        })
-    }
-
     fn ensure_edge_py_attrs(
         &mut self,
         py: Python<'_>,
@@ -9830,7 +9820,11 @@ impl PyMultiDiGraph {
             let should_sync =
                 source_edges_dirty && Self::should_sync_dirty_edge(&dirty_edge_keys, u, v, *key);
             let bound_attrs = attrs.bind(py);
-            if should_sync || !Self::py_dict_is_lossless_attr_map(bound_attrs) {
+            // An edge left without a dict is rebuilt from the store, so it may
+            // be left only when its dict round-trips: a private rule that
+            // accepted any int and any key order rebuilt 2**70 as a float and
+            // {'weight', 'color'} as ['color', 'weight'].
+            if should_sync || !crate::attr_dict_round_trips_through_store(bound_attrs) {
                 let copied_attrs = bound_attrs.copy()?.unbind();
                 if should_sync {
                     let rust_attrs = crate::py_dict_to_attr_map(copied_attrs.bind(py))?;

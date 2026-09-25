@@ -11422,16 +11422,6 @@ fn cgse_stochastic_numeric(value: Option<&fnx_runtime::CgseValue>) -> Option<f64
     }
 }
 
-fn py_dict_is_lossless_stochastic_copy(attrs: &Bound<'_, PyDict>) -> bool {
-    attrs.iter().all(|(key, value)| {
-        key.is_exact_instance_of::<PyString>()
-            && (value.is_exact_instance_of::<PyBool>()
-                || value.is_exact_instance_of::<PyInt>()
-                || value.is_exact_instance_of::<PyFloat>()
-                || value.is_exact_instance_of::<PyString>())
-    })
-}
-
 /// Normalize exact DiGraph outgoing weights in-place for ``stochastic_graph``.
 ///
 /// Returns ``false`` without mutating if any present weight is nonnumeric; the
@@ -11590,7 +11580,11 @@ pub fn stochastic_graph_copy_multidigraph(
         let value = match graph.edge_py_attrs.get(&edge_key) {
             Some(attrs) => {
                 let bound = attrs.bind(py);
-                if !py_dict_is_lossless_stochastic_copy(bound) {
+                // The copy below leaves every edge dict to be rebuilt from the
+                // store, so anything that would not round-trip (a big int, a
+                // key order the sorted store would change) takes the Python
+                // path.
+                if !crate::attr_dict_round_trips_through_store(bound) {
                     return Ok(py.None());
                 }
                 match bound.get_item(weight)? {
@@ -11598,7 +11592,21 @@ pub fn stochastic_graph_copy_multidigraph(
                         Some(value) => value,
                         None => return Ok(py.None()),
                     },
-                    None => 1.0,
+                    None => {
+                        // networkx APPENDS the weight key it adds; the sorted
+                        // store would place it by name, so a key sorting
+                        // after it sends the call to the Python path.
+                        let later_key = bound.keys().iter().any(|key| {
+                            key.downcast::<PyString>()
+                                .ok()
+                                .and_then(|key| key.to_str().ok().map(|key| key > weight))
+                                .unwrap_or(true)
+                        });
+                        if later_key {
+                            return Ok(py.None());
+                        }
+                        1.0
+                    }
                 }
             }
             None => match cgse_stochastic_numeric(attrs.get(weight)) {
