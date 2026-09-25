@@ -2907,8 +2907,55 @@ def workload_claim_has_edge_neighbors(reps: int):
     return build, ops
 
 
+def workload_claim_has_edge_neighbors_str(reps: int):
+    """sfq4w.3: the str-named twin of `claim-has-edge-neighbors`.
+
+    Same BA graph with every node named ``node<i>``, in edge order. Exact
+    `str` endpoints resolve through the lookaside's table keyed by CPython's
+    cached str hash. Each arm's probes are its own fixture's `str` objects.
+    """
+    nodes = 20000
+    edges = list(nx.barabasi_albert_graph(nodes, 4, seed=1).edges())
+
+    def build(module):
+        names = [f"node{i}" for i in range(nodes)]
+        graphs = {}
+        for cls in ("Graph", "DiGraph"):
+            graph = getattr(module, cls)()
+            graph.add_edges_from((names[u], names[v]) for u, v in edges)
+            graphs[cls] = graph
+        return graphs["Graph"], (graphs, names)
+
+    def ops(_graph, fixture):
+        graphs, names = fixture
+        rng = random.Random(3)
+        present = [edges[rng.randrange(len(edges))] for _ in range(reps)]
+        present = [(names[u], names[v]) for u, v in present]
+        pairs = [
+            (names[rng.randrange(nodes)], names[rng.randrange(nodes)]) for _ in range(reps)
+        ]
+        table = {}
+        for cls, graph in graphs.items():
+            name = "G" if cls == "Graph" else "D"
+            table[f"{name}.has_edge str present"] = lambda g=graph: sum(
+                1 for u, v in present if g.has_edge(u, v)
+            )
+            table[f"{name}.has_edge str random"] = lambda g=graph: sum(
+                1 for u, v in pairs if g.has_edge(u, v)
+            )
+            table[f"list({name}.neighbors(n)) str"] = lambda g=graph: sum(
+                len(list(g.neighbors(u))) for u, _ in pairs
+            )
+        control = graphs["Graph"]
+        table["CONTROL len(G)"] = lambda: sum(len(control) for _ in range(reps))
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "claim-has-edge-neighbors": workload_claim_has_edge_neighbors,
+    "claim-has-edge-neighbors-str": workload_claim_has_edge_neighbors_str,
     "view-reads": workload_view_reads,
     "multi-nbunch-iter": workload_multi_nbunch_iter,
     "undirected-nbunch": workload_undirected_nbunch,

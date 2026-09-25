@@ -2027,7 +2027,17 @@ pub(crate) struct NodeIndexLookupCache {
     /// conversion of the stored index object, ~157 Ir per endpoint of
     /// `has_edge`. Bounded by the node set and cleared with the rest.
     exact_int_positions: std::sync::Mutex<rustc_hash::FxHashMap<i64, usize>>,
+    /// sfq4w.3: exact built-in `str` key -> node position, keyed by CPython's
+    /// CACHED str hash, so a hit stays flat in key length exactly as the dict
+    /// probe on `entries` did, without its wrapper and index-object costs
+    /// (~105 of ~183 Ir per endpoint). One entry per hash, inline: the first
+    /// probe `str` seen for it. A hit is identity or a C-level `str` compare;
+    /// a different string with the same 64-bit hash is simply not cached and
+    /// takes the canonical path. Present nodes only, cleared with the rest.
+    exact_str_positions: std::sync::Mutex<ExactStrPositions>,
 }
+
+type ExactStrPositions = rustc_hash::FxHashMap<isize, (Py<PyString>, usize)>;
 
 impl NodeIndexLookupCache {
     pub(crate) fn new(py: Python<'_>) -> Self {
@@ -2041,11 +2051,18 @@ impl NodeIndexLookupCache {
                 .expect("an empty set is always constructible")
                 .unbind(),
             exact_int_positions: std::sync::Mutex::default(),
+            exact_str_positions: std::sync::Mutex::default(),
         }
     }
 
     fn exact_int_positions(&self) -> std::sync::MutexGuard<'_, rustc_hash::FxHashMap<i64, usize>> {
         self.exact_int_positions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn exact_str_positions(&self) -> std::sync::MutexGuard<'_, ExactStrPositions> {
+        self.exact_str_positions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -2056,8 +2073,36 @@ impl NodeIndexLookupCache {
             self.present_keys.bind(py).clear();
             self.missing_exact_int_keys.bind(py).clear();
             self.exact_int_positions().clear();
+            self.exact_str_positions().clear();
             self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
         }
+    }
+
+    /// sfq4w.3: the position of the node an EXACT `str` names, from the table
+    /// keyed by its cached hash, or from `resolve` (the canonical lookup) on a
+    /// first probe. The caller enforces the exact type: a `str` subclass could
+    /// lie in `__hash__`/`__eq__`, and the compare below must stay C-level.
+    fn exact_str_position(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        key: &Bound<'_, PyString>,
+        resolve: impl FnOnce() -> PyResult<Option<usize>>,
+    ) -> PyResult<Option<usize>> {
+        self.invalidate_if_stale(py, nodes_seq);
+        let hash = key.hash()?;
+        if let Some((stored, position)) = self.exact_str_positions().get(&hash)
+            && (stored.is(key) || stored.bind(py).as_any().eq(key)?)
+        {
+            return Ok(Some(*position));
+        }
+        let Some(position) = resolve()? else {
+            return Ok(None);
+        };
+        self.exact_str_positions()
+            .entry(hash)
+            .or_insert_with(|| (key.clone().unbind(), position));
+        Ok(Some(position))
     }
 
     /// sfq4w.3: the positions of the nodes exact built-in ints name, from the
@@ -2159,6 +2204,7 @@ impl NodeIndexLookupCache {
         self.present_keys.bind(py).clear();
         self.missing_exact_int_keys.bind(py).clear();
         self.exact_int_positions().clear();
+        self.exact_str_positions().clear();
         self.nodes_seq.store(u64::MAX, Ordering::Relaxed);
     }
 }
@@ -4274,6 +4320,22 @@ impl PyGraph {
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
+        // sfq4w.3: exact `str` and exact `int` keys resolve through the
+        // lookaside's Rust tables; anything else keeps the dict probe.
+        if let Ok(text) = key.downcast_exact::<PyString>() {
+            return self.has_edge_node_index_cache.exact_str_position(
+                py,
+                self.nodes_seq,
+                text,
+                || Ok(self.inner.get_node_index(&node_key_to_string(py, key)?)),
+            );
+        }
+        if key.is_exact_instance_of::<PyInt>()
+            && let Ok(value) = key.extract::<i64>()
+        {
+            let [index] = self.cached_exact_int_node_indices(py, [value]);
+            return Ok(index);
+        }
         if let Some(index) = self
             .has_edge_node_index_cache
             .get(py, self.nodes_seq, key)?

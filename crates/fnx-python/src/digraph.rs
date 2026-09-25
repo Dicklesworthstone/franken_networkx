@@ -12689,6 +12689,21 @@ impl PyDiGraph {
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
+        // sfq4w.3: see `PyGraph::cached_exact_string_node_index`.
+        if let Ok(text) = key.downcast_exact::<PyString>() {
+            return self.has_edge_node_index_cache.exact_str_position(
+                py,
+                self.nodes_seq,
+                text,
+                || Ok(self.inner.get_node_index(&node_key_to_string(py, key)?)),
+            );
+        }
+        if key.is_exact_instance_of::<PyInt>()
+            && let Ok(value) = key.extract::<i64>()
+        {
+            let [index] = self.cached_exact_int_node_indices(py, [value]);
+            return Ok(index);
+        }
         if let Some(index) = self
             .has_edge_node_index_cache
             .get(py, self.nodes_seq, key)?

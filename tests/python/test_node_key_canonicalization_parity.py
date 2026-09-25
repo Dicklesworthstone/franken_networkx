@@ -429,3 +429,56 @@ def test_int_has_edge_finds_nodes_added_as_hash_equal_keys(nx_cls, fnx_cls):
         g.add_edge(0.0, 3)
         g.add_edge(3, 1)
     _assert_int_has_edge_matches(Gx, Gf, extra=[0, 1, 2, 3, 2.0, 0.0])
+
+
+class _LoudStr(str):
+    """A `str` subclass: must never enter the exact-`str` table."""
+
+    __hash__ = str.__hash__
+
+
+@pytest.mark.parametrize("nx_cls,fnx_cls", _INT_EDGE_CLASSES)
+@pytest.mark.parametrize("probes", ["same objects", "fresh equal strings"])
+def test_str_has_edge_and_neighbors_match_networkx_through_node_churn(
+    nx_cls, fnx_cls, probes
+):
+    # sfq4w.3: exact `str` endpoints resolve through a Rust table keyed by
+    # CPython's cached str hash, holding the first probe object seen per hash
+    # and cleared whenever the node set changes. "fresh equal strings" builds a
+    # new, equal, non-identical object for every probe, so every hit after the
+    # first goes through the content compare rather than identity.
+    rng = random.Random(len(probes))
+    n = 16
+    names = [f"n{i}" for i in range(n)]
+    edges = [(names[rng.randrange(n)], names[rng.randrange(n)]) for _ in range(3 * n)]
+    Gx, Gf = nx_cls(), fnx_cls()
+    for g in (Gx, Gf):
+        g.add_edges_from(edges)
+
+    def key(name):
+        return "".join(name) if probes == "fresh equal strings" else name
+
+    def check():
+        probe = list(Gx) + ["missing", "n", "n99", _LoudStr("n1"), 1]
+        for u in probe:
+            for v in probe:
+                pu = key(u) if type(u) is str else u
+                pv = key(v) if type(v) is str else v
+                assert Gf.has_edge(pu, pv) is Gx.has_edge(u, v), (u, v)
+            if u in Gx:
+                pu = key(u) if type(u) is str else u
+                assert list(Gf.neighbors(pu)) == list(Gx.neighbors(u)), u
+
+    check()
+    steps = [
+        lambda g: g.remove_node("n3"),
+        lambda g: g.add_edge("n3", "n0"),
+        lambda g: g.add_edge(_LoudStr("n20"), "n1"),
+        lambda g: g.remove_node("n0"),
+        lambda g: g.clear(),
+        lambda g: g.add_edges_from([("n1", "n2"), ("n2", "n2")]),
+    ]
+    for step in steps:
+        for g in (Gx, Gf):
+            step(g)
+        check()
