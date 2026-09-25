@@ -8,6 +8,7 @@ use fnx_cgse::{
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, RuntimePolicy};
+use indexmap::{IndexMap, IndexSet};
 use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use rand_core::Rng;
@@ -13554,8 +13555,10 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
     }
 }
 
+/// An edge's `networkx.EdgePartition` state as branching algorithms read it:
+/// anything other than INCLUDED or EXCLUDED (OPEN, no value) is `Open`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PartitionState {
+pub enum PartitionState {
     Included,
     Excluded,
     Open,
@@ -15284,6 +15287,967 @@ fn spanning_arborescence_with_partition(
     let result = branching_result(algorithm, nodes.len(), directed_edges.len(), edges);
     let arborescence = build_branching_digraph(&nodes, &result.edges, digraph.mode());
     is_arborescence(&arborescence).then_some(result)
+}
+
+/// What networkx's `maximum_branching` does to its final set of edge keys.
+///
+/// networkx builds the result by iterating a Python `set` of integer edge
+/// keys, so the result's edge ORDER depends on that set's history. The plan
+/// is that history: `set(initial)`, then for each step `update(circuit)` and
+/// `remove(removed)`. Replaying it on a Python set reproduces networkx's
+/// order exactly; the keys index the input edge list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkxBranchingPlan {
+    /// The last level's branching keys, in networkx's edge-index order.
+    pub initial: Vec<usize>,
+    /// One step per contraction, from the last level to the first.
+    pub steps: Vec<(Vec<usize>, usize)>,
+}
+
+/// The two ways networkx's `maximum_branching` raises a bare `Exception`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkxBranchingError {
+    /// A root circuit has no non-INCLUDED edge of finite weight (`raise Exception`).
+    NoMinimumEdge,
+    /// "Couldn't find edge incoming to merged node."
+    NoIncomingEdge,
+}
+
+/// Python-dict-ordered multigraph with networkx `MultiDiGraph` iteration
+/// order: nodes and rows in insertion order, removal keeping the rest.
+#[derive(Default)]
+struct OrderedMultiDiGraph {
+    nodes: IndexSet<usize>,
+    succ: HashMap<usize, IndexMap<usize, IndexSet<usize>>>,
+    pred: HashMap<usize, IndexMap<usize, IndexSet<usize>>>,
+}
+
+impl OrderedMultiDiGraph {
+    fn add_node(&mut self, node: usize) {
+        if self.nodes.insert(node) {
+            self.succ.insert(node, IndexMap::new());
+            self.pred.insert(node, IndexMap::new());
+        }
+    }
+
+    fn add_edge(&mut self, u: usize, v: usize, key: usize) {
+        self.add_node(u);
+        self.add_node(v);
+        self.succ
+            .get_mut(&u)
+            .expect("added above")
+            .entry(v)
+            .or_default()
+            .insert(key);
+        self.pred
+            .get_mut(&v)
+            .expect("added above")
+            .entry(u)
+            .or_default()
+            .insert(key);
+    }
+
+    /// Remove `node` and its edges, returning the removed edge keys.
+    fn remove_node(&mut self, node: usize) -> Vec<usize> {
+        let mut keys = Vec::new();
+        if let Some(out) = self.succ.remove(&node) {
+            for (v, ks) in out {
+                keys.extend(ks.iter().copied());
+                if v != node
+                    && let Some(row) = self.pred.get_mut(&v)
+                {
+                    row.shift_remove(&node);
+                }
+            }
+        }
+        if let Some(inc) = self.pred.remove(&node) {
+            for (u, ks) in inc {
+                if u != node {
+                    keys.extend(ks.iter().copied());
+                    if let Some(row) = self.succ.get_mut(&u) {
+                        row.shift_remove(&node);
+                    }
+                }
+            }
+        }
+        self.nodes.shift_remove(&node);
+        keys
+    }
+
+    /// Keys of the edges into `node`, in the order a `G.copy()` of this graph
+    /// lists `copy.pred[node]`: by source in node order, then key order.
+    fn copied_in_keys(&self, node: usize) -> Vec<usize> {
+        let mut keys = Vec::new();
+        for u in &self.nodes {
+            if let Some(ks) = self.succ.get(u).and_then(|row| row.get(&node)) {
+                keys.extend(ks.iter().copied());
+            }
+        }
+        keys
+    }
+}
+
+fn union_find_root(parent: &mut HashMap<usize, usize>, node: usize) -> usize {
+    let mut root = node;
+    while let Some(&p) = parent.get(&root) {
+        if p == root {
+            break;
+        }
+        root = p;
+    }
+    let mut cur = node;
+    while cur != root {
+        let next = parent.get(&cur).copied().unwrap_or(root);
+        parent.insert(cur, root);
+        cur = next;
+    }
+    root
+}
+
+/// networkx 3.6's `maximum_branching` (Edmonds), step for step, over edge
+/// keys `0..edges.len()`.
+///
+/// `edges[k] = (u, v, weight, partition)` in `G.edges(data=True)` order, with
+/// node ids assigned in first-appearance order (u before v), which is the
+/// node order of networkx's working graph. Every choice networkx makes by
+/// iteration order is made in the same order here: the node scan restarting
+/// after each contraction, the first maximal incoming edge (INCLUDED wins at
+/// once, EXCLUDED is skipped), the first minimal circuit edge, the edge list
+/// of each contraction and the in-edge order of a merged node in the
+/// `G.copy()` snapshots the unwinding reads. Weights are compared and
+/// adjusted as f64, which equals networkx's arithmetic for floats and for
+/// integers f64 represents exactly.
+///
+/// # Errors
+/// The cases where networkx raises a bare `Exception` while unwinding.
+pub fn networkx_maximum_branching_plan(
+    edges: &[(usize, usize, f64, PartitionState)],
+) -> Result<NetworkxBranchingPlan, NetworkxBranchingError> {
+    let mut g = OrderedMultiDiGraph::default();
+    let mut g_ends: HashMap<usize, (usize, usize)> = HashMap::with_capacity(edges.len());
+    let mut g_weight: HashMap<usize, f64> = HashMap::with_capacity(edges.len());
+    let mut candidate: HashSet<usize> = HashSet::new();
+    let partition: Vec<PartitionState> = edges.iter().map(|e| e.3).collect();
+    for (key, &(u, v, w, _)) in edges.iter().enumerate() {
+        g.add_edge(u, v, key);
+        g_ends.insert(key, (u, v));
+        g_weight.insert(key, w);
+    }
+    let mut next_id = edges
+        .iter()
+        .map(|&(u, v, _, _)| u.max(v) + 1)
+        .max()
+        .unwrap_or(0);
+
+    // B: the branching, as each node's (parent, key) and the edge index order.
+    let mut b_parent: HashMap<usize, (usize, usize)> = HashMap::new();
+    let mut b_children: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut b_weight: HashMap<usize, f64> = HashMap::new();
+    let mut b_stamp: HashMap<usize, u64> = HashMap::new();
+    let mut stamp = 0_u64;
+    let mut uf: HashMap<usize, usize> = HashMap::new();
+    let mut selected: HashSet<usize> = HashSet::new();
+
+    // Per level: circuit keys, minimum edge, each circuit / redirected key's
+    // target before the contraction, and (from the next snapshot) the merged
+    // node's in-edge keys in `G.copy()` order.
+    let mut circuits: Vec<Vec<usize>> = Vec::new();
+    let mut min_edges: Vec<Option<usize>> = Vec::new();
+    let mut targets_before: Vec<HashMap<usize, usize>> = Vec::new();
+    let mut merged_in_keys: Vec<Vec<usize>> = Vec::new();
+    let mut merged_nodes: Vec<usize> = Vec::new();
+
+    let mut order: Vec<usize> = g.nodes.iter().copied().collect();
+    let mut pos = 0;
+    while pos < order.len() {
+        let v = order[pos];
+        pos += 1;
+        if !selected.insert(v) {
+            continue;
+        }
+        // edmonds_find_desired_edge(v)
+        let mut desired: Option<(usize, usize)> = None;
+        let mut max_weight = f64::NEG_INFINITY;
+        'scan: for (&u, keys) in &g.pred[&v] {
+            for &key in keys {
+                match partition[key] {
+                    PartitionState::Excluded => continue,
+                    PartitionState::Included => {
+                        max_weight = g_weight[&key];
+                        desired = Some((u, key));
+                        break 'scan;
+                    }
+                    PartitionState::Open => {
+                        if g_weight[&key] > max_weight {
+                            max_weight = g_weight[&key];
+                            desired = Some((u, key));
+                        }
+                    }
+                }
+            }
+        }
+        let Some((u, key)) = desired else { continue };
+        if max_weight <= 0.0 || max_weight.is_nan() {
+            continue;
+        }
+        let circuit = union_find_root(&mut uf, u) == union_find_root(&mut uf, v);
+        b_parent.insert(v, (u, key));
+        b_children.entry(u).or_default().push(v);
+        b_weight.insert(key, max_weight);
+        b_stamp.insert(key, stamp);
+        stamp += 1;
+        candidate.insert(key);
+        let (ru, rv) = (union_find_root(&mut uf, u), union_find_root(&mut uf, v));
+        if ru != rv {
+            uf.insert(rv, ru);
+        }
+        if !circuit {
+            continue;
+        }
+
+        // edmonds_step_I2: the circuit is the B path v -> ... -> u plus (u, v).
+        let level = circuits.len();
+        if level > 0 {
+            merged_in_keys.push(g.copied_in_keys(merged_nodes[level - 1]));
+        }
+        let mut path = vec![u];
+        while *path.last().expect("non-empty") != v {
+            let (parent, _) = b_parent[path.last().expect("non-empty")];
+            path.push(parent);
+        }
+        path.reverse(); // Q_nodes: v, ..., u
+        let mut q_edges: Vec<usize> = path[1..].iter().map(|n| b_parent[n].1).collect();
+        q_edges.push(key);
+        let mut min_weight = f64::INFINITY;
+        let mut min_edge = None;
+        let mut incoming_weight: HashMap<usize, f64> = HashMap::new();
+        let mut before: HashMap<usize, usize> = HashMap::new();
+        for &k in &q_edges {
+            let w = b_weight[&k];
+            let target = g_ends[&k].1;
+            incoming_weight.insert(target, w);
+            before.insert(k, target);
+            if partition[k] == PartitionState::Included {
+                continue;
+            }
+            if w < min_weight {
+                min_weight = w;
+                min_edge = Some(k);
+            }
+        }
+        let new_node = next_id;
+        next_id += 1;
+        g.add_node(new_node);
+        let mut new_edges: Vec<(usize, usize, usize, f64)> = Vec::new();
+        for &a in &g.nodes {
+            for (&b, keys) in &g.succ[&a] {
+                let (a_in, b_in) = (
+                    incoming_weight.contains_key(&a),
+                    incoming_weight.contains_key(&b),
+                );
+                for &k in keys {
+                    if a_in && !b_in {
+                        new_edges.push((new_node, b, k, g_weight[&k]));
+                    } else if !a_in && b_in {
+                        before.insert(k, b);
+                        new_edges.push((
+                            a,
+                            new_node,
+                            k,
+                            g_weight[&k] + (min_weight - incoming_weight[&b]),
+                        ));
+                    }
+                }
+            }
+        }
+        for &q in &path {
+            for k in g.remove_node(q) {
+                g_ends.remove(&k);
+                g_weight.remove(&k);
+            }
+            if let Some((_, k)) = b_parent.remove(&q) {
+                b_stamp.remove(&k);
+                b_weight.remove(&k);
+            }
+            for child in b_children.remove(&q).unwrap_or_default() {
+                if let Some(&(parent, k)) = b_parent.get(&child)
+                    && parent == q
+                {
+                    b_parent.remove(&child);
+                    b_stamp.remove(&k);
+                    b_weight.remove(&k);
+                }
+            }
+            selected.remove(&q);
+        }
+        for (a, b, k, w) in new_edges {
+            g.add_edge(a, b, k);
+            g_ends.insert(k, (a, b));
+            g_weight.insert(k, w);
+            if candidate.contains(&k) {
+                b_parent.insert(b, (a, k));
+                b_children.entry(a).or_default().push(b);
+                b_weight.insert(k, w);
+                b_stamp.insert(k, stamp);
+                stamp += 1;
+                let (ra, rb) = (union_find_root(&mut uf, a), union_find_root(&mut uf, b));
+                if ra != rb {
+                    uf.insert(rb, ra);
+                }
+            }
+        }
+        circuits.push(q_edges);
+        min_edges.push(min_edge);
+        targets_before.push(before);
+        merged_nodes.push(new_node);
+        order = g.nodes.iter().copied().collect();
+        pos = 0;
+    }
+    if let Some(&last) = merged_nodes.last() {
+        merged_in_keys.push(g.copied_in_keys(last));
+    }
+
+    let mut initial: Vec<usize> = b_stamp.keys().copied().collect();
+    initial.sort_unstable_by_key(|k| b_stamp[k]);
+    let mut kept: HashSet<usize> = initial.iter().copied().collect();
+    let mut steps = Vec::with_capacity(circuits.len());
+    for level in (0..circuits.len()).rev() {
+        let circuit = &circuits[level];
+        let entering = merged_in_keys[level]
+            .iter()
+            .copied()
+            .find(|k| kept.contains(k));
+        kept.extend(circuit.iter().copied());
+        let removed = match entering {
+            None => min_edges[level].ok_or(NetworkxBranchingError::NoMinimumEdge)?,
+            Some(k) => {
+                let target = targets_before[level][&k];
+                circuit
+                    .iter()
+                    .copied()
+                    .find(|c| targets_before[level][c] == target)
+                    .ok_or(NetworkxBranchingError::NoIncomingEdge)?
+            }
+        };
+        kept.remove(&removed);
+        steps.push((circuit.clone(), removed));
+    }
+    Ok(NetworkxBranchingPlan { initial, steps })
+}
+
+/// A blossom of `networkx_max_weight_matching_mate`: children (vertex ids
+/// below `n`, blossom ids from `n`), the edges joining them, and the best
+/// edges to other S-blossoms cached for the next contraction.
+struct MwmBlossom {
+    childs: Vec<usize>,
+    edges: Vec<(usize, usize)>,
+    mybestedges: Option<Vec<(usize, usize)>>,
+}
+
+/// networkx's `max_weight_matching` state, one field per local of the
+/// Python function; the dicts networkx iterates are `IndexMap`s so they
+/// iterate in the same (insertion) order.
+struct NetworkxMwm<'a> {
+    n: usize,
+    adjacency: &'a [Vec<(usize, f64)>],
+    weight: HashMap<(usize, usize), f64>,
+    blossoms: HashMap<usize, MwmBlossom>,
+    next_id: usize,
+    mate: IndexMap<usize, usize>,
+    label: HashMap<usize, u8>,
+    labeledge: HashMap<usize, Option<(usize, usize)>>,
+    inblossom: Vec<usize>,
+    blossomparent: IndexMap<usize, Option<usize>>,
+    blossombase: HashMap<usize, usize>,
+    bestedge: HashMap<usize, (usize, usize)>,
+    dualvar: Vec<f64>,
+    blossomdual: IndexMap<usize, f64>,
+    allowedge: HashSet<(usize, usize)>,
+    queue: Vec<usize>,
+}
+
+/// Python list indexing, negative indices counting from the end.
+fn py_at<T: Copy>(items: &[T], index: isize) -> T {
+    let len = isize::try_from(items.len()).expect("list length fits isize");
+    let i = if index < 0 { index + len } else { index };
+    items[usize::try_from(i).expect("index within the list")]
+}
+
+impl NetworkxMwm<'_> {
+    fn is_blossom(&self, x: usize) -> bool {
+        x >= self.n
+    }
+
+    fn label(&self, x: usize) -> Option<u8> {
+        self.label.get(&x).copied()
+    }
+
+    fn labeledge(&self, x: usize) -> Option<(usize, usize)> {
+        self.labeledge.get(&x).copied().flatten()
+    }
+
+    fn slack(&self, v: usize, w: usize) -> f64 {
+        self.dualvar[v] + self.dualvar[w] - 2.0 * self.weight[&(v, w)]
+    }
+
+    /// `Blossom.leaves()`: a stack walk, popping from the end.
+    fn leaves(&self, b: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut stack = self.blossoms[&b].childs.clone();
+        while let Some(t) = stack.pop() {
+            if self.is_blossom(t) {
+                stack.extend(self.blossoms[&t].childs.iter().copied());
+            } else {
+                out.push(t);
+            }
+        }
+        out
+    }
+
+    fn assign_label(&mut self, w: usize, t: u8, v: Option<usize>) {
+        let b = self.inblossom[w];
+        self.label.insert(w, t);
+        self.label.insert(b, t);
+        let edge = v.map(|v| (v, w));
+        self.labeledge.insert(w, edge);
+        self.labeledge.insert(b, edge);
+        self.bestedge.remove(&w);
+        self.bestedge.remove(&b);
+        if t == 1 {
+            if self.is_blossom(b) {
+                let leaves = self.leaves(b);
+                self.queue.extend(leaves);
+            } else {
+                self.queue.push(b);
+            }
+        } else if t == 2 {
+            let base = self.blossombase[&b];
+            let mate = self.mate[&base];
+            self.assign_label(mate, 1, Some(base));
+        }
+    }
+
+    fn scan_blossom(&mut self, v: usize, w: usize) -> Option<usize> {
+        let mut path = Vec::new();
+        let mut base = None;
+        let (mut v, mut w) = (Some(v), Some(w));
+        while let Some(vv) = v {
+            let mut b = self.inblossom[vv];
+            if self.label(b).unwrap_or(0) & 4 != 0 {
+                base = Some(self.blossombase[&b]);
+                break;
+            }
+            path.push(b);
+            self.label.insert(b, 5);
+            match self.labeledge(b) {
+                None => v = None,
+                Some((x, _)) => {
+                    b = self.inblossom[x];
+                    v = self.labeledge(b).map(|(y, _)| y);
+                }
+            }
+            if w.is_some() {
+                std::mem::swap(&mut v, &mut w);
+            }
+        }
+        for b in path {
+            self.label.insert(b, 1);
+        }
+        base
+    }
+
+    fn add_blossom(&mut self, base: usize, v: usize, w: usize) {
+        let bb = self.inblossom[base];
+        let mut bv = self.inblossom[v];
+        let mut bw = self.inblossom[w];
+        let b = self.next_id;
+        self.next_id += 1;
+        self.blossombase.insert(b, base);
+        self.blossomparent.insert(b, None);
+        self.blossomparent.insert(bb, Some(b));
+        let mut path = Vec::new();
+        let mut edgs = vec![(v, w)];
+        while bv != bb {
+            self.blossomparent.insert(bv, Some(b));
+            path.push(bv);
+            let e = self.labeledge(bv).expect("labelled sub-blossom");
+            edgs.push(e);
+            bv = self.inblossom[e.0];
+        }
+        path.push(bb);
+        path.reverse();
+        edgs.reverse();
+        while bw != bb {
+            self.blossomparent.insert(bw, Some(b));
+            path.push(bw);
+            let e = self.labeledge(bw).expect("labelled sub-blossom");
+            edgs.push((e.1, e.0));
+            bw = self.inblossom[e.0];
+        }
+        self.blossoms.insert(
+            b,
+            MwmBlossom {
+                childs: path.clone(),
+                edges: edgs,
+                mybestedges: None,
+            },
+        );
+        self.label.insert(b, 1);
+        let bb_edge = self.labeledge(bb);
+        self.labeledge.insert(b, bb_edge);
+        self.blossomdual.insert(b, 0.0);
+        for leaf in self.leaves(b) {
+            if self.label(self.inblossom[leaf]) == Some(2) {
+                self.queue.push(leaf);
+            }
+            self.inblossom[leaf] = b;
+        }
+        let mut bestedgeto: IndexMap<usize, (usize, usize)> = IndexMap::new();
+        for &bv in &path {
+            let nblist: Vec<(usize, usize)> = if self.is_blossom(bv) {
+                match self
+                    .blossoms
+                    .get_mut(&bv)
+                    .and_then(|x| x.mybestedges.take())
+                {
+                    Some(list) => list,
+                    None => self
+                        .leaves(bv)
+                        .into_iter()
+                        .flat_map(|x| {
+                            self.adjacency[x]
+                                .iter()
+                                .filter(move |&&(y, _)| y != x)
+                                .map(move |&(y, _)| (x, y))
+                        })
+                        .collect(),
+                }
+            } else {
+                self.adjacency[bv]
+                    .iter()
+                    .filter(|&&(y, _)| y != bv)
+                    .map(|&(y, _)| (bv, y))
+                    .collect()
+            };
+            for k in nblist {
+                let (mut i, mut j) = k;
+                if self.inblossom[j] == b {
+                    std::mem::swap(&mut i, &mut j);
+                }
+                let bj = self.inblossom[j];
+                if bj != b
+                    && self.label(bj) == Some(1)
+                    && bestedgeto
+                        .get(&bj)
+                        .is_none_or(|&(p, q)| self.slack(i, j) < self.slack(p, q))
+                {
+                    bestedgeto.insert(bj, k);
+                }
+            }
+            self.bestedge.remove(&bv);
+        }
+        let mybestedges: Vec<(usize, usize)> = bestedgeto.values().copied().collect();
+        let mut best: Option<((usize, usize), f64)> = None;
+        for &k in &mybestedges {
+            let kslack = self.slack(k.0, k.1);
+            if best.is_none_or(|(_, s)| kslack < s) {
+                best = Some((k, kslack));
+            }
+        }
+        if let Some(blossom) = self.blossoms.get_mut(&b) {
+            blossom.mybestedges = Some(mybestedges);
+        }
+        match best {
+            Some((k, _)) => self.bestedge.insert(b, k),
+            None => self.bestedge.remove(&b),
+        };
+    }
+
+    fn expand_blossom(&mut self, b: usize, endstage: bool) {
+        let childs = self.blossoms[&b].childs.clone();
+        for &s in &childs {
+            self.blossomparent.insert(s, None);
+            if self.is_blossom(s) {
+                if endstage && self.blossomdual[&s] == 0.0 {
+                    self.expand_blossom(s, endstage);
+                } else {
+                    for leaf in self.leaves(s) {
+                        self.inblossom[leaf] = s;
+                    }
+                }
+            } else {
+                self.inblossom[s] = s;
+            }
+        }
+        if !endstage && self.label(b) == Some(2) {
+            let edges = self.blossoms[&b].edges.clone();
+            let len = isize::try_from(childs.len()).expect("fits");
+            let (lv, lw) = self.labeledge(b).expect("T-blossom has a label edge");
+            let entrychild = self.inblossom[lw];
+            let mut j = isize::try_from(
+                childs
+                    .iter()
+                    .position(|&c| c == entrychild)
+                    .expect("entry child"),
+            )
+            .expect("fits");
+            let jstep: isize = if j & 1 == 1 {
+                j -= len;
+                1
+            } else {
+                -1
+            };
+            let (mut v, mut w) = (lv, lw);
+            while j != 0 {
+                let (p, q) = if jstep == 1 {
+                    py_at(&edges, j)
+                } else {
+                    let (a, c) = py_at(&edges, j - 1);
+                    (c, a)
+                };
+                self.label.remove(&w);
+                self.label.remove(&q);
+                self.assign_label(w, 2, Some(v));
+                self.allowedge.insert((p, q));
+                self.allowedge.insert((q, p));
+                j += jstep;
+                (v, w) = if jstep == 1 {
+                    py_at(&edges, j)
+                } else {
+                    let (a, c) = py_at(&edges, j - 1);
+                    (c, a)
+                };
+                self.allowedge.insert((v, w));
+                self.allowedge.insert((w, v));
+                j += jstep;
+            }
+            let bw = py_at(&childs, j);
+            self.label.insert(w, 2);
+            self.label.insert(bw, 2);
+            self.labeledge.insert(w, Some((v, w)));
+            self.labeledge.insert(bw, Some((v, w)));
+            self.bestedge.remove(&bw);
+            j += jstep;
+            while py_at(&childs, j) != entrychild {
+                let bv = py_at(&childs, j);
+                if self.label(bv) == Some(1) {
+                    j += jstep;
+                    continue;
+                }
+                let labelled = if self.is_blossom(bv) {
+                    self.leaves(bv)
+                        .into_iter()
+                        .find(|&x| self.label(x).is_some())
+                } else {
+                    Some(bv).filter(|&x| self.label(x).is_some())
+                };
+                if let Some(x) = labelled {
+                    self.label.remove(&x);
+                    let base_mate = self.mate[&self.blossombase[&bv]];
+                    self.label.remove(&base_mate);
+                    let from = self.labeledge(x).expect("labelled vertex").0;
+                    self.assign_label(x, 2, Some(from));
+                }
+                j += jstep;
+            }
+        }
+        self.label.remove(&b);
+        self.labeledge.remove(&b);
+        self.bestedge.remove(&b);
+        self.blossomparent.shift_remove(&b);
+        self.blossombase.remove(&b);
+        self.blossomdual.shift_remove(&b);
+        self.blossoms.remove(&b);
+    }
+
+    fn augment_blossom(&mut self, b: usize, v: usize) {
+        let mut t = v;
+        while self.blossomparent[&t] != Some(b) {
+            t = self.blossomparent[&t].expect("t lies inside b");
+        }
+        if self.is_blossom(t) {
+            self.augment_blossom(t, v);
+        }
+        let childs = self.blossoms[&b].childs.clone();
+        let edges = self.blossoms[&b].edges.clone();
+        let len = isize::try_from(childs.len()).expect("fits");
+        let i = childs.iter().position(|&c| c == t).expect("child of b");
+        let mut j = isize::try_from(i).expect("fits");
+        let jstep: isize = if j & 1 == 1 {
+            j -= len;
+            1
+        } else {
+            -1
+        };
+        while j != 0 {
+            j += jstep;
+            let t1 = py_at(&childs, j);
+            let (w, x) = if jstep == 1 {
+                py_at(&edges, j)
+            } else {
+                let (a, c) = py_at(&edges, j - 1);
+                (c, a)
+            };
+            if self.is_blossom(t1) {
+                self.augment_blossom(t1, w);
+            }
+            j += jstep;
+            let t2 = py_at(&childs, j);
+            if self.is_blossom(t2) {
+                self.augment_blossom(t2, x);
+            }
+            self.mate.insert(w, x);
+            self.mate.insert(x, w);
+        }
+        let blossom = self.blossoms.get_mut(&b).expect("blossom");
+        blossom.childs.rotate_left(i);
+        blossom.edges.rotate_left(i);
+        let first = blossom.childs[0];
+        let base = self.blossombase[&first];
+        self.blossombase.insert(b, base);
+    }
+
+    fn augment_matching(&mut self, v: usize, w: usize) {
+        for (mut s, mut j) in [(v, w), (w, v)] {
+            loop {
+                let bs = self.inblossom[s];
+                if self.is_blossom(bs) {
+                    self.augment_blossom(bs, s);
+                }
+                self.mate.insert(s, j);
+                let Some((t, _)) = self.labeledge(bs) else {
+                    break;
+                };
+                let bt = self.inblossom[t];
+                (s, j) = self.labeledge(bt).expect("T-blossom has a label edge");
+                if self.is_blossom(bt) {
+                    self.augment_blossom(bt, j);
+                }
+                self.mate.insert(j, s);
+            }
+        }
+    }
+}
+
+/// networkx 3.6's `max_weight_matching` (van Rantwijk's blossom algorithm as
+/// networkx adapts it), step for step, over vertices `0..adjacency.len()` in
+/// `list(G)` order; `adjacency[v]` is `(w, weight)` in `G.neighbors(v)` order,
+/// self-loops included (networkx skips them). Returns networkx's `mate` dict
+/// items in insertion order, which `matching_dict_to_set` turns into the
+/// result, so the matching AND each pair's direction match networkx: every
+/// choice it makes by iteration order is made in the same order here (the
+/// LIFO queue, `leaves()`, the dict orders of `blossomparent`,
+/// `blossomdual`, `mate` and each new blossom's best edges, the first
+/// minimum on ties). Weights are f64, which equals networkx's arithmetic for
+/// floats and for integers f64 represents exactly.
+#[must_use]
+pub fn networkx_max_weight_matching_mate(
+    adjacency: &[Vec<(usize, f64)>],
+    maxcardinality: bool,
+) -> Vec<(usize, usize)> {
+    let n = adjacency.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut weight = HashMap::new();
+    let mut maxweight = 0.0_f64;
+    for (v, row) in adjacency.iter().enumerate() {
+        for &(w, wt) in row {
+            weight.insert((v, w), wt);
+            if v != w && wt > maxweight {
+                maxweight = wt;
+            }
+        }
+    }
+    let mut m = NetworkxMwm {
+        n,
+        adjacency,
+        weight,
+        blossoms: HashMap::new(),
+        next_id: n,
+        mate: IndexMap::new(),
+        label: HashMap::new(),
+        labeledge: HashMap::new(),
+        inblossom: (0..n).collect(),
+        blossomparent: (0..n).map(|v| (v, None)).collect(),
+        blossombase: (0..n).map(|v| (v, v)).collect(),
+        bestedge: HashMap::new(),
+        dualvar: vec![maxweight; n],
+        blossomdual: IndexMap::new(),
+        allowedge: HashSet::new(),
+        queue: Vec::new(),
+    };
+    loop {
+        m.label.clear();
+        m.labeledge.clear();
+        m.bestedge.clear();
+        for b in m.blossomdual.keys().copied().collect::<Vec<_>>() {
+            if let Some(blossom) = m.blossoms.get_mut(&b) {
+                blossom.mybestedges = None;
+            }
+        }
+        m.allowedge.clear();
+        m.queue.clear();
+        for v in 0..n {
+            if !m.mate.contains_key(&v) && m.label(m.inblossom[v]).is_none() {
+                m.assign_label(v, 1, None);
+            }
+        }
+        let mut augmented = false;
+        loop {
+            while !augmented {
+                let Some(v) = m.queue.pop() else { break };
+                for &(w, _) in &adjacency[v] {
+                    if w == v {
+                        continue;
+                    }
+                    let bv = m.inblossom[v];
+                    let bw = m.inblossom[w];
+                    if bv == bw {
+                        continue;
+                    }
+                    let mut kslack = f64::NAN;
+                    if !m.allowedge.contains(&(v, w)) {
+                        kslack = m.slack(v, w);
+                        if kslack <= 0.0 {
+                            m.allowedge.insert((v, w));
+                            m.allowedge.insert((w, v));
+                        }
+                    }
+                    if m.allowedge.contains(&(v, w)) {
+                        match m.label(bw) {
+                            None => m.assign_label(w, 2, Some(v)),
+                            Some(1) => match m.scan_blossom(v, w) {
+                                Some(base) => m.add_blossom(base, v, w),
+                                None => {
+                                    m.augment_matching(v, w);
+                                    augmented = true;
+                                    break;
+                                }
+                            },
+                            _ => {
+                                if m.label(w).is_none() {
+                                    m.label.insert(w, 2);
+                                    m.labeledge.insert(w, Some((v, w)));
+                                }
+                            }
+                        }
+                    } else if m.label(bw) == Some(1) {
+                        if m.bestedge
+                            .get(&bv)
+                            .is_none_or(|&(p, q)| kslack < m.slack(p, q))
+                        {
+                            m.bestedge.insert(bv, (v, w));
+                        }
+                    } else if m.label(w).is_none()
+                        && m.bestedge
+                            .get(&w)
+                            .is_none_or(|&(p, q)| kslack < m.slack(p, q))
+                    {
+                        m.bestedge.insert(w, (v, w));
+                    }
+                }
+            }
+            if augmented {
+                break;
+            }
+            // deltatype -1 is "none yet"; 1..4 as in networkx.
+            let mut deltatype = -1;
+            let mut delta = 0.0_f64;
+            let mut deltaedge = (0, 0);
+            let mut deltablossom = 0;
+            let min_dual = || m.dualvar.iter().copied().fold(f64::INFINITY, f64::min);
+            if !maxcardinality {
+                deltatype = 1;
+                delta = min_dual();
+            }
+            for v in 0..n {
+                if m.label(m.inblossom[v]).is_none()
+                    && let Some(&(p, q)) = m.bestedge.get(&v)
+                {
+                    let d = m.slack(p, q);
+                    if deltatype == -1 || d < delta {
+                        delta = d;
+                        deltatype = 2;
+                        deltaedge = (p, q);
+                    }
+                }
+            }
+            for (&b, &parent) in &m.blossomparent {
+                if parent.is_none()
+                    && m.label(b) == Some(1)
+                    && let Some(&(p, q)) = m.bestedge.get(&b)
+                {
+                    let d = m.slack(p, q) / 2.0;
+                    if deltatype == -1 || d < delta {
+                        delta = d;
+                        deltatype = 3;
+                        deltaedge = (p, q);
+                    }
+                }
+            }
+            for (&b, &dual) in &m.blossomdual {
+                if m.blossomparent[&b].is_none()
+                    && m.label(b) == Some(2)
+                    && (deltatype == -1 || dual < delta)
+                {
+                    delta = dual;
+                    deltatype = 4;
+                    deltablossom = b;
+                }
+            }
+            if deltatype == -1 {
+                deltatype = 1;
+                delta = min_dual().max(0.0);
+            }
+            for v in 0..n {
+                match m.label(m.inblossom[v]) {
+                    Some(1) => m.dualvar[v] -= delta,
+                    Some(2) => m.dualvar[v] += delta,
+                    _ => {}
+                }
+            }
+            let labels: Vec<(usize, Option<u8>)> = m
+                .blossomdual
+                .keys()
+                .map(|&b| {
+                    (
+                        b,
+                        m.blossomparent[&b].is_none().then(|| m.label(b)).flatten(),
+                    )
+                })
+                .collect();
+            for (b, label) in labels {
+                match label {
+                    Some(1) => *m.blossomdual.get_mut(&b).expect("dual") += delta,
+                    Some(2) => *m.blossomdual.get_mut(&b).expect("dual") -= delta,
+                    _ => {}
+                }
+            }
+            match deltatype {
+                1 => break,
+                2 | 3 => {
+                    let (v, w) = deltaedge;
+                    m.allowedge.insert((v, w));
+                    m.allowedge.insert((w, v));
+                    m.queue.push(v);
+                }
+                _ => m.expand_blossom(deltablossom, false),
+            }
+        }
+        if !augmented {
+            break;
+        }
+        for b in m.blossomdual.keys().copied().collect::<Vec<_>>() {
+            if !m.blossomdual.contains_key(&b) {
+                continue;
+            }
+            if m.blossomparent[&b].is_none() && m.label(b) == Some(1) && m.blossomdual[&b] == 0.0 {
+                m.expand_blossom(b, true);
+            }
+        }
+    }
+    m.mate.into_iter().collect()
 }
 
 /// Return a maximum branching of a directed graph.
@@ -22126,6 +23090,30 @@ pub struct TopologicalGenerationsResult {
     pub witness: ComplexityWitness,
 }
 
+/// Kahn's generations as far as they go, with what networkx's lazy
+/// `topological_generations` loop holds at every generation boundary.
+///
+/// networkx processes generation k (decrementing its children's in-degree
+/// on the LIVE graph) just before yielding it. A caller that mutates the
+/// graph between two yields makes networkx continue from its state at that
+/// boundary: `in_degree` minus every decrement in `scanned[..gen_offsets[k]]`,
+/// with generation k as the zero-in-degree list. Indices are positions in
+/// `DiGraph::nodes_ordered()`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopologicalGenerationsTrace {
+    /// Per generation: (node, zeroing parent), in networkx's order.
+    pub generations: Vec<Vec<(usize, Option<usize>)>>,
+    /// Nodes whose in-degree never reached zero (on or behind a cycle), in
+    /// node order. Empty exactly when the graph is acyclic.
+    pub unprocessed: Vec<usize>,
+    /// Each node's in-degree before any processing.
+    pub in_degree: Vec<usize>,
+    /// (parent, child) of every successor edge scanned, in scan order.
+    pub scanned: Vec<(usize, usize)>,
+    /// `gen_offsets[k]` is `scanned.len()` when processing generation k began.
+    pub gen_offsets: Vec<usize>,
+}
+
 /// Check whether a directed graph is acyclic (a DAG).
 ///
 /// Returns `true` if the graph has no directed cycles. An empty graph is a DAG.
@@ -22395,6 +23383,37 @@ fn topological_sort_orig_string(digraph: &DiGraph) -> Option<TopologicalSortResu
 /// Matches `networkx.topological_generations`.
 #[must_use]
 pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGenerationsResult> {
+    let trace = topological_generations_trace(digraph);
+    if !trace.unprocessed.is_empty() {
+        return None; // cycle detected
+    }
+    let nodes = digraph.nodes_ordered();
+    Some(TopologicalGenerationsResult {
+        witness: ComplexityWitness {
+            algorithm: "kahn_topological_generations".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: nodes.len(),
+            edges_scanned: trace.scanned.len(),
+            queue_peak: 0,
+        },
+        generations: trace
+            .generations
+            .iter()
+            .map(|generation| {
+                generation
+                    .iter()
+                    .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
+                    .collect()
+            })
+            .collect(),
+    })
+}
+
+/// Kahn's generations of `digraph` up to the first boundary with no
+/// zero-in-degree node, and the state networkx's lazy loop needs to resume
+/// at any boundary. See [`TopologicalGenerationsTrace`].
+#[must_use]
+pub fn topological_generations_trace(digraph: &DiGraph) -> TopologicalGenerationsTrace {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::TopologicalSort);
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
@@ -22415,26 +23434,29 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     // indegree hits zero while scanning the previous generation). The old
     // lexicographic sort_unstable diverged on both (and string-sorted
     // "10" before "2").
+    let seed = in_degree.clone();
     let mut current_gen: Vec<(usize, Option<usize>)> = (0..n)
         .filter(|&i| in_degree[i] == 0)
         .map(|i| (i, None))
         .collect();
 
-    let mut generations: Vec<Vec<(String, Option<String>)>> = Vec::new();
-    let mut total_processed = 0usize;
-    let mut edges_scanned = 0usize;
+    let mut generations: Vec<Vec<(usize, Option<usize>)>> = Vec::new();
+    let mut gen_offsets: Vec<usize> = Vec::new();
+    let mut scanned: Vec<(usize, usize)> = Vec::with_capacity(digraph.edge_count());
+    let mut processed = vec![false; n];
 
     while !current_gen.is_empty() {
+        gen_offsets.push(scanned.len());
         let mut next_gen: Vec<(usize, Option<usize>)> = Vec::new();
         for &(node, _) in &current_gen {
-            total_processed += 1;
+            processed[node] = true;
             // Emission-only CGSE witness for the parity-exact Kahn kernel the
             // public topological_sort/topological_generations routes take
             // (reality-check bead rc-cgse-witness-routes-obp8v). No behavior change.
             cgse_record_decision(&mut cgse_sink, nodes[node], "processed");
             if let Some(succs) = digraph.successors_indices(node) {
                 for &succ in succs {
-                    edges_scanned += 1;
+                    scanned.push((node, succ));
                     in_degree[succ] -= 1;
                     if in_degree[succ] == 0 {
                         next_gen.push((succ, Some(node)));
@@ -22442,25 +23464,7 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
                 }
             }
         }
-
-        generations.push(
-            current_gen
-                .iter()
-                .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
-                .collect(),
-        );
-
-        current_gen = next_gen;
-    }
-
-    if total_processed != n {
-        cgse_publish(
-            CgseReferenceAlgorithm::TopologicalSort,
-            digraph.node_count(),
-            digraph.edge_count(),
-            cgse_sink,
-        );
-        return None; // cycle detected
+        generations.push(std::mem::replace(&mut current_gen, next_gen));
     }
 
     cgse_publish(
@@ -22469,16 +23473,13 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
         digraph.edge_count(),
         cgse_sink,
     );
-    Some(TopologicalGenerationsResult {
+    TopologicalGenerationsTrace {
         generations,
-        witness: ComplexityWitness {
-            algorithm: "kahn_topological_generations".to_owned(),
-            complexity_claim: "O(|V| + |E|)".to_owned(),
-            nodes_touched: total_processed,
-            edges_scanned,
-            queue_peak: 0,
-        },
-    })
+        unprocessed: (0..n).filter(|&i| !processed[i]).collect(),
+        in_degree: seed,
+        scanned,
+        gen_offsets,
+    }
 }
 
 /// br-r37-c1-topogenidx A/B baseline: the pre-lever String-keyed Kahn's generations.
@@ -28124,266 +29125,439 @@ fn label_propagation_communities_orig_string(graph: &Graph) -> Vec<Vec<String>> 
 // Community Detection — Greedy Modularity (CNM)
 // ===========================================================================
 
-/// Greedy modularity communities (Clauset-Newman-Moore algorithm).
+/// One `_HeapElement(priority, (row, col))` of networkx's `MappedQueue`.
+type NxHeapElement = (f64, usize, usize);
+
+/// `_HeapElement.__lt__`: the priorities, then the `(row, col)` tuples when they are equal.
+fn nx_heap_element_lt(left: &NxHeapElement, right: &NxHeapElement) -> bool {
+    if left.0 == right.0 {
+        (left.1, left.2) < (right.1, right.2)
+    } else {
+        left.0 < right.0
+    }
+}
+
+/// networkx's `MappedQueue` (`networkx.utils.mapped_queue`): a binary min-heap of
+/// `_HeapElement`s plus an element -> position map, sifting as networkx does.
+#[derive(Debug, Default)]
+struct NxMappedQueue {
+    heap: Vec<NxHeapElement>,
+    position: HashMap<(usize, usize), usize>,
+}
+
+impl NxMappedQueue {
+    /// `MappedQueue(data)`: `heapq.heapify` over the elements in the given order.
+    fn heapify(heap: Vec<NxHeapElement>) -> Self {
+        let position = heap
+            .iter()
+            .enumerate()
+            .map(|(pos, element)| ((element.1, element.2), pos))
+            .collect();
+        let mut queue = Self { heap, position };
+        for pos in (0..queue.heap.len() / 2).rev() {
+            queue.sift_up_to(pos, pos);
+        }
+        queue
+    }
+
+    fn len(&self) -> usize {
+        self.heap.len()
+    }
+
+    /// `heap[0]`.
+    fn top(&self) -> Option<NxHeapElement> {
+        self.heap.first().copied()
+    }
+
+    /// `push`: nothing happens (and `false`) when the element is already queued.
+    fn push(&mut self, element: NxHeapElement) -> bool {
+        let key = (element.1, element.2);
+        if self.position.contains_key(&key) {
+            return false;
+        }
+        let pos = self.heap.len();
+        self.heap.push(element);
+        self.position.insert(key, pos);
+        self.sift_down(0, pos);
+        true
+    }
+
+    fn pop(&mut self) -> Option<NxHeapElement> {
+        let element = self.top()?;
+        self.position.remove(&(element.1, element.2));
+        let last = self.heap.pop()?;
+        if self.heap.is_empty() {
+            return Some(element);
+        }
+        self.heap[0] = last;
+        self.position.insert((last.1, last.2), 0);
+        self.sift_up_to(0, 0);
+        Some(element)
+    }
+
+    /// `update(elt, new)`: `new` takes `elt`'s slot and sifts. `None` where networkx
+    /// raises `KeyError`.
+    fn update(&mut self, element: (usize, usize), new: NxHeapElement) -> Option<()> {
+        let pos = self.position.remove(&element)?;
+        self.heap[pos] = new;
+        self.position.insert((new.1, new.2), pos);
+        self.sift_up_to(pos, 0);
+        Some(())
+    }
+
+    /// `remove(elt)`: the last element takes its slot and sifts. `None` where networkx
+    /// raises `KeyError`.
+    fn remove(&mut self, element: (usize, usize)) -> Option<()> {
+        let pos = self.position.remove(&element)?;
+        let last = self.heap.pop()?;
+        if pos == self.heap.len() {
+            return Some(());
+        }
+        self.heap[pos] = last;
+        self.position.insert((last.1, last.2), pos);
+        self.sift_up_to(pos, 0);
+        Some(())
+    }
+
+    /// `_siftup`: the smaller child moves up until `pos` is a leaf, then the element sifts
+    /// back up, no higher than `floor` (0 in `MappedQueue`, the start in `heapify`).
+    fn sift_up_to(&mut self, mut pos: usize, floor: usize) {
+        let end = self.heap.len();
+        let element = self.heap[pos];
+        let mut child = 2 * pos + 1;
+        while child < end {
+            let right = child + 1;
+            if right < end && !nx_heap_element_lt(&self.heap[child], &self.heap[right]) {
+                child = right;
+            }
+            let moved = self.heap[child];
+            self.heap[pos] = moved;
+            self.position.insert((moved.1, moved.2), pos);
+            pos = child;
+            child = 2 * pos + 1;
+        }
+        self.heap[pos] = element;
+        self.sift_down(floor, pos);
+    }
+
+    /// `_siftdown`: the element at `pos` swaps with its parent until it is not smaller.
+    fn sift_down(&mut self, start: usize, mut pos: usize) {
+        let element = self.heap[pos];
+        while pos > start {
+            let parent = (pos - 1) >> 1;
+            let above = self.heap[parent];
+            if !nx_heap_element_lt(&element, &above) {
+                break;
+            }
+            self.heap[pos] = above;
+            self.position.insert((above.1, above.2), pos);
+            pos = parent;
+        }
+        self.heap[pos] = element;
+        self.position.insert((element.1, element.2), pos);
+    }
+}
+
+/// The merges networkx's `greedy_modularity_communities` makes, in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkxGreedyModularityMerges {
+    /// `(u, v)` per merge: community `u` joins community `v` and `u`'s entry is deleted.
+    pub merges: Vec<(usize, usize)>,
+    /// The generator ran out before the loop stopped; networkx then merges the largest
+    /// communities pairwise down to `best_n`.
+    pub exhausted: bool,
+}
+
+/// Where [`networkx_greedy_modularity_merges`] cannot repeat networkx.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkxGreedyModularityError {
+    /// A merge gain was NaN. networkx's heap order is then no longer total, and its
+    /// result depends on the iteration order of CPython sets.
+    NanGain,
+    /// A queue lookup failed where networkx itself raises `KeyError` or `IndexError`.
+    Inconsistent,
+}
+
+/// networkx's `b` dict: the same dict as `a` for an undirected graph (`b` is `None`).
+fn nx_greedy_modularity_b(a: &[f64], b: Option<&[f64]>, node: usize) -> f64 {
+    b.map_or(a[node], |b| b[node])
+}
+
+/// The merges of networkx 3.6's `greedy_modularity_communities`, step for step.
 ///
-/// Returns a list of communities sorted deterministically.
-/// Matches `networkx.community.greedy_modularity_communities(G, resolution=..., weight=...)`.
+/// `_greedy_modularity_communities_generator` (with its `MappedQueue`s) driven by
+/// `greedy_modularity_communities`'s loop. Node ids are `0..a.len()`, numbered in the
+/// order of the node labels they stand for: networkx breaks equal-priority ties by
+/// comparing `(row, col)` label tuples. `edges` is `G.edges(data=weight, default=1)` with
+/// the weights as floats, self-loops included (networkx skips them). `a`, `b` and `q0` are
+/// the generator's `a` and `b` dicts and `1 / m`; `b` is `None` for an undirected graph,
+/// where networkx's `b` is `a`.
+///
+/// It stops where networkx's loop does: at most `cutoff` communities left, a negative
+/// gain with at most `best_n` left, or the generator ran out (`exhausted`). Within one
+/// merge networkx visits the neighbouring communities in CPython set order; that order
+/// changes only the heaps' internal layout, never their minimum, while every gain is
+/// ordered. So a NaN gain is an error rather than a guess.
+///
+/// # Errors
+///
+/// [`NetworkxGreedyModularityError::NanGain`] for a NaN gain, and
+/// [`NetworkxGreedyModularityError::Inconsistent`] where networkx would raise from a
+/// queue lookup.
+pub fn networkx_greedy_modularity_merges(
+    edges: &[(usize, usize, f64)],
+    a: &[f64],
+    b: Option<&[f64]>,
+    q0: f64,
+    resolution: f64,
+    cutoff: f64,
+    best_n: f64,
+) -> Result<NetworkxGreedyModularityMerges, NetworkxGreedyModularityError> {
+    use NetworkxGreedyModularityError::{Inconsistent, NanGain};
+
+    let n = a.len();
+    let mut a = a.to_vec();
+    let mut b = b.map(<[f64]>::to_vec);
+
+    // dq_dict: the summed weight between adjacent nodes, then its merge gain.
+    let mut dq: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
+    for &(u, v, wt) in edges {
+        if u == v {
+            continue;
+        }
+        *dq[u].entry(v).or_insert(0.0) += wt;
+        *dq[v].entry(u).or_insert(0.0) += wt;
+    }
+    for u in 0..n {
+        let b_u = nx_greedy_modularity_b(&a, b.as_deref(), u);
+        for (&v, value) in &mut dq[u] {
+            let b_v = nx_greedy_modularity_b(&a, b.as_deref(), v);
+            let gain = q0 * *value - resolution * (a[u] * b_v + b_u * a[v]);
+            if gain.is_nan() {
+                return Err(NanGain);
+            }
+            *value = gain;
+        }
+    }
+
+    // dq_heap (one queue per row) and H (each row's best).
+    let mut rows: Vec<NxMappedQueue> = dq
+        .iter()
+        .enumerate()
+        .map(|(u, row)| {
+            NxMappedQueue::heapify(row.iter().map(|(&v, &gain)| (-gain, u, v)).collect())
+        })
+        .collect();
+    let mut queue = NxMappedQueue::heapify(rows.iter().filter_map(NxMappedQueue::top).collect());
+
+    let mut merges = Vec::new();
+    let mut communities = n;
+    loop {
+        // `while len(communities) > cutoff` (a NaN cutoff ends it, as in Python), then
+        // the generator's `while len(H) > 1`.
+        if (communities as f64).partial_cmp(&cutoff) != Some(std::cmp::Ordering::Greater) {
+            return Ok(NetworkxGreedyModularityMerges {
+                merges,
+                exhausted: false,
+            });
+        }
+        if queue.len() <= 1 {
+            return Ok(NetworkxGreedyModularityMerges {
+                merges,
+                exhausted: true,
+            });
+        }
+        let (negated, u, v) = queue.pop().ok_or(Inconsistent)?;
+        if -negated < 0.0 && communities as f64 <= best_n {
+            return Ok(NetworkxGreedyModularityMerges {
+                merges,
+                exhausted: false,
+            });
+        }
+
+        rows[u].pop().ok_or(Inconsistent)?;
+        if let Some(next) = rows[u].top() {
+            queue.push(next);
+        }
+        let v_top = rows[v].top().ok_or(Inconsistent)?;
+        rows[v].remove((v, u)).ok_or(Inconsistent)?;
+        if (v_top.1, v_top.2) == (v, u) {
+            queue.remove((v, u)).ok_or(Inconsistent)?;
+            if let Some(next) = rows[v].top() {
+                queue.push(next);
+            }
+        }
+        merges.push((u, v));
+        communities -= 1;
+
+        // Every community next to u or v, each marked with whether it was next to v.
+        let next_to_v: Vec<usize> = dq[v].keys().copied().filter(|&w| w != u).collect();
+        let next_to_u_only: Vec<usize> = dq[u]
+            .keys()
+            .copied()
+            .filter(|&w| w != v && !dq[v].contains_key(&w))
+            .collect();
+        let neighbours = next_to_v
+            .into_iter()
+            .map(|w| (w, true))
+            .chain(next_to_u_only.into_iter().map(|w| (w, false)));
+        for (w, in_v) in neighbours {
+            let from_u = dq[u].get(&w).copied();
+            let from_v = dq[v].get(&w).copied();
+            let gain = match (from_u, from_v) {
+                (Some(du), Some(dv)) => dv + du,
+                (None, Some(dv)) => {
+                    let b_w = nx_greedy_modularity_b(&a, b.as_deref(), w);
+                    let b_u = nx_greedy_modularity_b(&a, b.as_deref(), u);
+                    dv - resolution * (a[u] * b_w + a[w] * b_u)
+                }
+                (Some(du), None) => {
+                    let b_w = nx_greedy_modularity_b(&a, b.as_deref(), w);
+                    let b_v = nx_greedy_modularity_b(&a, b.as_deref(), v);
+                    du - resolution * (a[v] * b_w + a[w] * b_v)
+                }
+                (None, None) => return Err(Inconsistent),
+            };
+            if gain.is_nan() {
+                return Err(NanGain);
+            }
+            for (row, col) in [(v, w), (w, v)] {
+                dq[row].insert(col, gain);
+                let old_top = rows[row].top();
+                let element = (-gain, row, col);
+                if in_v {
+                    rows[row].update((row, col), element).ok_or(Inconsistent)?;
+                } else {
+                    rows[row].push(element);
+                }
+                match old_top {
+                    None => {
+                        queue.push(element);
+                    }
+                    Some(old) => {
+                        let new_top = rows[row].top().ok_or(Inconsistent)?;
+                        if (old.1, old.2) != (new_top.1, new_top.2) || old.0 != new_top.0 {
+                            queue.update((old.1, old.2), new_top).ok_or(Inconsistent)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        // u's pairs leave every row and H.
+        let next_to_u: Vec<usize> = dq[u].keys().copied().collect();
+        for w in next_to_u {
+            dq[w].remove(&u).ok_or(Inconsistent)?;
+            if w == v {
+                continue;
+            }
+            for (row, col) in [(w, u), (u, w)] {
+                let top = rows[row].top().ok_or(Inconsistent)?;
+                rows[row].remove((row, col)).ok_or(Inconsistent)?;
+                if (top.1, top.2) == (row, col) {
+                    queue.remove((row, col)).ok_or(Inconsistent)?;
+                    if let Some(next) = rows[row].top() {
+                        queue.push(next);
+                    }
+                }
+            }
+        }
+        dq[u] = HashMap::new();
+        rows[u] = NxMappedQueue::default();
+        a[v] += a[u];
+        a[u] = 0.0;
+        if let Some(b) = b.as_mut() {
+            b[v] += b[u];
+            b[u] = 0.0;
+        }
+    }
+}
+
+/// Greedy modularity communities (Clauset-Newman-Moore), as networkx's
+/// `greedy_modularity_communities(G, weight=weight_attr, resolution=resolution)` with the
+/// default `cutoff` and `best_n`, over [`networkx_greedy_modularity_merges`]: node labels
+/// break ties, and the communities come in networkx's order (largest first, equal sizes
+/// in node order), each with its members sorted.
+///
+/// An empty `weight_attr` weighs every edge 1, as do missing or non-numeric weights.
+/// Weighted degrees are summed left to right where networkx's `sum` compensates, so
+/// fractional weights can differ from networkx in the last bits. With no edges, zero total
+/// weight or a NaN gain, every node is its own community (networkx raises
+/// `ZeroDivisionError` for zero total weight).
 #[must_use]
 pub fn greedy_modularity_communities(
     graph: &Graph,
     resolution: f64,
     weight_attr: &str,
 ) -> Vec<Vec<String>> {
-    // br-r37-c1-gmodmat: `single_materialize = true` folds the three setup passes'
-    // `edges_ordered_borrowed()` rebuilds (each a full `Vec<(&str,&str,&AttrMap)>` with a
-    // per-edge `edges.get(&(u,t))` HashMap lookup) into ONE materialization.
-    greedy_modularity_communities_impl(graph, resolution, weight_attr, true)
-}
-
-/// Inner impl for `greedy_modularity_communities`. `single_materialize` controls ONLY the
-/// setup edge-list rebuild: `true` (production) materializes `edges_ordered_borrowed()` once
-/// and the m/degree/dq passes reuse it; `false` (the pre-lever baseline, used by the A/B)
-/// rebuilds it per pass. The merge loop and result are identical, so the two paths are
-/// byte-identical by construction.
-fn greedy_modularity_communities_impl(
-    graph: &Graph,
-    resolution: f64,
-    weight_attr: &str,
-    single_materialize: bool,
-) -> Vec<Vec<String>> {
-    let n = graph.node_count();
-    if n == 0 {
-        return Vec::new();
-    }
-
     let nodes = graph.nodes_ordered();
-    let unweighted = weight_attr.is_empty();
-    let edge_weight = |attrs: &AttrMap| -> f64 {
-        if unweighted {
-            1.0
-        } else {
-            attrs
-                .get(weight_attr)
-                .and_then(|val| val.as_f64())
-                .filter(|value| value.is_finite() && *value >= 0.0)
-                .unwrap_or(1.0)
-        }
-    };
-
-    // Materialize the edge list ONCE when single_materialize; otherwise each setup pass
-    // rebuilds it (the old behaviour). `edges_pass!()` yields the cached slice or a fresh
-    // rebuild bound to a per-pass temporary.
-    let cached_edges = if single_materialize {
-        Some(graph.edges_ordered_indices_borrowed())
-    } else {
-        None
-    };
-    macro_rules! for_each_edge {
-        (|$u:ident, $v:ident, $attrs:ident| $body:block) => {{
-            match cached_edges.as_deref() {
-                Some(__e) => {
-                    for &($u, $v, $attrs) in __e $body
-                }
-                None => {
-                    for ($u, $v, $attrs) in graph.edges_ordered_indices_borrowed() $body
-                }
-            }
-        }};
+    let n = nodes.len();
+    let singletons = || nodes.iter().map(|&node| vec![node.to_owned()]).collect();
+    let mut by_label: Vec<usize> = (0..n).collect();
+    by_label.sort_by(|&left, &right| nodes[left].cmp(nodes[right]));
+    let mut rank = vec![0; n];
+    for (position, &node) in by_label.iter().enumerate() {
+        rank[node] = position;
     }
 
-    // Compute m (total edge weight)
-    let mut m = 0.0;
-    for_each_edge!(|_left, _right, attrs| {
-        m += edge_weight(attrs);
-    });
-
-    if m == 0.0 {
-        return nodes.iter().map(|&nd| vec![nd.to_owned()]).collect();
-    }
-
-    // Weighted degree (a_i = k_i / (2m))
-    let mut degree = vec![0.0; n];
-    for_each_edge!(|left_idx, right_idx, attrs| {
-        let w = edge_weight(attrs);
-        if left_idx == right_idx {
-            degree[left_idx] += 2.0 * w;
-        } else {
-            degree[left_idx] += w;
-            degree[right_idx] += w;
-        }
-    });
-    let a: Vec<f64> = degree.into_iter().map(|deg| deg / (2.0 * m)).collect();
-
-    // Each node starts in its own community (indexed by node index).
-    // community[i] = canonical community id for node i.
-    let mut community: Vec<usize> = (0..n).collect();
-    // comm_a[c] = sum of a_i for all nodes in community c
-    let mut comm_a: Vec<f64> = a.clone();
-    // alive[c] = whether community c still exists
-    let mut alive: Vec<bool> = vec![true; n];
-
-    // Sparse delta-Q matrix: dq[i][j] = deltaQ for merging communities i and j.
-    // Only stored for adjacent community pairs (connected by at least one edge).
-    let mut dq: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
-
-    // Initialize delta-Q for each non-self edge. NetworkX scales undirected
-    // weights as w / m and subtracts both directed degree-product terms.
-    for_each_edge!(|u, v, attrs| {
-        if u != v {
-            let w = edge_weight(attrs);
-            let delta = (w / m) - (2.0 * resolution * a[u] * a[v]);
-            *dq[u].entry(v).or_insert(0.0) += delta;
-            *dq[v].entry(u).or_insert(0.0) += delta;
-        }
-    });
-
-    // Use a BinaryHeap: (deltaQ, -(min(ci,cj)), -(max(ci,cj))) for deterministic tie-break
-    use std::collections::BinaryHeap;
-
-    #[derive(PartialEq)]
-    struct MergeCandidate {
-        delta: f64,
-        ci: usize,
-        cj: usize,
-    }
-
-    impl Eq for MergeCandidate {}
-
-    impl PartialOrd for MergeCandidate {
-        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl Ord for MergeCandidate {
-        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-            self.delta
-                .partial_cmp(&other.delta)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| other.ci.cmp(&self.ci))
-                .then_with(|| other.cj.cmp(&self.cj))
-        }
-    }
-
-    let mut heap: BinaryHeap<MergeCandidate> = BinaryHeap::new();
-    for ci in 0..n {
-        for (&cj, &d) in &dq[ci] {
-            if ci < cj {
-                heap.push(MergeCandidate { delta: d, ci, cj });
-            }
-        }
-    }
-
-    // Greedy merge loop
-    while let Some(MergeCandidate { delta, ci, cj }) = heap.pop() {
-        // Skip stale entries (communities already merged)
-        if !alive[ci] || !alive[cj] {
-            continue;
-        }
-        // Check delta is still current
-        let current_delta = dq[ci].get(&cj).copied().unwrap_or(f64::NEG_INFINITY);
-        if (current_delta - delta).abs() > 1e-12 {
-            continue; // Stale
-        }
-        if delta < 0.0 {
-            break; // No more beneficial merges
-        }
-
-        // Match NetworkX's heap tie-break and mutation order: the lower row
-        // community is deleted, and the higher tuple element survives.
-        alive[ci] = false;
-
-        // Update community assignments
-        for c in &mut community {
-            if *c == ci {
-                *c = cj;
-            }
-        }
-
-        // Save old a values before merge
-        let a_ci = comm_a[ci];
-        let a_cj = comm_a[cj];
-
-        // Update comm_a
-        comm_a[cj] += comm_a[ci];
-
-        // Collect all neighbors of both ci and cj (excluding each other)
-        let ci_nbrs: HashSet<usize> = dq[ci]
-            .keys()
-            .copied()
-            .filter(|&k| k != cj && alive[k])
-            .collect();
-        let cj_nbrs: HashSet<usize> = dq[cj]
-            .keys()
-            .copied()
-            .filter(|&k| k != ci && alive[k])
-            .collect();
-        let all_nbrs: HashSet<usize> = ci_nbrs.union(&cj_nbrs).copied().collect();
-
-        // Drain ci's entries; cj remains the surviving community row.
-        let ci_dq: HashMap<usize, f64> = std::mem::take(&mut dq[ci]);
-
-        for ck in &all_nbrs {
-            let ck = *ck;
-            let in_ci = ci_nbrs.contains(&ck);
-            let in_cj = cj_nbrs.contains(&ck);
-            let d_ci = ci_dq.get(&ck).copied();
-            let d_cj = dq[cj].get(&ck).copied();
-            let new_d = if in_ci && in_cj {
-                d_ci.unwrap_or(0.0) + d_cj.unwrap_or(0.0)
-            } else if in_cj {
-                d_cj.unwrap_or(0.0) - (2.0 * resolution * a_ci * comm_a[ck])
+    let edges: Vec<(usize, usize, f64)> = graph
+        .edges_ordered_indices_borrowed()
+        .into_iter()
+        .map(|(u, v, attrs)| {
+            let weight = if weight_attr.is_empty() {
+                1.0
             } else {
-                d_ci.unwrap_or(0.0) - (2.0 * resolution * a_cj * comm_a[ck])
+                attrs
+                    .get(weight_attr)
+                    .and_then(|value| value.as_f64())
+                    .unwrap_or(1.0)
             };
+            (rank[u], rank[v], weight)
+        })
+        .collect();
+    let mut degree = vec![0.0; n];
+    for &(u, v, weight) in &edges {
+        degree[u] += weight;
+        degree[v] += weight;
+    }
+    let m = if weight_attr.is_empty() {
+        edges.len() as f64
+    } else {
+        degree.iter().sum::<f64>() / 2.0
+    };
+    if edges.is_empty() || m == 0.0 {
+        return singletons();
+    }
+    let q0 = 1.0 / m;
+    let a: Vec<f64> = degree.iter().map(|&deg| deg * q0 * 0.5).collect();
+    let Ok(run) =
+        networkx_greedy_modularity_merges(&edges, &a, None, q0, resolution, 1.0, n as f64)
+    else {
+        return singletons();
+    };
 
-            dq[cj].insert(ck, new_d);
-            dq[ck].insert(cj, new_d);
-            dq[ck].remove(&ci);
-
-            let (lo, hi) = if cj < ck { (cj, ck) } else { (ck, cj) };
-            heap.push(MergeCandidate {
-                delta: new_d,
-                ci: lo,
-                cj: hi,
-            });
+    // networkx's `communities` dict: one entry per node in node order; a merge keeps the
+    // union in v's entry and deletes u's.
+    let mut communities: IndexMap<usize, Vec<usize>> =
+        (0..n).map(|node| (rank[node], vec![node])).collect();
+    for (u, v) in run.merges {
+        let moved = communities.shift_remove(&u).unwrap_or_default();
+        if let Some(members) = communities.get_mut(&v) {
+            members.extend(moved);
         }
-
-        // Remove the dead cross-entry from the surviving row.
-        dq[cj].remove(&ci);
     }
-
-    // Collect final communities
-    let mut intermediate: Vec<(usize, Vec<usize>)> = Vec::new();
-    for rep in 0..n {
-        if alive[rep] {
-            let mut comm_indices = Vec::new();
-            for (idx, &c) in community.iter().enumerate() {
-                if c == rep {
-                    comm_indices.push(idx);
-                }
-            }
-            let min_idx = comm_indices.first().copied().unwrap_or(usize::MAX);
-            intermediate.push((min_idx, comm_indices));
-        }
-    }
-    // Sort communities by size descending, ties broken by min node index ascending
-    intermediate.sort_by(|(a_min, a_indices), (b_min, b_indices)| {
-        b_indices
-            .len()
-            .cmp(&a_indices.len())
-            .then_with(|| a_min.cmp(b_min))
-    });
-
-    let mut result = Vec::with_capacity(intermediate.len());
-    for (_, comm_indices) in intermediate {
-        let mut comm: Vec<String> = comm_indices
-            .into_iter()
-            .map(|idx| nodes[idx].to_owned())
-            .collect();
-        comm.sort();
-        result.push(comm);
-    }
+    let mut result: Vec<Vec<String>> = communities
+        .into_values()
+        .map(|members| {
+            let mut labels: Vec<String> = members
+                .into_iter()
+                .map(|node| nodes[node].to_owned())
+                .collect();
+            labels.sort();
+            labels
+        })
+        .collect();
+    result.sort_by_key(|members| std::cmp::Reverse(members.len()));
     result
 }
 
@@ -33535,45 +34709,39 @@ pub fn find_negative_cycle(graph: &Graph, source: &str, weight_attr: &str) -> Op
         }
     }
 
-    // Relax n-1 times
-    for _ in 0..n - 1 {
+    // Relax n times. A node relaxed in the n-th pass has a predecessor chain
+    // of at least n edges, so walking it n steps back lands on a negative
+    // cycle. (Tracing from a node found by a separate check pass, without
+    // recording that relaxation, could walk back to the source's unset
+    // predecessor: a lone negative undirected edge panicked on it.)
+    let mut last_relaxed = None;
+    for _ in 0..n {
+        last_relaxed = None;
         for &(u, v, w) in &edges {
             if dist[u] + w < dist[v] {
                 dist[v] = dist[u] + w;
                 pred[v] = u;
+                last_relaxed = Some(v);
             }
         }
+        // A pass that relaxes nothing has converged: no reachable negative cycle.
+        last_relaxed?;
     }
 
-    // Check for negative cycle (n-th relaxation)
-    for &(u, v, w) in &edges {
-        if dist[u] + w < dist[v] {
-            // Found a node in a negative cycle
-            // Trace back to find the cycle
-            let mut visited = vec![false; n];
-            let mut cur = v;
-            // Follow predecessors n times to ensure we're in the cycle
-            for _ in 0..n {
-                cur = pred[cur];
-            }
-            let cycle_start = cur;
-            let mut cycle = vec![nodes[cycle_start].to_owned()];
-            cur = pred[cycle_start];
-            while cur != cycle_start {
-                cycle.push(nodes[cur].to_owned());
-                cur = pred[cur];
-                if visited[cur] {
-                    break;
-                }
-                visited[cur] = true;
-            }
-            cycle.push(nodes[cycle_start].to_owned());
-            cycle.reverse();
-            return Some(cycle);
-        }
+    let mut cur = last_relaxed?;
+    for _ in 0..n {
+        cur = pred[cur];
     }
-
-    None
+    let cycle_start = cur;
+    let mut cycle = vec![nodes[cycle_start].to_owned()];
+    cur = pred[cycle_start];
+    while cur != cycle_start {
+        cycle.push(nodes[cur].to_owned());
+        cur = pred[cur];
+    }
+    cycle.push(nodes[cycle_start].to_owned());
+    cycle.reverse();
+    Some(cycle)
 }
 
 // ===========================================================================
@@ -54766,7 +55934,12 @@ mod tests {
         LinkPredictionEndpointPairs,
         MaximalIndependentSetError,
         ModularityError,
+        NetworkxBranchingError,
+        NetworkxBranchingPlan,
+        NetworkxGreedyModularityError,
+        PartitionState,
         SpannerError,
+        TopologicalGenerationsTrace,
         adamic_adar_index,
         all_pairs_all_shortest_paths,
         all_pairs_bellman_ford_path,
@@ -55074,6 +56247,8 @@ mod tests {
         // Connectivity and cuts — additional
         navigable_small_world_graph,
         negative_edge_cycle,
+        networkx_greedy_modularity_merges,
+        networkx_maximum_branching_plan,
         node_boundary,
         node_boundary_directed,
         node_clique_number,
@@ -55166,6 +56341,7 @@ mod tests {
         to_edgelist,
         to_prufer_sequence,
         topological_generations,
+        topological_generations_trace,
         topological_sort,
         transitive_closure,
         transitive_reduction,
@@ -64344,106 +65520,6 @@ mod tests {
         report("NULL_noalloc_vs_noalloc", &paired(true, true));
     }
 
-    /// br-r37-c1-gmodmat: paired-interleaved median A/B for `greedy_modularity_communities`
-    /// with the edge list materialized ONCE (`single_materialize=true`, production) vs the
-    /// pre-lever 3× `edges_ordered_borrowed()` rebuild (`false`), in ONE binary / ONE worker
-    /// with a NULL control. The two paths run the SAME impl (bit-identical merge loop), so
-    /// the parity assert is exact. `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib greedy_modularity_gmodmat_ab -- --ignored --nocapture`.
-    #[test]
-    #[ignore = "measurement; run with --release --ignored --nocapture"]
-    fn greedy_modularity_gmodmat_ab() {
-        use std::hint::black_box;
-        use std::time::Instant;
-
-        // 50 communities of 100 nodes: dense within (ring + chords), sparse between,
-        // deterministic (no rng). Enough merges to exercise the O(E log E) heap loop so the
-        // setup's edge-rebuild share is measured against a realistic total.
-        let comms = 50usize;
-        let per = 100usize;
-        let n = comms * per;
-        let mut g = Graph::strict();
-        for i in 0..n {
-            let _ = g.add_node(format!("n{i}"));
-        }
-        for c in 0..comms {
-            let base = c * per;
-            for k in 0..per {
-                for step in [1usize, 2, 3, 5] {
-                    let a = base + k;
-                    let b = base + (k + step) % per;
-                    if a != b {
-                        let _ = g.add_edge(format!("n{a}"), format!("n{b}"));
-                    }
-                }
-            }
-        }
-        for c in 0..comms {
-            let a = c * per;
-            let b = ((c + 1) % comms) * per + 7;
-            let _ = g.add_edge(format!("n{a}"), format!("n{b}"));
-        }
-
-        // Byte-exact parity: materialize-once == 3×-rebuild.
-        assert_eq!(
-            super::greedy_modularity_communities_impl(&g, 1.0, "", true),
-            super::greedy_modularity_communities_impl(&g, 1.0, "", false),
-            "materialize-once greedy_modularity must equal the 3×-rebuild baseline"
-        );
-
-        let time = |lever: bool| -> f64 {
-            let t0 = Instant::now();
-            black_box(super::greedy_modularity_communities_impl(
-                &g, 1.0, "", lever,
-            ));
-            t0.elapsed().as_secs_f64()
-        };
-        for _ in 0..3 {
-            black_box(time(true));
-            black_box(time(false));
-        }
-        let median = |v: &[f64]| {
-            let mut s = v.to_vec();
-            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            s[s.len() / 2]
-        };
-        let rounds = 61usize;
-        let paired = |cand: bool, base: bool| -> Vec<f64> {
-            let mut v = Vec::with_capacity(rounds);
-            for r in 0..rounds {
-                let (tb, tc) = if r % 2 == 0 {
-                    let b = time(base);
-                    let c = time(cand);
-                    (b, c)
-                } else {
-                    let c = time(cand);
-                    let b = time(base);
-                    (b, c)
-                };
-                v.push(tb / tc);
-            }
-            v
-        };
-        let report = |name: &str, ratios: &[f64]| {
-            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
-            let mut sorted = ratios.to_vec();
-            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            println!(
-                "GMODMAT_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
-                 p5_p95=[{:.4},{:.4}]",
-                median(ratios),
-                sorted[rounds * 5 / 100],
-                sorted[rounds * 95 / 100],
-            );
-        };
-        println!(
-            "GMODMAT_AB n={n} edges={} rounds={rounds} (>1 = materialize-once faster)",
-            g.edge_count()
-        );
-        report("MAT1_vs_MAT3", &paired(true, false));
-        report("NULL_mat1_vs_mat1", &paired(true, true));
-    }
-
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
@@ -72105,6 +73181,120 @@ mod tests {
         assert!(topological_generations(&g).is_none());
     }
 
+    #[test]
+    fn networkx_branching_plan_root_circuit_drops_its_minimum_edge() {
+        // 0 -1-> ... : keys 0: 0->1 (5), 1: 1->2 (3), 2: 2->0 (1). The whole
+        // graph is one circuit contracted into a root; unwinding removes the
+        // minimum edge, key 2.
+        let open = PartitionState::Open;
+        let plan = networkx_maximum_branching_plan(&[
+            (0, 1, 5.0, open),
+            (1, 2, 3.0, open),
+            (2, 0, 1.0, open),
+        ])
+        .expect("plan");
+        assert_eq!(
+            plan,
+            NetworkxBranchingPlan {
+                initial: vec![],
+                steps: vec![(vec![2, 0, 1], 2)],
+            }
+        );
+    }
+
+    #[test]
+    fn networkx_branching_plan_entering_edge_breaks_the_circuit_at_its_target() {
+        // keys 0: 1->2 (5), 1: 2->1 (5), 2: 0->1 (1). The 1<->2 circuit is
+        // entered by key 2 at node 1, so the circuit edge into 1 (key 1) goes.
+        let open = PartitionState::Open;
+        let plan = networkx_maximum_branching_plan(&[
+            (1, 2, 5.0, open),
+            (2, 1, 5.0, open),
+            (0, 1, 1.0, open),
+        ])
+        .expect("plan");
+        assert_eq!(
+            plan,
+            NetworkxBranchingPlan {
+                initial: vec![2],
+                steps: vec![(vec![1, 0], 1)],
+            }
+        );
+    }
+
+    #[test]
+    fn networkx_branching_plan_all_included_root_circuit_is_networkx_s_bare_exception() {
+        let included = PartitionState::Included;
+        assert_eq!(
+            networkx_maximum_branching_plan(&[(0, 1, 1.0, included), (1, 0, 1.0, included)]),
+            Err(NetworkxBranchingError::NoMinimumEdge)
+        );
+    }
+
+    /// networkx's in-degree map before processing generation `k`.
+    fn remaining_before(trace: &TopologicalGenerationsTrace, k: usize) -> Vec<usize> {
+        let mut remaining = trace.in_degree.clone();
+        for &(_, child) in &trace.scanned[..trace.gen_offsets[k]] {
+            remaining[child] -= 1;
+        }
+        remaining
+    }
+
+    #[test]
+    fn topological_generations_trace_keeps_the_prefix_before_a_cycle() {
+        // 0 -> 1 <-> 2, 0 -> 3: networkx yields [0], [3], then raises.
+        let mut g = DiGraph::strict();
+        for (u, v) in [("0", "1"), ("1", "2"), ("2", "1"), ("0", "3")] {
+            g.add_edge(u, v).expect("edge");
+        }
+        let trace = topological_generations_trace(&g);
+        assert_eq!(trace.generations, vec![vec![(0, None)], vec![(3, Some(0))]]);
+        assert_eq!(trace.unprocessed, vec![1, 2]);
+        assert_eq!(trace.in_degree, vec![0, 2, 1, 1]);
+        assert_eq!(trace.scanned, vec![(0, 1), (0, 3)]);
+        assert_eq!(trace.gen_offsets, vec![0, 2]);
+        assert_eq!(remaining_before(&trace, 0), vec![0, 2, 1, 1]);
+        assert_eq!(remaining_before(&trace, 1), vec![0, 1, 1, 0]);
+        assert!(topological_generations(&g).is_none());
+    }
+
+    #[test]
+    fn topological_generations_trace_boundaries_match_kahn_state() {
+        // a -> b -> d, a -> c -> d, c -> e
+        let mut g = DiGraph::strict();
+        for (u, v) in [("a", "b"), ("b", "d"), ("a", "c"), ("c", "d"), ("c", "e")] {
+            g.add_edge(u, v).expect("edge");
+        }
+        let trace = topological_generations_trace(&g);
+        assert!(trace.unprocessed.is_empty());
+        assert_eq!(trace.gen_offsets.len(), trace.generations.len());
+        let generation_of = |node: usize| {
+            trace
+                .generations
+                .iter()
+                .position(|generation| generation.iter().any(|&(n, _)| n == node))
+                .expect("every node of a DAG has a generation")
+        };
+        for k in 0..trace.generations.len() {
+            let remaining = remaining_before(&trace, k);
+            for node in 0..g.node_count() {
+                // Generations up to k have reached zero; later ones have not.
+                assert_eq!(
+                    remaining[node] == 0,
+                    generation_of(node) <= k,
+                    "k={k} node={node}"
+                );
+            }
+        }
+        let names: Vec<Vec<String>> = topological_generations(&g)
+            .expect("DAG")
+            .generations
+            .into_iter()
+            .map(|generation| generation.into_iter().map(|(n, _)| n).collect())
+            .collect();
+        assert_eq!(names, vec![vec!["a"], vec!["b", "c"], vec!["d", "e"]]);
+    }
+
     // -----------------------------------------------------------------------
     // DFS traversal tests
     // -----------------------------------------------------------------------
@@ -75334,6 +76524,90 @@ mod tests {
         let _ = g.add_edge("c", "d");
         let comms = greedy_modularity_communities(&g, 1.0, "weight");
         assert!(comms.len() >= 2);
+    }
+
+    /// Unweighted `(edges, a, q0)` for `networkx_greedy_modularity_merges`, the edges given
+    /// in networkx's `G.edges()` order over nodes `0..n`.
+    fn unweighted_modularity_input(
+        n: usize,
+        edges: &[(usize, usize)],
+    ) -> (Vec<(usize, usize, f64)>, Vec<f64>, f64) {
+        let mut degree = vec![0usize; n];
+        for &(u, v) in edges {
+            degree[u] += 1;
+            degree[v] += 1;
+        }
+        let q0 = 1.0 / edges.len() as f64;
+        let a = degree.iter().map(|&d| d as f64 * q0 * 0.5).collect();
+        let weighted = edges.iter().map(|&(u, v)| (u, v, 1.0)).collect();
+        (weighted, a, q0)
+    }
+
+    // Expected merges below are networkx 3.6.1's, read from its generator's
+    // `communities` dict after each step.
+    #[test]
+    fn networkx_greedy_modularity_merges_two_triangles() {
+        let (edges, a, q0) = unweighted_modularity_input(
+            6,
+            &[(0, 1), (0, 2), (1, 2), (2, 3), (3, 4), (3, 5), (4, 5)],
+        );
+        let run = networkx_greedy_modularity_merges(&edges, &a, None, q0, 1.0, 1.0, 6.0)
+            .expect("finite gains");
+        assert_eq!(run.merges, vec![(0, 1), (1, 2), (4, 5), (3, 5)]);
+        assert!(!run.exhausted);
+    }
+
+    #[test]
+    fn networkx_greedy_modularity_merges_cutoff_and_best_n() {
+        let path: Vec<(usize, usize)> = (0..5).map(|i| (i, i + 1)).collect();
+        let (edges, a, q0) = unweighted_modularity_input(6, &path);
+        let merges = |cutoff: f64, best_n: f64| {
+            networkx_greedy_modularity_merges(&edges, &a, None, q0, 1.0, cutoff, best_n)
+                .expect("finite gains")
+                .merges
+        };
+        // The first negative gain stops it at three communities...
+        assert_eq!(merges(1.0, 6.0), vec![(0, 1), (4, 5), (2, 3)]);
+        // ...cutoff stops it earlier, and best_n keeps it merging past negative gains.
+        assert_eq!(merges(4.0, 6.0), vec![(0, 1), (4, 5)]);
+        assert_eq!(merges(1.0, 2.0), vec![(0, 1), (4, 5), (2, 3), (1, 3)]);
+    }
+
+    #[test]
+    fn networkx_greedy_modularity_merges_reports_exhaustion_and_nan() {
+        // Two separate edges: both merge, then H is empty with two communities left.
+        let (edges, a, q0) = unweighted_modularity_input(4, &[(0, 1), (2, 3)]);
+        let run = networkx_greedy_modularity_merges(&edges, &a, None, q0, 1.0, 1.0, 4.0)
+            .expect("finite gains");
+        assert_eq!(run.merges, vec![(0, 1), (2, 3)]);
+        assert!(run.exhausted);
+        // 0 * inf: the gain is NaN, where networkx's heap order stops being total.
+        assert_eq!(
+            networkx_greedy_modularity_merges(
+                &[(0, 1, f64::INFINITY)],
+                &[0.5, 0.5],
+                None,
+                0.0,
+                1.0,
+                1.0,
+                2.0
+            ),
+            Err(NetworkxGreedyModularityError::NanGain)
+        );
+    }
+
+    #[test]
+    fn greedy_modularity_ties_follow_label_order_not_insertion_order() {
+        // networkx on the path e-d-c-b-a: [{a, b, c}, {d, e}]. Breaking the equal gains by
+        // insertion position instead would give [{c, d, e}, {a, b}].
+        let mut g = Graph::strict();
+        for (u, v) in [("e", "d"), ("d", "c"), ("c", "b"), ("b", "a")] {
+            let _ = g.add_edge(u, v);
+        }
+        assert_eq!(
+            greedy_modularity_communities(&g, 1.0, ""),
+            vec![vec!["a", "b", "c"], vec!["d", "e"]]
+        );
     }
 
     // =======================================================================
@@ -79436,6 +80710,31 @@ mod tests {
         // Cycle should start and end with the same node
         assert_eq!(cycle.first(), cycle.last());
         assert!(cycle.len() >= 3);
+    }
+
+    #[test]
+    fn test_find_negative_cycle_single_negative_edge_from_either_end() {
+        // networkx: find_negative_cycle(G, 1) == [1, 0, 1]. The old trace
+        // walked back to the source's unset predecessor and panicked
+        // (index out of bounds: the index is usize::MAX).
+        let mut g = Graph::strict();
+        g.add_edge_with_attrs("0", "1", attrs([("weight", "-1.0")]))
+            .unwrap();
+        for source in ["0", "1"] {
+            let cycle = find_negative_cycle(&g, source, "weight").expect("a 2-cycle");
+            assert_eq!(cycle.len(), 3);
+            assert_eq!(cycle.first(), cycle.last());
+            assert_ne!(cycle[0], cycle[1]);
+        }
+    }
+
+    #[test]
+    fn test_find_negative_cycle_unreachable_cycle_is_none() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("s");
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "-1.0")]))
+            .unwrap();
+        assert_eq!(find_negative_cycle(&g, "s", "weight"), None);
     }
 
     // -----------------------------------------------------------------------
