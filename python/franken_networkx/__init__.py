@@ -6105,128 +6105,19 @@ def _multigraph_adjacency(self):
 # (_GRAPH_COPY etc) but they were never read elsewhere — dead code.
 
 
-def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
-    """br-nonenode: reject None endpoints to match nx's contract.
-
-    Parameter names match nx exactly (br-r37-c1-wcdm3): simple Graph
-    uses (u_of_edge, v_of_edge); MultiGraph uses (u_for_edge,
-    v_for_edge). Drop-in code passing the documented kwarg form
-    (G.add_edge(u_of_edge=0, v_of_edge=1)) hit TypeError on fnx
-    until this fix.
-    """
-
-    if is_multigraph:
-        def add_edge(self, u_for_edge, v_for_edge, key=None, **attr):
-            # br-r37-c1 mutation-state batch 2: nx creates node u BEFORE
-            # examining v (``if u not in self._adj`` precedes the v
-            # checks), so a bad v leaves u on the graph.
-            if u_for_edge is None:
-                raise ValueError("None cannot be a node")
-            # br-r37-c1-m0io3: validate hashability so fnx surfaces the
-            # nx-shaped TypeError ('unhashable type: <type>') for
-            # list/set/dict endpoints instead of silently absorbing
-            # the unhashable as a Python-id-keyed node.
-            _HASH_PROBE.get(u_for_edge)
-            if v_for_edge is None:
-                self.add_node(u_for_edge)
-                raise ValueError("None cannot be a node")
-            try:
-                _HASH_PROBE.get(v_for_edge)
-            except TypeError:
-                self.add_node(u_for_edge)
-                raise
-            # br-r37-c1-mae-keyhash: nx raises TypeError when the
-            # multigraph ``key`` arg is unhashable (the underlying
-            # ``self._adj[u][v][key] = data`` dict assignment
-            # raises).  Without this guard the Rust binding stored
-            # the unhashable list/dict as a Python-id-keyed entry,
-            # corrupting graph state — every subsequent operation
-            # that iterated the adjacency map then crashed with an
-            # opaque ``TypeError: unhashable type: 'list'`` from a
-            # call site unrelated to the original add_edge.
-            if key is not None:
-                try:
-                    _HASH_PROBE.get(key)
-                except TypeError:
-                    # br-r37-c1-baqyi: nx creates BOTH endpoint nodes
-                    # before the unhashable key raises (the key is
-                    # first used after node insertion in nx add_edge).
-                    self.add_node(u_for_edge)
-                    self.add_node(v_for_edge)
-                    raise
-            return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
-    else:
-        def add_edge(self, u_of_edge, v_of_edge, **attr):
-            # br-r37-c1-aeshim: with NO attributes there is nothing this wrapper
-            # does that the kernel does not now do itself. Since 1823044a2 all
-            # four native kernels reject None and unhashable endpoints with
-            # networkx's exception type, args and partial-state ordering (u
-            # created before v is examined), so the checks below are duplication
-            # on this path - two hash() builtins, two None tests and a
-            # try/except per call, with the kernel repeating all of it.
-            #
-            # Hoisted ABOVE the validation, not merely before the has_edge probe
-            # as in br-r37-c1-aenoattr. The attributed path KEEPS the validation
-            # because it calls self.has_edge and self[u][v] before reaching the
-            # kernel, and those must not see a bad endpoint.
-            if not attr:
-                return raw_add_edge(self, u_of_edge, v_of_edge)
-            # br-r37-c1 mutation-state batch 2: u before v (see above).
-            if u_of_edge is None:
-                raise ValueError("None cannot be a node")
-            # br-r37-c1-m0io3: validate hashability (see above).
-            _HASH_PROBE.get(u_of_edge)
-            if v_of_edge is None:
-                self.add_node(u_of_edge)
-                raise ValueError("None cannot be a node")
-            try:
-                _HASH_PROBE.get(v_of_edge)
-            except TypeError:
-                self.add_node(u_of_edge)
-                raise
-            # br-r37-c1-weightupdate-9rts1: NO has_edge probe and NO Python-side
-            # merge. What stood here read `self[u][v]` to merge the existing
-            # attributes, called the kernel with the union, then subscripted
-            # AGAIN to update the live dict. Both subscripts HAND OUT the live
-            # edge attr dict, which marks the weighted store dirty for the life
-            # of the graph -- so updating one edge's weight cost every later
-            # `size(weight=...)` / `degree(weight=...)` on the whole graph 5.2x,
-            # permanently, and all-or-nothing (one updated edge cost the same as
-            # 2000). Adding a BRAND-NEW edge never did this, because it took the
-            # kernel path below; that asymmetry is what exposed it.
-            #
-            # The block was redundant, verified on Graph and DiGraph against
-            # networkx before removing it rather than after:
-            #   * the kernel MERGES - RAW(color='red') on an edge holding
-            #     {weight, tag} yields {weight, tag, color}, it does not replace;
-            #   * it preserves LIVE-DICT IDENTITY on its own - a dict the caller
-            #     already held is the same object afterwards and observes the
-            #     update, which is the contract the second subscript looked like
-            #     it existed to uphold;
-            #   * every repeat-add shape (overwrite, add a key, overwrite+add,
-            #     no attrs) matches networkx through the kernel alone.
-            # Pinned by tests/python/test_repeat_add_edge_keeps_store_clean.py.
-            #
-            # The has_edge probe went with it: it existed only to choose this
-            # branch, and it canonicalises BOTH endpoints, which at long node
-            # keys is the same O(key length) work the kernel does again.
-            return raw_add_edge(self, u_of_edge, v_of_edge, **attr)
-
-    return add_edge
-
-
+# add_edge is each class's native kernel, with no Python wrapper. All four
+# kernels reject None and unhashable endpoints, and an unhashable multigraph
+# key, with networkx's exception type, args and partial-state order (u is
+# created before v is examined; both endpoints before a bad key raises), since
+# br-r37-c1-aeshim. The wrapper that sat here repeated those checks and, after
+# br-r37-c1-weightupdate-9rts1 removed its has_edge probe and Python-side
+# merge, did nothing else: it cost one Python frame per call. Pinned by
+# tests/python/test_native_add_edge_validates_endpoints.py and
+# tests/python/test_repeat_add_edge_keeps_store_clean.py.
 _GRAPH_ADD_EDGE_RAW = Graph.add_edge
 _DIGRAPH_ADD_EDGE_RAW = DiGraph.add_edge
 _MULTIGRAPH_ADD_EDGE_RAW = MultiGraph.add_edge
 _MULTIDIGRAPH_ADD_EDGE_RAW = MultiDiGraph.add_edge
-
-Graph.add_edge = _make_none_rejecting_add_edge(_GRAPH_ADD_EDGE_RAW)
-DiGraph.add_edge = _make_none_rejecting_add_edge(_DIGRAPH_ADD_EDGE_RAW)
-MultiGraph.add_edge = _make_none_rejecting_add_edge(_MULTIGRAPH_ADD_EDGE_RAW, is_multigraph=True)
-MultiDiGraph.add_edge = _make_none_rejecting_add_edge(_MULTIDIGRAPH_ADD_EDGE_RAW, is_multigraph=True)
-
-_MULTIGRAPH_ADD_EDGE = MultiGraph.add_edge
-_MULTIDIGRAPH_ADD_EDGE = MultiDiGraph.add_edge
 _GRAPH_ADD_NODE_RAW = Graph.add_node
 _DIGRAPH_ADD_NODE_RAW = DiGraph.add_node
 _MULTIGRAPH_ADD_NODE_RAW = MultiGraph.add_node
@@ -6235,12 +6126,6 @@ _GRAPH_FAST_ADD_INT_NODES_RANGE_STOP = getattr(
     Graph, "_fast_add_int_nodes_range_stop", None
 )
 _GRAPH_FAST_ADD_INT_NODES = getattr(Graph, "_fast_add_int_nodes", None)
-_MULTIGRAPH_FAST_ADD_EXPLICIT_INT_EDGE = getattr(
-    MultiGraph, "_fast_add_explicit_int_edge", None
-)
-_MULTIGRAPH_FAST_ADD_EXPLICIT_STR_EDGE = getattr(
-    MultiGraph, "_fast_add_explicit_str_edge", None
-)
 
 
 def _make_none_rejecting_add_node(raw_add_node):
@@ -6439,89 +6324,11 @@ MultiGraph.update = _graph_update
 MultiDiGraph.update = _graph_update
 
 
-def _multi_add_edge_auto_key(raw_add_edge):
-    """Wrap the Rust ``add_edge`` so that when ``key=None`` is passed
-    on a Multi*Graph and an edge already exists at ``(u, v)``, a fresh
-    integer key is allocated before dispatch. The Rust binding silently
-    no-ops in this case, losing the write (franken_networkx-wymzp).
-
-    Matches upstream ``nx.MultiGraph.new_edge_key`` semantics: start
-    search at ``len(existing_keys)`` and bump until an unused integer
-    is found (so a graph with keys {2} gets the next no-key edge at
-    key=1, not max+1=3).
-    """
-
-    def add_edge(self, u_for_edge, v_for_edge, key=None, **attr):
-        if (
-            type(key) is int
-            and not attr
-            and type(u_for_edge) is int
-            and type(v_for_edge) is int
-            and type(self) is MultiGraph
-            and _MULTIGRAPH_FAST_ADD_EXPLICIT_INT_EDGE is not None
-        ):
-            fast_key = _MULTIGRAPH_FAST_ADD_EXPLICIT_INT_EDGE(
-                self, u_for_edge, v_for_edge, key
-            )
-            if fast_key is not None:
-                return fast_key
-        if (
-            type(key) is str
-            and not attr
-            and type(u_for_edge) is int
-            and type(v_for_edge) is int
-            and type(self) is MultiGraph
-            and _MULTIGRAPH_FAST_ADD_EXPLICIT_STR_EDGE is not None
-        ):
-            fast_key = _MULTIGRAPH_FAST_ADD_EXPLICIT_STR_EDGE(
-                self, u_for_edge, v_for_edge, key
-            )
-            if fast_key is not None:
-                return fast_key
-        if key is None:
-            # br-r37-c1-mgaek: use the native O(1) keydict instead of
-            # ``self[u_for_edge][v_for_edge]``, which rebuilds the full
-            # MultiAdjacencyView (O(E)) on EVERY add_edge — making the public
-            # multigraph add_edge O(E) and any per-edge build O(E^2) (e.g.
-            # from_dict_of_dicts of 8k edges took 137s). Same gap-aware key
-            # (nx.MultiGraph.new_edge_key: key = len(keydict); while key in
-            # keydict: key += 1), so explicit/auto key mixes still match nx.
-            #
-            # br-inedges-autokey (bt): use ``_native_edge_key_set`` (key objects
-            # only) rather than ``get_edge_data`` here. get_edge_data hands out
-            # LIVE mutable mirror dicts, so it marks the WHOLE graph dirty — and
-            # since this runs on EVERY parallel-edge add, a per-edge-built
-            # multigraph ends up permanently dirty, forcing in_edges/edges/degree
-            # (with data) onto their slow non-store-read paths (mdg
-            # in_edges(keys,data) was 0.19x vs nx). The key set is all the
-            # new_edge_key search needs and leaves the graph clean.
-            try:
-                existing = self._native_edge_key_set(u_for_edge, v_for_edge)
-            except TypeError:
-                # br-r37-c1 mutation-state batch 2: unhashable endpoint —
-                # fall through so raw_add_edge raises with nx's
-                # partial-state semantics (u created before v's error).
-                existing = None
-            if existing:
-                candidate = len(existing)
-                while candidate in existing:
-                    candidate += 1
-                key = candidate
-        return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
-
-    return add_edge
-
-
-# br-r37-c1-kt0vp: PyMultiGraph.add_edge now owns the exact-type no-attr
-# fast path plus key=None auto-allocation, so the extra Python auto-key wrapper
-# only adds dispatch overhead on the measured public add_edge loop.
-# br-paralleladd (bt): PyMultiDiGraph.add_edge now likewise owns key=None
-# auto-allocation natively (gated O(1) auto key via has_remapped_int_key), so the
-# _multi_add_edge_auto_key wrapper — whose `_native_edge_key_set` rebuilt the full
-# parallel-key set on EVERY add, making repeated parallel add_edge O(N^2) — is
-# dropped. Native echoes int(actual_key) for the clean case (== nx public key).
-MultiGraph.add_edge = _MULTIGRAPH_ADD_EDGE_RAW
-MultiDiGraph.add_edge = _MULTIDIGRAPH_ADD_EDGE
+# br-r37-c1-kt0vp / br-paralleladd (bt): both multigraph kernels own key=None
+# auto-allocation natively (networkx's new_edge_key search, O(1) while no int
+# public key has been remapped off its internal key), so no Python auto-key
+# wrapper sits in front of them. The one that did rebuilt the full parallel-key
+# set on every add, making repeated parallel add_edge O(N^2).
 
 
 def _multi_add_edges_from(self, ebunch_to_add, **attr):
@@ -6612,9 +6419,9 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
         if _native_attr_batch is not None and _native_attr_batch(ebunch_to_add, attr):
             return
     if isinstance(self, MultiGraph) and not self.is_directed():
-        _add_edge = _MULTIGRAPH_ADD_EDGE.__get__(self)
+        _add_edge = _MULTIGRAPH_ADD_EDGE_RAW.__get__(self)
     else:
-        _add_edge = _MULTIDIGRAPH_ADD_EDGE.__get__(self)
+        _add_edge = _MULTIDIGRAPH_ADD_EDGE_RAW.__get__(self)
     for e in ebunch_to_add:
         ne = len(e)
         if ne == 4:

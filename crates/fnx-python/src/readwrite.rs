@@ -128,7 +128,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
     let mut inner = RustGraph::with_runtime_policy(g.runtime_policy().clone());
     let mut raw_to_canonical = HashMap::new();
     let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
-    let mut node_py_attrs = HashMap::new();
+    let mut node_py_attrs = PyNodeKeyMap::default();
     for node_id in g.nodes_ordered() {
         let py_key = node_id.to_owned().into_pyobject(py)?.into_any().unbind();
         let canonical = node_key_to_string(py, py_key.bind(py))?;
@@ -206,8 +206,8 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
     let g = report.graph;
     let mut inner = RustDiGraph::with_runtime_policy(g.runtime_policy().clone());
     let mut raw_to_canonical = HashMap::new();
-    let mut node_key_map = HashMap::new();
-    let mut node_py_attrs = HashMap::new();
+    let mut node_key_map = PyNodeKeyMap::default();
+    let mut node_py_attrs = PyNodeKeyMap::default();
     for node_id in g.nodes_ordered() {
         let py_key = node_id.to_owned().into_pyobject(py)?.into_any().unbind();
         let canonical = node_key_to_string(py, py_key.bind(py))?;
@@ -324,8 +324,10 @@ fn digraph_absorb_graph_bidirected(
         .into_iter()
         .map(str::to_owned)
         .collect();
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(nodes.len());
-    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::with_capacity(nodes.len());
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(nodes.len(), rustc_hash::FxBuildHasher);
+    let mut node_py_attrs: PyNodeKeyMap<String, Py<PyDict>> =
+        PyNodeKeyMap::with_capacity_and_hasher(nodes.len(), rustc_hash::FxBuildHasher);
     let mut nodes_bulk: Vec<(String, fnx_classes::AttrMap)> = Vec::with_capacity(nodes.len());
     for nid in &nodes {
         node_key_map.insert(nid.clone(), src.py_node_key(py, nid));
@@ -433,8 +435,10 @@ fn multigraph_absorb_graph(
         .into_iter()
         .map(str::to_owned)
         .collect();
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(nodes.len());
-    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::with_capacity(nodes.len());
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(nodes.len(), rustc_hash::FxBuildHasher);
+    let mut node_py_attrs: PyNodeKeyMap<String, Py<PyDict>> =
+        PyNodeKeyMap::with_capacity_and_hasher(nodes.len(), rustc_hash::FxBuildHasher);
     let mut nodes_bulk: Vec<(String, fnx_classes::AttrMap)> = Vec::with_capacity(nodes.len());
     for nid in &nodes {
         node_key_map.insert(nid.clone(), src.py_node_key(py, nid));
@@ -800,7 +804,7 @@ fn canon_token<'a>(
     cache: &mut HashMap<&'a str, String>,
     nodes_order: &mut Vec<String>,
     node_key_map: &mut PyNodeKeyMap<String, PyObject>,
-    node_py_attrs: &mut HashMap<String, Py<PyDict>>,
+    node_py_attrs: &mut PyNodeKeyMap<String, Py<PyDict>>,
 ) -> String {
     if let Some(c) = cache.get(token) {
         return c.clone();
@@ -822,7 +826,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
 
     let mut inner = RustGraph::new(CompatibilityMode::Strict);
     let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
-    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
+    let mut node_py_attrs: PyNodeKeyMap<String, Py<PyDict>> = PyNodeKeyMap::default();
     let edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
         rustc_hash::FxHashMap::default();
     let mut nodes_order: Vec<String> = Vec::new();
@@ -1166,7 +1170,7 @@ fn parse_edgelist_simple_content(
     // ENDPOINT, i.e. 2|E| heap allocations where |V| are needed.
     let mut node_key_map: PyNodeKeyMap<String, PyObject> =
         PyNodeKeyMap::with_capacity_and_hasher(token_order.len(), rustc_hash::FxBuildHasher);
-    let node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
+    let node_py_attrs: PyNodeKeyMap<String, Py<PyDict>> = PyNodeKeyMap::default();
     let mut nodes_order: Vec<String> = Vec::with_capacity(token_order.len());
     for &token in &token_order {
         let canon = crate::owned_canonical_str_key(token);

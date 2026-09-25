@@ -11624,8 +11624,14 @@ pub fn stochastic_graph_copy_multidigraph(
         return Ok(py.None());
     }
 
-    let mut node_key_map = HashMap::with_capacity(graph.node_key_map.len());
-    let mut node_py_attrs = HashMap::with_capacity(graph.node_py_attrs.len());
+    let mut node_key_map = crate::PyNodeKeyMap::with_capacity_and_hasher(
+        graph.node_key_map.len(),
+        rustc_hash::FxBuildHasher,
+    );
+    let mut node_py_attrs = crate::PyNodeKeyMap::with_capacity_and_hasher(
+        graph.node_py_attrs.len(),
+        rustc_hash::FxBuildHasher,
+    );
     for (canonical, py_key) in &graph.node_key_map {
         node_key_map.insert(canonical.clone(), py_key.clone_ref(py));
         if let Some(attrs) = graph.node_py_attrs.get(canonical) {
@@ -16122,10 +16128,16 @@ pub fn multidigraph_transitive_closure(
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner,
-        node_key_map: HashMap::with_capacity(mdg.node_key_map.len()),
+        node_key_map: crate::PyNodeKeyMap::with_capacity_and_hasher(
+            mdg.node_key_map.len(),
+            rustc_hash::FxBuildHasher,
+        ),
         succ_py_keys: PyDiGraph::clone_row_keys(py, &mdg.succ_py_keys),
         pred_py_keys: HashMap::new(),
-        node_py_attrs: HashMap::with_capacity(mdg.node_py_attrs.len()),
+        node_py_attrs: crate::PyNodeKeyMap::with_capacity_and_hasher(
+            mdg.node_py_attrs.len(),
+            rustc_hash::FxBuildHasher,
+        ),
         edge_py_attrs: rustc_hash::FxHashMap::with_capacity_and_hasher(
             mdg.edge_py_attrs.len(),
             rustc_hash::FxBuildHasher,
@@ -16207,8 +16219,14 @@ pub fn transitive_closure(
         // are lazy (a missing edge_py_attrs entry reads back as an empty dict),
         // and the Python wrapper copies the original edges' attrs afterward, so
         // dropping the per-edge alloc + the second O(E) construction is sound.
-        let mut node_key_map = HashMap::with_capacity(result.node_count());
-        let mut node_py_attrs = HashMap::with_capacity(result.node_count());
+        let mut node_key_map = crate::PyNodeKeyMap::with_capacity_and_hasher(
+            result.node_count(),
+            rustc_hash::FxBuildHasher,
+        );
+        let mut node_py_attrs = crate::PyNodeKeyMap::with_capacity_and_hasher(
+            result.node_count(),
+            rustc_hash::FxBuildHasher,
+        );
         for node in result.nodes_ordered() {
             node_key_map.insert(node.to_owned(), gr.py_node_key(py, node));
             node_py_attrs.insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
@@ -17065,13 +17083,14 @@ fn product_node_tuples(
     gr2: &GraphRef<'_>,
     g_names: &[String],
     h_names: &[String],
-) -> PyResult<(Vec<String>, HashMap<String, PyObject>)> {
+) -> PyResult<(Vec<String>, crate::PyNodeKeyMap<String, PyObject>)> {
     let nh = h_names.len();
     let g_py: Vec<PyObject> = g_names.iter().map(|n| gr1.py_node_key(py, n)).collect();
     let h_py: Vec<PyObject> = h_names.iter().map(|n| gr2.py_node_key(py, n)).collect();
     let np = g_names.len() * nh;
     let mut canon: Vec<String> = Vec::with_capacity(np);
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(np);
+    let mut node_key_map =
+        crate::PyNodeKeyMap::with_capacity_and_hasher(np, rustc_hash::FxBuildHasher);
     for gp in &g_py {
         for hp in &h_py {
             let tup = PyTuple::new(py, [gp.clone_ref(py), hp.clone_ref(py)])?;
@@ -17517,7 +17536,7 @@ fn graph_product_fast(
         let _ = inner.extend_edges_unrecorded(edges);
         let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
         py_graph.inner = inner;
-        py_graph.node_key_map = node_key_map.into_iter().collect();
+        py_graph.node_key_map = node_key_map;
         Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
     }
 }
@@ -17712,7 +17731,7 @@ fn cartesian_product_edge_attrs_fast(
             let _ = inner.extend_edges_with_attrs_unrecorded(edges);
             let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
             py_graph.inner = inner;
-            py_graph.node_key_map = node_key_map.into_iter().collect();
+            py_graph.node_key_map = node_key_map;
             Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
         (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
@@ -17863,7 +17882,7 @@ fn lexicographic_product_edge_attrs_fast(
             let _ = inner.extend_edges_with_attrs_unrecorded(edges);
             let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
             py_graph.inner = inner;
-            py_graph.node_key_map = node_key_map.into_iter().collect();
+            py_graph.node_key_map = node_key_map;
             Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
         (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
@@ -18464,7 +18483,7 @@ fn modular_product_fast(
     let _ = inner.extend_edges_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18525,7 +18544,7 @@ fn rooted_product_fast(
     let _ = inner.extend_edges_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18594,7 +18613,7 @@ fn corona_product_fast(
     let _ = inner.extend_edges_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18680,7 +18699,7 @@ fn corona_product_edge_attrs_fast(
     let _ = inner.extend_edges_with_attrs_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18731,13 +18750,14 @@ fn mycielskian_step_fast(py: Python<'_>, m: &Bound<'_, PyAny>) -> PyResult<Optio
     }
     let _ = r.extend_edges_unrecorded(edges);
 
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(total);
+    let mut node_key_map =
+        crate::PyNodeKeyMap::with_capacity_and_hasher(total, rustc_hash::FxBuildHasher);
     for i in 0..total {
         node_key_map.insert(i.to_string(), i.into_pyobject(py)?.into_any().unbind());
     }
     let mut py_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
     py_graph.inner = r;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18770,7 +18790,8 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         }
         let ne = edge_pairs.len();
         let mut canon: Vec<String> = Vec::with_capacity(ne);
-        let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(ne);
+        let mut node_key_map =
+            crate::PyNodeKeyMap::with_capacity_and_hasher(ne, rustc_hash::FxBuildHasher);
         for &(u, v) in &edge_pairs {
             let tup = PyTuple::new(py, [g_py[u].clone_ref(py), g_py[v].clone_ref(py)])?;
             let ck = crate::node_key_to_string(py, tup.as_any())?;
@@ -18852,7 +18873,8 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         }
         let ne = edge_pairs.len();
         let mut canon: Vec<String> = Vec::with_capacity(ne);
-        let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(ne);
+        let mut node_key_map =
+            crate::PyNodeKeyMap::with_capacity_and_hasher(ne, rustc_hash::FxBuildHasher);
         for &(u, v) in &edge_pairs {
             let tup = PyTuple::new(py, [g_py[u].clone_ref(py), g_py[v].clone_ref(py)])?;
             let ck = crate::node_key_to_string(py, tup.as_any())?;
@@ -18877,7 +18899,7 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         let _ = inner.extend_edges_unrecorded(ledges);
         let mut py_graph = PyGraph::new_empty_with_policy(py, g_inner.runtime_policy().clone())?;
         py_graph.inner = inner;
-        py_graph.node_key_map = node_key_map.into_iter().collect();
+        py_graph.node_key_map = node_key_map;
         Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
     }
 }
@@ -26258,7 +26280,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -26386,7 +26408,7 @@ pub fn ego_graph_rust(
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -26535,7 +26557,7 @@ pub fn full_join_rust(
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -26583,7 +26605,7 @@ pub fn identified_nodes_rust(
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -26690,7 +26712,7 @@ pub fn dedensify_rust(
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -26871,7 +26893,7 @@ pub fn quotient_graph_rust(
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -27446,7 +27468,7 @@ pub fn gomory_hu_tree_rust(
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -27513,7 +27535,7 @@ pub fn snap_aggregation_rust(
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
-        node_py_attrs: std::collections::HashMap::new(),
+        node_py_attrs: crate::PyNodeKeyMap::default(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
         edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
@@ -33371,8 +33393,8 @@ mod tests {
                 edge_keydict_by_index: rustc_hash::FxHashMap::default(),
                 edge_py_attrs_by_index: rustc_hash::FxHashMap::default(),
                 inner: MultiGraph::new(CompatibilityMode::Hardened),
-                node_key_map: HashMap::new(),
-                node_py_attrs: HashMap::new(),
+                node_key_map: crate::PyNodeKeyMap::default(),
+                node_py_attrs: crate::PyNodeKeyMap::default(),
                 edge_py_attrs: rustc_hash::FxHashMap::default(),
                 adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
                 edge_py_keys: rustc_hash::FxHashMap::default(),

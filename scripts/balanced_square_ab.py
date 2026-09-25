@@ -2953,7 +2953,73 @@ def workload_claim_has_edge_neighbors_str(reps: int):
     return build, ops
 
 
+def workload_claim_add_edge(reps: int):
+    """The README loss-table row "`Graph` incremental `add_edge`", and DiGraph.
+
+    Each timed op builds a FRESH graph with `reps` `G.add_edge` calls, so an
+    arm is stationary across slots; a graph that grew across slots would fail
+    its own A/A null (see `mutation_arms_fail_aa_nulls`). Shapes: the README
+    row's path graph on ints from empty (every call creates a node); a shuffled
+    Barabasi-Albert edge list on ints (most calls find both endpoints already
+    present); the same with `weight=1.0` on every call; and the BA list with
+    str names. An op returns the node count and two edge probes, which the
+    pre-timing parity gate compares. Control: `len(G)` on a fixed graph, which
+    no add_edge change can touch.
+
+    NOT `number_of_edges()`: in networkx it goes through the cached `degree`
+    property, whose DegreeView holds the graph, so every discarded graph became
+    cyclic garbage. The collector is off for a whole round, so those graphs
+    piled up and the incumbent arm slowed across the round: its A/A null read
+    0.93-0.96 on 6 of 9 rows in the first run of this workload.
+    """
+    path = [(i, i + 1) for i in range(reps)]
+    ba = list(nx.barabasi_albert_graph(max(reps // 3, 8), 3, seed=1).edges())
+    random.Random(5).shuffle(ba)
+    ba_str = [(f"node{u}", f"node{v}") for u, v in ba]
+
+    def build(module):
+        control = module.Graph()
+        control.add_edges_from(path)
+        return control, module
+
+    def ops(control, module):
+        def plain(cls, edges):
+            first, last = edges[0], edges[-1]
+
+            def op():
+                g = cls()
+                for u, v in edges:
+                    g.add_edge(u, v)
+                return len(g), g.has_edge(*first), g.has_edge(*last)
+
+            return op
+
+        def weighted(cls, edges):
+            first, last = edges[0], edges[-1]
+
+            def op():
+                g = cls()
+                for u, v in edges:
+                    g.add_edge(u, v, weight=1.0)
+                return len(g), g.has_edge(*first), g.has_edge(*last)
+
+            return op
+
+        table = {}
+        for name, tag in (("Graph", "G"), ("DiGraph", "D")):
+            cls = getattr(module, name)
+            table[f"{tag}.add_edge int path"] = plain(cls, path)
+            table[f"{tag}.add_edge int BA"] = plain(cls, ba)
+            table[f"{tag}.add_edge int BA weight="] = weighted(cls, ba)
+            table[f"{tag}.add_edge str BA"] = plain(cls, ba_str)
+        table["CONTROL len(G)"] = lambda: sum(len(control) for _ in range(reps))
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
+    "claim-add-edge": workload_claim_add_edge,
     "claim-has-edge-neighbors": workload_claim_has_edge_neighbors,
     "claim-has-edge-neighbors-str": workload_claim_has_edge_neighbors_str,
     "view-reads": workload_view_reads,

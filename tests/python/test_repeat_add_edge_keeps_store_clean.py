@@ -62,19 +62,24 @@ def test_repeat_add_edge_merges_like_networkx(cls_name, label, first, second):
     )
 
 
+@pytest.mark.parametrize("first", [{"weight": 7.0}, {}], ids=["attributed", "bare"])
 @pytest.mark.parametrize("cls_name", CLASSES)
-def test_repeat_add_edge_keeps_live_dict_identity(cls_name):
+def test_repeat_add_edge_keeps_live_dict_identity(cls_name, first):
     """A dict the caller already holds must be the same object and see the update.
 
     This is the contract the second subscript looked like it existed to uphold. If the
     kernel created a fresh dict instead of updating in place, a caller holding the old one
     would silently observe a stale graph -- so it is asserted against networkx rather than
     assumed from the deletion being a no-op.
+
+    The BARE first add matters since add_edge stopped creating an edge's dict when it has
+    no attributes to put in it: the dict the caller holds is then the one the read
+    materialised, and the attributed re-add must update that one, not start its own.
     """
     outcomes = {}
     for name, module in (("nx", nx), ("fnx", fnx)):
         graph = getattr(module, cls_name)()
-        graph.add_edge("a", "b", weight=7.0)
+        graph.add_edge("a", "b", **first)
         held = graph["a"]["b"]
         graph.add_edge("a", "b", weight=9.0)
         outcomes[name] = (held is graph["a"]["b"], dict(held))

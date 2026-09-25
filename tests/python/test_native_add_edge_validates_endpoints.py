@@ -68,7 +68,11 @@ def _outcome(graph, call):
 @pytest.mark.parametrize("cls", sorted(RAW), ids=sorted(RAW))
 @pytest.mark.parametrize("u,v", BAD_ENDPOINTS, ids=repr)
 def test_kernel_matches_networkx_on_bad_endpoints(cls, u, v):
-    """Drives the KERNEL directly; the public shim would mask this."""
+    """Drives the KERNEL through its module-level handle.
+
+    The public method is the same object since the Python shim was removed;
+    the handle keeps this test pointed at the kernel if a wrapper ever returns.
+    """
     got = getattr(fnx, cls)()
     want = getattr(nx, cls)()
     assert _outcome(got, lambda: RAW[cls](got, u, v)) == _outcome(
@@ -100,6 +104,34 @@ def test_partial_state_ordering_matches_networkx(cls):
     with pytest.raises(ValueError):
         want.add_edge("u-survives", None)
     assert _nodes(got) == _nodes(want)
+
+
+@pytest.mark.parametrize("cls", sorted(RAW), ids=sorted(RAW))
+@pytest.mark.parametrize("u,v", BAD_ENDPOINTS, ids=repr)
+def test_public_attributed_add_matches_networkx_on_bad_endpoints(cls, u, v):
+    """The public method IS the kernel now: no Python wrapper validates first.
+
+    The attributed call is the case the old wrapper still validated in Python
+    before handing on, so it is the one that could regress when the wrapper
+    went. The partial node state is compared as well as the exception.
+    """
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    assert _outcome(got, lambda: got.add_edge(u, v, weight=1.0)) == _outcome(
+        want, lambda: want.add_edge(u, v, weight=1.0)
+    )
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+def test_public_unhashable_key_matches_networkx(cls):
+    """nx creates BOTH endpoints before an unhashable key raises."""
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    assert _outcome(got, lambda: got.add_edge("u", "v", key=["k"])) == _outcome(
+        want, lambda: want.add_edge("u", "v", key=["k"])
+    )
+    assert _outcome(got, lambda: got.add_edge("u", "v", key={"k": 1}, w=2)) == _outcome(
+        want, lambda: want.add_edge("u", "v", key={"k": 1}, w=2)
+    )
+    assert got.number_of_edges() == want.number_of_edges() == 0
 
 
 @pytest.mark.parametrize("cls", sorted(RAW), ids=sorted(RAW))
