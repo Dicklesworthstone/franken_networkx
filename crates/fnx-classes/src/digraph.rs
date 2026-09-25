@@ -3737,44 +3737,41 @@ impl MultiDiGraph {
         // bucket appears in both but `swap_remove` returns it only once, so it is
         // counted exactly once. Removal is O(degree) instead of the
         // O(|distinct pairs|) `retain` scan — matching nx.
+        //
+        // yr2oc.1: the node's own rows are taken out first (O(1) each, the row
+        // maps are unordered), so the walk borrows the neighbour names from
+        // them instead of cloning every one, and the node table tombstones
+        // instead of shifting.
         let mut removed_count = 0usize;
-        if let Some(succs) = self.successors.get(node) {
-            let targets: Vec<String> = succs.keys().cloned().collect();
-            for target in targets {
-                if target != node
-                    && let Some(preds) = self.predecessors.get_mut(&target)
-                {
-                    preds.shift_remove(node);
-                }
-                if let Some(bucket) = self
-                    .edges
-                    .swap_remove(&DirectedEdgeKeyRef::new(node, &target))
-                {
-                    removed_count += bucket.len();
-                }
+        let succs = self.successors.remove(node).unwrap_or_default();
+        let preds = self.predecessors.remove(node).unwrap_or_default();
+        for target in succs.keys() {
+            if target != node
+                && let Some(row) = self.predecessors.get_mut(target.as_str())
+            {
+                row.shift_remove(node);
+            }
+            if let Some(bucket) = self
+                .edges
+                .swap_remove(&DirectedEdgeKeyRef::new(node, target))
+            {
+                removed_count += bucket.len();
             }
         }
-        if let Some(preds) = self.predecessors.get(node) {
-            let sources: Vec<String> = preds.keys().cloned().collect();
-            for source in sources {
-                if source != node
-                    && let Some(succs) = self.successors.get_mut(&source)
-                {
-                    succs.shift_remove(node);
-                }
-                if let Some(bucket) = self
-                    .edges
-                    .swap_remove(&DirectedEdgeKeyRef::new(&source, node))
-                {
-                    removed_count += bucket.len();
-                }
+        for source in preds.keys() {
+            if source != node
+                && let Some(row) = self.successors.get_mut(source.as_str())
+            {
+                row.shift_remove(node);
+            }
+            if let Some(bucket) = self
+                .edges
+                .swap_remove(&DirectedEdgeKeyRef::new(source, node))
+            {
+                removed_count += bucket.len();
             }
         }
         self.edge_count -= removed_count;
-
-        // yr2oc.1: O(1) each; the node table tombstones instead of shifting.
-        self.successors.remove(node);
-        self.predecessors.remove(node);
         self.nodes.remove(node);
         self.revision = self.revision.saturating_add(1);
         true

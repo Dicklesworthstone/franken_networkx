@@ -6583,34 +6583,33 @@ impl PyMultiDiGraph {
         // keydict a caller still holds: detach, contents untouched.
         self.live_keydict_rows.node_removed(py, &canonical);
 
-        // surgically remove attributes for incident edges before removing node from inner graph
-        let mut had_incident_edges = false;
-        let succs = self
+        // surgically remove attributes for incident edges before removing node
+        // from inner graph. yr2oc.1: only when a mirror holds anything (a
+        // batch-built graph leaves both empty), and walking the borrowed rows
+        // rather than owned copies of every neighbour name and key list.
+        let had_incident_edges = self
             .inner
-            .successors(&canonical)
-            .map(|succs| succs.into_iter().map(str::to_owned).collect::<Vec<_>>());
-        if let Some(succs) = succs {
-            for v in succs {
-                if let Some(keys) = self.inner.edge_keys(&canonical, &v) {
-                    for key in keys {
-                        self.remove_edge_metadata(&canonical, &v, key);
-                        had_incident_edges = true;
-                    }
+            .successors_iter(&canonical)
+            .is_some_and(|mut succs| succs.next().is_some())
+            || self
+                .inner
+                .predecessors_iter(&canonical)
+                .is_some_and(|mut preds| preds.next().is_some());
+        if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
+            let inner = &self.inner;
+            let (attrs, py_keys) = (&mut self.edge_py_attrs, &mut self.edge_py_keys);
+            let mut forget = |u: &str, v: &str| {
+                for &key in inner.edge_keys_iter(u, v).into_iter().flatten() {
+                    let ek = Self::edge_key(u, v, key);
+                    attrs.remove(&ek);
+                    py_keys.remove(&ek);
                 }
+            };
+            for v in inner.successors_iter(&canonical).into_iter().flatten() {
+                forget(&canonical, v);
             }
-        }
-        let preds = self
-            .inner
-            .predecessors(&canonical)
-            .map(|preds| preds.into_iter().map(str::to_owned).collect::<Vec<_>>());
-        if let Some(preds) = preds {
-            for u in preds {
-                if let Some(keys) = self.inner.edge_keys(&u, &canonical) {
-                    for key in keys {
-                        self.remove_edge_metadata(&u, &canonical, key);
-                        had_incident_edges = true;
-                    }
-                }
+            for u in inner.predecessors_iter(&canonical).into_iter().flatten() {
+                forget(u, &canonical);
             }
         }
 

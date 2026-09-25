@@ -3992,8 +3992,8 @@ mod multigraph_storage {
             let Some(&slot) = self.node_order.get(name) else {
                 return false;
             };
-            let neighbors: Vec<usize> = self.rows[slot].keys().copied().collect();
-            for nbr in neighbors {
+            let row = std::mem::take(&mut self.rows[slot]);
+            for &nbr in row.keys() {
                 if nbr != slot {
                     self.rows[nbr].shift_remove(&slot);
                 }
@@ -4001,7 +4001,6 @@ mod multigraph_storage {
                     self.edge_count -= bucket.len();
                 }
             }
-            self.rows[slot] = IndexMap::new();
             self.node_order.remove(name);
             self.node_attrs[slot] = AttrMap::new();
             true

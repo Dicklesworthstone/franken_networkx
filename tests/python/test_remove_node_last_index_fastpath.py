@@ -230,3 +230,42 @@ def test_a_run_of_removals_keeps_positional_readers_matching_networkx(cls, seed)
             for g in (got, want):
                 g.add_edge(u, v, w=step)
         assert _positional_state(got, fnx) == _positional_state(want, nx), step
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("build", ["one_by_one", "batch_then_touched", "batch"])
+def test_removed_edges_leave_no_attributes_behind(cls, build):
+    """yr2oc.1: removing a node drops its edges' attribute mirrors.
+
+    `remove_node` walks the incident edges' Python attribute mirrors only when
+    a mirror holds anything. A graph built edge by edge fills them eagerly, a
+    batch-built one leaves them empty until an attribute is touched. Whatever
+    the mirrors held, re-adding a removed edge bare must come back bare, as it
+    does in networkx; a stale mirror entry would hand the old attributes back.
+    """
+    rng = random.Random(len(cls) + len(build))
+    got, want = _both(cls)
+    n = 30
+    edges = [(rng.randrange(n), rng.randrange(n)) for _ in range(3 * n)]
+    for g in (got, want):
+        if build == "one_by_one":
+            for i, (u, v) in enumerate(edges):
+                g.add_edge(u, v, w=i)
+        else:
+            g.add_edges_from(edges)
+    if build == "batch_then_touched":
+        for i, (u, v) in enumerate(edges[::3]):
+            for g in (got, want):
+                for key in list(g[u][v]) if g.is_multigraph() else [None]:
+                    data = g[u][v][key] if key is not None else g[u][v]
+                    data["w"] = i
+    victims = rng.sample(range(n), n // 3)
+    for victim in victims:
+        for g in (got, want):
+            g.remove_node(victim)
+    for u, v in edges:
+        if u in victims or v in victims:
+            for g in (got, want):
+                g.add_edge(u, v)
+    keyed = {"keys": True} if got.is_multigraph() else {}
+    assert list(got.edges(data=True, **keyed)) == list(want.edges(data=True, **keyed))

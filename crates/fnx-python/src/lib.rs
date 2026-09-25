@@ -9496,19 +9496,22 @@ impl PyMultiGraph {
         // keydict a caller still holds: detach, contents untouched.
         self.live_keydict_rows.node_removed(py, &canonical);
 
-        // surgically remove attributes for incident edges before removing node from inner graph
-        let neighbors = self
+        // surgically remove attributes for incident edges before removing node
+        // from inner graph. yr2oc.1: only when a mirror holds anything (a
+        // batch-built graph leaves both empty), and walking the borrowed row
+        // rather than owned copies of every neighbour name and key list.
+        let had_incident_edges = self
             .inner
-            .neighbors(&canonical)
-            .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
-        let mut had_incident_edges = false;
-        if let Some(neighbors) = neighbors {
-            for nb in neighbors {
-                if let Some(keys) = self.inner.edge_keys(&canonical, &nb) {
-                    for key in keys {
-                        self.remove_edge_metadata(&canonical, &nb, key);
-                        had_incident_edges = true;
-                    }
+            .neighbors_iter(&canonical)
+            .is_some_and(|mut neighbors| neighbors.next().is_some());
+        if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
+            let inner = &self.inner;
+            let (attrs, py_keys) = (&mut self.edge_py_attrs, &mut self.edge_py_keys);
+            for nb in inner.neighbors_iter(&canonical).into_iter().flatten() {
+                for &key in inner.edge_keys_iter(&canonical, nb).into_iter().flatten() {
+                    let ek = Self::edge_key(&canonical, nb, key);
+                    attrs.remove(&ek);
+                    py_keys.remove(&ek);
                 }
             }
         }
