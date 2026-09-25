@@ -2179,13 +2179,138 @@ impl DiGraph {
     }
 }
 
+/// yr2oc.1: the MultiDiGraph node table: [`crate::NodeOrder`] (name <-> slot
+/// and the insertion order, with O(1) removal) plus slot-indexed attributes.
+///
+/// A removal tombstones its entry, and the table compacts once tombstones
+/// outnumber live nodes. Nothing outside the table holds a slot (the rows and
+/// the edge map are keyed by name), so compaction moves only the attributes.
+#[derive(Debug, Clone, Default)]
+struct MultiDiNodes {
+    order: crate::NodeOrder,
+    attrs: Vec<AttrMap>,
+}
+
+impl MultiDiNodes {
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+
+    fn contains_key(&self, name: &str) -> bool {
+        self.order.contains_key(name)
+    }
+
+    fn get(&self, name: &str) -> Option<&AttrMap> {
+        Some(&self.attrs[*self.order.get(name)?])
+    }
+
+    fn get_mut(&mut self, name: &str) -> Option<&mut AttrMap> {
+        let slot = *self.order.get(name)?;
+        Some(&mut self.attrs[slot])
+    }
+
+    /// The position of a node: O(1) until a removal, O(log V) after.
+    fn get_index_of(&self, name: &str) -> Option<usize> {
+        self.order.get_index_of(name)
+    }
+
+    fn get_index(&self, position: usize) -> Option<(&String, &AttrMap)> {
+        let (name, slot) = self.order.get_index(position)?;
+        Some((name, &self.attrs[slot]))
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &String> + '_ {
+        self.order.keys()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (&String, &AttrMap)> + '_ {
+        self.order
+            .iter()
+            .map(|(name, slot)| (name, &self.attrs[slot]))
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        self.order.reserve(additional);
+        self.attrs.reserve(additional);
+    }
+
+    /// Append a node that is not in the table.
+    fn push(&mut self, name: String, attrs: AttrMap) -> &mut AttrMap {
+        let slot = self.order.push(name);
+        debug_assert_eq!(slot, self.attrs.len());
+        self.attrs.push(attrs);
+        &mut self.attrs[slot]
+    }
+
+    /// `IndexMap::insert`: a present node keeps its place and takes `attrs`.
+    fn insert(&mut self, name: String, attrs: AttrMap) -> Option<AttrMap> {
+        if let Some(existing) = self.get_mut(&name) {
+            return Some(std::mem::replace(existing, attrs));
+        }
+        self.push(name, attrs);
+        None
+    }
+
+    /// Remove a node, keeping the order of the rest: O(1), plus an amortised
+    /// O(1) share of compaction.
+    fn remove(&mut self, name: &str) -> Option<AttrMap> {
+        let (slot, popped) = self.order.remove(name)?;
+        let attrs = if popped {
+            self.attrs.pop().expect("attributes are slot-parallel")
+        } else {
+            std::mem::take(&mut self.attrs[slot])
+        };
+        if self.order.slot_count() - self.order.len() > self.order.len() {
+            let old_to_new = self.order.compact();
+            self.attrs = std::mem::take(&mut self.attrs)
+                .into_iter()
+                .zip(old_to_new)
+                .filter_map(|(attrs, new)| (new != usize::MAX).then_some(attrs))
+                .collect();
+        }
+        Some(attrs)
+    }
+
+    /// Name -> position for a whole-graph walk: one O(V) table instead of a
+    /// rank query per lookup while removals have separated slots and positions.
+    fn positions(&self) -> NodePositions<'_> {
+        NodePositions {
+            order: &self.order,
+            table: self.order.slot_positions(),
+        }
+    }
+}
+
+/// See [`MultiDiNodes::positions`].
+struct NodePositions<'a> {
+    order: &'a crate::NodeOrder,
+    table: Option<Vec<usize>>,
+}
+
+impl NodePositions<'_> {
+    fn of(&self, name: &str) -> Option<usize> {
+        let slot = *self.order.get(name)?;
+        Some(self.table.as_ref().map_or(slot, |table| table[slot]))
+    }
+}
+
+/// A MultiDiGraph's successor or predecessor rows: node -> neighbour -> keys.
+/// The outer map is unordered (yr2oc.1): every ordered walk goes through the
+/// node table, so a removal drops a row in O(1) instead of shifting the map.
+type MultiDiRows =
+    rustc_hash::FxHashMap<String, crate::FxIndexMap<String, crate::FxIndexSet<usize>>>;
+
 #[derive(Debug, Clone)]
 pub struct MultiDiGraph {
     mode: CompatibilityMode,
     revision: u64,
-    nodes: crate::FxIndexMap<String, AttrMap>,
-    successors: crate::FxIndexMap<String, crate::FxIndexMap<String, crate::FxIndexSet<usize>>>,
-    predecessors: crate::FxIndexMap<String, crate::FxIndexMap<String, crate::FxIndexSet<usize>>>,
+    nodes: MultiDiNodes,
+    successors: MultiDiRows,
+    predecessors: MultiDiRows,
     edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
@@ -2208,7 +2333,7 @@ pub struct MultiDiGraph {
     /// position moves.
     ///
     /// THE STAMP IS THE SAFETY NET, not merely an optimisation. Removals do move
-    /// both index spaces (`remove_node` shift-removes from `nodes`,
+    /// both index spaces (`remove_node` moves every later node position down,
     /// `remove_edge` swap-removes from `edges`) and are deliberately NOT patched
     /// here: they bump `revision` without re-stamping, so the next read finds a
     /// stale stamp and rebuilds. Any mutation path not handled explicitly
@@ -2260,7 +2385,10 @@ impl MultiDiGraph {
         // ordering — byte-identical pred row order, no sort, no index lookups.
         let mut order_map: IndexMap<String, Vec<String>> =
             IndexMap::with_capacity(self.predecessors.len());
-        for (u, succ_row) in &self.successors {
+        for u in self.nodes.keys() {
+            let Some(succ_row) = self.successors.get(u.as_str()) else {
+                continue;
+            };
             for v in succ_row.keys() {
                 order_map.entry(v.clone()).or_default().push(u.clone());
             }
@@ -2302,9 +2430,9 @@ impl MultiDiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: crate::FxIndexMap::default(),
-            successors: crate::FxIndexMap::default(),
-            predecessors: crate::FxIndexMap::default(),
+            nodes: MultiDiNodes::default(),
+            successors: MultiDiRows::default(),
+            predecessors: MultiDiRows::default(),
             edges: crate::FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
@@ -2319,9 +2447,9 @@ impl MultiDiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: crate::FxIndexMap::default(),
-            successors: crate::FxIndexMap::default(),
-            predecessors: crate::FxIndexMap::default(),
+            nodes: MultiDiNodes::default(),
+            successors: MultiDiRows::default(),
+            predecessors: MultiDiRows::default(),
             edges: crate::FxIndexMap::default(),
             runtime_policy,
             edge_count: 0,
@@ -2428,11 +2556,12 @@ impl MultiDiGraph {
         let mut pred_targets = Vec::with_capacity(distinct_pred_edges);
         succ_offsets.push(0);
         pred_offsets.push(0);
+        let positions = self.nodes.positions();
         for node in self.nodes.keys() {
             if let Some(row) = self.successors.get(node.as_str()) {
                 succ_targets.extend(row.keys().filter_map(|target| {
-                    self.nodes
-                        .get_index_of(target.as_str())
+                    positions
+                        .of(target.as_str())
                         .map(|idx| u32::try_from(idx).unwrap_or(u32::MAX))
                 }));
             }
@@ -2440,8 +2569,8 @@ impl MultiDiGraph {
 
             if let Some(row) = self.predecessors.get(node.as_str()) {
                 pred_targets.extend(row.keys().filter_map(|source| {
-                    self.nodes
-                        .get_index_of(source.as_str())
+                    positions
+                        .of(source.as_str())
                         .map(|idx| u32::try_from(idx).unwrap_or(u32::MAX))
                 }));
             }
@@ -2477,9 +2606,10 @@ impl MultiDiGraph {
     fn build_edge_pair_index(&self) -> EdgePairMap {
         let mut built =
             EdgePairMap::with_capacity_and_hasher(self.edges.len(), rustc_hash::FxBuildHasher);
+        let positions = self.nodes.positions();
         for (position, edge_key) in self.edges.keys().enumerate() {
-            if let Some(source_idx) = self.nodes.get_index_of(edge_key.source.as_str())
-                && let Some(target_idx) = self.nodes.get_index_of(edge_key.target.as_str())
+            if let Some(source_idx) = positions.of(edge_key.source.as_str())
+                && let Some(target_idx) = positions.of(edge_key.target.as_str())
             {
                 built.insert((source_idx, target_idx), position);
             }
@@ -2946,7 +3076,7 @@ impl MultiDiGraph {
                     .get_mut(node.as_ref())
                     .expect("contains_key reported this node present")
             } else {
-                self.nodes.entry(node.as_ref().to_owned()).or_default()
+                self.nodes.push(node.as_ref().to_owned(), AttrMap::new())
             };
             if !attrs.is_empty()
                 && attrs
@@ -3642,27 +3772,26 @@ impl MultiDiGraph {
         }
         self.edge_count -= removed_count;
 
-        self.successors.shift_remove(node);
-        self.predecessors.shift_remove(node);
-        self.nodes.shift_remove(node);
+        // yr2oc.1: O(1) each; the node table tombstones instead of shifting.
+        self.successors.remove(node);
+        self.predecessors.remove(node);
+        self.nodes.remove(node);
         self.revision = self.revision.saturating_add(1);
         true
     }
 
-    /// br-r37-c1-mgrnf: batch node removal — amortised analogue of `remove_node`.
-    /// `MultiDiGraph::remove_node` pays THREE O(|V|) `shift_remove`s (successors,
-    /// predecessors, nodes) per call, so a caller loop of `k` removals was
-    /// O(k·|V|). This does each pass ONCE via `retain` — O(|V|+|E|) total, matching
-    /// the simple `DiGraph::remove_nodes_from` batch. Returns
-    /// `(removed_node_count, removed_edge_instance_count)`. The `revision` bump
-    /// invalidates `csr_cache` exactly as repeated `remove_node` would.
+    /// br-r37-c1-mgrnf: batch node removal. A small batch walks only the removed
+    /// nodes' rows, O(sum of their degrees); a large one prunes every row in one
+    /// O(|V|+|E|) pass. Returns `(removed_node_count,
+    /// removed_edge_instance_count)`. The `revision` bump invalidates
+    /// `csr_cache` exactly as repeated `remove_node` would.
     pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
     where
         I: IntoIterator<Item = &'a str>,
     {
         let remove_set: rustc_hash::FxHashSet<&str> = nodes
             .into_iter()
-            .filter(|node| self.nodes.contains_key(*node))
+            .filter(|node| self.nodes.contains_key(node))
             .collect();
         if remove_set.is_empty() {
             return (0, 0);
@@ -3674,9 +3803,10 @@ impl MultiDiGraph {
         // br-r37-c1-mgrnf-incident: SMALL-fraction fast path — walk only the removed
         // nodes' out/in adjacency (like `remove_node`), pruning the removed node from
         // each surviving neighbour's opposite row and dropping incident edge buckets
-        // O(1), then compact the three outer maps ONCE. O(|V| + sum_removed_degrees)
-        // vs the whole-graph O(|V|+|E|) retain (removing 10 nodes from a 2000/10000
-        // graph was ~100x nx). Large removals fall through (repeated hub shift_remove).
+        // O(1), then drop each removed node's rows and table entry in O(1)
+        // (yr2oc.1). O(sum_removed_degrees) vs the whole-graph O(|V|+|E|) retain
+        // (removing 10 nodes from a 2000/10000 graph was ~100x nx). Large removals
+        // fall through (repeated hub shift_remove).
         let mut removed_instances = 0usize;
         if remove_set.len().saturating_mul(4) <= old_node_count {
             for &rn in &remove_set {
@@ -3716,12 +3846,11 @@ impl MultiDiGraph {
                 }
             }
             self.edge_count -= removed_instances;
-            self.successors
-                .retain(|node, _| !remove_set.contains(node.as_str()));
-            self.predecessors
-                .retain(|node, _| !remove_set.contains(node.as_str()));
-            self.nodes
-                .retain(|node, _| !remove_set.contains(node.as_str()));
+            for &rn in &remove_set {
+                self.successors.remove(rn);
+                self.predecessors.remove(rn);
+                self.nodes.remove(rn);
+            }
             let removed_nodes = old_node_count - self.nodes.len();
             let removed_edges = old_edge_count - self.edge_count;
             self.revision = self
@@ -3747,7 +3876,7 @@ impl MultiDiGraph {
 
         // successors + predecessors: drop the removed nodes' own rows, then prune
         // references to removed nodes from every surviving row. Order-preserving
-        // `retain`, so byte-identical to repeated `remove_node`.
+        // `retain` within each row, so byte-identical to repeated `remove_node`.
         self.successors
             .retain(|node, _| !remove_set.contains(node.as_str()));
         for row in self.successors.values_mut() {
@@ -3758,8 +3887,9 @@ impl MultiDiGraph {
         for row in self.predecessors.values_mut() {
             row.retain(|source, _| !remove_set.contains(source.as_str()));
         }
-        self.nodes
-            .retain(|node, _| !remove_set.contains(node.as_str()));
+        for &rn in &remove_set {
+            self.nodes.remove(rn);
+        }
 
         let removed_nodes = old_node_count - self.nodes.len();
         let removed_edges = old_edge_count - self.edge_count;
@@ -3859,10 +3989,11 @@ impl MultiDiGraph {
         &self,
         mut visit: impl FnMut(usize, usize, &str, &str, usize, &AttrMap) -> Result<(), E>,
     ) -> Result<(), E> {
+        let positions = self.nodes.positions();
         for (source_index, node) in self.nodes.keys().enumerate() {
             if let Some(neighbors) = self.successors.get(node) {
                 for target in neighbors.keys() {
-                    let Some(target_index) = self.nodes.get_index_of(target.as_str()) else {
+                    let Some(target_index) = positions.of(target.as_str()) else {
                         continue;
                     };
                     let pair = DirectedEdgeKeyRef::new(node, target);
@@ -3897,20 +4028,10 @@ impl MultiDiGraph {
     /// `add_edge` policy path.
     #[must_use]
     pub fn reversed(&self) -> Self {
-        let mut successors: crate::FxIndexMap<
-            String,
-            crate::FxIndexMap<String, crate::FxIndexSet<usize>>,
-        > = crate::FxIndexMap::with_capacity_and_hasher(
-            self.nodes.len(),
-            rustc_hash::FxBuildHasher,
-        );
-        let mut predecessors: crate::FxIndexMap<
-            String,
-            crate::FxIndexMap<String, crate::FxIndexSet<usize>>,
-        > = crate::FxIndexMap::with_capacity_and_hasher(
-            self.nodes.len(),
-            rustc_hash::FxBuildHasher,
-        );
+        let mut successors =
+            MultiDiRows::with_capacity_and_hasher(self.nodes.len(), rustc_hash::FxBuildHasher);
+        let mut predecessors =
+            MultiDiRows::with_capacity_and_hasher(self.nodes.len(), rustc_hash::FxBuildHasher);
         for node in self.nodes.keys() {
             successors.insert(node.clone(), crate::FxIndexMap::default());
             predecessors.insert(node.clone(), crate::FxIndexMap::default());
@@ -4434,6 +4555,153 @@ mod tests {
         }
     }
 
+    /// yr2oc.1: every positional reader of a MultiDiGraph (node index and
+    /// name, the CSR, the index-addressed edge reads and the indexed edge walk)
+    /// agrees with the node order and the name-keyed rows.
+    fn assert_multidigraph_positions_agree_with_names(g: &MultiDiGraph) {
+        let names = g.nodes_ordered();
+        assert_eq!(g.node_count(), names.len());
+        for (position, &name) in names.iter().enumerate() {
+            assert_eq!(g.get_node_index(name), Some(position), "{name}");
+            assert_eq!(g.get_node_name(position), Some(name));
+        }
+        assert_eq!(g.get_node_name(names.len()), None);
+        let csr = g.csr();
+        let named = |row: &[u32]| row.iter().map(|&i| names[i as usize]).collect::<Vec<_>>();
+        for (position, &name) in names.iter().enumerate() {
+            assert_eq!(Some(named(csr.successors(position))), g.successors(name));
+            assert_eq!(
+                Some(named(csr.predecessors(position))),
+                g.predecessors(name)
+            );
+        }
+        // Enough probes to warm the pair index, so both of its paths are read.
+        for (s, &source) in names.iter().enumerate() {
+            for (t, &target) in names.iter().enumerate() {
+                assert_eq!(g.has_edge_by_indices(s, t), g.has_edge(source, target));
+                assert_eq!(
+                    g.edge_key_count_by_indices(s, t),
+                    g.edge_keys(source, target).map_or(0, |keys| keys.len())
+                );
+            }
+        }
+        let mut indexed = Vec::new();
+        g.try_for_each_indexed_edge_ordered_borrowed(|s, t, source, target, key, _| {
+            assert_eq!((names[s], names[t]), (source, target));
+            indexed.push((source.to_owned(), target.to_owned(), key));
+            Ok::<(), ()>(())
+        })
+        .expect("the walk never fails");
+        let borrowed: Vec<_> = g
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(source, target, key, _)| (source.to_owned(), target.to_owned(), key))
+            .collect();
+        assert_eq!(indexed, borrowed);
+    }
+
+    /// yr2oc.1: runs of O(1) MultiDiGraph removals (single and batched, small
+    /// and large batches), interleaved with insertions, keep the node order,
+    /// the node attributes, the edges and every positional reader in step with
+    /// a name-level model.
+    #[test]
+    fn multidigraph_removal_runs_keep_positional_readers_in_step_with_names() {
+        use std::collections::BTreeMap;
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        let tagged = |tag: usize| {
+            let mut attrs = AttrMap::new();
+            attrs.insert("tag".into(), CgseValue::Int(i64::try_from(tag).unwrap()));
+            attrs
+        };
+        for round in 0..30 {
+            let n = 10 + round % 17;
+            let mut g = MultiDiGraph::strict();
+            let mut order: Vec<String> = Vec::new();
+            let mut tags: BTreeMap<String, usize> = BTreeMap::new();
+            let mut edges: BTreeMap<(String, String), usize> = BTreeMap::new();
+            for i in 0..n {
+                let name = format!("n{i}");
+                g.add_node_with_attrs(name.clone(), tagged(i));
+                tags.insert(name.clone(), i);
+                order.push(name);
+            }
+            for _ in 0..3 * n {
+                let (u, v) = (format!("n{}", next(n)), format!("n{}", next(n)));
+                *edges.entry((u.clone(), v.clone())).or_default() += 1;
+                g.add_edge(u, v).expect("edge");
+            }
+            let mut fresh = 0;
+            let forget = |victim: &str,
+                          order: &mut Vec<String>,
+                          tags: &mut BTreeMap<String, usize>,
+                          edges: &mut BTreeMap<(String, String), usize>| {
+                order.retain(|name| name != victim);
+                tags.remove(victim);
+                edges.retain(|(u, v), _| u != victim && v != victim);
+            };
+            for _ in 0..4 * n {
+                match next(6) {
+                    0..=2 if !order.is_empty() => {
+                        let victim = order[next(order.len())].clone();
+                        assert!(g.remove_node(&victim));
+                        assert!(!g.remove_node(&victim));
+                        forget(&victim, &mut order, &mut tags, &mut edges);
+                    }
+                    3 | 4 => {
+                        let u = format!("f{fresh}");
+                        g.add_node_with_attrs(u.clone(), tagged(1000 + fresh));
+                        tags.insert(u.clone(), 1000 + fresh);
+                        order.push(u.clone());
+                        fresh += 1;
+                        let v = if next(4) == 0 {
+                            u.clone()
+                        } else {
+                            order[next(order.len())].clone()
+                        };
+                        let (source, target) = if next(2) == 0 { (u, v) } else { (v, u) };
+                        *edges.entry((source.clone(), target.clone())).or_default() += 1;
+                        g.add_edge(source, target).expect("edge");
+                    }
+                    5 if order.len() > 4 => {
+                        // Under a quarter of the nodes: the per-node batch path.
+                        let victim = order[next(order.len())].clone();
+                        let removed = g.remove_nodes_from([victim.as_str(), "absent"]);
+                        assert_eq!(removed.0, 1);
+                        forget(&victim, &mut order, &mut tags, &mut edges);
+                    }
+                    _ => {}
+                }
+                assert_eq!(g.nodes_ordered(), order, "round {round}");
+                for (name, &tag) in &tags {
+                    assert_eq!(g.node_attrs(name), Some(&tagged(tag)), "{name}");
+                }
+                assert_eq!(g.edge_count(), edges.values().sum::<usize>());
+                for ((u, v), &count) in &edges {
+                    assert_eq!(g.edge_keys(u, v).map(|keys| keys.len()), Some(count));
+                }
+                assert_multidigraph_core_invariants(&g);
+                assert_multidigraph_positions_agree_with_names(&g);
+            }
+            // Half the nodes at once: the whole-graph batch path.
+            let doomed: Vec<String> = order.iter().step_by(2).cloned().collect();
+            let removed = g.remove_nodes_from(doomed.iter().map(String::as_str));
+            assert_eq!(removed.0, doomed.len());
+            for victim in &doomed {
+                forget(victim, &mut order, &mut tags, &mut edges);
+            }
+            assert_eq!(g.nodes_ordered(), order);
+            assert_eq!(g.edge_count(), edges.values().sum::<usize>());
+            assert_multidigraph_core_invariants(&g);
+            assert_multidigraph_positions_agree_with_names(&g);
+        }
+    }
+
     #[test]
     fn multidigraph_counts_parallel_selfloops_only() {
         let mut g = MultiDiGraph::strict();
@@ -4547,9 +4815,9 @@ mod tests {
                 keep
             });
             gold.edge_count -= rc;
-            gold.successors.shift_remove(node);
-            gold.predecessors.shift_remove(node);
-            gold.nodes.shift_remove(node);
+            gold.successors.remove(node);
+            gold.predecessors.remove(node);
+            gold.nodes.remove(node);
         }
         let old_t = t.elapsed();
 

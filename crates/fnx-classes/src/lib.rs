@@ -250,9 +250,9 @@ impl NodeOrder {
         let slot = self.names.len();
         self.slots.insert(name.clone(), slot);
         self.names.push(Some(name));
-        // The tree has a fixed size; an append after removals rebuilds it on
-        // the next positional read (insertions compact first anyway).
-        self.ranks.take();
+        if let Some(ranks) = self.ranks.get_mut() {
+            ranks.push(true);
+        }
         self.live += 1;
         slot
     }

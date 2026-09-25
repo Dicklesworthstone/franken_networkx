@@ -170,9 +170,10 @@ def _positional_state(g, lib):
     """What the native positional readers serve, in networkx's order."""
     first = next(iter(g))
     components = lib.weakly_connected_components if g.is_directed() else lib.connected_components
+    keyed = {"keys": True} if g.is_multigraph() else {}
     state = {
         "nodes": list(g),
-        "edges": list(g.edges(data=True)),
+        "edges": list(g.edges(data=True, **keyed)),
         "rows": [(n, list(g.adj[n])) for n in g],
         "wdegree": [(n, d, type(d).__name__) for n, d in g.degree(weight="w")],
         "wdegree_each": [(n, g.degree(n, weight="w")) for n in g],
@@ -183,21 +184,23 @@ def _positional_state(g, lib):
     }
     if g.is_directed():
         state["preds"] = [(n, list(g.pred[n])) for n in g]
-        state["in_edges"] = list(g.in_edges())
+        state["in_edges"] = list(g.in_edges(**keyed))
     return state
 
 
-@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cls", CLASSES)
 @pytest.mark.parametrize("seed", range(6))
 def test_a_run_of_removals_keeps_positional_readers_matching_networkx(cls, seed):
     """yr2oc.1: slots and positions stay apart through a run of removals.
 
-    A removal frees its node's slot instead of renumbering the graph, and the
-    graph compacts again only at the next insertion (or once freed slots
-    outnumber live nodes). Everything read by position in between (weighted
-    degree, the BFS / shortest-path / component kernels, edge and in-edge
-    iteration) goes through the slot-to-position translation; reading the slot
-    rows as if they were positions diverges from networkx here.
+    A removal tombstones the node's entry in the node order instead of
+    renumbering the graph, so until the order compacts a node's position is its
+    rank among the live entries, not its slot. `Graph`/`DiGraph` compact at the
+    next insertion, `MultiGraph` reuses the freed slot for the next new node,
+    and all four compact once tombstones outnumber live nodes. Everything read
+    by position in between (weighted degree, the BFS / shortest-path /
+    component kernels, edge and in-edge iteration) goes through that
+    translation; reading slots as positions diverges from networkx here.
     """
     rng = random.Random(seed)
     got, want = _both(cls)
@@ -215,3 +218,15 @@ def test_a_run_of_removals_keeps_positional_readers_matching_networkx(cls, seed)
     for g in (got, want):
         g.add_edge("fresh", victim)
     assert _positional_state(got, fnx) == _positional_state(want, nx)
+    # Removals interleaved with insertions: new nodes land in reused slots
+    # (MultiGraph) or after tombstones (MultiDiGraph).
+    for step in range(2 * n):
+        if rng.random() < 0.5 and len(want) > 2:
+            victim = rng.choice(list(want))
+            for g in (got, want):
+                g.remove_node(victim)
+        else:
+            u, v = f"x{step}", rng.choice(list(want))
+            for g in (got, want):
+                g.add_edge(u, v, w=step)
+        assert _positional_state(got, fnx) == _positional_state(want, nx), step

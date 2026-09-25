@@ -46,18 +46,21 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+/// Bytes requested, counting a realloc's whole new size.
+static BYTES: AtomicUsize = AtomicUsize::new(0);
 
 /// Counts allocations and delegates every operation to `System` unchanged.
 ///
 /// SAFETY: each method forwards its arguments to the corresponding `System`
 /// method without modification, so the allocator contract is exactly
-/// `System`'s. The only added effect is a relaxed counter bump, which touches
+/// `System`'s. The only added effect is two relaxed counter bumps, which touch
 /// no allocation state.
 struct CountingAllocator;
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ALLOCS.fetch_add(1, Ordering::Relaxed);
+        BYTES.fetch_add(layout.size(), Ordering::Relaxed);
         unsafe { System.alloc(layout) }
     }
 
@@ -67,17 +70,30 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         ALLOCS.fetch_add(1, Ordering::Relaxed);
+        BYTES.fetch_add(layout.size(), Ordering::Relaxed);
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         ALLOCS.fetch_add(1, Ordering::Relaxed);
+        BYTES.fetch_add(new_size, Ordering::Relaxed);
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 }
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
+
+/// The counter is process-wide and the harness runs tests on parallel threads,
+/// so every counting test holds this for its whole body: a window must never
+/// see another test's allocations.
+static COUNTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn counting_alone() -> std::sync::MutexGuard<'static, ()> {
+    COUNTING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// Allocations per call, taken as the MINIMUM over `rounds` passes of `calls`
 /// each. The minimum is the right estimator here: the test harness and any
@@ -225,6 +241,7 @@ fn weight_attrs() -> AttrMap {
 
 #[test]
 fn mutation_entry_allocation_census() {
+    let _alone = counting_alone();
     const ROUNDS: usize = 9;
     const CALLS: usize = 2_000;
 
@@ -405,4 +422,116 @@ fn mutation_entry_allocation_census() {
         (mdg_node_noop - 1.0).abs() < f64::EPSILON,
         "MultiDiGraph add_node entry allocated {mdg_node_noop:.3} per call, expected 1"
     );
+}
+
+/// (allocations, bytes) per removal of 64 interior nodes spread over the node
+/// order (never the last), each round on a fresh `n`-node graph of out-degree 2
+/// whose build is outside the counted window. Minimum over rounds, as above.
+fn allocs_per_removal<G>(
+    n: usize,
+    mut add_edge: impl FnMut(&mut G, String, String),
+    fresh: impl Fn() -> G,
+    mut remove: impl FnMut(&mut G, &str) -> bool,
+) -> (f64, f64) {
+    let name = |node: usize| (node % n).to_string();
+    let victims: Vec<String> = (0..64).map(|i| name(1 + i * (n - 2) / 64)).collect();
+    let (mut allocs, mut bytes) = (usize::MAX, usize::MAX);
+    for _ in 0..3 {
+        let mut graph = fresh();
+        for node in 0..n {
+            add_edge(&mut graph, name(node), name(node * 7 + 1));
+            add_edge(&mut graph, name(node), name(node * 13 + 5));
+        }
+        let (start_allocs, start_bytes) = (
+            ALLOCS.load(Ordering::Relaxed),
+            BYTES.load(Ordering::Relaxed),
+        );
+        for victim in &victims {
+            assert!(remove(&mut graph, victim));
+        }
+        allocs = allocs.min(ALLOCS.load(Ordering::Relaxed) - start_allocs);
+        bytes = bytes.min(BYTES.load(Ordering::Relaxed) - start_bytes);
+    }
+    #[allow(clippy::cast_precision_loss)]
+    {
+        let removals = victims.len() as f64;
+        (allocs as f64 / removals, bytes as f64 / removals)
+    }
+}
+
+/// yr2oc.1 acceptance (3): a removal allocates the same, in count and in
+/// bytes, at n and 16n nodes on all four classes. Host load cannot move either.
+///
+/// BYTES are the detector. A removal that rebuilds the store (the as50i
+/// regression: compaction on every call) allocates a constant NUMBER of blocks
+/// whatever the graph size, because it rebuilds whole arrays, so a count alone
+/// passes it; the bytes grow with the graph. Neither sees an in-place O(V)
+/// shift, which allocates nothing (the multigraph `shift_remove`s passed both).
+/// Instruction counts at n and 16n cover that class; they are cited on the
+/// bead.
+#[test]
+fn remove_node_allocations_do_not_grow_with_the_graph() {
+    let _alone = counting_alone();
+    fn check(class: &str, small: (f64, f64), large: (f64, f64)) {
+        println!(
+            "remove_node {class:13} n=500: {:6.2} allocs {:9.1} bytes  n=8000: {:6.2} allocs {:9.1} bytes",
+            small.0, small.1, large.0, large.1
+        );
+        assert!(
+            large.0 <= 2.0 * small.0.max(1.0),
+            "{class}: {:.2} allocations per removal at n=500 but {:.2} at n=8000",
+            small.0,
+            large.0
+        );
+        assert!(
+            large.1 <= 2.0 * small.1.max(64.0),
+            "{class}: {:.1} bytes allocated per removal at n=500 but {:.1} at n=8000",
+            small.1,
+            large.1
+        );
+    }
+    let graph = |n| {
+        allocs_per_removal(
+            n,
+            |g: &mut Graph, u, v| {
+                g.add_edge(u, v).expect("edge");
+            },
+            Graph::strict,
+            Graph::remove_node,
+        )
+    };
+    check("Graph", graph(500), graph(8_000));
+    let digraph = |n| {
+        allocs_per_removal(
+            n,
+            |g: &mut DiGraph, u, v| {
+                g.add_edge(u, v).expect("edge");
+            },
+            DiGraph::strict,
+            DiGraph::remove_node,
+        )
+    };
+    check("DiGraph", digraph(500), digraph(8_000));
+    let multigraph = |n| {
+        allocs_per_removal(
+            n,
+            |g: &mut MultiGraph, u, v| {
+                g.add_edge(u, v).expect("edge");
+            },
+            MultiGraph::strict,
+            MultiGraph::remove_node,
+        )
+    };
+    check("MultiGraph", multigraph(500), multigraph(8_000));
+    let multidigraph = |n| {
+        allocs_per_removal(
+            n,
+            |g: &mut MultiDiGraph, u, v| {
+                g.add_edge(u, v).expect("edge");
+            },
+            MultiDiGraph::strict,
+            MultiDiGraph::remove_node,
+        )
+    };
+    check("MultiDiGraph", multidigraph(500), multidigraph(8_000));
 }
