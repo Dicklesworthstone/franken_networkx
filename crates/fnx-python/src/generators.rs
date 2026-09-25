@@ -183,7 +183,7 @@ fn report_to_pymultidigraph(
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         node_py_attrs: HashMap::new(),
         edge_py_attrs: rustc_hash::FxHashMap::default(),
-        edge_py_keys: HashMap::new(),
+        edge_py_keys: rustc_hash::FxHashMap::default(),
         edge_py_attrs_by_index: HashMap::new(),
         has_remapped_int_key: false,
         graph_attrs: PyDict::new(py).unbind(),

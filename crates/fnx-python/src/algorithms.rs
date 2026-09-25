@@ -16130,7 +16130,10 @@ pub fn multidigraph_transitive_closure(
             mdg.edge_py_attrs.len(),
             rustc_hash::FxBuildHasher,
         ),
-        edge_py_keys: HashMap::with_capacity(mdg.edge_py_keys.len()),
+        edge_py_keys: rustc_hash::FxHashMap::with_capacity_and_hasher(
+            mdg.edge_py_keys.len(),
+            rustc_hash::FxBuildHasher,
+        ),
         has_remapped_int_key: mdg.has_remapped_int_key,
         graph_attrs: mdg.graph_attrs.bind(py).copy()?.unbind(),
         nodes_seq: 0,
@@ -33372,7 +33375,7 @@ mod tests {
                 node_py_attrs: HashMap::new(),
                 edge_py_attrs: rustc_hash::FxHashMap::default(),
                 adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
-                edge_py_keys: HashMap::new(),
+                edge_py_keys: rustc_hash::FxHashMap::default(),
                 edge_mirrors_stale: false,
                 graph_attrs: PyDict::new(py).unbind(),
                 nodes_seq: 0,

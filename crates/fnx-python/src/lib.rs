@@ -6353,7 +6353,9 @@ pub(crate) struct PyMultiGraph {
     pub(crate) adj_py_keys: HashMap<(String, String), PyObject>,
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>>,
-    pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
+    /// FxHash like `edge_py_attrs` (wzoa7): a removal walks it per incident
+    /// edge once any mirror is populated.
+    pub(crate) edge_py_keys: rustc_hash::FxHashMap<(String, String, usize), PyObject>,
     /// br-paralleladd (bt): true once some edge carries an INT public key whose
     /// value differs from its internal key (the only thing that makes the public
     /// int-key space diverge from the dense/gapped internal key space). While
@@ -7365,7 +7367,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: false,
             edge_mirrors_stale: false,
             graph_attrs: PyDict::new(py).unbind(),
@@ -13542,7 +13544,7 @@ impl PyMultiGraph {
             adj_py_keys: self.derive_copy_adj_py_keys(py), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -13650,7 +13652,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
@@ -13728,7 +13730,7 @@ impl PyMultiGraph {
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?,
@@ -13828,7 +13830,10 @@ impl PyMultiGraph {
                 self.edge_py_attrs.len(),
                 rustc_hash::FxBuildHasher,
             ),
-            edge_py_keys: HashMap::with_capacity(self.edge_py_keys.len()),
+            edge_py_keys: rustc_hash::FxHashMap::with_capacity_and_hasher(
+                self.edge_py_keys.len(),
+                rustc_hash::FxBuildHasher,
+            ),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: self.edge_mirrors_stale,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -14020,7 +14025,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -14134,7 +14139,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
@@ -14250,7 +14255,7 @@ impl PyMultiGraph {
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: HashMap::new(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
-            edge_py_keys: HashMap::new(),
+            edge_py_keys: rustc_hash::FxHashMap::default(),
             edge_py_attrs_by_index: HashMap::new(),
             has_remapped_int_key: self.has_remapped_int_key,
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
