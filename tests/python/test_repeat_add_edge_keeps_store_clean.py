@@ -207,3 +207,91 @@ def test_add_edge_still_rejects_none_and_unhashable_endpoints(cls_name):
         f"{cls_name}: rejection types, args and partial node state must match networkx. "
         f"networkx gave {outcomes['nx']}, fnx gave {outcomes['fnx']}."
     )
+
+
+class _FloatSubclass(float):
+    pass
+
+
+# (label, value). Scalars that round-trip through the native store may be held
+# there alone until a read; everything else must reach the edge dict as the
+# caller's own object, which is what a store-only edge would lose.
+NEW_EDGE_VALUES = [
+    ("float", 2.5),
+    ("int", 7),
+    ("str", "red"),
+    ("bool", True),
+    ("big int", 2**70),
+    ("tuple", (1.0, 2.0)),
+    ("None", None),
+    ("float subclass", _FloatSubclass(1.5)),
+    ("list", [1, 2]),
+]
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize(
+    ("label", "value"), NEW_EDGE_VALUES, ids=[label for label, _ in NEW_EDGE_VALUES]
+)
+def test_new_attributed_edge_reads_like_networkx(cls_name, label, value):
+    """A new edge's attributes read back as networkx's do, whoever stores them.
+
+    Anything outside the store-lossless scalars (bool, float, str, i64 int, as
+    exact types) must come back as the SAME object, as networkx keeps the
+    caller's object in the edge dict; an implementation that left every new
+    edge's attributes in the native store alone would hand back a string or a
+    lossy float here. A lossless scalar comes back equal and of the same type
+    but, like any attribute of a graph built by add_edges_from or a generator,
+    not necessarily the same object. The dict must be stable across reads, and
+    a write through it must reach the weighted kernels.
+    """
+    lossless = type(value) in (bool, float, str) or (
+        type(value) is int and -(2**63) <= value < 2**63
+    )
+    outcomes = {}
+    for name, module in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(module, cls_name)()
+        graph.add_edge("a", "b", attr=value, weight=1.0)
+        graph.add_edge("b", "c", weight=5.0)
+        graph.add_edge("a", "c", weight=9.0)
+        first = graph["a"]["b"]
+        stable = first is graph["a"]["b"] and first is graph.edges["a", "b"]
+        got = first["attr"]
+        identity = True if lossless else got is value
+        first["weight"] = 20.0
+        outcomes[name] = (
+            dict(first),
+            type(got).__name__,
+            identity,
+            stable,
+            module.dijkstra_path_length(graph, "a", "c"),
+            graph.size(weight="weight"),
+        )
+    assert outcomes["fnx"] == outcomes["nx"], (
+        f"{cls_name}, {label}: networkx gave {outcomes['nx']}, fnx gave {outcomes['fnx']}."
+    )
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize(
+    "attrs",
+    [{"weight": 1.0, "color": "red"}, {"alpha": 1, "weight": 2.0}, {"zeta": "z", "b": 2, "a": 1}],
+    ids=["unsorted", "sorted", "reversed"],
+)
+def test_new_attributed_edge_keeps_keyword_order(cls_name, attrs):
+    """networkx keeps the caller's keyword order in the edge dict.
+
+    The native store sorts keys, so a new edge whose attributes are left to be
+    rebuilt from it may only be one whose keys are already sorted; otherwise
+    add_edge(u, v, weight=1, color="red") would read back color first.
+    """
+    outcomes = {}
+    for name, module in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(module, cls_name)()
+        graph.add_edge("a", "b", **attrs)
+        graph.add_edge("b", "c", **attrs)
+        outcomes[name] = (
+            list(graph["a"]["b"].items()),
+            [list(d) for _u, _v, d in graph.edges(data=True)],
+        )
+    assert outcomes["fnx"] == outcomes["nx"]

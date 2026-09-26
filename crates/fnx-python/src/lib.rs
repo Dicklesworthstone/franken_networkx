@@ -16426,15 +16426,25 @@ impl PyGraph {
             // fresh empty dict here hid them: karate_club_graph().add_edge(0, 1,
             // extra=1) left G.edges[0, 1] == {'extra': 1} and size(weight) off
             // by 3. networkx merges into the existing datadict, so seed first.
-            let mirror = if was_new_edge {
-                self.edge_py_attrs
-                    .entry(Self::edge_key(&u_canonical, &v_canonical))
-                    .or_insert_with(|| PyDict::new(py).unbind())
-                    .clone_ref(py)
-            } else {
-                self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
-            };
-            mirror.bind(py).update(a.as_mapping())?;
+            //
+            // A NEW edge whose dict round-trips through the native store (str
+            // keys already in its sorted order, bool / float / str / i64 int
+            // values - attr_dict_round_trips_through_store) gets no dict here
+            // at all: the store is authoritative and the first read
+            // materialises the dict from it, as for an edge the attributed
+            // batch built. Anything else keeps the caller's objects, and their
+            // order, in an eager dict.
+            if !was_new_edge || !attr_dict_round_trips_through_store(a) {
+                let mirror = if was_new_edge {
+                    self.edge_py_attrs
+                        .entry(Self::edge_key(&u_canonical, &v_canonical))
+                        .or_insert_with(|| PyDict::new(py).unbind())
+                        .clone_ref(py)
+                } else {
+                    self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
+                };
+                mirror.bind(py).update(a.as_mapping())?;
+            }
         }
 
         // No per-edge `log::debug!` here: pyo3-log resolves the target on every

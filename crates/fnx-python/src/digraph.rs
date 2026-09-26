@@ -14068,9 +14068,13 @@ impl PyDiGraph {
         // (br-r37-c1-jc9e4) and the plain-edge batch leaves both
         // (br-r37-c1-y0xps): every reader materialises a missing dict from the
         // core, and a new node or edge materialises to `{}`, which is all
-        // networkx creates for one. So a node gets no dict here at all, and an
-        // edge gets one only when there are attributes to put in it. An
-        // EXISTING edge's dict is seeded from the core before the update
+        // networkx creates for one. So a node gets no dict here at all, and a
+        // NEW edge gets one only when its dict would not round-trip through
+        // the native store (attr_dict_round_trips_through_store: str keys in
+        // the store's sorted order, bool / float / str / i64 int values);
+        // otherwise the store is authoritative and the first read
+        // materialises the dict. An EXISTING edge's dict is seeded from the
+        // core before the update
         // (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2), so attributes
         // held only there survive the merge.
         let mut rust_attrs = AttrMap::new();
@@ -14078,17 +14082,19 @@ impl PyDiGraph {
             && !a.is_empty()
         {
             rust_attrs = py_dict_to_attr_map(a)?;
-            // Directed: edge key is (source, target) — NOT canonicalized.
-            let py_dict = if edge_existed {
-                self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
-            } else {
-                self.edge_py_attrs
-                    .entry(Self::edge_key(&u_canonical, &v_canonical))
-                    .or_insert_with(|| PyDict::new(py).unbind())
-                    .clone_ref(py)
-            };
-            for (k, val) in a.iter() {
-                py_dict.bind(py).set_item(k, val)?;
+            if edge_existed || !crate::attr_dict_round_trips_through_store(a) {
+                // Directed: edge key is (source, target) — NOT canonicalized.
+                let py_dict = if edge_existed {
+                    self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
+                } else {
+                    self.edge_py_attrs
+                        .entry(Self::edge_key(&u_canonical, &v_canonical))
+                        .or_insert_with(|| PyDict::new(py).unbind())
+                        .clone_ref(py)
+                };
+                // One C-level update, in the caller's order, as Graph does
+                // (br-r37-c1-aefbatch).
+                py_dict.bind(py).update(a.as_mapping())?;
             }
         }
 
