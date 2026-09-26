@@ -19203,8 +19203,11 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
         counter = _count()
 
         def _single_source_weighted_lengths(source):
-            distances = {source: 0.0}
-            queue = [(0.0, next(counter), source)]
+            # An int 0, as networkx's Dijkstra seeds it: int weights then sum to
+            # an int, which a directed graph returns un-divided (a 0.0 seed made
+            # karate's 6456 come back as 6456.0; br-r37-c1-agwol).
+            distances = {source: 0}
+            queue = [(0, next(counter), source)]
             while queue:
                 distance, _, node = _heappop(queue)
                 if distance > distances[node]:

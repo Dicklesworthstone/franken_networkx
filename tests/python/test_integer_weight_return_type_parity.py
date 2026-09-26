@@ -47,10 +47,13 @@ _SCALAR = {
 }
 
 
+@pytest.mark.parametrize("directed", [False, True], ids=["undirected", "directed"])
 @pytest.mark.parametrize("name", sorted(_SCALAR))
-def test_scalar_int_weight_type_matches_networkx(name):
+def test_scalar_int_weight_type_matches_networkx(name, directed):
+    # directed: br-r37-c1-agwol - wiener_index returns a directed graph's total
+    # un-divided, so int weights must give an int (fnx's Dijkstra seeded 0.0)
     fn = _SCALAR[name]
-    vn, vf = fn(nx, _iwg(nx)), fn(fnx, _iwg(fnx))
+    vn, vf = fn(nx, _iwg(nx, directed)), fn(fnx, _iwg(fnx, directed))
     assert type(vf) is type(vn), f"{name}: nx={type(vn).__name__} fnx={type(vf).__name__}"
     assert vf == vn
 
