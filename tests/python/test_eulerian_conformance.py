@@ -524,3 +524,33 @@ def test_multigraph_eulerian_path_matches_networkx(keys, source):
     for bad_source in (1, 3):
         with pytest.raises(nx.NetworkXError):
             list(fnx.eulerian_path(G, source=bad_source, keys=keys))
+
+
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+def test_eulerize_matches_networkx_edges_keys_and_data(cls):
+    # br-r37-c1-dogni: nx duplicates each matched path with
+    # add_edges_from(pairwise(path)) - bare parallel edges - after a MAXIMUM
+    # weight matching on len(G) + 1 - len(path); fnx copied the original edge's
+    # attributes onto the duplicates and matched by minimum path length, which
+    # picked other paths on ties.
+    import random
+
+    for seed in range(60):
+        rng = random.Random(seed)
+        n = rng.randint(4, 11)
+        edges = [(i, (i + 1) % n, {"weight": rng.randint(1, 4)}) for i in range(n)]
+        edges += [(rng.randrange(n), rng.randrange(n), {"weight": 1.5}) for _ in range(rng.randint(0, n))]
+        if seed % 4:
+            edges = [(u, v, d) for u, v, d in edges if u != v]
+
+        def summary(lib):
+            g = getattr(lib, cls)()
+            g.add_edges_from(edges)
+            e = lib.eulerize(g)
+            return (
+                type(e).__name__,
+                list(e.nodes(data=True)),
+                sorted((u, v, k, tuple(sorted(d.items()))) for u, v, k, d in e.edges(keys=True, data=True)),
+            )
+
+        assert summary(fnx) == summary(nx), seed

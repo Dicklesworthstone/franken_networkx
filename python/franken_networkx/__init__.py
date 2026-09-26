@@ -47715,42 +47715,27 @@ def eulerize(G):
     if not is_connected(G):
         raise NetworkXError("G is not connected")
 
-    if G.is_multigraph():
-        H = G.copy()
-    else:
-        H = MultiGraph(G)
-
-    odd_nodes = [v for v in G.nodes() if G.degree[v] % 2 == 1]
+    odd_nodes = [v for v, d in G.degree() if d % 2 == 1]
+    H = MultiGraph(G)
     if not odd_nodes:
         return H
 
-    # Build a complete graph on odd-degree nodes weighted by shortest path length.
-    # br-r37-c1-53kq4: nx's eulerize uses unweighted (BFS) shortest paths
-    # — the algorithm only needs hop counts between odd-degree nodes;
-    # edge weights are irrelevant.  fnx previously passed weight="weight"
-    # which routed through Dijkstra and rejected negative weights with
-    # ValueError("Contradictory paths found: negative weights?").  Match
-    # nx by leaving weight at its unweighted default.
-    odd_complete = Graph()
-    for u, v in _combinations(odd_nodes, 2):
-        length = shortest_path_length(G, u, v)
-        odd_complete.add_edge(u, v, weight=length)
-
-    # Find minimum weight matching on the odd-degree complete graph.
-    matching = min_weight_matching(odd_complete)
-
-    for u, v in matching:
-        # br-r37-c1-53kq4: see above — unweighted shortest path matches nx.
-        path = shortest_path(G, u, v)
-        for i in range(len(path) - 1):
-            # In a MultiGraph, adding an edge creates a new one
-            if G.is_multigraph():
-                # Just pick the first key/weight
-                # Actually, NetworkX just copies the first key's attributes, or just {}
-                H.add_edge(path[i], path[i + 1])
-            else:
-                H.add_edge(path[i], path[i + 1], **dict(G[path[i]][path[i + 1]]))
-
+    # br-r37-c1-dogni: networkx's algorithm, verbatim. Unweighted shortest
+    # paths between odd-degree nodes (br-r37-c1-53kq4: hop counts only), taken
+    # on the multigraph copy; a MAXIMUM weight matching on weights
+    # len(G) + 1 - len(path) (the old min_weight_matching on path lengths chose
+    # other paths on ties); and each matched path duplicated with
+    # add_edges_from(pairwise(path)) - new parallel edges carrying no data (the
+    # old loop copied the original edge's attributes onto them).
+    upper_bound = len(H) + 1
+    paths_graph = Graph()
+    for source, target in _combinations(odd_nodes, 2):
+        path = shortest_path(H, source=source, target=target)
+        paths_graph.add_edge(target, source, weight=upper_bound - len(path), path=path)
+    best_matching = Graph(list(max_weight_matching(paths_graph)))
+    for u, v in best_matching.edges():
+        path = paths_graph[u][v]["path"]
+        H.add_edges_from(zip(path, path[1:]))
     return H
 
 
