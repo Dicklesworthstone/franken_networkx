@@ -5,6 +5,7 @@ to/from_numpy_array, to/from_scipy_sparse_array, to/from_pandas_edgelist."""
 import importlib
 import importlib.util
 import inspect
+import json
 import sys
 from collections.abc import Mapping
 from functools import lru_cache
@@ -516,61 +517,91 @@ class TestDictOfDicts:
         G = fnx.from_dict_of_dicts({})
         assert G.number_of_nodes() == 0
 
+    @pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+    @pytest.mark.parametrize("nodelist", [None, [0, 1, 2]], ids=["all", "nodelist"])
     @pytest.mark.parametrize(
         "op_name,op",
         [
-            ("setitem", lambda v: v.__setitem__("k", "foo")),
+            ("setitem", lambda v: v.__setitem__("k", {"c": 3})),
             ("delitem", lambda v: v.__delitem__(0)),
-            ("clear", lambda v: v.clear()),
             ("pop", lambda v: v.pop(0, None)),
             ("popitem", lambda v: v.popitem()),
-            ("setdefault", lambda v: v.setdefault("k", "v")),
-            ("update", lambda v: v.update({"k": "v"})),
-            ("ior", lambda v: v.__ior__({"k": "v"})),
+            ("setdefault", lambda v: v.setdefault("k", {"c": 3})),
+            ("update", lambda v: v.update({"k": {"c": 3}})),
+            ("ior", lambda v: v.__ior__({"k": {"c": 3}})),
         ],
     )
-    def test_multigraph_view_mutation_raises_typeerror(self, op_name, op):
-        """br-r37-c1-lmev-mutate: the dict-subclass `_LiveMultiEdgeDataView`
-        from br-r37-c1-etbv4 inherited dict.__setitem__/clear/etc., which
-        silently mutated the always-empty inherited storage instead of
-        either propagating to the graph or raising. The view's read
-        methods never saw the assignment, and the underlying graph was
-        never updated — silent data loss. nx's AtlasView raises
-        TypeError on the same operations; lock that contract."""
-        M = fnx.MultiGraph([(0, 1, {"w": 1})])
-        view = fnx.to_dict_of_dicts(M, nodelist=[0, 1])[0][1]
-        with pytest.raises(TypeError, match="does not support item assignment"):
-            op(view)
+    def test_multigraph_value_writes_match_networkx(self, cls, nodelist, op_name, op):
+        """br-r37-c1-5cqna: with no nodelist networkx's d[u][v] on a multigraph
+        IS the graph's keydict, so a write through it adds or removes that edge;
+        with a nodelist it is the read-only G[u][v] view, and the write raises.
+        fnx's value was a read-only view on both paths. Compare the error, the
+        resulting graph and the returned mapping with networkx."""
+        states = []
+        for lib in (nx, fnx):
+            graph = getattr(lib, cls)([(0, 1, {"w": 1}), (0, 1, {"w": 2}), (1, 2, {"w": 5})])
+            d = lib.to_dict_of_dicts(graph, nodelist=nodelist)
+            try:
+                op(d[0][1])
+                error = None
+            except (TypeError, AttributeError) as exc:
+                error = type(exc).__name__
+            states.append(
+                (
+                    error,
+                    sorted(map(repr, graph.edges(keys=True, data=True))),
+                    json.dumps(d, default=lambda view: dict(view)),
+                )
+            )
+        assert states[1] == states[0]
 
-    def test_multigraph_view_pickles_as_plain_dict(self):
-        """br-r37-c1-lmev-pickle: the mutation guards from
-        br-r37-c1-vuauj broke pickle.loads, since pickle's default
-        dict-subclass reconstruction protocol calls __setitem__ on the
-        new instance to repopulate it. Snapshot via __reduce__ so that
-        round-tripping `to_dict_of_dicts(MG) → pickle.dumps → pickle.loads`
-        no longer crashes; the restored value is a plain dict (the
-        live graph reference can't survive pickling anyway)."""
-        import pickle
-        M = fnx.MultiGraph([(0, 1, {"w": 1}), (0, 1, {"w": 2})])
-        out = fnx.to_dict_of_dicts(M, nodelist=[0, 1])
-        restored = pickle.loads(pickle.dumps(out))
-        assert restored[0][1] == {0: {"w": 1}, 1: {"w": 2}}
-        assert isinstance(restored[0][1], dict)
-        # Standalone view also round-trips.
-        view = out[0][1]
-        restored_view = pickle.loads(pickle.dumps(view))
-        assert restored_view == {0: {"w": 1}, 1: {"w": 2}}
+    @pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+    def test_multigraph_values_are_the_graphs_keydicts(self, cls):
+        """br-r37-c1-5cqna: json and every other reader of the dict storage saw
+        {} for fnx's multigraph d[u][v]; networkx's value is the keydict itself,
+        live, and shared by d[u][v] and d[v][u] on an undirected graph."""
+        graphs = [getattr(lib, cls)() for lib in (nx, fnx)]
+        results = []
+        for graph, lib in zip(graphs, (nx, fnx)):
+            graph.add_edge(0, 1, weight=1.0)
+            graph.add_edge(0, 1, key="k", c=2)
+            graph.add_edge(2, 1)
+            d = lib.to_dict_of_dicts(graph)
+            before = json.dumps(d)
+            graph.add_edge(0, 1, key="late", c=9)
+            results.append(
+                (
+                    before,
+                    json.dumps(d),
+                    d[0][1] is graph.get_edge_data(0, 1),
+                    d[1].get(0) is d[0][1],
+                    isinstance(d[0][1], dict),
+                )
+            )
+        assert results[1] == results[0]
 
-    def test_multigraph_view_deepcopies_as_plain_dict(self):
-        """deepcopy uses the same protocol surface as pickle; lock that
-        contract so a future change to __reduce__ doesn't accidentally
-        break copy.deepcopy on dict-of-dicts output."""
+    @pytest.mark.parametrize("nodelist", [None, [0, 1]], ids=["all", "nodelist"])
+    @pytest.mark.parametrize("copier", ["pickle", "deepcopy"])
+    def test_multigraph_value_round_trips_like_networkx(self, nodelist, copier):
+        """br-r37-c1-lmev-pickle: pickle.loads on to_dict_of_dicts(MG) output
+        once crashed. It must round-trip, and come back as the same kind of
+        mapping networkx's does - a plain dict from the keydict path, the view
+        type from the nodelist path."""
         import copy
-        M = fnx.MultiGraph([(0, 1, {"w": 1}), (0, 1, {"w": 2})])
-        out = fnx.to_dict_of_dicts(M, nodelist=[0, 1])
-        deepc = copy.deepcopy(out)
-        assert deepc[0][1] == {0: {"w": 1}, 1: {"w": 2}}
-        assert isinstance(deepc[0][1], dict)
+        import pickle
+
+        restored = []
+        for lib in (nx, fnx):
+            M = lib.MultiGraph([(0, 1, {"w": 1}), (0, 1, {"w": 2})])
+            out = lib.to_dict_of_dicts(M, nodelist=nodelist)
+            if copier == "pickle":
+                again = pickle.loads(pickle.dumps(out))  # nosec B301  # ubs:ignore - trusted round trip
+            else:
+                again = copy.deepcopy(out)
+            value = again[0][1]
+            restored.append((type(value).__name__, isinstance(value, dict), dict(value)))
+        assert restored[1] == restored[0]
+        assert restored[1][2] == {0: {"w": 1}, 1: {"w": 2}}
 
     def test_preserves_isolated_nodes(self):
         # Node 5 has no neighbors but should still be in the graph.

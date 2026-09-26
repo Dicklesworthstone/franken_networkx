@@ -4777,13 +4777,6 @@ class _LiveMultiEdgeCallView:
 # / adj / succ / pred / out_edges / in_edges and their called, data-bearing,
 # nbunch and keys spellings — reports these two as the ONLY class-name
 # divergences left.
-# NOT named `_LiveMultiEdgeDataView`: that name is already taken, ~60000 lines
-# below, by an unrelated `dict` subclass for a single edge's keydict. Defining a
-# second one here does not collide at definition time — the later definition
-# simply wins at call time — so the shadowed class was constructed with the
-# wrong `__init__` and `MG.edges()` raised TypeError. The suite caught it
-# immediately, but only because these call sites are exercised everywhere; a
-# rarer path would have shipped.
 class _MultiEdgeDataCallView(_LiveMultiEdgeCallView):
     __slots__ = ()
 
@@ -66936,101 +66929,13 @@ def _empty_graph_from_create_using(create_using, default=Graph):
     return G
 
 
-class _LiveMultiEdgeDataView(dict):
-    __slots__ = ("_graph", "_u", "_v")
-
-    def __init__(self, graph, u, v):
-        super().__init__()
-        self._graph = graph
-        self._u = u
-        self._v = v
-
-    def _current(self):
-        return self._graph[self._u][self._v]
-
-    def __iter__(self):
-        return iter(self._current())
-
-    def __len__(self):
-        return len(self._current())
-
-    def __contains__(self, key):
-        return key in self._current()
-
-    def __getitem__(self, key):
-        return self._current()[key]
-
-    def items(self):
-        return self._current().items()
-
-    def keys(self):
-        return self._current().keys()
-
-    def values(self):
-        return self._current().values()
-
-    def get(self, key, default=None):
-        return self._current().get(key, default)
-
-    def copy(self):
-        return dict(self._current())
-
-    def __eq__(self, other):
-        return dict(self.items()) == other
-
-    def __repr__(self):
-        return repr(dict(self.items()))
-
-    # br-r37-c1-lmev-mutate: dict-subclass inheritance from br-r37-c1-etbv4
-    # made `isinstance(view, dict)` True (good — restores nx parity for
-    # type-checks), but inherited dict.__setitem__/clear/update etc.
-    # silently mutated the inherited (always-empty) dict storage rather
-    # than the live graph or the user-visible view. Net effect: the
-    # assignment vanished — `view['k'] = v` returned without error,
-    # then iterating the view didn't show 'k', and the underlying graph
-    # was never updated. nx's AtlasView raises TypeError on the same
-    # operations; match that contract so silent data-loss can't happen.
-    def _readonly(self, *args, **kwargs):
-        raise TypeError(
-            f"'{type(self).__name__}' object does not support item assignment"
-        )
-
-    __setitem__ = _readonly
-    __delitem__ = _readonly
-    clear = _readonly
-    pop = _readonly
-    popitem = _readonly
-    setdefault = _readonly
-    update = _readonly
-    __ior__ = _readonly
-
-    def __reduce__(self):
-        # br-r37-c1-lmev-pickle: dict-subclass pickle protocol calls
-        # __setitem__ on the new instance to repopulate it. The
-        # _readonly mutation guards (br-r37-c1-vuauj) made every read
-        # path raise during unpickling, so pickle.loads on any
-        # to_dict_of_dicts(MultiGraph) output crashed. Snapshot to a
-        # plain dict at pickle time — the view's liveness depends on
-        # the graph reference, which can't survive pickling anyway.
-        return (dict, (dict(self.items()),))
-
-
-def _live_multi_edge_view_row_cache(graph):
+def _multi_keydict_todod_rows(graph, native_dict):
     stamp = (graph.nodes_seq, graph.edges_seq)
-    state = getattr(graph, "_fnx_live_multi_edge_view_row_cache", None)
+    state = getattr(graph, "_fnx_multi_keydict_todod_rows", None)
     if state is None or state[0] != stamp:
-        state = (stamp, {})
-        setattr(graph, "_fnx_live_multi_edge_view_row_cache", state)
-    return state[1]
-
-
-def _live_multi_edge_todod_rows(graph, native_dict):
-    stamp = (graph.nodes_seq, graph.edges_seq)
-    state = getattr(graph, "_fnx_live_multi_edge_todod_rows", None)
-    if state is None or state[0] != stamp:
-        result = native_dict(_LiveMultiEdgeDataView, _live_multi_edge_view_row_cache(graph))
+        result = native_dict()
         rows = tuple((node, row.copy()) for node, row in result.items())
-        setattr(graph, "_fnx_live_multi_edge_todod_rows", (stamp, rows))
+        setattr(graph, "_fnx_multi_keydict_todod_rows", (stamp, rows))
         return result
     return {node: row.copy() for node, row in state[1]}
 
@@ -68776,52 +68681,29 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
     nodeset = set(nodelist)
 
     d = {}
-    is_multigraph = G.is_multigraph()
-    # br-r37-c1-mexh6: for MultiGraph/MultiDiGraph the value at d[u][v] is a
-    # _LiveMultiEdgeDataView built from (G, u, v) — the ``data`` AtlasView that
-    # ``G[u].items()`` materializes per neighbor (AdjacencyView.__getitem__ ->
-    # AtlasView construction) is DISCARDED. Iterating neighbor KEYS only (the
-    # native adjacency/successor row) skips that wasted per-edge value build
-    # (MultiGraph ~2.7x, MultiDiGraph ~4x). Order is identical: ``G[u]`` already
-    # iterates ``dict.fromkeys(native_row)``.
-    if is_multigraph and edge_data is None:
-        if type(G) is MultiGraph:
-            _row = G._native_adjacency_row
-        elif type(G) is MultiDiGraph:
-            _row = G._native_successor_row
-        else:
-            _row = None
-        if default_nodelist and _row is not None:
-            native_dict = getattr(G, "_native_to_dict_of_dicts_live", None)
-            if native_dict is not None:
-                return _live_multi_edge_todod_rows(G, native_dict)
-        view_cache = _live_multi_edge_view_row_cache(G) if _row is not None else None
+    # br-r37-c1-5cqna: with no nodelist, networkx hands out a multigraph's own
+    # keydicts (dod[u] = nbrdict.copy()), so d[u][v] is a real dict whose
+    # storage holds {key: datadict}: live, writes through it reach the graph,
+    # and d[u][v] is d[v][u] on an undirected graph. fnx's keydict is
+    # _MultiEdgeKeydict, which get_edge_data(u, v) returns and the graph keeps
+    # in step. A lazy view with empty storage (br-r37-c1-mexh6) read as {} to
+    # json and every other reader of the dict storage. With a nodelist,
+    # networkx's d[u][v] is the G[u][v] view instead - the loop at the end.
+    # The native walk registers a keydict for every pair once, then only looks
+    # them up, and ``_multi_keydict_todod_rows`` reuses the rows until the
+    # graph's shape changes.
+    if G.is_multigraph() and edge_data is None and default_nodelist:
+        if type(G) in (MultiGraph, MultiDiGraph):
+            return _multi_keydict_todod_rows(G, G._native_to_dict_of_dicts_live)
+        keydict = (MultiDiGraph if G.is_directed() else MultiGraph).get_edge_data
         for u in nodelist:
-            row = {}
-            neighbors = _row(u) if _row is not None else G[u]
-            row_cache = None if view_cache is None else view_cache.setdefault(u, {})
-            for v in neighbors:
-                if v in nodeset:
-                    if row_cache is None:
-                        row[v] = _LiveMultiEdgeDataView(G, u, v)
-                    else:
-                        view = row_cache.get(v)
-                        if view is None:
-                            view = _LiveMultiEdgeDataView(G, u, v)
-                            row_cache[v] = view
-                        row[v] = view
-            d[u] = row
+            d[u] = {v: keydict(G, u, v) for v in G[u]}
         return d
     for u in nodelist:
         d[u] = {}
         for v, data in G[u].items():
             if v in nodeset:
-                if edge_data is not None:
-                    d[u][v] = edge_data
-                elif is_multigraph:
-                    d[u][v] = _LiveMultiEdgeDataView(G, u, v)
-                else:
-                    d[u][v] = data
+                d[u][v] = data if edge_data is None else edge_data
     return d
 
 

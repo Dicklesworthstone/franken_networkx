@@ -7147,6 +7147,35 @@ impl PyMultiGraph {
         self.ensure_edge_py_attrs_with_key(py, u, v, key, &ek)
     }
 
+    /// The graph's own keydict for the edge pair (u, v), networkx's
+    /// `_adj[u][v]`: the registered live row, or a new one holding the pair's
+    /// live attr dicts (materialised from the core where the mirror is lazy),
+    /// registered so every edge mutation keeps it in step
+    /// (br-r37-c1-rc0923-epic-honest-measurement-vbneu.3).
+    fn live_keydict<'py>(
+        &mut self,
+        py: Python<'py>,
+        graph: &Bound<'py, PyAny>,
+        u: &str,
+        v: &str,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let (lo, hi) = if u <= v { (u, v) } else { (v, u) };
+        if let Some(row) = self.live_keydict_rows.get(py, lo, hi) {
+            return Ok(row.into_bound(py));
+        }
+        let row = crate::live_keydict::new_row(py, graph, lo, hi)?;
+        for internal_key in self.inner.edge_keys(lo, hi).unwrap_or_default() {
+            let attrs = self
+                .ensure_edge_py_attrs(py, lo, hi, internal_key)
+                .clone_ref(py);
+            let public_key = self.py_edge_key(py, lo, hi, internal_key);
+            row.set_item(public_key, attrs)?;
+        }
+        self.mark_edges_dirty();
+        self.live_keydict_rows.insert(lo, hi, row.clone().unbind());
+        Ok(row)
+    }
+
     fn ensure_edge_py_attrs_with_key(
         &mut self,
         py: Python<'_>,
@@ -9567,21 +9596,8 @@ impl PyMultiGraph {
                 return Ok(default.unwrap_or_else(|| py.None()));
             }
             // br-r37-c1-rc0923-epic-honest-measurement-vbneu.3: networkx
-            // returns its own keydict, `_adj[u][v]` — a real `dict`. Build it
-            // once with the live per-edge attr dicts (materialised from the
-            // core where the mirror is lazy), register it, and let every edge
-            // mutation keep it in step from here on.
-            let row = crate::live_keydict::new_row(py, slf.as_any(), lo, hi)?;
-            for internal_key in this.inner.edge_keys(lo, hi).unwrap_or_default() {
-                let attrs = this
-                    .ensure_edge_py_attrs(py, lo, hi, internal_key)
-                    .clone_ref(py);
-                let public_key = this.py_edge_key(py, lo, hi, internal_key);
-                row.set_item(public_key, attrs)?;
-            }
-            this.mark_edges_dirty();
-            this.live_keydict_rows.insert(lo, hi, row.clone().unbind());
-            Ok(row.into_any().unbind())
+            // returns its own keydict, `_adj[u][v]` — a real `dict`.
+            Ok(this.live_keydict(py, slf.as_any(), lo, hi)?.into_any().unbind())
         }
     }
 
@@ -12759,42 +12775,41 @@ impl PyMultiGraph {
         )
     }
 
-    fn _native_to_dict_of_dicts_live(
-        slf: PyRef<'_, Self>,
-        view_cls: &Bound<'_, PyAny>,
-        cache: &Bound<'_, PyDict>,
-    ) -> PyResult<Py<PyDict>> {
+    /// `to_dict_of_dicts(G)` rows in adjacency order, d[u][v] the graph's own
+    /// keydict for the pair - what networkx's `nbrdict.copy()` hands out
+    /// (br-r37-c1-5cqna). Pairs without a registered keydict get one first;
+    /// the rows are then read from the registry, so a later call - after a
+    /// mutation too - costs a lookup per pair and builds nothing.
+    fn _native_to_dict_of_dicts_live(slf: &Bound<'_, Self>) -> PyResult<Py<PyDict>> {
         let py = slf.py();
-        let graph = Py::from(slf);
-        let g = graph.borrow(py);
-        let result = PyDict::new(py);
-        for node in g.inner.nodes_ordered() {
-            let py_node = g.py_node_key(py, node);
-            let row = PyDict::new(py);
-            let row_cache: Py<PyDict> = match cache.get_item(py_node.bind(py))? {
-                Some(existing) => existing.downcast::<PyDict>()?.clone().unbind(),
-                None => {
-                    let created = PyDict::new(py);
-                    cache.set_item(py_node.bind(py), &created)?;
-                    created.unbind()
-                }
-            };
-            let row_cache = row_cache.bind(py);
-            for neighbor in g.inner.neighbors(node).unwrap_or_default() {
-                let py_neighbor = g.py_adj_key(py, node, neighbor);
-                if let Some(view) = row_cache.get_item(py_neighbor.bind(py))? {
-                    row.set_item(py_neighbor.bind(py), &view)?;
-                } else {
-                    let view = view_cls.call1((
-                        graph.clone_ref(py),
-                        py_node.clone_ref(py),
-                        py_neighbor.clone_ref(py),
-                    ))?;
-                    row_cache.set_item(py_neighbor.bind(py), &view)?;
-                    row.set_item(py_neighbor.bind(py), &view)?;
+        let mut this = slf.borrow_mut();
+        let mut unregistered: Vec<(String, String)> = Vec::new();
+        for node in this.inner.nodes_ordered() {
+            for neighbor in this.inner.neighbors(node).unwrap_or_default() {
+                // Each undirected pair once, from its lower endpoint.
+                if node <= neighbor && !this.live_keydict_rows.contains(node, neighbor) {
+                    unregistered.push((node.to_owned(), neighbor.to_owned()));
                 }
             }
-            result.set_item(py_node.bind(py), row)?;
+        }
+        for (lo, hi) in &unregistered {
+            this.live_keydict(py, slf.as_any(), lo, hi)?;
+        }
+        let result = PyDict::new(py);
+        for node in this.inner.nodes_ordered() {
+            let row = PyDict::new(py);
+            for neighbor in this.inner.neighbors(node).unwrap_or_default() {
+                let (lo, hi) = if node <= neighbor {
+                    (node, neighbor)
+                } else {
+                    (neighbor, node)
+                };
+                let keydict = this.live_keydict_rows.get(py, lo, hi).ok_or_else(|| {
+                    PyRuntimeError::new_err("to_dict_of_dicts: an edge pair has no keydict")
+                })?;
+                row.set_item(this.py_adj_key(py, node, neighbor), keydict)?;
+            }
+            result.set_item(this.py_node_key(py, node), row)?;
         }
         Ok(result.unbind())
     }
