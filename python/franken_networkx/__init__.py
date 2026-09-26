@@ -29221,6 +29221,7 @@ def read_edgelist(
                 nodetype=nodetype,
                 data=data,
             ),
+            keep_str_lines=True,
         )
     return _read_edgelist_via_nx(
         path,
@@ -29234,16 +29235,24 @@ def read_edgelist(
     )
 
 
-def _read_decoded_lines_via_open_file(path, encoding, parse):
+def _read_decoded_lines_via_open_file(path, encoding, parse, *, keep_str_lines=False):
     """Open ``path`` under nx's ``open_file`` contract (str/Path/file handle,
     gzip/bz2 by suffix) and feed decoded lines to ``parse``. Private plumbing
     shared by the native readers — keeps nx's path/compression semantics
     without putting a networkx reference in any public function's source
-    (the coverage classifier forbids NX_DELEGATED public exports)."""
+    (the coverage classifier forbids NX_DELEGATED public exports).
+
+    ``keep_str_lines``: a text-mode handle yields str lines, which nx's
+    read_edgelist passes through undecoded; its adjlist readers decode every
+    line, so they raise on one (br-r37-c1-6luun)."""
     from networkx.utils import open_file as _open_file
 
     @_open_file(0, mode="rb")
     def _read(path):
+        if keep_str_lines:
+            return parse(
+                line if isinstance(line, str) else line.decode(encoding) for line in path
+            )
         return parse(line.decode(encoding) for line in path)
 
     return _read(path)

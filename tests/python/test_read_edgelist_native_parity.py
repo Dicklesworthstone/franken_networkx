@@ -175,3 +175,56 @@ def test_fast_path_graph_mutable_and_kernel_exact(tmp_path):
     assert dict(fnx.single_source_dijkstra_path_length(g, "a")) == dict(
         nx.single_source_dijkstra_path_length(gn, "a")
     )
+
+
+# br-r37-c1-6luun: networkx's read_edgelist passes str lines through undecoded,
+# so a text-mode handle (open(path), io.StringIO) reads; fnx decoded every line
+# and raised AttributeError. networkx's read_adjlist decodes every line, so
+# there a text-mode handle still raises in both.
+_TEXT_EDGELIST = "# c\n1 2\n2 3 {'weight': 3}\n3 4 {'weight': 0.5, 'c': 'x'}\n"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"nodetype": int},
+        {"data": False},
+        {"create_using": "DiGraph"},
+        {"delimiter": " ", "nodetype": int},
+    ],
+    ids=["default", "nodetype", "data_false", "digraph", "delimiter"],
+)
+@pytest.mark.parametrize("handle", ["stringio", "text_file", "bytes_file"])
+def test_read_edgelist_text_mode_handle_matches_networkx(tmp_path, kwargs, handle):
+    import io
+
+    p = _write(tmp_path, _TEXT_EDGELIST)
+
+    def _open():
+        if handle == "stringio":
+            return io.StringIO(_TEXT_EDGELIST)
+        return open(p, "r" if handle == "text_file" else "rb")
+
+    def _kw(lib):
+        out = dict(kwargs)
+        if "create_using" in out:
+            out["create_using"] = getattr(lib, out["create_using"])
+        return out
+
+    with _open() as fh:
+        expected = nx.read_edgelist(fh, **_kw(nx))
+    with _open() as fh:
+        got = fnx.read_edgelist(fh, **_kw(fnx))
+
+    assert _canon(got) == _canon(expected)
+    assert got.is_directed() == expected.is_directed()
+
+
+def test_read_adjlist_still_decodes_every_line_like_networkx():
+    import io
+
+    with pytest.raises(AttributeError, match="decode"):
+        nx.read_adjlist(io.StringIO("1 2\n"))
+    with pytest.raises(AttributeError, match="decode"):
+        fnx.read_adjlist(io.StringIO("1 2\n"))
