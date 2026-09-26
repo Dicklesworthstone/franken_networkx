@@ -7507,10 +7507,12 @@ impl PyMultiDiGraph {
             let key_obj = k.get_item(2)?;
             if let Some(internal_key) = self.resolve_internal_edge_key(py, &u, &v, &key_obj)? {
                 let ek = Self::edge_key(&u, &v, internal_key);
+                // An edge without a mirror keeps its attributes in the store (a
+                // reverse() copy): seed the mirror from it, or setting ONE
+                // attribute replaced all of them.
                 let dict = self
-                    .edge_py_attrs
-                    .entry(ek)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                    .ensure_edge_py_attrs_with_key(py, &u, &v, internal_key, &ek)
+                    .clone_ref(py);
                 dict.bind(py).set_item(name, &val)?;
             }
         }
@@ -17040,10 +17042,9 @@ impl PyDiGraph {
             let u = node_key_to_string(py, &k.get_item(0)?)?;
             let v = node_key_to_string(py, &k.get_item(1)?)?;
             if self.inner.has_edge(&u, &v) {
-                let dict = self
-                    .edge_py_attrs
-                    .entry((u, v))
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Seeded from the store for an edge without a mirror (weighted
+                // batches, reverse()): an empty dict here dropped its weight.
+                let dict = self.materialize_edge_py_attrs(py, &u, &v);
                 dict.bind(py).set_item(name, &val)?;
             }
         }
@@ -17071,10 +17072,8 @@ impl PyDiGraph {
             let u = node_key_to_string(py, &k.get_item(0)?)?;
             let v = node_key_to_string(py, &k.get_item(1)?)?;
             if self.inner.has_edge(&u, &v) {
-                let dict = self
-                    .edge_py_attrs
-                    .entry((u, v))
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Seeded from the store, as in the scalar setter above.
+                let dict = self.materialize_edge_py_attrs(py, &u, &v);
                 dict.bind(py).call_method1("update", (&attrs,))?;
             }
         }

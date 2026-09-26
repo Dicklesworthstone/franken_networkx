@@ -520,6 +520,33 @@ def test_store_only_multidigraph_hands_out_its_edge_attributes(read):
     assert "'weight'" in repr(rows["fnx"])
 
 
+@pytest.mark.parametrize(
+    "cls, source",
+    [("DiGraph", "batch"), ("DiGraph", "reverse"), ("MultiDiGraph", "reverse")],
+)
+@pytest.mark.parametrize("form", ["dict", "dict_of_dicts", "scalar_all"])
+def test_set_edge_attributes_on_a_store_only_edge_keeps_its_other_attributes(cls, source, form):
+    """The native setters started an EMPTY mirror for an edge whose attributes
+    lived only in the store, so setting one attribute replaced them all - the
+    weight vanished. scalar_all is the control (a different path)."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(lib, cls)()
+        graph.add_weighted_edges_from([(i, (i + 1) % 12, float(i % 4) + 1.5) for i in range(12)])
+        if source == "reverse":
+            graph = graph.reverse()
+        edge = next(iter(graph.edges(keys=True) if graph.is_multigraph() else graph.edges()))
+        if form == "dict":
+            lib.set_edge_attributes(graph, {edge: "red"}, "color")
+        elif form == "dict_of_dicts":
+            lib.set_edge_attributes(graph, {edge: {"color": "red"}})
+        else:
+            lib.set_edge_attributes(graph, "red", "color")
+        keys = {"keys": True} if graph.is_multigraph() else {}
+        outcomes[name] = sorted(map(repr, graph.edges(data=True, **keys)))
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the
