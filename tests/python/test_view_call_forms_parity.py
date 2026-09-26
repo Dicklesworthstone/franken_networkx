@@ -162,3 +162,50 @@ def test_a_data_views_nbunch_is_resolved_at_the_call():
         with pytest.raises(lib.NetworkXError):
             view.edges(9, data=True)
         assert list(view.edges([0, 0, 1])) == [(0, 1), (1, 2)]
+
+
+# A view is true when it has a node: its truthiness came from the PyO3 graph
+# class's native __bool__, which read the view's EMPTY Rust base, so every view
+# was false - `if view:` took the empty branch, and networkx code handed a view
+# did too (read_graphml(view) got past ElementTree's `if file:` and failed on an
+# empty tree instead of raising networkx's TypeError).
+def _bool_views(lib):
+    dg = lib.DiGraph([(0, 1), (1, 2)])
+    g = lib.Graph([(0, 1)])
+    return [
+        dg.subgraph([0, 1]),
+        dg.subgraph([]),
+        dg.reverse(copy=False),
+        lib.DiGraph().reverse(copy=False),
+        dg.to_undirected(as_view=True),
+        g.to_directed(as_view=True),
+        lib.Graph().to_directed(as_view=True),
+        lib.restricted_view(g, [], []),
+        lib.restricted_view(g, [0, 1], []),
+        g.edge_subgraph([(0, 1)]),
+        lib.MultiGraph([(0, 1)]).subgraph([0]),
+        lib.MultiDiGraph([(0, 1)]).reverse(copy=False),
+        dg.subgraph([0, 1]).reverse(copy=False),
+    ]
+
+
+def test_a_view_is_true_when_it_has_a_node():
+    assert [bool(v) for v in _bool_views(fnx)] == [bool(v) for v in _bool_views(nx)]
+    assert [bool(v) for v in _bool_views(fnx)].count(False) == 4
+
+
+def test_read_graphml_of_a_view_raises_networkxs_type_error():
+    outcomes = []
+    for lib in (fnx, nx):
+        with pytest.raises(TypeError) as err:
+            lib.read_graphml(lib.DiGraph([(0, 1)]).subgraph([0]))
+        outcomes.append(str(err.value))
+    assert outcomes[0] == outcomes[1]
+
+
+def test_a_views_repr_counts_the_view():
+    # fnx's graph repr is its own (networkx prints the default object repr);
+    # a view's must count the view - the inherited native __repr__ read the
+    # empty base and printed nodes=0, edges=0 for every view.
+    for view in _bool_views(fnx):
+        assert repr(view) == repr(view.copy())

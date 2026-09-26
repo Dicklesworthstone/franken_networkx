@@ -48195,9 +48195,37 @@ def _new_empty_graph_for_view_class(cls):
     raise TypeError(f"{cls.__name__} needs the graph it views")
 
 
+def _view_bool(view):
+    """br-r37-c1-77tw1: a view is true when it has a node, as networkx's
+    (whose graphs have no __bool__: ``bool(G)`` is ``len(G) > 0``). The view
+    classes inherited the PyO3 graph class's native ``__bool__``, which
+    reads the view's EMPTY Rust base - every view was false, so ``if
+    view:`` took the empty branch, and networkx's own code handed a view
+    did too: read_graphml(view) passed ``ElementTree(file=view)``'s
+    ``if file:`` and failed on an empty tree (AttributeError 'NoneType'
+    object has no attribute 'findall') where networkx raises TypeError."""
+    return len(view) > 0
+
+
+def _view_repr(view):
+    """br-r37-c1-77tw1: fnx's graph repr, ``DiGraph(nodes=2, edges=1)``, with
+    the view's counts - the inherited native ``__repr__`` read the view's
+    EMPTY Rust base and printed ``nodes=0, edges=0`` for every view."""
+    return (
+        f"{_concrete_class_for(view).__name__}"
+        f"(nodes={len(view)}, edges={view.number_of_edges()})"
+    )
+
+
 class _ReverseDirectedViewBase:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
+
+    def __bool__(self):
+        return _view_bool(self)
+
+    def __repr__(self):
+        return _view_repr(self)
     edge_attr_dict_factory = dict
     graph_attr_dict_factory = dict
     node_attr_dict_factory = dict
@@ -50140,6 +50168,12 @@ class _FilteredGraphView:
         for node in self._graph:
             if filter_node(node):
                 yield node
+
+    def __bool__(self):
+        return _view_bool(self)
+
+    def __repr__(self):
+        return _view_repr(self)
 
     def __len__(self):
         # br-r37-c1-vlenall: a view whose NODE filter is the default admits every
@@ -56515,6 +56549,12 @@ _CONVERSION_DEGREE_VIEW_TYPES = {
 class _ConversionGraphViewBase:
     _directed = False
     _multigraph = False
+
+    def __bool__(self):
+        return _view_bool(self)
+
+    def __repr__(self):
+        return _view_repr(self)
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
     edge_attr_dict_factory = dict
