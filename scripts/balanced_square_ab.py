@@ -3067,9 +3067,56 @@ def workload_claim_convert_node_attrs(reps: int):
     return build, ops
 
 
+def workload_claim_spanning_tree(reps: int):
+    """minimum/maximum_spanning_tree with and without node attributes.
+
+    A wrapper re-ran the tree (after coercing the input and walking every
+    edge) whenever the source reported ANY attribute and the tree carried no
+    EDGE attribute - every call for labelled nodes with bare edges - and paid
+    the coercion plus a tree probe on every weighted call. An op returns the
+    tree's node count and two edge probes (NOT number_of_edges(): see
+    claim-add-edge). Control: Graph.copy() of the labelled graph.
+    `reps` is unused; these are millisecond operations.
+    """
+    ba = list(nx.barabasi_albert_graph(1500, 2, seed=5).edges())
+    random.Random(11).shuffle(ba)
+    (u0, v0), (u1, v1) = ba[0], ba[-1]
+
+    def build(module):
+        labelled = module.Graph()
+        labelled.add_edges_from(ba)
+        for node in labelled:
+            labelled.nodes[node]["color"] = node % 5
+        weighted = module.Graph()
+        for u, v in ba:
+            weighted.add_edge(u, v, weight=float((u * 7 + v) % 11) + 0.5)
+        return labelled, (module, weighted)
+
+    def ops(labelled, extra):
+        module, weighted = extra
+
+        def tree(graph, which):
+            def op():
+                result = getattr(module, which)(graph)
+                return len(result), result.has_edge(u0, v0), result.has_edge(u1, v1)
+
+            return op
+
+        return {
+            "minimum_spanning_tree node attrs": tree(labelled, "minimum_spanning_tree"),
+            "maximum_spanning_tree node attrs": tree(labelled, "maximum_spanning_tree"),
+            "minimum_spanning_tree weighted": tree(weighted, "minimum_spanning_tree"),
+            "maximum_spanning_tree weighted": tree(weighted, "maximum_spanning_tree"),
+            "CONTROL G.copy() node attrs": lambda: len(labelled.copy()),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
     "claim-add-edge": workload_claim_add_edge,
     "claim-convert-node-attrs": workload_claim_convert_node_attrs,
+    "claim-spanning-tree": workload_claim_spanning_tree,
     "claim-has-edge-neighbors": workload_claim_has_edge_neighbors,
     "claim-has-edge-neighbors-str": workload_claim_has_edge_neighbors_str,
     "view-reads": workload_view_reads,
