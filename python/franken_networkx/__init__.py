@@ -24449,7 +24449,11 @@ def cut_size(G, S, T=None, weight=None):
         if weight is None or _sp_edge_weights_all_int(G, weight):
             if isinstance(raw, float) and raw.is_integer():
                 return int(raw)
-        return raw
+        if raw != 0:
+            return raw
+        # br-r37-c1-rjgh0: a zero cut takes the path below. nx sums the crossing
+        # edges from the int 0 - an empty cut is 0 - where the kernel's f64 sum
+        # of nothing is -0.0.
 
     if T is None:
         T_eff = set(G) - set(S)

@@ -153,3 +153,43 @@ def test_directed_cut_size_default_T_upstream_bug():
     with pytest.raises(TypeError, match=".*NoneType.*object is not iterable.*"):
         nx.cut_size(GX, S, weight="weight")
 
+
+# br-r37-c1-rjgh0: nx sums the crossing edges from the int 0, so an EMPTY cut is
+# 0 whatever the weights; the native kernel's f64 sum of nothing is -0.0, which
+# the wrapper returned on float-weighted graphs (and edge_expansion /
+# mixing_expansion divided it into -0.0). repr() tells 0, 0.0 and -0.0 apart.
+_CUT_EDGES = {
+    "float": [(0, 1, 2.5), (1, 2, 1.0)],
+    "int": [(0, 1, 2), (1, 2, 1)],
+    "zero_weight": [(0, 1, 0.0), (1, 2, 1.0)],
+}
+_CUT_SETS = {
+    "all_nodes": ({0, 1, 2}, None),
+    "with_absent_node": ({0, 1, 2, 7}, None),
+    "one_side": ({0}, None),
+    "zero_weight_cut": ({0}, {1}),
+    "explicit": ({2}, {0}),
+}
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("edges", sorted(_CUT_EDGES))
+@pytest.mark.parametrize("sets", sorted(_CUT_SETS))
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("fn", ["cut_size", "edge_expansion", "mixing_expansion", "normalized_cut_size", "conductance"])
+def test_zero_cut_value_type_and_sign_match_networkx(cls, edges, sets, weight, fn):
+    S, T = _CUT_SETS[sets]
+    if cls == "DiGraph" and T is None:
+        pytest.skip("networkx's directed cut_size raises on T=None (see above)")
+
+    def outcome(lib):
+        g = getattr(lib, cls)()
+        g.add_weighted_edges_from(_CUT_EDGES[edges])
+        try:
+            value = getattr(lib, fn)(g, S, T, weight=weight)
+        except Exception as exc:  # noqa: BLE001 - the raise is the answer
+            return ("raise", type(exc).__name__)
+        return (repr(value), type(value).__name__)
+
+    assert outcome(fnx) == outcome(nx)
