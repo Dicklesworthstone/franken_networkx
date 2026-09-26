@@ -311,3 +311,102 @@ def test_rows_are_reordered_only_while_nobody_holds_a_row_mirror():
         hand_out(held)
         assert held._fnx_reorder_rows_like(source) is False
         assert list(held["x"]) == ["a", "b", "c"]
+
+
+# br-r37-c1-u9a13: the concrete graph is cached on the view, keyed on the root's
+# structure counters - which do not move on an attribute write. Every native
+# call on the view then computed on the copy's old weights. The key carries the
+# root's edge-attribute epoch now (it moves on every write of an edge attr dict,
+# through a held reference too, and on set_edge_attributes' native paths; not
+# on reads), a MultiGraph root (whose dicts report no writes) is not cached,
+# and the graph dict is refreshed on a hit.
+U9_EDGES = [(0, 1, 1.0), (1, 2, 1.0), (0, 2, 5.0), (2, 3, 1.0), (3, 0, 2.0)]
+
+
+def _u9_graph(lib, cls):
+    G = getattr(lib, cls)()
+    G.add_weighted_edges_from(U9_EDGES)
+    G.graph["g"] = 1
+    return G
+
+
+def _u9_edge(G):
+    return (0, 1, 0) if G.is_multigraph() else (0, 1)
+
+
+U9_WRITERS = {
+    "G[u][v][w] =": lambda L, G, held: (G[0][1][0] if G.is_multigraph() else G[0][1]).__setitem__("weight", 100.0),
+    "held dict": lambda L, G, held: held.__setitem__("weight", 100.0),
+    "held dict update": lambda L, G, held: held.update(weight=100.0),
+    "G.edges[e][w] =": lambda L, G, held: G.edges[_u9_edge(G)].__setitem__("weight", 100.0),
+    "set_edge_attributes scalar": lambda L, G, held: L.set_edge_attributes(G, 100.0, "weight"),
+    "set_edge_attributes dict": lambda L, G, held: L.set_edge_attributes(G, {_u9_edge(G): 100.0}, "weight"),
+    "graph attr": lambda L, G, held: G.graph.__setitem__("g", 2),
+}
+U9_VIEWS = {
+    "subgraph": lambda L, G: G.subgraph([0, 1, 2, 3]),
+    "restricted": lambda L, G: L.restricted_view(G, [], []),
+    "reverse": lambda L, G: G.reverse(copy=False) if G.is_directed() else None,
+    "conversion": lambda L, G: G.to_undirected(as_view=True) if G.is_directed() else G.to_directed(as_view=True),
+}
+
+
+def _u9_reads(L, V):
+    return (
+        L.shortest_path_length(V, 0, 2, weight="weight"),
+        dict(L.relabel_nodes(V, {}, copy=True).graph),
+    )
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("view_kind", list(U9_VIEWS))
+@pytest.mark.parametrize("writer", list(U9_WRITERS), ids=list(U9_WRITERS))
+def test_a_view_sees_an_attribute_write_on_its_parent(cls, view_kind, writer, request):
+    if cls == "MultiGraph" and writer != "graph attr":
+        # Still open: rebuilding a MultiGraph view per call instead cost 26 ms a
+        # call, so its cache stays keyed on structure until its dicts report.
+        request.applymarker(
+            pytest.mark.xfail(
+                strict=True,
+                reason="br-r37-c1-u9a13: a MultiGraph's edge attr dicts report no writes",
+            )
+        )
+    results = []
+    for L in (fnx, nx):
+        G = _u9_graph(L, cls)
+        V = U9_VIEWS[view_kind](L, G)
+        if V is None:
+            pytest.skip("reverse views are directed only")
+        held = G[0][1][0] if G.is_multigraph() else G[0][1]
+        before = _u9_reads(L, V)
+        U9_WRITERS[writer](L, G, held)
+        results.append((before, _u9_reads(L, V)))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiDiGraph"])
+def test_the_cache_still_hits_across_reads_and_misses_after_a_write(cls):
+    G = _u9_graph(fnx, cls)
+    V = G.subgraph([0, 1, 2, 3])
+    first = _materialize_view(V)
+    # Reads - an exposed dict, a data walk, a native call on the parent - do
+    # not move the epoch.
+    _ = G[0][1]
+    _ = list(G.edges(data=True))
+    fnx.shortest_path_length(G, 0, 2, weight="weight")
+    assert _materialize_view(V) is first
+    (G[0][1][0] if G.is_multigraph() else G[0][1])["weight"] = 7.0
+    second = _materialize_view(V)
+    assert second is not first
+    assert _materialize_view(V) is second
+
+
+def test_a_reverse_view_shares_its_parents_graph_dict():
+    for L in (fnx, nx):
+        G = L.DiGraph([(0, 1)])
+        G.graph["a"] = 1
+        R = G.reverse(copy=False)
+        G.graph["b"] = 2
+        R.graph["c"] = 3
+        assert R.graph is G.graph
+        assert G.graph == {"a": 1, "b": 2, "c": 3}

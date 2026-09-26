@@ -20930,6 +20930,18 @@ def _materialize_view(view):
     counters of an intermediate view are its empty base's and never move,
     so a view of a view keyed on them kept a stale graph after the root
     changed.
+
+    br-r37-c1-u9a13: and on the root's edge-attribute epoch. The counters
+    move on structure only, so after G[u][v]['weight'] = x (or a write
+    through a held dict, or set_edge_attributes) every native call on the
+    view computed on the copy's old weights - shortest_path_length 2.0
+    where networkx answers 3.0. The epoch moves on exactly those writes and
+    not on reads or syncs, so a loop of calls on an unchanged view still
+    hits. A MultiGraph's attr dicts report no writes (its epoch is None):
+    a view of one is still keyed on structure alone, and still misses such
+    a write - rebuilding it per call instead cost 26 ms a call (has_path on
+    a 900-node view 0.00x networkx). The concrete graph shares the view's
+    graph dict, as networkx's views do.
     """
     root = view
     while True:
@@ -20941,12 +20953,21 @@ def _materialize_view(view):
     ns = getattr(root, "nodes_seq", None)
     es = getattr(root, "edges_seq", None)
     if root is not view and ns is not None and es is not None:
-        cache_key = (ns, es)
+        try:
+            epoch = _fnx.edge_attr_epoch(root)
+        except TypeError:
+            epoch = None
+        cache_key = (ns, es, epoch)
         cached = view.__dict__.get("_fnx_materialized_cache")
         if cached is not None and cached[0] == cache_key:
             return cached[1]
 
     out = view.copy()
+    # br-r37-c1-u9a13: networkx's views share the parent's graph dict; the
+    # concrete graph shares it too (as copy.copy's result does), so a graph
+    # attribute written after the cache was filled is there without a check.
+    vars(out)[_GRAPH_ATTR_OVERRIDE] = view.graph
+    out._fnx_register_gc_dict(vars(out))
     # br-r37-c1-36v6r: copy() fills each row in edge-walk order (networkx's
     # copy() does too), but the view's rows - which networkx's kernels walk -
     # are its root's rows filtered, swapped through a reverse view: bfs /
@@ -48264,7 +48285,12 @@ class _ReverseDirectedViewBase:
         # `_fnx_register_gc_dict`.
         _store = vars(self)
         _store["_graph"] = graph
-        self.graph = graph.graph
+        # br-r37-c1-u9a13: share the parent's graph dict, as networkx's
+        # reverse view does (R.graph is G.graph). ``self.graph = graph.graph``
+        # went through the graph-attrs descriptor, which copies into the
+        # view's own dict - a write on either side was lost on the other.
+        # Same bypass as the filtered view (br-r37-c1-fgv-graph-id).
+        _store[_GRAPH_ATTR_OVERRIDE] = graph.graph
         self.frozen = True
         # br-r37-c1-revadjname: pick canonical AdjacencyView /
         # MultiAdjacencyView per multi-ness so type(R.adj).__name__

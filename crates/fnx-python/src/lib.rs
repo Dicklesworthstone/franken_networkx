@@ -3367,12 +3367,17 @@ pub(crate) fn _set_edge_attr_dict_class(
 #[pyclass(module = "franken_networkx", frozen)]
 pub(crate) struct EdgeAttrWatch {
     written: std::sync::Mutex<rustc_hash::FxHashSet<usize>>,
+    /// br-r37-c1-u9a13: every write noted, ever - what a cache of this
+    /// graph's attributes (a view's materialised graph) is keyed on.
+    writes: std::sync::atomic::AtomicU64,
 }
 
 #[pymethods]
 impl EdgeAttrWatch {
     fn note(&self, dict: &Bound<'_, PyAny>) {
         self.written.lock().unwrap().insert(dict.as_ptr() as usize);
+        self.writes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -3398,6 +3403,10 @@ pub(crate) struct EdgeAttrWrites {
     /// cache keyed on (nodes_seq, edges_seq) and a clean flag comes back to the
     /// same key after a written dict is synced; this is what moves.
     rewrites: u64,
+    /// br-r37-c1-u9a13: writes made by native methods (set_edge_attributes'
+    /// bulk paths), which set items through the C-level dict API and so run
+    /// no `_EdgeAttrDict` mutator.
+    native_writes: u64,
 }
 
 impl Default for EdgeAttrWrites {
@@ -3405,6 +3414,7 @@ impl Default for EdgeAttrWrites {
         Self {
             watch: pyo3::sync::PyOnceLock::new(),
             rewrites: 0,
+            native_writes: 0,
         }
     }
 }
@@ -3416,9 +3426,28 @@ impl EdgeAttrWrites {
                 py,
                 EdgeAttrWatch {
                     written: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
+                    writes: std::sync::atomic::AtomicU64::new(0),
                 },
             )
         })
+    }
+
+    /// Count one native write of edge attributes.
+    pub(crate) fn note_native_write(&mut self) {
+        self.native_writes = self.native_writes.wrapping_add(1);
+    }
+
+    /// br-r37-c1-u9a13: a number that moves on every write of this graph's
+    /// edge attributes - through a held or fresh dict, or natively - and on
+    /// nothing else (exposing a dict or syncing the store leaves it).
+    pub(crate) fn epoch(&self, py: Python<'_>) -> u64 {
+        let noted = self.watch.get(py).map_or(0, |watch| {
+            watch
+                .get()
+                .writes
+                .load(std::sync::atomic::Ordering::Relaxed)
+        });
+        noted.wrapping_add(self.native_writes)
     }
 
     /// A new, empty attr dict for an edge of this graph that reports its writes
@@ -17242,6 +17271,7 @@ impl PyGraph {
             }
         }
         self.mark_edges_dirty();
+        self.edge_attr_writes.note_native_write(); // br-r37-c1-u9a13
         Ok(())
     }
 
@@ -17371,6 +17401,9 @@ impl PyGraph {
         // set_item append) and order-independent (same scalar on every edge). Gated
         // on len == edge_count so a lazy/partial mirror (which would MISS edges)
         // falls through to the exact per-edge materialize path.
+        // br-r37-c1-u9a13: items set through the C-level dict API run no
+        // _EdgeAttrDict mutator; count the write here.
+        self.edge_attr_writes.note_native_write();
         if self.edge_py_attrs.len() == self.inner.edge_count() {
             for dict in self.edge_py_attrs.values() {
                 dict.bind(py).set_item(name, value)?;

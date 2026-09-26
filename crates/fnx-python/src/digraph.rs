@@ -7641,6 +7641,7 @@ impl PyMultiDiGraph {
             }
         }
         self.mark_edges_dirty();
+        self.edge_attr_writes.note_native_write(); // br-r37-c1-u9a13
         Ok(())
     }
 
@@ -17287,6 +17288,7 @@ impl PyDiGraph {
             }
         }
         self.mark_edges_dirty();
+        self.edge_attr_writes.note_native_write(); // br-r37-c1-u9a13
         Ok(())
     }
 
