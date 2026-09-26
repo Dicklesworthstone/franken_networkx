@@ -25811,14 +25811,24 @@ fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyR
     }
 
     let w = weight.to_owned();
-    let result = if gr.is_directed() {
+    // br-r37-c1-9bnpj: distances over int weights (or none - networkx's
+    // default is the int 1) are ints in networkx, as the packed path above
+    // gives the simple classes.
+    let (result, all_int_weights) = if gr.is_directed() {
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), &w))
+        let all_int_weights = fnx_algorithms::digraph_edge_weights_all_int(dg.as_ref(), weight);
+        let result =
+            py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), &w));
+        (result, all_int_weights)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra(weighted_projection.as_ref(), &w))
+        let all_int_weights =
+            fnx_algorithms::graph_edge_weights_all_int(weighted_projection.as_ref(), weight);
+        let result = py
+            .allow_threads(|| fnx_algorithms::all_pairs_dijkstra(weighted_projection.as_ref(), &w));
+        (result, all_int_weights)
     };
     let outer = PyDict::new(py);
     for (source, (dists, paths)) in &result {
@@ -25832,7 +25842,12 @@ fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyR
         }
         let dist_dict = PyDict::new(py);
         for (target, dist) in dists {
-            dist_dict.set_item(gr.disp_or_node_key(py, &disp, target), *dist)?;
+            set_dijkstra_distance_item(
+                &dist_dict,
+                gr.disp_or_node_key(py, &disp, target),
+                *dist,
+                all_int_weights,
+            )?;
         }
         let path_dict = PyDict::new(py);
         for (target, path) in paths {

@@ -106,3 +106,38 @@ def test_disconnected_components_inner_keys_match():
     n = dict(nx.all_pairs_dijkstra_path(gx))
     for source in n:
         assert list(f[source].keys()) == list(n[source].keys())
+
+
+# br-r37-c1-9bnpj: over int weights (or none - networkx's default is the int
+# 1) networkx's distances are ints; the multigraph arm of fnx's native
+# all_pairs_dijkstra wrote every distance as a float. == cannot see it
+# (1 == 1.0), so compare (value, type). Float weights stay floats in both.
+_TYPED_BUNCHES = {
+    "unweighted": [(0, 1, {}), (1, 2, {}), (0, 1, {}), (2, 3, {})],
+    "int": [(0, 1, {"weight": 4}), (1, 2, {"weight": 2}), (0, 1, {"weight": 1}), (2, 3, {"weight": 3})],
+    "lightest_is_int": [(0, 1, {"weight": 2.5}), (0, 1, {"weight": 1}), (1, 2, {"weight": 2})],
+    "float": [(0, 1, {"weight": 1.5}), (1, 2, {"weight": 2.0}), (0, 1, {"weight": 0.5}), (2, 3, {"weight": 1.0})],
+}
+
+
+def _typed(d):
+    return {k: (v, type(v).__name__) for k, v in d.items()}
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("bunch", sorted(_TYPED_BUNCHES))
+def test_all_pairs_dijkstra_distance_types_match_networkx(cls, bunch):
+    g = getattr(fnx, cls)()
+    g.add_edges_from(_TYPED_BUNCHES[bunch])
+    gx = getattr(nx, cls)()
+    gx.add_edges_from(_TYPED_BUNCHES[bunch])
+
+    f = dict(fnx.all_pairs_dijkstra(g))
+    n = dict(nx.all_pairs_dijkstra(gx))
+
+    assert list(f) == list(n)
+    for source, (n_dist, n_paths) in n.items():
+        f_dist, f_paths = f[source]
+        assert _typed(f_dist) == _typed(n_dist), (source, f_dist, n_dist)
+        assert f_paths == n_paths
