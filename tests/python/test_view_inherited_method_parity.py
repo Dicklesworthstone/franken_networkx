@@ -250,3 +250,68 @@ def test_a_filtered_view_over_a_reverse_view_still_views_its_graph():
         assert fnx_view._graph is not None
         empty = type(fnx_view)()
         assert (type(empty).__name__, len(empty)) == (type(type(nx_view)()).__name__, 0)
+
+
+# br-r37-c1-dvvme: degree views and number_of_edges(u, v) on views, against
+# networkx's. str() of a degree view is networkx's list, not its repr (the
+# simple DegreeView had it - br-r37-c1-wu9dv - and its siblings did not, on
+# concrete graphs too: DiGraph in/out, MultiGraph, MultiDiGraph); degree(n) of
+# a node the view lacks raises networkx's NetworkXError at the call (it builds
+# the node list eagerly); an unhashable subscript is networkx's dict-key
+# TypeError; number_of_edges(u, v) is networkx's `v in self._adj[u]` on a
+# simple view (the view adjacency's KeyError for an absent u) and 0 on a
+# multigraph view for every KeyError.
+DEGREE_CALLS = [
+    ("str(degree)", lambda L, G: str(G.degree)),
+    ("str(degree(weight))", lambda L, G: str(G.degree(weight="weight"))),
+    ("str(degree(nbunch))", lambda L, G: str(G.degree([0, 1]))),
+    ("str(in_degree)", lambda L, G: str(G.in_degree) if G.is_directed() else None),
+    ("str(out_degree)", lambda L, G: str(G.out_degree) if G.is_directed() else None),
+    ("degree(missing)", lambda L, G: list(G.degree(9))),
+    ("degree[unhashable]", lambda L, G: G.degree[[1]]),
+    ("number_of_edges(missing, v)", lambda L, G: G.number_of_edges(9, 0)),
+    ("number_of_edges(missing)", lambda L, G: G.number_of_edges(9)),
+    ("number_of_edges(u)", lambda L, G: G.number_of_edges(0)),
+    ("number_of_edges(u, v)", lambda L, G: G.number_of_edges(0, 1)),
+]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize(("name", "call"), DEGREE_CALLS, ids=[c[0] for c in DEGREE_CALLS])
+def test_degree_views_and_edge_counts_on_a_view(kind, name, call):
+    _check(kind, call)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_str_of_a_concrete_graphs_degree_views(cls):
+    outs = []
+    for lib in (fnx, nx):
+        G = getattr(lib, cls)([(0, 1), (1, 2), (2, 0)])
+        outs.append(
+            [
+                str(getattr(G, attr))
+                for attr in ("degree", "in_degree", "out_degree")
+                if hasattr(G, attr)
+            ]
+        )
+    assert outs[0] == outs[1]
+
+
+MISSING_ON_UNDIRECTED = [
+    (kind, name)
+    for kind in CONVERSION
+    for name in (
+        ("in_degree", "out_degree", "reverse", "pred", "no_such_thing")
+        if kind.endswith("to_undirected")
+        else ("no_such_thing",)
+    )
+]
+
+
+@pytest.mark.parametrize(("kind", "name"), MISSING_ON_UNDIRECTED)
+def test_a_conversion_views_missing_attribute_reads_like_networkx(kind, name):
+    # The miss is probed on the VIEW's class (a to_undirected view is a Graph):
+    # probing the parent's DiGraph let in_degree / out_degree / reverse through
+    # to the concrete copy, whose native class named itself
+    # 'franken_networkx.Graph'.
+    _check(kind, lambda L, G: getattr(G, name))

@@ -8052,6 +8052,11 @@ class MultiGraphDegreeView:
     def __repr__(self):
         return f"{type(self).__name__}({dict(self)!r})"
 
+    def __str__(self):
+        # br-r37-c1-dvvme: br-r37-c1-wu9dv gave the simple DegreeView
+        # networkx's str (the list); this sibling printed its repr.
+        return str(list(self))
+
     def __init__(self, graph, *, nodes=None, weight=None):
         self._graph = graph
         self._nodes = nodes
@@ -8212,6 +8217,10 @@ class MultiDiGraphDegreeView:
     # ``DiMultiDegreeView``. Rename the fnx wrapper class to match.
     def __repr__(self):
         return f"{type(self).__name__}({dict(self)!r})"
+
+    def __str__(self):
+        # br-r37-c1-dvvme: networkx's str is the list (see MultiGraphDegreeView).
+        return str(list(self))
 
     def __init__(self, graph, *, nodes=None, weight=None):
         self._graph = graph
@@ -8859,6 +8868,10 @@ class _DirectedDegreeView:
         # ``type(self).__name__`` so the four subclasses below pick
         # up the right canonical name.
         return f"{type(self).__name__}({dict(self)!r})"
+
+    def __str__(self):
+        # br-r37-c1-dvvme: networkx's str is the list (see MultiGraphDegreeView).
+        return str(list(self))
 
 
 # br-r37-c1-degviewname: instantiate concrete subclasses per direction
@@ -48938,6 +48951,10 @@ class _RevDegreeViewBase:
     def __repr__(self):
         return f"{type(self).__name__}({dict(self)!r})"
 
+    def __str__(self):
+        # br-r37-c1-dvvme: networkx's DegreeView prints the list, not its repr.
+        return str(list(self))
+
     # br-r37-c1-revvcopy: copy._deepcopy(R.degree) recursed into the
     # parent graph and tripped _graph_deepcopy's no-arg ``cls()``
     # (reverse view requires a graph arg).  __copy__ returns self
@@ -50787,19 +50804,21 @@ class _FilteredGraphView:
             if edge_subgraph_count is not None:
                 return edge_subgraph_count
             return len(self._edges(keys=self.is_multigraph()))
-        if v is None:
-            if u not in self:
-                raise KeyError(u)
-            return 0
         if self.is_multigraph():
-            if not self._graph.has_edge(u, v):
+            # br-r37-c1-dvvme: networkx's MultiGraph.number_of_edges(u, v) is
+            # len(self._adj[u][v]) with every KeyError - an absent u or v,
+            # v=None - answered 0.
+            if v is None or not self._graph.has_edge(u, v):
                 return 0
             return sum(
                 1
                 for edge_key in self._graph[u][v]
                 if self._edge_visible(u, v, edge_key)
             )
-        return 1 if self.has_edge(u, v) else 0
+        # br-r37-c1-dvvme: networkx's is `v in self._adj[u]`, so an absent u
+        # raises the view adjacency's KeyError ("Key 9 not found", networkx's
+        # FilterAdjacency) - fnx answered 0, or a bare KeyError(u) for v=None.
+        return 1 if v in self.adj[u] else 0
 
     def _edge_subgraph_number_of_edges(self):
         selected_edges = getattr(
@@ -54299,6 +54318,10 @@ class _AssignedPrivateDegreeView:
                     len(row[node]) if node in row else 0
                 )
             return len(row) + (node in row)
+        # br-r37-c1-dvvme: networkx indexes a dict here, so an unhashable node
+        # is its dict-key TypeError ("cannot use 'list' as a dict key"); the
+        # slow path's set membership worded it as a set element.
+        _HASH_PROBE.get(node)
         return self._degree(node)
 
     def __call__(self, nbunch=None, weight=None):
@@ -54369,8 +54392,14 @@ class _AssignedPrivateDegreeView:
         # range, a subclass -- falls through to the original test unchanged.
         if type(nbunch) in _PLAIN_NBUNCH_CONTAINERS:
             nodes = [node for node in nbunch if node in authority]
-        elif isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
+        elif isinstance(nbunch, (str, bytes)):
             nodes = [nbunch] if nbunch in self._graph else []
+        elif not hasattr(nbunch, "__iter__"):
+            # br-r37-c1-dvvme: networkx builds the view's node list eagerly,
+            # list(G.nbunch_iter(nbunch)), so a single node the graph lacks
+            # raises NetworkXError('Node 9 is not in the graph.') at the call;
+            # an empty view came back instead.
+            nodes = [nbunch] if nbunch in self._graph else list(self._graph.nbunch_iter(nbunch))
         else:
             nodes = [node for node in nbunch if node in authority]
         return self._derive(nodes=nodes, weight=weight)
@@ -54383,6 +54412,11 @@ class _AssignedPrivateDegreeView:
         # ``<...object at 0x...>``. Use ``type(self).__name__`` so
         # the subclasses below pick up the right canonical name.
         return f"{type(self).__name__}({dict(self)!r})"
+
+    def __str__(self):
+        # br-r37-c1-dvvme: networkx's DegreeView prints the list; with no
+        # __str__ here str() fell back to the repr.
+        return str(list(self))
 
 
 # br-r37-c1-snvrepr: 4 trivial subclasses with canonical nx
@@ -56718,12 +56752,19 @@ class _ConversionGraphViewBase:
             raise AttributeError(name)
         parent = self.__dict__.get("_graph")
         if parent is not None:
-            parent_cls = type(parent)
-            probe = _FILTERED_VIEW_ATTR_PROBE.get(parent_cls)
+            # br-r37-c1-dvvme: probe the VIEW's class, not the parent's - a
+            # conversion view is the other directedness (networkx builds it as
+            # to_undirected_class() / to_directed_class()), so the parent's
+            # class answered yes for in_degree / out_degree / reverse on an
+            # undirected view, and the miss came from the concrete copy as
+            # "'franken_networkx.Graph' object has no attribute ..." where
+            # networkx says 'Graph'.
+            probe_cls = _concrete_class_for(self)
+            probe = _FILTERED_VIEW_ATTR_PROBE.get(probe_cls)
             if probe is None:
-                probe = parent_cls()
+                probe = probe_cls()
                 probe.add_edge("__fnx_attr_probe_u__", "__fnx_attr_probe_v__")
-                _FILTERED_VIEW_ATTR_PROBE[parent_cls] = probe
+                _FILTERED_VIEW_ATTR_PROBE[probe_cls] = probe
             if not hasattr(probe, name):
                 raise AttributeError(
                     f"{type(self).__name__!r} object has no attribute {name!r}"
