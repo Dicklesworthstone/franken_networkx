@@ -14035,8 +14035,6 @@ def minimum_node_cut(
     """
     _validate_backend_dispatch_keywords("minimum_node_cut", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
-    if len(G) == 0:
-        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
     if (s is None) != (t is None):
         raise NetworkXError("Both source and target must be specified.")
     if flow_func is not None:
@@ -14049,6 +14047,9 @@ def minimum_node_cut(
         if t not in G:
             raise NetworkXError(f"node {t} not in graph")
         return _native_minimum_st_node_cut(G, s, t)
+    # br-r37-c1-ct24s: only the global cut meets the null graph, as in nx.
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
 
     if G.is_directed():
         if not is_weakly_connected(G):
@@ -14401,16 +14402,17 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
         The node connectivity of G.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if len(G) == 0:
-        raise NetworkXPointlessConcept(
-            "Connectivity is undefined for the null graph."
-        )
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
     if s is not None and s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t is not None and t not in G:
         raise NetworkXError(f"node {t} not in graph")
+    # br-r37-c1-ct24s: after s / t, as in nx (its is_connected raises this).
+    if len(G) == 0:
+        raise NetworkXPointlessConcept(
+            "Connectivity is undefined for the null graph."
+        )
     if flow_func is not None:
         return _node_connectivity_inproc(
             G,
@@ -14497,16 +14499,17 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
         The edge connectivity of G.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if len(G) == 0:
-        raise NetworkXPointlessConcept(
-            "Connectivity is undefined for the null graph."
-        )
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
     if s is not None and s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t is not None and t not in G:
         raise NetworkXError(f"node {t} not in graph")
+    # br-r37-c1-ct24s: after s / t, as in nx (its is_connected raises this).
+    if len(G) == 0:
+        raise NetworkXPointlessConcept(
+            "Connectivity is undefined for the null graph."
+        )
     if flow_func is not None or cutoff is not None:
         return _edge_connectivity_inproc(
             G,
@@ -16373,7 +16376,9 @@ def eccentricity(G, v=None, sp=None, weight=None):
     """Returns the eccentricity of nodes in G."""
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if len(G) == 0:
+    # br-r37-c1-ct24s: a v given on the null graph is still checked, as
+    # nx's nbunch_iter checks it.
+    if len(G) == 0 and v is None:
         return {}
 
     if v is None:
@@ -17571,20 +17576,20 @@ def eulerian_circuit(G, source=None, keys=False):
     route. Multigraph/directed keep delegating (key ordering).
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-ct24s: nx asks is_eulerian first - the null graph raises
+    # NetworkXPointlessConcept and a non-Eulerian G "G is not Eulerian."
+    # whatever the source - and only then meets the source.
+    if not is_eulerian(G):
+        raise NetworkXError("G is not Eulerian.")
     if source is not None and source not in G:
         raise NetworkXError(f"Node {source} is not in the graph.")
     if (
         not G.is_directed()
         and not G.is_multigraph()
-        and len(G) > 0
         and number_of_selfloops(G) == 0
     ):
-        if not is_eulerian(G):
-            raise NetworkXError("G is not Eulerian.")
         yield from _fnx.eulerian_circuit(G, source)
         return
-    if not is_eulerian(G):
-        raise NetworkXError("G is not Eulerian.")
     if source is None:
         source = next(iter(G))
     if G.is_multigraph():
@@ -17702,10 +17707,14 @@ def eulerian_path(G, source=None, keys=False):
     # sibling eulerian_circuit's exception class.
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if source is not None and source not in G:
-        raise NetworkXError(f"Node {source} is not in the graph.")
+    # br-r37-c1-ct24s: nx asks has_eulerian_path first - the null graph raises
+    # NetworkXPointlessConcept, and a source missing from a non-Eulerian G
+    # raises KeyError there (its degree lookup) - and only a G that has the
+    # path meets "Node ... is not in the graph."
     if not has_eulerian_path(G, source):
         raise NetworkXError("Graph has no Eulerian paths.")
+    if source is not None and source not in G:
+        raise NetworkXError(f"Node {source} is not in the graph.")
     if G.is_directed():
         if source is None or is_eulerian(G) is False:
             source = _find_path_start_inproc(G.reverse())
@@ -26644,6 +26653,9 @@ def immediate_dominators(G, start):
     """
     # br-r37-c1-1y7h1: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-ct24s: nx's @not_implemented_for("undirected") runs first.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     # br-r37-c1-mz7g4: nx pre-validates ``start in G`` (silently
     # returns False on unhashable, then raises NetworkXError);
     # without this guard fnx silently computes whatever the Rust impl
@@ -26694,6 +26706,9 @@ def dominance_frontiers(G, start):
     """
     # br-r37-c1-1y7h1: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-ct24s: nx's @not_implemented_for("undirected") runs first.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if start not in G:
         raise NetworkXError("start is not in G")
     # br-r37-c1-domfront: the native _raw_dominance_frontiers kernel only walked
@@ -42025,7 +42040,8 @@ def google_matrix(
         nodelist = list(G.nodes())
     n = len(nodelist)
     if n == 0:
-        return np.array([[]])
+        # br-r37-c1-ct24s: nx returns to_numpy_array's 0 x 0 (np.array([[]]) is 1 x 0).
+        return np.zeros((0, 0))
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     row_sums = A.sum(axis=1)
 

@@ -445,3 +445,46 @@ class TestExceptionHierarchy:
 
         with pytest.raises(nx.NetworkXNotImplemented):
             list(fnx.bridges(fnx.DiGraph([(0, 1)])))
+
+
+# br-r37-c1-ct24s: which check fires FIRST is part of the contract. networkx's
+# @not_implemented_for runs before any argument check; is_eulerian /
+# has_eulerian_path run before the source is looked at; s / t are checked
+# before the null graph can raise; a v given on the null graph is still checked.
+_ORDER_GRAPHS = {
+    "null": lambda m: m.Graph(),
+    "null_directed": lambda m: m.DiGraph(),
+    "path": lambda m: m.path_graph(3),
+    "cycle": lambda m: m.cycle_graph(3),
+    "directed_cycle": lambda m: m.DiGraph([(0, 1), (1, 2), (2, 0)]),
+    "directed_path": lambda m: m.DiGraph([(0, 1), (1, 2)]),
+    "star": lambda m: m.star_graph(3),
+}
+_ORDER_CALLS = {
+    "immediate_dominators_missing_start": lambda m, G: m.immediate_dominators(G, 9),
+    "dominance_frontiers_missing_start": lambda m, G: m.dominance_frontiers(G, 9),
+    "eccentricity_missing_v": lambda m, G: m.eccentricity(G, v=12),
+    "eccentricity_v_list": lambda m, G: m.eccentricity(G, v=[12]),
+    "eulerian_circuit_source_0": lambda m, G: list(m.eulerian_circuit(G, source=0)),
+    "eulerian_circuit_missing_source": lambda m, G: list(m.eulerian_circuit(G, source=9)),
+    "eulerian_path_source_0": lambda m, G: list(m.eulerian_path(G, source=0)),
+    "eulerian_path_missing_source": lambda m, G: list(m.eulerian_path(G, source=9)),
+    "node_connectivity_st": lambda m, G: m.node_connectivity(G, 0, 1),
+    "node_connectivity_s_only": lambda m, G: m.node_connectivity(G, 0),
+    "edge_connectivity_st": lambda m, G: m.edge_connectivity(G, 0, 1),
+    "minimum_node_cut_st": lambda m, G: m.minimum_node_cut(G, 0, 1),
+    "google_matrix_shape": lambda m, G: m.google_matrix(G).shape,
+}
+
+
+def _order_outcome(module, graph, call):
+    try:
+        return ("ok", repr(_ORDER_CALLS[call](module, _ORDER_GRAPHS[graph](module))))
+    except Exception as exc:  # noqa: BLE001 - the raise is the answer
+        return ("raise", type(exc).__name__, str(exc))
+
+
+@pytest.mark.parametrize("graph", sorted(_ORDER_GRAPHS))
+@pytest.mark.parametrize("call", sorted(_ORDER_CALLS))
+def test_first_failing_check_matches_networkx(graph, call):
+    assert _order_outcome(fnx, graph, call) == _order_outcome(nx, graph, call)

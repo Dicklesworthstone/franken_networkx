@@ -85,7 +85,13 @@ def test_node_connectivity_two_isolated_nodes_returns_zero():
 
 @needs_nx
 def test_node_connectivity_with_st_pair_on_null_graph_also_raises():
-    """Even when s and t are passed, the null graph should still raise."""
-    G = fnx.empty_graph(0)
-    with pytest.raises(fnx.NetworkXPointlessConcept):
-        fnx.node_connectivity(G, s=0, t=1)
+    """With s and t passed, the null graph still raises - but networkx checks
+    s and t first, so it is NetworkXError('node 0 not in graph'), not the
+    PointlessConcept this test used to expect without asking networkx
+    (br-r37-c1-ct24s)."""
+    with pytest.raises(nx.NetworkXError) as expected:
+        nx.node_connectivity(nx.empty_graph(0), s=0, t=1)
+    with pytest.raises(fnx.NetworkXError) as got:
+        fnx.node_connectivity(fnx.empty_graph(0), s=0, t=1)
+    assert type(got.value).__name__ == type(expected.value).__name__
+    assert str(got.value) == str(expected.value) == "node 0 not in graph"
