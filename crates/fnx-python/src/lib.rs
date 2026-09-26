@@ -657,6 +657,28 @@ fn float_value_repr(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<String
         .extract::<String>()
 }
 
+/// br-r37-c1-36v6r: a sequence of rows of node keys as rows of node
+/// positions, `position_of` resolving a canonical key; `None` when a key is
+/// not a node.
+pub(crate) fn rows_as_positions(
+    py: Python<'_>,
+    rows: &Bound<'_, PyAny>,
+    position_of: impl Fn(&str) -> Option<usize>,
+) -> PyResult<Option<Vec<Vec<usize>>>> {
+    let mut out = Vec::new();
+    for row in rows.try_iter()? {
+        let mut positions = Vec::new();
+        for key in row?.try_iter()? {
+            let Some(position) = position_of(&node_key_to_string(py, &key?)?) else {
+                return Ok(None);
+            };
+            positions.push(position);
+        }
+        out.push(positions);
+    }
+    Ok(Some(out))
+}
+
 fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`
@@ -18527,6 +18549,61 @@ impl PyGraph {
             new_graph.adj_py_keys = self.derive_copy_adj_py_keys(py, &new_graph.inner);
         }
         Ok(new_graph)
+    }
+
+    /// br-r37-c1-36v6r: order every adjacency row as `source`'s row for the
+    /// same node (`Graph::reorder_rows_like`). `_materialize_view` builds the
+    /// concrete graph a view shows through `view.copy()`, which fills each
+    /// row in edge-walk order; the view's rows are its root's rows filtered,
+    /// and native kernels walk rows, so traversal order follows them.
+    ///
+    /// Only for a graph whose rows nobody holds yet: returns False, and
+    /// changes nothing, once a row mirror has been handed out (a live row
+    /// dict cannot be reordered under its holder).
+    fn _fnx_reorder_rows_like(&mut self, source: PyRef<'_, Self>) -> bool {
+        if !self.adj_row_py.is_empty()
+            || !self.adj_row_py_by_index.is_empty()
+            || !self.neighbor_key_rows.is_empty()
+            || !self.neighbor_key_rows_by_index.is_empty()
+            || self.dict_of_dicts_cache.is_some()
+        {
+            return false;
+        }
+        let before = self.inner.revision();
+        self.inner.reorder_rows_like(&source.inner);
+        if self.inner.revision() != before {
+            self.bump_edges_seq();
+        }
+        true
+    }
+
+    /// br-r37-c1-36v6r: order every adjacency row as given: `rows[i]` is the
+    /// row of the i-th node, as node keys (`Graph::set_row_orders`). For the
+    /// concrete graph of a view whose row order no graph holds - a
+    /// `to_undirected(as_view=True)` view's set-ordered union rows. False,
+    /// and nothing changes, when a row mirror was handed out already or a
+    /// given row is not a permutation of the graph's.
+    fn _fnx_set_row_orders(&mut self, py: Python<'_>, rows: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if !self.adj_row_py.is_empty()
+            || !self.adj_row_py_by_index.is_empty()
+            || !self.neighbor_key_rows.is_empty()
+            || !self.neighbor_key_rows_by_index.is_empty()
+            || self.dict_of_dicts_cache.is_some()
+        {
+            return Ok(false);
+        }
+        let Some(wanted) = rows_as_positions(py, rows, |key| self.inner.get_node_index(key))?
+        else {
+            return Ok(false);
+        };
+        let before = self.inner.revision();
+        if !self.inner.set_row_orders(&wanted) {
+            return Ok(false);
+        }
+        if self.inner.revision() != before {
+            self.bump_edges_seq();
+        }
+        Ok(true)
     }
 
     /// Return a subgraph containing only the specified edges.

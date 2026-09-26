@@ -15779,6 +15779,70 @@ impl PyDiGraph {
         Ok(new_graph)
     }
 
+    /// br-r37-c1-36v6r: order every successor and predecessor row as
+    /// `source`'s row for the same node - its pred / succ rows when `swap`
+    /// (`DiGraph::reorder_rows_like`). `_materialize_view` builds the
+    /// concrete graph a filtered or reverse view shows through `view.copy()`,
+    /// which fills pred rows in succ-walk order; the view's pred rows are its
+    /// root's rows filtered (swapped through a reverse view).
+    ///
+    /// Only for a graph whose rows nobody holds yet: returns False, and
+    /// changes nothing, once a row mirror has been handed out.
+    fn _fnx_reorder_rows_like(&mut self, source: PyRef<'_, Self>, swap: bool) -> bool {
+        if !self.succ_row_py.is_empty()
+            || !self.pred_row_py.is_empty()
+            || !self.succ_row_py_by_index.is_empty()
+            || !self.pred_row_py_by_index.is_empty()
+            || self.dict_of_dicts_cache.is_some()
+        {
+            return false;
+        }
+        let before = self.inner.revision();
+        self.inner.reorder_rows_like(&source.inner, swap);
+        if self.inner.revision() != before {
+            self.bump_edges_seq();
+        }
+        true
+    }
+
+    /// br-r37-c1-36v6r: order every successor / predecessor row as given:
+    /// `succ_rows[i]` / `pred_rows[i]` are the rows of the i-th node, as node
+    /// keys (`DiGraph::set_row_orders`). For the concrete graph of a view
+    /// whose row order no graph holds - a `to_directed(as_view=True)` view's,
+    /// whose succ and pred rows are both the undirected graph's row. False,
+    /// and nothing changes, when a row mirror was handed out already or a
+    /// given row is not a permutation of the graph's.
+    fn _fnx_set_row_orders(
+        &mut self,
+        py: Python<'_>,
+        succ_rows: &Bound<'_, PyAny>,
+        pred_rows: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        if !self.succ_row_py.is_empty()
+            || !self.pred_row_py.is_empty()
+            || !self.succ_row_py_by_index.is_empty()
+            || !self.pred_row_py_by_index.is_empty()
+            || self.dict_of_dicts_cache.is_some()
+        {
+            return Ok(false);
+        }
+        let position_of = |key: &str| self.inner.get_node_index(key);
+        let (Some(succ), Some(pred)) = (
+            crate::rows_as_positions(py, succ_rows, position_of)?,
+            crate::rows_as_positions(py, pred_rows, position_of)?,
+        ) else {
+            return Ok(false);
+        };
+        let before = self.inner.revision();
+        if !self.inner.set_row_orders(&succ, &pred) {
+            return Ok(false);
+        }
+        if self.inner.revision() != before {
+            self.bump_edges_seq();
+        }
+        Ok(true)
+    }
+
     fn edge_subgraph(&self, py: Python<'_>, edges: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(edges)?;
         let mut keep_edges: Vec<(String, String)> = Vec::new();

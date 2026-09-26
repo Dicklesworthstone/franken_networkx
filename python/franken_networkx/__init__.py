@@ -20947,9 +20947,61 @@ def _materialize_view(view):
             return cached[1]
 
     out = view.copy()
+    # br-r37-c1-36v6r: copy() fills each row in edge-walk order (networkx's
+    # copy() does too), but the view's rows - which networkx's kernels walk -
+    # are its root's rows filtered, swapped through a reverse view: bfs /
+    # dfs / traversal order on subgraph, restricted_view and edge_subgraph
+    # views of a Graph, and every pred-row reader on a directed view,
+    # followed the copy's order instead.
+    row_root = _view_row_root(view)
+    if row_root is not None and row_root[0].is_directed() == out.is_directed():
+        root, swap = row_root
+        if out.is_directed():
+            out._fnx_reorder_rows_like(root, swap)
+        else:
+            out._fnx_reorder_rows_like(root)
+    elif not out.is_multigraph():
+        # A conversion view in the chain: its rows are no graph's rows (a
+        # to_undirected view's are set unions), so hand them over as read.
+        nodes = list(out)
+        if out.is_directed():
+            out._fnx_set_row_orders(
+                [list(view.succ[n]) for n in nodes], [list(view.pred[n]) for n in nodes]
+            )
+        elif type(view) is _UNDIRECTED_CONVERSION_VIEW_TYPES[False] and type(view._graph) is DiGraph:
+            out._fnx_set_row_orders([list(_union_row(view._graph, n)) for n in nodes])
+        else:
+            out._fnx_set_row_orders([list(view.adj[n]) for n in nodes])
     if cache_key is not None:
         view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
     return out
+
+
+def _view_row_root(view):
+    """(root, swap) when every view from ``view`` down to the concrete
+    Graph / DiGraph at the root of its chain keeps the root's row order -
+    a filtered view iterates each parent row with entries filtered out
+    (networkx's FilterAtlas has no ``.nodes`` shortcut for a row), a
+    reverse view swaps succ and pred - else None: conversion views
+    (to_undirected's rows are a set union), multigraphs (not yet ordered
+    here), and a root whose rows live in networkx private storage."""
+    swap = False
+    node = view
+    while True:
+        if isinstance(node, _FilteredGraphView):
+            node = node._graph
+        elif isinstance(node, _ReverseDirectedViewBase):
+            swap = not swap
+            node = node._graph
+        else:
+            break
+    if (
+        not isinstance(node, (Graph, DiGraph))
+        or isinstance(node, _ConversionGraphViewBase)
+        or _has_networkx_private_storage(node)
+    ):
+        return None
+    return node, swap
 
 
 def _rebuild_operator_output(output, cls):
@@ -57210,21 +57262,22 @@ def _generic_directed_graph_view(graph):
     return view_type(graph)
 
 
+def _union_row(graph, node):
+    # br-r37-c1-36v6r: networkx's to_undirected(as_view=True) row is a
+    # UnionAtlas, which iterates set(succ.keys()) | set(pred.keys()) - hash
+    # order, not succ then pred. A keys view and an iterator both take
+    # CPython's generic set-building path, so the same rows build the same
+    # table and iterate alike. successors / predecessors walk the native rows
+    # without building a row mapping (1.8 ms against 6.3 ms for every row of
+    # a gnp(1000, 0.01) digraph).
+    return iter(set(graph.successors(node)) | set(graph.predecessors(node)))
+
+
 class _UndirectedGraphConversionView(_ConversionGraphViewBase):
     def _adj_neighbors(self, node):
         if not self._graph.is_directed():
             return iter(self._graph[node])
-
-        def merged():
-            yielded = set()
-            for neighbor in self._graph.succ[node]:
-                yielded.add(neighbor)
-                yield neighbor
-            for neighbor in self._graph.pred[node]:
-                if neighbor not in yielded:
-                    yield neighbor
-
-        return merged()
+        return _union_row(self._graph, node)
 
     def _adj_neighbor_value(self, node, neighbor):
         if not self._graph.is_directed():
@@ -57246,17 +57299,7 @@ class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
     def _adj_neighbors(self, node):
         if not self._graph.is_directed():
             return iter(self._graph[node])
-
-        def merged():
-            yielded = set()
-            for neighbor in self._graph.succ[node]:
-                yielded.add(neighbor)
-                yield neighbor
-            for neighbor in self._graph.pred[node]:
-                if neighbor not in yielded:
-                    yield neighbor
-
-        return merged()
+        return _union_row(self._graph, node)
 
     def _adj_neighbor_value(self, node, neighbor):
         if not self._graph.is_directed():

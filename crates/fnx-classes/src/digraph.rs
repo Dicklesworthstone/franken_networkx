@@ -714,6 +714,75 @@ impl DiGraph {
         *self.pred_indices.rows_mut() = new_rows;
     }
 
+    /// br-r37-c1-36v6r: order each successor and predecessor row as
+    /// `source`'s row for the node of the same name - its succ / pred rows,
+    /// or its pred / succ rows when `swap` (a reverse view's). A graph built
+    /// from a filtered or reverse view of `source` by a copy-shaped walk
+    /// fills pred rows in succ-walk order (networkx's `view.copy()` does the
+    /// same), where the view's pred row is `source`'s row filtered. Entries
+    /// `source`'s row lacks keep their relative order after the matched
+    /// ones. Graph content is unchanged; `revision` moves if any row does.
+    pub fn reorder_rows_like(&mut self, source: &Self, swap: bool) {
+        let mut to_source = vec![usize::MAX; self.node_order.slot_count()];
+        let mut from_source = vec![usize::MAX; source.node_order.slot_count()];
+        for (name, slot) in self.node_order.iter() {
+            if let Some(&source_slot) = source.node_order.get(name) {
+                to_source[slot] = source_slot;
+                from_source[source_slot] = slot;
+            }
+        }
+        let (succ_source, pred_source) = if swap {
+            (&source.pred_indices, &source.succ_indices)
+        } else {
+            (&source.succ_indices, &source.pred_indices)
+        };
+        let slots: Vec<usize> = self.node_order.values().collect();
+        let succ_changed = crate::reorder_slot_rows_like(
+            &mut self.succ_indices,
+            succ_source,
+            &slots,
+            &to_source,
+            &from_source,
+        );
+        let pred_changed = crate::reorder_slot_rows_like(
+            &mut self.pred_indices,
+            pred_source,
+            &slots,
+            &to_source,
+            &from_source,
+        );
+        if succ_changed || pred_changed {
+            self.revision = self.revision.saturating_add(1);
+            // Clones share the CSR memo, keyed by revision alone.
+            self.csr_cache = std::sync::Arc::default();
+        }
+    }
+
+    /// br-r37-c1-36v6r: order every successor and predecessor row as given -
+    /// `succ_rows[i]` / `pred_rows[i]` are the rows of the node at position
+    /// `i`, neighbours as positions - for a row order no graph holds, such
+    /// as a `to_directed(as_view=True)` view's (both rows the undirected
+    /// graph's row). All or nothing: false, and nothing changes, unless every
+    /// given row is a permutation of the current one.
+    pub fn set_row_orders(&mut self, succ_rows: &[Vec<usize>], pred_rows: &[Vec<usize>]) -> bool {
+        let slots: Vec<usize> = self.node_order.values().collect();
+        let mut succ = self.succ_indices.clone();
+        let mut pred = self.pred_indices.clone();
+        let (Some(succ_changed), Some(pred_changed)) = (
+            crate::set_slot_row_orders(&mut succ, &slots, succ_rows),
+            crate::set_slot_row_orders(&mut pred, &slots, pred_rows),
+        ) else {
+            return false;
+        };
+        if succ_changed || pred_changed {
+            self.succ_indices = succ;
+            self.pred_indices = pred;
+            self.revision = self.revision.saturating_add(1);
+            self.csr_cache = std::sync::Arc::default();
+        }
+        true
+    }
+
     #[must_use]
     pub fn predecessors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
         // br-r37-c1-d58s8 DiGraph flip P2: index-backed.
@@ -4286,6 +4355,79 @@ mod tests {
             }
         }
         assert_eq!(g.edge_count(), edge_count_from_adj);
+    }
+
+    #[test]
+    fn reorder_rows_like_restores_pred_rows_and_swaps_for_a_reverse() {
+        // source: succ x [b, a]; pred x [a, c, b]
+        let mut source = DiGraph::strict();
+        for (u, v) in [("a", "x"), ("c", "x"), ("b", "x"), ("x", "b"), ("x", "a")] {
+            let _ = source.add_edge(u, v);
+        }
+        // Copy-shaped rebuild over [x, a, b, c]: succ rows right, pred x
+        // filled in walk order [a, b, c].
+        let mut copy = DiGraph::strict();
+        for node in ["x", "a", "b", "c"] {
+            let _ = copy.add_node(node);
+        }
+        for (u, v) in [("x", "b"), ("x", "a"), ("a", "x"), ("b", "x"), ("c", "x")] {
+            let _ = copy.add_edge(u, v);
+        }
+        assert_eq!(copy.predecessors("x"), Some(vec!["a", "b", "c"]));
+        let _ = copy.csr();
+        let before = copy.revision();
+        copy.reorder_rows_like(&source, false);
+        assert_eq!(copy.predecessors("x"), Some(vec!["a", "c", "b"]));
+        assert_eq!(copy.successors("x"), Some(vec!["b", "a"]));
+        assert!(copy.revision() > before);
+        // The CSR is rebuilt from the reordered rows, not served stale.
+        let csr = copy.csr();
+        let x = copy.get_node_index("x").unwrap();
+        let names: Vec<&str> = csr
+            .predecessors(x)
+            .iter()
+            .map(|&i| copy.get_node_name(i as usize).unwrap())
+            .collect();
+        assert_eq!(names, vec!["a", "c", "b"]);
+
+        // The reverse view's copy: succ x = source pred x [a, c, b], pred x
+        // filled in walk order [a, b]; its pred row is source's SUCC row.
+        let mut reverse = DiGraph::strict();
+        for node in ["x", "a", "b", "c"] {
+            let _ = reverse.add_node(node);
+        }
+        for (u, v) in [("x", "a"), ("x", "c"), ("x", "b"), ("a", "x"), ("b", "x")] {
+            let _ = reverse.add_edge(u, v);
+        }
+        assert_eq!(reverse.predecessors("x"), Some(vec!["a", "b"]));
+        reverse.reorder_rows_like(&source, true);
+        assert_eq!(reverse.predecessors("x"), Some(vec!["b", "a"]));
+        assert_eq!(reverse.successors("x"), Some(vec!["a", "c", "b"]));
+    }
+
+    #[test]
+    fn set_row_orders_sets_both_families_or_neither() {
+        let mut g = DiGraph::strict();
+        for (u, v) in [("a", "b"), ("a", "c"), ("b", "a"), ("c", "a")] {
+            let _ = g.add_edge(u, v);
+        }
+        // positions: a 0, b 1, c 2; succ a [b, c], pred a [b, c]
+        let _ = g.csr();
+        assert!(g.set_row_orders(
+            &[vec![2, 1], vec![0], vec![0]],
+            &[vec![2, 1], vec![0], vec![0]]
+        ));
+        assert_eq!(g.successors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.predecessors("a"), Some(vec!["c", "b"]));
+        let a = g.get_node_index("a").unwrap();
+        assert_eq!(g.csr().successors(a), &[2, 1]);
+        // A valid succ family with a bad pred family changes neither.
+        assert!(!g.set_row_orders(
+            &[vec![1, 2], vec![0], vec![0]],
+            &[vec![1, 1], vec![0], vec![0]]
+        ));
+        assert_eq!(g.successors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.predecessors("a"), Some(vec!["c", "b"]));
     }
 
     #[test]

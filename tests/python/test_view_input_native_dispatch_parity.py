@@ -14,11 +14,14 @@ way. A kernel that read the PARENT instead of the view would fail too: every vie
 here drops nodes or edges, or turns them around.
 """
 
+import random
+
 import networkx as nx
 import numpy as np
 import pytest
 
 import franken_networkx as fnx
+from franken_networkx import _materialize_view
 
 # A weighted 4x4 grid with two chords and one weight-1 edge per row, so shortest
 # paths depend on the weights and the views below drop different pieces of it.
@@ -185,3 +188,126 @@ def test_a_user_subclass_of_a_graph_class_still_runs_on_its_own_storage():
     assert fnx.is_empty(G) is False
     assert sorted(fnx.non_neighbors(G, 0)) == sorted(nx.non_neighbors(H, 0))
     assert fnx.bidirectional_dijkstra(G, 0, 10) == nx.bidirectional_dijkstra(H, 0, 10)
+
+
+# br-r37-c1-36v6r: the concrete graph a view reaches a kernel as has the VIEW's
+# rows. networkx's kernels walk the view, whose rows are its root's rows with
+# entries filtered out (swapped through a reverse view); fnx's concrete graph
+# came from view.copy(), which fills each row in edge-walk order, so bfs / dfs
+# order on an undirected view and every predecessor walk on a directed one
+# followed the copy. The parent's edges are inserted in shuffled order so no row
+# happens to be in walk order.
+def _shuffled(lib, directed):
+    rng = random.Random(3)
+    edges = [(u, v) for u in range(40) for v in range(40) if u != v and rng.random() < 0.12]
+    rng.shuffle(edges)
+    G = (lib.DiGraph if directed else lib.Graph)()
+    G.add_nodes_from(range(40))
+    G.add_edges_from(edges)
+    return G, edges
+
+
+def _row_view(lib, directed, kind):
+    G, edges = _shuffled(lib, directed)
+    keep = [n for n in range(40) if n % 7 != 3]
+    if kind == "subgraph":
+        return G.subgraph(keep)
+    if kind == "small_subgraph":  # iterates the keep set, not the parent
+        return G.subgraph([31, 4, 22, 9, 17, 0, 26, 13])
+    if kind == "restricted":
+        return lib.restricted_view(G, [5, 17], edges[::6])
+    if kind == "edge_subgraph":
+        return G.edge_subgraph(edges[::2])
+    if kind == "reverse":
+        return G.reverse(copy=False)
+    if kind == "reverse_of_subgraph":
+        return G.subgraph(keep).reverse(copy=False)
+    if kind == "subgraph_of_reverse":
+        return G.reverse(copy=False).subgraph(keep)
+    # networkx's to_undirected view iterates set(succ) | set(pred): no graph
+    # holds that order, so these rows are handed over as the view reads them.
+    if kind == "to_undirected":
+        return G.to_undirected(as_view=True)
+    if kind == "subgraph_of_to_undirected":
+        return G.to_undirected(as_view=True).subgraph(keep)
+    if kind == "to_directed":
+        return G.to_directed(as_view=True)
+    raise ValueError(kind)
+
+
+ROW_VIEWS = [
+    (directed, kind)
+    for directed in (False, True)
+    for kind in ("subgraph", "small_subgraph", "restricted", "edge_subgraph")
+] + [
+    (True, "reverse"),
+    (True, "reverse_of_subgraph"),
+    (True, "subgraph_of_reverse"),
+    (True, "to_undirected"),
+    (True, "subgraph_of_to_undirected"),
+    (False, "to_directed"),
+]
+ROW_IDS = [f"{'di' if d else 'un'}-{k}" for d, k in ROW_VIEWS]
+
+
+@pytest.mark.parametrize(("directed", "kind"), ROW_VIEWS, ids=ROW_IDS)
+def test_the_concrete_graph_of_a_view_has_the_views_rows(directed, kind):
+    fnx_view = _row_view(fnx, directed, kind)
+    nx_view = _row_view(nx, directed, kind)
+    concrete = _materialize_view(fnx_view)
+    assert list(concrete) == list(nx_view)
+    assert {n: list(concrete[n]) for n in nx_view} == {n: list(nx_view[n]) for n in nx_view}
+    if nx_view.is_directed():
+        assert {n: list(concrete.pred[n]) for n in nx_view} == {
+            n: list(nx_view.pred[n]) for n in nx_view
+        }
+    assert list(concrete.edges()) == list(nx_view.edges())
+
+
+ROW_CALLS = [
+    ("bfs_edges", lambda L, G, s: list(L.bfs_edges(G, s))),
+    ("dfs_edges", lambda L, G, s: list(L.dfs_edges(G, s))),
+    ("dfs_postorder_nodes", lambda L, G, s: list(L.dfs_postorder_nodes(G, s))),
+    ("bfs_predecessors", lambda L, G, s: list(L.bfs_predecessors(G, s))),
+    ("single_source_shortest_path", lambda L, G, s: list(L.single_source_shortest_path(G, s).items())),
+    ("bfs_edges(reverse=True)", lambda L, G, s: list(L.bfs_edges(G, s, reverse=True)) if G.is_directed() else None),
+    ("edge_dfs(reverse)", lambda L, G, s: list(L.edge_dfs(G, s, orientation="reverse")) if G.is_directed() else None),
+]
+
+
+@pytest.mark.parametrize(("directed", "kind"), ROW_VIEWS, ids=ROW_IDS)
+@pytest.mark.parametrize(("name", "call"), ROW_CALLS, ids=[c[0] for c in ROW_CALLS])
+def test_traversal_order_on_a_view_is_networkxs(directed, kind, name, call):
+    fnx_view = _row_view(fnx, directed, kind)
+    nx_view = _row_view(nx, directed, kind)
+    for source in list(nx_view)[:3]:
+        assert _outcome(lambda L, G: call(L, G, source), fnx, fnx_view) == _outcome(
+            lambda L, G: call(L, G, source), nx, nx_view
+        ), (name, source)
+
+
+def test_rows_are_reordered_only_while_nobody_holds_a_row_mirror():
+    # The reorder runs on the graph _materialize_view has just built; a graph
+    # that already handed out a row mirror (a row's key mirror, made by
+    # iterating it or by neighbors(); the dict-of-dicts cache) is left as it
+    # is rather than reordered under its holder. A G[u] row that was taken but
+    # not yet read reads the native row, so it follows.
+    source = fnx.Graph([("x", "c"), ("x", "a"), ("x", "b")])
+
+    def built():
+        graph = fnx.Graph()
+        graph.add_nodes_from("abcx")
+        graph.add_edges_from([("a", "x"), ("b", "x"), ("c", "x")])
+        return graph
+
+    graph = built()
+    row = graph["x"]
+    assert graph._fnx_reorder_rows_like(source) is True
+    assert list(row) == list(graph["x"]) == ["c", "a", "b"]
+    assert list(graph.edges()) == [("a", "x"), ("b", "x"), ("c", "x")]
+
+    for hand_out in (lambda g: list(g["x"]), lambda g: g.neighbors("x"), fnx.to_dict_of_dicts):
+        held = built()
+        hand_out(held)
+        assert held._fnx_reorder_rows_like(source) is False
+        assert list(held["x"]) == ["a", "b", "c"]

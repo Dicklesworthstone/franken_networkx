@@ -668,6 +668,94 @@ impl SlotRows {
     }
 }
 
+/// br-r37-c1-36v6r: order every row of `rows` as `wanted`: `wanted[i]` is
+/// the row of the node at position `i` (`slots[i]`), neighbours as
+/// positions. All or nothing: `None` unless every wanted row is a
+/// permutation of the current one; else whether any row moved.
+pub(crate) fn set_slot_row_orders(
+    rows: &mut SlotRows,
+    slots: &[usize],
+    wanted: &[Vec<usize>],
+) -> Option<bool> {
+    if wanted.len() != slots.len() {
+        return None;
+    }
+    // unplaced[w] == slot while w sits in slot's current row, unconsumed.
+    let mut unplaced = vec![usize::MAX; rows.len()];
+    let mut ordered: Vec<Vec<usize>> = Vec::with_capacity(slots.len());
+    for (&slot, row) in slots.iter().zip(wanted) {
+        let current = &rows[slot];
+        if row.len() != current.len() {
+            return None;
+        }
+        for &w in current {
+            unplaced[w] = slot;
+        }
+        let mut new_row = Vec::with_capacity(row.len());
+        for &position in row {
+            let w = *slots.get(position)?;
+            if unplaced[w] != slot {
+                return None;
+            }
+            unplaced[w] = usize::MAX;
+            new_row.push(w);
+        }
+        ordered.push(new_row);
+    }
+    let mut changed = false;
+    for (&slot, new_row) in slots.iter().zip(ordered) {
+        if rows[slot] != new_row {
+            rows.rows_mut()[slot] = new_row;
+            changed = true;
+        }
+    }
+    Some(changed)
+}
+
+/// br-r37-c1-36v6r: put each row of `rows` in the order of the matching row
+/// of `source_rows`, in one pass per row: `slots` are the rows to order,
+/// `to_source` / `from_source` translate slots between the two graphs.
+/// Entries the source row lacks follow the matched ones in their own order.
+/// Returns whether any row moved.
+pub(crate) fn reorder_slot_rows_like(
+    rows: &mut SlotRows,
+    source_rows: &SlotRows,
+    slots: &[usize],
+    to_source: &[usize],
+    from_source: &[usize],
+) -> bool {
+    // in_row[w] == slot while w sits in slot's row and is not yet placed.
+    let mut in_row = vec![usize::MAX; to_source.len()];
+    let mut ordered: Vec<usize> = Vec::new();
+    let mut changed = false;
+    for &slot in slots {
+        let source_slot = to_source[slot];
+        let row = &rows[slot];
+        if source_slot == usize::MAX || row.len() < 2 {
+            continue;
+        }
+        for &w in row {
+            in_row[w] = slot;
+        }
+        ordered.clear();
+        for &source_neighbor in &source_rows[source_slot] {
+            let w = from_source[source_neighbor];
+            if w != usize::MAX && in_row[w] == slot {
+                ordered.push(w);
+                in_row[w] = usize::MAX;
+            }
+        }
+        if ordered.len() < row.len() {
+            ordered.extend(row.iter().copied().filter(|&w| in_row[w] == slot));
+        }
+        if ordered != *row {
+            rows.rows_mut()[slot].clone_from(&ordered);
+            changed = true;
+        }
+    }
+    changed
+}
+
 #[derive(Debug)]
 pub struct Graph {
     mode: CompatibilityMode,
@@ -1643,6 +1731,54 @@ impl Graph {
         if *self.adj_indices != new_rows {
             *self.adj_indices.rows_mut() = new_rows;
             self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    /// br-r37-c1-36v6r: order each adjacency row as `source`'s row for the
+    /// node of the same name. A graph built from a filtered view of `source`
+    /// by a copy-shaped walk (each row filled in edge-walk order, as
+    /// networkx's `view.copy()` does) holds the view's rows as sets; the
+    /// view's ORDER is `source`'s row with entries filtered out, which this
+    /// restores. Entries `source`'s row lacks (a node or edge `source` does
+    /// not have) keep their relative order after the matched ones. Graph
+    /// content is unchanged; `revision` moves if any row does.
+    pub fn reorder_rows_like(&mut self, source: &Self) {
+        let mut to_source = vec![usize::MAX; self.node_order.slot_count()];
+        let mut from_source = vec![usize::MAX; source.node_order.slot_count()];
+        for (name, slot) in self.node_order.iter() {
+            if let Some(&source_slot) = source.node_order.get(name) {
+                to_source[slot] = source_slot;
+                from_source[source_slot] = slot;
+            }
+        }
+        let slots: Vec<usize> = self.node_order.values().collect();
+        let changed = reorder_slot_rows_like(
+            &mut self.adj_indices,
+            &source.adj_indices,
+            &slots,
+            &to_source,
+            &from_source,
+        );
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    /// br-r37-c1-36v6r: order every adjacency row as given - `rows[i]` is
+    /// the row of the node at position `i`, neighbours as positions - for a
+    /// row order no graph holds, such as a `to_undirected(as_view=True)`
+    /// view's set-ordered union rows. All or nothing: false, and nothing
+    /// changes, unless every given row is a permutation of the current one.
+    pub fn set_row_orders(&mut self, rows: &[Vec<usize>]) -> bool {
+        let slots: Vec<usize> = self.node_order.values().collect();
+        match set_slot_row_orders(&mut self.adj_indices, &slots, rows) {
+            None => false,
+            Some(changed) => {
+                if changed {
+                    self.revision = self.revision.saturating_add(1);
+                }
+                true
+            }
         }
     }
 
@@ -6714,6 +6850,69 @@ mod tests {
         assert_int_adjacency_matches(&g);
         g.clear_edges();
         assert_int_adjacency_matches(&g);
+    }
+
+    #[test]
+    fn reorder_rows_like_restores_the_source_rows() {
+        // source rows: x [c, a, b], c [x, b], a [x, b], b [x, a, c]
+        let mut source = Graph::strict();
+        for (u, v) in [("x", "c"), ("x", "a"), ("x", "b"), ("a", "b"), ("c", "b")] {
+            let _ = source.add_edge(u, v);
+        }
+        // A copy-shaped rebuild over the node order [a, b, c, x] fills each
+        // row in edge-walk order: a [x, b], b [a, x, c], c [b, x],
+        // x [a, b, c]; plus an edge the source lacks.
+        let mut copy = Graph::strict();
+        for node in ["a", "b", "c", "x", "y"] {
+            let _ = copy.add_node(node);
+        }
+        for (u, v) in [
+            ("a", "x"),
+            ("a", "b"),
+            ("b", "x"),
+            ("b", "c"),
+            ("c", "x"),
+            ("x", "y"),
+        ] {
+            let _ = copy.add_edge(u, v);
+        }
+        assert_eq!(copy.neighbors("b"), Some(vec!["a", "x", "c"]));
+        let before = copy.revision;
+        copy.reorder_rows_like(&source);
+        assert_eq!(copy.neighbors("a"), Some(vec!["x", "b"]));
+        assert_eq!(copy.neighbors("b"), Some(vec!["x", "a", "c"]));
+        assert_eq!(copy.neighbors("c"), Some(vec!["x", "b"]));
+        // The unmatched neighbour keeps its place after the matched ones.
+        assert_eq!(copy.neighbors("x"), Some(vec!["c", "a", "b", "y"]));
+        assert_eq!(copy.neighbors("y"), Some(vec!["x"]));
+        assert!(copy.revision > before, "a moved row must bump the revision");
+        let after = copy.revision;
+        copy.reorder_rows_like(&source);
+        assert_eq!(copy.revision, after, "an ordered graph is left alone");
+        assert_eq!(copy.edge_count(), 6);
+    }
+
+    #[test]
+    fn set_row_orders_takes_permutations_only_and_all_or_nothing() {
+        let mut g = Graph::strict();
+        for (u, v) in [("a", "b"), ("a", "c"), ("b", "c")] {
+            let _ = g.add_edge(u, v);
+        }
+        // positions: a 0, b 1, c 2
+        assert!(g.set_row_orders(&[vec![2, 1], vec![2, 0], vec![1, 0]]));
+        assert_eq!(g.neighbors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.neighbors("b"), Some(vec!["c", "a"]));
+        assert_eq!(g.neighbors("c"), Some(vec!["b", "a"]));
+        let before = g.revision;
+        // Row b names a node twice (not a permutation): nothing moves, not
+        // even row a, which alone would have been valid.
+        assert!(!g.set_row_orders(&[vec![1, 2], vec![2, 2], vec![0, 1]]));
+        // A missing row, a short row, a position past the end.
+        assert!(!g.set_row_orders(&[vec![1, 2], vec![0, 2]]));
+        assert!(!g.set_row_orders(&[vec![1], vec![0, 2], vec![0, 1]]));
+        assert!(!g.set_row_orders(&[vec![1, 7], vec![0, 2], vec![0, 1]]));
+        assert_eq!(g.neighbors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.revision, before);
     }
 
     /// br-r37-c1-thp6w S4: the memo is keyed at the CURRENT revision without any
