@@ -1267,29 +1267,15 @@ impl PyMultiDiGraph {
                         .edge_keys(&canonical, successor)
                         .unwrap_or_default()
                     {
-                        let ek = Self::edge_key(&canonical, successor, key);
                         // br-r37-c1-mgrevstore: consult the STORE before falling
                         // back to networkx's default of 1. See add_py_int_weight
                         // for the full account: an absent mirror entry means the
                         // attributes live in the Rust store, not that the edge is
                         // unweighted, and defaulting here turned a reverse copy's
                         // weighted degree into an edge COUNT.
-                        let value = match self.edge_py_attrs.get(&ek) {
-                            Some(d) => d
-                                .bind(py)
-                                .get_item(weight)
-                                .ok()
-                                .flatten()
-                                .unwrap_or_else(|| one.clone()),
-                            None => match self
-                                .inner
-                                .edge_attrs(&canonical, successor, key)
-                                .and_then(|attrs| attrs.get(weight))
-                            {
-                                Some(stored) => crate::cgse_value_to_py(py, stored)?.into_bound(py),
-                                None => one.clone(),
-                            },
-                        };
+                        let value = self
+                            .edge_weight_object(py, &canonical, successor, key, weight)?
+                            .unwrap_or_else(|| one.clone());
                         out_vals.append(value)?;
                     }
                 }
@@ -1302,25 +1288,11 @@ impl PyMultiDiGraph {
                         .edge_keys(predecessor, &canonical)
                         .unwrap_or_default()
                     {
-                        let ek = Self::edge_key(predecessor, &canonical, key);
                         // br-r37-c1-mgrevstore: predecessor twin of the store
                         // consultation above.
-                        let value = match self.edge_py_attrs.get(&ek) {
-                            Some(d) => d
-                                .bind(py)
-                                .get_item(weight)
-                                .ok()
-                                .flatten()
-                                .unwrap_or_else(|| one.clone()),
-                            None => match self
-                                .inner
-                                .edge_attrs(predecessor, &canonical, key)
-                                .and_then(|attrs| attrs.get(weight))
-                            {
-                                Some(stored) => crate::cgse_value_to_py(py, stored)?.into_bound(py),
-                                None => one.clone(),
-                            },
-                        };
+                        let value = self
+                            .edge_weight_object(py, predecessor, &canonical, key, weight)?
+                            .unwrap_or_else(|| one.clone());
                         in_vals.append(value)?;
                     }
                 }
@@ -2271,10 +2243,37 @@ impl PyMultiDiGraph {
         Some(succ_total + pred_total)
     }
 
-    /// Exact-float weight value for one directed multigraph edge, read ONLY from
-    /// the live edge-attr mirror (matching the `_native_weighted_degree`
-    /// fallback's value fetch); None when the edge/weight is absent (nx default
-    /// int 1) or non-float, routing the caller to the exact PyList+sum path.
+    /// The weight OBJECT one edge contributes to a weighted degree: its mirror's
+    /// value when it has a mirror, else the store's, else None (absent - nx's
+    /// default 1). A dirty graph still holds edges with no mirror at all (a
+    /// reverse() copy, the weighted batches, lazily added edges); reading one
+    /// edge must not turn every other edge into weight 1 (6x99t, completing
+    /// br-r37-c1-mgrevstore, which fixed the subset and int-row readers only).
+    fn edge_weight_object<'py>(
+        &self,
+        py: Python<'py>,
+        u: &str,
+        v: &str,
+        key: usize,
+        weight: &str,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        match self.edge_py_attrs.get(&Self::edge_key(u, v, key)) {
+            Some(d) => Ok(d.bind(py).get_item(weight).ok().flatten()),
+            None => match self
+                .inner
+                .edge_attrs(u, v, key)
+                .and_then(|attrs| attrs.get(weight))
+            {
+                Some(stored) => Ok(Some(crate::cgse_value_to_py(py, stored)?.into_bound(py))),
+                None => Ok(None),
+            },
+        }
+    }
+
+    /// Exact-float weight value for one directed multigraph edge on a DIRTY
+    /// graph: the mirror's value, or the store's for an edge without a mirror;
+    /// None when the weight is absent (nx default int 1) or non-float, routing
+    /// the caller to the exact PyList+sum path.
     fn edge_weight_exact_f64_mirror(
         &self,
         py: Python<'_>,
@@ -2295,7 +2294,16 @@ impl PyMultiDiGraph {
                 }
                 None => Ok(None),
             },
-            None => Ok(None),
+            None => Ok(
+                match self
+                    .inner
+                    .edge_attrs(u, v, key)
+                    .and_then(|attrs| attrs.get(weight))
+                {
+                    Some(CgseValue::Float(value)) => Some(*value),
+                    _ => None,
+                },
+            ),
         }
     }
 
@@ -8586,32 +8594,18 @@ impl PyMultiDiGraph {
             let succ_vals = pyo3::types::PyList::empty(py);
             for successor in self.inner.successors(node).unwrap_or_default() {
                 for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
-                    let ek = Self::edge_key(node, successor, key);
-                    let value = match self.edge_py_attrs.get(&ek) {
-                        Some(d) => d
-                            .bind(py)
-                            .get_item(weight)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_else(|| one.clone()),
-                        None => one.clone(),
-                    };
+                    let value = self
+                        .edge_weight_object(py, node, successor, key, weight)?
+                        .unwrap_or_else(|| one.clone());
                     succ_vals.append(value)?;
                 }
             }
             let pred_vals = pyo3::types::PyList::empty(py);
             for predecessor in self.inner.predecessors(node).unwrap_or_default() {
                 for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
-                    let ek = Self::edge_key(predecessor, node, key);
-                    let value = match self.edge_py_attrs.get(&ek) {
-                        Some(d) => d
-                            .bind(py)
-                            .get_item(weight)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_else(|| one.clone()),
-                        None => one.clone(),
-                    };
+                    let value = self
+                        .edge_weight_object(py, predecessor, node, key, weight)?
+                        .unwrap_or_else(|| one.clone());
                     pred_vals.append(value)?;
                 }
             }
@@ -8699,32 +8693,18 @@ impl PyMultiDiGraph {
             if outgoing {
                 for successor in self.inner.successors(node).unwrap_or_default() {
                     for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
-                        let ek = Self::edge_key(node, successor, key);
-                        let value = match self.edge_py_attrs.get(&ek) {
-                            Some(d) => d
-                                .bind(py)
-                                .get_item(weight)
-                                .ok()
-                                .flatten()
-                                .unwrap_or_else(|| one.clone()),
-                            None => one.clone(),
-                        };
+                        let value = self
+                            .edge_weight_object(py, node, successor, key, weight)?
+                            .unwrap_or_else(|| one.clone());
                         vals.append(value)?;
                     }
                 }
             } else {
                 for predecessor in self.inner.predecessors(node).unwrap_or_default() {
                     for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
-                        let ek = Self::edge_key(predecessor, node, key);
-                        let value = match self.edge_py_attrs.get(&ek) {
-                            Some(d) => d
-                                .bind(py)
-                                .get_item(weight)
-                                .ok()
-                                .flatten()
-                                .unwrap_or_else(|| one.clone()),
-                            None => one.clone(),
-                        };
+                        let value = self
+                            .edge_weight_object(py, predecessor, node, key, weight)?
+                            .unwrap_or_else(|| one.clone());
                         vals.append(value)?;
                     }
                 }

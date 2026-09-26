@@ -435,6 +435,37 @@ def test_mixed_pairs_and_triples_touching_an_existing_edge(cls):
     assert outcomes["fnx"] == outcomes["nx"]
 
 
+_WEIGHT_KINDS = {
+    "float": lambda i: float(i % 5) + 1.5,
+    "int": lambda i: i % 5 + 1,
+    "mixed": lambda i: float(i % 5) + 1.5 if i % 2 else i % 5 + 1,
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_WEIGHT_KINDS))
+def test_weighted_degree_of_a_reversed_multidigraph_after_one_edge_is_read(kind):
+    """reverse() leaves a MultiDiGraph store-only; reading ONE edge gives it a
+    mirror and marks the graph dirty, and the dirty readers counted every edge
+    WITHOUT a mirror as weight 1 - size(weight=) was 24.5 against 82.0."""
+    ring = [(i, (i + 1) % 24, _WEIGHT_KINDS[kind](i)) for i in range(24)]
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = lib.MultiDiGraph()
+        graph.add_weighted_edges_from(ring)
+        graph = graph.reverse()
+        _ = graph.get_edge_data(1, 0, 0)
+        outcomes[name] = (
+            sorted(graph.degree(weight="weight")),
+            sorted(graph.in_degree(weight="weight")),
+            sorted(graph.out_degree(weight="weight")),
+            sorted(graph.degree([0, 5, 9], weight="weight")),
+            sorted(graph.in_degree([0, 5, 9], weight="weight")),
+            graph.degree(3, weight="weight"),
+            graph.size(weight="weight"),
+        )
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the
