@@ -50,6 +50,26 @@ def test_pred_succ_maps_match_networkx(fn, directed, seed):
     assert dict(getattr(fnx, fn)(fg, 0)) == dict(getattr(nx, fn)(ng, 0))
 
 
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("edges", [[(0, 1), (1, 2)], []], ids=["path", "null"])
+@pytest.mark.parametrize("depth_limit", [None, 1])
+def test_dfs_labeled_edges_missing_source_raises_like_networkx(cls, edges, depth_limit):
+    # br-r37-c1-750hp: nx yields (s, s, 'forward') and then G.neighbors(s)
+    # raises NetworkXError("The node s is not in the graph." / "digraph."); fnx
+    # raised KeyError from its adjacency snapshot.
+    def outcome(lib):
+        it = lib.dfs_labeled_edges(getattr(lib, cls)(edges), source=9, depth_limit=depth_limit)
+        seen = []
+        try:
+            for event in it:
+                seen.append(event)
+        except Exception as exc:  # noqa: BLE001 - the raise is the answer
+            return seen, type(exc).__name__, str(exc)
+        return seen, None, None
+
+    assert outcome(fnx) == outcome(nx)
+
+
 def test_goldens():
     g = fnx.Graph([(0, 1), (1, 2)])
     ng = nx.Graph([(0, 1), (1, 2)])

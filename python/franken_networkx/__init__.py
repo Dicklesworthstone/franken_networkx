@@ -47018,12 +47018,20 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
         depth_limit = len(G)
     if sort_neighbors is not None:
         get_children = lambda n: iter(sort_neighbors(G.neighbors(n)))
-    elif type(G) in (Graph, DiGraph):
-        _adj = to_dict_of_lists(G)
-        get_children = lambda n: iter(_adj[n])
     else:
-        _adj = {n: list(G.neighbors(n)) for n in G}
-        get_children = lambda n: iter(_adj[n])
+        if type(G) in (Graph, DiGraph):
+            _adj = to_dict_of_lists(G)
+        else:
+            _adj = {n: list(G.neighbors(n)) for n in G}
+
+        def get_children(n):
+            # br-r37-c1-750hp: a source missing from G reaches G.neighbors, which
+            # raises nx's NetworkXError ("... is not in the graph." / "digraph.")
+            # after the start's "forward" event, as in nx; not a KeyError.
+            if n in _adj:
+                return iter(_adj[n])
+            return iter(G.neighbors(n))
+
     visited = set()
     for start in nodes:
         if start in visited:
