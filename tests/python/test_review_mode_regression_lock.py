@@ -10660,7 +10660,7 @@ def test_rust_path_respects_subgraph_view_filter():
     likewise leaked the parent's hidden edges back into the result.
 
     Fix: ``_coerce_arg_to_fnx_graph`` now detects _FilteredGraphView
-    first and materializes it via ``_materialize_filtered_view`` (a
+    first and materializes it via ``_materialize_view`` (a
     cheap copy of the view's visible nodes + edges + attrs into a
     fresh concrete fnx graph) before the Rust binding sees it.
     """
@@ -10709,7 +10709,7 @@ def test_clustering_respects_subgraph_view_filter():
     one).
 
     Fix: route ``clustering`` through ``_coerce_arg_to_fnx_graph`` so
-    the view gets materialized via _materialize_filtered_view first.
+    the view gets materialized via _materialize_view first.
     """
     import networkx as nx
 
@@ -11986,13 +11986,13 @@ def test_view_materialization_cache_hits_when_source_unchanged():
     fg.add_edges_from((i, (i + 2) % 50) for i in range(50))
 
     fv = fnx.subgraph_view(fg, filter_node=lambda n: True)
-    first = fnx._materialize_filtered_view(fv)
-    second = fnx._materialize_filtered_view(fv)
+    first = fnx._materialize_view(fv)
+    second = fnx._materialize_view(fv)
     assert first is second, "cache miss on unmutated source"
 
     # Any mutation must invalidate.
     fg.add_edge(0, 25)
-    third = fnx._materialize_filtered_view(fv)
+    third = fnx._materialize_view(fv)
     assert third is not first, "cache returned stale result after add_edge"
 
 
@@ -12003,9 +12003,9 @@ def test_view_materialization_cache_invalidates_on_node_mutation():
     fg = fnx.Graph()
     fg.add_edges_from([(0, 1), (1, 2)])
     fv = fnx.subgraph_view(fg, filter_node=lambda n: True)
-    first = fnx._materialize_filtered_view(fv)
+    first = fnx._materialize_view(fv)
     fg.add_node(99)  # node-only, no edge change
-    second = fnx._materialize_filtered_view(fv)
+    second = fnx._materialize_view(fv)
     assert second is not first, "cache stale after add_node"
     assert 99 in second.nodes()
 
@@ -12018,12 +12018,12 @@ def test_reverse_view_materialization_cache_hits():
     D = fnx.DiGraph()
     D.add_edges_from([(0, 1), (1, 2), (2, 0)])
     R = fnx.reverse_view(D)
-    first = fnx._materialize_view_via_from_nx(R)
-    second = fnx._materialize_view_via_from_nx(R)
+    first = fnx._materialize_view(R)
+    second = fnx._materialize_view(R)
     assert first is second, "reverse_view cache miss on unmutated source"
 
     D.add_edge(0, 3)
-    third = fnx._materialize_view_via_from_nx(R)
+    third = fnx._materialize_view(R)
     assert third is not first, "reverse_view cache stale after add_edge"
     # The materialized view should reflect the reversed direction of
     # the new edge: 3 → 0.
@@ -12038,12 +12038,12 @@ def test_conversion_view_materialization_cache_hits():
     G = fnx.Graph()
     G.add_edges_from([(0, 1), (1, 2)])
     DV = G.to_directed(as_view=True)
-    first = fnx._materialize_view_via_from_nx(DV)
-    second = fnx._materialize_view_via_from_nx(DV)
+    first = fnx._materialize_view(DV)
+    second = fnx._materialize_view(DV)
     assert first is second, "to_directed view cache miss on unmutated source"
 
     G.add_edge(2, 3)
-    third = fnx._materialize_view_via_from_nx(DV)
+    third = fnx._materialize_view(DV)
     assert third is not first, "to_directed view cache stale after add_edge"
     # New edge must appear in both directions in the materialized DiGraph.
     assert third.has_edge(2, 3) and third.has_edge(3, 2)

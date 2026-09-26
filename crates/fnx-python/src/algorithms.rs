@@ -583,7 +583,36 @@ impl<'py> GraphRef<'py> {
 
 /// Extract a `PyGraph`, `PyDiGraph`, `PyMultiGraph`, or `PyMultiDiGraph` from
 /// a Python argument, converting multigraphs to simple graphs for algorithm dispatch.
-pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef<'py>> {
+///
+/// br-r37-c1-4rhw0: a graph VIEW - `subgraph`, `edge_subgraph`, `restricted_view`,
+/// `reverse(copy=False)`, `to_directed` / `to_undirected(as_view=True)` - is a Python
+/// subclass of one of the four classes whose own Rust storage is EMPTY (br-r37-c1-pgfd2,
+/// br-r37-c1-y2b8t): the view answers every query from its parent in Python. A kernel
+/// reading `inner` saw a graph with no nodes - `is_empty(view)` was True and
+/// `bidirectional_dijkstra(view, ...)` raised NodeNotFound. The view's
+/// `_fnx_native_graph` hook returns the concrete graph it shows (cached on the root
+/// graph's mutation counters), and the kernel runs on that. An exact graph class - nearly
+/// every call - costs one type comparison.
+pub(crate) fn extract_graph<'py>(g: &Bound<'py, PyAny>) -> PyResult<GraphRef<'py>> {
+    let py = g.py();
+    let ty = g.get_type();
+    if ty.is(py.get_type::<PyGraph>())
+        || ty.is(py.get_type::<PyDiGraph>())
+        || ty.is(py.get_type::<PyMultiGraph>())
+        || ty.is(py.get_type::<PyMultiDiGraph>())
+    {
+        return extract_concrete_graph(g);
+    }
+    match g.getattr(pyo3::intern!(py, "_fnx_native_graph")) {
+        Ok(hook) => extract_concrete_graph(&hook.call0()?),
+        Err(err) if err.is_instance_of::<pyo3::exceptions::PyAttributeError>(py) => {
+            extract_concrete_graph(g)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn extract_concrete_graph<'py>(g: &Bound<'py, PyAny>) -> PyResult<GraphRef<'py>> {
     if let Ok(pg) = g.extract::<PyRef<'py, PyGraph>>() {
         Ok(GraphRef::Undirected(pg))
     } else if let Ok(dg) = g.extract::<PyRef<'py, PyDiGraph>>() {

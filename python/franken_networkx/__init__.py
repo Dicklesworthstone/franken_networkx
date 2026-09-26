@@ -20794,17 +20794,17 @@ def _coerce_arg_to_fnx_graph(G):
     if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
         return G
     if isinstance(G, _FilteredGraphView):
-        return _materialize_filtered_view(G)
+        return _materialize_view(G)
     # br-r37-c1-revview: _ReverseDirectedView and _ReverseMultiDirectedView
     # subclass DiGraph/MultiDiGraph respectively, so they isinstance-pass
     # the canonical-type check below; but their Rust ``inner`` graph
     # still holds the ORIGINAL (non-reversed) adjacency, so any Rust
     # kernel reads through the reverse and silently produces wrong
     # answers (sister bug class to the SubgraphView dispatch trap
-    # fixed in br-r37-c1-gshwt / br-r37-c1-2cyfr).  Materialize by
-    # deserializing the view's reversed edges into a fresh fnx DiGraph.
+    # fixed in br-r37-c1-gshwt / br-r37-c1-2cyfr).  Materialize the
+    # view's reversed edges into a fresh fnx DiGraph.
     if isinstance(G, _ReverseDirectedViewBase):
-        return _materialize_view_via_from_nx(G)
+        return _materialize_view(G)
     # br-r37-c1-convview: ``G.to_directed(as_view=True)`` and
     # ``G.to_undirected(as_view=True)`` return dynamic subclasses of
     # ``_ConversionGraphViewBase + DiGraph/Graph`` whose Rust
@@ -20812,11 +20812,10 @@ def _coerce_arg_to_fnx_graph(G):
     # converting from directed → undirected, undirected when
     # converting from undirected → directed).  The synthetic view
     # transforms iteration in Python; Rust kernels see right through
-    # it and produce wrong answers.  Same fix shape: materialize via
-    # ``_from_nx_graph`` which deserializes the view's ``edges()``
-    # into a fresh fnx graph with correct Rust storage.
+    # it and produce wrong answers.  Same fix shape: materialize the
+    # view into a fresh fnx graph with correct Rust storage.
     if isinstance(G, _ConversionGraphViewBase):
-        return _materialize_view_via_from_nx(G)
+        return _materialize_view(G)
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
         return G
     try:
@@ -20830,145 +20829,42 @@ def _coerce_arg_to_fnx_graph(G):
     return G
 
 
-def _materialize_filtered_view(view):
-    """br-r37-c1-ajhcl: build a concrete fnx graph that contains only
-    the view's visible nodes + edges (and their attrs), so callers
-    that hand the result to Rust ``_raw_*`` operators see the filtered
-    contents rather than the parent's full Rust state.
+def _materialize_view(view):
+    """The concrete fnx graph a view shows - a filtered view
+    (br-r37-c1-ajhcl), a reverse view or a to_directed / to_undirected
+    conversion view - for callers that hand it to Rust: a view's own Rust
+    storage is empty, so a kernel given the view itself sees no nodes.
 
-    Materialization is ~30ms on a 200-node graph, so a per-view cache
-    keyed on the source's monotonic mutation counters is a significant
-    win for algorithms that call coerce-then-materialize repeatedly on
-    the same view.  br-r37-c1-jft0i: source.nodes_seq + source.edges_seq
-    together form a monotonic key that invalidates on every node/edge
-    mutation including count-preserving rewires (which the earlier
-    ``(node_count, edge_count)`` cache key missed — see br-r37-c1-jy3j3
-    revert).  When the cache key matches, return the previously
-    materialized graph without rescanning the view's iterators.
+    br-r37-c1-4rhw0: built by the view's own copy(), which yields the same
+    graph dict, node / edge attr copies and node, edge and adjacency-row
+    order as the Python builders this replaced, on its native fast paths:
+    subgraph(800) of gnp(1000, 0.01) 1.7 ms against 4.7 ms, a to_directed
+    view of it 9.1 ms against 20.8 ms.
+
+    br-r37-c1-jft0i: cached on the view, keyed on the monotonic
+    (nodes_seq, edges_seq) of the graph at the ROOT of the view chain - the
+    counters of an intermediate view are its empty base's and never move,
+    so a view of a view keyed on them kept a stale graph after the root
+    changed.
     """
+    root = view
+    while True:
+        inner = getattr(root, "_graph", None)
+        if inner is None:
+            break
+        root = inner
     cache_key = None
-    source = getattr(view, "_graph", None)
-    if source is not None:
-        ns = getattr(source, "nodes_seq", None)
-        es = getattr(source, "edges_seq", None)
-        if ns is not None and es is not None:
-            cache_key = (ns, es)
-            cached = view.__dict__.get("_fnx_materialized_cache")
-            if cached is not None and cached[0] == cache_key:
-                return cached[1]
+    ns = getattr(root, "nodes_seq", None)
+    es = getattr(root, "edges_seq", None)
+    if root is not view and ns is not None and es is not None:
+        cache_key = (ns, es)
+        cached = view.__dict__.get("_fnx_materialized_cache")
+        if cached is not None and cached[0] == cache_key:
+            return cached[1]
 
-    cls = _concrete_class_for(view)
-    out = cls()
-    out.graph.update(dict(view.graph))
-    # br-r37-c1-matbatch: assemble with BATCH add_nodes_from / add_edges_from
-    # instead of a per-node/per-edge add_node/add_edge loop (each a separate
-    # PyO3 crossing). Node + edge iteration order is the view's order (preserved),
-    # so the materialized graph is byte-identical — only the build path differs.
-    # This helper is coerced from every SubgraphView, so the build speedup
-    # cascades to every algorithm called on a filtered view.
-    out.add_nodes_from((n, dict(d)) for n, d in view.nodes(data=True))
-    # br-r37-c1-edgesubcopy (cc): edge_subgraph views store their selected edges
-    # on filter_edge. Iterating the filtered VIEW's edges() pays per-edge
-    # view-wrapper overhead (38ms on a 2k-edge multigraph); applying the same
-    # (set-lookup) filter_edge directly to the NATIVE parent edges is 135x faster
-    # and byte-identical (same filter, same parent-iteration order — verified 0
-    # fails across Graph/DiGraph/MultiGraph/MultiDiGraph). For edge_subgraph the
-    # node filter is implied by filter_edge (nodes == selected-edge endpoints),
-    # so no separate node check is needed.
-    _fe = getattr(view, "_filter_edge", None)
-    _selected = getattr(_fe, "_fnx_edge_subgraph_selected_edges", None)
-    if _selected is not None:
-        parent = view._graph
-        # br-r37-c1-vcopynb: scan only the ENDPOINTS the selection touches.
-        #
-        # br-r37-c1-edgesubcopy chose to scan the whole parent and apply the
-        # cheap set-lookup filter, because iterating the filtered VIEW's edges
-        # paid per-edge wrapper overhead. That is right when the selection is
-        # most of the parent and wrong when it is three edges of 3200: copying a
-        # four-node view cost 82us at a 200-node parent and 384us at 3200, a
-        # 6.95x growth for a request that never changed, while networkx stayed
-        # flat at ~31us. The ratio fell 0.4079x -> 0.2542x -> 0.0812x with no
-        # floor.
-        #
-        # Restricting the scan to the selection's endpoints keeps the SAME
-        # parent-adjacency ORDER - the same nodes are visited in the same
-        # sequence, only nodes holding no selected edge are skipped - so the
-        # emitted edge order is unchanged and the filter still decides
-        # membership. Guarded on the endpoint count so a selection that spans
-        # most of the parent keeps the original whole-parent scan, which is
-        # faster there.
-        _endpoints = None
-        try:
-            _endpoints = {n for e in _selected for n in e[:2]}
-        except TypeError:
-            _endpoints = None
-        if _endpoints is not None and len(_endpoints) * 4 < parent.number_of_nodes():
-            _scan_nbunch = list(_endpoints)
-            if view.is_multigraph():
-                out.add_edges_from(
-                    (u, v, k, dict(d))
-                    for u, v, k, d in parent.edges(_scan_nbunch, keys=True, data=True)
-                    if _fe(u, v, k)
-                )
-            else:
-                out.add_edges_from(
-                    (u, v, dict(d))
-                    for u, v, d in parent.edges(_scan_nbunch, data=True)
-                    if _fe(u, v)
-                )
-        elif view.is_multigraph():
-            out.add_edges_from(
-                (u, v, k, dict(d))
-                for u, v, k, d in parent.edges(keys=True, data=True)
-                if _fe(u, v, k)
-            )
-        else:
-            out.add_edges_from(
-                (u, v, dict(d)) for u, v, d in parent.edges(data=True) if _fe(u, v)
-            )
-    elif view.is_multigraph():
-        out.add_edges_from(
-            (u, v, k, dict(d)) for u, v, k, d in view.edges(keys=True, data=True)
-        )
-    else:
-        out.add_edges_from((u, v, dict(d)) for u, v, d in view.edges(data=True))
-
+    out = view.copy()
     if cache_key is not None:
-        try:
-            view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
-        except (TypeError, AttributeError):
-            # View class with __slots__ that excludes a __dict__ — fall
-            # back to uncached (still correct, just slow).
-            pass
-    return out
-
-
-def _materialize_view_via_from_nx(view):
-    """br-r37-c1-jft0i: cached counterpart of ``_from_nx_graph`` for
-    view classes that don't go through ``_materialize_filtered_view``
-    (``_ReverseDirectedViewBase`` and ``_ConversionGraphViewBase``).
-    Same monotonic-counter caching contract: read ``source.nodes_seq``
-    and ``source.edges_seq``, key the cache on the tuple, store the
-    materialized graph on ``view.__dict__``.
-    """
-    cache_key = None
-    source = getattr(view, "_graph", None)
-    if source is not None:
-        ns = getattr(source, "nodes_seq", None)
-        es = getattr(source, "edges_seq", None)
-        if ns is not None and es is not None:
-            cache_key = (ns, es)
-            cached = view.__dict__.get("_fnx_materialized_cache")
-            if cached is not None and cached[0] == cache_key:
-                return cached[1]
-
-    from franken_networkx.readwrite import _from_nx_graph
-    out = _from_nx_graph(view)
-    if cache_key is not None:
-        try:
-            view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
-        except (TypeError, AttributeError):
-            pass
+        view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
     return out
 
 
@@ -48205,6 +48101,12 @@ class _ReverseDirectedViewBase:
             ),
         )
 
+    def _fnx_native_graph(self):
+        # br-r37-c1-4rhw0: the reversed graph, for native kernels (see
+        # _FilteredGraphView._fnx_native_graph) - this view's Rust storage is
+        # empty (br-r37-c1-q131o).
+        return _materialize_view(self)
+
     def __iter__(self):
         return iter(self._graph)
 
@@ -49830,6 +49732,13 @@ class _FilteredGraphView:
         else:
             # One override, so there is nothing to batch.
             self.adj = adj_view
+
+    def _fnx_native_graph(self):
+        # br-r37-c1-4rhw0: the concrete graph this view shows, for native
+        # kernels - fnx-python's extract_graph calls this for any view it is
+        # handed. The view's own Rust storage is empty (br-r37-c1-pgfd2), so a
+        # kernel reading it saw no nodes at all.
+        return _materialize_view(self)
 
     def __iter__(self):
         filter_nodes = getattr(self._filter_node, "nodes", None)
@@ -52217,13 +52126,17 @@ def _raw_neighbors_dispatch(G):
     Single source of truth for "is wrapper-bypass safe on this graph".
     A future regression that introduces a new private-storage flag
     only needs to update this helper, not every callsite.
+
+    br-r37-c1-4rhw0: a ``to_directed`` / ``to_undirected(as_view=True)``
+    view carries no private override yet its Rust storage is EMPTY, so the
+    raw binding read no nodes ("The node 0 is not in the digraph.").
     """
     if isinstance(G, DiGraph):
-        if _has_networkx_private_storage(G):
+        if _has_networkx_private_storage(G) or isinstance(G, _ConversionGraphViewBase):
             return None
         return _DIGRAPH_NEIGHBORS
     if isinstance(G, Graph):
-        if _has_networkx_private_storage(G):
+        if _has_networkx_private_storage(G) or isinstance(G, _ConversionGraphViewBase):
             return None
         return _GRAPH_NEIGHBORS
     # Multigraph / unknown subclass / etc.: fall through.
@@ -56235,6 +56148,12 @@ class _ConversionGraphViewBase:
             self.__dict__["_succ_view"] = self._adj_view
             self.__dict__["_pred_view"] = _ConversionAdjacencyView(self, reverse=True)
 
+    def _fnx_native_graph(self):
+        # br-r37-c1-4rhw0: the converted graph, for native kernels (see
+        # _FilteredGraphView._fnx_native_graph) - this view's Rust storage is
+        # empty (br-r37-c1-y2b8t).
+        return _materialize_view(self)
+
     # br-r37-c1-cvempty: these must test the cached view for *presence*,
     # not truthiness.  The view objects define ``__len__``, so an empty
     # conversion view (0 nodes / 0 edges) is falsy — ``X or super().Y``
@@ -56944,6 +56863,64 @@ _UNDIRECTED_CONVERSION_VIEW_TYPES = {
 def _generic_undirected_graph_view(graph):
     view_type = _UNDIRECTED_CONVERSION_VIEW_TYPES[graph.is_multigraph()]
     return view_type(graph)
+
+
+class _ViewNativeReader:
+    """br-r37-c1-4rhw0: a view's inherited ``_native_*`` reader, answered by the
+    concrete graph the view shows.
+
+    The three view mixins sit in front of a PyO3 graph class whose storage is
+    EMPTY (br-r37-c1-pgfd2, br-r37-c1-q131o, br-r37-c1-y2b8t), so a native
+    method the view inherited read a graph with no nodes: non_neighbors(view,
+    n) took its node set from ``_native_node_keys`` and returned an empty set.
+    A name the concrete class does not have stays missing, so a
+    ``getattr(G, "_native_x", None)`` capability probe answers as it would on
+    that class.
+    """
+
+    __slots__ = ("_name",)
+
+    def __init__(self, name):
+        self._name = name
+
+    def __get__(self, view, owner=None):
+        if view is None:
+            return self
+        if not hasattr(_concrete_class_for(view), self._name):
+            raise AttributeError(self._name)
+        return getattr(view._fnx_native_graph(), self._name)
+
+
+# The private native methods that WRITE the graph. A view is frozen and its
+# concrete graph is a cached copy, so a write must not land there; these stay
+# inherited.
+_VIEW_NATIVE_WRITERS = frozenset(
+    (
+        "_native_add_keyed_edges_no_data",
+        "_native_add_keyed_edges_with_data",
+        "_native_broadcast_edge_attribute",
+        "_native_broadcast_node_attribute",
+        "_native_fill_weighted_int_edges",
+        "_native_set_edge_attribute_scalar",
+        "_native_set_edge_attribute_scalar_multi",
+        "_native_set_edge_attributes_dict",
+        "_native_set_node_attribute_scalar",
+        "_native_set_node_attributes_dict",
+    )
+)
+
+
+def _install_view_native_readers():
+    names = set()
+    for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        names.update(name for name in dir(cls) if name.startswith("_native_"))
+    for view_base in (_FilteredGraphView, _ReverseDirectedViewBase, _ConversionGraphViewBase):
+        for name in sorted(names - _VIEW_NATIVE_WRITERS):
+            if name not in view_base.__dict__:
+                setattr(view_base, name, _ViewNativeReader(name))
+
+
+_install_view_native_readers()
 
 
 def reverse(G, copy=True):
