@@ -6309,6 +6309,9 @@ _EBUNCH_WALK_CONTAINERS = frozenset((list, tuple, set, frozenset, dict))
 _ADD_EDGE_PARAMETER_NAMES = frozenset(
     ("u_of_edge", "v_of_edge", "u_for_edge", "v_for_edge", "key")
 )
+# Below this many pairs Graph/DiGraph.add_edges_from calls add_edge per pair
+# (br-r37-c1-832s6); it is the smallest bunch the native index batches take.
+_TINY_EDGE_BUNCH = 8
 
 
 def _ebunch_reads_graph(ebunch, graph):
@@ -6622,12 +6625,16 @@ def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
                     return False
                 try:
                     probe = (u, v) if directed else frozenset((u, v))
+                    hit = probe in existing
                 except TypeError:
                     # unhashable endpoint: defer to has_edge's own TypeError
-                    # handling via the per-edge path below.
+                    # handling via the per-edge path below. The directed probe
+                    # is a tuple, which only hashes at the membership test, so
+                    # that test sits in here too (it raised a set-element
+                    # TypeError before anything was added).
                     existing = None
                     break
-                if probe in existing:
+                if hit:
                     return _every_edge_is_a_pair(edges)
             else:
                 return False
@@ -6662,8 +6669,39 @@ def _invalidate_adjacency_row_caches(graph):
         view._fnx_atlas_cache = None
 
 
-def _add_edges_from_materialized(raw):
+def _add_plain_pairs(graph, raw_add_edge, pairs, attr):
+    """Add (u, v) pairs as networkx's add_edges_from does: add_edge(u, v,
+    **attr) each, through the class's own add_edge (networkx never calls one a
+    subclass overrides). An attr named like one of add_edge's parameters
+    (u_of_edge, v_of_edge) cannot travel as a keyword, so then the pair goes
+    in bare and attr is merged into its data dict - networkx's
+    datadict.update(attr) - where the keyword call raised TypeError."""
+    if attr.keys().isdisjoint(_ADD_EDGE_PARAMETER_NAMES):
+        for u, v in pairs:
+            raw_add_edge(graph, u, v, **attr)
+    else:
+        for u, v in pairs:
+            raw_add_edge(graph, u, v)
+            graph.get_edge_data(u, v).update(attr)
+
+
+def _add_edges_from_materialized(raw, raw_add_edge):
     def add_edges_from(self, ebunch_to_add, **attr):
+        # br-r37-c1-832s6: for a (u, v) pair networkx's add_edges_from does
+        # exactly add_edge(u, v, **attr) - the same None and hash checks, in the
+        # same order - so a bunch of a few plain pairs goes straight to the
+        # native add_edge. The batch probes, the validation pass and the raw
+        # call below cost ~2.5 us a call where networkx's whole add_edges_from
+        # costs ~1 us, and graphs grown a few edges per call paid it on every
+        # step. The class's own add_edge, not self.add_edge: networkx's
+        # add_edges_from never calls an add_edge a subclass overrides.
+        if type(ebunch_to_add) in (list, tuple) and len(ebunch_to_add) < _TINY_EDGE_BUNCH:
+            for _e in ebunch_to_add:
+                if type(_e) is not tuple or len(_e) != 2:
+                    break
+            else:
+                _add_plain_pairs(self, raw_add_edge, ebunch_to_add, attr)
+                return None
         if (
             not attr
             and isinstance(ebunch_to_add, (list, tuple))
@@ -6692,15 +6730,12 @@ def _add_edges_from_materialized(raw):
         elif _ebunch_reads_graph(ebunch_to_add, self):
             # The ebunch reads this graph: insert as it yields, as networkx
             # does, so it sees every edge added before it (br-r37-c1-imddi).
-            # A (u, v) pair is networkx's add_edge(u, v, **attr) - the same
-            # None/hash checks in the same order - unless an attr name is one
-            # of add_edge's own parameters; any other shape goes through this
-            # function as a one-edge list for its validation and errors.
-            add_edge = self.add_edge
-            pairs_direct = attr.keys().isdisjoint(_ADD_EDGE_PARAMETER_NAMES)
+            # A (u, v) pair is networkx's add_edge(u, v, **attr); any other
+            # shape goes through this function as a one-edge list for its
+            # validation and errors.
             for _e in ebunch_to_add:
-                if pairs_direct and type(_e) is tuple and len(_e) == 2:
-                    add_edge(*_e, **attr)
+                if type(_e) is tuple and len(_e) == 2:
+                    _add_plain_pairs(self, raw_add_edge, (_e,), attr)
                 else:
                     add_edges_from(self, [_e], **attr)
             return None
@@ -6833,8 +6868,7 @@ def _add_edges_from_materialized(raw):
             materialized[i] = normalized
         if first_error is None:
             if _simple_add_edges_from_touches_existing_plain_edge(self, materialized):
-                for u, v in materialized:
-                    self.add_edge(u, v, **attr)
+                _add_plain_pairs(self, raw_add_edge, materialized, attr)
                 if iteration_exc is not None:
                     raise iteration_exc
                 return None
@@ -7022,8 +7056,12 @@ def _remove_nodes_from_materialized(raw):
     return remove_nodes_from
 
 
-Graph.add_edges_from = _add_edges_from_materialized(_GRAPH_RAW_ADD_EDGES_FROM)
-DiGraph.add_edges_from = _add_edges_from_materialized(_DIGRAPH_RAW_ADD_EDGES_FROM)
+Graph.add_edges_from = _add_edges_from_materialized(
+    _GRAPH_RAW_ADD_EDGES_FROM, _GRAPH_ADD_EDGE_RAW
+)
+DiGraph.add_edges_from = _add_edges_from_materialized(
+    _DIGRAPH_RAW_ADD_EDGES_FROM, _DIGRAPH_ADD_EDGE_RAW
+)
 Graph.remove_edges_from = _remove_edges_from_materialized(_GRAPH_RAW_REMOVE_EDGES_FROM)
 DiGraph.remove_edges_from = _remove_edges_from_materialized(_DIGRAPH_RAW_REMOVE_EDGES_FROM)
 MultiGraph.remove_edges_from = _remove_edges_from_materialized(_MULTIGRAPH_RAW_REMOVE_EDGES_FROM)

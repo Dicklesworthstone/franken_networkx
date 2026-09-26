@@ -79,3 +79,60 @@ def test_ctor_wraps_unhashable_in_edge_list_error(cls):
     else:
         with pytest.raises(getattr(fnx, expected[0], TypeError)):
             getattr(fnx, cls)([(1, 2, [3])])
+
+
+# br-r37-c1-832s6: fewer than 8 plain pairs go straight to the class's native
+# add_edge, and the replay for a bunch touching an existing edge shares that
+# helper. For a pair networkx's add_edges_from is add_edge(u, v, **attr), so
+# both must match it - including attrs named like add_edge's own parameters,
+# which cannot travel as keywords (main raised TypeError onto an existing edge).
+TINY_CASES = [
+    ("pair", [(1, 2)], {}),
+    ("pairs with attr", [(1, 2), (2, 3)], {"weight": 2}),
+    ("existing edge twice", [(1, 2), (1, 2)], {"c": 1}),
+    ("none v", [(5, 6), (3, None)], {}),
+    ("none u", [(None, 1)], {}),
+    ("unhashable v", [(5, 6), (3, [4])], {}),
+    ("unhashable v, big bunch", [(i, i + 1) for i in range(10, 20)] + [(3, [4])], {}),
+    ("self loop", [(1, 1)], {}),
+    ("tuple bunch", ((1, 2), (2, 3)), {"w": 1}),
+    ("u_of_edge onto existing", [(1, 2)], {"u_of_edge": 5}),
+    ("v_of_edge onto new", [(7, 8)], {"v_of_edge": 5}),
+    ("u_of_edge, big bunch onto existing", [(1, 2)] + [(i, i + 1) for i in range(10, 20)], {"u_of_edge": 5}),
+]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("label,bunch,attr", TINY_CASES, ids=[c[0] for c in TINY_CASES])
+def test_small_plain_pair_bunch_matches_networkx(cls, label, bunch, attr):
+    states = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)()
+        graph.add_edge(1, 2, w=0)
+        try:
+            graph.add_edges_from(bunch, **attr)
+            error = None
+        except Exception as exc:  # noqa: BLE001 - the exception is part of the state
+            error = (type(exc).__name__, str(exc))
+        states.append((error, [repr(n) for n in graph], sorted(map(repr, graph.edges(data=True)))))
+    assert states[1] == states[0]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_add_edges_from_does_not_call_an_overridden_add_edge(cls):
+    calls = []
+
+    def make(base):
+        class Recording(base):
+            def add_edge(self, u, v, **attr):
+                calls.append((base.__module__, u, v))
+                super().add_edge(u, v, **attr)
+
+        return Recording
+
+    for lib in (nx, fnx):
+        graph = make(getattr(lib, cls))()
+        graph.add_edges_from([(1, 2), (2, 3)])
+        graph.add_edges_from([(1, 2)])  # the existing-edge replay
+        graph.add_edges_from([(1, 2)] + [(i, i + 1) for i in range(10, 20)])
+    assert calls == []
