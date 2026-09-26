@@ -88,3 +88,36 @@ def test_gomory_hu_tree_edge_count_matches_networkx(n, deg):
     # The edge attribute is 'weight' here, so use it as the capacity.
     tn, tf = nx.gomory_hu_tree(gn, capacity="weight"), fnx.gomory_hu_tree(gf, capacity="weight")
     assert tf.number_of_edges() == tn.number_of_edges() == gn.number_of_nodes() - 1
+
+
+# br-r37-c1-6ncq6: networkx labels the tree with minimum_cut values - ints over
+# int capacities, and a zero cut (to an isolated node) is the int 0 whatever the
+# capacities are; its residual network drops selfloops, so a float selfloop does
+# not make an int graph's labels floats. 4 == 4.0, so compare (value, type).
+def _ght_graph(mod, caps, isolated):
+    g = mod.Graph()
+    for u, v, c in [(0, 1, 3), (1, 2, 2), (2, 0, 1), (2, 3, 4), (3, 4, 2), (4, 1, 5)]:
+        g.add_edge(u, v, capacity=float(c) if caps == "float" else c)
+    if caps == "int_float_selfloop":
+        g.add_edge(2, 2, capacity=0.5)
+    if isolated:
+        g.add_node(9)
+    return g
+
+
+def _typed_tree(tree):
+    return sorted(
+        (min(u, v), max(u, v), d["weight"], type(d["weight"]).__name__)
+        for u, v, d in tree.edges(data=True)
+    )
+
+
+@pytest.mark.parametrize("spelling", ["gomory_hu_tree", "algorithms.gomory_hu_tree", "flow.gomory_hu_tree"])
+@pytest.mark.parametrize("caps", ["int", "float", "int_float_selfloop"])
+@pytest.mark.parametrize("isolated", [False, True], ids=["connected", "isolated"])
+def test_gomory_hu_tree_weight_types_match_networkx(spelling, caps, isolated):
+    fn = fnx
+    for part in spelling.split("."):
+        fn = getattr(fn, part)
+    expected = _typed_tree(nx.gomory_hu_tree(_ght_graph(nx, caps, isolated)))
+    assert _typed_tree(fn(_ght_graph(fnx, caps, isolated))) == expected

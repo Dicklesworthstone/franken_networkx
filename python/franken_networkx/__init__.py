@@ -61832,6 +61832,16 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
             "Infinite capacity path, flow unbounded above."
         )
 
+    # br-r37-c1-6ncq6: nx labels the tree with minimum_cut's value, an int over
+    # integral capacities (and a zero cut is the int 0 whatever they are); its
+    # residual network drops selfloops, so they do not decide the type.
+    import numbers as _numbers
+
+    all_int = all(
+        isinstance(attrs.get(capacity, 1), _numbers.Integral)
+        for u, v, attrs in G.edges(data=True)
+        if u != v
+    )
     tree = {}
     labels = {}
     iter_nodes = iter(G)
@@ -61842,6 +61852,7 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     for source in tree:
         target = tree[source]
         cut_value, partition = _minimum_cut_raw(G, source, target, capacity=capacity)
+        cut_value = _coerce_flow_value(cut_value, all_int)
         labels[(source, target)] = cut_value
 
         for node in partition[0]:
