@@ -16698,22 +16698,10 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
             and not G.is_multigraph()
         ):
             _sync_rust_edge_attrs(G, edge_only=True)
-            # br-r37-c1-mselazypostcheck: the kruskal kernel reads weights from the lazy
-            # mirror; a fresh int-node add_edges_from graph leaves it unmaterialised ->
-            # default-1 weights -> WRONG edge selection AND dropped edge data (KeyError on
-            # ``d['weight']``). The kruskal path is already EAGER (list_iterator), so buffer
-            # and apply the to_directed-style post-check: if the source has attrs yet every
-            # emitted edge came back with EMPTY data, materialise the mirror (display-key
-            # path) and redo. data=True only (the data probe needs the attr dicts); a normal
-            # weighted graph's first edge has data so the probe is O(1) over the buffer.
-            if data and type(G) in (Graph, DiGraph):
-                _e = list(_raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
-                if _fnx.graph_has_any_attrs(G) and _e and not any(t[-1] for t in _e):
-                    for _ in G.edges(data=True):
-                        pass
-                    _e = list(_raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
-                yield from _e
-                return
+            # The kernel selects on the native store and emits each edge's data
+            # from its mirror, or from the store when the edge has none
+            # (br-r37-c1-mselazypostcheck's re-run on an all-empty result only
+            # covered the case where NO edge had been materialised).
             yield from _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
         # br-r37-c1-primidx: native byte-exact Prim. nx's set(G).pop() start
@@ -16820,14 +16808,8 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
             and not G.is_multigraph()
         ):
             _sync_rust_edge_attrs(G, edge_only=True)
-            if data and type(G) in (Graph, DiGraph):
-                _e = list(_raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
-                if _fnx.graph_has_any_attrs(G) and _e and not any(t[-1] for t in _e):
-                    for _ in G.edges(data=True):
-                        pass
-                    _e = list(_raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan))
-                yield from _e
-                return
+            # Edge data comes from the mirror or, without one, the store (see
+            # minimum_spanning_edges).
             yield from _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
         # br-r37-c1-primidx: native byte-exact Prim (maximum -> minimum=False).

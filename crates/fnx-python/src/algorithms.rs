@@ -2563,9 +2563,21 @@ fn mst_edges_to_python(
             let u = gr.py_node_key(py, &edge.left);
             let v = gr.py_node_key(py, &edge.right);
             if data {
+                // An edge without a Python mirror keeps its attributes only in
+                // the native store; reading the mirror alone emitted `{}` for
+                // every such edge whenever any other edge had been read
+                // (materialised) first.
                 let attrs = match gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
                     Some(dict) => dict.bind(py).copy()?.into_any().unbind(),
-                    None => PyDict::new(py).into_any().unbind(),
+                    None => match gr {
+                        GraphRef::Undirected(pg) => {
+                            match pg.inner.edge_attrs(&edge.left, &edge.right) {
+                                Some(stored) => crate::attr_map_to_pydict(py, stored)?.into_any(),
+                                None => PyDict::new(py).into_any().unbind(),
+                            }
+                        }
+                        _ => PyDict::new(py).into_any().unbind(),
+                    },
                 };
                 tuple_object(py, &[u, v, attrs])
             } else {

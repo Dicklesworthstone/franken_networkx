@@ -316,6 +316,22 @@ def test_floyd_warshall_numpy_reads_weights_held_only_in_the_store(cls):
     assert outcomes["fnx"] == outcomes["nx"]
 
 
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("which", ["minimum_spanning_edges", "maximum_spanning_edges"])
+def test_spanning_edges_of_a_partly_mirrored_graph_keep_every_edges_data(which, algorithm):
+    """Reading an edge mirrors only that edge; the emitter read the mirror
+    alone and yielded {} for every other edge, and the wrapper's re-run
+    fired only when NO emitted edge had a mirror. (0, 1) is in the minimum
+    tree and (29, 0) in the maximum one, so each tree holds a mirrored edge."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = _lazy_spanning_input(lib)
+        _ = graph[0][1], graph[29][0]
+        edges = getattr(lib, which)(graph, algorithm=algorithm, data=True)
+        outcomes[name] = sorted((min(u, v), max(u, v), sorted(d.items())) for u, v, d in edges)
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the
@@ -341,13 +357,19 @@ _PROVENANCE_FILL = {
 }
 
 
-def _provenance_graph(cls, edges, lazy):
+def _provenance_graph(cls, edges, mode):
+    """`eager`: every edge mirrored; `lazy`: none; `partial`: lazy, then one
+    edge read, so exactly one is mirrored - the state that defeated readers
+    which re-ran only when NO edge had a mirror (minimum_spanning_edges)."""
     graph = getattr(fnx, cls)()
-    if lazy:
-        graph.add_weighted_edges_from(edges)
-    else:
+    if mode == "eager":
         for u, v, w in edges:
             graph.add_edge(u, v, weight=w)
+        return graph
+    graph.add_weighted_edges_from(edges)
+    if mode == "partial":
+        u, v, _w = edges[0]
+        _ = graph[u][v]
     return graph
 
 
@@ -409,6 +431,9 @@ def test_weighted_callable_does_not_depend_on_mirror_provenance(name):
     fn = getattr(fnx, name)
     for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
         for label, edges in _PROVENANCE_EDGE_SETS.items():
-            eager = _provenance_call(fn, _provenance_graph(cls, edges, lazy=False))
-            lazy = _provenance_call(fn, _provenance_graph(cls, edges, lazy=True))
-            assert eager == lazy, f"{name} on {cls} ({label} weights): eager {eager!r:.160} lazy {lazy!r:.160}"
+            eager = _provenance_call(fn, _provenance_graph(cls, edges, "eager"))
+            for mode in ("lazy", "partial"):
+                other = _provenance_call(fn, _provenance_graph(cls, edges, mode))
+                assert eager == other, (
+                    f"{name} on {cls} ({label} weights): eager {eager!r:.160} {mode} {other!r:.160}"
+                )
