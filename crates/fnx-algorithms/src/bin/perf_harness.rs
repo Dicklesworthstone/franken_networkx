@@ -451,7 +451,7 @@ fn run_edge_disjoint_paths_ab(node_count: usize, iterations: usize) {
     let target = name(1);
 
     let baseline = edge_disjoint_paths_snapshot_baseline(&graph, &source, &target);
-    let candidate = edge_disjoint_paths(&graph, &source, &target);
+    let candidate = edge_disjoint_paths(&graph, &source, &target).unwrap_or_default();
     assert_eq!(
         candidate, baseline,
         "ordered-index and snapshot flow paths differ"
@@ -474,7 +474,7 @@ fn run_edge_disjoint_paths_ab(node_count: usize, iterations: usize) {
         (&disconnected, "left", "right"),
     ] {
         assert_eq!(
-            edge_disjoint_paths(control, left, right),
+            edge_disjoint_paths(control, left, right).unwrap_or_default(),
             edge_disjoint_paths_snapshot_baseline(control, left, right),
             "ordered-index and snapshot paths differ on a parity control"
         );
@@ -485,6 +485,7 @@ fn run_edge_disjoint_paths_ab(node_count: usize, iterations: usize) {
         for _ in 0..iterations {
             let paths = if candidate_arm {
                 edge_disjoint_paths(black_box(&graph), black_box(&source), black_box(&target))
+                    .unwrap_or_default()
             } else {
                 edge_disjoint_paths_snapshot_baseline(
                     black_box(&graph),

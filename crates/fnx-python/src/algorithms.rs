@@ -26320,14 +26320,49 @@ pub fn is_d_separator_rust(
 // Edge-disjoint paths
 // ---------------------------------------------------------------------------
 
-/// Find edge-disjoint paths between source and target.
+/// networkx's disjoint paths as Python node keys; `None` is its
+/// `NetworkXNoPath`, which the Python wrapper raises bare, as networkx does.
+fn disjoint_paths_to_py(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    result: Result<Vec<Vec<String>>, fnx_algorithms::DisjointPathsError>,
+) -> PyResult<Option<Vec<Vec<PyObject>>>> {
+    match result {
+        Ok(paths) => Ok(Some(
+            paths
+                .iter()
+                .map(|path| path.iter().map(|n| gr.py_node_key(py, n)).collect())
+                .collect(),
+        )),
+        Err(fnx_algorithms::DisjointPathsError::NoPath) => Ok(None),
+        Err(fnx_algorithms::DisjointPathsError::SameSourceSink) => Err(
+            crate::NetworkXError::new_err("source and sink are the same node"),
+        ),
+        Err(fnx_algorithms::DisjointPathsError::NodeNotFound) => {
+            let missing = if gr.has_node(&node_key_to_string(py, source)?) {
+                target
+            } else {
+                source
+            };
+            Err(crate::NetworkXError::new_err(format!(
+                "node {} not in graph",
+                missing.str()?
+            )))
+        }
+    }
+}
+
+/// Find edge-disjoint paths between source and target: networkx's
+/// `edge_disjoint_paths` with its default flow function.
 #[pyfunction]
 pub fn edge_disjoint_paths_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
-) -> PyResult<Vec<Vec<PyObject>>> {
+) -> PyResult<Option<Vec<Vec<PyObject>>>> {
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
@@ -26340,24 +26375,22 @@ pub fn edge_disjoint_paths_rust(
         let inner = gr.undirected();
         py.allow_threads(|| fnx_algorithms::edge_disjoint_paths(inner, &s, &t))
     };
-    Ok(result
-        .into_iter()
-        .map(|path| path.iter().map(|n| gr.py_node_key(py, n)).collect())
-        .collect())
+    disjoint_paths_to_py(py, &gr, source, target, result)
 }
 
 // ---------------------------------------------------------------------------
 // Node-disjoint paths
 // ---------------------------------------------------------------------------
 
-/// Find node-disjoint paths between source and target.
+/// Find node-disjoint paths between source and target: networkx's
+/// `node_disjoint_paths` with its default flow function.
 #[pyfunction]
 pub fn node_disjoint_paths_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
-) -> PyResult<Vec<Vec<PyObject>>> {
+) -> PyResult<Option<Vec<Vec<PyObject>>>> {
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
@@ -26368,10 +26401,7 @@ pub fn node_disjoint_paths_rust(
         let inner = gr.undirected();
         py.allow_threads(|| fnx_algorithms::node_disjoint_paths(inner, &s, &t))
     };
-    Ok(result
-        .into_iter()
-        .map(|path| path.iter().map(|n| gr.py_node_key(py, n)).collect())
-        .collect())
+    disjoint_paths_to_py(py, &gr, source, target, result)
 }
 
 // ---------------------------------------------------------------------------

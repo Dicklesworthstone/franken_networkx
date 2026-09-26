@@ -44981,9 +44981,12 @@ def edge_disjoint_paths(
     silently ignored cutoff.  Delegate any advanced-kwarg case
     (cutoff / flow_func / auxiliary / residual) to nx so the
     documented contract holds.
+
+    br-r37-c1-r6ce1: the native kernel is networkx's algorithm step for
+    step, so the paths and their order are networkx's. It also decides
+    s == t in networkx's order: NetworkXNoPath when the node has no
+    edge, else "source and sink are the same node".
     """
-    if s == t:
-        raise NetworkXError("source and sink are the same node")
     if s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
@@ -44997,10 +45000,9 @@ def edge_disjoint_paths(
         )
         return
     paths = _fnx.edge_disjoint_paths_rust(G, s, t)
-    if not paths:
+    if paths is None:
         raise NetworkXNoPath
-    for path in paths:
-        yield path
+    yield from paths
 
 
 def _node_disjoint_paths_inproc(
@@ -45054,16 +45056,12 @@ def node_disjoint_paths(
             auxiliary=auxiliary, residual=residual,
         )
         return
+    # br-r37-c1-r6ce1: networkx's algorithm natively, s == t included (the
+    # cycles through s); None is its NetworkXNoPath.
     paths = _fnx.node_disjoint_paths_rust(G, s, t)
-    if not paths:
-        # br-r37-c1-djp-nopath: the Rust path returns an empty list both when
-        # s and t are disconnected (nx raises ``NetworkXNoPath``) and for the
-        # degenerate s == t case (nx yields one trivial path). Delegate the
-        # empty case to nx so both contracts are reproduced exactly.
-        yield from _node_disjoint_paths_inproc(G, s, t)
-        return
-    for path in paths:
-        yield path
+    if paths is None:
+        raise NetworkXNoPath
+    yield from paths
 
 
 def all_node_cuts(G, k=None, flow_func=None):

@@ -44516,521 +44516,355 @@ pub fn min_cost_flow(
 // Edge-disjoint paths (max flow based)
 // ---------------------------------------------------------------------------
 
-/// Find edge-disjoint paths between source and target.
-///
-/// Uses iterative BFS to find augmenting paths in a unit-capacity residual
-/// graph. The number of paths equals the max flow (edge connectivity).
-#[must_use]
-pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
-    if source == target || !graph.has_node(source) || !graph.has_node(target) {
-        return Vec::new();
-    }
-
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
-    let s = match graph.get_node_index(source) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-    let t = match graph.get_node_index(target) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-
-    // Build residual capacity matrix (unit capacities, undirected)
-    let mut cap = std::collections::HashMap::new();
-    let mut initial_cap = std::collections::HashMap::new();
-    let mut adj = vec![std::collections::HashSet::new(); n];
-    // br-r37-c1-lqir7: `edges_ordered_indices()` preserves the exact node-major
-    // order and orientation of `edges_ordered()` without cloning two endpoint
-    // Strings and the complete AttrMap for every edge, then hashing both names
-    // back through `idx`. Residual insertion order, capacities, and every
-    // augmenting/extraction step below are unchanged.
-    for (i, j) in graph.edges_ordered_indices() {
-        if i != j {
-            cap.insert((i, j), 1);
-            cap.insert((j, i), 1);
-            initial_cap.insert((i, j), 1);
-            initial_cap.insert((j, i), 1);
-            adj[i].insert(j);
-            adj[j].insert(i);
-        }
-    }
-
-    // Find max flow via Edmonds-Karp BFS
-    loop {
-        let mut parent = vec![None::<usize>; n];
-        let mut visited = vec![false; n];
-        visited[s] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t {
-                break;
-            }
-            for &j in &adj[v] {
-                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t] {
-            break; // No more augmenting paths
-        }
-
-        // Update residual
-        let mut v = t;
-        while let Some(p) = parent[v] {
-            *cap.get_mut(&(p, v)).unwrap() -= 1;
-            *cap.get_mut(&(v, p)).unwrap() += 1;
-            v = p;
-        }
-    }
-
-    // Extract paths from flow network
-    let mut flow_adj = vec![Vec::new(); n];
-    for (&(i, j), &c) in &initial_cap {
-        if c == 1 && *cap.get(&(i, j)).unwrap_or(&0) == 0 {
-            flow_adj[i].push(j);
-        }
-    }
-
-    let mut paths = Vec::new();
-    loop {
-        let mut parent = vec![None::<usize>; n];
-        let mut visited = vec![false; n];
-        visited[s] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t {
-                break;
-            }
-            for &j in &flow_adj[v] {
-                if !visited[j] {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t] {
-            break; // No more paths
-        }
-
-        let mut path = Vec::new();
-        let mut v = t;
-        while let Some(p) = parent[v] {
-            path.push(nodes[v].to_owned());
-            // Remove the edge so it isn't used again
-            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
-                flow_adj[p].remove(pos);
-            }
-            v = p;
-        }
-        path.push(nodes[s].to_owned());
-        path.reverse();
-        paths.push(path);
-    }
-
-    paths
+/// Why [`edge_disjoint_paths`] / [`node_disjoint_paths`] and their directed
+/// twins produce no paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisjointPathsError {
+    /// Source or target is not a node of the graph (networkx's
+    /// `NetworkXError("node ... not in graph")`).
+    NodeNotFound,
+    /// No flow joins source to target (networkx's `NetworkXNoPath`).
+    NoPath,
+    /// An edge-disjoint query from a node to itself where that node has an
+    /// edge: networkx's flow function raises
+    /// `NetworkXError("source and sink are the same node")`. With no edge
+    /// networkx raises `NetworkXNoPath` first, and so does this.
+    SameSourceSink,
 }
 
-/// Find edge-disjoint paths in a directed graph.
-#[must_use]
+/// networkx's `edge_disjoint_paths` on its unit-capacity auxiliary digraph
+/// `H`, given as `node_count` nodes and `arcs` in `H`'s insertion order. The
+/// arcs must be distinct (networkx's `add_edges_from` collapses a repeat; the
+/// callers never make one). Returns each path as `H` node ids.
+///
+/// Every step keeps networkx's order, since the paths it yields depend on it:
+/// `build_residual_network`'s directed branch (self-loops dropped, an arc
+/// whose reverse is already in `R` only takes its capacity),
+/// `edmonds_karp_core`'s bidirectional BFS (the smaller frontier expands,
+/// over `R.succ` / `R.pred` rows in insertion order) with cutoff
+/// `min(H.out_degree(s), H.in_degree(t))`, the saturated arcs in `R.edges`
+/// order, and the rebuild from the flow dict: one walk per saturated arc out
+/// of `s`, each step taking the row's last arc (`popitem`). A direct
+/// `s -> t` arc yields its path without counting towards the cutoff, as
+/// networkx's does.
+fn nx_unit_disjoint_paths(
+    node_count: usize,
+    arcs: &[(usize, usize)],
+    source: usize,
+    target: usize,
+) -> Result<Vec<Vec<usize>>, DisjointPathsError> {
+    let mut h_succ: Vec<Vec<usize>> = vec![Vec::new(); node_count];
+    let mut h_in_degree = vec![0_usize; node_count];
+    for &(u, v) in arcs {
+        h_succ[u].push(v);
+        h_in_degree[v] += 1;
+    }
+    let possible = h_succ[source].len().min(h_in_degree[target]);
+    if possible == 0 {
+        return Err(DisjointPathsError::NoPath);
+    }
+    if source == target {
+        return Err(DisjointPathsError::SameSourceSink);
+    }
+
+    // R. Arc `a` and its reverse `a ^ 1` are created together: `2k` is the
+    // `H` arc that made pair `k`, `2k + 1` the capacity-0 reverse, which a
+    // later `H` arc in the other direction raises to 1. Row `u` of `H` is
+    // read after every earlier row, so the `R` arcs already out of `u` are
+    // exactly the reverses those rows made.
+    let mut r_succ: Vec<Vec<(usize, usize)>> = vec![Vec::new(); node_count];
+    let mut r_pred: Vec<Vec<(usize, usize)>> = vec![Vec::new(); node_count];
+    let mut capacity: Vec<i64> = Vec::with_capacity(2 * arcs.len());
+    let mut reverse_stamp = vec![usize::MAX; node_count];
+    let mut reverse_arc = vec![0_usize; node_count];
+    for u in 0..node_count {
+        for &(v, a) in &r_succ[u] {
+            reverse_stamp[v] = u;
+            reverse_arc[v] = a;
+        }
+        for &v in &h_succ[u] {
+            if u == v {
+                continue;
+            }
+            if reverse_stamp[v] == u {
+                capacity[reverse_arc[v]] = 1;
+            } else {
+                let a = capacity.len();
+                capacity.push(1);
+                capacity.push(0);
+                r_succ[u].push((v, a));
+                r_pred[v].push((u, a));
+                r_succ[v].push((u, a + 1));
+                r_pred[u].push((v, a + 1));
+            }
+        }
+    }
+
+    let mut flow = vec![0_i64; capacity.len()];
+    let mut pred_stamp = vec![0_usize; node_count];
+    let mut succ_stamp = vec![0_usize; node_count];
+    // (previous node, arc previous -> v) on the source side; (next node,
+    // arc v -> next) on the target side.
+    let mut pred_via = vec![(0_usize, 0_usize); node_count];
+    let mut succ_via = vec![(0_usize, 0_usize); node_count];
+    let mut q_s: Vec<usize> = Vec::new();
+    let mut q_t: Vec<usize> = Vec::new();
+    let mut q: Vec<usize> = Vec::new();
+    let mut path_arcs: Vec<usize> = Vec::new();
+    let mut flow_value = 0_usize;
+    let mut round = 0_usize;
+    while flow_value < possible {
+        round += 1;
+        pred_stamp[source] = round;
+        succ_stamp[target] = round;
+        q_s.clear();
+        q_s.push(source);
+        q_t.clear();
+        q_t.push(target);
+        let meet = 'bfs: loop {
+            q.clear();
+            if q_s.len() <= q_t.len() {
+                for &u in &q_s {
+                    for &(v, a) in &r_succ[u] {
+                        if pred_stamp[v] != round && flow[a] < capacity[a] {
+                            pred_stamp[v] = round;
+                            pred_via[v] = (u, a);
+                            if succ_stamp[v] == round {
+                                break 'bfs Some(v);
+                            }
+                            q.push(v);
+                        }
+                    }
+                }
+                if q.is_empty() {
+                    break None;
+                }
+                std::mem::swap(&mut q_s, &mut q);
+            } else {
+                for &u in &q_t {
+                    for &(v, a) in &r_pred[u] {
+                        if succ_stamp[v] != round && flow[a] < capacity[a] {
+                            succ_stamp[v] = round;
+                            succ_via[v] = (u, a);
+                            if pred_stamp[v] == round {
+                                break 'bfs Some(v);
+                            }
+                            q.push(v);
+                        }
+                    }
+                }
+                if q.is_empty() {
+                    break None;
+                }
+                std::mem::swap(&mut q_t, &mut q);
+            }
+        };
+        let Some(meet) = meet else {
+            break;
+        };
+        path_arcs.clear();
+        let mut u = meet;
+        while u != source {
+            let (previous, a) = pred_via[u];
+            path_arcs.push(a);
+            u = previous;
+        }
+        path_arcs.reverse();
+        let mut u = meet;
+        while u != target {
+            let (next, a) = succ_via[u];
+            path_arcs.push(a);
+            u = next;
+        }
+        let pushed = path_arcs
+            .iter()
+            .map(|&a| capacity[a] - flow[a])
+            .min()
+            .unwrap_or(0);
+        for &a in &path_arcs {
+            flow[a] += pushed;
+            flow[a ^ 1] -= pushed;
+        }
+        flow_value += usize::try_from(pushed).unwrap_or(0);
+    }
+    if flow_value == 0 {
+        return Err(DisjointPathsError::NoPath);
+    }
+
+    // The flow dict: per node, its saturated arcs in `R.edges` order.
+    let mut rows: Vec<Vec<usize>> = vec![Vec::new(); node_count];
+    for (u, row) in r_succ.iter().enumerate() {
+        for &(v, a) in row {
+            if flow[a] > 0 && flow[a] == capacity[a] {
+                rows[u].push(v);
+            }
+        }
+    }
+    let starts = rows[source].clone();
+    let mut paths = Vec::with_capacity(starts.len());
+    let mut paths_found = 0_usize;
+    for v in starts {
+        if paths_found >= possible {
+            break;
+        }
+        if v == target {
+            paths.push(vec![source, target]);
+            continue;
+        }
+        let mut path = vec![source];
+        let mut u = v;
+        let reached = loop {
+            if u == target {
+                break true;
+            }
+            path.push(u);
+            match rows[u].pop() {
+                Some(next) => u = next,
+                None => break false,
+            }
+        };
+        if reached {
+            path.push(target);
+            paths.push(path);
+            paths_found += 1;
+        }
+    }
+    Ok(paths)
+}
+
+fn disjoint_path_names(nodes: &[&str], paths: Vec<Vec<usize>>) -> Vec<Vec<String>> {
+    paths
+        .into_iter()
+        .map(|path| path.into_iter().map(|i| nodes[i].to_owned()).collect())
+        .collect()
+}
+
+/// networkx's `build_auxiliary_node_connectivity` path back on the graph:
+/// auxiliary node `2i` / `2i + 1` is node `i`'s `A` / `B` copy, and a path
+/// keeps each node's first appearance (`_unique_everseen`).
+fn node_split_path_names(nodes: &[&str], paths: Vec<Vec<usize>>) -> Vec<Vec<String>> {
+    let mut seen = vec![usize::MAX; nodes.len()];
+    paths
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| {
+            path.into_iter()
+                .filter_map(|h| {
+                    let i = h / 2;
+                    (seen[i] != index).then(|| {
+                        seen[i] = index;
+                        nodes[i].to_owned()
+                    })
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// networkx's `node_disjoint_paths` on its auxiliary digraph: node `i` is
+/// split into `2i -> 2i + 1`, and each edge `(u, v)` of `edges` (in the
+/// graph's edge order) is the arc `2u + 1 -> 2v`, plus `2v + 1 -> 2u` when
+/// `undirected` (once for a self-loop, which `add_edges_from` would repeat).
+fn nx_node_disjoint_paths(
+    node_count: usize,
+    edges: &[(usize, usize)],
+    undirected: bool,
+    source: usize,
+    target: usize,
+) -> Result<Vec<Vec<usize>>, DisjointPathsError> {
+    let mut arcs = Vec::with_capacity(node_count + 2 * edges.len());
+    arcs.extend((0..node_count).map(|i| (2 * i, 2 * i + 1)));
+    for &(u, v) in edges {
+        arcs.push((2 * u + 1, 2 * v));
+        if undirected && u != v {
+            arcs.push((2 * v + 1, 2 * u));
+        }
+    }
+    nx_unit_disjoint_paths(2 * node_count, &arcs, 2 * source + 1, 2 * target)
+}
+
+/// Find edge-disjoint paths between source and target: networkx's
+/// `edge_disjoint_paths` with its default flow function, path for path and
+/// in its order (see [`DisjointPathsError`] for when there are none).
+pub fn edge_disjoint_paths(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Result<Vec<Vec<String>>, DisjointPathsError> {
+    let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
+        return Err(DisjointPathsError::NodeNotFound);
+    };
+    // build_auxiliary_edge_connectivity: each edge both ways, in the
+    // graph's edge order (a self-loop once).
+    let edges = graph.edges_ordered_indices();
+    let mut arcs = Vec::with_capacity(2 * edges.len());
+    for (u, v) in edges {
+        arcs.push((u, v));
+        if u != v {
+            arcs.push((v, u));
+        }
+    }
+    let nodes = graph.nodes_ordered();
+    let paths = nx_unit_disjoint_paths(nodes.len(), &arcs, s, t)?;
+    Ok(disjoint_path_names(&nodes, paths))
+}
+
+/// Find edge-disjoint paths in a directed graph: networkx's
+/// `edge_disjoint_paths`, path for path and in its order.
 pub fn edge_disjoint_paths_directed(
     digraph: &DiGraph,
     source: &str,
     target: &str,
-) -> Vec<Vec<String>> {
-    if source == target || !digraph.has_node(source) || !digraph.has_node(target) {
-        return Vec::new();
-    }
-
+) -> Result<Vec<Vec<String>>, DisjointPathsError> {
+    let (Some(s), Some(t)) = (
+        digraph.get_node_index(source),
+        digraph.get_node_index(target),
+    ) else {
+        return Err(DisjointPathsError::NodeNotFound);
+    };
+    let arcs = digraph.edges_ordered_indices();
     let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-    let s = match digraph.get_node_index(source) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-    let t = match digraph.get_node_index(target) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-
-    let mut cap = std::collections::HashMap::new();
-    let mut initial_cap = std::collections::HashMap::new();
-    let mut adj = vec![std::collections::HashSet::new(); n];
-    for (i, j) in digraph.edges_ordered_indices() {
-        if i != j {
-            *cap.entry((i, j)).or_insert(0) += 1;
-            *initial_cap.entry((i, j)).or_insert(0) += 1;
-            adj[i].insert(j);
-            adj[j].insert(i); // For residual flow
-        }
-    }
-
-    loop {
-        let mut parent = vec![None::<usize>; n];
-        let mut visited = vec![false; n];
-        visited[s] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t {
-                break;
-            }
-            for &j in &adj[v] {
-                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t] {
-            break;
-        }
-
-        let mut v = t;
-        while let Some(p) = parent[v] {
-            *cap.get_mut(&(p, v)).unwrap() -= 1;
-            *cap.entry((v, p)).or_insert(0) += 1;
-            v = p;
-        }
-    }
-
-    let mut flow_adj = vec![Vec::new(); n];
-    for (&(i, j), &c) in &initial_cap {
-        let flow = (c - *cap.get(&(i, j)).unwrap_or(&0)).max(0);
-        for _ in 0..flow {
-            flow_adj[i].push(j);
-        }
-    }
-
-    let mut paths = Vec::new();
-    loop {
-        let mut parent = vec![None::<usize>; n];
-        let mut visited = vec![false; n];
-        visited[s] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t {
-                break;
-            }
-            for &j in &flow_adj[v] {
-                if !visited[j] {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t] {
-            break;
-        }
-
-        let mut path = Vec::new();
-        let mut v = t;
-        while let Some(p) = parent[v] {
-            path.push(nodes[v].to_owned());
-            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
-                flow_adj[p].remove(pos);
-            }
-            v = p;
-        }
-        path.push(nodes[s].to_owned());
-        path.reverse();
-        paths.push(path);
-    }
-
-    paths
+    let paths = nx_unit_disjoint_paths(nodes.len(), &arcs, s, t)?;
+    Ok(disjoint_path_names(&nodes, paths))
 }
 
 // ---------------------------------------------------------------------------
 // Node-disjoint paths
 // ---------------------------------------------------------------------------
 
-/// Find node-disjoint paths between source and target.
-///
-/// Splits each node (except s, t) into two copies connected by a unit-capacity
-/// edge, then finds edge-disjoint paths in the split graph.
-#[must_use]
-pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
-    if source == target || !graph.has_node(source) || !graph.has_node(target) {
-        return Vec::new();
-    }
-
+/// Find node-disjoint paths between source and target: networkx's
+/// `node_disjoint_paths` with its default flow function, path for path and
+/// in its order. As networkx's, `source == target` is a query (for the
+/// cycles through the node), not an error.
+pub fn node_disjoint_paths(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Result<Vec<Vec<String>>, DisjointPathsError> {
+    let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
+        return Err(DisjointPathsError::NodeNotFound);
+    };
     let nodes = graph.nodes_ordered();
-    let n = nodes.len();
-    let s = match graph.get_node_index(source) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-    let t = match graph.get_node_index(target) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-
-    let nn = 2 * n;
-    let mut cap = std::collections::HashMap::new();
-    let mut initial_cap = std::collections::HashMap::new();
-    let mut adj = vec![std::collections::HashSet::new(); nn];
-
-    // Internal edges
-    for i in 0..n {
-        let capacity = if i == s || i == t { n as i32 } else { 1 };
-        cap.insert((i, i + n), capacity);
-        initial_cap.insert((i, i + n), capacity);
-        adj[i].insert(i + n);
-        adj[i + n].insert(i);
-    }
-
-    // Graph edges: u_out → v_in and v_out → u_in (undirected)
-    for (u, v) in graph.edges_ordered_indices() {
-        if u != v {
-            cap.insert((u + n, v), 1);
-            cap.insert((v + n, u), 1);
-            initial_cap.insert((u + n, v), 1);
-            initial_cap.insert((v + n, u), 1);
-            adj[u + n].insert(v);
-            adj[v].insert(u + n);
-            adj[v + n].insert(u);
-            adj[u].insert(v + n);
-        }
-    }
-
-    let s_out = s + n;
-    let t_in = t;
-
-    loop {
-        let mut parent = vec![None::<usize>; nn];
-        let mut visited = vec![false; nn];
-        visited[s_out] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s_out);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t_in {
-                break;
-            }
-            for &j in &adj[v] {
-                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t_in] {
-            break;
-        }
-
-        let mut v = t_in;
-        while let Some(p) = parent[v] {
-            *cap.get_mut(&(p, v)).unwrap() -= 1;
-            *cap.entry((v, p)).or_insert(0) += 1;
-            v = p;
-        }
-    }
-
-    // Extract paths from flow network
-    let mut flow_adj = vec![Vec::new(); n];
-    for (&(i_out, j_in), &c) in &initial_cap {
-        if i_out >= n && j_in < n && c == 1 && *cap.get(&(i_out, j_in)).unwrap_or(&0) == 0 {
-            flow_adj[i_out - n].push(j_in);
-        }
-    }
-
-    let mut paths = Vec::new();
-    loop {
-        let mut parent = vec![None::<usize>; n];
-        let mut visited = vec![false; n];
-        visited[s] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t {
-                break;
-            }
-            for &j in &flow_adj[v] {
-                if !visited[j] {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t] {
-            break;
-        }
-
-        let mut path = Vec::new();
-        let mut v = t;
-        while let Some(p) = parent[v] {
-            path.push(nodes[v].to_owned());
-            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
-                flow_adj[p].remove(pos);
-            }
-            v = p;
-        }
-        path.push(nodes[s].to_owned());
-        path.reverse();
-        paths.push(path);
-    }
-
-    paths
+    let paths = nx_node_disjoint_paths(nodes.len(), &graph.edges_ordered_indices(), true, s, t)?;
+    Ok(node_split_path_names(&nodes, paths))
 }
 
-/// Find node-disjoint paths between source and target in a directed graph.
-///
-/// Splits each node (except s, t) into two copies connected by a unit-capacity
-/// edge, then finds edge-disjoint paths in the split graph.
-#[must_use]
+/// Find node-disjoint paths between source and target in a directed graph:
+/// networkx's `node_disjoint_paths`, path for path and in its order.
 pub fn node_disjoint_paths_directed(
     digraph: &DiGraph,
     source: &str,
     target: &str,
-) -> Vec<Vec<String>> {
-    if source == target || !digraph.has_node(source) || !digraph.has_node(target) {
-        return Vec::new();
-    }
-
+) -> Result<Vec<Vec<String>>, DisjointPathsError> {
+    let (Some(s), Some(t)) = (
+        digraph.get_node_index(source),
+        digraph.get_node_index(target),
+    ) else {
+        return Err(DisjointPathsError::NodeNotFound);
+    };
     let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-    let s = match digraph.get_node_index(source) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-    let t = match digraph.get_node_index(target) {
-        Some(i) => i,
-        None => return Vec::new(),
-    };
-
-    let nn = 2 * n;
-    let mut cap = std::collections::HashMap::new();
-    let mut initial_cap = std::collections::HashMap::new();
-    let mut adj = vec![std::collections::HashSet::new(); nn];
-
-    // Internal edges
-    for i in 0..n {
-        let capacity = if i == s || i == t { n as i32 } else { 1 };
-        cap.insert((i, i + n), capacity);
-        initial_cap.insert((i, i + n), capacity);
-        adj[i].insert(i + n);
-        adj[i + n].insert(i);
-    }
-
-    // Graph edges: u_out → v_in (directed)
-    for (u, v) in digraph.edges_ordered_indices() {
-        if u != v {
-            *cap.entry((u + n, v)).or_insert(0) += 1;
-            *initial_cap.entry((u + n, v)).or_insert(0) += 1;
-            adj[u + n].insert(v);
-            adj[v].insert(u + n);
-        }
-    }
-
-    let s_out = s + n;
-    let t_in = t;
-
-    loop {
-        let mut parent = vec![None::<usize>; nn];
-        let mut visited = vec![false; nn];
-        visited[s_out] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s_out);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t_in {
-                break;
-            }
-            for &j in &adj[v] {
-                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t_in] {
-            break;
-        }
-
-        let mut v = t_in;
-        while let Some(p) = parent[v] {
-            *cap.get_mut(&(p, v)).unwrap() -= 1;
-            *cap.entry((v, p)).or_insert(0) += 1;
-            v = p;
-        }
-    }
-
-    // Extract paths from flow network
-    let mut flow_adj = vec![Vec::new(); n];
-    for (&(i_out, j_in), &c) in &initial_cap {
-        if i_out >= n && j_in < n {
-            let flow = (c - *cap.get(&(i_out, j_in)).unwrap_or(&0)).max(0);
-            for _ in 0..flow {
-                flow_adj[i_out - n].push(j_in);
-            }
-        }
-    }
-
-    let mut paths = Vec::new();
-    loop {
-        let mut parent = vec![None::<usize>; n];
-        let mut visited = vec![false; n];
-        visited[s] = true;
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-
-        while let Some(v) = queue.pop_front() {
-            if v == t {
-                break;
-            }
-            for &j in &flow_adj[v] {
-                if !visited[j] {
-                    visited[j] = true;
-                    parent[j] = Some(v);
-                    queue.push_back(j);
-                }
-            }
-        }
-
-        if !visited[t] {
-            break;
-        }
-
-        let mut path = Vec::new();
-        let mut v = t;
-        while let Some(p) = parent[v] {
-            path.push(nodes[v].to_owned());
-            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
-                flow_adj[p].remove(pos);
-            }
-            v = p;
-        }
-        path.push(nodes[s].to_owned());
-        path.reverse();
-        paths.push(path);
-    }
-
-    paths
+    let paths = nx_node_disjoint_paths(nodes.len(), &digraph.edges_ordered_indices(), false, s, t)?;
+    Ok(node_split_path_names(&nodes, paths))
 }
 
 // ---------------------------------------------------------------------------
@@ -49176,7 +49010,8 @@ pub fn all_pairs_node_connectivity(
     let mut result = std::collections::HashMap::new();
     for i in 0..nodes.len() {
         for j in (i + 1)..nodes.len() {
-            let conn = node_disjoint_paths(graph, nodes[i], nodes[j]).len();
+            let conn =
+                node_disjoint_paths(graph, nodes[i], nodes[j]).map_or(0, |paths| paths.len());
             result.insert((nodes[i].to_owned(), nodes[j].to_owned()), conn);
             result.insert((nodes[j].to_owned(), nodes[i].to_owned()), conn);
         }
@@ -55966,6 +55801,7 @@ mod tests {
         CgseValue,
         ChordalGraphTreewidthError,
         ComplexityWitness,
+        DisjointPathsError,
         FlowEdgeValue,
         FlowError,
         GraphMLWriterConfig,
@@ -56111,6 +55947,7 @@ mod tests {
         edge_dfs,
         edge_dfs_directed,
         edge_disjoint_paths,
+        edge_disjoint_paths_directed,
         edge_expansion,
         effective_size,
         effective_size_directed,
@@ -56293,6 +56130,7 @@ mod tests {
         // Component algorithms
         node_connected_component,
         node_disjoint_paths,
+        node_disjoint_paths_directed,
         node_expansion,
         nodes_with_selfloops,
         non_edges,
@@ -84277,25 +84115,217 @@ mod tests {
     // Batch tests for remaining untested functions
     // -----------------------------------------------------------------------
 
+    fn owned_paths(paths: &[&[&str]]) -> Vec<Vec<String>> {
+        paths
+            .iter()
+            .map(|path| path.iter().map(|&n| n.to_owned()).collect())
+            .collect()
+    }
+
+    /// networkx 3.6.1's paths, captured with `list(nx.edge_disjoint_paths(G,
+    /// s, t))` / `node_disjoint_paths` on the same graphs.
     #[test]
-    fn test_edge_disjoint_paths_triangle() {
+    fn test_disjoint_paths_are_networkxs_paths_in_its_order() {
+        // nx.gnp_random_graph(10, 0.45, seed=11), nodes relabelled n0..n9.
         let mut g = Graph::strict();
-        let _ = g.add_edge("a", "b");
-        let _ = g.add_edge("b", "c");
-        let _ = g.add_edge("a", "c");
-        let paths = edge_disjoint_paths(&g, "a", "c");
-        assert_eq!(paths.len(), 2);
+        for i in 0..10 {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for (u, v) in [
+            (0, 7),
+            (1, 3),
+            (1, 4),
+            (1, 5),
+            (1, 8),
+            (2, 6),
+            (2, 7),
+            (2, 9),
+            (3, 4),
+            (3, 5),
+            (3, 6),
+            (3, 8),
+            (5, 6),
+            (6, 8),
+            (6, 9),
+            (7, 8),
+            (7, 9),
+        ] {
+            let _ = g.add_edge(format!("n{u}"), format!("n{v}"));
+        }
+        let expected = owned_paths(&[
+            &["n6", "n2", "n7", "n8"],
+            &["n6", "n3", "n8"],
+            &["n6", "n5", "n1", "n8"],
+            &["n6", "n8"],
+        ]);
+        assert_eq!(edge_disjoint_paths(&g, "n6", "n8"), Ok(expected.clone()));
+        assert_eq!(node_disjoint_paths(&g, "n6", "n8"), Ok(expected));
+
+        // The directed twin (seed=11, directed=True): the direct arc's path
+        // comes where its saturated arc falls in R.edges, not first or last.
+        let mut d = DiGraph::strict();
+        for i in 0..10 {
+            let _ = d.add_node(format!("n{i}"));
+        }
+        for (u, v) in [
+            (0, 7),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (1, 7),
+            (2, 3),
+            (2, 4),
+            (2, 6),
+            (2, 7),
+            (2, 8),
+            (2, 9),
+            (3, 1),
+            (3, 9),
+            (4, 5),
+            (4, 6),
+            (4, 7),
+            (4, 8),
+            (5, 0),
+            (5, 2),
+            (5, 6),
+            (5, 7),
+            (6, 1),
+            (6, 2),
+            (6, 5),
+            (6, 7),
+            (6, 8),
+            (7, 1),
+            (7, 2),
+            (7, 3),
+            (7, 4),
+            (7, 6),
+            (7, 9),
+            (8, 0),
+            (8, 2),
+            (8, 4),
+            (8, 5),
+            (8, 6),
+            (8, 7),
+            (9, 1),
+            (9, 3),
+            (9, 4),
+            (9, 7),
+        ] {
+            let _ = d.add_edge(format!("n{u}"), format!("n{v}"));
+        }
+        let expected = owned_paths(&[
+            &["n2", "n3", "n1", "n7"],
+            &["n2", "n4", "n7"],
+            &["n2", "n6", "n7"],
+            &["n2", "n7"],
+            &["n2", "n8", "n7"],
+            &["n2", "n9", "n7"],
+        ]);
+        assert_eq!(
+            edge_disjoint_paths_directed(&d, "n2", "n7"),
+            Ok(expected.clone())
+        );
+        assert_eq!(node_disjoint_paths_directed(&d, "n2", "n7"), Ok(expected));
+
+        let mut small = Graph::strict();
+        for (u, v) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("a", "c"),
+            ("a", "d"),
+            ("d", "c"),
+            ("b", "d"),
+            ("c", "e"),
+            ("d", "e"),
+        ] {
+            let _ = small.add_edge(u, v);
+        }
+        assert_eq!(
+            edge_disjoint_paths(&small, "e", "a"),
+            Ok(owned_paths(&[&["e", "c", "a"], &["e", "d", "a"]]))
+        );
+        let mut back = DiGraph::strict();
+        for (u, v) in [
+            ("s", "x"),
+            ("x", "y"),
+            ("y", "t"),
+            ("s", "y"),
+            ("x", "t"),
+            ("t", "s"),
+            ("y", "x"),
+        ] {
+            let _ = back.add_edge(u, v);
+        }
+        assert_eq!(
+            node_disjoint_paths_directed(&back, "s", "t"),
+            Ok(owned_paths(&[&["s", "x", "t"], &["s", "y", "t"]]))
+        );
+        assert_eq!(
+            edge_disjoint_paths_directed(&back, "t", "s"),
+            Ok(owned_paths(&[&["t", "s"]]))
+        );
     }
 
     #[test]
-    fn test_node_disjoint_paths_parallel() {
+    fn test_disjoint_paths_degenerate_queries_match_networkx() {
         let mut g = Graph::strict();
-        let _ = g.add_edge("s", "a");
-        let _ = g.add_edge("a", "t");
-        let _ = g.add_edge("s", "b");
-        let _ = g.add_edge("b", "t");
-        let paths = node_disjoint_paths(&g, "s", "t");
-        assert_eq!(paths.len(), 2);
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let _ = g.add_node("z");
+        // Edge-disjoint from a node to itself: networkx's flow function
+        // refuses (NetworkXError) - unless the node has no edge, when the
+        // NetworkXNoPath check comes first.
+        assert_eq!(
+            edge_disjoint_paths(&g, "a", "a"),
+            Err(DisjointPathsError::SameSourceSink)
+        );
+        assert_eq!(
+            edge_disjoint_paths(&g, "z", "z"),
+            Err(DisjointPathsError::NoPath)
+        );
+        assert_eq!(
+            edge_disjoint_paths(&g, "a", "z"),
+            Err(DisjointPathsError::NoPath)
+        );
+        assert_eq!(
+            node_disjoint_paths(&g, "a", "z"),
+            Err(DisjointPathsError::NoPath)
+        );
+        assert_eq!(
+            edge_disjoint_paths(&g, "a", "missing"),
+            Err(DisjointPathsError::NodeNotFound)
+        );
+        assert_eq!(
+            node_disjoint_paths(&g, "missing", "a"),
+            Err(DisjointPathsError::NodeNotFound)
+        );
+        // Node-disjoint from a node to itself runs: its B copy to its A
+        // copy, the cycles through it, each node kept once.
+        assert_eq!(
+            node_disjoint_paths(&g, "a", "a"),
+            Ok(owned_paths(&[&["a", "b"], &["a", "c"]]))
+        );
+        assert_eq!(
+            node_disjoint_paths(&g, "z", "z"),
+            Err(DisjointPathsError::NoPath)
+        );
+        // A self-loop is one arc of the auxiliary graph: counted in its
+        // degrees, dropped from the edge residual, an aB -> aA arc in the
+        // node-split one.
+        let _ = g.add_edge("a", "a");
+        assert_eq!(
+            node_disjoint_paths(&g, "a", "a"),
+            Ok(owned_paths(&[&["a"], &["a", "b"], &["a", "c"]]))
+        );
+        assert_eq!(
+            edge_disjoint_paths(&g, "a", "b"),
+            Ok(owned_paths(&[&["a", "b"], &["a", "c", "b"]]))
+        );
+        assert_eq!(
+            node_disjoint_paths(&g, "a", "b"),
+            Ok(owned_paths(&[&["a", "b"], &["a", "c", "b"]]))
+        );
     }
 
     #[test]
