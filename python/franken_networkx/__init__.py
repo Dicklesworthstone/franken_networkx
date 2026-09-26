@@ -36,6 +36,7 @@ from copy import deepcopy as _deepcopy
 from dataclasses import dataclass as _dataclass, field as _field
 from enum import Enum as _Enum
 from functools import wraps as _wraps
+import gc as _gc
 import gzip as _gzip
 from heapq import heappop as _heappop, heappush as _heappush
 import io as _io
@@ -6299,6 +6300,104 @@ MultiDiGraph.update = _graph_update
 # set on every add, making repeated parallel add_edge O(N^2).
 
 
+def _code_names(code):
+    """Every global or attribute name ``code`` and its nested code objects use."""
+    names = set(code.co_names)
+    for const in code.co_consts:
+        if isinstance(const, _types.CodeType):
+            names |= _code_names(const)
+    return names
+
+
+_EBUNCH_WALK_LEAVES = frozenset(
+    (str, bytes, int, float, complex, bool, type(None), type, _types.CodeType)
+)
+_EBUNCH_WALK_CONTAINERS = frozenset((list, tuple, set, frozenset, dict))
+_ADD_EDGE_PARAMETER_NAMES = frozenset(
+    ("u_of_edge", "v_of_edge", "u_for_edge", "v_for_edge", "key")
+)
+
+
+def _ebunch_reads_graph(ebunch, graph):
+    """True when a lazy ebunch can reach ``graph`` while it is consumed (br-r37-c1-imddi).
+
+    networkx's add_edges_from inserts each edge before pulling the next, so an
+    ebunch whose filter reads the graph - ``(e for e in edges if not
+    G.has_edge(*e))``, networkx's own transitive_closure - sees the edges added
+    so far. Ours buffers a lazy ebunch to reach the native batches, which is the
+    same thing only when nothing the ebunch runs can reach the graph. This walks
+    what it can reach: a generator's locals (a closure's cells included), a
+    function's cells and defaults, the globals and module attributes either
+    names, and the gc referents of everything else - map, filter, zip and the
+    itertools objects hold their sources there, bound methods their instance,
+    fnx views their graph. Containers are entered only when small, and a
+    container inside one - an edge tuple, an adjacency row - is data, not
+    walked; reaching ``graph``, or failing to finish the bounded walk, means
+    per-edge insertion. Only iterators are walked: a container or view ebunch
+    keeps its buffered semantics. The walk costs 1.5-3.5 us a call, so fnx's
+    own builders that call add_edges_from once per node or per step pass lists.
+    """
+    if not hasattr(type(ebunch), "__next__"):
+        return False
+    leaves = _EBUNCH_WALK_LEAVES
+    graph_types = (Graph, DiGraph, MultiGraph, MultiDiGraph)
+    seen = set()
+    stack = [(ebunch, 0, ())]
+    budget = 256
+    try:
+        while stack:
+            obj, depth, names = stack.pop()
+            if obj is graph:
+                return True
+            kind = type(obj)
+            if depth > 8 or id(obj) in seen:
+                continue
+            budget -= 1
+            if budget < 0:
+                return True
+            seen.add(id(obj))
+            if kind is _types.GeneratorType:
+                frame = obj.gi_frame
+                if frame is None:
+                    continue
+                names = _code_names(obj.gi_code)
+                children = list(frame.f_locals.values())
+                children.extend(frame.f_globals.get(name) for name in names)
+                children.append(obj.gi_yieldfrom)
+            elif kind is _types.FunctionType:
+                names = _code_names(obj.__code__)
+                children = []
+                for cell in obj.__closure__ or ():
+                    try:
+                        children.append(cell.cell_contents)
+                    except ValueError:  # an unbound cell
+                        pass
+                children.extend(obj.__defaults__ or ())
+                children.extend((obj.__kwdefaults__ or {}).values())
+                children.extend(obj.__globals__.get(name) for name in names)
+            elif kind is _types.ModuleType:
+                namespace = vars(obj)
+                children = [namespace.get(name) for name in names]
+            elif kind in _EBUNCH_WALK_CONTAINERS:
+                if len(obj) > 64:
+                    continue
+                children = [
+                    child
+                    for child in (obj.values() if kind is dict else obj)
+                    if type(child) not in _EBUNCH_WALK_CONTAINERS
+                ]
+            elif isinstance(obj, graph_types):
+                continue  # another graph: reading it is not reading this one
+            else:
+                children = _gc.get_referents(obj)
+            for child in children:
+                if type(child) not in leaves:
+                    stack.append((child, depth + 1, names))
+    except Exception:  # noqa: BLE001 - an exotic object: insert per edge, which is always exact
+        return True
+    return False
+
+
 def _multi_add_edges_from(self, ebunch_to_add, **attr):
     """Re-dispatch Multi*Graph.add_edges_from so 2-tuple entries
     ``(u, v)`` auto-allocate a fresh key when an edge already exists
@@ -6354,6 +6453,21 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
     # unhashable-endpoint elements on all four classes), because the batch
     # kernels decline the shape and the per-edge loop below handles it.
     if not isinstance(ebunch_to_add, (list, tuple)):
+        if _ebunch_reads_graph(ebunch_to_add, self):
+            # The ebunch reads this graph: insert as it yields, as networkx
+            # does, so it sees every edge added before it (br-r37-c1-imddi).
+            # A (u, v) pair is networkx's add_edge(u, v, **attr) unless an
+            # attr name is one of add_edge's own parameters (``key`` above
+            # all); any other shape goes through this function as a one-edge
+            # list.
+            add_edge = self.add_edge
+            pairs_direct = attr.keys().isdisjoint(_ADD_EDGE_PARAMETER_NAMES)
+            for _e in ebunch_to_add:
+                if pairs_direct and type(_e) is tuple and len(_e) == 2:
+                    add_edge(*_e, **attr)
+                else:
+                    _multi_add_edges_from(self, [_e], **attr)
+            return
         _buffered = []
         try:
             for _e in ebunch_to_add:
@@ -6580,6 +6694,21 @@ def _add_edges_from_materialized(raw):
         if isinstance(ebunch_to_add, (list, tuple)):
             materialized = list(ebunch_to_add)
             iteration_exc = None
+        elif _ebunch_reads_graph(ebunch_to_add, self):
+            # The ebunch reads this graph: insert as it yields, as networkx
+            # does, so it sees every edge added before it (br-r37-c1-imddi).
+            # A (u, v) pair is networkx's add_edge(u, v, **attr) - the same
+            # None/hash checks in the same order - unless an attr name is one
+            # of add_edge's own parameters; any other shape goes through this
+            # function as a one-edge list for its validation and errors.
+            add_edge = self.add_edge
+            pairs_direct = attr.keys().isdisjoint(_ADD_EDGE_PARAMETER_NAMES)
+            for _e in ebunch_to_add:
+                if pairs_direct and type(_e) is tuple and len(_e) == 2:
+                    add_edge(*_e, **attr)
+                else:
+                    add_edges_from(self, [_e], **attr)
+            return None
         else:
             materialized = []
             iteration_exc = None
@@ -21358,19 +21487,23 @@ def transitive_closure(G, reflexive=False):
                 return result
         TC = G.copy()
         for v in G:
+            # Lists, not nx's generators: descendants() is a set, so no target
+            # repeats and the `u not in TC[v]` filter reads the same TC whether
+            # the edges go in one by one or together - and a list keeps the
+            # batch that a TC-reading generator would give up (br-r37-c1-imddi).
             if reflexive is None:
-                TC.add_edges_from((v, u) for u in descendants(G, v) if u not in TC[v])
+                TC.add_edges_from([(v, u) for u in descendants(G, v) if u not in TC[v]])
             elif reflexive:
                 TC.add_edges_from(
-                    (v, u) for u in descendants(G, v) | {v} if u not in TC[v]
+                    [(v, u) for u in descendants(G, v) | {v} if u not in TC[v]]
                 )
             else:
-                # nx's add_edges_from consumes this generator LAZILY, so its
-                # `e[1] not in TC[v]` sees the edges added earlier in the same
-                # pass; ours materializes the generator first (br-addedgesgen),
-                # and on a multigraph every repeated target became another
-                # parallel edge (a 24-ring MultiGraph gave 288 edges, nx 276).
-                # Replay the lazy check with a seen-set.
+                # nx's `e[1] not in TC[v]` sees the edges added earlier in the
+                # same pass, because its add_edges_from consumes the generator
+                # lazily; edge_bfs repeats targets, so on a multigraph every
+                # repeat would become another parallel edge (a 24-ring
+                # MultiGraph gave 288 edges, nx 276). Replay the lazy check
+                # with a seen-set and pass a list.
                 seen = set(TC[v])
                 new_edges = []
                 for e in edge_bfs(G, v):
@@ -21470,7 +21603,7 @@ def _transitive_reduction_inprocess(G):
             check_count[v] -= 1
             if check_count[v] == 0:
                 descendants.pop(v, None)
-        R.add_edges_from((u, v) for v in u_nbrs)
+        R.add_edges_from([(u, v) for v in u_nbrs])
     return R
 
 
@@ -33140,7 +33273,7 @@ def power(G, k):
             if k <= level:
                 break
             level += 1
-        graph.add_edges_from((node, neighbor) for neighbor in seen)
+        graph.add_edges_from([(node, neighbor) for neighbor in seen])
     return graph
 
 
@@ -43179,10 +43312,12 @@ def all_triads(G):
                 H.graph.update(graph_attrs)
                 H.add_nodes_from((t, dict(node_attrs[t])) for t in triple)
                 H.add_edges_from(
-                    (a, b, dict(out_adj[a][b]))
-                    for a in triple
-                    for b in triple
-                    if a != b and b in out_adj[a]
+                    [
+                        (a, b, dict(out_adj[a][b]))
+                        for a in triple
+                        for b in triple
+                        if a != b and b in out_adj[a]
+                    ]
                 )
                 yield H
 
@@ -43864,11 +43999,11 @@ def corona_product(G, H):
 
     for g in G.nodes():
         P.add_nodes_from((g, h) for h in H.nodes())
-        P.add_edges_from((g, (g, h)) for h in H.nodes())
+        P.add_edges_from([(g, (g, h)) for h in H.nodes()])
         # H's edges (simple and multigraph alike) copy into g's H-block; a
         # multigraph P assigns fresh integer keys, matching nx's
         # add_edges_from(H.edges.data()).
-        P.add_edges_from(((g, u), (g, v), dict(attrs)) for u, v, attrs in H.edges(data=True))
+        P.add_edges_from([((g, u), (g, v), dict(attrs)) for u, v, attrs in H.edges(data=True)])
 
     return P
 
@@ -65173,7 +65308,7 @@ def make_clique_bipartite(G, fpos=None, create_using=None, name=None):
     for i, clique in enumerate(find_cliques(G)):
         clique_node = -i - 1
         B.add_node(clique_node, bipartite=0)
-        B.add_edges_from((node, clique_node) for node in clique)
+        B.add_edges_from([(node, clique_node) for node in clique])
     return B
 
 
@@ -66037,12 +66172,12 @@ def k_factor(G, k, matching_weight="weight"):
             inner = [(node, i) for i in range(degree, 2 * degree)]
 
         # Connect gadget nodes to neighbors.
-        g.add_edges_from(zip(outer, inner))
+        g.add_edges_from(list(zip(outer, inner)))
         for outer_n, (neighbor, attrs) in zip(outer, g[node].items()):
             g.add_edge(outer_n, neighbor, **attrs)
 
         # Add internal edges.
-        g.add_edges_from((u, v) for u in core for v in (outer if is_large else inner))
+        g.add_edges_from([(u, v) for u in core for v in (outer if is_large else inner)])
 
         g.remove_node(node)
         gadgets.append((node, outer, core, inner))
@@ -69267,7 +69402,7 @@ def extended_barabasi_albert_graph(
 
         else:
             targets = random_subset(attachment_preference, m)
-            graph.add_edges_from(zip([new_node] * m, targets))
+            graph.add_edges_from([(new_node, target) for target in targets])
             attachment_preference.extend(targets)
             attachment_preference.extend([new_node] * (m + 1))
             new_node += 1
