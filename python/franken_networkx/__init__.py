@@ -48999,6 +48999,9 @@ class _ReverseEdgeView:
         self._view = view
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        return _view_edges_call(self, self._view, nbunch, data, keys, default)
+
+    def _list(self, nbunch=None, data=False, keys=False, default=None):
         if (
             nbunch is None
             and data is False
@@ -49015,8 +49018,8 @@ class _ReverseEdgeView:
         # default keys=True for __iter__ but keys=False for __call__
         # (asymmetric). Match across reverse views too.
         if self._view._graph.is_multigraph():
-            return iter(self(keys=True))
-        return iter(self())
+            return iter(self._list(keys=True))
+        return iter(self._list())
 
     def __len__(self):
         return self._view._graph.number_of_edges()
@@ -49042,9 +49045,7 @@ class _ReverseEdgeView:
         return pred_u[v]
 
     def data(self, data=True, default=None, nbunch=None, keys=False):
-        return self._view._edges(
-            nbunch=nbunch, data=data, keys=keys, default=default
-        )
+        return self(nbunch=nbunch, data=data, keys=keys, default=default)
 
     # br-r37-c1-rev-setops: nx's reverse view edges inherit from _Set;
     # the wrapper had no _Set protocol at all. Same defect family as
@@ -49464,6 +49465,178 @@ def _node_attrs_for_view_graph(graph, node):
     raise KeyError(f"Key {node} not found")
 
 
+class _ViewEdgeDataView:
+    """br-r37-c1-77tw1: what a VIEW's ``edges(nbunch, data=..., keys=...)``
+    call returns - networkx's EdgeDataView contract over the view. It was a
+    plain list: no liveness, no networkx class name, and ``(v, u) in``
+    answered by list scan. Live (each read walks the view again), nbunch
+    resolved once, at the call, through ``nbunch_iter`` (networkx's
+    ``dict.fromkeys(viewer._graph.nbunch_iter(nbunch))``: its errors, its
+    dedup), membership by lookup under networkx's rules: an undirected
+    edge in either orientation, touching nbunch at either end; a directed
+    one starting in nbunch; a multiedge by its key when ``keys``, else any
+    of its keys. The subclasses carry networkx's class names."""
+
+    __slots__ = ("_view", "_nbunch", "_nbset", "_data", "_default", "_keys", "_produce")
+
+    def __init__(self, view, nbunch, data, default, keys, produce):
+        self._view = view
+        if nbunch is None:
+            self._nbunch = self._nbset = None
+        else:
+            self._nbunch = list(dict.fromkeys(view.nbunch_iter(nbunch)))
+            self._nbset = set(self._nbunch)
+        self._data = data
+        self._default = default
+        self._keys = keys
+        self._produce = produce
+
+    def __iter__(self):
+        return iter(self._produce(self._nbunch))
+
+    def __len__(self):
+        return len(self._produce(self._nbunch))
+
+    def _report(self, u, v, dd, key=None):
+        data = self._data
+        head = (u, v, key) if self._keys is True and self._view.is_multigraph() else (u, v)
+        if data is True:
+            return (*head, dd)
+        if data is False:
+            return head
+        return (*head, dd[data] if data in dd else self._default)
+
+    def __contains__(self, e):
+        u, v = e[:2]
+        view = self._view
+        nbset = self._nbset
+        if nbset is not None and u not in nbset and (view.is_directed() or v not in nbset):
+            return False
+        # networkx looks both up in dicts: an unhashable one is a TypeError.
+        _HASH_PROBE.get(u)
+        _HASH_PROBE.get(v)
+        try:
+            entry = view.adj[u][v]
+        except KeyError:
+            return False
+        if not view.is_multigraph():
+            return e == self._report(u, v, entry)
+        if self._keys is True:
+            k = e[2]
+            _HASH_PROBE.get(k)
+            try:
+                dd = entry[k]
+            except KeyError:
+                return False
+            return e == self._report(u, v, dd, k)
+        return any(e == self._report(u, v, dd, k) for k, dd in entry.items())
+
+    def __str__(self):
+        return str(list(self))
+
+    def __repr__(self):
+        return f"{type(self).__name__}({list(self)})"
+
+
+_VIEW_EDGE_DATA_VIEW_TYPES = {
+    (directed, multigraph): type(name, (_ViewEdgeDataView,), {"__slots__": ()})
+    for (directed, multigraph), name in (
+        ((False, False), "EdgeDataView"),
+        ((True, False), "OutEdgeDataView"),
+        ((False, True), "MultiEdgeDataView"),
+        ((True, True), "OutMultiEdgeDataView"),
+    )
+}
+
+
+def _view_edges_call(edge_view, view, nbunch, data, keys, default):
+    """br-r37-c1-77tw1: networkx's ``EdgeView.__call__`` for a view's edge
+    view: the view itself for a plain call (a multigraph's only with
+    ``keys=True``), else a live data view over ``edge_view._list``."""
+    if nbunch is None and data is False and (keys is True or not view.is_multigraph()):
+        return edge_view
+    return _VIEW_EDGE_DATA_VIEW_TYPES[(view.is_directed(), view.is_multigraph())](
+        view,
+        nbunch,
+        data,
+        default,
+        keys,
+        lambda frozen: edge_view._list(frozen, data, keys, default),
+    )
+
+
+class _ViewNodeDataView(_Set):
+    """br-r37-c1-77tw1: what a VIEW's ``nodes(data=...)`` call returns -
+    networkx's NodeDataView over the view's node mapping (it was a list):
+    a live Set, ``(n, d) in`` and ``[n]`` by lookup, networkx's repr."""
+
+    __slots__ = ("_nodes", "_data", "_default")
+
+    def __init__(self, nodes, data, default):
+        self._nodes = nodes
+        self._data = data
+        self._default = default
+
+    @classmethod
+    def _from_iterable(cls, it):
+        try:
+            return set(it)
+        except TypeError as err:
+            if "unhashable" in str(err):
+                msg = " : Could be b/c data=True or your values are unhashable"
+                raise TypeError(str(err) + msg) from err
+            raise
+
+    def __len__(self):
+        return len(self._nodes)
+
+    def __iter__(self):
+        data = self._data
+        if data is True:
+            return iter(self._nodes.items())
+        default = self._default
+        return (
+            (n, dd[data] if data in dd else default) for n, dd in self._nodes.items()
+        )
+
+    def __contains__(self, n):
+        try:
+            node_in = n in self._nodes
+        except TypeError:
+            n, d = n
+            return n in self._nodes and self[n] == d
+        if node_in is True:
+            return node_in
+        try:
+            n, d = n
+        except (TypeError, ValueError):
+            return False
+        return n in self._nodes and self[n] == d
+
+    def __getitem__(self, n):
+        if isinstance(n, slice):
+            raise NetworkXError(
+                f"{type(self).__name__} does not support slicing, "
+                f"try list(G.nodes.data())[{n.start}:{n.stop}:{n.step}]"
+            )
+        ddict = self._nodes[n]
+        data = self._data
+        if data is True:
+            return ddict
+        return ddict[data] if data in ddict else self._default
+
+    def __str__(self):
+        return str(list(self))
+
+    def __repr__(self):
+        if self._data is True:
+            return f"NodeDataView({dict(self)})"
+        return f"NodeDataView({dict(self)}, data={self._data!r})"
+
+
+_ViewNodeDataView.__name__ = _ViewNodeDataView.__qualname__ = "NodeDataView"
+
+
 class NodeView(_Mapping):
     def __init__(self, view):
         self._view = view
@@ -49484,14 +49657,16 @@ class NodeView(_Mapping):
         return _node_attrs_for_view_graph(self._view._graph, node)
 
     def __call__(self, data=False, default=None):
-        if isinstance(data, str):
-            return [(node, self[node].get(data, default)) for node in self]
-        if data:
-            return [(node, self[node]) for node in self]
-        return list(self)
+        # br-r37-c1-77tw1: networkx's NodeView.__call__ - the view itself, or
+        # a live NodeDataView; this returned lists.
+        if data is False:
+            return self
+        return _ViewNodeDataView(self, data, default)
 
     def data(self, data=True, default=None):
-        return self(data=data, default=default)
+        if data is False:
+            return self
+        return _ViewNodeDataView(self, data, default)
 
     def __repr__(self):
         # br-r37-c1-snvrepr: nx's subgraph-view NodeView repr is
@@ -49525,6 +49700,9 @@ class _FilteredEdgeView:
         self._view = view
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        return _view_edges_call(self, self._view, nbunch, data, keys, default)
+
+    def _list(self, nbunch=None, data=False, keys=False, default=None):
         if isinstance(data, str):
             base = self._view._edges(nbunch=nbunch, data=True, keys=keys)
             if keys:
@@ -49551,11 +49729,11 @@ class _FilteredEdgeView:
         # subgraph views — parity with the canonical-class fix
         # br-r37-c1-bnydo on _DiEdgeMethodView.
         if self._view.is_multigraph():
-            return iter(self(keys=True))
-        return iter(self())
+            return iter(self._list(keys=True))
+        return iter(self._list())
 
     def __len__(self):
-        return len(self())
+        return len(self._list())
 
     def __contains__(self, edge):
         # br-r37-c1-j0oc5: on a multigraph view the KEY is part of the edge's
@@ -49678,8 +49856,8 @@ class _FilteredEdgeView:
         # 0x...>``. Use ``type(self).__name__`` so the four subclasses
         # below pick up the canonical nx label.
         if self._view.is_multigraph():
-            return f"{type(self).__name__}({list(self(keys=True))!r})"
-        return f"{type(self).__name__}({list(self())!r})"
+            return f"{type(self).__name__}({self._list(keys=True)!r})"
+        return f"{type(self).__name__}({self._list()!r})"
 
     def __copy__(self):
         # Live wrapper — matches nx's copy.copy semantics.
@@ -50496,7 +50674,7 @@ class _FilteredGraphView:
             edge_subgraph_count = self._edge_subgraph_number_of_edges()
             if edge_subgraph_count is not None:
                 return edge_subgraph_count
-            return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges())
+            return len(self._edges(keys=self.is_multigraph()))
         if v is None:
             if u not in self:
                 raise KeyError(u)
@@ -55936,18 +56114,20 @@ class _ConversionNodeView(_Mapping):
     def __getitem__(self, node):
         return self._view._graph.nodes[node]
 
-    def _data_rows(self, data=False, default=None):
-        if data is False:
-            return list(self)
-        if data is True:
-            return [(node, self[node]) for node in self]
-        return [(node, self[node].get(data, default)) for node in self]
-
     def __call__(self, data=False, default=None):
-        return self._data_rows(data=data, default=default)
+        # br-r37-c1-77tw1: networkx's NodeView.__call__ - the view itself, or
+        # a live NodeDataView; this returned lists.
+        if data is False:
+            return self
+        return _ViewNodeDataView(self, data, default)
 
     def data(self, data=True, default=None):
-        return self._data_rows(data=data, default=default)
+        if data is False:
+            return self
+        return _ViewNodeDataView(self, data, default)
+
+    def __repr__(self):
+        return f"NodeView({tuple(self)})"
 
     def __and__(self, other):
         return set(self) & set(other)
@@ -55974,86 +56154,8 @@ class _ConversionNodeView(_Mapping):
         return set(other) ^ set(self)
 
 
-class _ConversionMultiEdgeQuery:
-    """View-backed edge-query result for multigraph conversion views.
-
-    Returned by ``view.edges(...)`` on multigraph conversion live views so
-    callers see a lazy, set-like, view-backed object rather than a plain
-    list (matches upstream OutMultiEdgeView / MultiEdgeView surface for
-    keyed multiedge queries).
-    """
-
-    def __init__(self, view, *, nbunch=None, data=False, keys=False, default=None):
-        self._view = view
-        self._nbunch = nbunch
-        self._data = data
-        self._keys = keys
-        self._default = default
-
-    def _materialise(self):
-        return self._view._edges(
-            nbunch=self._nbunch,
-            data=self._data,
-            keys=self._keys,
-        )
-
-    def __iter__(self):
-        return iter(self._materialise())
-
-    def __len__(self):
-        return len(self._materialise())
-
-    def __contains__(self, item):
-        return item in self._materialise()
-
-    def __eq__(self, other):
-        if isinstance(other, _ConversionMultiEdgeQuery):
-            other = other._materialise()
-        if isinstance(other, set):
-            return set(self._materialise()) == other
-        try:
-            return list(self._materialise()) == list(other)
-        except TypeError:
-            return NotImplemented
-
-    def __ne__(self, other):
-        result = self.__eq__(other)
-        if result is NotImplemented:
-            return result
-        return not result
-
-    def __hash__(self):
-        return None  # Mutable view, intentionally unhashable.
-
-    def __repr__(self):
-        return repr(self._materialise())
-
-    def __getitem__(self, idx):
-        return self._materialise()[idx]
-
-    def __and__(self, other):
-        return set(self._materialise()) & set(other)
-
-    def __rand__(self, other):
-        return set(other) & set(self._materialise())
-
-    def __or__(self, other):
-        return set(self._materialise()) | set(other)
-
-    def __ror__(self, other):
-        return set(other) | set(self._materialise())
-
-    def __sub__(self, other):
-        return set(self._materialise()) - set(other)
-
-    def __rsub__(self, other):
-        return set(other) - set(self._materialise())
-
-    def __xor__(self, other):
-        return set(self._materialise()) ^ set(other)
-
-    def __rxor__(self, other):
-        return set(other) ^ set(self._materialise())
+# br-r37-c1-77tw1: networkx's name - nodes() returns this view now.
+_ConversionNodeView.__name__ = _ConversionNodeView.__qualname__ = "NodeView"
 
 
 class _ConversionEdgeView:
@@ -56065,8 +56167,8 @@ class _ConversionEdgeView:
         # default `keys=True` for __iter__ but `keys=False` for
         # __call__ (asymmetric). Match that on conversion views too.
         if self._view.is_multigraph():
-            return iter(self(keys=True))
-        return iter(self())
+            return iter(self._list(keys=True))
+        return iter(self._list())
 
     def __len__(self):
         # br-r37-c1-ktsxn: ask the view for its COUNT instead of building the
@@ -56101,6 +56203,9 @@ class _ConversionEdgeView:
         return self._view.adj[u][v]
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        return _view_edges_call(self, self._view, nbunch, data, keys, default)
+
+    def _list(self, nbunch=None, data=False, keys=False, default=None):
         if isinstance(data, str):
             base = self._view._edges(nbunch=nbunch, data=True, keys=keys)
             if keys:
@@ -56116,10 +56221,6 @@ class _ConversionEdgeView:
             if keys:
                 return [(u, v, k, default) for u, v, k in base]
             return [(u, v, default) for u, v in base]
-        if self._view.is_multigraph():
-            return _ConversionMultiEdgeQuery(
-                self._view, nbunch=nbunch, data=data, keys=keys
-            )
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
 
     def data(self, data=True, default=None, nbunch=None, keys=False):
@@ -56184,10 +56285,26 @@ class _ConversionEdgeView:
 
     __hash__ = None
 
+    def __repr__(self):
+        # br-r37-c1-77tw1: networkx's EdgeView repr, under the class names the
+        # subclasses below carry; edges() returns this view now.
+        return f"{type(self).__name__}({list(self)})"
+
     get = _adjacency_view_get
     keys = _adjacency_view_keys
     items = _adjacency_view_items
     values = _adjacency_view_values
+
+
+_CONVERSION_EDGE_VIEW_TYPES = {
+    (directed, multigraph): type(name, (_ConversionEdgeView,), {})
+    for (directed, multigraph), name in (
+        ((False, False), "EdgeView"),
+        ((True, False), "OutEdgeView"),
+        ((False, True), "MultiEdgeView"),
+        ((True, True), "OutMultiEdgeView"),
+    )
+}
 
 
 class _UnionKeyAtlas(_Mapping):
@@ -56378,7 +56495,9 @@ class _ConversionGraphViewBase:
         self.__dict__["_graph"] = graph
         self.__dict__["frozen"] = True
         self.__dict__["_nodes_view"] = _ConversionNodeView(self)
-        self.__dict__["_edges_view"] = _ConversionEdgeView(self)
+        self.__dict__["_edges_view"] = _CONVERSION_EDGE_VIEW_TYPES[
+            (self._directed, self._multigraph)
+        ](self)
         self.__dict__["_adj_view"] = _ConversionAdjacencyView(self)
         # br-r37-c1-fabqo: register the view's adjacency as the graph's private
         # storage, as filtered and reverse views do, so an inherited accessor
@@ -56773,9 +56892,9 @@ class _ConversionGraphViewBase:
             and not src.is_multigraph()
         ):
             return 2 * src.number_of_edges() - number_of_selfloops(src)
-        if self.is_multigraph():
-            return len(self.edges(keys=True))
-        return len(self.edges())
+        # br-r37-c1-77tw1: count the edge list, not edges(): that call returns
+        # the edge view now, whose len is this method.
+        return len(self._edges(keys=self.is_multigraph()))
 
     def size(self, weight=None):
         # br-r37-c1-cvempty: the canonical Graph.size routes string
