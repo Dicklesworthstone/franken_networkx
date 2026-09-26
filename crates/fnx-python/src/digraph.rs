@@ -487,7 +487,8 @@ impl PyDiGraph {
         self.pred_row_py.clear();
         self.succ_row_py_by_index.clear(); // br-r37-c1-sznaj
         self.pred_row_py_by_index.clear(); // br-r37-c1-predrow-8vytj
-        self.graph_attrs.bind(py).clear();
+        // br-r37-c1-erfbd: drop the reference, keep a holder's dict intact.
+        self.graph_attrs = PyDict::new(py).unbind();
         *self.node_keys_cache.get_mut().unwrap() = None;
         *self.node_data_mirror.get_mut().unwrap() = None;
         self.dict_of_dicts_cache = None;
@@ -885,7 +886,8 @@ impl PyMultiDiGraph {
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
         self.edge_py_keys.clear();
-        self.graph_attrs.bind(py).clear();
+        // br-r37-c1-erfbd: drop the reference, keep a holder's dict intact.
+        self.graph_attrs = PyDict::new(py).unbind();
         *self.node_keys_cache.get_mut().unwrap() = None;
         *self.node_data_mirror.get_mut().unwrap() = None;
         self.dict_of_dicts_cache = None;

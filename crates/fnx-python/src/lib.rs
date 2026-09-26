@@ -3858,7 +3858,9 @@ impl PyGraph {
         self.adj_row_py_by_index.clear(); // br-r37-c1-nbrow
         self.neighbor_key_rows.clear(); // br-r37-c1-3rtyk
         self.neighbor_key_rows_by_index.clear(); // br-r37-c1-3rtyk
-        self.graph_attrs.bind(py).clear();
+        // br-r37-c1-erfbd: drop our reference, do not empty the dict - a caller
+        // holding G.graph keeps its contents after G is collected, as in nx.
+        self.graph_attrs = PyDict::new(py).unbind();
         *self.node_keys_cache.get_mut().unwrap() = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
         *self.node_data_mirror.get_mut().unwrap() = None;
@@ -6766,7 +6768,8 @@ impl PyMultiGraph {
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
         self.edge_py_keys.clear();
-        self.graph_attrs.bind(py).clear();
+        // br-r37-c1-erfbd: drop the reference, keep a holder's dict intact.
+        self.graph_attrs = PyDict::new(py).unbind();
         *self.node_keys_cache.get_mut().unwrap() = None;
         *self.node_data_mirror.get_mut().unwrap() = None;
         self.dict_of_dicts_cache = None;

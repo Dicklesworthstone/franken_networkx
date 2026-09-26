@@ -126,3 +126,34 @@ def test_shallow_copy_deallocation_zero_leaks():
         if isinstance(obj, dict) and id(obj) not in before_dicts
     ]
     assert len(after_dicts) <= 10, f"Leaked {len(after_dicts)} dicts during copy.copy"
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("touch", ["none", "is_multigraph", "self_reference"])
+def test_graph_attr_dict_held_by_the_caller_survives_collection(cls, touch):
+    # br-r37-c1-erfbd: the tp_clear half emptied G.graph in place, so a caller
+    # holding the dict saw {} once G was collected; nx's dict is just a dict. A
+    # graph stored in its own G.graph (a cycle through the dict) must still be
+    # collected.
+    import weakref
+
+    g = getattr(fnx, cls)([(0, 1)])
+    g.graph["name"] = "kept"
+    held = g.graph
+    if touch == "is_multigraph":
+        g.is_multigraph()
+    elif touch == "self_reference":
+        g.graph["self"] = g
+    probe = weakref.ref(g)
+    del g
+    gc.collect()
+    gc.collect()
+
+    assert held["name"] == "kept"
+    if touch == "self_reference":
+        # the held dict keeps its graph alive, exactly as a plain dict would
+        assert held["self"] is probe()
+        del held
+        gc.collect()
+        gc.collect()
+        assert probe() is None
