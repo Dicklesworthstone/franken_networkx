@@ -42519,9 +42519,9 @@ def attr_matrix(
                 np.asarray(_data, dtype=M.dtype),
             )
             if normalized:
-                _rs = M.sum(axis=1)
-                _rs[_rs == 0] = 1
-                M = M / _rs[:, np.newaxis]
+                # br-r37-c1-6zlfk: nx's in-place division - a row with no
+                # edges is 0/0, NaN (the old code divided it by 1).
+                M /= M.sum(axis=1).reshape((M.shape[0], 1))
             if rc_order is None:
                 return M, _ordering
             return M
@@ -42596,9 +42596,8 @@ def attr_matrix(
                 if undirected:
                     M[j, i] = M[i, j]
             if normalized:
-                rs = M.sum(axis=1)
-                rs[rs == 0] = 1
-                M = M / rs[:, np.newaxis]
+                # br-r37-c1-6zlfk: nx's in-place division (a 0 row is NaN).
+                M /= M.sum(axis=1).reshape((M.shape[0], 1))
 
             if rc_order is None:
                 return M, ordering
@@ -42624,9 +42623,8 @@ def attr_matrix(
             seen.add(u)
 
     if normalized:
-        rs = M.sum(axis=1)
-        rs[rs == 0] = 1
-        M = M / rs[:, np.newaxis]
+        # br-r37-c1-6zlfk: nx's in-place division (a 0 row is NaN).
+        M /= M.sum(axis=1).reshape((M.shape[0], 1))
 
     if rc_order is None:
         return M, ordering
