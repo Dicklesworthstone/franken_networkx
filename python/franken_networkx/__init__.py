@@ -39828,21 +39828,24 @@ def quotient_graph(
     br-r37-c1-cfcls: coerce to fnx for consistent return type.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # Normalize partition
+    # Normalize partition (br-r37-c1-ljkp0: as networkx does).
     if callable(partition):
-        # Build partition from equivalence relation
-        remaining = set(G.nodes())
+        # nx's equivalence_classes: each node joins the first block whose first
+        # member it relates to, and the blocks come back as a SET of
+        # frozensets - whose iteration order is the block order.
         blocks = []
-        while remaining:
-            seed = next(iter(remaining))
-            block = {seed}
-            for n in list(remaining):
-                if n != seed and partition(seed, n):
-                    block.add(n)
-            blocks.append(frozenset(block))
-            remaining -= block
-        partition = blocks
+        for y in G:
+            for block in blocks:
+                if partition(block[0], y):
+                    block.append(y)
+                    break
+            else:
+                blocks.append([y])
+        partition = [frozenset(b) for b in {frozenset(block) for block in blocks}]
     else:
+        if isinstance(partition, dict):
+            # keys are block labels, values the blocks
+            partition = list(partition.values())
         partition = [frozenset(b) for b in partition]
 
     # br-r37-c1-quot-validate: nx validates that the partition is a
@@ -39985,29 +39988,46 @@ def quotient_graph(
         return True
 
     if not _add_default_undirected_bucketed_edges():
-        # Add edges between blocks
-        for i, block_u in enumerate(partition):
-            for j, block_v in enumerate(partition):
-                if i >= j and not G.is_directed():
-                    if i == j:
-                        continue
-                if i == j:
-                    continue
-                if edge_relation(block_u, block_v):
-                    if edge_data is not None:
-                        H.add_edge(block_u, block_v, **edge_data(block_u, block_v))
-                    else:
-                        # Sum weights of cross-block edges
-                        total = 0
-                        _count = 0
-                        for u in block_u:
-                            for v in block_v:
-                                if G.has_edge(u, v):
-                                    d = G.edges[u, v]
-                                    total += d.get(weight, 1) if weight else 1
-                                    _count += 1
-                        attrs = {"weight": total} if _count else {}
-                        H.add_edge(block_u, block_v, **attrs)
+        # br-r37-c1-ljkp0: networkx's _quotient_graph. Block pairs follow H's
+        # node order - every ordered pair when H is directed, each unordered
+        # pair once (b before c) otherwise. A multigraph H gets one edge per
+        # adjacent (u, v) across the pair, carrying G.get_edge_data(u, v) (a
+        # multigraph G's keydict); a simple H gets edge_data(b, c), by default
+        # the weight summed over the edges joining b and c in EITHER direction.
+        if edge_data is None:
+
+            def edge_data(block_u, block_v):
+                return {
+                    "weight": sum(
+                        d.get(weight, 1)
+                        for u, v, d in G.edges(block_u | block_v, data=True)
+                        if (u in block_u and v in block_v) or (u in block_v and v in block_u)
+                    )
+                }
+
+        blocks = list(H)
+        if H.is_directed():
+            block_pairs = _itertools.permutations(blocks, 2)
+        else:
+            block_pairs = _itertools.combinations(blocks, 2)
+        if H.is_multigraph():
+            H.add_edges_from(
+                [
+                    (block_u, block_v, G.get_edge_data(u, v, default={}))
+                    for block_u, block_v in block_pairs
+                    if edge_relation(block_u, block_v)
+                    for u, v in _itertools.product(block_u, block_v)
+                    if G.has_edge(u, v)
+                ]
+            )
+        else:
+            H.add_edges_from(
+                [
+                    (block_u, block_v, edge_data(block_u, block_v))
+                    for block_u, block_v in block_pairs
+                    if edge_relation(block_u, block_v)
+                ]
+            )
 
     if relabel:
         mapping = {block: i for i, block in enumerate(partition)}

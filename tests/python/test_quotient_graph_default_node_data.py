@@ -177,3 +177,72 @@ def test_quotient_graph_default_unweighted_bucket_path_matches_networkx():
     expected = nx.quotient_graph(expected_graph, partition)
 
     assert list(result.edges(data=True)) == list(expected.edges(data=True))
+
+
+# br-r37-c1-ljkp0: networkx's _quotient_graph, everywhere the undirected bucket
+# path above does not apply. A multigraph quotient gets one edge per adjacent
+# (u, v) carrying G.get_edge_data(u, v) (fnx raised ValueError); a directed
+# default weight sums the edges joining two blocks in EITHER direction; a dict
+# partition's values are its blocks; a callable partition's blocks come from
+# equivalence_classes (a set of frozensets, in its iteration order); and an
+# undirected H sees each block pair once, b before c, so an asymmetric
+# edge_relation / edge_data is called as networkx calls it.
+_QG_EDGES = [(i, (i + 1) % 12, float(i % 5) + 1.5) for i in range(12)] + [
+    (i, (i + 5) % 12, float(i % 3) + 2.25) for i in range(0, 12, 3)
+]
+_QG_PARTITIONS = {
+    "list": lambda: [set(range(0, 4)), set(range(4, 8)), set(range(8, 12))],
+    "dict": lambda: {"a": {0, 1, 2, 3}, "b": {4, 5, 6, 7}, "c": {8, 9, 10, 11}},
+    "callable": lambda: (lambda u, v: u % 3 == v % 3),
+    "partial": lambda: [{0, 1}, {5, 6, 7}],
+}
+_QG_OPTIONS = {
+    "default": {},
+    "relabel": {"relabel": True},
+    "asym_relation": {"edge_relation": lambda b, c: min(b) > min(c)},
+    "asym_data": {"edge_data": lambda b, c: {"lo": min(b)}},
+    "relation_without_edges": {"edge_relation": lambda b, c: True},
+}
+
+
+def _qg_block(node):
+    return tuple(sorted(node)) if isinstance(node, frozenset) else node
+
+
+def _qg_data(data):
+    out = []
+    for key, value in data.items():
+        if key == "graph":
+            value = (sorted(value.nodes()), sorted(map(repr, value.edges())))
+        elif isinstance(value, dict):
+            value = sorted((repr(k), repr(v)) for k, v in value.items())
+        out.append((repr(key), repr(value)))
+    return sorted(out)
+
+
+def _qg_summary(lib, cls, parallel, partition, options):
+    graph = getattr(lib, cls)()
+    graph.add_weighted_edges_from(_QG_EDGES)
+    if parallel:
+        graph.add_weighted_edges_from([(0, 1, 4.0), (6, 7, 0.25), (1, 0, 0.5)])
+    try:
+        quotient = lib.quotient_graph(graph, _QG_PARTITIONS[partition](), **_QG_OPTIONS[options])
+    except Exception as exc:  # noqa: BLE001 - the raise is the answer
+        return ("raise", type(exc).__name__, str(exc))
+    kw = {"keys": True} if quotient.is_multigraph() else {}
+    return (
+        type(quotient).__name__,
+        [(_qg_block(n), _qg_data(d)) for n, d in quotient.nodes(data=True)],
+        [tuple(map(_qg_block, e[:-1])) + (_qg_data(e[-1]),) for e in quotient.edges(data=True, **kw)],
+    )
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("partition", sorted(_QG_PARTITIONS))
+@pytest.mark.parametrize("options", sorted(_QG_OPTIONS))
+@pytest.mark.parametrize("parallel", [False, True], ids=["simple_edges", "parallel_edges"])
+def test_quotient_graph_matches_networkx_node_and_edge_order(cls, partition, options, parallel):
+    assert _qg_summary(fnx, cls, parallel, partition, options) == _qg_summary(
+        nx, cls, parallel, partition, options
+    )
