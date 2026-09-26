@@ -13980,10 +13980,16 @@ pub fn all_shortest_paths(
         )));
     }
 
+    // A multigraph's weighted arms run on its min-weight projection: networkx
+    // weighs a (u, v) hop by its lightest parallel edge, where gr.digraph() /
+    // gr.undirected() keep the first one (br-r37-c1-b5rqk).
     let paths = if gr.is_directed() {
         match (weight, effective_method) {
             (Some(w), "bellman-ford") => {
-                let dg_ref = gr.digraph().expect("is_directed checked above");
+                let projection = gr
+                    .weighted_digraph_projection(w)
+                    .expect("is_directed checked above");
+                let dg_ref = projection.as_ref();
                 let result = py.allow_threads(|| {
                     fnx_algorithms::all_shortest_paths_weighted_directed_bellman_ford(
                         dg_ref,
@@ -14001,19 +14007,11 @@ pub fn all_shortest_paths(
                     }
                 }
             }
-            (Some(w), "dijkstra") => {
-                let dg_ref = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| {
-                    fnx_algorithms::all_shortest_paths_weighted_directed(
-                        dg_ref,
-                        &source_key,
-                        &target_key,
-                        w,
-                    )
-                })
-            }
             (Some(w), _) => {
-                let dg_ref = gr.digraph().expect("is_directed checked above");
+                let projection = gr
+                    .weighted_digraph_projection(w)
+                    .expect("is_directed checked above");
+                let dg_ref = projection.as_ref();
                 py.allow_threads(|| {
                     fnx_algorithms::all_shortest_paths_weighted_directed(
                         dg_ref,
@@ -14031,9 +14029,10 @@ pub fn all_shortest_paths(
             }
         }
     } else {
-        let inner = gr.undirected();
         match (weight, effective_method) {
             (Some(w), "bellman-ford") => {
+                let projection = gr.weighted_undirected_projection(w);
+                let inner = projection.as_ref();
                 let result = py.allow_threads(|| {
                     fnx_algorithms::all_shortest_paths_weighted_bellman_ford(
                         inner,
@@ -14051,12 +14050,19 @@ pub fn all_shortest_paths(
                     }
                 }
             }
-            (Some(w), _) => py.allow_threads(|| {
-                fnx_algorithms::all_shortest_paths_weighted(inner, &source_key, &target_key, w)
-            }),
-            (None, "unweighted") | (None, _) => py.allow_threads(|| {
-                fnx_algorithms::all_shortest_paths(inner, &source_key, &target_key)
-            }),
+            (Some(w), _) => {
+                let projection = gr.weighted_undirected_projection(w);
+                let inner = projection.as_ref();
+                py.allow_threads(|| {
+                    fnx_algorithms::all_shortest_paths_weighted(inner, &source_key, &target_key, w)
+                })
+            }
+            (None, _) => {
+                let inner = gr.undirected();
+                py.allow_threads(|| {
+                    fnx_algorithms::all_shortest_paths(inner, &source_key, &target_key)
+                })
+            }
         }
     };
 

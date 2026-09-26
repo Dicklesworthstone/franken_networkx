@@ -201,3 +201,45 @@ def test_directed_weighted_dijkstra_uses_rust_path_without_networkx_fallback(mon
     )
 
     assert list(fnx.all_shortest_paths(fg, "a", "e", weight="weight")) == expected
+
+
+# br-r37-c1-b5rqk: networkx weighs a multigraph hop by its LIGHTEST parallel
+# edge (min over the keydict). The native kernel ran on a projection that kept
+# the first edge, so a lighter edge added later was invisible: a tie through it
+# was lost, or a path that is not shortest came back beside the shortest one.
+_RING = [(i, (i + 1) % 24, {"weight": float(i % 5) + 1.5}) for i in range(24)]
+_CHORDS = [(i, (i + 7) % 24, {"weight": float(i % 3) + 2.25}) for i in range(0, 24, 2)]
+_PARALLEL_BUNCHES = {
+    "lighter_later": [
+        (0, 1, {"weight": 3.0}), (0, 1, {"weight": 1.0}), (1, 3, {"weight": 1.0}),
+        (0, 2, {"weight": 1.0}), (2, 3, {"weight": 1.0}),
+    ],
+    "heavier_later": [
+        (0, 1, {"weight": 1.0}), (0, 1, {"weight": 3.0}), (1, 3, {"weight": 1.0}),
+        (0, 2, {"weight": 1.0}), (2, 3, {"weight": 1.0}),
+    ],
+    "unweighted_later": [
+        (0, 1, {"weight": 5}), (0, 1, {}), (1, 3, {"weight": 1}),
+        (0, 2, {"weight": 1}), (2, 3, {"weight": 1}),
+    ],
+    "ring": _RING + _CHORDS + [
+        (0, 1, {"weight": 4.0}), (2, 3, {"weight": 0.25}), (1, 0, {"weight": 0.5}),
+    ],
+}
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("method", ["dijkstra", "bellman-ford"])
+@pytest.mark.parametrize("bunch", sorted(_PARALLEL_BUNCHES))
+def test_multigraph_hop_weighs_its_lightest_parallel_edge_like_networkx(cls, method, bunch):
+    edges = _PARALLEL_BUNCHES[bunch]
+    target = 12 if bunch == "ring" else 3
+    G = getattr(fnx, cls)()
+    G.add_edges_from(edges)
+    H = getattr(nx, cls)()
+    H.add_edges_from(edges)
+
+    expected = list(nx.all_shortest_paths(H, 0, target, weight="weight", method=method))
+    got = list(fnx.all_shortest_paths(G, 0, target, weight="weight", method=method))
+
+    assert got == expected
