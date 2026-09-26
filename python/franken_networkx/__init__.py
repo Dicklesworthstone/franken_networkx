@@ -21365,7 +21365,19 @@ def transitive_closure(G, reflexive=False):
                     (v, u) for u in descendants(G, v) | {v} if u not in TC[v]
                 )
             else:
-                TC.add_edges_from((v, e[1]) for e in edge_bfs(G, v) if e[1] not in TC[v])
+                # nx's add_edges_from consumes this generator LAZILY, so its
+                # `e[1] not in TC[v]` sees the edges added earlier in the same
+                # pass; ours materializes the generator first (br-addedgesgen),
+                # and on a multigraph every repeated target became another
+                # parallel edge (a 24-ring MultiGraph gave 288 edges, nx 276).
+                # Replay the lazy check with a seen-set.
+                seen = set(TC[v])
+                new_edges = []
+                for e in edge_bfs(G, v):
+                    if e[1] not in seen:
+                        seen.add(e[1])
+                        new_edges.append((v, e[1]))
+                TC.add_edges_from(new_edges)
         return TC
     result = _raw_transitive_closure(G, reflexive=False)
     # br-r37-c1-gtkxs: the Rust kernel returns a DiGraph stripped of

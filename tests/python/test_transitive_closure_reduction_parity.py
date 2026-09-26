@@ -180,3 +180,22 @@ def test_tc_dag_single_edge():
     f = fnx.transitive_closure_dag(dag)
     n = nx.transitive_closure_dag(dagx)
     assert list(f.edges()) == list(n.edges())
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("reflexive", [False, True, None])
+def test_transitive_closure_adds_each_reachable_pair_once(cls, reflexive):
+    """networkx's add_edges_from consumes the closure's generator lazily, so its
+    `e[1] not in TC[v]` sees the edges already added in the same pass; the
+    generator was materialized first here, and on a MultiGraph every repeated
+    target became another parallel edge (a 24-ring gave 288 edges, nx 276)."""
+    ring = [(i, (i + 1) % 24, float(i % 5) + 1.5) for i in range(24)]
+    chords = [(i, (i + 7) % 24, 1.0) for i in range(0, 24, 3)]
+    rows = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(lib, cls)()
+        graph.add_weighted_edges_from(ring + chords)
+        closure = lib.transitive_closure(graph, reflexive=reflexive)
+        keys = {"keys": True} if closure.is_multigraph() else {}
+        rows[name] = sorted(map(repr, closure.edges(data=True, **keys)))
+    assert rows["fnx"] == rows["nx"]
