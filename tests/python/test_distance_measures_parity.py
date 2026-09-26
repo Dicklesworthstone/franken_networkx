@@ -138,3 +138,25 @@ def test_distance_measures_reject_disconnected_like_networkx(fn):
         getattr(fnx, fn)(fg)
     with pytest.raises(nx.NetworkXError):
         getattr(nx, fn)(ng)
+
+
+@pytest.mark.parametrize("fn", ["eccentricity", "diameter", "radius", "center", "periphery"])
+def test_unreachable_negative_cycle_reports_the_first_sources_error(fn):
+    """networkx checks each source as it computes it: node 0 cannot reach the
+    other component, so "not strongly connected" is raised before any Dijkstra
+    meets the negative cycle there. Draining all pairs first raised that
+    cycle's ValueError instead."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = lib.DiGraph()
+        for i in range(12):
+            graph.add_edge(i, (i + 1) % 12, weight=1.5)
+        graph.add_edge(30, 31, weight=-7.0)
+        graph.add_edge(31, 30, weight=3.0)
+        try:
+            getattr(lib, fn)(graph, weight="weight")
+            outcomes[name] = "ok"
+        except Exception as exc:  # noqa: BLE001 - which error is the contract
+            outcomes[name] = (type(exc).__name__, str(exc))
+    assert outcomes["fnx"] == outcomes["nx"]
+    assert outcomes["nx"][0] == "NetworkXError"

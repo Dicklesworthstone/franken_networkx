@@ -16226,13 +16226,18 @@ def eccentricity(G, v=None, sp=None, weight=None):
     # instead of V separate shortest_path_length calls, each re-paying the per-source
     # setup — that loop made weighted eccentricity 0.84x. max() is order-invariant so the
     # result is identical; the reachability check matches nx's per-source one.
+    #
+    # The pairs are consumed ONE SOURCE AT A TIME, in node order (the order both
+    # all-pairs generators yield and nx's loop visits), with the check applied as each
+    # arrives: draining them first let a later source's error win - a negative cycle
+    # unreachable from the first node raised ValueError('Contradictory paths') where nx
+    # raises "not strongly connected" at that first node.
     if v is None and sp is None:
         if weight is not None:
-            all_lengths = dict(all_pairs_dijkstra_path_length(G, weight=weight))
+            all_lengths = all_pairs_dijkstra_path_length(G, weight=weight)
         else:
-            all_lengths = dict(all_pairs_shortest_path_length(G))
-        for node in nodes:
-            lengths = all_lengths.get(node, {})
+            all_lengths = all_pairs_shortest_path_length(G)
+        for node, lengths in all_lengths:
             if len(lengths) != order:
                 if G.is_directed():
                     raise NetworkXError(
