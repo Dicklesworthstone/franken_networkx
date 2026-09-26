@@ -118,3 +118,20 @@ def test_complete_graph_has_no_selfloops():
     # complete_graph(n) is simple -> no self-loops.
     for n in (3, 4, 5):
         assert fnx.number_of_selfloops(fnx.complete_graph(n)) == 0
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_nodes_with_selfloops_is_a_lazy_generator_like_networkx(cls):
+    # br-r37-c1-oz595: nx returns a generator over G._adj, read when first
+    # advanced; fnx returned an iterator over a list scanned at the call.
+    import inspect
+
+    import networkx as nx
+
+    gf = getattr(fnx, cls)([(0, 0), (1, 2), (2, 2)])
+    gn = getattr(nx, cls)([(0, 0), (1, 2), (2, 2)])
+    it_f, it_n = fnx.nodes_with_selfloops(gf), nx.nodes_with_selfloops(gn)
+    assert inspect.isgenerator(it_f) and inspect.isgenerator(it_n)
+    gf.add_edge(1, 1)  # a selfloop on an existing node before the first next()
+    gn.add_edge(1, 1)
+    assert list(it_f) == list(it_n) == [0, 1, 2]

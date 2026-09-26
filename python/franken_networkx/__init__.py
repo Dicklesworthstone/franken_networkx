@@ -30273,22 +30273,34 @@ def nodes_with_selfloops(G):
     # br-selfloopnative: native scan -- preserves networkx's node-iteration order
     # (verified) and is much faster than walking the AdjacencyView.
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-oz595: a generator, as nx's (n for n, nbrs in G._adj.items()
+    # if n in nbrs) is, scanning when first advanced rather than at the call.
+    return _selfloop_nodes_gen(G)
+
+
+def _selfloop_nodes_gen(G):
     # br-r37-c1-mgselfloopnodes (cc): nodes_with_selfloops_rust raises on
     # multigraphs, so MG/MDG fell to the `node in G.adj[node]` generator that
     # materializes a per-node AdjacencyView (~1175x slower than nx). Route
     # multigraphs to the native _native_selfloop_nodes scan instead (node-order-
     # exact, same as selfloop_edges); simple graphs keep nodes_with_selfloops_rust.
+    nodes = None
     if G.is_multigraph():
         nsl = getattr(G, "_native_selfloop_nodes", None)
         if nsl is not None:
             try:
-                return iter(nsl())
+                nodes = nsl()
             except Exception:
-                pass
-    try:
-        return iter(_fnx.nodes_with_selfloops_rust(G))
-    except Exception:
-        return (node for node in G.adj if node in G.adj[node])
+                nodes = None
+    if nodes is None:
+        try:
+            nodes = _fnx.nodes_with_selfloops_rust(G)
+        except Exception:
+            nodes = None
+    if nodes is None:
+        yield from (node for node in G.adj if node in G.adj[node])
+    else:
+        yield from nodes
 
 
 def all_neighbors(graph, node):
