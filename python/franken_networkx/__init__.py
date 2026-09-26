@@ -47357,10 +47357,81 @@ def number_of_walks(G, walk_length, *, backend=None, **backend_kwargs):
 
 
 def recursive_simple_cycles(G):
-    """Find all simple cycles using recursive DFS."""
+    """Find all simple cycles using recursive DFS.
+
+    br-r37-c1-spyv7: networkx's Johnson recursion, not simple_cycles. Its
+    cycles come grouped by their least node in G's INSERTION order, each
+    starting there, in DFS order over G's successor order; simple_cycles
+    follows hash order, which for str nodes differs from networkx and
+    between processes. Like networkx (mutates_input=True) it removes one
+    selfloop per node from G, recording [v] for each. The subgraph per start
+    node is a successor dict filtered by rank: the strongly connected
+    component of s among the nodes ranked at or after it is what networkx's
+    min-over-components picks, and forward-and-backward reachability finds it.
+    """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    return list(simple_cycles(G))
+
+    def _unblock(thisnode):
+        if blocked[thisnode]:
+            blocked[thisnode] = False
+            while B[thisnode]:
+                _unblock(B[thisnode].pop())
+
+    def circuit(thisnode, startnode, component):
+        closed = False
+        path.append(thisnode)
+        blocked[thisnode] = True
+        for nextnode in component[thisnode]:
+            if nextnode == startnode:
+                result.append(path[:])
+                closed = True
+            elif not blocked[nextnode]:
+                if circuit(nextnode, startnode, component):
+                    closed = True
+        if closed:
+            _unblock(thisnode)
+        else:
+            for nextnode in component[thisnode]:
+                if thisnode not in B[nextnode]:
+                    B[nextnode].append(thisnode)
+        path.pop()
+        return closed
+
+    def _reach(source, adjacency, rank):
+        seen = {source}
+        stack = [source]
+        while stack:
+            for nbr in adjacency[stack.pop()]:
+                if nbr not in seen and ordering[nbr] >= rank:
+                    seen.add(nbr)
+                    stack.append(nbr)
+        return seen
+
+    path = []
+    blocked = _defaultdict(bool)
+    B = _defaultdict(list)
+    result = []
+    for v in list(G):
+        if G.has_edge(v, v):
+            result.append([v])
+            G.remove_edge(v, v)
+
+    ordering = {node: rank for rank, node in enumerate(G)}
+    succ = {u: list(nbrs) for u, nbrs in G.adj.items()}
+    pred = {u: [] for u in succ}
+    for u, nbrs in succ.items():
+        for v in nbrs:
+            pred[v].append(u)
+    for s, rank in ordering.items():
+        comp = _reach(s, succ, rank) & _reach(s, pred, rank)
+        if len(comp) > 1:
+            component = {u: [v for v in succ[u] if v in comp] for u in comp}
+            for node in comp:
+                blocked[node] = False
+                B[node][:] = []
+            circuit(s, s, component)
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -269,6 +269,66 @@ def test_recursive_simple_cycles_matches_networkx(name, edges, nodes):
     assert fr == nr, f"{name}: fnx={fr} nx={nr}"
 
 
+# br-r37-c1-spyv7: the sorted comparison above cannot see ORDER or ROTATION.
+# networkx groups cycles by their least node in insertion order, each starting
+# there, in DFS order over successor order - for str (hash-ordered) nodes fnx
+# followed simple_cycles' hash order, which also moved with PYTHONHASHSEED. And
+# networkx removes one selfloop per node from its input, recording [v].
+_RSC_LABELS = {
+    "int": lambda i: i,
+    "str": lambda i: f"n{i}",
+    "tuple": lambda i: (i, "x"),
+}
+
+
+def _rsc_case(seed, label):
+    import random
+
+    rng = random.Random(seed)
+    n = rng.randint(3, 9)
+    order = list(range(n))
+    rng.shuffle(order)
+    mk = _RSC_LABELS[label]
+    edges = [(mk(rng.randrange(n)), mk(rng.randrange(n))) for _ in range(rng.randint(n, 3 * n))]
+    return [mk(i) for i in order], edges
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("label", sorted(_RSC_LABELS))
+def test_recursive_simple_cycles_order_rotation_and_selfloops_match_networkx(cls, label):
+    for seed in range(40):
+        nodes, edges = _rsc_case(seed, label)
+        fg, ng = getattr(fnx, cls)(), getattr(nx, cls)()
+        for g in (fg, ng):
+            g.add_nodes_from(nodes)
+            g.add_edges_from(edges)
+        assert fnx.recursive_simple_cycles(fg) == nx.recursive_simple_cycles(ng), seed
+        assert sorted(map(repr, fnx.selfloop_edges(fg))) == sorted(map(repr, nx.selfloop_edges(ng))), seed
+
+
+def test_recursive_simple_cycles_does_not_depend_on_the_hash_seed():
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import franken_networkx as fnx\n"
+        "g = fnx.DiGraph([('n%d' % i, 'n%d' % ((i + 1) % 6)) for i in range(6)] + [('n0', 'n3'), ('n4', 'n1')])\n"
+        "print(fnx.recursive_simple_cycles(g))\n"
+    )
+    outputs = {
+        subprocess.run(
+            [sys.executable, "-c", code],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True, text=True, check=True,
+        ).stdout
+        for seed in ("0", "1", "2", "3")
+    }
+    assert outputs == {
+        "[['n0', 'n1', 'n2', 'n3', 'n4', 'n5'], ['n0', 'n3', 'n4', 'n5'], ['n1', 'n2', 'n3', 'n4']]\n"
+    }
+
+
 # ---------------------------------------------------------------------------
 # minimum_cycle_basis
 # ---------------------------------------------------------------------------
