@@ -6457,15 +6457,16 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
             # A (u, v) pair is networkx's add_edge(u, v, **attr) unless an
             # attr name is one of add_edge's own parameters (``key`` above
             # all); any other shape goes through this function as a one-edge
-            # list.
+            # list. Either way the keys given are collected (br-r37-c1-xpilu).
             add_edge = self.add_edge
             pairs_direct = attr.keys().isdisjoint(_ADD_EDGE_PARAMETER_NAMES)
+            keylist = []
             for _e in ebunch_to_add:
                 if pairs_direct and type(_e) is tuple and len(_e) == 2:
-                    add_edge(*_e, **attr)
+                    keylist.append(add_edge(*_e, **attr))
                 else:
-                    _multi_add_edges_from(self, [_e], **attr)
-            return
+                    keylist.extend(_multi_add_edges_from(self, [_e], **attr))
+            return keylist
         _buffered = []
         try:
             for _e in ebunch_to_add:
@@ -6475,33 +6476,42 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
                 _multi_add_edges_from(self, _buffered, **attr)
             raise
         ebunch_to_add = _buffered
+    # Each native batch below returns the list of keys it gave the edges -
+    # networkx's return value (br-r37-c1-xpilu) - or None, having added nothing,
+    # for a shape it does not take.
     if not attr and isinstance(ebunch_to_add, (list, tuple)):
         _native_batch = getattr(self, "_try_add_edges_from_batch", None)
-        if _native_batch is not None and _native_batch(ebunch_to_add):
-            return
+        if _native_batch is not None and (keys := _native_batch(ebunch_to_add)) is not None:
+            return keys
         # br-r37-c1-04z53.80: exact `(int, int, non-empty str)` keyed-edge
         # batch on a fresh MultiGraph. Keep this before the attributed batch so
         # string keys avoid the per-edge Python add_edge loop, but let ambiguous
         # 3-tuples (empty string / dict-able data / non-string keys) fall through
         # to the NetworkX disambiguation below.
         _native_str_key_batch = getattr(self, "_try_add_str_keyed_edges_from_batch", None)
-        if _native_str_key_batch is not None and _native_str_key_batch(ebunch_to_add):
-            return
+        if (
+            _native_str_key_batch is not None
+            and (keys := _native_str_key_batch(ebunch_to_add)) is not None
+        ):
+            return keys
         # br-r37-c1-trzrx: attributed/mixed `(u, v, data)` batch on a fresh
         # MultiGraph (no **attr) — native single-commit insert instead of the
         # per-edge add_edge loop below (~3.6x nx on attributed construction).
-        # Returns False (no mutation) for anything outside the fast shape.
         _native_attr_batch = getattr(self, "_try_add_attr_edges_from_batch", None)
-        if _native_attr_batch is not None and _native_attr_batch(ebunch_to_add):
-            return
+        if _native_attr_batch is not None and (keys := _native_attr_batch(ebunch_to_add)) is not None:
+            return keys
     elif attr and type(self) in (MultiGraph, MultiDiGraph) and isinstance(ebunch_to_add, (list, tuple)):
         _native_attr_batch = getattr(self, "_try_add_attr_edges_from_batch", None)
-        if _native_attr_batch is not None and _native_attr_batch(ebunch_to_add, attr):
-            return
+        if (
+            _native_attr_batch is not None
+            and (keys := _native_attr_batch(ebunch_to_add, attr)) is not None
+        ):
+            return keys
     if isinstance(self, MultiGraph) and not self.is_directed():
         _add_edge = _MULTIGRAPH_ADD_EDGE_RAW.__get__(self)
     else:
         _add_edge = _MULTIDIGRAPH_ADD_EDGE_RAW.__get__(self)
+    keylist = []
     for e in ebunch_to_add:
         ne = len(e)
         if ne == 4:
@@ -6540,6 +6550,8 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
         actual_key = _add_edge(u, v, key=key)
         if ddd:
             self.get_edge_data(u, v, actual_key).update(ddd)
+        keylist.append(actual_key)
+    return keylist
 
 
 MultiGraph.add_edges_from = _multi_add_edges_from

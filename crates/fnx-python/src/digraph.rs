@@ -3728,7 +3728,7 @@ impl PyMultiDiGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<Py<PyList>>> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.node_count() != 0
             || self.inner.edge_count() != 0
@@ -3739,28 +3739,29 @@ impl PyMultiDiGraph {
             || !self.succ_py_keys.is_empty()
             || !self.pred_py_keys.is_empty()
         {
-            return Ok(false);
+            return Ok(None);
         }
 
         let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())?
         } else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
-            return Ok(false);
+            return Ok(None);
         };
+        let keys = crate::batch_key_list(py, edges.iter().map(|edge| edge.2))?;
         self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
-        Ok(true)
+        Ok(Some(keys))
     }
 
     /// br-r37-c1-z9f09: fresh unkeyed attributed MultiDiGraph batches with
@@ -3873,10 +3874,10 @@ impl PyMultiDiGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<Py<PyList>>> {
         #[cfg(test)]
         if FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.load(Ordering::Relaxed) {
-            return Ok(false);
+            return Ok(None);
         }
 
         const ATTR_EDGE_BATCH_MIN: usize = 8;
@@ -3889,28 +3890,29 @@ impl PyMultiDiGraph {
             || !self.succ_py_keys.is_empty()
             || !self.pred_py_keys.is_empty()
         {
-            return Ok(false);
+            return Ok(None);
         }
 
         let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             self.collect_fresh_exact_string_attr_edge_batch(py, list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             self.collect_fresh_exact_string_attr_edge_batch(py, tuple.iter(), tuple.len())?
         } else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
-            return Ok(false);
+            return Ok(None);
         };
+        let keys = crate::batch_key_list(py, edges.iter().map(|edge| edge.2))?;
         self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
-        Ok(true)
+        Ok(Some(keys))
     }
 
     /// br-edgekeyedbatch (bt): keyed sibling of collect_fresh_exact_int_attr_edge_batch
@@ -4042,7 +4044,7 @@ impl PyMultiDiGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<Py<PyList>>> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.node_count() != 0
             || self.inner.edge_count() != 0
@@ -4053,28 +4055,29 @@ impl PyMultiDiGraph {
             || !self.succ_py_keys.is_empty()
             || !self.pred_py_keys.is_empty()
         {
-            return Ok(false);
+            return Ok(None);
         }
 
         let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             self.collect_fresh_exact_int_keyed_attr_edge_batch(py, list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             self.collect_fresh_exact_int_keyed_attr_edge_batch(py, tuple.iter(), tuple.len())?
         } else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
-            return Ok(false);
+            return Ok(None);
         };
+        let keys = crate::batch_key_list(py, edges.iter().map(|edge| edge.2))?;
         self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
-        Ok(true)
+        Ok(Some(keys))
     }
 
     /// br-edgekeyedbatch (bt): EDGES-ONLY keyed batch for an edgeless graph whose
@@ -4090,7 +4093,7 @@ impl PyMultiDiGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<Py<PyList>>> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         // Edgeless + no edge/cell mirror state (no collision / first-wins concerns).
         // Nodes (and node attrs) MAY exist.
@@ -4101,20 +4104,20 @@ impl PyMultiDiGraph {
             || !self.pred_py_keys.is_empty()
             || !self.live_keydict_rows.is_empty()
         {
-            return Ok(false);
+            return Ok(None);
         }
         let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             list.iter().collect()
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             tuple.iter().collect()
         } else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
@@ -4122,10 +4125,10 @@ impl PyMultiDiGraph {
         let mut seen_pair_key: HashSet<(String, String, usize)> = HashSet::new();
         for item in &items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
-                return Ok(false);
+                return Ok(None);
             };
             if tuple.len() != 4 {
-                return Ok(false);
+                return Ok(None);
             }
             let u = tuple.get_item(0)?;
             let v = tuple.get_item(1)?;
@@ -4134,10 +4137,10 @@ impl PyMultiDiGraph {
                 || u.is_exact_instance_of::<PyBool>()
                 || v.is_exact_instance_of::<PyBool>()
             {
-                return Ok(false);
+                return Ok(None);
             }
             let (Ok(u_value), Ok(v_value)) = (u.extract::<i64>(), v.extract::<i64>()) else {
-                return Ok(false);
+                return Ok(None);
             };
             let u_canonical = u_value.to_string();
             let v_canonical = v_value.to_string();
@@ -4145,39 +4148,39 @@ impl PyMultiDiGraph {
             if !self.node_key_map.contains_key(&u_canonical)
                 || !self.node_key_map.contains_key(&v_canonical)
             {
-                return Ok(false);
+                return Ok(None);
             }
             let key_obj = tuple.get_item(2)?;
             if !key_obj.is_exact_instance_of::<PyInt>() || key_obj.is_exact_instance_of::<PyBool>()
             {
-                return Ok(false);
+                return Ok(None);
             }
             let Ok(key) = key_obj.extract::<usize>() else {
-                return Ok(false);
+                return Ok(None);
             };
             let fourth = tuple.get_item(3)?;
             let Ok(dict) = fourth.downcast::<PyDict>() else {
-                return Ok(false);
+                return Ok(None);
             };
             if !crate::attr_dict_is_batch_lossless(dict) {
-                return Ok(false);
+                return Ok(None);
             }
             let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
                 Ok(converted) => converted,
-                Err(_) => return Ok(false),
+                Err(_) => return Ok(None),
             };
             let (attrs, mirror) = match fast_weight {
                 Some(converted) => converted,
                 None => match py_dict_to_attr_map_with_mirror(py, dict) {
                     Ok(converted) => converted,
-                    Err(_) => return Ok(false),
+                    Err(_) => return Ok(None),
                 },
             };
             if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
-                return Ok(false);
+                return Ok(None);
             }
             if !seen_pair_key.insert((u_canonical.clone(), v_canonical.clone(), key)) {
-                return Ok(false);
+                return Ok(None);
             }
             if !mirror.bind(py).is_empty() {
                 mirrors.push(((u_canonical.clone(), v_canonical.clone(), key), mirror));
@@ -4186,6 +4189,7 @@ impl PyMultiDiGraph {
         }
 
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        let keys = crate::batch_key_list(py, edges.iter().map(|edge| edge.2))?;
         for ((source, target, key), mirror) in mirrors {
             self.edge_py_attrs
                 .entry(Self::edge_key(&source, &target, key))
@@ -4193,7 +4197,7 @@ impl PyMultiDiGraph {
         }
         let _inserted = self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
-        Ok(true)
+        Ok(Some(keys))
     }
 }
 
@@ -4939,7 +4943,7 @@ impl PyMultiDiGraph {
                 g.absorb_exact_int_str_keyed_ctor_batch(py, batch)?;
             } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, edata)? {
                 // Constructor-only batch path for exact int endpoints + exact str keys.
-            } else if g._try_add_attr_edges_from_batch(py, edata, None)? {
+            } else if g._try_add_attr_edges_from_batch(py, edata, None)?.is_some() {
                 // br-r37-c1-ctorbatch (cc): (u,v,attr_dict) 3-tuples route through
                 // the add_edges_from fast batch (lazy mirrors); try_absorb above
                 // only handles (u,v)/(u,v,key_string)/(u,v,key,dict), so weighted
@@ -5410,12 +5414,13 @@ impl PyMultiDiGraph {
     /// on a FRESH MultiDiGraph (no existing edges). See
     /// `PyMultiGraph::_try_add_edges_from_batch` — directed edges are NOT
     /// canonicalized, so the per-pair sequential auto-key tracks `(u, v)` in
-    /// order. Returns `false` (no mutation) for anything outside the fast shape.
+    /// order. Returns the keys it gave the edges (networkx's `add_edges_from`
+    /// return value), or `None` - no mutation - outside the fast shape.
     fn _try_add_edges_from_batch(
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<Py<PyList>>> {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
         // A fresh-graph batch skips per-edge keydict maintenance: bail if a
         // ghost keydict row exists (the only kind an edgeless graph can hold).
@@ -5424,20 +5429,20 @@ impl PyMultiDiGraph {
             || !self.pred_py_keys.is_empty()
             || !self.live_keydict_rows.is_empty()
         {
-            return Ok(false);
+            return Ok(None);
         }
         let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             list.iter().collect()
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < PLAIN_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             tuple.iter().collect()
         } else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
@@ -5455,22 +5460,22 @@ impl PyMultiDiGraph {
 
         for item in &items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
-                return Ok(false);
+                return Ok(None);
             };
             if tuple.len() != 2 {
-                return Ok(false);
+                return Ok(None);
             }
             let u = tuple.get_item(0)?;
             let v = tuple.get_item(1)?;
             if !PyDiGraph::is_plain_batch_node(&u) || !PyDiGraph::is_plain_batch_node(&v) {
-                return Ok(false);
+                return Ok(None);
             }
             let uc = node_key_to_string(py, &u)?;
             let vc = node_key_to_string(py, &v)?;
             if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
                 || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
             {
-                return Ok(false);
+                return Ok(None);
             }
             if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
                 node_bumps = node_bumps.wrapping_add(1);
@@ -5488,6 +5493,7 @@ impl PyMultiDiGraph {
         }
 
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        let keys = crate::batch_key_list(py, edges.iter().map(|edge| edge.2))?;
         let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
             let mirror_key = if mirror_active {
@@ -5503,7 +5509,7 @@ impl PyMultiDiGraph {
         self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
-        Ok(true)
+        Ok(Some(keys))
     }
 
     /// br-r37-c1-nodebatch: native attributed-node batch for
@@ -5600,7 +5606,7 @@ impl PyMultiDiGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<Py<PyList>>> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         // br-r37-c1-edgebatchlossless (cc): non-scalar per-edge/global attr -> per-edge
         // add_edge (sub-batches rebuild lazy mirrors from the scalar-only store).
@@ -5609,17 +5615,18 @@ impl PyMultiDiGraph {
             || !crate::ebunch_batch_lossless(ebunch_to_add)?
             || !self.live_keydict_rows.is_empty()
         {
-            return Ok(false);
+            return Ok(None);
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
-            && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
+            && let Some(keys) = self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
         {
-            return Ok(true);
+            return Ok(Some(keys));
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
-            && self.try_add_fresh_exact_string_attr_edge_batch(py, ebunch_to_add)?
+            && let Some(keys) =
+                self.try_add_fresh_exact_string_attr_edge_batch(py, ebunch_to_add)?
         {
-            return Ok(true);
+            return Ok(Some(keys));
         }
         // br-edgekeyedbatch (bt): 4-tuple (u, v, key, attrs) explicit-key sibling —
         // the auto-key attempt above bails on the 4-tuple shape. Self-validates
@@ -5627,17 +5634,19 @@ impl PyMultiDiGraph {
         // bails to per-edge otherwise, so add_edges_from of keyed multigraph edges
         // (subgraph().copy(), keyed rebuilds) stops paying per-edge PyO3 (was 0.33x).
         if global_attr.is_none_or(|attrs| attrs.is_empty())
-            && self.try_add_fresh_exact_int_keyed_attr_edge_batch(py, ebunch_to_add)?
+            && let Some(keys) =
+                self.try_add_fresh_exact_int_keyed_attr_edge_batch(py, ebunch_to_add)?
         {
-            return Ok(true);
+            return Ok(Some(keys));
         }
         // br-edgekeyedbatch (bt): edges-only keyed batch for an edgeless graph whose
         // nodes already exist (subgraph().copy() — fresh keyed batch above bailed on
         // node_count!=0). Bails to per-edge if any endpoint is new.
         if global_attr.is_none_or(|attrs| attrs.is_empty())
-            && self.try_add_keyed_attr_edges_existing_nodes_batch(py, ebunch_to_add)?
+            && let Some(keys) =
+                self.try_add_keyed_attr_edges_existing_nodes_batch(py, ebunch_to_add)?
         {
-            return Ok(true);
+            return Ok(Some(keys));
         }
         // A fresh-graph batch skips per-edge keydict maintenance: bail if a
         // ghost keydict row exists (the only kind an edgeless graph can hold).
@@ -5646,20 +5655,20 @@ impl PyMultiDiGraph {
             || !self.pred_py_keys.is_empty()
             || !self.live_keydict_rows.is_empty()
         {
-            return Ok(false);
+            return Ok(None);
         }
         let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             list.iter().collect()
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
-                return Ok(false);
+                return Ok(None);
             }
             tuple.iter().collect()
         } else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let global_map: fnx_classes::AttrMap = match global_attr {
@@ -5671,7 +5680,7 @@ impl PyMultiDiGraph {
                 {
                     attrs
                 }
-                _ => return Ok(false),
+                _ => return Ok(None),
             },
             _ => fnx_classes::AttrMap::new(),
         };
@@ -5691,28 +5700,28 @@ impl PyMultiDiGraph {
 
         for item in &items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
-                return Ok(false);
+                return Ok(None);
             };
             let tlen = tuple.len();
             if !(2..=3).contains(&tlen) {
-                return Ok(false);
+                return Ok(None);
             }
             let u = tuple.get_item(0)?;
             let v = tuple.get_item(1)?;
             if !PyDiGraph::is_plain_batch_node(&u) || !PyDiGraph::is_plain_batch_node(&v) {
-                return Ok(false);
+                return Ok(None);
             }
             let (rust_attrs, src): (fnx_classes::AttrMap, Option<Bound<'_, PyDict>>) = if tlen == 3
             {
                 let third = tuple.get_item(2)?;
                 let Ok(d) = third.downcast::<PyDict>() else {
-                    return Ok(false);
+                    return Ok(None);
                 };
                 let Ok(attrs) = py_dict_to_attr_map(d) else {
-                    return Ok(false);
+                    return Ok(None);
                 };
                 if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 if global_map.is_empty() {
                     (attrs, Some(d.clone()))
@@ -5735,15 +5744,15 @@ impl PyMultiDiGraph {
             };
 
             let Ok(uc) = node_key_to_string(py, &u) else {
-                return Ok(false);
+                return Ok(None);
             };
             let Ok(vc) = node_key_to_string(py, &v) else {
-                return Ok(false);
+                return Ok(None);
             };
             if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
                 || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
             {
-                return Ok(false);
+                return Ok(None);
             }
             if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
                 node_bumps = node_bumps.wrapping_add(1);
@@ -5768,6 +5777,7 @@ impl PyMultiDiGraph {
         }
 
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
+        let keys = crate::batch_key_list(py, edges.iter().map(|edge| edge.2))?;
         for (canonical, node) in new_nodes {
             self.node_key_map.entry(canonical).or_insert(node);
         }
@@ -5777,7 +5787,7 @@ impl PyMultiDiGraph {
         self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
-        Ok(true)
+        Ok(Some(keys))
     }
 
     /// br-r37-c1-urle5b: native `(u, v, key)` no-data batch on a FRESH
@@ -20203,7 +20213,7 @@ mod tests {
         FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.store(force_general, Ordering::Relaxed);
         let added = graph._try_add_attr_edges_from_batch(py, rows.as_any(), None);
         FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.store(false, Ordering::Relaxed);
-        if !added? {
+        if added?.is_none() {
             return Err(PyRuntimeError::new_err(
                 "attributed MultiDiGraph batch declined test fixture",
             ));
