@@ -33140,15 +33140,14 @@ def line_graph(G, create_using=None):
     # edges; the native kernel canonicalizes each tuple once and assembles the
     # L-edges in Rust by integer index (vs the per-edge tuple re-canonicalization
     # below — the tuple-key construction tax, ~55% of the Python path). The
-    # directed L-edge orientation is intrinsic; the undirected output's node/edge
-    # ITERATION ORDER differs from nx's CPython-set order, which is safe because
-    # every line_graph parity test is order-insensitive (sorted(edges()), endpoint
-    # normalization). Multigraphs / create_using cases stay on the Python path
-    # below; the kernel returns None for anything it can't serve.
-    if create_using is None and not G.is_multigraph():
-        _fast = _fnx.line_graph_fast(_coerce_arg_to_fnx_graph(G))
-        if _fast is not None:
-            return _fast
+    # directed L-edge orientation is intrinsic and its order is nx's.
+    # br-r37-c1-bmeog: that kernel is no longer called. It built the right edge
+    # set in another ORDER - list(L) and list(L.edges()) are part of the output,
+    # and the parity tests that accepted it sorted their edges. nx's directed L
+    # adds each edge-node and then its successors' edge-nodes as it meets them;
+    # its undirected L adds the degree-1 edge-nodes as it walks G and then a set
+    # of pairs, in that set's iteration order. The path below builds both exactly
+    # (still ahead of nx: 1.35x directed, 1.49x undirected on 6,000 edges).
 
     graph = _empty_graph_from_create_using(create_using, default=_concrete_class_for(G))
 

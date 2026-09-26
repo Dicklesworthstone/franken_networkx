@@ -513,3 +513,27 @@ def test_make_max_clique_graph_create_using_matches_networkx_without_fallback(mo
     assert result.is_multigraph()
     assert sorted(result.nodes(data=True)) == sorted(expected.nodes(data=True))
     assert _edge_records(result) == _edge_records(expected)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("label", ["int", "str"])
+def test_line_graph_node_and_edge_order_match_networkx(cls, label):
+    # br-r37-c1-bmeog: list(L) and list(L.edges()) are part of line_graph's
+    # output. nx's undirected L takes each degree-1 edge-node as it walks G, then
+    # add_edges_from over a set built in a fixed order; fnx's native kernel gave
+    # the same set in another order (the old parity tests sorted their edges).
+    import random
+
+    import networkx as nx
+
+    for seed in range(30):
+        rng = random.Random(seed)
+        n = rng.randint(3, 12)
+        mk = (lambda i: f"v{i}") if label == "str" else (lambda i: i)
+        edges = [(mk(rng.randrange(n)), mk(rng.randrange(n))) for _ in range(rng.randint(n, 3 * n))]
+        g, h = getattr(fnx, cls)(edges), getattr(nx, cls)(edges)
+        g.add_nodes_from([mk(n)])
+        h.add_nodes_from([mk(n)])
+        got, expected = fnx.line_graph(g), nx.line_graph(h)
+        assert list(got) == list(expected), seed
+        assert list(got.edges()) == list(expected.edges()), seed
