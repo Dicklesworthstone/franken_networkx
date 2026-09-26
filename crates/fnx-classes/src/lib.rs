@@ -4775,6 +4775,40 @@ mod multigraph_storage {
                 self.rows[slot] = new_row;
             }
         }
+
+        /// br-r37-c1-36v6r: order each row as `source`'s row for the node of
+        /// the same name - see Graph::reorder_rows_like. A stable sort on the
+        /// neighbour's position in the source row, so entries the source row
+        /// lacks keep their relative order after the matched ones; keyed
+        /// cells move with their neighbour. Whether any row moved.
+        pub fn reorder_rows_like(&mut self, source: &Self) -> bool {
+            let mut to_source = vec![usize::MAX; self.node_order.slot_count()];
+            for (name, slot) in self.node_order.iter() {
+                if let Some(&source_slot) = source.node_order.get(name) {
+                    to_source[slot] = source_slot;
+                }
+            }
+            let mut changed = false;
+            for slot in self.node_order.values() {
+                let row = &mut self.rows[slot];
+                let Some(source_row) = source.rows.get(to_source[slot]) else {
+                    continue;
+                };
+                if row.len() < 2 {
+                    continue;
+                }
+                let rank = |w: &usize| {
+                    source_row
+                        .get_index_of(&to_source[*w])
+                        .unwrap_or(usize::MAX)
+                };
+                if !row.keys().map(rank).is_sorted() {
+                    row.sort_by_cached_key(|w, _| rank(w));
+                    changed = true;
+                }
+            }
+            changed
+        }
     }
 }
 
@@ -4862,6 +4896,22 @@ impl MultiGraph {
             .0
             .get_mut()
             .expect("int_adj_cache poisoned") = None;
+    }
+
+    /// br-r37-c1-36v6r: order each row as `source`'s row for the node of the
+    /// same name - a graph built from a filtered view of `source` by a
+    /// copy-shaped walk, whose rows the view shows as `source`'s rows
+    /// filtered (see Graph::reorder_rows_like). Cells move wholesale; like
+    /// `apply_row_orders`, drops the int-adjacency memo rather than moving
+    /// `revision`.
+    pub fn reorder_rows_like(&mut self, source: &Self) {
+        if self.storage.reorder_rows_like(&source.storage) {
+            *self
+                .int_adj_cache
+                .0
+                .get_mut()
+                .expect("int_adj_cache poisoned") = None;
+        }
     }
 
     #[must_use]
@@ -6913,6 +6963,35 @@ mod tests {
         assert!(!g.set_row_orders(&[vec![1, 7], vec![0, 2], vec![0, 1]]));
         assert_eq!(g.neighbors("a"), Some(vec!["c", "b"]));
         assert_eq!(g.revision, before);
+    }
+
+    #[test]
+    fn multigraph_reorder_rows_like_restores_the_source_rows() {
+        // br-r37-c1-36v6r: source row x [c, a, b]; the pair x-a has two keys.
+        let mut source = MultiGraph::strict();
+        for (u, v) in [("x", "c"), ("x", "a"), ("x", "b"), ("x", "a")] {
+            let _ = source.add_edge(u, v);
+        }
+        // A copy-shaped rebuild over [a, b, c, x, y] fills row x in walk
+        // order, plus a neighbour the source lacks.
+        let mut copy = MultiGraph::strict();
+        for node in ["a", "b", "c", "x", "y"] {
+            let _ = copy.add_node(node);
+        }
+        for (u, v) in [("a", "x"), ("a", "x"), ("b", "x"), ("c", "x"), ("x", "y")] {
+            let _ = copy.add_edge(u, v);
+        }
+        assert_eq!(copy.neighbors("x"), Some(vec!["a", "b", "c", "y"]));
+        assert_int_adjacency_matches(&copy); // warms the int-adjacency memo
+        copy.reorder_rows_like(&source);
+        // The unmatched neighbour keeps its place after the matched ones;
+        // the keyed cell moves with its neighbour.
+        assert_eq!(copy.neighbors("x"), Some(vec!["c", "a", "b", "y"]));
+        assert_eq!(copy.neighbors("a"), Some(vec!["x"]));
+        assert_eq!(copy.edge_keys("x", "a"), Some(vec![0, 1]));
+        assert_eq!(copy.edge_count(), 5);
+        // The memo is rebuilt from the reordered rows, not served stale.
+        assert_int_adjacency_matches(&copy);
     }
 
     /// br-r37-c1-thp6w S4: the memo is keyed at the CURRENT revision without any

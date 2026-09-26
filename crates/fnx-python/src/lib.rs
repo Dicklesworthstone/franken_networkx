@@ -679,6 +679,57 @@ pub(crate) fn rows_as_positions(
     Ok(Some(out))
 }
 
+/// br-r37-c1-36v6r: (node, row) pairs of node keys as the canonical pairs a
+/// multigraph's `apply_row_orders` takes.
+pub(crate) fn rows_as_canonical_orders(
+    py: Python<'_>,
+    rows: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(String, Vec<String>)>> {
+    let mut out = Vec::new();
+    for pair in rows.try_iter()? {
+        let (node, row): (Bound<'_, PyAny>, Bound<'_, PyAny>) = pair?.extract()?;
+        let mut order = Vec::new();
+        for key in row.try_iter()? {
+            order.push(node_key_to_string(py, &key?)?);
+        }
+        out.push((node_key_to_string(py, &node)?, order));
+    }
+    Ok(out)
+}
+
+#[pymethods]
+impl PyMultiGraph {
+    /// br-r37-c1-36v6r: order every adjacency row as `source`'s row for the
+    /// same node (`MultiGraph::reorder_rows_like`) - see
+    /// PyGraph::_fnx_reorder_rows_like. Keyed cells move wholesale. False,
+    /// and nothing changes, once a row's key mirror or the dict-of-dicts
+    /// cache was handed out.
+    fn _fnx_reorder_rows_like(&mut self, source: PyRef<'_, Self>) -> bool {
+        if self.neighbor_key_rows.is_some() || self.dict_of_dicts_cache.is_some() {
+            return false;
+        }
+        self.inner.reorder_rows_like(&source.inner);
+        self.bump_edges_seq();
+        true
+    }
+
+    /// br-r37-c1-36v6r: order the given rows as given: `rows` is (node, row)
+    /// pairs, rows as node keys. For the concrete graph of a multigraph view
+    /// whose rows no graph holds - a conversion view's, or a filtered row
+    /// that iterates the view's node set (networkx's FilterMultiInner).
+    /// Keyed cells move wholesale. False, and nothing changes, once a row's
+    /// key mirror or the dict-of-dicts cache was handed out.
+    fn _fnx_set_row_orders(&mut self, py: Python<'_>, rows: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if self.neighbor_key_rows.is_some() || self.dict_of_dicts_cache.is_some() {
+            return Ok(false);
+        }
+        let orders = rows_as_canonical_orders(py, rows)?;
+        self.inner.apply_row_orders(&orders);
+        self.bump_edges_seq();
+        Ok(true)
+    }
+}
+
 fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`

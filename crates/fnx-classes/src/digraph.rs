@@ -2472,6 +2472,60 @@ impl MultiDiGraph {
         self.apply_row_orders(&orders, true);
     }
 
+    /// br-r37-c1-36v6r: order the successor and predecessor rows as given -
+    /// a materialised view's rows, which no insertion history reproduces -
+    /// and move the revision, so revision-keyed memos (the CSR) rebuild from
+    /// the new rows. Keyed cells move wholesale.
+    pub fn set_row_orders(
+        &mut self,
+        succ: &[(String, Vec<String>)],
+        pred: &[(String, Vec<String>)],
+    ) {
+        self.apply_row_orders(succ, false);
+        self.apply_row_orders(pred, true);
+        self.revision = self.revision.saturating_add(1);
+        // Clones share the CSR memo, keyed by revision alone.
+        self.csr_cache = std::sync::Arc::default();
+    }
+
+    /// br-r37-c1-36v6r: order each successor and predecessor row as
+    /// `source`'s row for the node of the same name - its succ / pred rows,
+    /// or its pred / succ rows when `swap` (a reverse view's); see
+    /// DiGraph::reorder_rows_like. A stable sort on the neighbour's position
+    /// in the source row, so entries the source row lacks keep their
+    /// relative order after the matched ones. Keyed cells move wholesale;
+    /// `revision` moves if any row does.
+    pub fn reorder_rows_like(&mut self, source: &Self, swap: bool) {
+        fn reorder(rows: &mut MultiDiRows, source_rows: &MultiDiRows) -> bool {
+            let mut changed = false;
+            for (node, row) in rows.iter_mut() {
+                let Some(source_row) = source_rows.get(node.as_str()) else {
+                    continue;
+                };
+                if row.len() < 2 {
+                    continue;
+                }
+                let rank = |w: &String| source_row.get_index_of(w.as_str()).unwrap_or(usize::MAX);
+                if !row.keys().map(rank).is_sorted() {
+                    row.sort_by_cached_key(|w, _| rank(w));
+                    changed = true;
+                }
+            }
+            changed
+        }
+        let (succ_source, pred_source) = if swap {
+            (&source.predecessors, &source.successors)
+        } else {
+            (&source.successors, &source.predecessors)
+        };
+        let succ_changed = reorder(&mut self.successors, succ_source);
+        let pred_changed = reorder(&mut self.predecessors, pred_source);
+        if succ_changed || pred_changed {
+            self.revision = self.revision.saturating_add(1);
+            self.csr_cache = std::sync::Arc::default();
+        }
+    }
+
     /// br-r37-c1-u3qyn: restore explicit succ/pred row orders (pickle
     /// round-trip) — see Graph::apply_row_orders. Keyed cells move
     /// wholesale; `pred` selects the adjacency side.
@@ -4428,6 +4482,101 @@ mod tests {
         ));
         assert_eq!(g.successors("a"), Some(vec!["c", "b"]));
         assert_eq!(g.predecessors("a"), Some(vec!["c", "b"]));
+    }
+
+    #[test]
+    fn multidigraph_reorder_rows_like_restores_pred_rows_and_swaps_for_a_reverse() {
+        // br-r37-c1-36v6r: source succ x [b, a]; pred x [a, c, b]; the arc
+        // c -> x has two keys.
+        let mut source = MultiDiGraph::strict();
+        for (u, v) in [
+            ("a", "x"),
+            ("c", "x"),
+            ("b", "x"),
+            ("x", "b"),
+            ("x", "a"),
+            ("c", "x"),
+        ] {
+            let _ = source.add_edge(u, v);
+        }
+        // Copy-shaped rebuild over [x, a, b, c]: succ rows right, pred x
+        // filled in walk order [a, b, c].
+        let mut copy = MultiDiGraph::strict();
+        for node in ["x", "a", "b", "c"] {
+            let _ = copy.add_node(node);
+        }
+        for (u, v) in [
+            ("x", "b"),
+            ("x", "a"),
+            ("a", "x"),
+            ("b", "x"),
+            ("c", "x"),
+            ("c", "x"),
+        ] {
+            let _ = copy.add_edge(u, v);
+        }
+        assert_eq!(copy.predecessors("x"), Some(vec!["a", "b", "c"]));
+        let _ = copy.csr();
+        let before = copy.revision();
+        copy.reorder_rows_like(&source, false);
+        assert_eq!(copy.predecessors("x"), Some(vec!["a", "c", "b"]));
+        assert_eq!(copy.successors("x"), Some(vec!["b", "a"]));
+        assert_eq!(copy.edge_keys("c", "x"), Some(vec![0, 1]));
+        assert!(copy.revision() > before);
+        // The CSR is rebuilt from the reordered rows, not served stale.
+        let x = copy.get_node_index("x").unwrap();
+        let csr = copy.csr();
+        let names: Vec<&str> = csr
+            .predecessors(x)
+            .iter()
+            .map(|&i| copy.get_node_name(i as usize).unwrap())
+            .collect();
+        assert_eq!(names, vec!["a", "c", "b"]);
+        let after = copy.revision();
+        copy.reorder_rows_like(&source, false);
+        assert_eq!(copy.revision(), after, "an ordered graph is left alone");
+
+        // The reverse view's copy: its succ x is source's pred x [a, c, b]
+        // and its pred x source's succ x [b, a].
+        let mut reverse = MultiDiGraph::strict();
+        for node in ["x", "a", "b", "c"] {
+            let _ = reverse.add_node(node);
+        }
+        for (u, v) in [("x", "a"), ("x", "b"), ("x", "c"), ("a", "x"), ("b", "x")] {
+            let _ = reverse.add_edge(u, v);
+        }
+        reverse.reorder_rows_like(&source, true);
+        assert_eq!(reverse.successors("x"), Some(vec!["a", "c", "b"]));
+        assert_eq!(reverse.predecessors("x"), Some(vec!["b", "a"]));
+    }
+
+    #[test]
+    fn multidigraph_set_row_orders_orders_named_rows_and_moves_the_revision() {
+        let mut g = MultiDiGraph::strict();
+        for (u, v) in [("a", "b"), ("a", "c"), ("a", "b"), ("b", "a"), ("c", "a")] {
+            let _ = g.add_edge(u, v);
+        }
+        let _ = g.csr();
+        let before = g.revision();
+        let row = |node: &str, order: &[&str]| {
+            (
+                node.to_owned(),
+                order.iter().map(|&n| n.to_owned()).collect::<Vec<_>>(),
+            )
+        };
+        g.set_row_orders(&[row("a", &["c", "b"])], &[row("a", &["c", "b"])]);
+        assert_eq!(g.successors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.predecessors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.edge_keys("a", "b"), Some(vec![0, 1]));
+        assert!(g.revision() > before);
+        let a = g.get_node_index("a").unwrap();
+        let csr = g.csr();
+        let names: Vec<&str> = csr
+            .successors(a)
+            .iter()
+            .map(|&i| g.get_node_name(i as usize).unwrap())
+            .collect();
+        assert_eq!(names, vec!["c", "b"]);
     }
 
     #[test]

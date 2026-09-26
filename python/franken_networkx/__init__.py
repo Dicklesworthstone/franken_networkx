@@ -20988,41 +20988,60 @@ def _materialize_view(view):
     # views of a Graph, and every pred-row reader on a directed view,
     # followed the copy's order instead.
     row_root = _view_row_root(view)
-    if row_root is not None and row_root[0].is_directed() == out.is_directed():
-        root, swap = row_root
+    if (
+        row_root is not None
+        and row_root[0].is_directed() == out.is_directed()
+        and row_root[0].is_multigraph() == out.is_multigraph()
+    ):
+        root, swap, shortest_keep = row_root
         if out.is_directed():
             out._fnx_reorder_rows_like(root, swap)
         else:
             out._fnx_reorder_rows_like(root)
-    elif not out.is_multigraph():
+        if out.is_multigraph() and shortest_keep is not None:
+            _set_node_set_ordered_rows(view, root, out, shortest_keep)
+    else:
         # A conversion view in the chain: its rows are no graph's rows (a
         # to_undirected view's are set unions), so hand them over as read.
         nodes = list(out)
         if out.is_directed():
-            out._fnx_set_row_orders(
-                [list(view.succ[n]) for n in nodes], [list(view.pred[n]) for n in nodes]
-            )
-        elif type(view) is _UNDIRECTED_CONVERSION_VIEW_TYPES[False] and type(view._graph) is DiGraph:
-            out._fnx_set_row_orders([list(_union_row(view._graph, n)) for n in nodes])
+            rows = ([list(view.succ[n]) for n in nodes], [list(view.pred[n]) for n in nodes])
+        elif type(view) is _UNDIRECTED_CONVERSION_VIEW_TYPES[out.is_multigraph()] and type(
+            view._graph
+        ) is (MultiDiGraph if out.is_multigraph() else DiGraph):
+            rows = ([list(_union_row(view._graph, n)) for n in nodes],)
         else:
-            out._fnx_set_row_orders([list(view.adj[n]) for n in nodes])
+            rows = ([list(view.adj[n]) for n in nodes],)
+        if out.is_multigraph():  # a multigraph takes (node, row) pairs
+            rows = tuple(zip(nodes, side) for side in rows)
+        out._fnx_set_row_orders(*rows)
     if cache_key is not None:
         view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
     return out
 
 
 def _view_row_root(view):
-    """(root, swap) when every view from ``view`` down to the concrete
-    Graph / DiGraph at the root of its chain keeps the root's row order -
+    """(root, swap, shortest_keep) when every view from ``view`` down to
+    the concrete graph at the root of its chain keeps the root's row order -
     a filtered view iterates each parent row with entries filtered out
     (networkx's FilterAtlas has no ``.nodes`` shortcut for a row), a
     reverse view swaps succ and pred - else None: conversion views
-    (to_undirected's rows are a set union), multigraphs (not yet ordered
-    here), and a root whose rows live in networkx private storage."""
+    (to_undirected's rows are a set union) and a root whose rows live in
+    networkx private storage. ``shortest_keep`` is the size of the smallest
+    node set a filtered view in the chain filters on, None if none does: a
+    multigraph row longer than twice that can iterate the set instead (see
+    _set_node_set_ordered_rows)."""
     swap = False
+    shortest_keep = None
     node = view
     while True:
         if isinstance(node, _FilteredGraphView):
+            try:  # the view's own rule: an unsized .nodes never iterates
+                size = len(node._filter_node.nodes)
+            except (AttributeError, TypeError):
+                size = None
+            if size is not None and (shortest_keep is None or size < shortest_keep):
+                shortest_keep = size
             node = node._graph
         elif isinstance(node, _ReverseDirectedViewBase):
             swap = not swap
@@ -21030,12 +21049,35 @@ def _view_row_root(view):
         else:
             break
     if (
-        not isinstance(node, (Graph, DiGraph))
+        not isinstance(node, (Graph, DiGraph, MultiGraph, MultiDiGraph))
         or isinstance(node, _ConversionGraphViewBase)
         or _has_networkx_private_storage(node)
     ):
         return None
-    return node, swap
+    return node, swap, shortest_keep
+
+
+def _set_node_set_ordered_rows(view, root, out, shortest_keep):
+    """networkx's filtered MULTIGRAPH row iterates the view's node set
+    instead of its parent row once the row holds more than twice as many
+    neighbours as the set has nodes (FilterMultiInner reads NODE_OK.nodes;
+    br-r37-c1-0ek49), so the root's row order - which ``out`` was given -
+    is wrong for such a row. A row in the chain is never longer than its
+    node's degree in the root, so only nodes whose root degree passes twice
+    the smallest set can have one; their rows are handed over as the view
+    reads them."""
+    threshold = 2 * shortest_keep
+    if threshold >= len(root):  # no row holds more neighbours than the graph has nodes
+        return
+    nodes = [n for n, d in root.degree(list(out)) if d > threshold]
+    if not nodes:
+        return
+    if out.is_directed():
+        out._fnx_set_row_orders(
+            [(n, list(view.succ[n])) for n in nodes], [(n, list(view.pred[n])) for n in nodes]
+        )
+    else:
+        out._fnx_set_row_orders([(n, list(view.adj[n])) for n in nodes])
 
 
 def _rebuild_operator_output(output, cls):

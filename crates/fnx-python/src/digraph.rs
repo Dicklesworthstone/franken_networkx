@@ -19902,6 +19902,52 @@ pub fn register_digraph_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+#[pymethods]
+impl PyMultiDiGraph {
+    /// br-r37-c1-36v6r: order every successor and predecessor row as
+    /// `source`'s row for the same node - its pred / succ rows when `swap`
+    /// (`MultiDiGraph::reorder_rows_like`); see
+    /// PyDiGraph::_fnx_reorder_rows_like. False, and nothing changes, once a
+    /// row's key mirror or the dict-of-dicts cache was handed out.
+    fn _fnx_reorder_rows_like(&mut self, source: PyRef<'_, Self>, swap: bool) -> bool {
+        if self.row_mirror_out() {
+            return false;
+        }
+        self.inner.reorder_rows_like(&source.inner, swap);
+        self.bump_edges_seq();
+        true
+    }
+
+    /// br-r37-c1-36v6r: order the given successor and predecessor rows as
+    /// given: (node, row) pairs, rows as node keys. For the concrete graph
+    /// of a multigraph view (see PyMultiGraph::_fnx_set_row_orders). False,
+    /// and nothing changes, once a row's key mirror or the dict-of-dicts
+    /// cache was handed out.
+    fn _fnx_set_row_orders(
+        &mut self,
+        py: Python<'_>,
+        succ_rows: &Bound<'_, PyAny>,
+        pred_rows: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        if self.row_mirror_out() {
+            return Ok(false);
+        }
+        let succ = crate::rows_as_canonical_orders(py, succ_rows)?;
+        let pred = crate::rows_as_canonical_orders(py, pred_rows)?;
+        self.inner.set_row_orders(&succ, &pred);
+        self.bump_edges_seq();
+        Ok(true)
+    }
+}
+
+impl PyMultiDiGraph {
+    fn row_mirror_out(&self) -> bool {
+        self.succ_key_rows.is_some()
+            || self.pred_key_rows.is_some()
+            || self.dict_of_dicts_cache.is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

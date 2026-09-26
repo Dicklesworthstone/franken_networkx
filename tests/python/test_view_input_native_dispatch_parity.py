@@ -15,6 +15,7 @@ here drops nodes or edges, or turns them around.
 """
 
 import random
+from collections import Counter
 
 import networkx as nx
 import numpy as np
@@ -196,24 +197,49 @@ def test_a_user_subclass_of_a_graph_class_still_runs_on_its_own_storage():
 # came from view.copy(), which fills each row in edge-walk order, so bfs / dfs
 # order on an undirected view and every predecessor walk on a directed one
 # followed the copy. The parent's edges are inserted in shuffled order so no row
-# happens to be in walk order.
-def _shuffled(lib, directed):
+# happens to be in walk order. The multigraphs get a quarter of their edges
+# twice, and their restricted / edge_subgraph edges carry keys.
+def _shuffled(lib, directed, multi=False):
     rng = random.Random(3)
     edges = [(u, v) for u in range(40) for v in range(40) if u != v and rng.random() < 0.12]
+    if multi:
+        edges += [edge for edge in edges if rng.random() < 0.25]
     rng.shuffle(edges)
-    G = (lib.DiGraph if directed else lib.Graph)()
+    G = getattr(lib, ("Multi" if multi else "") + ("DiGraph" if directed else "Graph"))()
     G.add_nodes_from(range(40))
     G.add_edges_from(edges)
+    if multi:  # the key add_edges_from gave each edge
+        count = Counter()
+        keyed = []
+        for u, v in edges:
+            pair = (u, v) if directed else frozenset((u, v))
+            keyed.append((u, v, count[pair]))
+            count[pair] += 1
+        edges = keyed
     return G, edges
 
 
-def _row_view(lib, directed, kind):
-    G, edges = _shuffled(lib, directed)
+def _row_view(lib, directed, kind, multi=False):
+    G, edges = _shuffled(lib, directed, multi)
     keep = [n for n in range(40) if n % 7 != 3]
     if kind == "subgraph":
         return G.subgraph(keep)
     if kind == "small_subgraph":  # iterates the keep set, not the parent
         return G.subgraph([31, 4, 22, 9, 17, 0, 26, 13])
+    if kind.startswith("hub_subgraph") or kind == "subgraph_of_hub_subgraph":
+        # A multigraph row holding more than twice as many entries as the
+        # view keeps nodes iterates the KEPT NODE SET (networkx's
+        # FilterMultiInner reads NODE_OK.nodes), not the parent row: the
+        # widest row's node and a few of its neighbours, last-inserted first.
+        # Through a reverse view the wide row is a predecessor row.
+        hub = max(G, key=lambda n: (len(G.adj[n]), n))
+        row = list(G.adj[hub])
+        hub_keep = [hub, *row[::-1][: (len(row) - 1) // 2 - 1]]
+        if kind == "hub_subgraph_of_reverse":
+            return G.reverse(copy=False).subgraph(hub_keep)
+        if kind == "subgraph_of_hub_subgraph":
+            return G.subgraph(hub_keep).subgraph(hub_keep[:-1])
+        return G.subgraph(hub_keep)
     if kind == "restricted":
         return lib.restricted_view(G, [5, 17], edges[::6])
     if kind == "edge_subgraph":
@@ -236,24 +262,31 @@ def _row_view(lib, directed, kind):
 
 
 ROW_VIEWS = [
-    (directed, kind)
+    (directed, multi, kind)
+    for multi in (False, True)
     for directed in (False, True)
     for kind in ("subgraph", "small_subgraph", "restricted", "edge_subgraph")
+    + (("hub_subgraph", "subgraph_of_hub_subgraph") if multi else ())
 ] + [
-    (True, "reverse"),
-    (True, "reverse_of_subgraph"),
-    (True, "subgraph_of_reverse"),
-    (True, "to_undirected"),
-    (True, "subgraph_of_to_undirected"),
-    (False, "to_directed"),
-]
-ROW_IDS = [f"{'di' if d else 'un'}-{k}" for d, k in ROW_VIEWS]
+    (True, True, "hub_subgraph_of_reverse"),
+] + [
+    (True, multi, kind)
+    for multi in (False, True)
+    for kind in (
+        "reverse",
+        "reverse_of_subgraph",
+        "subgraph_of_reverse",
+        "to_undirected",
+        "subgraph_of_to_undirected",
+    )
+] + [(False, False, "to_directed"), (False, True, "to_directed")]
+ROW_IDS = [f"{'multi' if m else ''}{'di' if d else 'un'}-{k}" for d, m, k in ROW_VIEWS]
 
 
-@pytest.mark.parametrize(("directed", "kind"), ROW_VIEWS, ids=ROW_IDS)
-def test_the_concrete_graph_of_a_view_has_the_views_rows(directed, kind):
-    fnx_view = _row_view(fnx, directed, kind)
-    nx_view = _row_view(nx, directed, kind)
+@pytest.mark.parametrize(("directed", "multi", "kind"), ROW_VIEWS, ids=ROW_IDS)
+def test_the_concrete_graph_of_a_view_has_the_views_rows(directed, multi, kind):
+    fnx_view = _row_view(fnx, directed, kind, multi)
+    nx_view = _row_view(nx, directed, kind, multi)
     concrete = _materialize_view(fnx_view)
     assert list(concrete) == list(nx_view)
     assert {n: list(concrete[n]) for n in nx_view} == {n: list(nx_view[n]) for n in nx_view}
@@ -261,7 +294,13 @@ def test_the_concrete_graph_of_a_view_has_the_views_rows(directed, kind):
         assert {n: list(concrete.pred[n]) for n in nx_view} == {
             n: list(nx_view.pred[n]) for n in nx_view
         }
-    assert list(concrete.edges()) == list(nx_view.edges())
+    if multi:  # a pair's keys move with it, in the view's key order
+        assert {(n, m): list(concrete[n][m]) for n in nx_view for m in nx_view[n]} == {
+            (n, m): list(nx_view[n][m]) for n in nx_view for m in nx_view[n]
+        }
+        assert list(concrete.edges(keys=True)) == list(nx_view.edges(keys=True))
+    else:
+        assert list(concrete.edges()) == list(nx_view.edges())
 
 
 ROW_CALLS = [
@@ -275,11 +314,11 @@ ROW_CALLS = [
 ]
 
 
-@pytest.mark.parametrize(("directed", "kind"), ROW_VIEWS, ids=ROW_IDS)
+@pytest.mark.parametrize(("directed", "multi", "kind"), ROW_VIEWS, ids=ROW_IDS)
 @pytest.mark.parametrize(("name", "call"), ROW_CALLS, ids=[c[0] for c in ROW_CALLS])
-def test_traversal_order_on_a_view_is_networkxs(directed, kind, name, call):
-    fnx_view = _row_view(fnx, directed, kind)
-    nx_view = _row_view(nx, directed, kind)
+def test_traversal_order_on_a_view_is_networkxs(directed, multi, kind, name, call):
+    fnx_view = _row_view(fnx, directed, kind, multi)
+    nx_view = _row_view(nx, directed, kind, multi)
     for source in list(nx_view)[:3]:
         assert _outcome(lambda L, G: call(L, G, source), fnx, fnx_view) == _outcome(
             lambda L, G: call(L, G, source), nx, nx_view
@@ -410,3 +449,52 @@ def test_a_reverse_view_shares_its_parents_graph_dict():
         R.graph["c"] = 3
         assert R.graph is G.graph
         assert G.graph == {"a": 1, "b": 2, "c": 3}
+
+
+@pytest.mark.parametrize("directed", [False, True], ids=["multi", "multidi"])
+def test_multigraph_rows_are_set_only_while_nobody_holds_a_row_mirror(directed):
+    # A multigraph's rows are ordered as a source graph's (a directed graph's
+    # succ / pred rows, swapped for a reverse view) or set as given, (node,
+    # row) pairs; keyed cells move with their pair. Refused, as for a Graph,
+    # once a row's key mirror is out - neighbors() makes one, and a
+    # MultiDiGraph's successors() / predecessors(); a G[u] row reads the
+    # native row, so it follows.
+    cls = fnx.MultiDiGraph if directed else fnx.MultiGraph
+    source = cls([("x", "c"), ("x", "a"), ("x", "b")])
+    pairs = [("x", ["c", "a", "b"])]
+    orderings = {
+        "like": lambda g: g._fnx_reorder_rows_like(source, False) if directed else g._fnx_reorder_rows_like(source),
+        "set": lambda g: g._fnx_set_row_orders(pairs, []) if directed else g._fnx_set_row_orders(pairs),
+    }
+
+    def built():
+        graph = cls()
+        graph.add_nodes_from("abcx")
+        graph.add_edges_from([("x", "a"), ("x", "b"), ("x", "c"), ("x", "a")])
+        return graph
+
+    for name, order in orderings.items():
+        graph = built()
+        row = graph["x"]
+        assert order(graph) is True, name
+        assert list(row) == list(graph["x"]) == ["c", "a", "b"], name
+        assert list(graph["x"]["a"]) == [0, 1], name
+        if directed:
+            assert list(graph.edges(keys=True)) == [("x", "c", 0), ("x", "a", 0), ("x", "a", 1), ("x", "b", 0)]
+        else:
+            assert list(graph.edges(keys=True)) == [("a", "x", 0), ("a", "x", 1), ("b", "x", 0), ("c", "x", 0)]
+
+        hand_outs = [lambda g: g.neighbors("x")]
+        if directed:
+            hand_outs += [lambda g: list(g.successors("x")), lambda g: list(g.predecessors("a"))]
+        for hand_out in hand_outs:
+            held = built()
+            hand_out(held)
+            assert order(held) is False, name
+            assert list(held["x"]) == ["a", "b", "c"], name
+
+    if directed:  # a reverse view's rows: the source's pred rows order the succ rows
+        graph = built()
+        reversed_source = fnx.MultiDiGraph([("c", "x"), ("a", "x"), ("b", "x")])
+        assert graph._fnx_reorder_rows_like(reversed_source, True) is True
+        assert list(graph.succ["x"]) == ["c", "a", "b"]
