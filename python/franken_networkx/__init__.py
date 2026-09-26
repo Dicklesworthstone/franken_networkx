@@ -34781,8 +34781,6 @@ def _random_tree_internal(n, seed=None):
     ``nx.random_tree`` symbol (replaced by ``random_labeled_tree``).
     Use ``random_labeled_tree`` going forward.
     """
-    import random as _random
-
     if n <= 0:
         return Graph()
     if n == 1:
@@ -34794,11 +34792,12 @@ def _random_tree_internal(n, seed=None):
         G.add_edge(0, 1)
         return G
 
-    rng = _random.Random(seed)
-    # Generate random Prüfer sequence of length n-2. ``rng.randint(0, n-1)``
-    # draws the identical ``_randbelow(n)`` value sequence as nx's
-    # ``seed.choice(range(n))``, so the sequence matches networkx.
-    prufer = [rng.randint(0, n - 1) for _ in range(n - 2)]
+    # br-r37-c1-cdf1v: networkx's seed handling (a random.Random, numpy RNG or
+    # None -> the global random module state are all accepted, as nx's
+    # py_random_state does), and networkx's own draw, seed.choice(range(n)) -
+    # its numpy-backed wrappers implement choice, not only randint.
+    rng = _generator_random_state(seed)
+    prufer = [rng.choice(range(n)) for _ in range(n - 2)]
 
     # br-r37-c1-prufer-on2: the previous decode scanned ``range(n)`` for the
     # smallest degree-1 node on every Prüfer element — O(n^2) (~4M iters at
@@ -37588,9 +37587,9 @@ def gnm_random_graph(n, m, seed=None, directed=False, *, create_using=None):
         and seed >= 0
     ):
         return _rust_gnm_random_digraph(n, m, seed=_native_random_seed(seed))
-    import random as _random
-
-    rng = _random.Random(seed)
+    # br-r37-c1-cdf1v: nx's py_random_state - a random.Random / numpy seed is
+    # drawn from as it is (random.Random(seed) raised TypeError on one).
+    rng = _generator_random_state(seed)
     # br-r37-c1-gnmdir: directed G(n,m) is the SAME rejection sampler but with ORDERED
     # edges and max_edges = n*(n-1); reproduce it natively (-> fnx DiGraph) instead of
     # delegating to nx, which returned a raw nx.DiGraph — gnm_random_graph was the ONLY
@@ -38158,6 +38157,17 @@ def _generator_random_state(seed):
         np = None
 
     if np is not None:
+        try:
+            from networkx.utils.misc import PythonRandomInterface, PythonRandomViaNumpyBits
+        except ImportError:
+            pass
+        else:
+            # br-r37-c1-cdf1v: an already-wrapped numpy RNG passes through, as
+            # in nx's create_py_random_state - a helper handed the wrapper its
+            # caller made (random_labeled_rooted_tree -> the tree draw) must
+            # keep drawing from it rather than raise.
+            if isinstance(seed, (PythonRandomInterface, PythonRandomViaNumpyBits)):
+                return seed
         if seed is np.random:
             try:
                 from networkx.utils.misc import create_py_random_state
@@ -38289,6 +38299,51 @@ def _random_unlabeled_rooted_forest_exact(n, q, cache_trees, cache_forests, seed
         forest_edges.extend((left + forest_nodes, right + forest_nodes) for left, right in tree_edges)
         forest_nodes += tree_nodes
     return forest_edges, forest_nodes, roots
+
+
+# br-r37-c1-cdf1v: networkx's Wilf sampler for FREE (unrooted) trees -
+# _num_trees, _bicenter and _random_unlabeled_tree, verbatim, over the exact
+# rooted helpers above - so random_unlabeled_tree draws networkx's tree for
+# every seed kind (it ran the labeled Prüfer generator on its own RNG).
+def _num_trees(n, cache_trees):
+    """Return the number of unlabeled trees with ``n`` nodes."""
+    r = _num_rooted_trees(n, cache_trees) - sum(
+        [
+            _num_rooted_trees(j, cache_trees) * _num_rooted_trees(n - j, cache_trees)
+            for j in range(1, n // 2 + 1)
+        ]
+    )
+    if n % 2 == 0:
+        r += _math.comb(_num_rooted_trees(n // 2, cache_trees) + 1, 2)
+    return r
+
+
+def _bicenter(n, cache, seed):
+    """Return a random bicentroidal tree on ``n`` nodes as ``(edges, node_count)``."""
+    t, t_nodes = _random_unlabeled_rooted_tree_exact(n // 2, cache, seed)
+    if seed.randint(0, _num_rooted_trees(n // 2, cache)) == 0:
+        t2, t2_nodes = t, t_nodes
+    else:
+        t2, t2_nodes = _random_unlabeled_rooted_tree_exact(n // 2, cache, seed)
+    t.extend([(n1 + (n // 2), n2 + (n // 2)) for n1, n2 in t2])
+    t.append((0, n // 2))
+    return t, t_nodes + t2_nodes
+
+
+def _random_unlabeled_tree(n, cache_trees, cache_forests, seed):
+    """Return a uniformly random unlabeled tree as ``(edges, node_count)``."""
+    if n % 2 == 1:
+        p = 0
+    else:
+        p = _math.comb(_num_rooted_trees(n // 2, cache_trees) + 1, 2)
+    if seed.randint(0, _num_trees(n, cache_trees) - 1) < p:
+        return _bicenter(n, cache_trees, seed)
+    f, n_f, r = _random_unlabeled_rooted_forest_exact(
+        n - 1, (n - 1) // 2, cache_trees, cache_forests, seed
+    )
+    for i in r:
+        f.append((i, n_f))
+    return f, n_f + 1
 
 
 # ---------------------------------------------------------------------------
@@ -59114,7 +59169,6 @@ def _sbm_native(sizes, p, seed, directed, selfloops):
     ``add_edge`` and the whole nx->fnx conversion) — ~1.77x slower -> nx parity.
     """
     import itertools as _it
-    import random as _rnd
 
     # br-r37-c1-sbmrng-instance (cc): accept a live ``random.Random`` directly
     # (callers like gaussian_random_partition_graph pass their already-advanced
@@ -59122,7 +59176,8 @@ def _sbm_native(sizes, p, seed, directed, selfloops):
     # which also threads the same rng into the SBM. Only int/None creates a fresh
     # instance. This lets the partition family hit the native batch path instead
     # of the nx->fnx conversion tax.
-    rng = seed if isinstance(seed, _rnd.Random) else _rnd.Random(seed)
+    # br-r37-c1-cdf1v: nx's py_random_state - None is the global random state.
+    rng = _generator_random_state(seed)
     length = len(sizes)
     cumsum = [sum(sizes[0:x]) for x in range(length + 1)]
     nodelist = range(sum(sizes))
@@ -59353,7 +59408,6 @@ def random_partition_graph(sizes, p_in, p_out, seed=None, directed=False):
 
 def relaxed_caveman_graph(l, k, p, seed=None):
     """Relaxed caveman graph."""
-    import random as _random
 
     # br-r37-c1-rustseed (sister): NaN seed must surface nx's
     # ``ValueError("nan cannot be used to generate a random.Random
@@ -59362,7 +59416,7 @@ def relaxed_caveman_graph(l, k, p, seed=None):
         raise ValueError(
             "nan cannot be used to generate a random.Random instance"
         )
-    rng = _random.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
     G = caveman_graph(l, k)
     # br-r37-c1-rcgseed: nx's algorithm uses ``seed.choice(nodes)`` to
     # pick a single rewire target, and SKIPS the rewire if that target
@@ -59862,16 +59916,16 @@ def soft_random_geometric_graph(
     nothing). Match nx's structural-error contract — same fix shape
     as br-r37-c1-{rgg-neg, pjf7g}.
     """
-    import random as _random
-
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
     # br-r37-c1-rgg-dim0: see random_geometric_graph for rationale.
     if isinstance(dim, int) and dim <= 0:
         raise IndexError("Out of bounds on buffer access (axis 0)")
-    rng = _random.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
     G = Graph()
     G.add_nodes_from(range(n))
+    # br-r37-c1-cdf1v: nx names the graph (G.graph was left empty).
+    G.graph["name"] = f"soft_random_geometric_graph({n}, {radius}, {dim})"
     if pos is None:
         pos = {v: [rng.random() for _ in range(dim)] for v in G}
     set_node_attributes(G, pos, pos_name)
@@ -59948,14 +60002,14 @@ def waxman_graph(
     structural-error contract — same fix shape as br-r37-c1-
     {rgg-neg, pjf7g, srgg-neg, trgg-neg, 60f9n}.
     """
-    import random as _random
-
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
     # br-r37-c1-359bl: handle pre-wrapped Random from nx dispatcher
     # (nx's @py_random_state(6) decorator wraps the seed into a
     # ``random.Random`` instance before calling).
-    rng = seed if isinstance(seed, _random.Random) else _random.Random(seed)
+    # br-r37-c1-cdf1v: nx's py_random_state - numpy seeds and None (the global
+    # random state) as well as a random.Random.
+    rng = _generator_random_state(seed)
     G = Graph()
     positions = {}
     x0, y0, x1, y1 = domain
@@ -60048,8 +60102,6 @@ def geographical_threshold_graph(
     structural-error contract — same fix shape as br-r37-c1-
     {rgg-neg, pjf7g, srgg-neg, trgg-neg, 60f9n, waxman-neg}.
     """
-    import random as _random
-
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
     # br-r37-c1-rgg-dim0: nx leaks ZeroDivisionError from the
@@ -60059,7 +60111,7 @@ def geographical_threshold_graph(
         raise ZeroDivisionError(
             "0.0 cannot be raised to a negative power"
         )
-    rng = _random.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
     G = Graph()
     G.add_nodes_from(range(n))
 
@@ -60128,16 +60180,16 @@ def thresholded_random_geometric_graph(
     structural-error contract — same fix shape as br-r37-c1-
     {rgg-neg, pjf7g, srgg-neg}.
     """
-    import random as _random
-
     if isinstance(n, int) and n < 0:
         raise NetworkXError(f"Negative number of nodes not valid: {n}")
     # br-r37-c1-rgg-dim0: see random_geometric_graph for rationale.
     if isinstance(dim, int) and dim <= 0:
         raise IndexError("Out of bounds on buffer access (axis 0)")
-    rng = _random.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
     G = Graph()
     G.add_nodes_from(range(n))
+    # br-r37-c1-cdf1v: nx names the graph (G.graph was left empty).
+    G.graph["name"] = f"thresholded_random_geometric_graph({n}, {radius}, {theta}, {dim})"
 
     if weight is None:
         weight = {v: rng.expovariate(1) for v in G}
@@ -60193,12 +60245,7 @@ def navigable_small_world_graph(n, p=1, q=1, r=2, dim=2, seed=None):
 
     from itertools import product, accumulate
     from bisect import bisect_left
-    import random as _random
-
-    if isinstance(seed, _random.Random):
-        rng = seed
-    else:
-        rng = _random.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
 
     G = DiGraph()
     nodes = list(product(range(n), repeat=dim))
@@ -61562,7 +61609,7 @@ def join_trees(rooted_trees, *, label_attribute=None, first_label=0):
 
 
 def random_unlabeled_tree(n, *, number_of_trees=None, seed=None):
-    """Uniform random unlabeled tree (via Prüfer + canonical form).
+    """Uniform random unlabeled tree (Wilf's algorithm, as networkx).
 
     ``number_of_trees`` matches networkx's public signature. When set,
     returns a list of independently-sampled trees of size *n*.
@@ -61573,14 +61620,18 @@ def random_unlabeled_tree(n, *, number_of_trees=None, seed=None):
     """
     if n == 0:
         raise NetworkXPointlessConcept("the null graph is not a tree")
-    if number_of_trees is None:
-        return _random_tree_internal(n, seed=seed)
+    # br-r37-c1-cdf1v: networkx's sampler on networkx's RNG handling.
     rng = _generator_random_state(seed)
-    out = []
-    for _ in range(number_of_trees):
-        sub_seed = rng.randint(0, 2**31 - 1)
-        out.append(_random_tree_internal(n, seed=sub_seed))
-    return out
+    cache_trees = [0, 1]
+    cache_forests = [1]
+    if number_of_trees is None:
+        return _generator_tree_from_edges(
+            *_random_unlabeled_tree(n, cache_trees, cache_forests, rng)
+        )
+    return [
+        _generator_tree_from_edges(*_random_unlabeled_tree(n, cache_trees, cache_forests, rng))
+        for _ in range(number_of_trees)
+    ]
 
 
 def random_unlabeled_rooted_tree(n, *, number_of_trees=None, seed=None):
@@ -64716,13 +64767,19 @@ def random_reference(G, niter=1, connectivity=True, seed=None):
 
 
 def random_labeled_rooted_tree(n, *, seed=None):
-    """Alias for random_tree.
+    """A random labeled tree with a root drawn after it, as networkx.
 
     br-r37-c1-rut-zero: nx raises NetworkXPointlessConcept on n=0.
+    br-r37-c1-cdf1v: networkx draws the tree and then
+    ``t.graph["root"] = seed.randint(0, n - 1)`` from the same RNG; fnx set no
+    root at all.
     """
     if n == 0:
         raise NetworkXPointlessConcept("the null graph is not a tree")
-    return _random_tree_internal(n, seed=seed)
+    rng = _generator_random_state(seed)
+    tree = _random_tree_internal(n, seed=rng)
+    tree.graph["root"] = rng.randint(0, n - 1)
+    return tree
 
 
 def random_labeled_rooted_forest(n, *, seed=None):
@@ -64732,8 +64789,50 @@ def random_labeled_rooted_forest(n, *, seed=None):
     earlier fnx signature carried a stray ``q`` arg leaked from
     ``random_unlabeled_rooted_forest``; nx has no such parameter
     (br-r37-c1-rrf-tut).
+
+    br-r37-c1-cdf1v: networkx's algorithm, verbatim - pick the number of roots
+    k by the cumulative count of labeled rooted forests, sample the roots, then
+    decode a Prüfer-like sequence over the non-roots. fnx returned
+    random_unlabeled_rooted_forest's answer, a different distribution (a
+    path for small n) with other roots.
     """
-    return random_unlabeled_rooted_forest(n, seed=seed)
+    rng = _generator_random_state(seed)
+
+    def _select_k(n, seed):
+        r = seed.randint(0, (n + 1) ** (n - 1) - 1)
+        cum_sum = 0
+        for k in range(1, n):
+            cum_sum += (_math.factorial(n - 1) * n ** (n - k)) // (
+                _math.factorial(k - 1) * _math.factorial(n - k)
+            )
+            if r < cum_sum:
+                return k
+        return n
+
+    F = empty_graph(n)
+    if n == 0:
+        F.graph["roots"] = {}
+        return F
+    k = _select_k(n, rng)
+    if k == n:
+        F.graph["roots"] = set(range(n))
+        return F
+    roots = rng.sample(range(n), k)
+    p = set(range(n)).difference(roots)
+    N = [rng.randint(0, n - 1) for i in range(n - k - 1)]
+    degree = _Counter([x for x in N if x in p])
+    iterator = iter(x for x in p if degree[x] == 0)
+    u = last = next(iterator)
+    for v in N:
+        F.add_edge(u, v)
+        degree[v] -= 1
+        if v < last and degree[v] == 0:
+            u = v
+        else:
+            last = u = next(iterator)
+    F.add_edge(u, roots[0])
+    F.graph["roots"] = set(roots)
+    return F
 
 
 def partial_duplication_graph(
@@ -64821,9 +64920,8 @@ def _partial_duplication_native(N, n, p, q, seed):
     """br-r37-c1-pdupnative: see _partial_duplication_graph_impl. Reproduces nx's
     partial_duplication_graph byte-for-byte for an int/None seed."""
     import itertools as _it
-    import random as _rnd
 
-    rng = _rnd.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
     # dict-of-lists adjacency in insertion order == nx's per-node adj order, so
     # ``list(adj[src])`` matches nx's ``all_neighbors(G, src)`` at each step.
     adj = {i: [] for i in range(n)}
@@ -64967,29 +65065,41 @@ def interval_graph(intervals):
     return G
 
 
+def _intersection_projection_edges(drawn, holders):
+    """Edges of networkx's ``projected_graph(B, range(n))``, in its order.
+
+    ``drawn[u]`` lists node u's attributes in the order B gained them and
+    ``holders[a]`` attribute a's nodes ascending - B's adjacency order.
+    br-r37-c1-cdf1v: projected_graph adds, node by node, the SET of nodes
+    sharing an attribute, so replaying that set gives networkx's G.edges()
+    order (the attribute->holders cliques of kriproj / uriproj / griproj gave
+    the same edge set in another order). It re-adds each edge from its larger
+    endpoint, which moves nothing, so only v > u is kept, for one batch.
+    """
+    edges = []
+    for u, attrs in enumerate(drawn):
+        nbrs2 = {v for a in attrs for v in holders[a] if v != u}
+        edges.extend((u, v) for v in nbrs2 if v > u)
+    return edges
+
+
 def k_random_intersection_graph(n, m, k, seed=None):
     """Random intersection graph: each node picks k of m attributes."""
-    import itertools as _itertools
-    import random as _random
-
-    rng = _random.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
     G = Graph()
     G.add_nodes_from(range(n))
-    # br-r37-c1-kriproj: project via an attribute->nodes bucket map (each
-    # attribute's holders form a clique) instead of the O(n^2) all-pairs
-    # ``attrs[i] & attrs[j]`` scan. The per-node ``rng.sample`` draw sequence is
-    # unchanged (byte-identical attribute assignment), and the resulting
-    # node-node edge SET — two nodes adjacent iff they share an attribute — is
-    # identical; add_edges_from dedups parallel clique edges. ~15x faster.
-    attr2nodes = {}
-    sample_k = min(k, m)
-    for i in range(n):
-        for a in rng.sample(range(m), sample_k):
-            attr2nodes.setdefault(a, []).append(i)
-    edges = []
-    for holders in attr2nodes.values():
-        edges.extend(_itertools.combinations(holders, 2))
-    G.add_edges_from(edges)
+    # br-r37-c1-cdf1v: networkx draws seed.sample(range(n, n + m), k) per node
+    # (k > m raises) and projects; the attribute->holders map keeps the
+    # projection O(sum of degrees) rather than the all-pairs scan
+    # (br-r37-c1-kriproj).
+    drawn = []
+    holders = {}
+    for v in range(n):
+        targets = rng.sample(range(n, n + m), k)
+        drawn.append(targets)
+        for a in targets:
+            holders.setdefault(a, []).append(v)
+    G.add_edges_from(_intersection_projection_edges(drawn, holders))
     return G
 
 
@@ -65027,29 +65137,27 @@ def _uniform_random_intersection_graph_impl(
         "uniform_random_intersection_graph", backend, backend_kwargs
     )
 
-    # br-r37-c1-uriproj: native byte-exact generation for an int/None seed.
-    # Reproduces nx's bipartite.random_graph geometric-skip edge sampling
-    # (random.Random(seed); w += 1 + int(log(1-rand)/log(1-p)) over the row-major
-    # (node, attribute) enumeration) to assign attributes, then projects via an
-    # attribute->nodes clique map (== nx.projected_graph's shared-attribute edge
-    # SET). Nodes 0..n-1 carry bipartite=0 (as nx's projected_graph copies from
-    # the bipartite graph). Skips nx's per-edge add_edge, projected_graph, AND the
-    # nx->fnx conversion (~2x slower -> ~0.5x). Random|numpy seed delegates.
-    if (
-        0 < p < 1
-        and (seed is None or (isinstance(seed, int) and not isinstance(seed, bool)))
-    ):
-        import itertools as _itertools
+    # br-r37-c1-uriproj: native byte-exact generation. Reproduces nx's
+    # bipartite.random_graph geometric-skip edge sampling (w += 1 +
+    # int(log(1-rand)/log(1-p)) over the row-major (node, attribute)
+    # enumeration) to assign attributes, then replays nx.projected_graph through
+    # _intersection_projection_edges. Nodes 0..n-1 carry bipartite=0 (as nx's
+    # projected_graph copies from the bipartite graph). Skips nx's per-edge
+    # add_edge, projected_graph, AND the nx->fnx conversion (~2x slower ->
+    # ~0.5x). br-r37-c1-cdf1v: every seed kind - _generator_random_state is
+    # nx's py_random_state, so a random.Random / numpy seed draws the same
+    # stream here as in networkx and no longer delegates.
+    if 0 < p < 1:
         import math as _m
-        import random as _random
 
-        rng = _random.Random(seed)
+        rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
         G = Graph()
         G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
         # nx's bipartite.random_graph sets this name; projected_graph carries it.
         G.graph["name"] = f"fast_gnp_random_graph({n},{m},{p})"
         lp = _m.log(1.0 - p)
-        attr2nodes = {}
+        drawn = [[] for _ in range(n)]
+        holders = {}
         v = 0
         w = -1
         while v < n:
@@ -65058,11 +65166,9 @@ def _uniform_random_intersection_graph_impl(
                 w -= m
                 v += 1
             if v < n:
-                attr2nodes.setdefault(w, []).append(v)
-        edges = []
-        for holders in attr2nodes.values():
-            edges.extend(_itertools.combinations(holders, 2))
-        G.add_edges_from(edges)
+                drawn[v].append(w)
+                holders.setdefault(w, []).append(v)
+        G.add_edges_from(_intersection_projection_edges(drawn, holders))
         return G
 
     from franken_networkx.readwrite import _from_nx_graph
@@ -65111,44 +65217,29 @@ def _general_random_intersection_graph_impl(
         "general_random_intersection_graph", backend, backend_kwargs
     )
 
-    # br-r37-c1-griproj: native byte-exact generation for an int/None seed —
-    # reproduces nx's per-node, per-attribute Bernoulli draws (rng.random() <
-    # p[attr] over the same node-major iteration) to assign attributes, then
-    # projects via an attribute->holders clique map (== nx.projected_graph's
-    # shared-attribute edge SET). empty_graph(n+m) carries no node/graph attrs,
-    # so the projected nodes (range(n)) have none either. Skips nx's per-edge
-    # add_edge + projected_graph + the nx->fnx conversion. Random|numpy seed
-    # delegates. Validation message matches nx exactly.
-    if seed is None or (isinstance(seed, int) and not isinstance(seed, bool)):
-        if len(p) != m:
-            raise ValueError("Probability list p must have m elements.")
-        import itertools as _itertools
-        import random as _random
-
-        rng = _random.Random(seed)
-        G = Graph()
-        G.add_nodes_from(range(n))
-        attr2nodes = {}
-        for u in range(n):
-            for attr_idx in range(m):
-                if rng.random() < p[attr_idx]:
-                    attr2nodes.setdefault(attr_idx, []).append(u)
-        edges = []
-        for holders in attr2nodes.values():
-            edges.extend(_itertools.combinations(holders, 2))
-        G.add_edges_from(edges)
-        return G
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    nx_result = _nx.general_random_intersection_graph(
-        n,
-        m,
-        p,
-        seed=seed,
-        backend="networkx",
-    )
-    return _from_nx_graph(nx_result, create_using=Graph())
+    # br-r37-c1-griproj: native byte-exact generation — reproduces nx's
+    # per-node, per-attribute Bernoulli draws (rng.random() < p[attr] over the
+    # same node-major iteration) to assign attributes, then replays
+    # nx.projected_graph through _intersection_projection_edges.
+    # empty_graph(n+m) carries no node/graph attrs, so the projected nodes
+    # (range(n)) have none either. Skips nx's per-edge add_edge +
+    # projected_graph + the nx->fnx conversion. Validation message matches nx
+    # exactly. br-r37-c1-cdf1v: every seed kind, and the seed is resolved
+    # first, as nx's decorator does, so a bad seed raises before a bad p.
+    rng = _generator_random_state(seed)
+    if len(p) != m:
+        raise ValueError("Probability list p must have m elements.")
+    G = Graph()
+    G.add_nodes_from(range(n))
+    drawn = [[] for _ in range(n)]
+    holders = {}
+    for u in range(n):
+        for attr_idx in range(m):
+            if rng.random() < p[attr_idx]:
+                drawn[u].append(attr_idx)
+                holders.setdefault(attr_idx, []).append(u)
+    G.add_edges_from(_intersection_projection_edges(drawn, holders))
+    return G
 
 
 def geometric_soft_configuration_graph(
@@ -69367,8 +69458,6 @@ def dual_barabasi_albert_graph(
     _validate_backend_dispatch_keywords(
         "dual_barabasi_albert_graph", backend, backend_kwargs
     )
-    import random as _random
-
     target = _empty_graph_from_create_using(create_using, default=Graph)
     if target.is_directed():
         raise NetworkXError("create_using must not be directed")
@@ -69413,7 +69502,7 @@ def dual_barabasi_albert_graph(
             create_using=create_using,
         )
 
-    rng = _random.Random(seed)
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
     if initial_graph is None:
         # cc-dualbastarbatch: same lever as barabasi_albert_graph
         # (cc-bastarbatch) — don't pre-build ``star_graph(max(m1,m2))`` then
