@@ -223,3 +223,151 @@ def test_the_rust_slot_is_reached_directly():
     contains = _fnx.EdgeView.__contains__
     assert type(contains).__name__ == "wrapper_descriptor", contains
     assert getattr(contains, "__closure__", None) is None
+
+
+# br-r37-c1-ex1s6: membership in EVERY edge and node view - the attribute views
+# and the call forms, of the four classes and of their subgraph / restricted /
+# edge_subgraph / reverse / conversion views - is networkx's: one row lookup, a
+# malformed probe raising what networkx's unpacking or dict lookup raises (only
+# a missing node or neighbour is False), a multigraph pair meaning key 0. The
+# views answered from a materialised list (in_edges scanned every edge; a
+# Graph's edges(data=True) rebuilt the whole list per probe), so a malformed
+# probe was False, (0, 1, 1) in MultiDiGraph.in_edges was False for an edge the
+# view lists, a pair was "any key" on a subgraph view and a conversion view
+# ignored the key altogether.
+MEMBERSHIP_EDGE_PROBES = [
+    (1, 0, 0), (0, 1, {"w": 1}), (0,), 5, (0, 1, 2, 3), (0, 1), (1, 0), (0, 1, 0),
+    (0, 1, 1), (0, 1, 7), ([0], 1), (0, [1]), "ab", (0, 1, {}), (0, 1, 0, {}), None,
+    (1, 2), (2, 1), (1, 2, 0), (1, 2, 1), (2, 1, 1), (3, 3), (3, 3, 0), (3, 3, {"w": 5}),
+    (0, 1, 0, {"w": 1}), (0, 1, 1, {"w": 2}), (2, 0, 3), (0, 2, 3), (99, [1]), ([1], 99),
+    (99, 1, {}), (0, 2, {}), (0, 1, [0]), (1, 0, [0]), (2, 99, [0]), (99, 99),
+]
+MEMBERSHIP_NODE_PROBES = [
+    (0, 1, {}), (0, 1, 2), ((0, 1), {}), (0, {}), (0, {"c": 1}), 0, (0,), [0], (9, {}),
+    (0, None), ((0,), 1), "ab",
+]
+
+
+def _membership_graph(lib, cls_name):
+    G = getattr(lib, cls_name)()
+    G.add_node(0, c=1)
+    G.add_edge(0, 1, w=1)
+    G.add_edge(1, 2)
+    G.add_edge(2, 0, w=3)
+    G.add_edge(0, 1, w=2)
+    G.add_edge(3, 3, w=5)
+    if G.is_multigraph():  # a pair holding only key 1
+        G.add_edge(1, 2)
+        G.remove_edge(1, 2, key=0)
+    return G
+
+
+def _membership_view(lib, G, kind):
+    if kind == "concrete":
+        return G
+    if kind == "subgraph":
+        return G.subgraph([0, 1, 2, 3])
+    if kind == "restricted":
+        return lib.restricted_view(G, [], [])
+    if kind == "edge_subgraph":
+        return G.edge_subgraph(list(G.edges(keys=True)) if G.is_multigraph() else list(G.edges()))
+    if kind == "reverse":
+        return G.reverse(copy=False) if G.is_directed() else None
+    return G.to_undirected(as_view=True) if G.is_directed() else G.to_directed(as_view=True)
+
+
+def _membership_edge_views(V):
+    forms = [
+        ("edges", lambda: V.edges),
+        ("edges(data=True)", lambda: V.edges(data=True)),
+        ("edges(data='w')", lambda: V.edges(data="w")),
+        ("edges(nbunch)", lambda: V.edges([0, 3])),
+        ("edges(nbunch, data=True)", lambda: V.edges([0, 3], data=True)),
+        ("edges(node, data='w', default=9)", lambda: V.edges(1, data="w", default=9)),
+        ("edges(data='w', default=9)", lambda: V.edges(data="w", default=9)),
+    ]
+    if V.is_multigraph():
+        forms += [
+            ("edges(keys=True)", lambda: V.edges(keys=True)),
+            ("edges(keys=True, data=True)", lambda: V.edges(keys=True, data=True)),
+            ("edges(nbunch, keys=True)", lambda: V.edges([0, 3], keys=True)),
+            ("edges(nbunch, keys=True, data='w')", lambda: V.edges([1], keys=True, data="w")),
+            ("edges(keys=False)", lambda: V.edges(keys=False)),
+        ]
+    if V.is_directed():
+        forms += [
+            ("in_edges", lambda: V.in_edges),
+            ("in_edges(data=True)", lambda: V.in_edges(data=True)),
+            ("in_edges(nbunch)", lambda: V.in_edges([1, 3])),
+            ("in_edges(nbunch, data=True)", lambda: V.in_edges([1], data=True)),
+            ("out_edges(data=True)", lambda: V.out_edges(data=True)),
+            ("out_edges(nbunch)", lambda: V.out_edges([0])),
+        ]
+        if V.is_multigraph():
+            forms += [
+                ("in_edges(keys=True)", lambda: V.in_edges(keys=True)),
+                ("in_edges(keys=True, data=True)", lambda: V.in_edges(keys=True, data=True)),
+                ("out_edges(keys=True, data='w')", lambda: V.out_edges(keys=True, data="w")),
+            ]
+    return forms
+
+
+MEMBERSHIP_KINDS = ["concrete", "subgraph", "restricted", "edge_subgraph", "reverse", "conversion"]
+
+
+@pytest.mark.parametrize("kind", MEMBERSHIP_KINDS)
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_membership_in_every_edge_view_is_networkxs(cls_name, kind):
+    subject = _membership_view(fnx, _membership_graph(fnx, cls_name), kind)
+    reference = _membership_view(nx, _membership_graph(nx, cls_name), kind)
+    if subject is None:
+        pytest.skip("reverse views are directed only")
+    for (name, make_subject), (_, make_reference) in zip(
+        _membership_edge_views(subject), _membership_edge_views(reference)
+    ):
+        subject_view, reference_view = make_subject(), make_reference()
+        assert type(subject_view).__name__ == type(reference_view).__name__, name
+        for probe in MEMBERSHIP_EDGE_PROBES:
+            assert _outcome(subject_view, probe) == _outcome(reference_view, probe), (name, probe)
+
+
+@pytest.mark.parametrize("kind", MEMBERSHIP_KINDS)
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_membership_in_every_node_view_is_networkxs(cls_name, kind):
+    subject = _membership_view(fnx, _membership_graph(fnx, cls_name), kind)
+    reference = _membership_view(nx, _membership_graph(nx, cls_name), kind)
+    if subject is None:
+        pytest.skip("reverse views are directed only")
+    for data in (True, "c"):
+        for probe in MEMBERSHIP_NODE_PROBES:
+            assert _outcome(subject.nodes(data=data), probe) == _outcome(
+                reference.nodes(data=data), probe
+            ), (data, probe)
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_an_unhashable_key_in_a_multigraph_cell_raises_as_networkx(cls_name):
+    # G[u][v] is networkx's keydict: `[0] in` it, and `[[0]]`, hash the key.
+    for lib in (fnx, nx):
+        G = getattr(lib, cls_name)([(0, 1)])
+        with pytest.raises(TypeError):
+            [0] in G[0][1]
+        with pytest.raises(TypeError):
+            G[0][1][[0]]
+        with pytest.raises(TypeError):
+            [0] in G.subgraph([0, 1])[0]  # a filtered row hashes the neighbour
+        assert (5 in G[0][1]) is False
+
+
+def test_edge_view_membership_follows_the_graph():
+    # Row lookups, so a view held across a mutation answers for the graph now.
+    for cls_name in ("DiGraph", "MultiDiGraph"):
+        results = []
+        for lib in (fnx, nx):
+            G = getattr(lib, cls_name)([(0, 1)])
+            views = [G.in_edges, G.in_edges([1]), G.edges(data=True), G.subgraph([0, 1, 2]).edges]
+            before = [(0, 1) in view for view in views]
+            G.add_edge(1, 2)
+            G.remove_edge(0, 1)
+            results.append((before, [(0, 1) in view for view in views], [(1, 2) in view for view in views]))
+        assert results[0] == results[1], cls_name

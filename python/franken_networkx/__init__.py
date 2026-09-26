@@ -1437,6 +1437,147 @@ def _digraph_in_edges_data_cache(graph, nbunch, native, *native_args):
     return result
 
 
+# br-r37-c1-ex1s6: networkx's edge-view membership (reportviews.py), one row
+# lookup each. fnx's views answered from a materialised list or a scan of
+# one: a malformed probe - (0,), 5, (0, [1]), (u, v, {}) - was False where
+# networkx's unpacking or dict lookup raises, a multigraph pair without a key
+# meant "any key" where networkx means key 0, and in_edges membership walked
+# every edge. Only a KeyError (a node or neighbour that is not there) answers
+# False; anything else raises what networkx raises. `kind` is "out" (the row
+# is succ[u]), "in" (pred[v], the edge still reported as (u, v)) or
+# "undirected" (adj).
+def _nx_edge_view_contains(adj, e, kind, multi):
+    """OutEdgeView / InEdgeView / EdgeView and the multigraph edge views."""
+    if multi:
+        n = len(e)
+        if n == 3:
+            u, v, k = e
+        elif n == 2:
+            u, v = e
+            k = 0
+        else:
+            raise ValueError("MultiEdge must have length 2 or 3")
+        try:
+            return k in (adj[v][u] if kind == "in" else adj[u][v])
+        except KeyError:
+            return False
+    if kind == "undirected":
+        try:
+            u, v = e[:2]
+            return v in adj[u] or u in adj[v]
+        except (KeyError, ValueError):
+            return False
+    try:
+        u, v = e
+        return u in adj[v] if kind == "in" else v in adj[u]
+    except KeyError:
+        return False
+
+
+def _nx_edge_view_contains_by_has_edge(graph, e, kind, multi):
+    """_nx_edge_view_contains's answer and exceptions through
+    graph.has_edge, for a graph or view whose rows are dearer to build than
+    has_edge is to ask - a filtered or conversion view builds a row object
+    per lookup (4.5-9 us a probe against has_edge's 0.8-1). networkx's row
+    lookups hash the row's node, then the neighbour, then the key, and each
+    raises its TypeError only if the lookups before it succeeded. has_edge
+    raises for an unhashable node or key itself, as often as networkx or
+    more, never less (it hashes u first; an in view's first lookup is
+    pred[v], hence v's probe up front), so the probes that decide which of
+    its TypeErrors networkx raises run only once it has raised."""
+    if multi:
+        n = len(e)
+        if n == 3:
+            u, v, k = e
+        elif n == 2:
+            u, v = e
+            k = 0
+        else:
+            raise ValueError("MultiEdge must have length 2 or 3")
+    elif kind == "undirected":
+        try:
+            u, v = e[:2]
+        except ValueError:
+            return False
+    else:
+        u, v = e
+    if kind == "in":
+        _HASH_PROBE.get(v)
+    try:
+        return graph.has_edge(u, v, k) if multi else graph.has_edge(u, v)
+    except TypeError as err:
+        raised = err
+    first, second = (v, u) if kind == "in" else (u, v)
+    _HASH_PROBE.get(first)
+    try:
+        _HASH_PROBE.get(second)
+    except TypeError:
+        if first in graph:  # networkx got the row, then hashed the neighbour
+            raise
+        return False
+    if multi:
+        try:
+            _HASH_PROBE.get(k)
+        except TypeError:
+            if graph.has_edge(u, v):  # an existing pair's keydict hashes k
+                raise
+            return False
+    raise raised
+
+
+def _nx_edge_report_tail(dd, data, default):
+    # What a data view appends to (u, v) / (u, v, k) for one edge.
+    if data is True:
+        return (dd,)
+    if data is False:
+        return ()
+    return (dd[data],) if data in dd else (default,)
+
+
+def _nx_edge_data_view_contains(adj, e, kind, multi, data, default, keys, nbunch):
+    """The edge DATA views - what G.edges(nbunch, data, ...) returns;
+    `nbunch` is the node set the view was built on, or None."""
+    u, v = e[:2]
+    if nbunch is not None:
+        if kind == "out":
+            outside = u not in nbunch
+        elif kind == "in":
+            outside = v not in nbunch
+        else:
+            outside = u not in nbunch and v not in nbunch
+        if outside:
+            return False
+    try:
+        cell = adj[v][u] if kind == "in" else adj[u][v]
+    except KeyError:
+        if not (multi and kind == "undirected"):
+            return False
+        try:
+            cell = adj[v][u]
+        except KeyError:
+            return False
+    if not multi:
+        return e == (u, v) + _nx_edge_report_tail(cell, data, default)
+    if keys is True:
+        k = e[2]
+        if kind == "in":
+            dd = cell[k]  # networkx's InMultiEdgeDataView lets this KeyError out
+        else:
+            try:
+                dd = cell[k]
+            except KeyError:
+                return False
+        return e == (u, v, k) + _nx_edge_report_tail(dd, data, default)
+    return any(e == (u, v) + _nx_edge_report_tail(dd, data, default) for dd in cell.values())
+
+
+def _edge_rows(graph, kind):
+    # The adjacency an edge view of `kind` looks its rows up in.
+    if kind == "in":
+        return graph.pred
+    return graph.succ if kind == "out" else graph.adj
+
+
 class EdgeDataView:
     """Live view over ``G.edges(data=..., nbunch=...)`` matching nx's
     EdgeDataView contract (br-r37-c1-sf1ku).
@@ -1924,7 +2065,20 @@ class EdgeDataView:
         return len(self._materialize())
 
     def __contains__(self, item):
-        return item in self._materialize()
+        # br-r37-c1-ex1s6: networkx's EdgeDataView.__contains__, a row lookup
+        # against the node set the view was built on (the frozen nbunch).
+        graph = self._graph
+        if graph is None:
+            return item in self._materialize()
+        nbunch = self._nbunch_list
+        if nbunch is not None:
+            # A dict, as networkx's: an unhashable probe is worded as a key.
+            nbunch = self.__dict__.get("_fnx_nbunch_set")
+            if nbunch is None:
+                nbunch = self._fnx_nbunch_set = dict.fromkeys(self._nbunch_list)
+        return _nx_edge_data_view_contains(
+            graph.adj, item, "undirected", False, self._data, self._default, False, nbunch
+        )
 
     def __repr__(self):
         return f"EdgeDataView({self._materialize()!r})"
@@ -2215,13 +2369,13 @@ class NodeDataView:
         # 2-tuple-of-(node, data) without false TypeErrors that
         # would otherwise leak from the NodeView hash-check
         # introduced by the same bead.
+        # br-r37-c1-ex1s6: but networkx does NOT guard that unpack - an
+        # unhashable probe that is not a pair, [0] or (0, 1, {}), raises its
+        # ValueError / TypeError; only the hashable-miss unpack below is.
         try:
             node_in = item in self._view
         except TypeError:
-            try:
-                n, d = item
-            except (TypeError, ValueError):
-                return False
+            n, d = item
             return n in self._view and self[n] == d
         if node_in is True:
             return True
@@ -2769,6 +2923,9 @@ class AtlasView(_Mapping):
             try:
                 self._atlas()[node]
             except KeyError:
+                # br-r37-c1-ex1s6: the native view answers KeyError for an
+                # unhashable key too; networkx's dict raises TypeError.
+                _HASH_PROBE.get(node)
                 return False
             return True
         keydict = self._keydict()
@@ -2777,6 +2934,7 @@ class AtlasView(_Mapping):
         try:
             self._atlas()[node]
         except KeyError:
+            _HASH_PROBE.get(node)
             return False
         return True
 
@@ -2785,7 +2943,11 @@ class AtlasView(_Mapping):
         # come from the live native view so G[u][v][key] retains the exact edge
         # attribute dict object.
         if self._fnx_multi_edge_owner is not None:
-            return self._atlas()[node]
+            try:
+                return self._atlas()[node]
+            except KeyError:
+                _HASH_PROBE.get(node)  # br-r37-c1-ex1s6: as __contains__
+                raise
         # br-r37-c1-spg9n: G[u][v] edge-attr access. The cached row keydict's
         # VALUES are the live edge_py_attrs dicts (keydict[v] is G[u][v]; attr
         # mutations reflect), so serve from it — pure-Python dict lookup, no PyO3
@@ -4316,6 +4478,8 @@ def _direct_multi_edge_iter(view, exact_graph_type):
 
 
 class _DiGraphEdgeView:
+    _fnx_edge_kind = "out"  # br-r37-c1-ex1s6: see _nx_edge_view_contains
+
     def __init__(self, graph):
         self._graph = graph
         # br-r37-c1-sivs2: scalar ``DiGraph.edges[u, v]`` used to cross
@@ -4873,6 +5037,8 @@ _OutMultiEdgeDataCallView.__qualname__ = "OutMultiEdgeDataView"
 
 
 class _MultiGraphEdgeView:
+    _fnx_edge_kind = "undirected"  # br-r37-c1-ex1s6: see _nx_edge_view_contains
+
     def __init__(self, graph):
         self._graph = graph
         # br-r37-c1-8l96z: a scalar ``G.edges[u, v, key]`` lookup used to
@@ -5082,6 +5248,13 @@ class _MultiGraphEdgeView:
         try:
             return self._graph.has_edge(u, v, key)
         except KeyError:
+            return False
+        except TypeError:
+            # br-r37-c1-ex1s6: but networkx hashes the KEY only inside a pair
+            # that exists: (2, 99, [0]) is False. has_edge(u, v) raises
+            # networkx's TypeError for an unhashable u / v itself.
+            if self._graph.has_edge(u, v):
+                raise
             return False
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
@@ -5396,6 +5569,20 @@ class _EdgeListWithSetAlgebra(list):
     _fnx_lazy_rows = None
     _fnx_len_hint = None
     _fnx_frozen_nbunch = None
+    _fnx_contains_call = None
+    _fnx_contains_spec = None
+
+    def _fnx_membership_spec(self):
+        """br-r37-c1-ex1s6: the _called_edge_view_spec of the call that made
+        this view, built once; False when there is none (a list handed to
+        _guarded_edge_list directly, a call networkx's signature does not
+        describe)."""
+        spec = self._fnx_contains_spec
+        if spec is None:
+            call = self._fnx_contains_call
+            spec = (None if call is None else _called_edge_view_spec(*call)) or False
+            self._fnx_contains_spec = spec
+        return spec
 
     def _fnx_take_len_hint(self):
         """True when a len() call immediately preceded this iteration."""
@@ -5617,6 +5804,11 @@ class _EdgeListWithSetAlgebra(list):
         return list.__len__(self)
 
     def __contains__(self, item):
+        # br-r37-c1-ex1s6: a view from a call answers as networkx's does, by
+        # a row lookup (_called_edge_view_contains), not by scanning the list.
+        spec = self._fnx_membership_spec()
+        if spec:
+            return _called_edge_view_contains(spec, item)
         self._fnx_refresh()
         return list.__contains__(self, item)
 
@@ -5680,6 +5872,8 @@ def _multigraph_edges(self):
 
 
 class _MultiDiGraphEdgeView:
+    _fnx_edge_kind = "out"  # br-r37-c1-ex1s6: see _nx_edge_view_contains
+
     def __init__(self, graph):
         self._graph = graph
         # br-r37-c1-8l96z: directed sibling of the exact-type keyed-edge fast
@@ -5744,6 +5938,12 @@ class _MultiDiGraphEdgeView:
         try:
             return self._graph.has_edge(u, v, key)
         except KeyError:
+            return False
+        except TypeError:
+            # br-r37-c1-ex1s6: see the undirected twin - an unhashable key
+            # against a pair that is not there is False.
+            if self._graph.has_edge(u, v):
+                raise
             return False
 
     def __getitem__(self, edge):
@@ -10108,6 +10308,47 @@ def _freeze_edge_view_nbunch(graph, args, kwargs):
     return (present,) + tuple(args[1:]), kwargs
 
 
+_EDGE_VIEW_CALL_KWARGS = frozenset(("nbunch", "data", "default", "keys"))
+
+
+def _called_edge_view_spec(view, graph, args, kwargs):
+    """br-r37-c1-ex1s6: what membership in the list a called edge view
+    returns needs to answer as networkx's view does - (graph, kind, multi,
+    data, default, keys, nbunch nodes, whether networkx returns the edge
+    view itself) - or None for a call networkx's (nbunch, data, *,
+    default, keys) signature does not describe. `args` / `kwargs` carry the
+    nbunch as frozen for the rebuild."""
+    # Every view class _live_called_edge_view wraps defines _fnx_edge_kind.
+    kind = view._fnx_edge_kind
+    if len(args) > 2 or not kwargs.keys() <= _EDGE_VIEW_CALL_KWARGS:
+        return None
+    nbunch = kwargs["nbunch"] if "nbunch" in kwargs else (args[0] if args else None)
+    data = kwargs["data"] if "data" in kwargs else (args[1] if len(args) > 1 else False)
+    keys = kwargs.get("keys", False)
+    multi = graph.is_multigraph()
+    # A dict, as networkx's nbunch: an unhashable probe is worded as a key.
+    if nbunch is None:
+        nodes = None
+    elif isinstance(nbunch, list):
+        nodes = dict.fromkeys(nbunch)
+    else:  # a single node (see _freeze_edge_view_nbunch)
+        try:
+            nodes = {nbunch: None}
+        except TypeError:
+            return None
+    view_form = nbunch is None and data is False and (keys is True or not multi)
+    return (graph, kind, multi, data, kwargs.get("default"), keys, nodes, view_form)
+
+
+def _called_edge_view_contains(spec, e):
+    graph, kind, multi, data, default, keys, nodes, view_form = spec
+    if view_form:
+        return _nx_edge_view_contains_by_has_edge(graph, e, kind, multi)
+    return _nx_edge_data_view_contains(
+        _edge_rows(graph, kind), e, kind, multi, data, default, keys, nodes
+    )
+
+
 def _live_called_edge_view(original_call):
     """br-r37-c1-af0ig: give a materialised ``edges(...)`` result a way back.
 
@@ -10166,6 +10407,9 @@ def _live_called_edge_view(original_call):
                 if result._fnx_token is None:
                     result._fnx_token = _edge_list_freshness_token(graph)
                 result._fnx_rebuild = lambda: original_call(self, *args, **kwargs)
+                # br-r37-c1-ex1s6: what membership needs, resolved on the first
+                # `in` (building it here cost 0.5-0.8 us on every call).
+                result._fnx_contains_call = (self, graph, args, kwargs)
                 # br-r37-c1-2pia7: keep the RESOLVED nbunch so a later read can
                 # tell that one of its own nodes has since been removed, which
                 # nx reports by raising from adjdict[n] rather than by quietly
@@ -10287,6 +10531,9 @@ class _MultiEdgeDataKeysView(_EdgeListWithSetAlgebra):
     _reverse_ok = True
 
     def __contains__(self, edge):
+        spec = self._fnx_membership_spec()  # br-r37-c1-ex1s6
+        if spec:
+            return _called_edge_view_contains(spec, edge)
         try:
             u, v = edge[0], edge[1]
         except (TypeError, IndexError, KeyError):
@@ -10340,6 +10587,9 @@ class _MultiEdgeView(_EdgeListWithSetAlgebra):
     Mirrors nx's ``MultiEdgeView.__contains__``.
     """
     def __contains__(self, edge):
+        spec = self._fnx_membership_spec()  # br-r37-c1-ex1s6: key 0 for a pair
+        if spec:
+            return _called_edge_view_contains(spec, edge)
         try:
             n = len(edge)
         except TypeError:
@@ -11768,6 +12018,9 @@ class _DiEdgeMethodView:
     restored InEdgeView/OutEdgeView)."""
 
     __slots__ = ("_graph", "_method")
+    # br-r37-c1-ex1s6: the rows membership reads - succ, or pred for the in
+    # views (see _nx_edge_view_contains).
+    _fnx_edge_kind = "out"
 
     def __init__(self, graph, method):
         self._graph = graph
@@ -11849,38 +12102,15 @@ class _DiEdgeMethodView:
         #   - ``123 in DG.in_edges`` returned False
         # nx accepts list (length 2) as an edge spec and propagates
         # ValueError on length mismatch + TypeError on non-iterable.
-        # For multigraphs nx's MultiEdgeView dispatches on len(e):
-        # length 2 -> match any key; length 3 -> match specific key.
-        if self._graph.is_multigraph():
-            try:
-                N = len(item)
-            except TypeError:
-                raise
-            if N == 3:
-                u, v, key = item[0], item[1], item[2]
-            elif N == 2:
-                u, v = item[0], item[1]
-                key = None
-            else:
-                raise ValueError("MultiEdge must have length 2 or 3")
-        else:
-            u, v = item
-            key = None
-        try:
-            iterable = self._method(self._graph)
-        except Exception:
-            return False
-        if self._graph.is_multigraph():
-            for entry in iterable:
-                if len(entry) == 3:
-                    eu, ev, ek = entry
-                else:
-                    eu, ev = entry
-                    ek = 0
-                if u == eu and v == ev and (key is None or key == ek):
-                    return True
-            return False
-        return any(eu == u and ev == v for (eu, ev) in iterable)
+        # br-r37-c1-ex1s6: and it is ONE row lookup, u in pred[v] / v in
+        # succ[u] (k in the pair's keydict on a multigraph, k = 0 for a
+        # pair). This scanned every edge per probe, and compared a
+        # multigraph probe against key-less pairs: (0, 1, 1) in
+        # MDG.in_edges was False for an edge the view lists.
+        graph = self._graph
+        return _nx_edge_view_contains_by_has_edge(
+            graph, item, self._fnx_edge_kind, graph.is_multigraph()
+        )
 
     def __call__(self, *args, **kwargs):
         # br-r37-c1-iemvcall: for non-multigraph DiGraph, nx's
@@ -11928,12 +12158,14 @@ class _DiEdgeMethodView:
                 wrap = (_InMultiEdgeDataView if cls_name == "InMultiEdgeView"
                         else _OutMultiEdgeDataView)
         else:
-            if data is False:
-                # Should not reach here in practice — no-args + no
-                # multi means we returned ``self`` above; nbunch-only
-                # case keeps the bare list to avoid masquerading as a
-                # data view.  Preserve current behaviour.
-                return result
+            if data is False and (
+                kwargs["nbunch"] if "nbunch" in kwargs else (args[0] if args else None)
+            ) is None:
+                # networkx: `if nbunch is None and data is False: return self`
+                return self
+            # br-r37-c1-ex1s6: an nbunch-only call is networkx's
+            # In/OutEdgeDataView reporting (u, v); it was a bare list - no
+            # class name, no liveness, membership by scan.
             wrap = (_InEdgeDataView if cls_name == "InEdgeView"
                     else _OutEdgeDataView)
         return _wrap_edge_data_view(result, wrap)
@@ -12083,7 +12315,7 @@ _OutEdgeView.__name__ = "OutEdgeView"
 
 
 class _InEdgeView(_DiEdgeMethodView):
-    pass
+    _fnx_edge_kind = "in"
 _InEdgeView.__name__ = "InEdgeView"
 
 
@@ -12094,6 +12326,8 @@ _OutMultiEdgeView.__name__ = "OutMultiEdgeView"
 
 
 class _InMultiEdgeView(_DiEdgeMethodView):
+    _fnx_edge_kind = "in"
+
     def data(self, data=True, default=None, nbunch=None, keys=False):
         return self(nbunch=nbunch, data=data, keys=keys, default=default)
 _InMultiEdgeView.__name__ = "InMultiEdgeView"
@@ -48891,6 +49125,10 @@ class _RevEdgeMethodViewBase:
     """
 
     __slots__ = ("_owner",)
+    # br-r37-c1-ex1s6: the reverse view's rows membership reads - its succ
+    # (the graph's pred) for out_edges, its pred (the graph's succ) for
+    # in_edges; see _nx_edge_view_contains.
+    _fnx_edge_kind = "out"
 
     def __init__(self, owner):
         self._owner = owner
@@ -48898,8 +49136,15 @@ class _RevEdgeMethodViewBase:
     def _compute(self, *args, **kwargs):
         raise NotImplementedError
 
-    def __call__(self, *args, **kwargs):
-        return self._compute(*args, **kwargs)
+    def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        # br-r37-c1-ex1s6: networkx's In/OutEdgeView.__call__ - the view
+        # itself for a plain call (a multigraph's only with keys=True), else
+        # a live In/OutEdgeDataView (a list before: no liveness, no name,
+        # membership by scan).
+        return _view_edges_call(self, self._owner, nbunch, data, keys, default)
+
+    def _list(self, nbunch=None, data=False, keys=False, default=None):
+        return self._compute(nbunch=nbunch, data=data, keys=keys, default=default)
 
     def __iter__(self):
         # Multi*Graph reverse views default to keys=True for __iter__
@@ -48912,10 +49157,12 @@ class _RevEdgeMethodViewBase:
         return len(self._compute())
 
     def __contains__(self, item):
-        try:
-            return item in set(self._compute())
-        except TypeError:
-            return False
+        # br-r37-c1-ex1s6: one row lookup, networkx's rules; this built a set
+        # of every edge per probe and answered False for a malformed one.
+        graph = self._owner._graph
+        kind = self._fnx_edge_kind
+        rows = graph.succ if kind == "in" else graph.pred
+        return _nx_edge_view_contains(rows, item, kind, graph.is_multigraph())
 
     def __repr__(self):
         return f"{type(self).__name__}({list(self)!r})"
@@ -48923,7 +49170,7 @@ class _RevEdgeMethodViewBase:
     def data(self, data=True, default=None, nbunch=None, keys=False):
         # br-r37-c1-revview-data: nx's reverse-view edges have a
         # ``.data()`` method that returns an EdgeDataView. Match.
-        return self._compute(nbunch=nbunch, data=data, keys=keys, default=default)
+        return self(nbunch=nbunch, data=data, keys=keys, default=default)
 
     # br-r37-c1-revvcopy: see _RevDegreeViewBase above — same fix
     # for in_edges / out_edges proxies.
@@ -48951,6 +49198,8 @@ _RevOutEdgeViewProxy.__name__ = "OutEdgeView"
 
 
 class _RevInEdgeViewProxy(_RevEdgeMethodViewBase):
+    _fnx_edge_kind = "in"
+
     def _compute(self, *args, **kwargs):
         return self._owner._in_edges_compute(*args, **kwargs)
 _RevInEdgeViewProxy.__name__ = "InEdgeView"
@@ -48963,6 +49212,8 @@ _RevOutMultiEdgeViewProxy.__name__ = "OutMultiEdgeView"
 
 
 class _RevInMultiEdgeViewProxy(_RevEdgeMethodViewBase):
+    _fnx_edge_kind = "in"
+
     def _compute(self, *args, **kwargs):
         return self._owner._in_edges_compute(*args, **kwargs)
 _RevInMultiEdgeViewProxy.__name__ = "InMultiEdgeView"
@@ -49190,15 +49441,13 @@ class _ReverseEdgeView:
         return self._view._graph.number_of_edges()
 
     def __contains__(self, edge):
-        try:
-            u, v = edge[:2]
-        except (TypeError, ValueError):
-            return False
-        if u not in self._view._graph:
-            return False
         # reverse_view iterates (u, v) where v is in the original graph's pred[u]
         # (original edge v -> u becomes reversed edge u -> v).
-        return v in self._view._graph.pred[u]
+        # br-r37-c1-ex1s6: networkx's (Out)(Multi)EdgeView membership over
+        # those rows (_nx_edge_view_contains): a malformed probe raises, a
+        # multigraph pair is key 0 and a triple's key counts.
+        graph = self._view._graph
+        return _nx_edge_view_contains(graph.pred, edge, "out", graph.is_multigraph())
 
     def __getitem__(self, edge):
         u, v = edge
@@ -49539,15 +49788,18 @@ class _FilteredNeighborMap(_Mapping):
 
     def __getitem__(self, neighbor):
         if not self._view._node_visible(neighbor):
+            # br-r37-c1-ex1s6: networkx's FilterAtlas tests `key in atlas`
+            # first, a dict lookup - TypeError for an unhashable key.
+            _HASH_PROBE.get(neighbor)
             raise KeyError(f"Key {neighbor} not found")
 
         if self._view.is_multigraph():
             keydict = self._raw_neighbors()[neighbor]
-            filtered = {
-                key: attrs
+            filtered = _FilteredKeyDict(
+                (key, attrs)
                 for key, attrs in keydict.items()
                 if self._edge_visible(neighbor, key)
-            }
+            )
             if filtered:
                 return filtered
         else:
@@ -49555,6 +49807,24 @@ class _FilteredNeighborMap(_Mapping):
                 return self._raw_neighbors()[neighbor]
 
         raise KeyError(f"Key {neighbor} not found")
+
+
+class _FilteredKeyDict(dict):
+    """br-r37-c1-ex1s6: a filtered multigraph pair's {key: attrs}.
+    networkx's is a FilterAtlas, which words a missing key 'Key k not
+    found' (and hashes the key first, as a dict does); a plain dict raised
+    KeyError(k). Still a dict, named and pickled as one, as before."""
+
+    __slots__ = ()
+
+    def __missing__(self, key):
+        raise KeyError(f"Key {key} not found")
+
+    def __reduce__(self):
+        return (dict, (dict(self),))
+
+
+_FilteredKeyDict.__name__ = _FilteredKeyDict.__qualname__ = "dict"
 
 
 class FilterAtlas(_Mapping):
@@ -49649,8 +49919,10 @@ class _ViewEdgeDataView:
         if nbunch is None:
             self._nbunch = self._nbset = None
         else:
-            self._nbunch = list(dict.fromkeys(view.nbunch_iter(nbunch)))
-            self._nbset = set(self._nbunch)
+            # br-r37-c1-ex1s6: kept as networkx keeps it, a dict - membership
+            # words an unhashable probe as a dict key.
+            self._nbset = dict.fromkeys(view.nbunch_iter(nbunch))
+            self._nbunch = list(self._nbset)
         self._data = data
         self._default = default
         self._keys = keys
@@ -49662,39 +49934,22 @@ class _ViewEdgeDataView:
     def __len__(self):
         return len(self._produce(self._nbunch))
 
-    def _report(self, u, v, dd, key=None):
-        data = self._data
-        head = (u, v, key) if self._keys is True and self._view.is_multigraph() else (u, v)
-        if data is True:
-            return (*head, dd)
-        if data is False:
-            return head
-        return (*head, dd[data] if data in dd else self._default)
-
     def __contains__(self, e):
-        u, v = e[:2]
+        # br-r37-c1-ex1s6: the graph classes' data-view membership, one
+        # implementation of networkx's rules for both; the in-edge views
+        # (a reverse view's in_edges(...)) look the edge up in pred[v].
         view = self._view
-        nbset = self._nbset
-        if nbset is not None and u not in nbset and (view.is_directed() or v not in nbset):
-            return False
-        # networkx looks both up in dicts: an unhashable one is a TypeError.
-        _HASH_PROBE.get(u)
-        _HASH_PROBE.get(v)
-        try:
-            entry = view.adj[u][v]
-        except KeyError:
-            return False
-        if not view.is_multigraph():
-            return e == self._report(u, v, entry)
-        if self._keys is True:
-            k = e[2]
-            _HASH_PROBE.get(k)
-            try:
-                dd = entry[k]
-            except KeyError:
-                return False
-            return e == self._report(u, v, dd, k)
-        return any(e == self._report(u, v, dd, k) for k, dd in entry.items())
+        kind = self._kind
+        return _nx_edge_data_view_contains(
+            _edge_rows(view, kind),
+            e,
+            kind,
+            view.is_multigraph(),
+            self._data,
+            self._default,
+            self._keys,
+            self._nbset,
+        )
 
     def __str__(self):
         return str(list(self))
@@ -49704,12 +49959,14 @@ class _ViewEdgeDataView:
 
 
 _VIEW_EDGE_DATA_VIEW_TYPES = {
-    (directed, multigraph): type(name, (_ViewEdgeDataView,), {"__slots__": ()})
-    for (directed, multigraph), name in (
-        ((False, False), "EdgeDataView"),
-        ((True, False), "OutEdgeDataView"),
-        ((False, True), "MultiEdgeDataView"),
-        ((True, True), "OutMultiEdgeDataView"),
+    (kind, multigraph): type(name, (_ViewEdgeDataView,), {"__slots__": (), "_kind": kind})
+    for (kind, multigraph), name in (
+        (("undirected", False), "EdgeDataView"),
+        (("out", False), "OutEdgeDataView"),
+        (("in", False), "InEdgeDataView"),
+        (("undirected", True), "MultiEdgeDataView"),
+        (("out", True), "OutMultiEdgeDataView"),
+        (("in", True), "InMultiEdgeDataView"),
     )
 }
 
@@ -49720,7 +49977,10 @@ def _view_edges_call(edge_view, view, nbunch, data, keys, default):
     ``keys=True``), else a live data view over ``edge_view._list``."""
     if nbunch is None and data is False and (keys is True or not view.is_multigraph()):
         return edge_view
-    return _VIEW_EDGE_DATA_VIEW_TYPES[(view.is_directed(), view.is_multigraph())](
+    kind = getattr(edge_view, "_fnx_edge_kind", None) or (
+        "out" if view.is_directed() else "undirected"
+    )
+    return _VIEW_EDGE_DATA_VIEW_TYPES[(kind, view.is_multigraph())](
         view,
         nbunch,
         data,
@@ -49861,6 +50121,9 @@ class NodeView(_Mapping):
 
 
 class _FilteredEdgeView:
+    # br-r37-c1-ex1s6: the view's shape, set by the subclasses below.
+    _fnx_edge_kind = _fnx_multi = None
+
     def __init__(self, view):
         self._view = view
 
@@ -49902,22 +50165,20 @@ class _FilteredEdgeView:
 
     def __contains__(self, edge):
         # br-r37-c1-j0oc5: on a multigraph view the KEY is part of the edge's
-        # identity, so nx's MultiEdgeView requires a 3-tuple and reports False
-        # for a bare (u, v) or a key that is not present. Ignoring the key here
-        # made `(u, v) in view` and `(u, v, bogus) in view` both report True.
-        if self._view.is_multigraph():
-            try:
-                u, v, key = edge
-            except (TypeError, ValueError):
-                return False
-            return self._view.has_edge(u, v, key)
-        try:
-            u, v = edge[:2]
-        except (TypeError, ValueError):
-            return False
-        if not self._view.has_edge(u, v):
-            return False
-        return True
+        # identity: `(u, v, bogus) in view` is False.
+        # br-r37-c1-ex1s6: networkx's edge view membership - a bare pair means
+        # key 0, as in networkx's MultiEdgeView (j0oc5 answered False for
+        # it), and a malformed probe raises what networkx's unpacking raises.
+        # The view's shape is its class's (the four subclasses below); two
+        # is_directed / is_multigraph calls per probe cost 20 percent.
+        view = self._view
+        kind = self._fnx_edge_kind
+        if kind is None:
+            kind = "out" if view.is_directed() else "undirected"
+            multi = view.is_multigraph()
+        else:
+            multi = self._fnx_multi
+        return _nx_edge_view_contains_by_has_edge(view, edge, kind, multi)
 
     def __getitem__(self, edge):
         # br-r37-c1-j0oc5: same split. nx indexes a multigraph edge view by
@@ -50045,22 +50306,22 @@ class _FilteredEdgeView:
 # views.  The factory at SubgraphView.edges dispatches based on
 # is_directed() / is_multigraph().
 class _FilteredGraphEdgeView(_FilteredEdgeView):
-    pass
+    _fnx_edge_kind, _fnx_multi = "undirected", False
 _FilteredGraphEdgeView.__name__ = "EdgeView"
 
 
 class _FilteredOutEdgeView(_FilteredEdgeView):
-    pass
+    _fnx_edge_kind, _fnx_multi = "out", False
 _FilteredOutEdgeView.__name__ = "OutEdgeView"
 
 
 class _FilteredMultiEdgeView(_FilteredEdgeView):
-    pass
+    _fnx_edge_kind, _fnx_multi = "undirected", True
 _FilteredMultiEdgeView.__name__ = "MultiEdgeView"
 
 
 class _FilteredOutMultiEdgeView(_FilteredEdgeView):
-    pass
+    _fnx_edge_kind, _fnx_multi = "out", True
 _FilteredOutMultiEdgeView.__name__ = "OutMultiEdgeView"
 
 
@@ -56376,13 +56637,13 @@ class _ConversionEdgeView:
         return self._view.number_of_edges()
 
     def __contains__(self, edge):
-        try:
-            u, v = edge[:2]
-        except (TypeError, ValueError):
-            return False
-        if u not in self._view._graph:
-            return False
-        return v in self._view.adj[u]
+        # br-r37-c1-ex1s6: networkx's edge view membership. This ignored a
+        # multigraph edge's key - (0, 1, 7) in the view was True - and
+        # answered False for a malformed probe where networkx raises.
+        view = self._view
+        return _nx_edge_view_contains_by_has_edge(
+            view, edge, "out" if view.is_directed() else "undirected", view.is_multigraph()
+        )
 
     def __getitem__(self, edge):
         u, v = edge
