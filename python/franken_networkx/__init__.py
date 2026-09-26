@@ -59658,12 +59658,16 @@ def _current_flow_betweenness_subset_impl(
         nb = 2.0
 
     if edge:
-        betweenness = {}
+        # br-r37-c1-pnbq6: nx keys the result in H.edges() order (each edge as
+        # a sorted pair), and a multigraph's parallel edges share one key: each
+        # of their rows ADDS its contribution to the running value and then
+        # divides by nb, as nx's per-row "+=" then "/=" does.
+        betweenness = dict.fromkeys((tuple(sorted((u, v))) for u, v in H.edges()), 0.0)
         for row, e in _flow_matrix_row(H, weight=weight, dtype=dtype, solver=eff_solver):
             rs = row[src_idx]
             rt = row[tgt_idx]
             contrib = 0.5 * float(np.abs(rs[:, None] - rt[None, :]).sum())
-            betweenness[e] = contrib / nb
+            betweenness[e] = (betweenness[e] + contrib) / nb
         return {(ordering[s], ordering[t]): v for (s, t), v in betweenness.items()}
 
     betweenness = dict.fromkeys(H, 0.0)

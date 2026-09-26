@@ -646,6 +646,34 @@ class TestEdgeCurrentFlowBetweennessCentralitySubset:
             )
         )
 
+    @pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+    @pytest.mark.parametrize("weight", [None, "weight"])
+    @pytest.mark.parametrize("normalized", [True, False])
+    def test_key_order_and_parallel_edges_match_networkx(self, cls, weight, normalized):
+        # br-r37-c1-pnbq6: nx keys the result in H.edges() order, and each
+        # parallel edge's flow row adds to the pair's running value before a
+        # per-row division by nb; fnx used flow-row order and kept the last row.
+        import random
+
+        for seed in range(15):
+            rng = random.Random(seed)
+            n = rng.randint(4, 10)
+            edges = [(i, (i + 1) % n, rng.choice([1, 2.5, 0.5])) for i in range(n)]
+            edges += [(rng.randrange(n), rng.randrange(n), rng.choice([1, 3.0])) for _ in range(n)]
+            edges = [(u, v, w) for u, v, w in edges if u != v]
+            fg, ng = getattr(fnx, cls)(), getattr(nx, cls)()
+            fg.add_weighted_edges_from(edges)
+            ng.add_weighted_edges_from(edges)
+            sources, targets = [0, 1], [n - 1, n - 2]
+            got = fnx.edge_current_flow_betweenness_centrality_subset(
+                fg, sources, targets, normalized=normalized, weight=weight
+            )
+            expected = nx.edge_current_flow_betweenness_centrality_subset(
+                ng, sources, targets, normalized=normalized, weight=weight
+            )
+            assert list(got) == list(expected), seed
+            assert got == pytest.approx(expected, rel=1e-9), seed
+
     def test_backend_keyword_surface_matches_networkx(self):
         fg = fnx.path_graph(4)
         ng = nx.path_graph(4)
