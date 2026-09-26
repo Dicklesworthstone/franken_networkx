@@ -13,6 +13,7 @@ import random
 
 import numpy as np
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -198,3 +199,45 @@ def test_disconnected_raises():
         pass
     else:  # pragma: no cover
         raise AssertionError("expected NetworkXError for disconnected input")
+
+
+# br-r37-c1-atjs9: networkx's tracemin methods return the Fiedler vector with its
+# FIRST component negative (when that component is ~0 the sign is its random
+# start's - those rows are skipped); the dense / Lanczos / ARPACK solvers return
+# either sign, so ~46% of fnx's vectors came out flipped, and spectral_bisection
+# (negative side first in networkx) listed its sets in the other order.
+def _sign_case(seed):
+    r = random.Random(seed)
+    n = r.randint(6, 26)
+    Gx = nx.gnp_random_graph(n, r.choice((0.2, 0.35)), seed=seed)
+    if r.random() < 0.5:
+        for u, v in Gx.edges():
+            Gx[u][v]["weight"] = r.uniform(0.5, 3.0)
+    return Gx
+
+
+@pytest.mark.parametrize(
+    "method, normalized",
+    # networkx's tracemin_pcg can take minutes to converge on a normalized
+    # unweighted Laplacian; the normalized rows use tracemin_lu.
+    [("tracemin_pcg", False), ("tracemin_lu", False), ("tracemin_lu", True)],
+)
+@pytest.mark.parametrize("seed", range(30))
+def test_fiedler_vector_sign_and_bisection_order_match_networkx(seed, method, normalized):
+    Gx = _sign_case(seed)
+    if not nx.is_connected(Gx):
+        pytest.skip("disconnected draw")
+    expected = nx.fiedler_vector(Gx, normalized=normalized, method=method, seed=1)
+    if abs(expected[0]) < 1e-6:
+        pytest.skip("networkx's first component is ~0: its sign is its random start's")
+    got = fnx.fiedler_vector(_cp(Gx), normalized=normalized, method=method)
+    assert np.allclose(got, expected, atol=1e-5)
+    assert fnx.spectral_bisection(_cp(Gx), normalized=normalized, method=method) == nx.spectral_bisection(
+        Gx, normalized=normalized, method=method, seed=1
+    )
+
+
+def test_fiedler_vector_of_two_nodes_is_networkx_array():
+    for build in (nx.path_graph, lambda n: nx.MultiGraph([(0, 1), (0, 1)])):
+        got = fnx.fiedler_vector(_cp(build(2)) if build is nx.path_graph else fnx.MultiGraph([(0, 1), (0, 1)]))
+        assert got.tolist() == nx.fiedler_vector(build(2)).tolist() == [1.0, -1.0]

@@ -34446,8 +34446,24 @@ def _fiedler_vector_impl(
         raise NetworkXError("graph has less than two nodes.")
     if not is_connected(G):
         raise NetworkXError("graph is not connected.")
-    if len(G) > 2:
-        _validate_fiedler_method(method)
+    if len(G) == 2:
+        # br-r37-c1-atjs9: networkx's answer for two nodes, unnormalized.
+        return np.array([1.0, -1.0])
+    _validate_fiedler_method(method)
+    # br-r37-c1-atjs9: networkx's tracemin methods return the vector with its
+    # FIRST component negative (every converged case of ~190 graphs, weighted
+    # or not, normalized or not; when that component is ~0 the sign is its
+    # random start's). lobpcg's sign follows its random start - left as the
+    # solver gives it. The dense / Lanczos / ARPACK solvers below return
+    # either sign, so ~46% of fnx's vectors (and spectral_bisection's two
+    # sets) came out flipped against networkx's.
+    orient_first_negative = method in ("tracemin_pcg", "tracemin_lu")
+
+    def _oriented(vector):
+        if orient_first_negative and vector[0] > 0:
+            return -vector
+        return vector
+
     del tol, method  # accepted for nx parity but not used by the dense solver
 
     # br-r37-c1-ucvfx: for medium dense, unweighted, simple native graphs the
@@ -34475,7 +34491,7 @@ def _fiedler_vector_impl(
                     G, 96, 1e-8
                 )
                 if native_vector is not None:
-                    return np.asarray(native_vector, dtype=float)
+                    return _oriented(np.asarray(native_vector, dtype=float))
         except Exception:
             pass
 
@@ -34517,13 +34533,13 @@ def _fiedler_vector_impl(
             ):
                 v = np.asarray(vecs[:, 1], dtype=float)
                 j = int(np.argmax(np.abs(v)))
-                return -v if v[j] < 0 else v
+                return _oriented(-v if v[j] < 0 else v)
         except Exception:
             pass
 
     L = L_sparse.toarray() if hasattr(L_sparse, "toarray") else np.asarray(L_sparse)
     eigenvalues, eigenvectors = np.linalg.eigh(L)
-    return eigenvectors[:, 1]
+    return _oriented(eigenvectors[:, 1])
 
 
 def fiedler_vector(
@@ -58960,9 +58976,12 @@ def spectral_bisection(
     nodelist = list(G.nodes())
     # br-r37-c1-cdf1v: networkx returns two mutable sets (frozensets compared
     # equal but refused .add / .discard).
-    a = {nodelist[i] for i in range(len(nodelist)) if fv[i] >= 0}
-    b = {nodelist[i] for i in range(len(nodelist)) if fv[i] < 0}
-    return (a, b)
+    # br-r37-c1-atjs9: networkx's order - the nodes with a negative component
+    # first, then the rest (fnx listed the non-negative side first, which
+    # agreed with networkx only when its vector came out flipped).
+    negative = {nodelist[i] for i in range(len(nodelist)) if fv[i] < 0}
+    non_negative = {nodelist[i] for i in range(len(nodelist)) if fv[i] >= 0}
+    return (negative, non_negative)
 
 
 def _is_complete_graph_chordal(G):
