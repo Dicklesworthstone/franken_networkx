@@ -5790,6 +5790,51 @@ impl PyMultiDiGraph {
         Ok(Some(keys))
     }
 
+    /// br-r37-c1-75sg9: `add_edges_from([(u, v, key), ...])` with exact,
+    /// non-empty `str` keys on a fresh MultiDiGraph - the directed sibling of
+    /// `PyMultiGraph::_try_add_str_keyed_edges_from_batch`. networkx reads such a
+    /// third element as the key (`dict.update` of a non-empty str raises, an
+    /// empty one is data), so after that check the bunch is exactly what
+    /// `_native_add_keyed_edges_no_data` commits. Returns the keys it gave (the
+    /// str objects, in order), or `None` - nothing added - otherwise; the
+    /// per-edge loop then owns every other shape, a duplicate `(u, v, key)`
+    /// included.
+    fn _try_add_str_keyed_edges_from_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<PyList>>> {
+        const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
+        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+            return Ok(None);
+        };
+        if list.len() < STR_KEYED_EDGE_BATCH_MIN {
+            return Ok(None);
+        }
+        let mut keys: Vec<PyObject> = Vec::with_capacity(list.len());
+        for item in list.iter() {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+            let key = tuple.get_item(2)?;
+            let Ok(key_string) = key.downcast_exact::<PyString>() else {
+                return Ok(None);
+            };
+            match key_string.to_str() {
+                Ok(text) if !text.is_empty() => {}
+                _ => return Ok(None),
+            }
+            keys.push(key.unbind());
+        }
+        if !self._native_add_keyed_edges_no_data(py, ebunch_to_add)? {
+            return Ok(None);
+        }
+        Ok(Some(PyList::new(py, keys)?.unbind()))
+    }
+
     /// br-r37-c1-urle5b: native `(u, v, key)` no-data batch on a FRESH
     /// MultiDiGraph — see `PyMultiGraph::_native_add_keyed_edges_no_data`.
     /// Directed edges are NOT canonicalized, so the per-pair auto-key counter

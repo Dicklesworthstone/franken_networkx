@@ -51,6 +51,11 @@ BUNCHES = {
         (u, v) if i % 2 else (u, v, {"w": i}) for i, (u, v) in enumerate(PAIRS)
     ],
     "str keys": lambda: [(u, v, f"k{i}") for i, (u, v) in enumerate(PAIRS)],
+    # br-r37-c1-75sg9: both must decline the str-keyed batch - a repeated
+    # (u, v, key) updates the first edge, and an empty str third is DATA
+    "str keys, a duplicate": lambda: [(u, v, f"k{i % 6}") for i, (u, v) in enumerate(PAIRS)]
+    + [(0, 3, "k0")],
+    "str keys, one empty": lambda: [(u, v, f"k{i}") for i, (u, v) in enumerate(PAIRS)] + [(0, 3, "")],
     "int 4-tuples": lambda: [(u, v, 10 + i, {"w": i}) for i, (u, v) in enumerate(PAIRS)],
     "mixed explicit and auto": lambda: [(0, 3), (0, 3, 1), (0, 3), (0, 3, "k", {"c": 1}), (0, 3)],
     "generator": lambda: (e for e in PAIRS),
