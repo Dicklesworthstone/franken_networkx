@@ -8,14 +8,72 @@ use crate::{PyGraph, PyNodeKeyMap, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::{
     DiGenerationReport, GenerationReport, GraphGenerator, MultiDiGenerationReport,
+    PYTHON_RANDOM_STATE_WORDS, PythonRandom,
 };
 use pyo3::exceptions::{PyRuntimeWarning, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PySet, PyTuple};
+use pyo3::types::{PyDict, PyInt, PySet, PyTuple};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 
 const MAX_NATIVE_RARY_N: usize = 100_000;
+
+/// Run a seeded kernel on a Python seed: an int is `random.Random(seed)`; any
+/// other value must be a `random.Random`, whose exact state the kernel draws
+/// from and hands back through `setstate`, as networkx advances the generator
+/// it is given (and `random._inst` for `seed=None`) - br-r37-c1-ols3t. The
+/// state goes back even when the kernel fails, since networkx also consumes
+/// its draws before raising. The Python wrappers pass an int or an exact
+/// `random.Random`; a numpy-backed generator never reaches a kernel.
+fn with_python_random<T>(
+    seed: &Bound<'_, PyAny>,
+    kernel: impl FnOnce(&mut PythonRandom) -> PyResult<T>,
+) -> PyResult<T> {
+    if seed.is_instance_of::<PyInt>() {
+        return kernel(&mut PythonRandom::new(seed.extract::<u64>()?));
+    }
+    let state = seed.call_method0("getstate")?;
+    let state = state.downcast::<PyTuple>()?;
+    let internal = state.get_item(1)?;
+    let internal = internal.downcast::<PyTuple>()?;
+    if state.len() != 3 || internal.len() != PYTHON_RANDOM_STATE_WORDS + 1 {
+        return Err(PyValueError::new_err(
+            "seed must be an int or a random.Random (getstate() is not an MT19937 state)",
+        ));
+    }
+    let mut words = [0u32; PYTHON_RANDOM_STATE_WORDS];
+    for (slot, word) in words.iter_mut().zip(internal.iter()) {
+        *slot = word.extract::<u32>()?;
+    }
+    let index = internal
+        .get_item(PYTHON_RANDOM_STATE_WORDS)?
+        .extract::<usize>()?;
+    let mut rng = PythonRandom::from_state(&words, index)
+        .ok_or_else(|| PyValueError::new_err("random.Random state index out of range"))?;
+    let result = kernel(&mut rng);
+    let (words, index) = rng.state();
+    let mut internal = Vec::with_capacity(PYTHON_RANDOM_STATE_WORDS + 1);
+    internal.extend(words.iter().map(|word| u64::from(*word)));
+    internal.push(index as u64);
+    let internal = PyTuple::new(seed.py(), internal)?;
+    seed.call_method1(
+        "setstate",
+        ((state.get_item(0)?, internal, state.get_item(2)?),),
+    )?;
+    result
+}
+
+/// [`with_python_random`] for a binding whose `seed` defaults to `None`,
+/// which it has always read as 0; the Python wrappers pass a seed.
+fn with_optional_python_random<T>(
+    seed: Option<&Bound<'_, PyAny>>,
+    kernel: impl FnOnce(&mut PythonRandom) -> PyResult<T>,
+) -> PyResult<T> {
+    match seed {
+        Some(seed) => with_python_random(seed, kernel),
+        None => kernel(&mut PythonRandom::new(0)),
+    }
+}
 
 /// Build a PyGraph from a Rust Graph returned by a generator.
 ///
@@ -846,22 +904,34 @@ pub fn complete_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
 /// The RNG differs from NetworkX, so graphs with the same seed will
 /// differ between FrankenNetworkX and NetworkX.
 #[pyfunction]
-pub fn gnp_random_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult<PyGraph> {
+pub fn gnp_random_graph(
+    py: Python<'_>,
+    n: usize,
+    p: f64,
+    seed: &Bound<'_, PyAny>,
+) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .gnp_random_graph(n, p, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.gnp_random_graph(n, p, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
 /// Return a directed Erdős–Rényi G(n, p) digraph (native; nx-exact for a given
 /// seed — same PythonRandom draw sequence over permutations(range(n), 2)).
 #[pyfunction]
-pub fn gnp_random_digraph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult<Py<PyDiGraph>> {
+pub fn gnp_random_digraph(
+    py: Python<'_>,
+    n: usize,
+    p: f64,
+    seed: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDiGraph>> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .gnp_random_digraph(n, p, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.gnp_random_digraph(n, p, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     Py::new(py, generated_pydigraph(py, report)?)
 }
 
@@ -870,11 +940,17 @@ pub fn gnp_random_digraph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResu
 /// as networkx, byte-identical edge set + insertion order). Eliminates the
 /// per-edge Python randint loop the pure-Python wrapper paid.
 #[pyfunction]
-pub fn gnm_random_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> PyResult<PyGraph> {
+pub fn gnm_random_graph(
+    py: Python<'_>,
+    n: usize,
+    m: usize,
+    seed: &Bound<'_, PyAny>,
+) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .gnm_random_graph(n, m, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.gnm_random_graph(n, m, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
@@ -885,12 +961,13 @@ pub fn gnm_random_digraph(
     py: Python<'_>,
     n: usize,
     m: usize,
-    seed: u64,
+    seed: &Bound<'_, PyAny>,
 ) -> PyResult<Py<PyDiGraph>> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .gnm_random_digraph(n, m, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.gnm_random_digraph(n, m, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     Py::new(py, generated_pydigraph(py, report)?)
 }
 
@@ -914,12 +991,13 @@ pub fn watts_strogatz_graph(
     n: usize,
     k: usize,
     p: f64,
-    seed: u64,
+    seed: &Bound<'_, PyAny>,
 ) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .watts_strogatz_graph(n, k, p, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.watts_strogatz_graph(n, k, p, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
@@ -934,17 +1012,28 @@ pub fn watts_strogatz_graph(
 /// seed : int
 ///     Seed for the random number generator.
 #[pyfunction]
-pub fn barabasi_albert_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> PyResult<PyGraph> {
+pub fn barabasi_albert_graph(
+    py: Python<'_>,
+    n: usize,
+    m: usize,
+    seed: &Bound<'_, PyAny>,
+) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .barabasi_albert_graph(n, m, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.barabasi_albert_graph(n, m, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
 /// Return an Erdős–Rényi random graph (alias for ``gnp_random_graph``).
 #[pyfunction]
-pub fn erdos_renyi_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult<PyGraph> {
+pub fn erdos_renyi_graph(
+    py: Python<'_>,
+    n: usize,
+    p: f64,
+    seed: &Bound<'_, PyAny>,
+) -> PyResult<PyGraph> {
     gnp_random_graph(py, n, p, seed)
 }
 
@@ -958,31 +1047,33 @@ pub fn newman_watts_strogatz_graph(
     n: usize,
     k: usize,
     p: f64,
-    seed: u64,
+    seed: &Bound<'_, PyAny>,
 ) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .newman_watts_strogatz_graph(n, k, p, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.newman_watts_strogatz_graph(n, k, p, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
 /// Return a connected Watts-Strogatz small-world graph.
 ///
 /// Repeatedly generates Watts-Strogatz graphs until a connected one is found.
-#[pyfunction(signature = (n, k, p, tries=100, seed=0))]
+#[pyfunction(signature = (n, k, p, tries=100, seed=None))]
 pub fn connected_watts_strogatz_graph(
     py: Python<'_>,
     n: usize,
     k: usize,
     p: f64,
     tries: usize,
-    seed: u64,
+    seed: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .connected_watts_strogatz_graph(n, k, p, tries, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_optional_python_random(seed, |rng| {
+        gg.connected_watts_strogatz_graph(n, k, p, tries, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
@@ -991,11 +1082,17 @@ pub fn connected_watts_strogatz_graph(
 /// The resulting graph has exactly ``n`` nodes, each with degree ``d``.
 /// Requires ``n * d`` to be even and ``d < n``.
 #[pyfunction]
-pub fn random_regular_graph(py: Python<'_>, d: usize, n: usize, seed: u64) -> PyResult<PyGraph> {
+pub fn random_regular_graph(
+    py: Python<'_>,
+    d: usize,
+    n: usize,
+    seed: &Bound<'_, PyAny>,
+) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .random_regular_graph(n, d, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.random_regular_graph(n, d, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
@@ -1005,10 +1102,12 @@ pub fn random_lobster_graph_lazy_int(
     n: usize,
     p1: f64,
     p2: f64,
-    seed: u64,
+    seed: &Bound<'_, PyAny>,
 ) -> PyResult<PyGraph> {
-    let (node_count, edges) = fnx_generators::random_lobster_edge_insertion_order(n, p1, p2, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let (node_count, edges) = with_python_random(seed, |rng| {
+        fnx_generators::random_lobster_edge_insertion_order(n, p1, p2, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     let lazy_int_node_stop = i64::try_from(node_count)
         .map_err(|_| PyValueError::new_err(format!("node count {node_count} exceeds i64")))?;
 
@@ -1055,12 +1154,16 @@ fn random_regular_edges_pyset_bound<'py>(
     py: Python<'py>,
     d: usize,
     n: usize,
-    seed: u64,
+    seed: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PySet>> {
     let _stub_count = n
         .checked_mul(d)
         .ok_or_else(|| PyValueError::new_err("n * d is too large"))?;
-    let edge_order = fnx_generators::random_regular_edge_insertion_order(n, d, seed);
+    let edge_order = with_python_random(seed, |rng| {
+        Ok(fnx_generators::random_regular_edge_insertion_order(
+            n, d, rng,
+        ))
+    })?;
     let edges = PySet::empty(py)?;
     for (u, v) in edge_order {
         let edge = PyTuple::new(py, [u, v])?;
@@ -1074,7 +1177,7 @@ pub fn random_regular_edges_pyset(
     py: Python<'_>,
     d: usize,
     n: usize,
-    seed: u64,
+    seed: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
     let edges = random_regular_edges_pyset_bound(py, d, n, seed)?;
     Ok(edges.into_any().unbind())
@@ -1093,7 +1196,7 @@ pub fn random_regular_graph_pyset_order(
     py: Python<'_>,
     d: usize,
     n: usize,
-    seed: u64,
+    seed: &Bound<'_, PyAny>,
 ) -> PyResult<PyGraph> {
     let lazy_int_node_stop =
         i64::try_from(n).map_err(|_| PyValueError::new_err(format!("n {n} exceeds i64")))?;
@@ -1163,12 +1266,13 @@ pub fn powerlaw_cluster_graph(
     n: usize,
     m: usize,
     p: f64,
-    seed: u64,
+    seed: &Bound<'_, PyAny>,
 ) -> PyResult<PyGraph> {
     let mut gg = active_graph_generator();
-    let report = gg
-        .powerlaw_cluster_graph(n, m, p, seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_python_random(seed, |rng| {
+        gg.powerlaw_cluster_graph(n, m, p, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     generated_pygraph(py, report)
 }
 
@@ -1213,26 +1317,27 @@ pub fn fast_gnp_random_graph(
     py: Python<'_>,
     n: usize,
     p: f64,
-    seed: Option<u64>,
+    seed: Option<&Bound<'_, PyAny>>,
     directed: bool,
     create_using: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
     let _ = create_using; // accepted for API compat, ignored
-    let actual_seed = seed.unwrap_or(0);
     let mut gg = active_graph_generator();
     if directed {
-        let report = gg
-            .fast_gnp_random_digraph(n, p, actual_seed)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+        let report = with_optional_python_random(seed, |rng| {
+            gg.fast_gnp_random_digraph(n, p, rng)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+        })?;
         return Ok(generated_pydigraph(py, report)?
             .into_pyobject(py)?
             .into_any()
             .unbind());
     }
 
-    let report = gg
-        .fast_gnp_random_graph(n, p, actual_seed, false)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_optional_python_random(seed, |rng| {
+        gg.fast_gnp_random_graph(n, p, rng, false)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     Ok(generated_pygraph(py, report)?
         .into_pyobject(py)?
         .into_any()
@@ -1245,15 +1350,15 @@ pub fn fast_gnp_random_graph(
 pub fn gn_graph(
     py: Python<'_>,
     n: usize,
-    seed: Option<u64>,
+    seed: Option<&Bound<'_, PyAny>>,
     create_using: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyDiGraph>> {
     let _ = create_using;
-    let actual_seed = seed.unwrap_or(0);
     let mut gg = active_graph_generator();
-    let report = gg
-        .gn_graph(n, actual_seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_optional_python_random(seed, |rng| {
+        gg.gn_graph(n, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     Py::new(py, generated_pydigraph(py, report)?)
 }
 
@@ -1264,15 +1369,15 @@ pub fn gnr_graph(
     py: Python<'_>,
     n: usize,
     p: f64,
-    seed: Option<u64>,
+    seed: Option<&Bound<'_, PyAny>>,
     create_using: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyDiGraph>> {
     let _ = create_using;
-    let actual_seed = seed.unwrap_or(0);
     let mut gg = active_graph_generator();
-    let report = gg
-        .gnr_graph(n, p, actual_seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_optional_python_random(seed, |rng| {
+        gg.gnr_graph(n, p, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     Py::new(py, generated_pydigraph(py, report)?)
 }
 
@@ -1282,15 +1387,15 @@ pub fn gnr_graph(
 pub fn gnc_graph(
     py: Python<'_>,
     n: usize,
-    seed: Option<u64>,
+    seed: Option<&Bound<'_, PyAny>>,
     create_using: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyDiGraph>> {
     let _ = create_using;
-    let actual_seed = seed.unwrap_or(0);
     let mut gg = active_graph_generator();
-    let report = gg
-        .gnc_graph(n, actual_seed)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_optional_python_random(seed, |rng| {
+        gg.gnc_graph(n, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     Py::new(py, generated_pydigraph(py, report)?)
 }
 
@@ -1305,27 +1410,18 @@ pub fn scale_free_graph(
     gamma: f64,
     delta_in: f64,
     delta_out: f64,
-    seed: Option<u64>,
+    seed: Option<&Bound<'_, PyAny>>,
     initial_graph: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyMultiDiGraph>> {
     let initial = match initial_graph {
         None => None,
         Some(graph) => Some(graph.extract::<PyRef<'_, PyMultiDiGraph>>()?.inner.clone()),
     };
-    let actual_seed = seed.unwrap_or(0);
     let mut gg = active_graph_generator();
-    let report = gg
-        .scale_free_graph(
-            n,
-            alpha,
-            beta,
-            gamma,
-            delta_in,
-            delta_out,
-            initial,
-            actual_seed,
-        )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    let report = with_optional_python_random(seed, |rng| {
+        gg.scale_free_graph(n, alpha, beta, gamma, delta_in, delta_out, initial, rng)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))
+    })?;
     Py::new(py, generated_pymultidigraph(py, report)?)
 }
 

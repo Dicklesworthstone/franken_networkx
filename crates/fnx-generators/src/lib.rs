@@ -3209,7 +3209,7 @@ impl GraphGenerator {
         initial_clique_size: usize,
         p: f64,
         q: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let operation = "partial_duplication_graph";
         if !(0.0..=1.0).contains(&p) || !(0.0..=1.0).contains(&q) {
@@ -3260,7 +3260,7 @@ impl GraphGenerator {
         let mut edge_count = edges.len();
         let _ = graph.extend_existing_index_edges_unrecorded(edges);
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         for new_node in initial_clique_size..total_nodes {
             let source_node = rng.randrange(new_node);
 
@@ -3303,7 +3303,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let operation = "duplication_divergence_graph";
         if !(0.0..=1.0).contains(&p) {
@@ -3329,7 +3329,7 @@ impl GraphGenerator {
         let (mut graph, _) = graph_with_n_nodes(self.mode, n);
         let _ = graph.extend_existing_index_edges_unrecorded([(0, 1)]);
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut edge_count = 1usize;
         let mut next_node = 2usize;
         let mut failed_replications = 0usize;
@@ -3381,7 +3381,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("gnp_random_graph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("gnp_random_graph", p)?;
@@ -3390,7 +3390,7 @@ impl GraphGenerator {
         }
 
         let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         // br-r37-c1-gnpbatch (cc): collect the accepted (left, right) INDEX pairs during the
         // RNG walk, then batch-insert by EXISTING node index. Drops the per-edge
         // `node_labels[..].clone()` String clones + the two name→index hashes + the per-edge
@@ -3437,7 +3437,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<DiGenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("gnp_random_digraph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("gnp_random_digraph", p)?;
@@ -3452,7 +3452,7 @@ impl GraphGenerator {
         // unchanged → identical accepted edges in identical order. Verified byte-identical (incl.
         // dense) via the gnp_digraph_batch_ab parity asserts (empty AttrMap == unweighted add_edge).
         let (mut graph, _node_labels) = digraph_with_n_nodes(self.mode, n);
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::new();
         // permutations(range(n), 2): source-major, every target != source.
         // The (u, u) pair is skipped WITHOUT a draw — matching itertools.
@@ -3491,7 +3491,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         m: usize,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("gnm_random_graph", n, MAX_N_GNP)?;
         let max_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
@@ -3501,13 +3501,16 @@ impl GraphGenerator {
                 "gnm_random_graph",
                 DecisionAction::Allow,
                 0.05,
-                format!("gnm graph saturated to complete graph: n={n}, m={m}, seed={seed}"),
+                format!(
+                    "gnm graph saturated to complete graph: n={n}, m={m}, seed={}",
+                    rng.origin()
+                ),
             );
             return Ok(self.finish_graph_report(graph, warnings));
         }
 
         let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         // br-r37-c1-gnmbatch (cc): the rejection sampler reads the graph only for the DUPLICATE
         // check (`has_edge`, a per-candidate 2×name→index hash + tuple lookup). Track accepted
         // edges in an integer `seen` set (canonicalized (min,max) exactly like `has_edge`'s
@@ -3550,7 +3553,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         m: usize,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<DiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("gnm_random_digraph", n, MAX_N_GNP)?;
         let max_edges = n.saturating_mul(n.saturating_sub(1));
@@ -3560,7 +3563,10 @@ impl GraphGenerator {
                 "gnm_random_digraph",
                 DecisionAction::Allow,
                 0.05,
-                format!("gnm digraph saturated to complete digraph: n={n}, m={m}, seed={seed}"),
+                format!(
+                    "gnm digraph saturated to complete digraph: n={n}, m={m}, seed={}",
+                    rng.origin()
+                ),
             );
             return Ok(self.finish_digraph_report(graph, warnings));
         }
@@ -3574,7 +3580,7 @@ impl GraphGenerator {
         // parity asserts. extend_existing_index_edges_with_attrs_unrecorded matches add_edge's edge +
         // succ/pred adjacency order (empty AttrMap == unweighted add_edge).
         let (mut graph, _node_labels) = digraph_with_n_nodes(self.mode, n);
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
         let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::with_capacity(m);
         let mut edge_count = 0usize;
@@ -3608,7 +3614,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         m: usize,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("dense_gnm_random_graph", n, MAX_N_GNP)?;
         let max_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
@@ -3618,7 +3624,10 @@ impl GraphGenerator {
                 "dense_gnm_random_graph",
                 DecisionAction::Allow,
                 0.05,
-                format!("dense gnm graph saturated to complete graph: n={n}, m={m}, seed={seed}"),
+                format!(
+                    "dense gnm graph saturated to complete graph: n={n}, m={m}, seed={}",
+                    rng.origin()
+                ),
             );
             return Ok(self.finish_graph_report(graph, warnings));
         }
@@ -3638,7 +3647,7 @@ impl GraphGenerator {
         }
 
         let (mut graph, _) = graph_with_n_nodes(self.mode, n);
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut u = 0usize;
         let mut v = 1usize;
         let mut seen = 0usize;
@@ -3696,7 +3705,7 @@ impl GraphGenerator {
         n: usize,
         k: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("watts_strogatz_graph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("watts_strogatz_graph", p)?;
@@ -3721,8 +3730,8 @@ impl GraphGenerator {
         }
 
         let half_k = k / 2;
-        let mut rng = PythonRandom::new(seed);
-        let graph = watts_strogatz_graph_core(self.mode, n, half_k, p, &mut rng);
+        let seed = rng.origin();
+        let graph = watts_strogatz_graph_core(self.mode, n, half_k, p, rng);
 
         self.record(
             "watts_strogatz_graph",
@@ -3748,7 +3757,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         m: usize,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("barabasi_albert_graph", n, MAX_N_GNP)?;
 
@@ -3767,10 +3776,10 @@ impl GraphGenerator {
         let mut repeated_nodes = repeated_nodes_from_graph(&graph);
         let _ = graph.extend_nodes_unrecorded(((m + 1)..n).map(|i| i.to_string()));
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut source = m + 1;
         while source < n {
-            let targets = random_subset_python(&repeated_nodes, m, &mut rng);
+            let targets = random_subset_python(&repeated_nodes, m, rng);
             let _ = graph.extend_existing_index_edges_unrecorded(
                 targets.iter().map(|&target| (source, target)),
             );
@@ -3799,7 +3808,7 @@ impl GraphGenerator {
         m1: usize,
         m2: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("dual_barabasi_albert_graph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("dual_barabasi_albert_graph", p)?;
@@ -3821,12 +3830,12 @@ impl GraphGenerator {
         }
 
         if p == 1.0 {
-            let mut report = self.barabasi_albert_graph(n, m1, seed)?;
+            let mut report = self.barabasi_albert_graph(n, m1, rng)?;
             warnings.append(&mut report.warnings);
             return Ok(self.finish_graph_report(report.graph, warnings));
         }
         if p == 0.0 {
-            let mut report = self.barabasi_albert_graph(n, m2, seed)?;
+            let mut report = self.barabasi_albert_graph(n, m2, rng)?;
             warnings.append(&mut report.warnings);
             return Ok(self.finish_graph_report(report.graph, warnings));
         }
@@ -3839,11 +3848,11 @@ impl GraphGenerator {
         let mut repeated_nodes = repeated_nodes_from_graph(&graph);
         let _ = graph.extend_nodes_unrecorded((initial_node_count..n).map(|i| i.to_string()));
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut source = initial_node_count;
         while source < n {
             let m = if rng.random() < p { m1 } else { m2 };
-            let targets = random_subset_python(&repeated_nodes, m, &mut rng);
+            let targets = random_subset_python(&repeated_nodes, m, rng);
             let _ = graph.extend_existing_index_edges_unrecorded(
                 targets.iter().map(|&target| (source, target)),
             );
@@ -3875,7 +3884,7 @@ impl GraphGenerator {
         m: usize,
         p: f64,
         q: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("extended_barabasi_albert_graph", n, MAX_N_GNP)?;
 
@@ -3895,7 +3904,7 @@ impl GraphGenerator {
         let (mut graph, _) = graph_with_n_nodes(self.mode, m);
         let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
         let mut attachment_preference = (0..m).collect::<Vec<usize>>();
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut new_node = m;
 
         while new_node < n {
@@ -3912,7 +3921,7 @@ impl GraphGenerator {
                 for _ in 0..m {
                     let src_node = choose_existing_node(
                         &eligible_nodes,
-                        &mut rng,
+                        rng,
                         "extended_barabasi_albert_graph",
                     )?;
                     let mut prohibited_nodes = graph
@@ -3930,7 +3939,7 @@ impl GraphGenerator {
                         .collect::<Vec<usize>>();
                     let dest_node = choose_existing_node(
                         &dest_candidates,
-                        &mut rng,
+                        rng,
                         "extended_barabasi_albert_graph",
                     )?;
 
@@ -3960,15 +3969,12 @@ impl GraphGenerator {
                 for _ in 0..m {
                     let node = choose_existing_node(
                         &eligible_nodes,
-                        &mut rng,
+                        rng,
                         "extended_barabasi_albert_graph",
                     )?;
                     let mut nbr_nodes = graph.neighbors_indices(node).unwrap_or_default().to_vec();
-                    let src_node = choose_existing_node(
-                        &nbr_nodes,
-                        &mut rng,
-                        "extended_barabasi_albert_graph",
-                    )?;
+                    let src_node =
+                        choose_existing_node(&nbr_nodes, rng, "extended_barabasi_albert_graph")?;
 
                     nbr_nodes.push(node);
                     let prohibited_nodes = nbr_nodes
@@ -3981,7 +3987,7 @@ impl GraphGenerator {
                         .collect::<Vec<usize>>();
                     let dest_node = choose_existing_node(
                         &dest_candidates,
-                        &mut rng,
+                        rng,
                         "extended_barabasi_albert_graph",
                     )?;
 
@@ -4003,7 +4009,7 @@ impl GraphGenerator {
                     }
                 }
             } else {
-                let targets = random_subset_python(&attachment_preference, m, &mut rng);
+                let targets = random_subset_python(&attachment_preference, m, rng);
                 let _ = graph.add_node(node_labels[new_node].clone());
                 let _ = graph.extend_existing_index_edges_unrecorded(
                     targets.iter().map(|&target| (new_node, target)),
@@ -4031,10 +4037,10 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         gamma: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
         tries: usize,
     ) -> Result<Vec<usize>, GenerationError> {
-        random_powerlaw_tree_sequence_inner(n, gamma, seed, tries, "random_powerlaw_tree_sequence")
+        random_powerlaw_tree_sequence_inner(n, gamma, rng, tries, "random_powerlaw_tree_sequence")
     }
 
     /// Generate a random tree with a power-law degree distribution.
@@ -4042,12 +4048,13 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         gamma: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
         tries: usize,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("random_powerlaw_tree", n, MAX_N_GNP)?;
+        let seed = rng.origin();
         let sequence =
-            random_powerlaw_tree_sequence_inner(n, gamma, seed, tries, "random_powerlaw_tree")?;
+            random_powerlaw_tree_sequence_inner(n, gamma, rng, tries, "random_powerlaw_tree")?;
         let graph = degree_sequence_tree_graph(self.mode, &sequence)?;
 
         self.record(
@@ -4148,7 +4155,7 @@ impl GraphGenerator {
         n: usize,
         k: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("newman_watts_strogatz_graph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("newman_watts_strogatz_graph", p)?;
@@ -4174,7 +4181,7 @@ impl GraphGenerator {
 
         let (mut graph, _) = graph_with_n_nodes(self.mode, n);
         let half_k = k / 2;
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
 
         let ring_edges = ring_lattice_edges(n, half_k);
         let _ = graph.extend_existing_index_edges_unrecorded(ring_edges);
@@ -4227,7 +4234,7 @@ impl GraphGenerator {
         k: usize,
         p: f64,
         tries: usize,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("connected_watts_strogatz_graph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("connected_watts_strogatz_graph", p)?;
@@ -4252,9 +4259,9 @@ impl GraphGenerator {
         }
 
         let half_k = k / 2;
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         for _ in 0..tries {
-            let graph = watts_strogatz_graph_core(self.mode, n, half_k, p, &mut rng);
+            let graph = watts_strogatz_graph_core(self.mode, n, half_k, p, rng);
             if graph_is_connected(&graph) {
                 self.record(
                     "connected_watts_strogatz_graph",
@@ -4285,7 +4292,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         d: usize,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("random_regular_graph", n, MAX_N_GNP)?;
 
@@ -4302,7 +4309,7 @@ impl GraphGenerator {
             });
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         // br-r37-c1-nzo8r: port nx's smarter stub-pairing algorithm.
         // The naive "any duplicate/self-edge → throw away the whole
         // attempt" loop fails for ~20% of seeds at d=4,n=10. nx tracks
@@ -4313,7 +4320,7 @@ impl GraphGenerator {
         let max_tries = 100;
 
         for _ in 0..max_tries {
-            if let Some(edge_pairs) = try_create_random_regular(&mut rng, n, d) {
+            if let Some(edge_pairs) = try_create_random_regular(rng, n, d) {
                 let (mut graph, _) = graph_with_n_nodes(self.mode, n);
                 let _ = graph.extend_existing_index_edges_unrecorded(edge_pairs);
                 self.record(
@@ -4342,7 +4349,7 @@ impl GraphGenerator {
         n: usize,
         m: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("powerlaw_cluster_graph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("powerlaw_cluster_graph", p)?;
@@ -4358,7 +4365,7 @@ impl GraphGenerator {
         }
 
         let (mut graph, _) = graph_with_n_nodes(self.mode, n);
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
 
         let mut repeated_nodes: Vec<usize> = (0..m).collect();
         // Distinct values currently in `repeated_nodes`, maintained in lockstep
@@ -4373,12 +4380,8 @@ impl GraphGenerator {
             // per-pop target sequence (and therefore the cascading `repeated_nodes`
             // growth and downstream draws) matches nx byte-for-byte. (BA is immune
             // because it links to *all* targets, so it keeps `random_subset_python`.)
-            let mut possible_targets = random_subset_python_cpyset_order(
-                &repeated_nodes,
-                m,
-                repeated_unique.len(),
-                &mut rng,
-            );
+            let mut possible_targets =
+                random_subset_python_cpyset_order(&repeated_nodes, m, repeated_unique.len(), rng);
             let Some(mut target) = possible_targets.pop_front() else {
                 continue;
             };
@@ -4460,7 +4463,7 @@ impl GraphGenerator {
         n: usize,
         p1: f64,
         p2: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("random_lobster_graph", n, MAX_N_GNP)?;
         let p1 = p1.abs();
@@ -4472,7 +4475,7 @@ impl GraphGenerator {
             });
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let backbone_len = (2.0 * rng.random() * n as f64 + 0.5) as usize;
 
         let mut edges: Vec<(usize, usize)> = Vec::new();
@@ -4518,7 +4521,7 @@ impl GraphGenerator {
     pub fn random_shell_graph(
         &mut self,
         constructor: &[(usize, usize, f64)],
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<GenerationReport, GenerationError> {
         let total_nodes = constructor
             .iter()
@@ -4529,7 +4532,7 @@ impl GraphGenerator {
             })?;
         let (_, warnings) = self.validate_n("random_shell_graph", total_nodes, MAX_N_GNP)?;
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let (mut graph, _) = graph_with_n_nodes(self.mode, total_nodes);
         let mut shells: Vec<(usize, usize)> = Vec::with_capacity(constructor.len());
         let mut inter_shell_edge_counts = Vec::with_capacity(constructor.len());
@@ -4552,7 +4555,7 @@ impl GraphGenerator {
                 first_label,
                 n,
                 nonnegative_i128_to_usize(intra_shell_edges),
-                &mut rng,
+                rng,
             );
             shells.push((first_label, n));
             first_label += n;
@@ -4605,7 +4608,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
         directed: bool,
     ) -> Result<GenerationReport, GenerationError> {
         if directed {
@@ -4650,7 +4653,7 @@ impl GraphGenerator {
             return Ok(self.finish_graph_report(graph, warnings));
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let lp = (1.0 - p).ln();
 
         let mut edges = Vec::new();
@@ -4683,7 +4686,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<DiGenerationReport, GenerationError> {
         let (n, mut warnings) = self.validate_n("fast_gnp_random_digraph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("fast_gnp_random_digraph", p)?;
@@ -4721,7 +4724,7 @@ impl GraphGenerator {
             return Ok(self.finish_digraph_report(graph, warnings));
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let lp = (1.0 - p).ln();
 
         let mut edges = Vec::new();
@@ -4774,7 +4777,7 @@ impl GraphGenerator {
         n: usize,
         k: usize,
         self_loops: bool,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<MultiDiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("random_uniform_k_out_multidigraph", n, MAX_N_GNP)?;
         let (mut graph, node_labels) = multidigraph_with_n_nodes(self.mode, n);
@@ -4795,7 +4798,7 @@ impl GraphGenerator {
         // the KEYED inserter — which drops the 2 per-edge policy records add_edge_impl pays. It is
         // String-keyed (name hashing stays), so this is a MODEST win. Verified byte-identical INCLUDING
         // the keys via the kout_mdg_batch_ab parity asserts.
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut key_counter: std::collections::HashMap<(usize, usize), usize> =
             std::collections::HashMap::new();
         let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
@@ -4844,7 +4847,7 @@ impl GraphGenerator {
         n: usize,
         k: usize,
         self_loops: bool,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<DiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("random_uniform_k_out_digraph", n, MAX_N_GNP)?;
         let (mut graph, _node_labels) = digraph_with_n_nodes(self.mode, n);
@@ -4866,7 +4869,7 @@ impl GraphGenerator {
         // the DiGraph index inserter instead of per-edge add_edge (2 clones + 2 name hashes + policy
         // each). Verified byte-identical (incl. self_loops) via the kout_digraph_batch_ab parity
         // asserts; empty AttrMap == unweighted add_edge.
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> =
             Vec::with_capacity(n.saturating_mul(k));
         for source in 0..n {
@@ -4874,7 +4877,7 @@ impl GraphGenerator {
             let sample = python_sample_indices(
                 candidate_targets.len(),
                 k,
-                &mut rng,
+                rng,
                 "random_uniform_k_out_digraph",
             )?;
             for sampled_index in sample {
@@ -4910,7 +4913,7 @@ impl GraphGenerator {
         k: usize,
         alpha: f64,
         self_loops: bool,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<MultiDiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("random_k_out_graph", n, MAX_N_GNP)?;
         if alpha < 0.0 {
@@ -4939,7 +4942,7 @@ impl GraphGenerator {
             return Ok(self.finish_multidigraph_report(graph, warnings));
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut weights = (0..n)
             .map(|node| (node, alpha))
             .collect::<Vec<(usize, f64)>>();
@@ -4969,7 +4972,7 @@ impl GraphGenerator {
                 Some(weights.remove(weight_position))
             };
 
-            let Some(target) = weighted_choice_ordered(&weights, &mut rng) else {
+            let Some(target) = weighted_choice_ordered(&weights, rng) else {
                 return Err(GenerationError::FailClosed {
                     operation: "random_k_out_graph",
                     reason: "weighted target choice has no positive candidate".to_owned(),
@@ -5021,7 +5024,11 @@ impl GraphGenerator {
     ///
     /// Nodes are added one at a time. Each new node connects to an existing
     /// node chosen with probability proportional to its current degree.
-    pub fn gn_graph(&mut self, n: usize, seed: u64) -> Result<DiGenerationReport, GenerationError> {
+    pub fn gn_graph(
+        &mut self,
+        n: usize,
+        rng: &mut PythonRandom,
+    ) -> Result<DiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("gn_graph", n, MAX_N_GENERIC)?;
         let (mut graph, _node_labels) = digraph_with_n_nodes(self.mode, n);
         if n == 0 {
@@ -5043,13 +5050,13 @@ impl GraphGenerator {
             return Ok(self.finish_digraph_report(graph, warnings));
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut edges = Vec::with_capacity(n.saturating_sub(1));
         edges.push((1, 0));
         let mut degree_sequence = vec![1.0_f64, 1.0_f64];
 
         for i in 2..n {
-            let target = weighted_choice_python(&degree_sequence, &mut rng);
+            let target = weighted_choice_python(&degree_sequence, rng);
             edges.push((i, target));
             degree_sequence.push(1.0);
             degree_sequence[target] += 1.0;
@@ -5073,7 +5080,7 @@ impl GraphGenerator {
         &mut self,
         n: usize,
         p: f64,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<DiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("gnr_graph", n, MAX_N_GENERIC)?;
         let (mut graph, _node_labels) = digraph_with_n_nodes(self.mode, n);
@@ -5096,7 +5103,7 @@ impl GraphGenerator {
             return Ok(self.finish_digraph_report(graph, warnings));
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut parent = vec![0usize; n];
         let mut edges = Vec::with_capacity(n.saturating_sub(1));
         for i in 1..n {
@@ -5126,7 +5133,7 @@ impl GraphGenerator {
     pub fn gnc_graph(
         &mut self,
         n: usize,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<DiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("gnc_graph", n, MAX_N_GENERIC)?;
         let (mut graph, _node_labels) = digraph_with_n_nodes(self.mode, n);
@@ -5149,7 +5156,7 @@ impl GraphGenerator {
             return Ok(self.finish_digraph_report(graph, warnings));
         }
 
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut succ_list: Vec<Vec<usize>> = vec![Vec::new(); n];
         let mut edges: Vec<(usize, usize)> = Vec::new();
         for i in 1..n {
@@ -5188,7 +5195,7 @@ impl GraphGenerator {
         delta_in: f64,
         delta_out: f64,
         initial_graph: Option<MultiDiGraph>,
-        seed: u64,
+        rng: &mut PythonRandom,
     ) -> Result<MultiDiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("scale_free_graph", n, MAX_N_GNP)?;
         if alpha <= 0.0 {
@@ -5232,7 +5239,7 @@ impl GraphGenerator {
 
         let mut graph =
             initial_graph.unwrap_or_else(|| default_scale_free_initial_graph(self.mode));
-        let mut rng = PythonRandom::new(seed);
+        let seed = rng.origin();
         let mut out_state = degree_state_from_graph(&graph, true);
         let mut in_state = degree_state_from_graph(&graph, false);
         let mut node_list = graph
@@ -5251,14 +5258,14 @@ impl GraphGenerator {
                 let source = cursor;
                 cursor = cursor.saturating_add(1);
                 node_list.push(source);
-                let target = choose_scale_free_node(&in_state, &node_list, delta_in, &mut rng);
+                let target = choose_scale_free_node(&in_state, &node_list, delta_in, rng);
                 (source, target)
             } else if r < alpha + beta {
-                let source = choose_scale_free_node(&out_state, &node_list, delta_out, &mut rng);
-                let target = choose_scale_free_node(&in_state, &node_list, delta_in, &mut rng);
+                let source = choose_scale_free_node(&out_state, &node_list, delta_out, rng);
+                let target = choose_scale_free_node(&in_state, &node_list, delta_in, rng);
                 (source, target)
             } else {
-                let source = choose_scale_free_node(&out_state, &node_list, delta_out, &mut rng);
+                let source = choose_scale_free_node(&out_state, &node_list, delta_out, rng);
                 let target = cursor;
                 cursor = cursor.saturating_add(1);
                 node_list.push(target);
@@ -5315,13 +5322,47 @@ impl GraphGenerator {
     }
 }
 
+/// Python's `random.Random`: MT19937 seeded by `init_by_array` over the seed's
+/// 32-bit words, `random()` via `gen_res53` and `_randbelow` via `getrandbits`,
+/// so a kernel drawing from it reproduces networkx's `seed.random()` /
+/// `seed.randrange()` / `seed.choice()` stream.
+///
+/// br-r37-c1-ols3t: the seeded kernels take it by `&mut`, so a caller can hand
+/// in the exact state of a live `random.Random` - networkx draws from the one it
+/// is given, and from the global `random._inst` for `seed=None` -
+/// ([`PythonRandom::from_state`], from `getstate()[1]`) and read the advanced
+/// state back ([`PythonRandom::state`]) for `setstate`.
 #[derive(Debug)]
-struct PythonRandom {
+pub struct PythonRandom {
     inner: MT19937,
+    origin: RandomOrigin,
 }
 
+/// Where a [`PythonRandom`] came from, for decision-ledger rationales.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RandomOrigin {
+    /// `random.Random(seed)` for an int seed below 2**64 in absolute value.
+    Seed(u64),
+    /// A `random.Random.getstate()` state.
+    State,
+}
+
+impl fmt::Display for RandomOrigin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Seed(seed) => write!(f, "{seed}"),
+            Self::State => f.write_str("<state>"),
+        }
+    }
+}
+
+/// Number of 32-bit words in an MT19937 state, as in `getstate()[1][:624]`.
+pub const PYTHON_RANDOM_STATE_WORDS: usize = mt19937::N;
+
 impl PythonRandom {
-    fn new(seed: u64) -> Self {
+    /// `random.Random(seed)`: CPython seeds from the int's 32-bit words.
+    #[must_use]
+    pub fn new(seed: u64) -> Self {
         let words = if seed <= u64::from(u32::MAX) {
             vec![seed as u32]
         } else {
@@ -5331,7 +5372,36 @@ impl PythonRandom {
         };
         Self {
             inner: MT19937::new_with_slice_seed(&words),
+            origin: RandomOrigin::Seed(seed),
         }
+    }
+
+    /// The generator whose `getstate()[1]` is `words` followed by `index`;
+    /// `None` for an index past 624, which `setstate` rejects too.
+    #[must_use]
+    pub fn from_state(words: &[u32; PYTHON_RANDOM_STATE_WORDS], index: usize) -> Option<Self> {
+        if index > PYTHON_RANDOM_STATE_WORDS {
+            return None;
+        }
+        let mut inner = MT19937::default();
+        inner.set_state(words);
+        inner.set_index(index);
+        Some(Self {
+            inner,
+            origin: RandomOrigin::State,
+        })
+    }
+
+    /// The state as `getstate()[1]` lists it: the 624 words, then the index.
+    #[must_use]
+    pub fn state(&self) -> ([u32; PYTHON_RANDOM_STATE_WORDS], usize) {
+        (*self.inner.get_state(), self.inner.get_index())
+    }
+
+    /// Where this generator came from.
+    #[must_use]
+    pub fn origin(&self) -> RandomOrigin {
+        self.origin
     }
 
     fn random(&mut self) -> f64 {
@@ -5385,7 +5455,7 @@ pub fn random_lobster_edge_insertion_order(
     n: usize,
     p1: f64,
     p2: f64,
-    seed: u64,
+    rng: &mut PythonRandom,
 ) -> Result<(usize, Vec<(usize, usize)>), GenerationError> {
     let p1 = p1.abs();
     let p2 = p2.abs();
@@ -5396,7 +5466,6 @@ pub fn random_lobster_edge_insertion_order(
         });
     }
 
-    let mut rng = PythonRandom::new(seed);
     let backbone_len = (2.0 * rng.random() * n as f64 + 0.5) as usize;
     let mut edges = Vec::with_capacity(backbone_len.saturating_sub(1));
     for node in 0..backbone_len.saturating_sub(1) {
@@ -5485,10 +5554,13 @@ fn try_create_random_regular(
 /// to its `edges` set, so it can build a PySet with the same final iteration
 /// order before reusing the existing `Graph.add_edges_from` semantics.
 #[must_use]
-pub fn random_regular_edge_insertion_order(n: usize, d: usize, seed: u64) -> Vec<(usize, usize)> {
-    let mut rng = PythonRandom::new(seed);
+pub fn random_regular_edge_insertion_order(
+    n: usize,
+    d: usize,
+    rng: &mut PythonRandom,
+) -> Vec<(usize, usize)> {
     loop {
-        if let Some(edges) = try_create_random_regular_python_order(&mut rng, n, d) {
+        if let Some(edges) = try_create_random_regular_python_order(rng, n, d) {
             return edges;
         }
     }
@@ -5958,7 +6030,7 @@ fn remove_first_usize(values: &mut Vec<usize>, value: usize) -> bool {
 fn random_powerlaw_tree_sequence_inner(
     n: usize,
     gamma: f64,
-    seed: u64,
+    rng: &mut PythonRandom,
     tries: usize,
     operation: &'static str,
 ) -> Result<Vec<usize>, GenerationError> {
@@ -5969,12 +6041,11 @@ fn random_powerlaw_tree_sequence_inner(
         });
     }
 
-    let mut rng = PythonRandom::new(seed);
     let mut zseq = (0..n)
-        .map(|_| clamp_powerlaw_degree(n, python_paretovariate(gamma - 1.0, &mut rng)))
+        .map(|_| clamp_powerlaw_degree(n, python_paretovariate(gamma - 1.0, rng)))
         .collect::<Vec<usize>>();
     let mut swap = (0..tries)
-        .map(|_| clamp_powerlaw_degree(n, python_paretovariate(gamma - 1.0, &mut rng)))
+        .map(|_| clamp_powerlaw_degree(n, python_paretovariate(gamma - 1.0, rng)))
         .collect::<Vec<usize>>();
 
     for _ in 0..swap.len() {
@@ -6496,6 +6567,63 @@ mod tests {
     };
     use proptest::prelude::*;
     use std::collections::BTreeMap;
+
+    /// br-r37-c1-ols3t: `state()` is `random.Random.getstate()[1]` and
+    /// `from_state` resumes it - the values are CPython's: random.Random(5) has
+    /// index 624 and draws 0.6229016948897019, 0.7417869892607294; after 400
+    /// random() calls (800 words) the index is 176 and the next draw is
+    /// 0.5939742584042348.
+    #[test]
+    fn python_random_state_round_trips_like_cpython_getstate() {
+        let mut rng = super::PythonRandom::new(5);
+        assert_eq!(rng.origin(), super::RandomOrigin::Seed(5));
+        let (words, index) = rng.state();
+        assert_eq!(index, 624);
+        assert_eq!(rng.random(), 0.622_901_694_889_701_9);
+        let mut resumed = super::PythonRandom::from_state(&words, index).expect("valid index");
+        assert_eq!(resumed.origin(), super::RandomOrigin::State);
+        assert_eq!(resumed.random(), 0.622_901_694_889_701_9);
+        assert_eq!(resumed.random(), 0.741_786_989_260_729_4);
+
+        let mut rng = super::PythonRandom::new(5);
+        for _ in 0..400 {
+            rng.random();
+        }
+        let (words, index) = rng.state();
+        assert_eq!(index, 176);
+        let mut resumed = super::PythonRandom::from_state(&words, index).expect("valid index");
+        assert_eq!(resumed.random(), 0.593_974_258_404_234_8);
+        assert_eq!(rng.random(), 0.593_974_258_404_234_8);
+    }
+
+    #[test]
+    fn python_random_from_state_rejects_an_index_past_the_state() {
+        let words = *super::PythonRandom::new(1).inner.get_state();
+        assert!(super::PythonRandom::from_state(&words, 625).is_none());
+        assert!(super::PythonRandom::from_state(&words, 624).is_some());
+    }
+
+    /// A kernel handed a live generator advances it exactly as the same kernel
+    /// seeded with the int would advance its own: the int and state paths draw
+    /// one stream.
+    #[test]
+    fn a_kernel_on_a_resumed_state_draws_the_seeded_stream() {
+        let mut generator = GraphGenerator::strict();
+        let seeded = generator
+            .gnp_random_graph(30, 0.2, &mut super::PythonRandom::new(9))
+            .expect("gnp");
+        let (words, index) = super::PythonRandom::new(9).state();
+        let mut resumed = super::PythonRandom::from_state(&words, index).expect("valid index");
+        let replayed = generator
+            .gnp_random_graph(30, 0.2, &mut resumed)
+            .expect("gnp");
+        assert_eq!(seeded.graph.edges_ordered(), replayed.graph.edges_ordered());
+        let mut reference = super::PythonRandom::new(9);
+        for _ in 0..(30 * 29 / 2) {
+            reference.random();
+        }
+        assert_eq!(resumed.state(), reference.state());
+    }
 
     /// br-r37-c1-gnpbatch: paired-interleaved median A/B for the gnp edge insertion —
     /// batch-by-index (`extend_existing_index_edges_unrecorded`) vs the pre-lever per-edge
@@ -9645,7 +9773,7 @@ mod tests {
 
     #[test]
     fn random_regular_python_edge_insertion_order_matches_fixture() {
-        let small = random_regular_edge_insertion_order(10, 3, 1);
+        let small = random_regular_edge_insertion_order(10, 3, &mut super::PythonRandom::new(1));
         assert_eq!(
             small,
             vec![
@@ -9667,7 +9795,7 @@ mod tests {
             ]
         );
 
-        let medium = random_regular_edge_insertion_order(24, 4, 5);
+        let medium = random_regular_edge_insertion_order(24, 4, &mut super::PythonRandom::new(5));
         assert_eq!(medium.len(), 48);
         assert_eq!(
             &medium[..20],
@@ -13180,7 +13308,7 @@ mod tests {
     fn partial_duplication_graph_matches_networkx_seeded_example() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .partial_duplication_graph(6, 3, 0.5, 0.25, 7)
+            .partial_duplication_graph(6, 3, 0.5, 0.25, &mut super::PythonRandom::new(7))
             .expect("partial duplication graph should succeed");
 
         assert_eq!(report.graph.node_count(), 6);
@@ -13205,7 +13333,7 @@ mod tests {
     fn partial_duplication_graph_matches_networkx_sparse_seeded_example() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .partial_duplication_graph(7, 2, 0.7, 0.4, 11)
+            .partial_duplication_graph(7, 2, 0.7, 0.4, &mut super::PythonRandom::new(11))
             .expect("partial duplication graph should succeed");
 
         assert_eq!(report.graph.node_count(), 7);
@@ -13225,13 +13353,13 @@ mod tests {
     fn partial_duplication_graph_validates_inputs_and_initial_clique() {
         let mut generator = GraphGenerator::strict();
         let clique = generator
-            .partial_duplication_graph(4, 4, 0.0, 0.0, 1)
+            .partial_duplication_graph(4, 4, 0.0, 0.0, &mut super::PythonRandom::new(1))
             .expect("N=n should return the initial complete graph");
         assert_eq!(clique.graph.node_count(), 4);
         assert_eq!(clique.graph.edge_count(), 6);
 
         let probability_err = generator
-            .partial_duplication_graph(4, 2, -0.1, 0.5, 1)
+            .partial_duplication_graph(4, 2, -0.1, 0.5, &mut super::PythonRandom::new(1))
             .expect_err("out-of-range probabilities should fail closed");
         assert_eq!(
             probability_err.to_string(),
@@ -13239,7 +13367,7 @@ mod tests {
         );
 
         let size_err = generator
-            .partial_duplication_graph(3, 4, 0.5, 0.5, 1)
+            .partial_duplication_graph(3, 4, 0.5, 0.5, &mut super::PythonRandom::new(1))
             .expect_err("initial clique larger than final graph should fail closed");
         assert_eq!(
             size_err.to_string(),
@@ -13251,7 +13379,7 @@ mod tests {
     fn duplication_divergence_graph_matches_networkx_seeded_example() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .duplication_divergence_graph(6, 0.5, 7)
+            .duplication_divergence_graph(6, 0.5, &mut super::PythonRandom::new(7))
             .expect("duplication-divergence graph should succeed");
 
         assert_eq!(report.graph.node_count(), 6);
@@ -13273,7 +13401,7 @@ mod tests {
     fn duplication_divergence_graph_matches_networkx_sparse_seeded_example() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .duplication_divergence_graph(6, 0.25, 3)
+            .duplication_divergence_graph(6, 0.25, &mut super::PythonRandom::new(3))
             .expect("duplication-divergence graph should succeed");
 
         assert_eq!(report.graph.node_count(), 6);
@@ -13294,7 +13422,7 @@ mod tests {
     fn duplication_divergence_graph_validates_inputs() {
         let mut generator = GraphGenerator::strict();
         let p_one = generator
-            .duplication_divergence_graph(4, 1.0, 2)
+            .duplication_divergence_graph(4, 1.0, &mut super::PythonRandom::new(2))
             .expect("p=1 should deterministically retain every neighbor edge");
         assert_eq!(
             sorted_graph_edges(&p_one.graph),
@@ -13307,13 +13435,13 @@ mod tests {
         );
 
         let base = generator
-            .duplication_divergence_graph(2, 0.0, 2)
+            .duplication_divergence_graph(2, 0.0, &mut super::PythonRandom::new(2))
             .expect("p=0 is valid for the initial two-node graph");
         assert_eq!(base.graph.node_count(), 2);
         assert_eq!(base.graph.edge_count(), 1);
 
         let probability_err = generator
-            .duplication_divergence_graph(4, -0.1, 1)
+            .duplication_divergence_graph(4, -0.1, &mut super::PythonRandom::new(1))
             .expect_err("out-of-range probability should fail closed");
         assert_eq!(
             probability_err.to_string(),
@@ -13321,7 +13449,7 @@ mod tests {
         );
 
         let size_err = generator
-            .duplication_divergence_graph(1, 0.5, 1)
+            .duplication_divergence_graph(1, 0.5, &mut super::PythonRandom::new(1))
             .expect_err("n less than two should fail closed");
         assert_eq!(
             size_err.to_string(),
@@ -13329,7 +13457,7 @@ mod tests {
         );
 
         let nonterminating_err = generator
-            .duplication_divergence_graph(3, 0.0, 1)
+            .duplication_divergence_graph(3, 0.0, &mut super::PythonRandom::new(1))
             .expect_err("p=0 cannot add nodes beyond the initial edge");
         assert_eq!(
             nonterminating_err.to_string(),
@@ -13352,12 +13480,12 @@ mod tests {
     fn gnp_random_graph_is_seed_reproducible() {
         let mut generator = GraphGenerator::strict();
         let first = generator
-            .gnp_random_graph(20, 0.2, 42)
+            .gnp_random_graph(20, 0.2, &mut super::PythonRandom::new(42))
             .expect("gnp generation should succeed")
             .graph
             .snapshot();
         let second = generator
-            .gnp_random_graph(20, 0.2, 42)
+            .gnp_random_graph(20, 0.2, &mut super::PythonRandom::new(42))
             .expect("gnp generation should succeed")
             .graph
             .snapshot();
@@ -13368,7 +13496,7 @@ mod tests {
     fn gnm_random_graph_matches_networkx_seeded_example() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .gnm_random_graph(6, 5, 7)
+            .gnm_random_graph(6, 5, &mut super::PythonRandom::new(7))
             .expect("gnm generation should succeed");
 
         assert_eq!(
@@ -13387,7 +13515,7 @@ mod tests {
     fn gnm_random_digraph_matches_networkx_seeded_example() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .gnm_random_digraph(5, 7, 3)
+            .gnm_random_digraph(5, 7, &mut super::PythonRandom::new(3))
             .expect("gnm digraph generation should succeed");
 
         assert_eq!(
@@ -13408,7 +13536,7 @@ mod tests {
     fn dense_gnm_random_graph_matches_networkx_seeded_example() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .dense_gnm_random_graph(6, 5, 7)
+            .dense_gnm_random_graph(6, 5, &mut super::PythonRandom::new(7))
             .expect("dense gnm generation should succeed");
 
         assert_eq!(
@@ -13427,7 +13555,7 @@ mod tests {
     fn dense_gnm_zero_edges_preserves_networkx_fail_closed_path() {
         let mut generator = GraphGenerator::strict();
         let err = generator
-            .dense_gnm_random_graph(3, 0, 1)
+            .dense_gnm_random_graph(3, 0, &mut super::PythonRandom::new(1))
             .expect_err("NetworkX dense_gnm_random_graph raises for n > 1, m == 0");
         assert!(matches!(
             err,
@@ -13443,14 +13571,14 @@ mod tests {
     fn gnm_generators_saturate_to_complete_graphs() {
         let mut generator = GraphGenerator::strict();
         let graph = generator
-            .gnm_random_graph(4, 99, 1)
+            .gnm_random_graph(4, 99, &mut super::PythonRandom::new(1))
             .expect("oversized m should saturate to complete graph")
             .graph;
         assert_eq!(graph.node_count(), 4);
         assert_eq!(graph.edge_count(), 6);
 
         let digraph = generator
-            .gnm_random_digraph(4, 99, 1)
+            .gnm_random_digraph(4, 99, &mut super::PythonRandom::new(1))
             .expect("oversized directed m should saturate to complete digraph")
             .graph;
         assert_eq!(digraph.node_count(), 4);
@@ -13461,7 +13589,7 @@ mod tests {
     fn watts_strogatz_basic_structure() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .watts_strogatz_graph(20, 4, 0.0, 42)
+            .watts_strogatz_graph(20, 4, 0.0, &mut super::PythonRandom::new(42))
             .expect("watts-strogatz should succeed");
         // With p=0 no rewiring happens — we get a ring lattice.
         // Each of 20 nodes connects to 2 neighbors on each side → 20*2 = 40 half-edges → 40 edges.
@@ -13474,12 +13602,12 @@ mod tests {
         let mut gg_a = GraphGenerator::strict();
         let mut gg_b = GraphGenerator::strict();
         let a = gg_a
-            .watts_strogatz_graph(30, 4, 0.3, 123)
+            .watts_strogatz_graph(30, 4, 0.3, &mut super::PythonRandom::new(123))
             .expect("ws should succeed")
             .graph
             .snapshot();
         let b = gg_b
-            .watts_strogatz_graph(30, 4, 0.3, 123)
+            .watts_strogatz_graph(30, 4, 0.3, &mut super::PythonRandom::new(123))
             .expect("ws should succeed")
             .graph
             .snapshot();
@@ -13490,7 +13618,7 @@ mod tests {
     fn watts_strogatz_accepts_odd_k_as_k_minus_one_neighbors() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .watts_strogatz_graph(7, 3, 0.0, 1)
+            .watts_strogatz_graph(7, 3, 0.0, &mut super::PythonRandom::new(1))
             .expect("odd k should succeed");
         assert_eq!(report.graph.node_count(), 7);
         assert_eq!(report.graph.edge_count(), 7);
@@ -13500,7 +13628,7 @@ mod tests {
     fn watts_strogatz_k_equal_n_returns_complete_graph() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .watts_strogatz_graph(6, 6, 0.3, 1)
+            .watts_strogatz_graph(6, 6, 0.3, &mut super::PythonRandom::new(1))
             .expect("k == n should succeed");
         assert_eq!(report.graph.node_count(), 6);
         assert_eq!(report.graph.edge_count(), 15);
@@ -13510,7 +13638,7 @@ mod tests {
     fn watts_strogatz_rejects_k_gt_n() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .watts_strogatz_graph(4, 6, 0.1, 1)
+            .watts_strogatz_graph(4, 6, 0.1, &mut super::PythonRandom::new(1))
             .expect_err("k > n should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13519,7 +13647,7 @@ mod tests {
     fn newman_watts_strogatz_accepts_odd_k_as_k_minus_one_neighbors() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .newman_watts_strogatz_graph(7, 3, 0.0, 1)
+            .newman_watts_strogatz_graph(7, 3, 0.0, &mut super::PythonRandom::new(1))
             .expect("odd k should succeed");
         assert_eq!(report.graph.node_count(), 7);
         assert_eq!(report.graph.edge_count(), 7);
@@ -13529,7 +13657,7 @@ mod tests {
     fn connected_watts_strogatz_zero_tries_fails_immediately() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .connected_watts_strogatz_graph(10, 4, 0.5, 0, 1)
+            .connected_watts_strogatz_graph(10, 4, 0.5, 0, &mut super::PythonRandom::new(1))
             .expect_err("zero tries should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13538,7 +13666,7 @@ mod tests {
     fn barabasi_albert_basic_structure() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .barabasi_albert_graph(20, 2, 42)
+            .barabasi_albert_graph(20, 2, &mut super::PythonRandom::new(42))
             .expect("barabasi-albert should succeed");
         assert_eq!(report.graph.node_count(), 20);
         // Initial star graph on m+1 = 3 nodes has 2 edges.
@@ -13551,12 +13679,12 @@ mod tests {
         let mut gg_a = GraphGenerator::strict();
         let mut gg_b = GraphGenerator::strict();
         let a = gg_a
-            .barabasi_albert_graph(50, 3, 99)
+            .barabasi_albert_graph(50, 3, &mut super::PythonRandom::new(99))
             .expect("ba should succeed")
             .graph
             .snapshot();
         let b = gg_b
-            .barabasi_albert_graph(50, 3, 99)
+            .barabasi_albert_graph(50, 3, &mut super::PythonRandom::new(99))
             .expect("ba should succeed")
             .graph
             .snapshot();
@@ -13567,7 +13695,7 @@ mod tests {
     fn barabasi_albert_rejects_m_zero() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .barabasi_albert_graph(10, 0, 1)
+            .barabasi_albert_graph(10, 0, &mut super::PythonRandom::new(1))
             .expect_err("m=0 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13577,13 +13705,13 @@ mod tests {
         let mut gg = GraphGenerator::strict();
         // m=n should fail
         let err = gg
-            .barabasi_albert_graph(5, 5, 1)
+            .barabasi_albert_graph(5, 5, &mut super::PythonRandom::new(1))
             .expect_err("m=n should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
 
         // m > n should fail
         let err = gg
-            .barabasi_albert_graph(3, 5, 1)
+            .barabasi_albert_graph(3, 5, &mut super::PythonRandom::new(1))
             .expect_err("m > n should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13592,7 +13720,7 @@ mod tests {
     fn barabasi_albert_m_one_does_not_panic() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .barabasi_albert_graph(10, 1, 42)
+            .barabasi_albert_graph(10, 1, &mut super::PythonRandom::new(42))
             .expect("ba with m=1 should succeed");
         assert_eq!(report.graph.node_count(), 10);
         // Initial star(1) has 1 edge; 8 new nodes each attach 1 edge → 1 + 8 = 9 edges.
@@ -13603,7 +13731,7 @@ mod tests {
     fn dual_barabasi_albert_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .dual_barabasi_albert_graph(10, 1, 3, 0.5, 7)
+            .dual_barabasi_albert_graph(10, 1, 3, 0.5, &mut super::PythonRandom::new(7))
             .expect("dual ba should succeed");
         assert_eq!(report.graph.node_count(), 10);
         assert_eq!(
@@ -13626,7 +13754,7 @@ mod tests {
     fn dual_barabasi_albert_degenerates_to_ba_for_probability_bounds() {
         let mut gg = GraphGenerator::strict();
         let p0 = gg
-            .dual_barabasi_albert_graph(8, 1, 3, 0.0, 5)
+            .dual_barabasi_albert_graph(8, 1, 3, 0.0, &mut super::PythonRandom::new(5))
             .expect("p=0 should use m2 ba");
         assert_eq!(
             sorted_graph_edges(&p0.graph),
@@ -13650,7 +13778,7 @@ mod tests {
         );
 
         let p1 = gg
-            .dual_barabasi_albert_graph(8, 1, 3, 1.0, 5)
+            .dual_barabasi_albert_graph(8, 1, 3, 1.0, &mut super::PythonRandom::new(5))
             .expect("p=1 should use m1 ba");
         assert_eq!(
             sorted_graph_edges(&p1.graph),
@@ -13670,12 +13798,12 @@ mod tests {
     fn dual_barabasi_albert_rejects_invalid_m_values() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .dual_barabasi_albert_graph(5, 0, 2, 0.5, 1)
+            .dual_barabasi_albert_graph(5, 0, 2, 0.5, &mut super::PythonRandom::new(1))
             .expect_err("m1=0 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
 
         let err = gg
-            .dual_barabasi_albert_graph(5, 1, 5, 0.5, 1)
+            .dual_barabasi_albert_graph(5, 1, 5, 0.5, &mut super::PythonRandom::new(1))
             .expect_err("m2=n should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13684,7 +13812,7 @@ mod tests {
     fn extended_barabasi_albert_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .extended_barabasi_albert_graph(8, 2, 0.4, 0.2, 4)
+            .extended_barabasi_albert_graph(8, 2, 0.4, 0.2, &mut super::PythonRandom::new(4))
             .expect("extended ba should succeed");
         assert_eq!(report.graph.node_count(), 8);
         assert_eq!(
@@ -13716,7 +13844,7 @@ mod tests {
     fn extended_barabasi_albert_handles_rewire_heavy_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .extended_barabasi_albert_graph(10, 2, 0.05, 0.8, 11)
+            .extended_barabasi_albert_graph(10, 2, 0.05, 0.8, &mut super::PythonRandom::new(11))
             .expect("extended ba should succeed");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13749,12 +13877,12 @@ mod tests {
     fn extended_barabasi_albert_rejects_invalid_inputs() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .extended_barabasi_albert_graph(5, 0, 0.1, 0.1, 1)
+            .extended_barabasi_albert_graph(5, 0, 0.1, 0.1, &mut super::PythonRandom::new(1))
             .expect_err("m=0 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
 
         let err = gg
-            .extended_barabasi_albert_graph(5, 2, 0.6, 0.4, 1)
+            .extended_barabasi_albert_graph(5, 2, 0.6, 0.4, &mut super::PythonRandom::new(1))
             .expect_err("p + q >= 1 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13763,7 +13891,7 @@ mod tests {
     fn random_powerlaw_tree_sequence_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let sequence = gg
-            .random_powerlaw_tree_sequence(8, 3.0, 5, 100)
+            .random_powerlaw_tree_sequence(8, 3.0, &mut super::PythonRandom::new(5), 100)
             .expect("power-law tree sequence should succeed");
         assert_eq!(sequence, vec![1, 1, 4, 1, 1, 2, 1, 3]);
     }
@@ -13772,7 +13900,7 @@ mod tests {
     fn random_powerlaw_tree_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_powerlaw_tree(8, 3.0, 5, 100)
+            .random_powerlaw_tree(8, 3.0, &mut super::PythonRandom::new(5), 100)
             .expect("power-law tree should succeed");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13792,7 +13920,7 @@ mod tests {
     fn random_powerlaw_tree_matches_networkx_fractional_gamma_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_powerlaw_tree(10, 2.5, 7, 100)
+            .random_powerlaw_tree(10, 2.5, &mut super::PythonRandom::new(7), 100)
             .expect("power-law tree should succeed");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13814,7 +13942,7 @@ mod tests {
     fn random_powerlaw_tree_sequence_fails_after_exhausted_tries() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .random_powerlaw_tree_sequence(5, 3.0, 1, 0)
+            .random_powerlaw_tree_sequence(5, 3.0, &mut super::PythonRandom::new(1), 0)
             .expect_err("tries=0 should fail like NetworkX");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13823,7 +13951,7 @@ mod tests {
     fn random_lobster_graph_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_lobster_graph(8, 0.35, 0.7, 11)
+            .random_lobster_graph(8, 0.35, 0.7, &mut super::PythonRandom::new(11))
             .expect("lobster graph should succeed");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13849,7 +13977,7 @@ mod tests {
     fn random_lobster_graph_uses_absolute_probabilities_like_networkx() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_lobster_graph(6, -0.3, -0.2, 9)
+            .random_lobster_graph(6, -0.3, -0.2, &mut super::PythonRandom::new(9))
             .expect("negative probabilities should be absolutized");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13871,12 +13999,12 @@ mod tests {
     fn random_lobster_graph_rejects_unit_probabilities() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .random_lobster_graph(5, 1.0, 0.2, 1)
+            .random_lobster_graph(5, 1.0, 0.2, &mut super::PythonRandom::new(1))
             .expect_err("p1 >= 1 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
 
         let err = gg
-            .random_lobster_graph(5, 0.2, -1.0, 1)
+            .random_lobster_graph(5, 0.2, -1.0, &mut super::PythonRandom::new(1))
             .expect_err("abs(p2) >= 1 should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13885,7 +14013,10 @@ mod tests {
     fn random_shell_graph_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_shell_graph(&[(4, 3, 0.5), (3, 2, 0.5)], 5)
+            .random_shell_graph(
+                &[(4, 3, 0.5), (3, 2, 0.5)],
+                &mut super::PythonRandom::new(5),
+            )
             .expect("shell graph should succeed");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13902,7 +14033,10 @@ mod tests {
     fn random_shell_graph_matches_networkx_multi_shell_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_shell_graph(&[(3, 2, 1.0), (2, 1, 0.0), (4, 3, 0.5)], 7)
+            .random_shell_graph(
+                &[(3, 2, 1.0), (2, 1, 0.0), (4, 3, 0.5)],
+                &mut super::PythonRandom::new(7),
+            )
             .expect("shell graph should succeed");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13919,7 +14053,10 @@ mod tests {
     fn random_shell_graph_saturates_shells_like_networkx_gnm() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_shell_graph(&[(2, 5, 1.0), (3, 3, 1.0)], 2)
+            .random_shell_graph(
+                &[(2, 5, 1.0), (3, 3, 1.0)],
+                &mut super::PythonRandom::new(2),
+            )
             .expect("shell graph should succeed");
         assert_eq!(
             sorted_graph_edges(&report.graph),
@@ -13936,7 +14073,10 @@ mod tests {
     fn random_shell_graph_fails_closed_when_inter_shell_edges_are_impossible() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .random_shell_graph(&[(1, 3, 0.0), (1, 0, 0.0)], 1)
+            .random_shell_graph(
+                &[(1, 3, 0.0), (1, 0, 0.0)],
+                &mut super::PythonRandom::new(1),
+            )
             .expect_err("only one inter-shell edge is possible");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -13945,7 +14085,7 @@ mod tests {
     fn random_uniform_k_out_multidigraph_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_uniform_k_out_multidigraph(4, 2, true, 3)
+            .random_uniform_k_out_multidigraph(4, 2, true, &mut super::PythonRandom::new(3))
             .expect("uniform k-out multidigraph should succeed");
         assert!(report.graph.is_directed());
         assert!(report.graph.is_multigraph());
@@ -13976,7 +14116,7 @@ mod tests {
     fn random_uniform_k_out_multidigraph_respects_self_loop_filter() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .random_uniform_k_out_multidigraph(4, 2, false, 3)
+            .random_uniform_k_out_multidigraph(4, 2, false, &mut super::PythonRandom::new(3))
             .expect("uniform k-out multidigraph should succeed");
         let edges = report
             .graph
@@ -14004,7 +14144,7 @@ mod tests {
     fn random_uniform_k_out_digraph_matches_networkx_seeded_examples() {
         let mut gg = GraphGenerator::strict();
         let no_loops = gg
-            .random_uniform_k_out_digraph(5, 2, false, 4)
+            .random_uniform_k_out_digraph(5, 2, false, &mut super::PythonRandom::new(4))
             .expect("uniform k-out digraph should succeed");
         let no_loop_edges = no_loops
             .graph
@@ -14030,7 +14170,7 @@ mod tests {
         );
 
         let loops = gg
-            .random_uniform_k_out_digraph(5, 2, true, 4)
+            .random_uniform_k_out_digraph(5, 2, true, &mut super::PythonRandom::new(4))
             .expect("uniform k-out digraph with loops should succeed");
         let loop_edges = loops
             .graph
@@ -14060,12 +14200,12 @@ mod tests {
     fn random_uniform_k_out_fails_closed_for_impossible_targets() {
         let mut gg = GraphGenerator::strict();
         let err = gg
-            .random_uniform_k_out_multidigraph(1, 1, false, 1)
+            .random_uniform_k_out_multidigraph(1, 1, false, &mut super::PythonRandom::new(1))
             .expect_err("with-replacement branch has no target to choose");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
 
         let err = gg
-            .random_uniform_k_out_digraph(3, 3, false, 1)
+            .random_uniform_k_out_digraph(3, 3, false, &mut super::PythonRandom::new(1))
             .expect_err("without-replacement branch cannot sample enough targets");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -14074,7 +14214,7 @@ mod tests {
     fn random_k_out_graph_matches_networkx_python_branch_seeded_examples() {
         let mut gg = GraphGenerator::strict();
         let loops = gg
-            .random_k_out_graph(5, 2, 1.0, true, 42)
+            .random_k_out_graph(5, 2, 1.0, true, &mut super::PythonRandom::new(42))
             .expect("random k-out graph should succeed");
         assert!(loops.graph.is_directed());
         assert!(loops.graph.is_multigraph());
@@ -14102,7 +14242,7 @@ mod tests {
         );
 
         let no_loops = gg
-            .random_k_out_graph(5, 2, 1.0, false, 42)
+            .random_k_out_graph(5, 2, 1.0, false, &mut super::PythonRandom::new(42))
             .expect("random k-out graph without self-loops should succeed");
         let no_loop_edges = no_loops
             .graph
@@ -14132,18 +14272,18 @@ mod tests {
     fn random_k_out_graph_handles_empty_and_invalid_inputs() {
         let mut gg = GraphGenerator::strict();
         let empty = gg
-            .random_k_out_graph(3, 0, 1.0, false, 1)
+            .random_k_out_graph(3, 0, 1.0, false, &mut super::PythonRandom::new(1))
             .expect("k=0 should produce only nodes");
         assert_eq!(empty.graph.node_count(), 3);
         assert_eq!(empty.graph.edge_count(), 0);
 
         let err = gg
-            .random_k_out_graph(3, 1, -0.1, true, 1)
+            .random_k_out_graph(3, 1, -0.1, true, &mut super::PythonRandom::new(1))
             .expect_err("negative alpha should fail like NetworkX");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
 
         let err = gg
-            .random_k_out_graph(1, 1, 1.0, false, 1)
+            .random_k_out_graph(1, 1, 1.0, false, &mut super::PythonRandom::new(1))
             .expect_err("no self-loop branch has no target for n=1");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -14258,7 +14398,7 @@ mod tests {
 
             let mut generator = GraphGenerator::strict();
             let report = generator
-                .gnr_graph(n, p, seed)
+                .gnr_graph(n, p, &mut super::PythonRandom::new(seed))
                 .expect("production GNR parity case should generate");
             assert_eq!(report.graph.snapshot(), frozen.snapshot());
             assert_eq!(report.graph.revision(), frozen.revision());
@@ -14331,27 +14471,37 @@ mod tests {
     fn directed_growth_generators_are_directed_and_seed_reproducible() {
         let mut gg = GraphGenerator::strict();
 
-        let gn = gg.gn_graph(6, 1).expect("gn_graph should succeed");
+        let gn = gg
+            .gn_graph(6, &mut super::PythonRandom::new(1))
+            .expect("gn_graph should succeed");
         assert!(gn.graph.is_directed());
         assert_eq!(gn.graph.node_count(), 6);
         assert_eq!(gn.graph.edge_count(), 5);
-        let gn_again = gg.gn_graph(6, 1).expect("gn_graph replay should succeed");
+        let gn_again = gg
+            .gn_graph(6, &mut super::PythonRandom::new(1))
+            .expect("gn_graph replay should succeed");
         assert_eq!(gn.graph.snapshot(), gn_again.graph.snapshot());
 
-        let gnr = gg.gnr_graph(6, 0.5, 1).expect("gnr_graph should succeed");
+        let gnr = gg
+            .gnr_graph(6, 0.5, &mut super::PythonRandom::new(1))
+            .expect("gnr_graph should succeed");
         assert!(gnr.graph.is_directed());
         assert_eq!(gnr.graph.node_count(), 6);
         assert_eq!(gnr.graph.edge_count(), 5);
         let gnr_again = gg
-            .gnr_graph(6, 0.5, 1)
+            .gnr_graph(6, 0.5, &mut super::PythonRandom::new(1))
             .expect("gnr_graph replay should succeed");
         assert_eq!(gnr.graph.snapshot(), gnr_again.graph.snapshot());
 
-        let gnc = gg.gnc_graph(6, 1).expect("gnc_graph should succeed");
+        let gnc = gg
+            .gnc_graph(6, &mut super::PythonRandom::new(1))
+            .expect("gnc_graph should succeed");
         assert!(gnc.graph.is_directed());
         assert_eq!(gnc.graph.node_count(), 6);
         assert!(gnc.graph.edge_count() >= 5);
-        let gnc_again = gg.gnc_graph(6, 1).expect("gnc_graph replay should succeed");
+        let gnc_again = gg
+            .gnc_graph(6, &mut super::PythonRandom::new(1))
+            .expect("gnc_graph replay should succeed");
         assert_eq!(gnc.graph.snapshot(), gnc_again.graph.snapshot());
     }
 
@@ -14359,7 +14509,9 @@ mod tests {
     fn directed_growth_generators_match_networkx_seeded_examples() {
         let mut gg = GraphGenerator::strict();
 
-        let gn = gg.gn_graph(6, 1).expect("gn_graph should succeed");
+        let gn = gg
+            .gn_graph(6, &mut super::PythonRandom::new(1))
+            .expect("gn_graph should succeed");
         let gn_edges = gn
             .graph
             .snapshot()
@@ -14378,7 +14530,9 @@ mod tests {
             ]
         );
 
-        let gnr = gg.gnr_graph(6, 0.5, 1).expect("gnr_graph should succeed");
+        let gnr = gg
+            .gnr_graph(6, 0.5, &mut super::PythonRandom::new(1))
+            .expect("gnr_graph should succeed");
         let gnr_edges = gnr
             .graph
             .snapshot()
@@ -14397,7 +14551,9 @@ mod tests {
             ]
         );
 
-        let gnc = gg.gnc_graph(6, 1).expect("gnc_graph should succeed");
+        let gnc = gg
+            .gnc_graph(6, &mut super::PythonRandom::new(1))
+            .expect("gnc_graph should succeed");
         let gnc_edges = gnc
             .graph
             .snapshot()
@@ -14424,7 +14580,16 @@ mod tests {
     fn scale_free_graph_is_directed_multigraph_and_seed_reproducible() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
+            .scale_free_graph(
+                6,
+                0.41,
+                0.54,
+                0.05,
+                0.2,
+                0.0,
+                None,
+                &mut super::PythonRandom::new(1),
+            )
             .expect("scale_free_graph should succeed");
         assert!(report.graph.is_directed());
         assert!(report.graph.is_multigraph());
@@ -14441,7 +14606,16 @@ mod tests {
         assert!(edge_set.contains(&("2".to_owned(), "0".to_owned(), 0)));
 
         let report_again = gg
-            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
+            .scale_free_graph(
+                6,
+                0.41,
+                0.54,
+                0.05,
+                0.2,
+                0.0,
+                None,
+                &mut super::PythonRandom::new(1),
+            )
             .expect("scale_free_graph replay should succeed");
         assert_eq!(snapshot, report_again.graph.snapshot());
     }
@@ -14450,7 +14624,16 @@ mod tests {
     fn scale_free_graph_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
+            .scale_free_graph(
+                6,
+                0.41,
+                0.54,
+                0.05,
+                0.2,
+                0.0,
+                None,
+                &mut super::PythonRandom::new(1),
+            )
             .expect("scale_free_graph should succeed");
         let edges = report
             .graph
@@ -14480,14 +14663,14 @@ mod tests {
     fn fast_gnp_random_digraph_is_directed_and_seed_reproducible() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .fast_gnp_random_digraph(6, 0.4, 7)
+            .fast_gnp_random_digraph(6, 0.4, &mut super::PythonRandom::new(7))
             .expect("fast_gnp_random_digraph should succeed");
         assert!(report.graph.is_directed());
         assert_eq!(report.graph.node_count(), 6);
 
         let snapshot = report.graph.snapshot();
         let report_again = gg
-            .fast_gnp_random_digraph(6, 0.4, 7)
+            .fast_gnp_random_digraph(6, 0.4, &mut super::PythonRandom::new(7))
             .expect("fast_gnp_random_digraph replay should succeed");
         assert_eq!(snapshot, report_again.graph.snapshot());
     }
@@ -14501,7 +14684,16 @@ mod tests {
 
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .scale_free_graph(4, 0.41, 0.54, 0.05, 0.2, 0.0, Some(initial), 1)
+            .scale_free_graph(
+                4,
+                0.41,
+                0.54,
+                0.05,
+                0.2,
+                0.0,
+                Some(initial),
+                &mut super::PythonRandom::new(1),
+            )
             .expect("scale_free_graph should accept initial graph");
         let edges = report
             .graph
@@ -14524,7 +14716,7 @@ mod tests {
     fn strict_mode_fails_for_invalid_probability() {
         let mut generator = GraphGenerator::strict();
         let err = generator
-            .gnp_random_graph(10, 1.5, 1)
+            .gnp_random_graph(10, 1.5, &mut super::PythonRandom::new(1))
             .expect_err("strict mode should fail closed");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }
@@ -14571,7 +14763,7 @@ mod tests {
     fn hardened_mode_clamps_invalid_probability_with_warning() {
         let mut generator = GraphGenerator::hardened();
         let report = generator
-            .gnp_random_graph(10, -0.25, 1)
+            .gnp_random_graph(10, -0.25, &mut super::PythonRandom::new(1))
             .expect("hardened mode should recover");
         assert!(!report.warnings.is_empty());
         assert_eq!(
@@ -14753,7 +14945,7 @@ mod tests {
     fn runtime_policy_tracks_generator_validation_state() {
         let mut generator = GraphGenerator::hardened();
         let report = generator
-            .gnp_random_graph(8, f64::NAN, 7)
+            .gnp_random_graph(8, f64::NAN, &mut super::PythonRandom::new(7))
             .expect("hardened generator should recover from NaN probability");
 
         assert!(!report.warnings.is_empty());
@@ -14786,7 +14978,7 @@ mod tests {
     fn result_digraph_inherits_generator_runtime_policy() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .gn_graph(6, 1)
+            .gn_graph(6, &mut super::PythonRandom::new(1))
             .expect("gn_graph generation should succeed");
 
         assert_eq!(report.graph.runtime_policy(), generator.runtime_policy());
@@ -14797,7 +14989,16 @@ mod tests {
     fn result_multidigraph_inherits_generator_runtime_policy() {
         let mut generator = GraphGenerator::strict();
         let report = generator
-            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
+            .scale_free_graph(
+                6,
+                0.41,
+                0.54,
+                0.05,
+                0.2,
+                0.0,
+                None,
+                &mut super::PythonRandom::new(1),
+            )
             .expect("scale_free_graph generation should succeed");
 
         assert_eq!(report.graph.runtime_policy(), generator.runtime_policy());
@@ -14859,10 +15060,10 @@ mod tests {
             );
 
             let random_a = strict_a
-                .gnp_random_graph(n_random, p, seed)
+                .gnp_random_graph(n_random, p, &mut super::PythonRandom::new(seed))
                 .expect("strict gnp_random_graph should succeed");
             let random_b = strict_b
-                .gnp_random_graph(n_random, p, seed)
+                .gnp_random_graph(n_random, p, &mut super::PythonRandom::new(seed))
                 .expect("strict replay gnp_random_graph should succeed");
 
             // Invariant family 4: gnp_random_graph is seed-reproducible in strict mode.
@@ -14875,10 +15076,10 @@ mod tests {
             let mut hardened_prob_a = GraphGenerator::hardened();
             let mut hardened_prob_b = GraphGenerator::hardened();
             let hardened_prob_report_a = hardened_prob_a
-                .gnp_random_graph(n_random, invalid_probability, seed)
+                .gnp_random_graph(n_random, invalid_probability, &mut super::PythonRandom::new(seed))
                 .expect("hardened invalid probability should recover deterministically");
             let hardened_prob_report_b = hardened_prob_b
-                .gnp_random_graph(n_random, invalid_probability, seed)
+                .gnp_random_graph(n_random, invalid_probability, &mut super::PythonRandom::new(seed))
                 .expect("hardened replay invalid probability should recover deterministically");
 
             // Invariant family 5: hardened invalid-probability recovery is deterministic and warning-auditable.

@@ -28,7 +28,7 @@ use fnx_classes::digraph::DiGraph;
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchDecision, DispatchRequest};
-use fnx_generators::GraphGenerator;
+use fnx_generators::{GraphGenerator, PythonRandom};
 use fnx_readwrite::EdgeListEngine;
 use fnx_runtime::{
     CompatibilityMode, DecisionAction, FailureReproData, ForensicsBundleIndex, StructuredTestLog,
@@ -2648,7 +2648,7 @@ fn run_fixture(
             }
             Operation::GenerateGnpRandomGraph { n, p, seed } => {
                 let mut generator = GraphGenerator::new(mode);
-                match generator.gnp_random_graph(n, p, seed) {
+                match generator.gnp_random_graph(n, p, &mut PythonRandom::new(seed)) {
                     Ok(report) => {
                         context.warnings.extend(report.warnings);
                         context.graph = report.graph;
