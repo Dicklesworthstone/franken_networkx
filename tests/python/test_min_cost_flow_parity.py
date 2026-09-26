@@ -143,6 +143,48 @@ def test_max_flow_min_cost_undirected_matches_networkx(seed):
     assert _ordered(ff) == _ordered(nf)
 
 
+# br-r37-c1-33ctq: networkx's capacity_scaling adds flow * weight to the int 0
+# only where flow moves (plus negative selfloops' saturation), so an edge that
+# carries no flow never makes the cost a float; fnx scored every edge with
+# cost_of_flow, and 0 * 2.5 is 0.0. 2 == 2.0, so compare (value, type).
+_SCALING_CASES = {
+    "no_demand_float_weights": ([(0, 0), (1, 0)], [(0, 1, 1.5, 4)]),
+    "flow_on_int_edge_only": (
+        [("s", -2), ("a", 0), ("t", 2)],
+        [("s", "t", 1, 5), ("s", "a", 2.5, 5), ("a", "t", 2.5, 5)],
+    ),
+    "flow_on_float_edge": ([("s", -2), ("t", 2)], [("s", "t", 1.5, 5)]),
+    "int_weights": ([("s", -3), ("a", 0), ("t", 3)], [("s", "a", 2, 2), ("a", "t", 1, 5), ("s", "t", 4, 5)]),
+    "negative_selfloop": (
+        [("s", -1), ("a", 0), ("t", 1)],
+        [("s", "a", 1, 5), ("a", "t", 1, 5), ("a", "a", -1.5, 2)],
+    ),
+}
+
+
+def _scaling_graph(lib, cls, case):
+    nodes, edges = _SCALING_CASES[case]
+    g = getattr(lib, cls)()
+    for node, demand in nodes:
+        g.add_node(node, demand=demand)
+    for u, v, w, c in edges:
+        g.add_edge(u, v, weight=w, capacity=c)
+    return g
+
+
+@pytest.mark.parametrize("spelling", ["capacity_scaling", "flow.capacity_scaling", "algorithms.capacity_scaling"])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("case", sorted(_SCALING_CASES))
+def test_capacity_scaling_cost_type_matches_networkx(spelling, cls, case):
+    fn = fnx
+    for part in spelling.split("."):
+        fn = getattr(fn, part)
+    n_cost, n_flow = nx.capacity_scaling(_scaling_graph(nx, cls, case))
+    f_cost, f_flow = fn(_scaling_graph(fnx, cls, case))
+    assert (f_cost, type(f_cost).__name__) == (n_cost, type(n_cost).__name__)
+    assert f_flow == n_flow
+
+
 @pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
 def test_max_flow_min_cost_multigraph_still_raises_like_networkx(cls):
     spec = _flow_spec(3)

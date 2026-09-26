@@ -46,6 +46,41 @@ def test_number_of_spanning_trees_matches_networkx(weighted, seed):
     )
 
 
+# br-r37-c1-33ctq: with no spanning tree (disconnected; weakly disconnected once
+# root is valid) networkx returns the literal int 0 - the test above skips that
+# case, and fnx's kernel answered its determinant, 0.0. Errors keep their order:
+# the null graph and a missing/unknown root still raise first.
+def _count_case(lib, cls, shape):
+    g = getattr(lib, cls)()
+    if shape == "null":
+        return g
+    g.add_edges_from([(0, 1, {"weight": 2}), (1, 2, {"weight": 3}), (2, 0, {"weight": 1})])
+    if shape == "disconnected":
+        g.add_edges_from([(5, 6, {"weight": 1.5})])
+    elif shape == "isolated":
+        g.add_node(9)
+    return g
+
+
+def _count_outcome(fn, g, kwargs):
+    try:
+        value = fn(g, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - the raise is the answer
+        return ("raise", type(exc).__name__, str(exc))
+    return ("ok", value if isinstance(value, int) else round(value, 6), type(value).__name__)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("shape", ["connected", "disconnected", "isolated", "null"])
+@pytest.mark.parametrize("root", [None, 0, 99], ids=["no_root", "root", "missing_root"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_number_of_spanning_trees_no_tree_is_int_zero_like_networkx(cls, shape, root, weight):
+    kwargs = {"root": root, "weight": weight}
+    expected = _count_outcome(nx.number_of_spanning_trees, _count_case(nx, cls, shape), kwargs)
+    got = _count_outcome(fnx.number_of_spanning_trees, _count_case(fnx, cls, shape), kwargs)
+    assert got == expected
+
+
 @pytest.mark.parametrize("n", range(2, 8))
 def test_cayley_formula_golden(n):
     # Kirchhoff/Cayley: the complete graph K_n has exactly n^(n-2) spanning trees.

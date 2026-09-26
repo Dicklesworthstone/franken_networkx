@@ -16510,6 +16510,15 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         return _multigraph_number_of_spanning_trees(G, root, weight)
+    # br-r37-c1-33ctq: nx answers the literal 0 when no spanning tree exists
+    # (disconnected; weakly disconnected once root is valid) - the kernel's
+    # determinant would be the float 0.0.
+    if len(G):
+        if not G.is_directed():
+            if not is_connected(G):
+                return 0
+        elif root is not None and root in G and not is_weakly_connected(G):
+            return 0
     if isinstance(weight, str):
         # br-r37-c1-4tmgq: weights written after construction live only in the
         # Python edge dicts until synced into the Rust store the kernel reads.
@@ -43120,7 +43129,21 @@ def capacity_scaling(
         if msg == "no flow satisfies all node demands":
             raise NetworkXUnfeasible("No flow satisfying all demands.") from None
         raise
-    cost = cost_of_flow(G, flow, weight=weight)
+    # br-r37-c1-33ctq: nx's capacity_scaling adds flow * weight to the int 0 only
+    # where flow moves, so an edge carrying none never makes the cost a float
+    # (cost_of_flow scores every edge, and 0 * 1.5 is 0.0).
+    if G.is_multigraph():
+        cost = sum(
+            flow[u][v][key] * data.get(weight, 0)
+            for u, v, key, data in G.edges(keys=True, data=True)
+            if flow[u][v][key]
+        )
+    else:
+        cost = sum(
+            flow[u][v] * data.get(weight, 0)
+            for u, v, data in G.edges(data=True)
+            if flow[u][v]
+        )
     return cost, flow
 
 
