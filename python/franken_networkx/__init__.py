@@ -58949,8 +58949,11 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     if avail is not None:
         _k_edge_validate_available_endpoints(avail, G)
 
-    # Fast native path for k=1 (connect components)
-    if k == 1 and avail is None and weight is None:
+    # Fast native path for k=1 (connect components). br-r37-c1-squi9: with
+    # avail=None networkx never reads weight (its unconstrained k=1 / k=2
+    # augmentations take none, and the complement edges carry no data), so
+    # weight does not gate these paths.
+    if k == 1 and avail is None:
         comps = list(connected_components(G))
         if len(comps) <= 1:
             return []
@@ -58964,13 +58967,8 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     # per candidate) AND suboptimal (~2x more edges than the minimum). Run nx's
     # exact linear-time ``bridge_augmentation`` in-process on the fnx graph (no
     # conversion): byte-identical to nx, ~27x faster than the old greedy, and
-    # minimum cardinality. Other k / avail / weight cases keep the greedy.
-    if (
-        k == 2
-        and avail is None
-        and weight is None
-        and _nx_bridge_augmentation is not None
-    ):
+    # minimum cardinality. Other k / avail cases keep the greedy.
+    if k == 2 and avail is None and _nx_bridge_augmentation is not None:
         try:
             return list(_nx_bridge_augmentation(G, backend="networkx"))
         except NetworkXUnfeasible:

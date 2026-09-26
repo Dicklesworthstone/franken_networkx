@@ -181,3 +181,29 @@ class TestKEdgeAugmentation:
                 H.add_edge(u, v)
             conn = fnx.edge_connectivity(H)
             assert conn >= k, f"k={k}: expected conn>={k}, got {conn}"
+
+
+# br-r37-c1-squi9: with avail=None networkx never reads weight - its k=1 and
+# k=2 answers are the unconstrained augmentations - but fnx's fast paths were
+# gated on weight is None too, so weight= sent it to the greedy search: other
+# edges, and at k=2 more of them than networkx's minimum.
+def _keaug_shape(lib, shape):
+    g = lib.Graph()
+    if shape == "ring_component_isolated":
+        g.add_weighted_edges_from([(i, (i + 1) % 12, float(i % 5) + 1.5) for i in range(12)])
+        g.add_weighted_edges_from([(20, 21, 1.0)])
+        g.add_nodes_from([100, 101])
+    elif shape == "bridged_triangles":
+        g.add_weighted_edges_from([(0, 1, 2), (1, 2, 3), (2, 0, 1), (2, 3, 5), (3, 4, 1), (4, 5, 2), (5, 3, 4)])
+    else:  # weighted path
+        g.add_weighted_edges_from([(i, i + 1, 0.5 * i + 1) for i in range(7)])
+    return g
+
+
+@pytest.mark.parametrize("shape", ["ring_component_isolated", "bridged_triangles", "path"])
+@pytest.mark.parametrize("k", [1, 2, 3])
+@pytest.mark.parametrize("weight", [None, "weight", "missing"])
+def test_weight_without_avail_matches_networkx(shape, k, weight):
+    expected = list(nx.k_edge_augmentation(_keaug_shape(nx, shape), k, weight=weight))
+    got = list(fnx.k_edge_augmentation(_keaug_shape(fnx, shape), k, weight=weight))
+    assert got == expected
