@@ -27,7 +27,10 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyType};
-use std::collections::{HashMap, HashSet};
+// Fx, not SipHash: every to_dict_of_dicts row entry and every keydict-backed
+// get_edge_data hashes two node labels here, and no output order depends on
+// these maps (br-r37-c1-49u7h).
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 static KEYDICT_CLASS: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
@@ -59,7 +62,13 @@ pub(crate) fn new_row<'py>(
     let Some(cls) = KEYDICT_CLASS.get(py) else {
         return Ok(PyDict::new(py));
     };
-    let row = cls.bind(py).call0()?.cast_into::<PyDict>()?;
+    // dict.__new__(cls): an instance of the subclass without running its
+    // Python __init__ - every slot is set just below. That __init__ frame was
+    // the largest single cost of building a keydict (br-r37-c1-49u7h).
+    let row = py
+        .get_type::<PyDict>()
+        .call_method1(intern!(py, "__new__"), (cls.bind(py),))?
+        .cast_into::<PyDict>()?;
     row.setattr(intern!(py, "_fnx_u"), source)?;
     row.setattr(intern!(py, "_fnx_v"), target)?;
     row.setattr(intern!(py, "_fnx_graph"), graph)?;
@@ -111,7 +120,7 @@ impl LiveKeydictRows {
 
     fn unregister(&mut self, source: &str, target: &str) -> Option<Py<PyDict>> {
         let row = self.rows.get_mut(source)?.remove(target)?;
-        if self.rows.get(source).is_some_and(HashMap::is_empty) {
+        if self.rows.get(source).is_some_and(|targets| targets.is_empty()) {
             self.rows.remove(source);
         }
         if let Some(sources) = self.sources_by_target.get_mut(target) {
