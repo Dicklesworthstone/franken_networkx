@@ -46171,10 +46171,14 @@ def laplacian_centrality(
     # (n=400) vs nx, the speedup growing as O(n). lapl_cent[i] uses ROW i of L
     # (sum over the deleted column index b) — correct for the asymmetric directed
     # Laplacian too (verified against nx on directed/weighted/complete/path/gnp).
+    # br-r37-c1-p1uop: the i-th term of that sum is diag[i]*|diag[i]|, not
+    # diag[i]^2 - the same for a non-negative degree, but a node whose weighted
+    # degree is negative (negative weights) came out wrong (-0.018 where
+    # networkx's loop gives 0.0).
     diag = _np.diagonal(lap_matrix).astype(float)
     row_sq = _np.sum(lap_matrix**2, axis=1)
     weighted_diag_col = diag @ _np.abs(lap_matrix)
-    cents = row_sq - 2.0 * diag**2 + 2.0 * weighted_diag_col
+    cents = row_sq - 2.0 * diag * _np.abs(diag) + 2.0 * weighted_diag_col
     if normalized:
         cents = cents / full_energy
 

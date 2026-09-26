@@ -78,3 +78,35 @@ def test_no_edge_graph_raises_like_networkx():
         fnx.laplacian_centrality(fnx.empty_graph(3))
     with pytest.raises(ZeroDivisionError):
         nx.laplacian_centrality(nx.empty_graph(3))
+
+
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("normalized", [True, False])
+@pytest.mark.parametrize("seed", range(15))
+def test_negative_weighted_degree_matches_networkx(cls, normalized, seed):
+    # br-r37-c1-p1uop: the vectorised closed form used diag**2 where networkx's
+    # delete-and-re-sum loop gives diag*|diag|; they differ only for a node whose
+    # weighted degree is negative. (Directed graphs are left out: a random walk
+    # over negative weights has no well-defined stationary distribution, and
+    # directed_laplacian_matrix itself is not stable there in networkx.)
+    rng = random.Random(seed)
+    n = rng.randint(4, 9)
+    fg, ng = getattr(fnx, cls)(), getattr(nx, cls)()
+    for graph in (fg, ng):
+        graph.add_nodes_from(range(n))
+    for _ in range(2 * n):
+        u, v = rng.sample(range(n), 2)
+        w = rng.choice([rng.randint(-8, 8), rng.uniform(-3, 5)])
+        fg.add_edge(u, v, weight=w)
+        ng.add_edge(u, v, weight=w)
+    for nodelist in (None, [0, 1]):
+        try:
+            expected = nx.laplacian_centrality(ng, normalized=normalized, nodelist=nodelist)
+        except ZeroDivisionError:
+            with pytest.raises(ZeroDivisionError):
+                fnx.laplacian_centrality(fg, normalized=normalized, nodelist=nodelist)
+            continue
+        actual = fnx.laplacian_centrality(fg, normalized=normalized, nodelist=nodelist)
+        assert actual.keys() == expected.keys()
+        for node, value in expected.items():
+            assert actual[node] == pytest.approx(value, rel=1e-9, abs=1e-12), node
