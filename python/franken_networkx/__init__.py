@@ -48123,6 +48123,26 @@ def to_directed(graph):
     return _generic_directed_graph_view(graph)
 
 
+def _new_empty_graph_for_view_class(cls):
+    """br-r37-c1-ndro1: what ``type(view)()`` makes - a fresh, empty,
+    unfrozen graph of the view class's concrete class. networkx's view
+    classes ARE the graph classes (generic_graph_view builds
+    ``G.__class__()`` and freezes it), so relabel_nodes, the
+    maximum-branching, spanning-tree and union rebuilds, intersection_all,
+    a conversion view's attribute probe and user code build their output
+    that way; fnx's view classes need their backing graph and raised
+    TypeError. Called from the view mixins' ``__new__`` with no arguments:
+    returning a non-instance of ``cls`` skips ``__init__``. Only from the
+    ``__new__`` the call resolved to (``cls.__new__ is`` that mixin's): a
+    filtered view over a reverse view is one class with both mixins, and the
+    first one's ``super().__new__(cls)`` reaches the second with no
+    arguments."""
+    for base in cls.__mro__:
+        if base in _CONCRETE_FNX_GRAPH_TYPES:
+            return base()
+    raise TypeError(f"{cls.__name__} needs the graph it views")
+
+
 class _ReverseDirectedViewBase:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
@@ -48137,6 +48157,13 @@ class _ReverseDirectedViewBase:
         # whole parent graph into the view's storage (O(|V|+|E|)). Dead weight:
         # every query is answered through self._graph with succ/pred swapped.
         # Same fix as _FilteredGraphView / _ConversionGraphViewBase.
+        if (
+            graph is None
+            and not args
+            and not kwargs
+            and cls.__new__ is _ReverseDirectedViewBase.__new__
+        ):
+            return _new_empty_graph_for_view_class(cls)
         return super().__new__(cls)
 
     def __init__(self, graph):
@@ -48652,7 +48679,20 @@ class _ReverseDirectedViewBase:
     def __getattr__(self, name):
         if name in _FILTERED_VIEW_MUTATORS:
             return _frozen
-        raise AttributeError(name)
+        # br-r37-c1-ndro1: networkx's reverse view is a DiGraph, whose missing
+        # attribute reads "'DiGraph' object has no attribute 'items'" (what
+        # from_dict_of_dicts & co. handed a view raise); a bare
+        # AttributeError(name) said 'items'.
+        raise AttributeError(
+            f"'{_concrete_class_for(self).__name__}' object has no attribute '{name}'"
+        )
+
+    def __reduce__(self):
+        # br-r37-c1-ndro1: pickled as a frozen canonical copy, as the filtered
+        # and conversion views are (networkx's unpickles as a frozen DiGraph
+        # with the reversed edges). The generic reduce rebuilt ``cls()`` over
+        # the view's EMPTY base.
+        return (_reconstruct_filtered_view_as_copy, (self.copy(),))
 
     # br-r37-c1-rvfrz: same MRO mutability hole as br-r37-c1-6qm6r —
     # _ReverseDirectedView inherits from (_ReverseDirectedViewBase,
@@ -49743,6 +49783,13 @@ class _FilteredGraphView:
         # allocates an empty graph in O(1); ``__init__`` wires up the live
         # filtered view. (Also removes the stale-base hazard that forced the
         # ``has_node`` override.)
+        if (
+            graph is None
+            and not args
+            and not kwargs
+            and cls.__new__ is _FilteredGraphView.__new__
+        ):
+            return _new_empty_graph_for_view_class(cls)
         return super().__new__(cls)
 
     def __init__(self, graph, *, filter_node=None, filter_edge=None):
@@ -55135,7 +55182,11 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
         # br-r37-c1-fabqo: a conversion view has one too, and now carries its
         # adjacency as a private override, which the generic path below would
         # re-apply onto the unpickled copy as its `_adj`.
-        if isinstance(self, (_FilteredGraphView, _ConversionGraphViewBase)):
+        # br-r37-c1-ndro1: and a reverse view (the generic path rebuilt its
+        # empty base).
+        if isinstance(
+            self, (_FilteredGraphView, _ConversionGraphViewBase, _ReverseDirectedViewBase)
+        ):
             return self.__reduce__()
         inner = raw_reduce_ex(self, protocol)
         if isinstance(inner, tuple) and len(inner) >= 2:
@@ -56206,7 +56257,12 @@ class _ConversionAdjacencyView(_Mapping):
         # The two are the same set on an ordinary graph, one adjacency row per
         # node, so this is the previous behaviour there.
         if node not in self._view._graph.adj:
-            raise KeyError(f"Key {node} not found")
+            # br-r37-c1-ndro1: networkx indexes the wrapped graph's own mapping
+            # here (its _adj / _succ dict, or a filtered parent's
+            # FilterAdjacency), so the KeyError is that mapping's: KeyError('x')
+            # over a graph, "Key x not found" over a filtered view.
+            self._view._graph.adj[node]
+            raise KeyError(node)
         return _ConversionNeighborMap(self._view, node, reverse=self._reverse)
 
 
@@ -56309,6 +56365,13 @@ class _ConversionGraphViewBase:
         # MRO routes to the Graph/DiGraph base) allocates an empty graph in O(1);
         # __init__ wires up the live conversion view. Same fix as
         # _FilteredGraphView.__new__ (br-r37-c1-pgfd2).
+        if (
+            graph is None
+            and not args
+            and not kwargs
+            and cls.__new__ is _ConversionGraphViewBase.__new__
+        ):
+            return _new_empty_graph_for_view_class(cls)
         return super().__new__(cls)
 
     def __init__(self, graph):

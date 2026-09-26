@@ -177,3 +177,76 @@ def test_a_reversed_filtered_view_is_independent_of_the_view():
     assert view[0][1]["weight"] == 1.5
     assert dg[0][1]["weight"] == 1.5
     assert fnx.to_numpy_array(view)[0][1] == 1.5
+
+
+# br-r37-c1-ndro1: networkx's view classes ARE the graph classes
+# (generic_graph_view builds G.__class__() and freezes it), so type(view)() is a
+# fresh empty graph - relabel_nodes, intersection_all, the current-flow
+# centralities (which relabel first) and user code build their output that way.
+# fnx's view classes need their backing graph: every reverse and conversion view
+# raised TypeError there. The missing-attribute and missing-key errors are
+# networkx's wording too.
+CLASS_CALLS = [
+    (
+        "type(view)()",
+        lambda L, G: (lambda H: (type(H) is getattr(L, type(H).__name__), L.is_frozen(H), len(H)))(
+            type(G)()
+        ),
+    ),
+    ("view.__class__()", lambda L, G: G.__class__()),
+    ("relabel_nodes", lambda L, G: L.relabel_nodes(G, {0: "zero"})),
+    ("intersection_all", lambda L, G: L.intersection_all([G, G])),
+    ("view['x']", lambda L, G: G["x"]),
+    ("view.adj['x']", lambda L, G: G.adj["x"]),
+    ("view.items", lambda L, G: G.items),
+    ("from_dict_of_dicts(view)", lambda L, G: L.from_dict_of_dicts(G)),
+]
+
+
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize(("name", "call"), CLASS_CALLS, ids=[c[0] for c in CLASS_CALLS])
+def test_a_view_class_builds_and_words_errors_like_networkx(kind, name, call):
+    _check(kind, call)
+
+
+@pytest.mark.parametrize("kind", ["G.sub", "D.to_undirected"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "information_centrality",
+        "current_flow_closeness_centrality",
+        "edge_current_flow_betweenness_centrality",
+    ],
+)
+def test_current_flow_centrality_of_an_undirected_view(kind, name):
+    def call(L, G):
+        return {k: round(v, 9) for k, v in getattr(L, name)(G).items()}
+
+    _check(kind, call)
+
+
+@pytest.mark.parametrize("kind", CONVERSION + REVERSE)
+def test_a_view_pickles_as_a_frozen_graph_of_its_content(kind):
+    # networkx pickles a reverse or conversion view as a frozen graph of the
+    # view's nodes and edges (a filtered view it cannot pickle at all).
+    import pickle
+
+    def call(L, G):
+        H = pickle.loads(pickle.dumps(G))
+        return L.is_frozen(H), _norm(H)
+
+    _check(kind, call)
+
+
+def test_a_filtered_view_over_a_reverse_view_still_views_its_graph():
+    # One class carries both mixins (_FilteredGraphView over _ReverseDirectedView);
+    # the first mixin's super().__new__(cls) reaches the second with no
+    # arguments, which must build the view, not the empty graph type(view)()
+    # makes.
+    for kind in REVERSE:
+        fnx_view = _views(fnx)[kind].subgraph([0, 1, 2, 3])
+        nx_view = _views(nx)[kind].subgraph([0, 1, 2, 3])
+        assert sorted(fnx_view.edges()) == sorted(nx_view.edges())
+        assert fnx_view._graph is not None
+        empty = type(fnx_view)()
+        assert (type(empty).__name__, len(empty)) == (type(type(nx_view)()).__name__, 0)
