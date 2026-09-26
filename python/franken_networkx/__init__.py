@@ -17415,9 +17415,10 @@ def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
         seed=seed,
     )
     from franken_networkx.readwrite import _from_nx_graph
-    # br-r37-c1-lblzk: SubgraphView's class is _FilteredGraphView,
-    # whose __init__ requires a 'graph' arg. Cycle-225 family fix.
-    return _from_nx_graph(nx_result, create_using=_concrete_class_for(G)())
+    # networkx builds the tree in nx.Graph() (nx.empty_graph(G.nodes) when G
+    # has no edges), so the answer is an undirected Graph whatever G's class -
+    # a DiGraph or multigraph input included (br-r37-c1-93tox).
+    return _from_nx_graph(nx_result, create_using=Graph())
 
 
 def partition_spanning_tree(G, minimum=True, weight="weight", partition="partition", ignore_nan=False):

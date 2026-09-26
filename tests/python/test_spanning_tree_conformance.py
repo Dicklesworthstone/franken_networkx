@@ -458,3 +458,18 @@ def test_unhashable_algorithm_raises_type_error_like_networkx(fn_name):
         getattr(nx, fn_name)(nx.Graph(), algorithm=["kruskal"])
     with pytest.raises(TypeError):
         getattr(fnx, fn_name)(fnx.Graph(), algorithm=["kruskal"])
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_random_spanning_tree_is_always_an_undirected_graph(cls, seed):
+    # br-r37-c1-93tox: networkx builds the tree in nx.Graph() whatever the input
+    # class; fnx returned the input's class (a DiGraph input gave a DiGraph)
+    edges = [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 1)]
+    fr = fnx.random_spanning_tree(getattr(fnx, cls)(edges), seed=seed)
+    nr = nx.random_spanning_tree(getattr(nx, cls)(edges), seed=seed)
+    assert type(fr).__name__ == type(nr).__name__ == "Graph"
+    assert fr.is_directed() is nr.is_directed() is False
+    assert sorted(tuple(sorted(e)) for e in fr.edges()) == sorted(
+        tuple(sorted(e)) for e in nr.edges()
+    )
