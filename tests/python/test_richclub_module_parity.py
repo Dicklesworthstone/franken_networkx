@@ -77,3 +77,59 @@ def test_rich_club_coefficient_rejects_backend_kwargs_like_networkx_dispatch():
 
     with pytest.raises(TypeError):
         module.rich_club_coefficient(graph, normalized=False, unsupported=True)
+
+
+def _rich_club_seed(kind):
+    import random
+
+    import numpy as np
+
+    if kind == "int":
+        return 12345
+    if kind == "negative int":
+        return -1
+    if kind == "random.Random":
+        return random.Random(3)
+    if kind == "RandomState":
+        return np.random.RandomState(4)
+    if kind == "Generator":
+        return np.random.default_rng(4)
+    if kind == "float":
+        return 1.5
+    random.seed(7)
+    np.random.seed(7)
+    return None
+
+
+def _rich_club_outcome(lib, build, Q, kind):
+    try:
+        return lib.rich_club_coefficient(build(lib), Q=Q, seed=_rich_club_seed(kind))
+    except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+        return (type(exc).__name__, str(exc))
+
+
+# br-r37-c1-cdf1v: networkx randomises R = G.copy(), and copy() re-adds the edges
+# in adjacency-iteration order, so the neighbour order seed.choice indexes is
+# copy()'s, not G's (karate's node 33 lists 22 after 20, not last). fnx replayed
+# the swaps on G's order, so a seed drew another graph as soon as a choice landed
+# on a reordered row - every seed kind, ints included; it also resolved the seed
+# after double_edge_swap's graph checks.
+@pytest.mark.parametrize(
+    "kind",
+    ["int", "negative int", "random.Random", "RandomState", "Generator", "float", "global None"],
+)
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda lib: lib.karate_club_graph(),
+        lambda lib: lib.barabasi_albert_graph(60, 3, seed=2),
+        lambda lib: lib.relabel_nodes(
+            lib.gnp_random_graph(25, 0.25, seed=9), {i: f"n{(i * 7) % 25}" for i in range(25)}
+        ),
+        lambda lib: lib.path_graph(3),
+    ],
+    ids=["karate", "barabasi_albert", "str_labels", "three_nodes"],
+)
+@pytest.mark.parametrize("Q", [1, 5])
+def test_rich_club_coefficient_normalized_matches_networkx_for_every_seed_kind(build, Q, kind):
+    assert _rich_club_outcome(fnx, build, Q, kind) == _rich_club_outcome(nx, build, Q, kind)

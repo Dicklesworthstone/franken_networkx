@@ -72,3 +72,24 @@ def test_kwargs_are_keyword_only():
     must raise."""
     with pytest.raises(TypeError):
         fnx.maybe_regular_expander(12, 4, fnx.MultiGraph)  # 3rd positional
+
+
+# br-r37-c1-cdf1v: networkx's @np_random_state("seed") resolves the seed before
+# the body's n / d checks, so a seed numpy cannot take raises ValueError even
+# for an odd d; fnx checked d first (NetworkXError "d must be even").
+@needs_nx
+@pytest.mark.parametrize("name", ["maybe_regular_expander", "maybe_regular_expander_graph"])
+@pytest.mark.parametrize("n, d", [(8, 3), (0, 2), (5, 4), (12, 4)])
+@pytest.mark.parametrize("seed", ["random.Random", 1.5, "x", -1])
+def test_seed_is_resolved_before_the_arguments_like_networkx(name, n, d, seed):
+    import random
+
+    def outcome(lib):
+        rng = random.Random(3) if seed == "random.Random" else seed
+        try:
+            getattr(lib, name)(n, d, seed=rng)
+        except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+            return type(exc).__name__, str(exc).replace(hex(id(rng)), "ID")
+        return "ok"
+
+    assert outcome(fnx) == outcome(nx)

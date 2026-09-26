@@ -95,3 +95,30 @@ def test_connected_double_edge_swap_matches_networkx(seed, window_threshold):
     assert cf == cn
     assert _adjacency(gfx) == _adjacency(gnx)
     assert fnx.is_connected(gfx)
+
+
+# br-r37-c1-cdf1v: networkx's @py_random_state resolves the seed before the
+# body's checks - and before @not_implemented_for, which its flattened argmap
+# runs after - so a bad seed raises ValueError whatever the graph. fnx checked
+# directedness and size first.
+@pytest.mark.parametrize("seed", [1.5, "x", float("nan")])
+@pytest.mark.parametrize(
+    "name, directed, edges",
+    [
+        ("double_edge_swap", True, [(0, 1), (1, 2), (2, 3), (3, 0)]),
+        ("double_edge_swap", False, [(0, 1), (1, 2)]),
+        ("directed_edge_swap", False, [(0, 1), (1, 2), (2, 3), (3, 0)]),
+        ("directed_edge_swap", True, [(0, 1), (1, 2)]),
+        ("directed_edge_swap", True, [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]),
+    ],
+    ids=["double_on_digraph", "double_small", "directed_on_graph", "directed_small", "directed_ok"],
+)
+def test_swap_seed_is_resolved_before_the_graph_checks(name, directed, edges, seed):
+    def outcome(module):
+        try:
+            getattr(module, name)(_pair(module, edges, directed), nswap=1, max_tries=100, seed=seed)
+        except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+            return type(exc).__name__, str(exc)
+        return "ok"
+
+    assert outcome(fnx) == outcome(nx)

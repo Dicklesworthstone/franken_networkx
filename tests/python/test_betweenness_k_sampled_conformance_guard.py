@@ -201,3 +201,28 @@ def test_k_zero_below_two_pairs_returns_networkx_zeros(endpoints):
                 fnx.betweenness_centrality(fnx.path_graph(n), k=0, endpoints=endpoints)
         else:
             assert fnx.betweenness_centrality(fnx.path_graph(n), k=0, endpoints=endpoints) == expected
+
+
+def _numpy_seed(kind):
+    import numpy as np
+
+    return np.random.RandomState(4) if kind == "RandomState" else np.random.default_rng(4)
+
+
+# br-r37-c1-cdf1v: networkx's wrapper for a numpy RandomState samples the k
+# sources with rng.choice - an ndarray - and the native sampled route tested
+# `if not sampled_nodes`, which raised "truth value of an array ... is
+# ambiguous" where networkx answers. (A Generator's wrapper returns a list.)
+@pytest.mark.parametrize("kind", ["RandomState", "Generator"])
+@pytest.mark.parametrize("k", [1, 5])
+@pytest.mark.parametrize("edge", [False, True], ids=["node", "edge"])
+def test_k_sampled_betweenness_takes_numpy_seeds_like_networkx(edge, k, kind):
+    fg, ng, _ = _g(9, 20)
+    fn = fnx.edge_betweenness_centrality if edge else fnx.betweenness_centrality
+    nf = nx.edge_betweenness_centrality if edge else nx.betweenness_centrality
+    fr = fn(fg, k=k, seed=_numpy_seed(kind))
+    nr = nf(ng, k=k, seed=_numpy_seed(kind))
+    assert list(fr) == list(nr)
+    for key in nr:
+        # k=1 rescales by 1/(k-1)-style factors to NaN on both sides.
+        assert fr[key] == pytest.approx(nr[key], abs=1e-12, nan_ok=True)

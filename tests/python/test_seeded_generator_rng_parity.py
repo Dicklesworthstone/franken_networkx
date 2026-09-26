@@ -177,3 +177,92 @@ def test_every_seed_kind_draws_networkx_graph(name, builder, kind):
     if kind == "global None" and name in _NATIVE_WHEN_NONE:
         pytest.skip("seed=None takes the native kernel - br-r37-c1-ols3t")
     assert _outcome(builder, fnx, kind) == _outcome(builder, nx, kind)
+
+
+def _native_seed(kind):
+    import numpy as np
+
+    return {
+        "-1": -1,
+        "-12345": -12345,
+        "True": True,
+        "1.5": 1.5,
+        "nan": float("nan"),
+        "str": "x",
+        "numpy int": np.int64(3),
+    }[kind]
+
+
+def _call_outcome(builder, lib, seed):
+    try:
+        g = builder(lib, seed)
+    except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+        return type(exc).__name__, str(exc)
+    return _fingerprint(g)
+
+
+# br-r37-c1-cdf1v: the native kernels seed MT19937 as random.seed(int) does -
+# from abs(int) - but _native_random_seed masked a negative int to 2**64 - n
+# (another graph), and handed a float / str / numpy int to the binding
+# (TypeError, or a graph for a float) where networkx's create_py_random_state
+# raises ValueError("... cannot be used to generate a random.Random instance").
+@pytest.mark.parametrize("kind", ["-1", "-12345", "True", "1.5", "nan", "str", "numpy int"])
+@pytest.mark.parametrize("name,builder", _GENERATORS, ids=[g[0] for g in _GENERATORS])
+def test_int_like_and_invalid_seeds_match_networkx(name, builder, kind):
+    assert _call_outcome(builder, fnx, _native_seed(kind)) == _call_outcome(builder, nx, _native_seed(kind))
+
+
+# br-r37-c1-cdf1v: spectral_graph_forge ran its own algorithm (a median threshold
+# over a noise blend, relabelled to G's nodes), so no seed drew networkx's graph,
+# and np.random.RandomState(seed) raised TypeError on a numpy RNG. It is
+# networkx's algorithm on networkx's np_random_state now.
+@pytest.mark.parametrize("kind", ["int", "RandomState", "Generator", "global None", "random.Random", "1.5"])
+@pytest.mark.parametrize("transformation", ["identity", "modularity", "bogus"])
+@pytest.mark.parametrize("alpha", [0.0, 0.4, 1.0, 1.7])
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda lib: lib.karate_club_graph(),
+        lambda lib: lib.relabel_nodes(lib.cycle_graph(6), dict(enumerate("abcdef"))),
+        lambda lib: lib.Graph([(0, 1, {"weight": 3}), (1, 2, {"weight": 0.5}), (2, 0, {})]),
+    ],
+    ids=["karate", "str_labels", "weighted"],
+)
+def test_spectral_graph_forge_is_networkx_for_every_seed_kind(build, alpha, transformation, kind):
+    import numpy as np
+
+    def seed():
+        if kind == "int":
+            return 11
+        if kind == "RandomState":
+            return np.random.RandomState(4)
+        if kind == "Generator":
+            return np.random.default_rng(4)
+        if kind == "random.Random":
+            import random
+
+            return random.Random(3)
+        if kind == "1.5":
+            return 1.5
+        np.random.seed(7)
+        return None
+
+    def outcome(lib):
+        s = seed()
+        try:
+            g = lib.spectral_graph_forge(build(lib), alpha, transformation=transformation, seed=s)
+        except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+            return type(exc).__name__, str(exc).replace(hex(id(s)), "ID")
+        return list(g.nodes(data=True)), list(g.edges(data=True)), dict(g.graph)
+
+    assert outcome(fnx) == outcome(nx)
+
+
+# br-r37-c1-cdf1v: networkx's @py_random_state resolves the seed before
+# navigable_small_world_graph's p / q / r checks.
+@pytest.mark.parametrize("args", [(3, 0), (3, 1, -1), (3, 1, 1, -1)])
+@pytest.mark.parametrize("seed", [1.5, "x"])
+def test_navigable_small_world_resolves_the_seed_first(args, seed):
+    assert _call_outcome(lambda lib, s: lib.navigable_small_world_graph(*args, seed=s), fnx, seed) == _call_outcome(
+        lambda lib, s: lib.navigable_small_world_graph(*args, seed=s), nx, seed
+    )

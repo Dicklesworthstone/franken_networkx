@@ -15337,6 +15337,11 @@ def betweenness_centrality(
                 seed=None,
             )
         sampled_nodes = rng.sample(list(G.nodes()), k)
+        if not isinstance(sampled_nodes, list):
+            # br-r37-c1-cdf1v: networkx's wrapper for a numpy RandomState
+            # samples with rng.choice, an ndarray ('if not sampled_nodes'
+            # raised); tolist() gives the node values back.
+            sampled_nodes = sampled_nodes.tolist()
         if not sampled_nodes and (len(G) if endpoints else len(G) - 1) >= 2:
             # networkx's _rescale divides by the sample size once N >= 2; the
             # native rescale's float 0/0 would return NaN for every node.
@@ -22221,13 +22226,16 @@ def _rich_club_randomized_coefficients(G, Q, seed):
     The previous normalization path copied G then did per-swap
     ``list(G[u])`` + ``x in G[u]`` + 4 ``add/remove_edge`` calls — many PyO3
     round-trips per attempt over ~Q*m attempts (~10x slower than nx). A
-    ``dict.fromkeys`` snapshot preserves ``G[u]`` iteration order, so
-    ``rng.choice`` selects the same neighbors and the swap sequence — hence the
-    randomized graph — is byte-identical for a given seed. Rich-club is then
-    computed straight from the final adjacency. No per-swap PyO3.
+    snapshot in G.copy()'s adjacency order (below) makes ``rng.choice`` select
+    the same neighbors, so the swap sequence — hence the randomized graph — is
+    byte-identical for a given seed. Rich-club is then computed straight from
+    the final adjacency. No per-swap PyO3.
     """
     import bisect
 
+    # br-r37-c1-cdf1v: double_edge_swap's @py_random_state resolves the seed
+    # before its checks (a bad seed on a 3-node graph is ValueError).
+    rng = _generator_random_state(seed)
     edge_count = G.number_of_edges()
     nswap = Q * edge_count
     max_tries = Q * edge_count * 10
@@ -22240,9 +22248,18 @@ def _rich_club_randomized_coefficients(G, Q, seed):
 
     nodes = list(G)
     idx = {node: i for i, node in enumerate(nodes)}
-    adj = {node: dict.fromkeys(G[node]) for node in nodes}
-
-    rng = _generator_random_state(seed)
+    # br-r37-c1-cdf1v: networkx swaps on R = G.copy(), and copy() re-adds the
+    # edges in adjacency-iteration order, so a node's neighbours are in
+    # first-seen-edge order there, not G's (karate's 33 lists 22 after 20, not
+    # last). seed.choice indexes that order, so the snapshot is built the way
+    # copy() builds it - from G's order every seed drew another graph once a
+    # choice landed on a reordered row.
+    adj = {node: {} for node in nodes}
+    for u in nodes:
+        row = adj[u]
+        for v in G[u]:
+            row[v] = None
+            adj[v][u] = None
 
     def choice(seq):
         if hasattr(rng, "choice"):
@@ -32240,6 +32257,9 @@ def edge_betweenness_centrality(
     if k is not None and weight is None and not G.is_multigraph():
         rng = _create_py_random_state(seed)
         sampled_nodes = rng.sample(list(G.nodes()), k)
+        if not isinstance(sampled_nodes, list):
+            # br-r37-c1-cdf1v: a numpy RandomState's wrapper returns an ndarray.
+            sampled_nodes = sampled_nodes.tolist()
         if len(G) < 2:
             return dict.fromkeys(G.edges(), 0.0)
         scores = edge_betweenness_centrality_subset(
@@ -34289,8 +34309,12 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     """
     import numpy as np
 
-    del seed  # accepted for nx parity but not used
-
+    # br-r37-c1-cdf1v: the dense solver draws nothing, but networkx's
+    # @np_random_state(5) rejects a seed numpy cannot take (a random.Random, a
+    # float, an int outside [0, 2**32)) - first: networkx's flattened argmap
+    # resolves the seed before @not_implemented_for's directed check.
+    _numpy_random_state(seed)
+    del seed
     # br-r37-c1-d8qdy: nx is @not_implemented_for('directed') — fnx
     # would otherwise compute a meaningless Fiedler value on the
     # directed Laplacian. Add the type guard up front so drop-in
@@ -34392,10 +34416,13 @@ def _fiedler_vector_impl(
     -------
     numpy.ndarray
     """
-    del seed  # accepted for nx parity but not used
-
     import numpy as np
 
+    # br-r37-c1-cdf1v: networkx's @np_random_state(5) rejects a seed numpy
+    # cannot take - before the directed check, as its flattened argmap
+    # resolves the seed first; the dense solver itself draws nothing.
+    _numpy_random_state(seed)
+    del seed
     # br-r37-c1-96xkv: directed guard runs before any graph-shape
     # checks so the @not_implemented_for ordering matches nx (a
     # directed empty/single-node graph raises NetworkXNotImplemented
@@ -36096,8 +36123,8 @@ def _native_random_seed(seed):
        any int via random.Random.seed.  The Rust bindings declared
        seed as u64 and raised
        ``OverflowError("can't convert negative int to unsigned")``.
-       Hash to the u64 range so the binding accepts and the seed
-       remains deterministic.
+       Pass abs(seed), which is what random.seed(int) seeds from, so
+       the binding accepts it and draws networkx's graph.
 
     2. NaN seed: nx (and numpy / random.Random down the line) raises
        ``ValueError("nan cannot be used to generate a random.Random
@@ -36139,17 +36166,34 @@ def _native_random_seed(seed):
                 # high < 2**63 keeps both APIs happy; mask to u64.
                 val = int(randint(1 << 63))
                 return val & 0xFFFF_FFFF_FFFF_FFFF
-    if isinstance(seed, float):
-        if _math.isnan(seed):
-            raise ValueError(
-                "nan cannot be used to generate a random.Random instance"
-            )
-        # +/-inf and other floats fall through to the Rust binding,
-        # which will surface its existing TypeError on non-int.
-        return seed
-    if isinstance(seed, int) and not isinstance(seed, bool):
-        return seed & 0xFFFF_FFFF_FFFF_FFFF
-    return seed
+    if seed is _random:
+        return _random.randrange(1 << 64)
+    if getattr(seed, "__name__", None) == "numpy.random" and hasattr(seed, "mtrand"):
+        # networkx takes the numpy.random module as numpy's global RandomState.
+        return int(seed.mtrand._rand.randint(1 << 63)) & 0xFFFF_FFFF_FFFF_FFFF
+    if isinstance(seed, int):
+        # br-r37-c1-cdf1v: random.seed(int) seeds from abs(int), so -1 is
+        # networkx's seed 1 (masking made it 2**64 - 1, another graph), and
+        # True is seed 1. Exact below 2**64; a bigger int needs the MT-state
+        # passthrough (ols3t).
+        return abs(seed) & 0xFFFF_FFFF_FFFF_FFFF
+    # br-r37-c1-cdf1v: networkx's create_py_random_state raises this for any
+    # other seed - a float (nan included), a str, a numpy integer - where the
+    # binding raised TypeError or, for a float, took it.
+    raise ValueError(f"{seed} cannot be used to generate a random.Random instance")
+
+
+def _seed_runs_mt_kernel(seed):
+    """Whether a native MT19937 kernel seeded with ``seed`` draws networkx's stream.
+
+    br-r37-c1-cdf1v: the Rust generators seed MT19937 as random.seed(int)
+    does, from abs(int), for any int - bool included - below 2**64 in
+    absolute value; None stays native too (fresh entropy - drawing from the
+    global state is the MT-state passthrough, br-r37-c1-ols3t). A
+    random.Random, a numpy RNG, a bigger int or an invalid seed runs
+    networkx's Python body on ``_generator_random_state(seed)`` instead.
+    """
+    return seed is None or (isinstance(seed, int) and abs(seed) < 1 << 64)
 
 
 def _validate_backend_dispatch_keywords(function_name, backend, backend_kwargs):
@@ -36266,11 +36310,12 @@ def erdos_renyi_graph(n, p, seed=None, directed=False, *, create_using=None, bac
 
 
 def _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using):
+    # br-r37-c1-cdf1v: an int seed the kernel reproduces - numbers.Integral let
+    # a numpy integer through, where networkx raises ValueError.
     if (
         create_using is None
         and seed is not None
-        and isinstance(seed, _numbers.Integral)
-        and not isinstance(seed, bool)
+        and _seed_runs_mt_kernel(seed)
         and isinstance(n, _numbers.Integral)
         and not isinstance(n, bool)
         and isinstance(k, _numbers.Integral)
@@ -36283,9 +36328,8 @@ def _seeded_watts_strogatz_rust_args(n, k, p, seed, create_using):
         except (TypeError, ValueError):
             return None
         if n_int >= 0 and 2 <= k_int < n_int and 0.0 <= p_float <= 1.0:
-            # br-r37-c1-rustseed: hash negative / oversized ints to
-            # u64 range so the Rust binding accepts them.
-            return n_int, k_int, p_float, _native_random_seed(int(seed))
+            # br-r37-c1-rustseed: abs() of a negative int, as random.seed does.
+            return n_int, k_int, p_float, _native_random_seed(seed)
     return None
 
 
@@ -43793,6 +43837,8 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     # max_tries-exhausted state from callers (a real algorithm
     # signal — the graph topology refused the requested degree-
     # preserving rearrangement).
+    # br-r37-c1-cdf1v: nx's @py_random_state resolves the seed before these.
+    seed = _create_py_random_state(seed)
     if G.is_directed():
         raise NetworkXError(
             "double_edge_swap() not defined for directed graphs. "
@@ -43829,6 +43875,10 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None):
     -------
     G : DiGraph
     """
+    # br-r37-c1-cdf1v: nx's @py_random_state resolves the seed first - before
+    # @not_implemented_for, as its flattened argmap runs them - so a bad seed
+    # raises ValueError on any graph.
+    seed = _create_py_random_state(seed)
     # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected') and
     # raises NetworkXNotImplemented (catchable via that subclass).
     if not G.is_directed():
@@ -58923,8 +58973,10 @@ def spectral_bisection(
         _use_dense_native=False,
     )
     nodelist = list(G.nodes())
-    a = frozenset(nodelist[i] for i in range(len(nodelist)) if fv[i] >= 0)
-    b = frozenset(nodelist[i] for i in range(len(nodelist)) if fv[i] < 0)
+    # br-r37-c1-cdf1v: networkx returns two mutable sets (frozensets compared
+    # equal but refused .add / .discard).
+    a = {nodelist[i] for i in range(len(nodelist)) if fv[i] >= 0}
+    b = {nodelist[i] for i in range(len(nodelist)) if fv[i] < 0}
     return (a, b)
 
 
@@ -59123,6 +59175,11 @@ def stochastic_block_model(
     non-trivial to exactly re-implement. Validate arguments locally
     with nx's messages, then delegate the whole generation to nx.
     """
+    # br-r37-c1-cdf1v: nx's @py_random_state resolves the seed before the
+    # body's checks (a bad seed with a bad p raised TypeError here), and None
+    # means the global random state; the resolved random.Random takes the
+    # native kernel's instance path in _sbm_impl.
+    seed = _create_py_random_state(seed)
     # Local validation to keep fnx's NetworkXError messages and get
     # fast failures before paying the parity-helper round-trip.
     if len(sizes) != len(p):
@@ -60236,6 +60293,9 @@ def navigable_small_world_graph(n, p=1, q=1, r=2, dim=2, seed=None):
     local edges. nx's semantics are Manhattan-distance ``d <= p`` + long-
     range draws from a CDF over ``d**-r``. Matches nx exactly now.
     """
+    # br-r37-c1-cdf1v: nx's py_random_state, resolved before the p/q/r checks
+    # as its decorator does (a bad seed with p < 1 is ValueError).
+    rng = _generator_random_state(seed)
     if p < 1:
         raise NetworkXException("p must be >= 1")
     if q < 0:
@@ -60245,7 +60305,6 @@ def navigable_small_world_graph(n, p=1, q=1, r=2, dim=2, seed=None):
 
     from itertools import product, accumulate
     from bisect import bisect_left
-    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
 
     G = DiGraph()
     nodes = list(product(range(n), repeat=dim))
@@ -62274,8 +62333,10 @@ def _numpy_random_state(seed):
         return seed
     if isinstance(seed, int):
         return np.random.RandomState(seed)
+    # br-r37-c1-cdf1v: networkx's create_random_state wording.
     raise ValueError(
-        f"{seed} cannot be used to create a numpy.random.RandomState or _Generator",
+        f"{seed} cannot be used to create a numpy.random.RandomState or\n"
+        "numpy.random.Generator instance"
     )
 
 
@@ -65591,6 +65652,10 @@ def maybe_regular_expander(n, d, *, create_using=None, max_tries=100, seed=None)
 
 def maybe_regular_expander_graph(n, d, *, create_using=None, max_tries=100, seed=None):
     """Utility for creating a random regular expander."""
+    # br-r37-c1-cdf1v: networkx's @np_random_state resolves the seed before
+    # the body's checks - a random.Random with an odd d raised
+    # NetworkXError("d must be even") here, ValueError in networkx.
+    seed = _numpy_random_state(seed)
     if n < 1:
         raise NetworkXError("n must be a positive integer")
     if not (d >= 2):
@@ -65606,7 +65671,6 @@ def maybe_regular_expander_graph(n, d, *, create_using=None, max_tries=100, seed
     if n < 2:
         return graph
 
-    seed = _numpy_random_state(seed)
     edges = set()
 
     for i in range(d // 2):
@@ -66583,55 +66647,45 @@ def spectral_graph_forge(G, alpha, transformation="identity", seed=None):
     Drop-in callers writing the nx form expecting the TypeError saw
     a working result on fnx — silent semantic drift.  Mirror nx's
     contract by removing the default.
+
+    br-r37-c1-cdf1v: networkx's algorithm and seed handling, verbatim - the
+    rank-round(n * alpha) spectral approximation of the adjacency (or
+    modularity) matrix, clipped to [0, 1] and Bernoulli-sampled row by row on
+    the numpy RNG, returned as from_numpy_array (nodes 0..n-1, weight 1.0).
+    fnx ran another algorithm (a median threshold over alpha * the top
+    spectrum + (1 - alpha) * Gaussian noise, relabelled to G's nodes), so no
+    seed drew networkx's graph, and np.random.RandomState(seed) raised
+    TypeError on a numpy RNG.
     """
     import numpy as np
+    import scipy as sp
 
-    available = ("identity", "modularity")
-    if transformation not in available:
-        raise NetworkXError(
-            f"{transformation!r} is not a valid transformation. "
-            f"Transformations: {list(available)}"
-        )
-
-    rng = np.random.RandomState(seed)
-    nodes = list(G.nodes())
-    n = len(nodes)
-
-    A = to_numpy_array(G, nodelist=nodes)
+    seed = _numpy_random_state(seed)
+    available_transformations = ["identity", "modularity"]
+    alpha = np.clip(alpha, 0, 1)
+    A = to_numpy_array(G)
+    n = A.shape[1]
+    level = round(n * alpha)
+    if transformation not in available_transformations:
+        msg = f"{transformation!r} is not a valid transformation. "
+        msg += f"Transformations: {available_transformations}"
+        raise NetworkXError(msg)
+    K = np.ones((1, n)) @ A
+    B = A
     if transformation == "modularity":
-        k = A.sum(axis=1)
-        m = A.sum() / 2.0
-        if m > 0:
-            A = A - np.outer(k, k) / (2 * m)
-    # Eigendecomposition.
-    eigenvalues, eigenvectors = np.linalg.eigh(A)
-    # Sort by magnitude.
-    idx = np.argsort(-np.abs(eigenvalues))
-    eigenvalues = eigenvalues[idx]
-    eigenvectors = eigenvectors[:, idx]
-
-    # Blend: keep fraction alpha of spectral info, add (1-alpha) random noise.
-    k = max(1, int(alpha * n))
-    S = np.zeros((n, n))
-    for i in range(k):
-        S += eigenvalues[i] * np.outer(eigenvectors[:, i], eigenvectors[:, i])
-
-    # Add random symmetric noise.
-    noise = rng.randn(n, n)
-    noise = (noise + noise.T) / 2
-    M = alpha * S + (1 - alpha) * noise
-
-    # Threshold to create adjacency matrix.
-    threshold = np.median(M[np.triu_indices(n, k=1)])
-    H = Graph()
-    for node in nodes:
-        H.add_node(node, **dict(G.nodes[node]))
-    for i in range(n):
-        for j in range(i + 1, n):
-            if M[i, j] > threshold:
-                H.add_edge(nodes[i], nodes[j])
-
-    return H
+        B -= K.T @ K / K.sum()
+    evals, evecs = np.linalg.eigh(B)
+    k = np.argsort(np.abs(evals))[::-1]  # indices of evals in descending order
+    evecs[:, k[np.arange(level, n)]] = 0  # set smallest eigenvectors to 0
+    B = evecs @ np.diag(evals) @ evecs.T
+    if transformation == "modularity":
+        B += K.T @ K / K.sum()
+    B = np.clip(B, 0, 1)
+    np.fill_diagonal(B, 0)
+    for i in range(n - 1):
+        B[i, i + 1 :] = sp.stats.bernoulli.rvs(B[i, i + 1 :], random_state=seed)
+        B[i + 1 :, i] = np.transpose(B[i, i + 1 :])
+    return from_numpy_array(B)
 
 
 def _tutte_polynomial_inproc(G):
@@ -69407,6 +69461,25 @@ def gnc_graph(n, create_using=None, seed=None):
     """Return a growing network with copying (GNC) digraph."""
     from franken_networkx import _fnx
 
+    if not _seed_runs_mt_kernel(seed):
+        # br-r37-c1-cdf1v: networkx's draws on networkx's seed handling (the
+        # kernel takes a u64 only - TypeError on a random.Random or numpy RNG).
+        # A node's successors are its target's successors then the target,
+        # all distinct, so plain lists stand in for G.successors and the
+        # edges go in as one batch in networkx's order.
+        rng = _generator_random_state(seed)
+        G = empty_graph(1, create_using=_checked_directed_create_using(create_using), default=DiGraph)
+        succs = [[]]
+        edges = []
+        for source in range(1, n):
+            target = rng.randrange(0, source)
+            row = succs[target] + [target]
+            succs.append(row)
+            edges.extend((source, succ) for succ in row)
+        G.add_edges_from(edges)
+        return G
+    seed = _native_random_seed(seed)
+
     # br-gnrempty: nx.gnc_graph(0) returns a 1-node DiGraph {0} (the seed
     # node before the growth loop); fnx's Rust-native path returned the
     # empty graph for n=0. The create_using branch already handled this,
@@ -69427,6 +69500,22 @@ def gnc_graph(n, create_using=None, seed=None):
 def gnr_graph(n, p, create_using=None, seed=None):
     """Return a growing network with redirection (GNR) digraph."""
     from franken_networkx import _fnx
+
+    if not _seed_runs_mt_kernel(seed):
+        # br-r37-c1-cdf1v: networkx's draws on networkx's seed handling. Every
+        # node but 0 has exactly one successor, so a list stands in for
+        # next(G.successors(target)) and the edges go in as one batch.
+        rng = _generator_random_state(seed)
+        G = empty_graph(1, create_using=_checked_directed_create_using(create_using), default=DiGraph)
+        succ = [None]
+        for source in range(1, n):
+            target = rng.randrange(0, source)
+            if rng.random() < p and target != 0:
+                target = succ[target]
+            succ.append(target)
+        G.add_edges_from(zip(range(1, n), succ[1:]))
+        return G
+    seed = _native_random_seed(seed)
 
     # br-gnrempty: see gnc_graph above.
     if n == 0:
@@ -69669,6 +69758,24 @@ def scale_free_graph(
     initial_graph=None,
 ):
     """Return a directed scale-free MultiDiGraph."""
+    if initial_graph is None and _seed_runs_mt_kernel(seed):
+        _check_scale_free_params(alpha, beta, gamma, delta_in, delta_out)
+        return _fnx.scale_free_graph(
+            n,
+            alpha=alpha,
+            beta=beta,
+            gamma=gamma,
+            delta_in=delta_in,
+            delta_out=delta_out,
+            seed=_native_random_seed(seed),
+            initial_graph=None,
+        )
+    return _scale_free_graph_python(
+        n, alpha, beta, gamma, delta_in, delta_out, _generator_random_state(seed), initial_graph
+    )
+
+
+def _check_scale_free_params(alpha, beta, gamma, delta_in, delta_out):
     # br-sfgval: validate with nx-shaped ValueError messages before the Rust
     # branch; without this, invalid params leak the Rust
     # `ValueError("FailClosed { ... }")` text instead of nx's terse wording.
@@ -69687,26 +69794,79 @@ def scale_free_graph(
     if delta_out < 0:
         raise ValueError("delta_out must be >= 0.")
 
-    # Convert initial_graph to MultiDiGraph if needed for the Rust binding.
-    if initial_graph is not None and not isinstance(initial_graph, MultiDiGraph):
-        converted = MultiDiGraph()
-        for node, attrs in initial_graph.nodes(data=True):
-            converted.add_node(node, **attrs)
-        for u, v, *rest in initial_graph.edges(data=True):
-            data = rest[0] if rest else {}
-            converted.add_edge(u, v, **data)
-        initial_graph = converted
 
-    return _fnx.scale_free_graph(
-        n,
-        alpha=alpha,
-        beta=beta,
-        gamma=gamma,
-        delta_in=delta_in,
-        delta_out=delta_out,
-        seed=seed,
-        initial_graph=initial_graph,
-    )
+def _scale_free_graph_python(n, alpha, beta, gamma, delta_in, delta_out, seed, initial_graph):
+    """networkx's scale_free_graph body, verbatim, on an fnx MultiDiGraph.
+
+    br-r37-c1-cdf1v: the kernel takes a u64 seed only (TypeError on a
+    random.Random or numpy RNG), and its initial_graph handling was not
+    networkx's: networkx grows the MultiDiGraph it is handed and returns that
+    object, and raises NetworkXError for any other graph before checking the
+    parameters, where the kernel copied - converting a Graph - and returned
+    node labels as internal keys ('str:1:a') for a string-labelled seed graph.
+    A networkx MultiDiGraph is grown as networkx would grow it.
+
+    New nodes come only from the cursor, which is past every numeric label,
+    so len(G) is len(node_list) throughout; the loop runs on that and the
+    edges go in as one add_edges_from, which adds nodes and assigns multiedge
+    keys in the order networkx's per-edge add_edge does.
+    """
+
+    def _choose_node(candidates, node_list, delta):
+        if delta > 0:
+            bias_sum = len(node_list) * delta
+            p_delta = bias_sum / (bias_sum + len(candidates))
+            if seed.random() < p_delta:
+                return seed.choice(node_list)
+        return seed.choice(candidates)
+
+    if initial_graph is not None and hasattr(initial_graph, "_adj"):
+        if not isinstance(initial_graph, (MultiDiGraph, _nx.MultiDiGraph)):
+            raise NetworkXError("initial_graph must be a MultiDiGraph.")
+        G = initial_graph
+        _check_scale_free_params(alpha, beta, gamma, delta_in, delta_out)
+        vs = sum((count * [idx] for idx, count in G.out_degree()), [])
+        ws = sum((count * [idx] for idx, count in G.in_degree()), [])
+        node_list = list(G.nodes())
+        edges = []
+    else:
+        # networkx's start, the 3-cycle, held as its edges and degree lists:
+        # it goes into a fresh graph with the grown edges as one batch, which
+        # fnx's multigraph batch kernel takes only on a fresh graph.
+        G = None
+        _check_scale_free_params(alpha, beta, gamma, delta_in, delta_out)
+        vs = [0, 1, 2]
+        ws = [0, 1, 2]
+        node_list = [0, 1, 2]
+        edges = [(0, 1), (1, 2), (2, 0)]
+    numeric_nodes = [v for v in node_list if isinstance(v, _numbers.Number)]
+    if len(numeric_nodes) > 0:
+        cursor = max(int(v.real) for v in numeric_nodes) + 1
+    else:
+        cursor = 0
+
+    while len(node_list) < n:
+        r = seed.random()
+        if r < alpha:
+            v = cursor
+            cursor += 1
+            node_list.append(v)
+            w = _choose_node(ws, node_list, delta_in)
+        elif r < alpha + beta:
+            v = _choose_node(vs, node_list, delta_out)
+            w = _choose_node(ws, node_list, delta_in)
+        else:
+            v = _choose_node(vs, node_list, delta_out)
+            w = cursor
+            cursor += 1
+            node_list.append(w)
+        edges.append((v, w))
+        vs.append(v)
+        ws.append(w)
+    if G is None:
+        G = MultiDiGraph()
+    G.add_edges_from(edges)
+    return G
 
 
 def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, *, create_using=None, backend=None, **backend_kwargs):

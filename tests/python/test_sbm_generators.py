@@ -86,3 +86,62 @@ def test_stochastic_block_model_fallback_preserves_nodelist_and_attrs(monkeypatc
 def test_stochastic_block_model_validates_probability_matrix():
     with pytest.raises(fnx.NetworkXError, match="'p' must be symmetric."):
         fnx.stochastic_block_model([1, 1], [[0.0, 1.0], [0.0, 0.0]])
+
+
+def _sbm_seed(kind):
+    import random
+
+    import numpy as np
+
+    if kind == "int":
+        return 11
+    if kind == "random.Random":
+        return random.Random(3)
+    if kind == "RandomState":
+        return np.random.RandomState(4)
+    if kind == "Generator":
+        return np.random.default_rng(4)
+    if kind in ("float", "str"):
+        return 1.5 if kind == "float" else "x"
+    random.seed(7)
+    np.random.seed(7)
+    return None
+
+
+# br-r37-c1-cdf1v: networkx's @py_random_state resolves the seed before the
+# body - a bad seed with a bad p is ValueError, not fnx's TypeError from len(p)
+# - and seed=None is the global random state, which the native kernel drew as
+# fresh entropy.
+@pytest.mark.parametrize(
+    "kind", ["int", "random.Random", "RandomState", "Generator", "float", "str", "global None"]
+)
+@pytest.mark.parametrize(
+    "sizes, p, kwargs",
+    [
+        ([4, 5], [[0.5, 0.1], [0.1, 0.5]], {}),
+        ([4, 5], [[0.5, 0.1], [0.3, 0.5]], {"directed": True, "selfloops": True}),
+        ([3, 3], [[0.6, 0.2], [0.2, 0.6]], {"sparse": False}),
+        ([2, 2], [[0.9, 0.3], [0.3, 0.9]], {"nodelist": ["a", "b", "c", "d"]}),
+        ([4, 3], 0.3, {}),
+    ],
+    ids=["undirected", "directed_selfloops", "dense", "nodelist", "bad_p"],
+)
+def test_stochastic_block_model_takes_networkx_seeds(sizes, p, kwargs, kind):
+    import networkx as nx
+
+    def outcome(lib):
+        try:
+            g = lib.stochastic_block_model(sizes, p, seed=_sbm_seed(kind), **kwargs)
+        except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+            return type(exc).__name__, str(exc)
+        # An undirected edge compares without orientation: with a nodelist fnx
+        # lists nodes in nodelist order (br-r37-c1-hkbd8), networkx in its
+        # blocks' set order, so G.edges() may orient an edge the other way.
+        return (
+            sorted(map(repr, g.nodes(data=True))),
+            sorted(repr(e if g.is_directed() else sorted(map(repr, e))) for e in g.edges()),
+            g.graph["name"],
+            [sorted(map(repr, block)) for block in g.graph["partition"]],
+        )
+
+    assert outcome(fnx) == outcome(nx)

@@ -96,3 +96,37 @@ def test_algebraic_connectivity_normalized_directed_also_rejects():
         match=r"not implemented for directed type",
     ):
         fnx.algebraic_connectivity(G, normalized=True)
+
+
+def _spectral_outcome(lib, name, directed, seed):
+    graph =(lib.DiGraph if directed else lib.Graph)([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+    try:
+        result = getattr(lib, name)(graph, seed=seed)
+    except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+        return ("raise", type(exc).__name__, str(exc).replace(hex(id(seed)), "ID"))
+    return ("ok", type(result).__name__, type(result[0]).__name__ if isinstance(result, tuple) else None)
+
+
+# br-r37-c1-cdf1v: networkx's @np_random_state(5) rejects a seed numpy cannot
+# take - a random.Random, a float, a str, an int outside [0, 2**32) - and its
+# flattened argmap resolves the seed BEFORE @not_implemented_for("directed").
+# fnx's dense solver draws nothing and dropped the seed unchecked, so every one
+# of these answered. spectral_bisection also returned frozensets for
+# networkx's two sets.
+@needs_nx
+@pytest.mark.parametrize("directed", [False, True], ids=["undirected", "directed"])
+@pytest.mark.parametrize(
+    "seed",
+    ["random.Random", 1.5, "x", -1, 2**40, 7, None],
+    ids=["random.Random", "float", "str", "negative", "2**40", "int", "None"],
+)
+@pytest.mark.parametrize("name", ["algebraic_connectivity", "fiedler_vector", "spectral_bisection"])
+def test_spectral_seed_is_checked_first_as_networkx_does(name, seed, directed):
+    import random
+
+    fnx_seed = random.Random(3) if seed == "random.Random" else seed
+    nx_seed = random.Random(3) if seed == "random.Random" else seed
+    # the message embeds the random.Random's repr - its address becomes "ID"
+    assert _spectral_outcome(fnx, name, directed, fnx_seed) == _spectral_outcome(
+        nx, name, directed, nx_seed
+    )
