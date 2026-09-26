@@ -466,6 +466,60 @@ def test_weighted_degree_of_a_reversed_multidigraph_after_one_edge_is_read(kind)
     assert outcomes["fnx"] == outcomes["nx"]
 
 
+def _reversed_multidigraph(lib):
+    graph = lib.MultiDiGraph()
+    graph.add_weighted_edges_from([(i, (i + 1) % 12, float(i % 4) + 1.5) for i in range(12)])
+    return graph.reverse()
+
+
+def _pickle_round_trip(graph):
+    """What pickle.loads(pickle.dumps(graph)) rebuilds, without unpickling."""
+    reduced = graph.__reduce_ex__(2)
+    rebuild, args = reduced[0], reduced[1]
+    state = reduced[2] if len(reduced) > 2 else None
+    clone = rebuild(*args)
+    if state is not None:
+        setstate = getattr(clone, "__setstate__", None)
+        if setstate is not None:
+            setstate(state)
+        else:  # pickle's own fallback for a plain Python object
+            clone.__dict__.update(state)
+    return clone
+
+
+def _keyed_rows(graph):
+    return sorted(map(repr, graph.edges(keys=True, data=True)))
+
+
+def _adjacency_rows(pairs):
+    return sorted(
+        repr((u, v, sorted((k, sorted(d.items())) for k, d in keydict.items())))
+        for u, nbrs in pairs
+        for v, keydict in nbrs.items()
+    )
+
+
+_STORE_ONLY_READS = {
+    "pickle": lambda g: _keyed_rows(_pickle_round_trip(g)),
+    "adjacency": lambda g: _adjacency_rows(g.adjacency()),
+    "pred": lambda g: _adjacency_rows(g.pred.items()),
+    "subgraph_copy": lambda g: _keyed_rows(g.subgraph(list(range(8))).copy()),
+}
+
+
+@pytest.mark.parametrize("read", sorted(_STORE_ONLY_READS))
+def test_store_only_multidigraph_hands_out_its_edge_attributes(read):
+    """reverse() leaves every MultiDiGraph edge store-only; readers that hand an
+    edge's dict out used the mirror or a fresh EMPTY dict, so a pickled or
+    subgraph-copied reverse() came back with every edge {}."""
+    rows = {
+        name: _STORE_ONLY_READS[read](_reversed_multidigraph(lib))
+        for name, lib in (("nx", nx), ("fnx", fnx))
+    }
+    assert rows["fnx"] == rows["nx"]
+    assert "'weight'" in repr(rows["fnx"])
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the

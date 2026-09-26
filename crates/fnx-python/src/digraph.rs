@@ -1678,6 +1678,29 @@ impl PyMultiDiGraph {
         self.ensure_edge_py_attrs_with_key(py, u, v, key, &ek)
     }
 
+    /// An edge's attribute dict for a `&self` reader that hands dicts out: the
+    /// live mirror when the edge has one, else a dict built from the store - the
+    /// edge's only copy (reverse() leaves a MultiDiGraph store-only) - else an
+    /// empty one. A fresh EMPTY dict here lost every weight of a reversed graph
+    /// through pickle, adjacency() and subgraph copies. The store-built dict is a
+    /// snapshot; a `&mut self` reader installs the mirror instead
+    /// (ensure_edge_py_attrs_with_key).
+    fn edge_attrs_dict(
+        &self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+    ) -> PyResult<Py<PyDict>> {
+        match self.edge_py_attrs.get(&Self::edge_key(u, v, key)) {
+            Some(d) => Ok(d.clone_ref(py)),
+            None => match self.inner.edge_attrs(u, v, key) {
+                Some(stored) => attr_map_to_pydict(py, stored),
+                None => Ok(PyDict::new(py).unbind()),
+            },
+        }
+    }
+
     /// br-r37-c1-ptiz2: `ensure_edge_py_attrs` against a CALLER-OWNED edge key,
     /// mirroring `PyMultiGraph::ensure_edge_py_attrs_with_key`. Only the miss
     /// path clones, so a warm loop over parallel edges allocates nothing.
@@ -2506,11 +2529,7 @@ impl PyMultiDiGraph {
     ) -> PyResult<Py<PyDict>> {
         let kd = PyDict::new(py);
         for key in self.inner.edge_keys(source, target).unwrap_or_default() {
-            let edge_key = PyMultiDiGraph::edge_key(source, target, key);
-            let attrs = self
-                .edge_py_attrs
-                .get(&edge_key)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            let attrs = self.edge_attrs_dict(py, source, target, key)?;
             kd.set_item(self.py_edge_key(py, source, target, key), attrs.bind(py))?;
         }
         Ok(kd.unbind())
@@ -4496,11 +4515,7 @@ impl MultiDiKeyDictView {
             .edge_keys(&self.source, &self.target)
             .unwrap_or_default()
         {
-            let edge_key = PyMultiDiGraph::edge_key(&self.source, &self.target, key);
-            let attrs = g
-                .edge_py_attrs
-                .get(&edge_key)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            let attrs = g.edge_attrs_dict(py, &self.source, &self.target, key)?;
             result.set_item(g.py_edge_key(py, &self.source, &self.target, key), attrs)?;
         }
         Ok(result.unbind())
@@ -4626,11 +4641,7 @@ impl MultiDiKeyDictView {
         }
         let mut out = Vec::with_capacity(keys.len());
         for key in keys {
-            let edge_key = PyMultiDiGraph::edge_key(&self.source, &self.target, key);
-            let attrs = g
-                .edge_py_attrs
-                .get(&edge_key)
-                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            let attrs = g.edge_attrs_dict(py, &self.source, &self.target, key)?;
             out.push((g.py_edge_key(py, &self.source, &self.target, key), attrs));
         }
         Ok(out)
@@ -8403,11 +8414,7 @@ impl PyMultiDiGraph {
                 let py_succ = self.py_succ_key(py, node, successor) /* br-r37-c1-z6uka */;
                 let edge_dict = PyDict::new(py);
                 for key in self.inner.edge_keys(node, successor).unwrap_or_default() {
-                    let ek = Self::edge_key(node, successor, key);
-                    let attrs = self
-                        .edge_py_attrs
-                        .get(&ek)
-                        .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                    let attrs = self.edge_attrs_dict(py, node, successor, key)?;
                     edge_dict
                         .set_item(self.py_edge_key(py, node, successor, key), attrs.bind(py))?;
                 }
@@ -8514,10 +8521,11 @@ impl PyMultiDiGraph {
                 let keys: Vec<usize> = self.inner.edge_keys(node, successor).unwrap_or_default();
                 for key in keys {
                     let ek = Self::edge_key(node, successor, key);
+                    // The cached rows are handed out and written through, so an
+                    // edge without a mirror gets one, seeded from the store.
                     let attrs = self
-                        .edge_py_attrs
-                        .get(&ek)
-                        .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                        .ensure_edge_py_attrs_with_key(py, node, successor, key, &ek)
+                        .clone_ref(py);
                     edge_dict
                         .set_item(self.py_edge_key(py, node, successor, key), attrs.bind(py))?;
                 }
@@ -8749,11 +8757,7 @@ impl PyMultiDiGraph {
                 let py_pred = self.py_pred_key(py, node, predecessor) /* br-r37-c1-z6uka */;
                 let edge_dict = PyDict::new(py);
                 for key in self.inner.edge_keys(predecessor, node).unwrap_or_default() {
-                    let ek = Self::edge_key(predecessor, node, key);
-                    let attrs = self
-                        .edge_py_attrs
-                        .get(&ek)
-                        .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                    let attrs = self.edge_attrs_dict(py, predecessor, node, key)?;
                     edge_dict
                         .set_item(self.py_edge_key(py, predecessor, node, key), attrs.bind(py))?;
                 }
@@ -10152,21 +10156,22 @@ impl PyMultiDiGraph {
             .collect();
         state.set_item("nodes", nodes_list)?;
 
-        let edges_list: Vec<(PyObject, PyObject, PyObject, Py<PyDict>)> = self
-            .inner
-            .edges_ordered_borrowed()
-            .into_iter()
-            .map(|(source, target, key, _)| {
-                let py_u = self.py_node_key(py, source);
-                let py_v = self.py_node_key(py, target);
-                let py_key = self.py_edge_key(py, source, target, key);
-                let attrs = self
-                    .edge_py_attrs
-                    .get(&Self::edge_key(source, target, key))
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                (py_u, py_v, py_key, attrs)
-            })
-            .collect();
+        let mut edges_list: Vec<(PyObject, PyObject, PyObject, Py<PyDict>)> =
+            Vec::with_capacity(self.inner.edge_count());
+        for (source, target, key, stored) in self.inner.edges_ordered_borrowed() {
+            // An edge without a mirror keeps its attributes in the store: a
+            // pickled reverse() copy used to come back with every edge {}.
+            let attrs = match self.edge_py_attrs.get(&Self::edge_key(source, target, key)) {
+                Some(d) => d.clone_ref(py),
+                None => attr_map_to_pydict(py, stored)?,
+            };
+            edges_list.push((
+                self.py_node_key(py, source),
+                self.py_node_key(py, target),
+                self.py_edge_key(py, source, target, key),
+                attrs,
+            ));
+        }
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
         // br-r37-c1-u3qyn: store succ/pred rows + display overrides so the
