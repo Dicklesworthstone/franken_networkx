@@ -74,3 +74,19 @@ def test_directed_metric_matches_networkx_on_degenerate_digraph(metric, fixture)
         )
     else:
         assert _equal(f, x), f"{metric}[{fixture}]: {f!r} != {x!r}"
+
+
+# br-r37-c1-2fx0w: nx answers {n: 1} for a graph of at most one node; fnx's
+# multigraph branch answered 0 there. Parallel edges count in the degrees.
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("n", [0, 1, 2, 4])
+@pytest.mark.parametrize("metric", ["in_degree_centrality", "out_degree_centrality", "degree_centrality"])
+def test_degree_centrality_small_directed_graphs_match_networkx(cls, n, metric):
+    def outcome(lib):
+        g = getattr(lib, cls)()
+        g.add_nodes_from(range(n))
+        if n >= 2:
+            g.add_edges_from([(0, 1), (0, 1), (1, 0)])
+        return [(k, repr(v), type(v).__name__) for k, v in getattr(lib, metric)(g).items()]
+
+    assert outcome(fnx) == outcome(nx)

@@ -28335,12 +28335,9 @@ def in_degree_centrality(G, *, backend=None, **backend_kwargs):
     # NetworkXNotImplemented matching nx.
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if G.is_multigraph():
-        n = len(G)
-        if n <= 1:
-            return {v: float("nan") if n == 0 else 0 for v in G}
-        scale = 1 / (n - 1)
-        return {v: d * scale for v, d in G.in_degree()}
+    # br-r37-c1-2fx0w: multigraphs take this path too - G.in_degree() counts
+    # parallel edges, and a one-node graph is {n: 1} as in nx (the old
+    # multigraph branch answered 0).
     # br-r37-c1-idcnative (cc): _raw_in_degree_centrality builds the result dict
     # through PyO3 per node (0.51-0.62x vs nx) AND ULP-drifts from nx's f64
     # d*(1.0/(n-1.0)) (native!=nx on n>=1500; also returns float 1.0 vs nx's int 1
@@ -28365,12 +28362,7 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
     # br-r37-c1-n7rgh: same undirected guard as in_degree_centrality.
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if G.is_multigraph():
-        n = len(G)
-        if n <= 1:
-            return {v: float("nan") if n == 0 else 0 for v in G}
-        scale = 1 / (n - 1)
-        return {v: d * scale for v, d in G.out_degree()}
+    # br-r37-c1-2fx0w: multigraphs share this path, as in in_degree_centrality.
     # br-r37-c1-idcnative (cc): same as in_degree_centrality — _raw_out_degree_
     # centrality is slower (PyO3 dict-build) AND ULP-drifts from nx; nx's verbatim
     # {n: d*s} dict-comp over the out_degree view is byte-exact + 1.23x.
