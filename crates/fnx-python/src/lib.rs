@@ -2513,14 +2513,16 @@ pub(crate) fn batch_key_list(
 /// compares equal to one holding the caller's (networkx's dicts compare equal
 /// through identity). So NaN keeps the caller's object too.
 pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
-    d.iter().all(|(k, v)| {
-        k.is_exact_instance_of::<PyString>()
-            && (v.is_exact_instance_of::<PyBool>()
-                || v.downcast_exact::<PyFloat>()
-                    .is_ok_and(|value| !value.value().is_nan())
-                || v.is_exact_instance_of::<PyString>()
-                || (v.is_exact_instance_of::<PyInt>() && v.extract::<i64>().is_ok()))
-    })
+    d.iter()
+        .all(|(k, v)| k.is_exact_instance_of::<PyString>() && attr_value_is_batch_lossless(&v))
+}
+
+fn attr_value_is_batch_lossless(v: &Bound<'_, PyAny>) -> bool {
+    v.is_exact_instance_of::<PyBool>()
+        || v.downcast_exact::<PyFloat>()
+            .is_ok_and(|value| !value.value().is_nan())
+        || v.is_exact_instance_of::<PyString>()
+        || (v.is_exact_instance_of::<PyInt>() && v.extract::<i64>().is_ok())
 }
 
 /// A dict that a site may drop in favour of rebuilding it from the store
@@ -2530,14 +2532,17 @@ pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
 /// back as `['color', 'weight']` from `MultiDiGraph.reverse()`. The batch
 /// constructors that keep the caller's dict as the mirror do not need this.
 pub(crate) fn attr_dict_round_trips_through_store(d: &Bound<'_, PyDict>) -> bool {
-    if !attr_dict_is_batch_lossless(d) {
-        return false;
-    }
+    // One pass: every key an exact str sorting after the one before, every
+    // value lossless. The weighted add_edge path calls this per edge, and the
+    // two-pass form built and freed a d.keys() list each time (br-r37-c1-olyn6).
     let mut previous: Option<Bound<'_, PyString>> = None;
-    for key in d.keys() {
-        let Ok(key) = key.downcast_into::<PyString>() else {
+    for (key, value) in d.iter() {
+        let Ok(key) = key.downcast_into_exact::<PyString>() else {
             return false;
         };
+        if !attr_value_is_batch_lossless(&value) {
+            return false;
+        }
         if let Some(prev) = &previous {
             match (prev.to_str(), key.to_str()) {
                 (Ok(prev), Ok(current)) if prev < current => {}
