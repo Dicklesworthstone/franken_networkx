@@ -5175,19 +5175,27 @@ impl PyGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const EXACT_INT_INDEX_BATCH_MIN: usize = 8;
-        if self.py_adj_rows_live() || !self.int_prefix_display_keys_are_plain_ints(py) {
+        // The display-key scan below walks every node, so a call too small to
+        // batch must decline BEFORE it: a loop of add_edges_from([(u, v)]) paid
+        // O(nodes) per call and building a graph that way was quadratic (205 us
+        // per edge at 8k nodes; networkx 1.2 us).
+        let batch_len = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            list.len()
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            tuple.len()
+        } else {
+            0
+        };
+        if batch_len < EXACT_INT_INDEX_BATCH_MIN
+            || self.py_adj_rows_live()
+            || !self.int_prefix_display_keys_are_plain_ints(py)
+        {
             return Ok(false);
         }
 
         let edges = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
-            if list.len() < EXACT_INT_INDEX_BATCH_MIN {
-                return Ok(false);
-            }
             self.collect_existing_exact_int_edge_indices(list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
-            if tuple.len() < EXACT_INT_INDEX_BATCH_MIN {
-                return Ok(false);
-            }
             self.collect_existing_exact_int_edge_indices(tuple.iter(), tuple.len())?
         } else {
             return Ok(false);
