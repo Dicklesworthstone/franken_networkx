@@ -3113,8 +3113,55 @@ def workload_claim_spanning_tree(reps: int):
     return build, ops
 
 
+def workload_claim_attr_batch(reps: int):
+    """Batch construction with attributes: add_edges_from([(u, v, {'weight': w})])
+    and add_weighted_edges_from on a FRESH graph per op (stationary; see
+    claim-add-edge), for a path in node order - where networkx's dict inserts
+    have the best locality - and a scrambled edge order over the same node
+    count. An op returns the node count and two edge probes (NOT
+    number_of_edges(): see claim-add-edge). Control: len(G) of a fixed graph.
+    `reps` is unused; each op inserts 20,000 edges.
+    """
+    n = 20_000
+    path = [(i, i + 1, {"weight": float(i % 7) + 0.5}) for i in range(n)]
+    scrambled = [(i, (i * 7919) % n, {"weight": float(i % 5) + 0.5}) for i in range(n)]
+    shapes = {"path": path, "scrambled": scrambled}
+
+    def build(module):
+        control = module.Graph()
+        control.add_edges_from((u, v) for u, v, _ in path)
+        return control, module
+
+    def ops(control, module):
+        def batch(cls, edges, weighted):
+            first, last = edges[0][:2], edges[-1][:2]
+            triples = [(u, v, d["weight"]) for u, v, d in edges]
+
+            def op():
+                g = cls()
+                if weighted:
+                    g.add_weighted_edges_from(triples)
+                else:
+                    g.add_edges_from(edges)
+                return len(g), g.has_edge(*first), g.has_edge(*last)
+
+            return op
+
+        table = {}
+        for name, tag in (("Graph", "G"), ("DiGraph", "D")):
+            cls = getattr(module, name)
+            for shape, edges in shapes.items():
+                table[f"{tag}.add_edges_from dicts {shape}"] = batch(cls, edges, False)
+                table[f"{tag}.add_weighted_edges_from {shape}"] = batch(cls, edges, True)
+        table["CONTROL len(G)"] = lambda: sum(len(control) for _ in range(200))
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "claim-add-edge": workload_claim_add_edge,
+    "claim-attr-batch": workload_claim_attr_batch,
     "claim-convert-node-attrs": workload_claim_convert_node_attrs,
     "claim-spanning-tree": workload_claim_spanning_tree,
     "claim-has-edge-neighbors": workload_claim_has_edge_neighbors,

@@ -11655,7 +11655,11 @@ impl PyDiGraph {
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
         let node_capacity = len.saturating_mul(2);
-        let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_indices: rustc_hash::FxHashMap<i64, usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(
+                node_capacity,
+                rustc_hash::FxBuildHasher,
+            );
         let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
         let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
         let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
@@ -11664,7 +11668,8 @@ impl PyDiGraph {
         // The store merges correctly but the ordered mirror would need the same
         // multi-occurrence merge — decline to the per-edge path, which handles both
         // merge and order exactly. Duplicates in a fresh batch are rare.
-        let mut seen_edges: HashSet<(i64, i64)> = HashSet::with_capacity(len);
+        let mut seen_edges: rustc_hash::FxHashSet<(i64, i64)> =
+            rustc_hash::FxHashSet::with_capacity_and_hasher(len, rustc_hash::FxBuildHasher);
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -11767,7 +11772,8 @@ impl PyDiGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut seen_edges: HashSet<(i64, i64)> = HashSet::with_capacity(limit);
+        let mut seen_edges: rustc_hash::FxHashSet<(i64, i64)> =
+            rustc_hash::FxHashSet::with_capacity_and_hasher(limit, rustc_hash::FxBuildHasher);
         for item in items.into_iter().take(limit) {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
                 return Ok(None);
@@ -11822,11 +11828,16 @@ impl PyDiGraph {
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
         let node_capacity = len.saturating_mul(2);
-        let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_indices: rustc_hash::FxHashMap<i64, usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(
+                node_capacity,
+                rustc_hash::FxBuildHasher,
+            );
         let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
         let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
         // Directed pair (u, v) -> index into `merged` ((v, u) is a distinct edge).
-        let mut pair_to_idx: HashMap<(i64, i64), usize> = HashMap::with_capacity(len);
+        let mut pair_to_idx: rustc_hash::FxHashMap<(i64, i64), usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(len, rustc_hash::FxBuildHasher);
         // (u_idx, v_idx, dict, owned) with COPY-ON-WRITE: the first occurrence
         // borrows the caller's dict (refcount bump only); it is copied into an
         // fnx-owned dict lazily, only when a duplicate for that pair must mutate
