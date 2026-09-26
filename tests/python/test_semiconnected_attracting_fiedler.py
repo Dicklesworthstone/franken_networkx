@@ -127,3 +127,25 @@ def test_normalized_and_weight_parameters_are_read():
     weighted = fnx.algebraic_connectivity(weighted_f, weight="weight")
     assert abs(weighted - nx.algebraic_connectivity(weighted_n, weight="weight")) < 1e-6
     assert abs(weighted - fnx.algebraic_connectivity(weighted_f, weight=None)) > 1e-9
+
+
+# br-r37-c1-64xcg: networkx yields the attracting components in
+# strongly_connected_components order (it walks the condensation's nodes); the
+# native list came in another order once a graph had two or more.
+@pytest.mark.parametrize("labels", [lambda x: x, lambda x: f"n{x}", lambda x: x * 13 % 31], ids=["int", "str", "permuted_int"])
+@pytest.mark.parametrize("seed", range(100))
+def test_attracting_components_order_matches_networkx(seed, labels):
+    r = random.Random(seed)
+    n = r.randint(1, 18)
+    p = r.choice((0.05, 0.1, 0.2, 0.35))
+    edges = [(u, v) for u in range(n) for v in range(n) if u != v and r.random() < p]
+
+    def components(lib):
+        g = lib.DiGraph()
+        g.add_nodes_from(labels(i) for i in range(n))
+        g.add_edges_from((labels(u), labels(v)) for u, v in edges)
+        result = lib.attracting_components(g)
+        assert type(result).__name__ == "generator"
+        return [sorted(map(repr, c)) for c in result]
+
+    assert components(fnx) == components(nx)

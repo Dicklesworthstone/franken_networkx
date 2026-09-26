@@ -29562,7 +29562,17 @@ def attracting_components(G):
     G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    return (set(component) for component in _raw_attracting_components(G))
+    components = [set(component) for component in _raw_attracting_components(G)]
+    if len(components) > 1:
+        # br-r37-c1-64xcg: networkx yields the sink components in
+        # strongly_connected_components order (it walks the condensation's
+        # nodes); the native list came in another order.
+        position = {}
+        for index, component in enumerate(strongly_connected_components(G)):
+            for node in component:
+                position[node] = index
+        components.sort(key=lambda component: position[next(iter(component))])
+    return (component for component in components)
 
 
 def number_attracting_components(G):
@@ -42566,6 +42576,10 @@ def attr_matrix(
         and not G.is_multigraph()
         and type(G) in (Graph, DiGraph)
         and _native_adjacency_nodelist_typed_arrays is not None
+        # br-r37-c1-64xcg: the native scatter drops an edge whose endpoint is
+        # not in rc_order; networkx raises KeyError, so such a call takes the
+        # loop below, which raises it.
+        and (rc_order is None or not any(G.degree(x) for x in set(G).difference(rc_order)))
     ):
         _ordering = list(rc_order) if rc_order is not None else list({n for n in G})
         _N = len(_ordering)
@@ -42647,10 +42661,9 @@ def attr_matrix(
         edgelist = _fnx.to_edgelist_simple(G)
         if edgelist is not None:
             for u, v, attrs in edgelist:
-                try:
-                    i, j = index[u], index[v]
-                except KeyError:
-                    continue
+                # br-r37-c1-64xcg: an endpoint missing from rc_order raises
+                # networkx's KeyError (it was skipped).
+                i, j = index[u], index[v]
                 if edge_attr is None:
                     value = 1
                 elif callable(edge_attr):
@@ -42678,10 +42691,9 @@ def attr_matrix(
     for u in G:
         nbrdict = G[u]
         for v in nbrdict:
-            try:
-                i, j = index[node_value(u)], index[node_value(v)]
-            except KeyError:
-                continue
+            # br-r37-c1-64xcg: a missing node attribute, or a value missing
+            # from rc_order, raises networkx's KeyError (the pair was skipped).
+            i, j = index[node_value(u)], index[node_value(v)]
             if v not in seen:
                 M[i, j] += edge_value(u, v)
                 if undirected:
@@ -57712,28 +57724,31 @@ def to_nested_tuple(T, root, canonical_form=False):
 def attr_sparse_matrix(
     G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None
 ):
-    """Like attr_matrix but returns scipy sparse."""
-    import scipy.sparse
+    """Like attr_matrix but returns scipy sparse.
 
-    if rc_order is None:
-        M, nodelist = attr_matrix(
-            G,
-            edge_attr=edge_attr,
-            node_attr=node_attr,
-            normalized=normalized,
-            rc_order=rc_order,
-            dtype=dtype,
-        )
-        return scipy.sparse.csr_array(M), nodelist
-    M = attr_matrix(
+    br-r37-c1-64xcg: networkx returns the ``lil_array`` it fills, and
+    normalizes it with an in-place ``M *= 1 / M.sum(axis=1)[:, np.newaxis]``,
+    which scales stored entries only - a row without edges stays 0 (and the
+    result is a ``coo_array``). fnx wrapped attr_matrix's dense answer in a
+    ``csr_array``, and since attr_matrix gives such a row networkx's dense 0/0
+    NaN (6zlfk), the sparse row came out NaN.
+    """
+    import numpy as np
+    import scipy as sp
+
+    result = attr_matrix(
         G,
         edge_attr=edge_attr,
         node_attr=node_attr,
-        normalized=normalized,
+        normalized=False,
         rc_order=rc_order,
         dtype=dtype,
     )
-    return scipy.sparse.csr_array(M)
+    dense, ordering = (result, None) if rc_order is not None else result
+    M = sp.sparse.lil_array(dense)
+    if normalized:
+        M *= 1 / M.sum(axis=1)[:, np.newaxis]  # in-place mult preserves sparse
+    return M if rc_order is not None else (M, ordering)
 
 
 # ---------------------------------------------------------------------------
@@ -69382,55 +69397,202 @@ def prominent_group(
 ):
     """Return a prominent group of k nodes maximizing group betweenness.
 
-    Uses a greedy approach: iteratively add the node that most increases
-    the group betweenness centrality.
+    br-r37-c1-64xcg: networkx's algorithm (Puzis et al.'s depth-first branch
+    and bound over the path-betweenness matrix), verbatim. fnx ran its own - a
+    greedy scan for k > 5, every k-subset otherwise - which, on a tie of group
+    betweenness, returned another group than networkx's search order finds;
+    and it read ``C`` as the candidate list, where networkx's ``C`` is the set
+    of nodes EXCLUDED from the group. The decision tree is a dict of node
+    records (networkx keeps them as node attributes of an nx.Graph it never
+    queries as a graph).
     """
-    from itertools import combinations as _combinations
+    from copy import deepcopy
 
-    nodes = list(G.nodes())
-    n = len(nodes)
+    import numpy as np
+    import pandas as pd
 
     if C is not None:
-        candidates = list(C)
+        C = set(C)
+        if C - set(G.nodes):
+            raise NodeNotFound(f"The node(s) {C - set(G.nodes)} are in C but not in G.")
+        nodes = list(set(G.nodes) - C)
     else:
-        candidates = nodes
+        nodes = list(G.nodes)
+    DF_tree = {}
+    PB, sigma, D = _prominent_group_preprocessing(G, nodes, weight)
+    betweenness = pd.DataFrame.from_dict(PB)
+    if C is not None:
+        for node in C:
+            betweenness = betweenness.drop(index=node)
+            betweenness = betweenness.drop(columns=node)
+    CL = [node for _, node in sorted(zip(np.diag(betweenness), nodes), reverse=True)]
+    max_GBC = 0
+    max_group = []
+    DF_tree[1] = {
+        "CL": CL,
+        "betweenness": betweenness,
+        "GBC": 0,
+        "GM": [],
+        "sigma": sigma,
+        "cont": dict(zip(nodes, np.diag(betweenness))),
+    }
+    DF_tree[1]["heu"] = 0
+    for i in range(k):
+        DF_tree[1]["heu"] += DF_tree[1]["cont"][DF_tree[1]["CL"][i]]
 
-    if k > len(candidates):
-        raise NetworkXError(f"k={k} exceeds number of candidate nodes")
-
-    if greedy or k > 5:
-        # Greedy: start empty, add node that maximizes group betweenness.
-        group = set()
-        remaining = set(candidates)
-        for _ in range(k):
-            best_node = None
-            best_score = -1
-            for node in remaining:
-                trial = group | {node}
-                score = group_betweenness_centrality(
-                    G, trial, normalized=normalized, weight=weight, endpoints=endpoints
+    def _heuristic(root):
+        node_p = len(DF_tree) + 1
+        node_m = len(DF_tree) + 2
+        added_node = DF_tree[root]["CL"][0]
+        DF_tree[node_p] = deepcopy(DF_tree[root])
+        DF_tree[node_p]["GM"].append(added_node)
+        DF_tree[node_p]["GBC"] += DF_tree[node_p]["cont"][added_node]
+        root_node = DF_tree[root]
+        for x in nodes:
+            for y in nodes:
+                dxvy = 0
+                dxyv = 0
+                dvxy = 0
+                if not (
+                    root_node["sigma"][x][y] == 0
+                    or root_node["sigma"][x][added_node] == 0
+                    or root_node["sigma"][added_node][y] == 0
+                ):
+                    if D[x][added_node] == D[x][y] + D[y][added_node]:
+                        dxyv = (
+                            root_node["sigma"][x][y]
+                            * root_node["sigma"][y][added_node]
+                            / root_node["sigma"][x][added_node]
+                        )
+                    if D[x][y] == D[x][added_node] + D[added_node][y]:
+                        dxvy = (
+                            root_node["sigma"][x][added_node]
+                            * root_node["sigma"][added_node][y]
+                            / root_node["sigma"][x][y]
+                        )
+                    if D[added_node][y] == D[added_node][x] + D[x][y]:
+                        dvxy = (
+                            root_node["sigma"][added_node][x]
+                            * root_node["sigma"][x][y]
+                            / root_node["sigma"][added_node][y]
+                        )
+                DF_tree[node_p]["sigma"][x][y] = root_node["sigma"][x][y] * (1 - dxvy)
+                DF_tree[node_p]["betweenness"].loc[y, x] = (
+                    root_node["betweenness"][x][y] - root_node["betweenness"][x][y] * dxvy
                 )
-                if score > best_score:
-                    best_score = score
-                    best_node = node
-            group.add(best_node)
-            remaining.discard(best_node)
-        score = group_betweenness_centrality(
-            G, group, normalized=normalized, weight=weight, endpoints=endpoints
-        )
-        return float(f"{score:.2f}"), list(group)
+                if y != added_node:
+                    DF_tree[node_p]["betweenness"].loc[y, x] -= (
+                        root_node["betweenness"][x][added_node] * dxyv
+                    )
+                if x != added_node:
+                    DF_tree[node_p]["betweenness"].loc[y, x] -= (
+                        root_node["betweenness"][added_node][y] * dvxy
+                    )
+        DF_tree[node_p]["CL"] = [
+            node
+            for _, node in sorted(
+                zip(np.diag(DF_tree[node_p]["betweenness"]), nodes), reverse=True
+            )
+            if node not in DF_tree[node_p]["GM"]
+        ]
+        DF_tree[node_p]["cont"] = dict(zip(nodes, np.diag(DF_tree[node_p]["betweenness"])))
+        DF_tree[node_p]["heu"] = 0
+        for i in range(k - len(DF_tree[node_p]["GM"])):
+            DF_tree[node_p]["heu"] += DF_tree[node_p]["cont"][DF_tree[node_p]["CL"][i]]
+        if not greedy:
+            DF_tree[node_m] = deepcopy(DF_tree[root])
+            DF_tree[node_m]["CL"].pop(0)
+            DF_tree[node_m]["cont"].pop(added_node)
+            DF_tree[node_m]["heu"] = 0
+            for i in range(k - len(DF_tree[node_m]["GM"])):
+                DF_tree[node_m]["heu"] += DF_tree[node_m]["cont"][DF_tree[node_m]["CL"][i]]
+        else:
+            node_m = None
+        return node_p, node_m
 
-    # Exact: enumerate all k-subsets (only practical for small k and n).
-    best_group = None
-    best_score = -1
-    for combo in _combinations(candidates, k):
-        score = group_betweenness_centrality(
-            G, set(combo), normalized=normalized, weight=weight, endpoints=endpoints
-        )
-        if score > best_score:
-            best_score = score
-            best_group = set(combo)
-    return float(f"{best_score:.2f}"), list(best_group) if best_group is not None else []
+    def _dfbnb(max_GBC, root, max_group):
+        if len(DF_tree[root]["GM"]) == k and DF_tree[root]["GBC"] > max_GBC:
+            return DF_tree[root]["GBC"], DF_tree[root]["GM"]
+        if (
+            len(DF_tree[root]["GM"]) == k
+            or len(DF_tree[root]["CL"]) <= k - len(DF_tree[root]["GM"])
+            or DF_tree[root]["GBC"] + DF_tree[root]["heu"] <= max_GBC
+        ):
+            return max_GBC, max_group
+        node_p, node_m = _heuristic(root)
+        if greedy:
+            max_GBC, max_group = _dfbnb(max_GBC, node_p, max_group)
+        elif (
+            DF_tree[node_p]["GBC"] + DF_tree[node_p]["heu"]
+            > DF_tree[node_m]["GBC"] + DF_tree[node_m]["heu"]
+        ):
+            max_GBC, max_group = _dfbnb(max_GBC, node_p, max_group)
+            max_GBC, max_group = _dfbnb(max_GBC, node_m, max_group)
+        else:
+            max_GBC, max_group = _dfbnb(max_GBC, node_m, max_group)
+            max_GBC, max_group = _dfbnb(max_GBC, node_p, max_group)
+        return max_GBC, max_group
+
+    max_GBC, max_group = _dfbnb(max_GBC, 1, max_group)
+    v = len(G)
+    if not endpoints:
+        scale = 0
+        if G.is_directed():
+            if is_strongly_connected(G):
+                scale = k * (2 * v - k - 1)
+        elif is_connected(G):
+            scale = k * (2 * v - k - 1)
+        if scale == 0:
+            for group_node1 in max_group:
+                for node in D[group_node1]:
+                    if node != group_node1:
+                        if node in max_group:
+                            scale += 1
+                        else:
+                            scale += 2
+        max_GBC -= scale
+    if normalized:
+        scale = 1 / ((v - k) * (v - k - 1))
+        max_GBC *= scale
+    elif not G.is_directed():
+        max_GBC /= 2
+    max_GBC = float(f"{max_GBC:.2f}")
+    return max_GBC, max_group
+
+
+def _prominent_group_preprocessing(G, set_v, weight):
+    """networkx's centrality.group._group_preprocessing, verbatim (br-r37-c1-64xcg)."""
+    sigma = {}
+    delta = {}
+    D = {}
+    betweenness = dict.fromkeys(G, 0)
+    for s in G:
+        if weight is None:
+            S, P, sigma[s], D[s] = _single_source_shortest_path_basic_local(G, s)
+        else:
+            S, P, sigma[s], D[s] = _single_source_dijkstra_path_basic_local(G, s, weight)
+        betweenness, delta[s] = _accumulate_endpoints_local(betweenness, S, P, sigma[s], s)
+        for i in delta[s]:
+            if s != i:
+                delta[s][i] += 1
+            if weight is not None:
+                sigma[s][i] = sigma[s][i] / 2
+    PB = dict.fromkeys(G)
+    for group_node1 in set_v:
+        PB[group_node1] = dict.fromkeys(G, 0.0)
+        for group_node2 in set_v:
+            if group_node2 not in D[group_node1]:
+                continue
+            for node in G:
+                if group_node2 in D[node] and group_node1 in D[node]:
+                    if D[node][group_node2] == D[node][group_node1] + D[group_node1][group_node2]:
+                        PB[group_node1][group_node2] += (
+                            delta[node][group_node2]
+                            * sigma[node][group_node1]
+                            * sigma[group_node1][group_node2]
+                            / sigma[node][group_node2]
+                        )
+    return PB, sigma, D
 
 
 def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):

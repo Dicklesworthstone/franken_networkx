@@ -93,3 +93,43 @@ def test_single_group_singleton_list_does_not_misroute():
     n = nx.group_betweenness_centrality(GX, [2])
     assert isinstance(f, float)
     assert f == n
+
+
+# br-r37-c1-64xcg: prominent_group is networkx's branch and bound, verbatim.
+# fnx ran a greedy scan (k > 5) or every k-subset, which on a tie of group
+# betweenness returned another group than networkx's search order finds, and it
+# read C as the candidates where networkx's C is the set of EXCLUDED nodes.
+@pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"k": 2}, {"k": 3, "weight": "weight"}, {"k": 2, "C": [0, 1]}, {"k": 2, "greedy": True},
+     {"k": 2, "endpoints": True, "normalized": False}],
+    ids=["k2", "k3_weighted", "C_excluded", "greedy", "endpoints_unnormalized"],
+)
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(12))
+def test_prominent_group_matches_networkx(seed, directed, kwargs):
+    import random
+
+    r = random.Random(seed)
+    n = r.randint(6, 11)
+    p = r.choice((0.25, 0.4))
+    edges = [(u, v, r.choice((1, 2, 3))) for u in range(n) for v in range(u + 1, n) if r.random() < p]
+
+    def group(lib):
+        g = (lib.DiGraph if directed else lib.Graph)()
+        g.add_nodes_from(range(n))
+        g.add_weighted_edges_from(edges)
+        try:
+            return lib.prominent_group(g, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+            return type(exc).__name__, str(exc)
+
+    assert group(fnx) == group(nx)
+
+
+@pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+def test_prominent_group_C_excludes_nodes_like_networkx():
+    assert fnx.prominent_group(fnx.karate_club_graph(), 2, C=[0, 33]) == nx.prominent_group(
+        nx.karate_club_graph(), 2, C=[0, 33]
+    ) == (0.3, [2, 31])
