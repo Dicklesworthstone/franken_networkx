@@ -6329,6 +6329,8 @@ def _ebunch_reads_graph(ebunch, graph):
     per-edge insertion. Only iterators are walked: a container or view ebunch
     keeps its buffered semantics. The walk costs 1.5-3.5 us a call, so fnx's
     own builders that call add_edges_from once per node or per step pass lists.
+    remove_edges_from and remove_nodes_from buffer too and route the same way
+    (br-r37-c1-apelp).
     """
     if not hasattr(type(ebunch), "__next__"):
         return False
@@ -6880,6 +6882,13 @@ def _remove_edges_from_materialized(raw):
         if isinstance(ebunch, (list, tuple)):
             materialized = list(ebunch)
             iteration_exc = None
+        elif _ebunch_reads_graph(ebunch, self):
+            # The ebunch reads this graph: remove as it yields, as networkx
+            # does, so it sees every edge removed before it (br-r37-c1-apelp).
+            # Each one-edge list keeps this function's validation and errors.
+            for _e in ebunch:
+                remove_edges_from(self, [_e])
+            return None
         else:
             materialized = []
             iteration_exc = None
@@ -6967,6 +6976,12 @@ def _remove_nodes_from_materialized(raw):
         if isinstance(nodes, (list, tuple)):
             materialized = list(nodes)
             iteration_exc = None
+        elif _ebunch_reads_graph(nodes, self):
+            # The iterable reads this graph: remove as it yields, as networkx
+            # does, so it sees every node removed before it (br-r37-c1-apelp).
+            for _n in nodes:
+                remove_nodes_from(self, [_n])
+            return None
         else:
             materialized = []
             iteration_exc = None
