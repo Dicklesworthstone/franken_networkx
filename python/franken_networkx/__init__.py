@@ -42972,21 +42972,15 @@ def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
     used the reversed signs (``{s: max_val, t: -max_val}``), which
     inverted supply/demand — the solver then tried to push flow from
     t to s and raised NetworkXUnfeasible on every valid input.
+
+    br-r37-c1-b4n6b: H is ``DiGraph(G)``, as in networkx, not a copy of G -
+    an undirected G becomes two arcs per edge instead of reaching
+    min_cost_flow undirected and raising NetworkXNotImplemented.
     """
-    # Get max flow value
     max_val = maximum_flow_value(G, s, t, capacity=capacity)
-
-    # _Set up demands per nx convention: source supplies (negative),
-    # sink consumes (positive).
-    H = G.copy()
-    set_node_attributes(H, {s: -max_val, t: max_val}, name="demand")
-    # _Set demand=0 for all other nodes that don't already have one.
-    for n in H.nodes():
-        if n != s and n != t:
-            attrs = H.nodes[n] if hasattr(H.nodes, "__getitem__") else {}
-            if isinstance(attrs, dict) and "demand" not in attrs:
-                attrs["demand"] = 0
-
+    H = DiGraph(G)
+    H.add_node(s, demand=-max_val)
+    H.add_node(t, demand=max_val)
     return min_cost_flow(H, capacity=capacity, weight=weight)
 
 

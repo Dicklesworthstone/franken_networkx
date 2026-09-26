@@ -117,3 +117,38 @@ def test_infeasible_raises_like_networkx():
         fnx.min_cost_flow_cost(fg)
     with pytest.raises(nx.NetworkXUnfeasible):
         nx.min_cost_flow_cost(ng)
+
+
+def _build_undirected_flow(spec, lib, cls="Graph"):
+    n, edges = spec
+    g = getattr(lib, cls)()
+    g.add_nodes_from(range(n))
+    for u, v, w, c in edges:
+        g.add_edge(u, v, weight=w, capacity=c)
+    return g
+
+
+def _ordered(flow):
+    return [(u, list(row.items())) for u, row in flow.items()]
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_max_flow_min_cost_undirected_matches_networkx(seed):
+    # br-r37-c1-b4n6b: networkx runs min_cost_flow on DiGraph(G), so an undirected
+    # G works (two arcs per edge); fnx copied G and min_cost_flow refused it.
+    spec = _flow_spec(seed)
+    n = spec[0]
+    ff = fnx.max_flow_min_cost(_build_undirected_flow(spec, fnx), 0, n - 1)
+    nf = nx.max_flow_min_cost(_build_undirected_flow(spec, nx), 0, n - 1)
+    assert _ordered(ff) == _ordered(nf)
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+def test_max_flow_min_cost_multigraph_still_raises_like_networkx(cls):
+    spec = _flow_spec(3)
+    n = spec[0]
+    with pytest.raises(nx.NetworkXError) as nx_exc:
+        nx.max_flow_min_cost(_build_undirected_flow(spec, nx, cls), 0, n - 1)
+    with pytest.raises(nx.NetworkXError) as fnx_exc:
+        fnx.max_flow_min_cost(_build_undirected_flow(spec, fnx, cls), 0, n - 1)
+    assert str(fnx_exc.value) == str(nx_exc.value)
