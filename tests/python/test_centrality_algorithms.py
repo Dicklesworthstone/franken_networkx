@@ -247,6 +247,30 @@ class TestIncrementalClosenessCentrality:
             )
         )
 
+    @pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+    @pytest.mark.parametrize("insertion", [True, False])
+    @pytest.mark.parametrize("prev", ["none", "matching", "mismatched"])
+    def test_directed_raises_before_touching_g_like_networkx(self, cls, insertion, prev):
+        # br-r37-c1-p4rw5: nx's @not_implemented_for("directed") runs before
+        # the prev_cc check and before the edge is added or removed.
+        def outcome(lib):
+            g = getattr(lib, cls)([(0, 1), (1, 2), (2, 3), (3, 0)])
+            before = sorted(g.edges())
+            prev_cc = {"none": None, "matching": {n: 0.5 for n in g}, "mismatched": {9: 0.5}}[prev]
+            try:
+                value = lib.incremental_closeness_centrality(
+                    g, (0, 2) if insertion else (0, 1), prev_cc=prev_cc, insertion=insertion
+                )
+                result = ("ok", value)
+            except Exception as exc:  # noqa: BLE001 - the raise is the answer
+                result = ("raise", type(exc).__name__, str(exc))
+            return result, sorted(g.edges()) == before
+
+        assert outcome(fnx) == outcome(nx) == (
+            ("raise", "NetworkXNotImplemented", "not implemented for directed type"),
+            True,
+        )
+
     def test_backend_keyword_surface_matches_networkx(self):
         fg = fnx.path_graph(4)
         ng = nx.path_graph(4)

@@ -59506,6 +59506,10 @@ def incremental_closeness_centrality(
     **backend_kwargs,
 ):
     """Incremental closeness centrality after an edge insertion or deletion."""
+    # br-r37-c1-p4rw5: nx's @not_implemented_for("directed") sits outside its
+    # dispatcher, so a directed G raises before anything runs - or is mutated.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     _validate_backend_dispatch_keywords(
         "incremental_closeness_centrality",
         backend,
