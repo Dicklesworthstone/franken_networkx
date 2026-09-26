@@ -122,3 +122,55 @@ def test_disconnected_raises():
         pass
     else:  # pragma: no cover
         raise AssertionError("expected NetworkXException for disconnected graph")
+
+
+# br-r37-c1-vwh94: networkx runs on nx.DiGraph(G), which keeps ONE edge per pair
+# whose dict is every parallel edge's data merged in key order - the last
+# 'weight' wins, and an edge without one keeps the earlier value. Summing the
+# parallel edges (or reading a missing weight as 1) gives other numbers.
+_MULTI_BUNCHES = {
+    "heavier_later": [
+        (0, 1, {"weight": 1.0}), (1, 2, {"weight": 1.0}), (2, 0, {"weight": 2.0}),
+        (0, 1, {"weight": 3.0}),
+    ],
+    "lighter_later": [
+        (0, 1, {"weight": 3.0}), (1, 2, {"weight": 1.0}), (2, 0, {"weight": 2.0}),
+        (0, 1, {"weight": 0.5}), (2, 3, {"weight": 1.5}),
+    ],
+    "weightless_parallel": [
+        (0, 1, {"weight": 3.0, "cost": 1.0}), (1, 2, {"weight": 1.0, "cost": 2.0}),
+        (2, 0, {"weight": 2.0, "cost": 1.0}), (0, 1, {"cost": 5.0}),
+    ],
+    "parallel_selfloops": [
+        (0, 1, {"weight": 3.0}), (1, 2, {"weight": 1.0}), (2, 0, {"weight": 2.0}),
+        (0, 1, {"weight": 0.5}), (1, 1, {"weight": 2.0}), (1, 1, {"weight": 1.0}),
+    ],
+}
+
+
+def _multi_pair(bunch):
+    Gf, Gx = fnx.MultiGraph(), nx.MultiGraph()
+    Gf.add_edges_from(_MULTI_BUNCHES[bunch])
+    Gx.add_edges_from(_MULTI_BUNCHES[bunch])
+    return Gf, Gx
+
+
+def test_multigraph_parallel_edges_merge_like_networkx_digraph():
+    for bunch in sorted(_MULTI_BUNCHES):
+        Gf, Gx = _multi_pair(bunch)
+        for weight in ("weight", "cost", None):
+            expected = nx.second_order_centrality(Gx, weight=weight)
+            got = fnx.second_order_centrality(Gf, weight=weight)
+            assert _close(expected, got, tol=1e-9), (bunch, weight, expected, got)
+
+
+def test_balancing_replaces_an_existing_selfloop_weight_like_networkx():
+    # nx balances node i with G.add_edge(i, i, weight=d_max - deg), which
+    # REPLACES a selfloop's weight; adding to it gave other numbers even on a
+    # simple Graph. Node 1 (loop 1.0, in-degree 2.5 < d_max 3.0) is balanced.
+    edges = [(0, 1, {"weight": 0.5}), (1, 2, {"weight": 1.0}), (2, 0, {"weight": 2.0}), (1, 1, {"weight": 1.0})]
+    Gf, Gx = fnx.Graph(edges), nx.Graph(edges)
+    for weight in ("weight", None):
+        expected = nx.second_order_centrality(Gx, weight=weight)
+        got = fnx.second_order_centrality(Gf, weight=weight)
+        assert _close(expected, got, tol=1e-9), (weight, expected, got)

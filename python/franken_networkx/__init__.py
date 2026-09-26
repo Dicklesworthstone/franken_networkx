@@ -46458,7 +46458,16 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
     index = {node: i for i, node in enumerate(nodelist)}
     adjacency = np.zeros((n, n))
     in_weighted = np.zeros(n)
-    for _u, _v, _data in G.edges(data=True):
+    edge_rows = G.edges(data=True)
+    if G.is_multigraph():
+        # br-r37-c1-vwh94: nx's DiGraph(G) keeps ONE edge per pair whose dict is
+        # every parallel edge's data merged in key order (the last 'weight' wins),
+        # not the sum of the parallel edges. G.edges yields a pair's keys together.
+        merged = {}
+        for _u, _v, _data in edge_rows:
+            merged.setdefault((_u, _v), {}).update(_data)
+        edge_rows = [(_u, _v, _data) for (_u, _v), _data in merged.items()]
+    for _u, _v, _data in edge_rows:
         iu, iv = index[_u], index[_v]
         edge_w = _data.get("weight", 1)
         in_w = _data.get(weight, 1)
@@ -46470,7 +46479,9 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
     max_in_degree = in_weighted.max()
     for i in range(n):
         if in_weighted[i] < max_in_degree:
-            adjacency[i, i] += max_in_degree - in_weighted[i]
+            # nx's G.add_edge(i, i, weight=d_max - deg) REPLACES an existing
+            # selfloop's 'weight' rather than adding to it (br-r37-c1-vwh94).
+            adjacency[i, i] = max_in_degree - in_weighted[i]
     transition = adjacency / adjacency.sum(axis=1)[:, np.newaxis]
 
     # br-socwoodbury: the previous code solved (I - Q_idx) x = 1 for every
