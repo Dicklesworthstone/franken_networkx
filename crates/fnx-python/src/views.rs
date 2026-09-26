@@ -5,7 +5,7 @@
 
 use crate::digraph::PyDiGraph;
 use crate::{
-    NetworkXError, NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict,
+    NetworkXError, NodeIterator, NodeLookupCache, PyGraph, PyObject,
     node_key_can_use_index_lookaside, node_key_to_string,
 };
 use arrayvec::ArrayString;
@@ -654,6 +654,7 @@ fn edge_alldata_items(
     let edge_py_attrs = &mut g.edge_py_attrs;
     let edge_py_attrs_by_index = &mut g.edge_py_attrs_by_index;
     let edge_py_attrs_by_endpoint = &mut g.edge_py_attrs_by_endpoint;
+    let edge_attr_writes = &g.edge_attr_writes; // br-r37-c1-urjxk
     let node_key_map = &g.node_key_map;
     let adj_py_keys = &g.adj_py_keys; // br-r37-c1-z6uka
     let lazy_stop = g.lazy_int_node_stop;
@@ -710,10 +711,10 @@ fn edge_alldata_items(
                 _ => {
                     let live = edge_py_attrs
                         .entry(PyGraph::edge_key(left, right))
-                        .or_insert_with(|| match inner.edge_attrs_by_indices(u, v) {
-                            Some(attrs) => attr_map_to_pydict(py, attrs)
-                                .expect("stored string-keyed edge attrs must convert to Python"),
-                            None => PyDict::new(py).unbind(),
+                        .or_insert_with(|| {
+                            edge_attr_writes
+                                .dict_from_attr_map(py, inner.edge_attrs_by_indices(u, v))
+                                .expect("stored string-keyed edge attrs must convert to Python")
                         })
                         .clone_ref(py);
                     edge_py_attrs_by_index.insert(index_key, (nodes_seq, live.clone_ref(py)));
@@ -755,7 +756,8 @@ fn edge_alldata_items(
         let dict = edge_py_attrs
             .entry(PyGraph::edge_key(left, right))
             .or_insert_with(|| {
-                attr_map_to_pydict(py, attrs)
+                edge_attr_writes
+                    .dict_from_attr_map(py, Some(attrs))
                     .expect("stored string-keyed edge attrs must convert to Python")
             })
             .clone_ref(py);

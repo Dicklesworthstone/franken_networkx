@@ -2652,7 +2652,8 @@ fn undirected_spanning_edges_to_pygraph(
             Some(attrs) => {
                 let copied = attrs.bind(py).copy()?;
                 let core_attrs = crate::py_dict_to_attr_map(&copied)?;
-                tree.edge_py_attrs.insert(edge_key, copied.unbind());
+                let copied = tree.edge_attr_writes.adopt(py, &copied)?;
+                tree.edge_py_attrs.insert(edge_key, copied);
                 core_attrs
             }
             None => pg
@@ -5092,29 +5093,49 @@ pub fn check_dijkstra_edge_weights_fast(
 
 #[pyfunction]
 #[pyo3(signature = (g))]
-pub fn dijkstra_weight_cache_token(g: &Bound<'_, PyAny>) -> PyResult<Option<(u64, u64, bool)>> {
+pub fn dijkstra_weight_cache_token(
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<(u64, u64, bool, u64)>> {
+    // br-r37-c1-urjxk: (nodes_seq, edges_seq, dirty) came back to the same key
+    // after a write through a held attr dict was synced, and the caches keyed on
+    // it returned the old weights. The escaped dicts are re-checked first (a
+    // changed one raises dirty) and the store's rewrite count is the 4th slot.
+    let py = g.py();
     let gr = extract_graph(g)?;
     match &gr {
-        GraphRef::Undirected(pg) => Ok(Some((
-            pg.nodes_seq,
-            pg.edges_seq,
-            pg.edges_dirty.load(Ordering::Relaxed),
-        ))),
-        GraphRef::Directed { dg, .. } => Ok(Some((
-            dg.nodes_seq,
-            dg.edges_seq,
-            dg.edges_dirty.load(Ordering::Relaxed),
-        ))),
+        GraphRef::Undirected(pg) => {
+            pg.refresh_edges_dirty(py);
+            Ok(Some((
+                pg.nodes_seq,
+                pg.edges_seq,
+                pg.edges_dirty.load(Ordering::Relaxed),
+                pg.edge_attr_writes.rewrites(),
+            )))
+        }
+        GraphRef::Directed { dg, .. } => {
+            dg.refresh_edges_dirty(py);
+            Ok(Some((
+                dg.nodes_seq,
+                dg.edges_seq,
+                dg.edges_dirty.load(Ordering::Relaxed),
+                dg.edge_attr_writes.rewrites(),
+            )))
+        }
         GraphRef::MultiUndirected { mg, .. } => Ok(Some((
             mg.nodes_seq,
             mg.edges_seq,
             mg.edges_dirty.load(Ordering::Relaxed),
+            0,
         ))),
-        GraphRef::MultiDirected { mdg, .. } => Ok(Some((
-            mdg.nodes_seq,
-            mdg.edges_seq,
-            mdg.edges_dirty.load(Ordering::Relaxed),
-        ))),
+        GraphRef::MultiDirected { mdg, .. } => {
+            mdg.refresh_edges_dirty(py);
+            Ok(Some((
+                mdg.nodes_seq,
+                mdg.edges_seq,
+                mdg.edges_dirty.load(Ordering::Relaxed),
+                mdg.edge_attr_writes.rewrites(),
+            )))
+        }
     }
 }
 
@@ -10377,7 +10398,10 @@ pub fn minimum_spanning_tree(
         }
     }
     let source_edges_dirty = match &gr {
-        GraphRef::Undirected(pg) => pg.edges_dirty.load(Ordering::Relaxed),
+        GraphRef::Undirected(pg) => {
+            Python::attach(|py| pg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
+            pg.edges_dirty.load(Ordering::Relaxed)
+        }
         _ => true,
     };
     // Add MST edges
@@ -10411,9 +10435,8 @@ pub fn minimum_spanning_tree(
             .inner
             .add_edge(edge.left.clone(), edge.right.clone());
         if let Some(attrs) = gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
-            new_graph
-                .edge_py_attrs
-                .insert(ek, attrs.bind(py).copy()?.unbind());
+            let copied = new_graph.edge_attr_writes.adopt(py, attrs.bind(py))?;
+            new_graph.edge_py_attrs.insert(ek, copied);
         }
     }
     Ok(new_graph)
@@ -10729,7 +10752,10 @@ pub fn maximum_spanning_tree(
         }
     }
     let source_edges_dirty = match &gr {
-        GraphRef::Undirected(pg) => pg.edges_dirty.load(Ordering::Relaxed),
+        GraphRef::Undirected(pg) => {
+            Python::attach(|py| pg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
+            pg.edges_dirty.load(Ordering::Relaxed)
+        }
         _ => true,
     };
     for edge in &result.edges {
@@ -10762,9 +10788,8 @@ pub fn maximum_spanning_tree(
             .inner
             .add_edge(edge.left.clone(), edge.right.clone());
         if let Some(attrs) = gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
-            new_graph
-                .edge_py_attrs
-                .insert(ek, attrs.bind(py).copy()?.unbind());
+            let copied = new_graph.edge_attr_writes.adopt(py, attrs.bind(py))?;
+            new_graph.edge_py_attrs.insert(ek, copied);
         }
     }
     Ok(new_graph)
@@ -11633,10 +11658,9 @@ pub fn stochastic_graph_normalize_digraph_inplace(
         let normalized = if degree == 0.0 { 0.0 } else { value / degree };
         let edge_key = (source.clone(), target.clone());
         if !graph.edge_py_attrs.contains_key(&edge_key) {
-            let attrs = graph.inner.edge_attrs(&source, &target).map_or_else(
-                || Ok(PyDict::new(py).unbind()),
-                |attrs| crate::attr_map_to_pydict(py, attrs),
-            )?;
+            let attrs = graph
+                .edge_attr_writes
+                .dict_from_attr_map(py, graph.inner.edge_attrs(&source, &target))?;
             graph.edge_py_attrs.insert(edge_key.clone(), attrs);
         }
         let attrs = graph
@@ -11696,10 +11720,9 @@ pub fn stochastic_graph_normalize_multidigraph_inplace(
         let normalized = if degree == 0.0 { 0.0 } else { value / degree };
         let edge_key = (source.clone(), target.clone(), key);
         if !graph.edge_py_attrs.contains_key(&edge_key) {
-            let attrs = graph.inner.edge_attrs(&source, &target, key).map_or_else(
-                || Ok(PyDict::new(py).unbind()),
-                |attrs| crate::attr_map_to_pydict(py, attrs),
-            )?;
+            let attrs = graph
+                .edge_attr_writes
+                .dict_from_attr_map(py, graph.inner.edge_attrs(&source, &target, key))?;
             graph.edge_py_attrs.insert(edge_key.clone(), attrs);
         }
         let attrs = graph
@@ -11844,6 +11867,7 @@ pub fn stochastic_graph_copy_multidigraph(
         edges_dirty: AtomicBool::new(false),
         edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
         pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
@@ -16016,10 +16040,10 @@ pub fn condensation(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject,
         }
         for (left, right, _) in cond_graph.edges_ordered_borrowed() {
             let _ = py_dg.inner.add_edge(left, right);
-            py_dg.edge_py_attrs.insert(
-                (left.to_owned(), right.to_owned()),
-                pyo3::types::PyDict::new(py).unbind(),
-            );
+            let attrs = py_dg.edge_attr_writes.new_dict(py)?.unbind();
+            py_dg
+                .edge_py_attrs
+                .insert((left.to_owned(), right.to_owned()), attrs);
         }
         let py_cond = py_dg.into_pyobject(py)?.into_any().unbind();
         // Build the mapping dict
@@ -16155,9 +16179,10 @@ fn build_condensation_py<'a>(
             }
             let left = cu.to_string();
             let right = cv.to_string();
+            let attrs = py_dg.edge_attr_writes.new_dict(py)?.unbind();
             py_dg
                 .edge_py_attrs
-                .insert((left.clone(), right.clone()), PyDict::new(py).unbind());
+                .insert((left.clone(), right.clone()), attrs);
             cond_edges.push((left, right));
         }
     }
@@ -16365,6 +16390,7 @@ pub fn multidigraph_transitive_closure(
         edges_dirty: AtomicBool::new(false),
         edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
         pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
@@ -16394,9 +16420,8 @@ pub fn multidigraph_transitive_closure(
         result
             .inner
             .replace_edge_attrs(&key.0, &key.1, key.2, crate::py_dict_to_attr_map(bound)?);
-        result
-            .edge_py_attrs
-            .insert(key.clone(), bound.copy()?.unbind());
+        let copied = result.edge_attr_writes.adopt(py, bound)?;
+        result.edge_py_attrs.insert(key.clone(), copied);
     }
     for (key, py_key) in &mdg.edge_py_keys {
         result
@@ -16453,6 +16478,7 @@ pub fn transitive_closure(
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: crate::EdgeAttrWrites::default(),
             pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
             pred_row_py: HashMap::new(),
             graph_attrs: pyo3::types::PyDict::new(py).unbind(),
@@ -16499,10 +16525,10 @@ pub fn transitive_reduction(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
                 }
                 for (left, right, _) in result.edges_ordered_borrowed() {
                     let _ = py_dg.inner.add_edge(left, right);
-                    py_dg.edge_py_attrs.insert(
-                        (left.to_owned(), right.to_owned()),
-                        pyo3::types::PyDict::new(py).unbind(),
-                    );
+                    let attrs = py_dg.edge_attr_writes.new_dict(py)?.unbind();
+                    py_dg
+                        .edge_py_attrs
+                        .insert((left.to_owned(), right.to_owned()), attrs);
                 }
                 Ok(py_dg.into_pyobject(py)?.into_any().unbind())
             }
@@ -16968,9 +16994,8 @@ fn rust_graph_to_py(
     for (left, right, _) in result.edges_ordered_borrowed() {
         let _ = py_graph.inner.add_edge(left, right);
         let ek = PyGraph::edge_key(left, right);
-        py_graph
-            .edge_py_attrs
-            .insert(ek, pyo3::types::PyDict::new(py).unbind());
+        let attrs = py_graph.edge_attr_writes.new_dict(py)?.unbind();
+        py_graph.edge_py_attrs.insert(ek, attrs);
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
@@ -17009,9 +17034,8 @@ fn rust_graph_to_py_binary(
     for (left, right, _) in result.edges_ordered_borrowed() {
         let _ = py_graph.inner.add_edge(left, right);
         let ek = PyGraph::edge_key(left, right);
-        py_graph
-            .edge_py_attrs
-            .insert(ek, pyo3::types::PyDict::new(py).unbind());
+        let attrs = py_graph.edge_attr_writes.new_dict(py)?.unbind();
+        py_graph.edge_py_attrs.insert(ek, attrs);
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
@@ -17093,8 +17117,8 @@ fn rust_graph_to_py_subgraph(
         let _ = py_graph.inner.add_edge(left, right);
         let ek = PyGraph::edge_key(left, right);
         let attrs = match source_gr.edge_attrs_for_undirected(left, right) {
-            Some(d) => d.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+            Some(d) => py_graph.edge_attr_writes.adopt(py, d.bind(py))?,
+            None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
         py_graph.edge_py_attrs.insert(ek, attrs);
     }
@@ -17129,8 +17153,8 @@ fn rust_digraph_to_py_subgraph(
     for (left, right, _) in result.edges_ordered_borrowed() {
         let _ = py_graph.inner.add_edge(left, right);
         let attrs = match source_gr.edge_attrs_for_directed(left, right) {
-            Some(d) => d.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+            Some(d) => py_graph.edge_attr_writes.adopt(py, d.bind(py))?,
+            None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
         py_graph
             .edge_py_attrs
@@ -17814,6 +17838,7 @@ fn product_factor_store_readable_undirected(pg: &PyGraph) -> bool {
     if pg.edge_py_attrs.is_empty() {
         return true;
     }
+    Python::attach(|py| pg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
     if pg.edges_dirty.load(Ordering::Relaxed) {
         return false;
     }
@@ -17837,6 +17862,7 @@ fn product_factor_store_readable_directed(dg: &PyDiGraph) -> bool {
     if dg.edge_py_attrs.is_empty() {
         return true;
     }
+    Python::attach(|py| dg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
     if dg.edges_dirty.load(Ordering::Relaxed) {
         return false;
     }
@@ -18228,26 +18254,31 @@ fn tensor_product_edge_attrs_fast(
         let ng = g_names.len();
         let nh = h_names.len();
         let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
-        let make_paired =
-            |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
-                let dict = PyDict::new(py);
-                if let Some(k) = single_key.as_deref() {
-                    let gv = ga.and_then(|m| m.get(k));
-                    let hv = ha.and_then(|m| m.get(k));
-                    if gv.is_some() || hv.is_some() {
-                        let gpy = match gv {
-                            Some(v) => crate::cgse_value_to_py(py, v)?,
-                            None => py.None(),
-                        };
-                        let hpy = match hv {
-                            Some(v) => crate::cgse_value_to_py(py, v)?,
-                            None => py.None(),
-                        };
-                        dict.set_item(k, PyTuple::new(py, [gpy, hpy])?)?;
-                    }
+        // br-r37-c1-urjxk: `writes` is the structure graph's, so each dict built
+        // here reports its writes to the graph that stores it.
+        let make_paired = |py: Python<'_>,
+                           writes: &crate::EdgeAttrWrites,
+                           ga: Option<&AttrMap>,
+                           ha: Option<&AttrMap>|
+         -> PyResult<Py<PyDict>> {
+            let dict = writes.new_dict(py)?;
+            if let Some(k) = single_key.as_deref() {
+                let gv = ga.and_then(|m| m.get(k));
+                let hv = ha.and_then(|m| m.get(k));
+                if gv.is_some() || hv.is_some() {
+                    let gpy = match gv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let hpy = match hv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    dict.set_item(k, PyTuple::new(py, [gpy, hpy])?)?;
                 }
-                Ok(dict.unbind())
-            };
+            }
+            Ok(dict.unbind())
+        };
         {
             let bound = structure_obj.bind(py);
             let cell = bound.downcast::<PyDiGraph>().map_err(|_| {
@@ -18262,9 +18293,8 @@ fn tensor_product_edge_attrs_fast(
                             let ha = d2.edge_attrs_by_indices(hu, hv);
                             let key =
                                 PyDiGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
-                            structure
-                                .edge_py_attrs
-                                .insert(key, make_paired(py, ga, ha)?);
+                            let attrs = make_paired(py, &structure.edge_attr_writes, ga, ha)?;
+                            structure.edge_py_attrs.insert(key, attrs);
                         }
                     }
                 }
@@ -18328,27 +18358,32 @@ fn tensor_product_edge_attrs_fast(
     let g_edges = undirected_edges(g1, ng);
     let h_edges = undirected_edges(h1, nh);
 
-    let make_paired =
-        |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
-            let dict = PyDict::new(py);
-            if let Some(k) = single_key.as_deref() {
-                let gv = ga.and_then(|m| m.get(k));
-                let hv = ha.and_then(|m| m.get(k));
-                if gv.is_some() || hv.is_some() {
-                    let gpy = match gv {
-                        Some(v) => crate::cgse_value_to_py(py, v)?,
-                        None => py.None(),
-                    };
-                    let hpy = match hv {
-                        Some(v) => crate::cgse_value_to_py(py, v)?,
-                        None => py.None(),
-                    };
-                    let tup = PyTuple::new(py, [gpy, hpy])?;
-                    dict.set_item(k, tup)?;
-                }
+    // br-r37-c1-urjxk: `writes` is the structure graph's, so each dict built here
+    // reports its writes to the graph that stores it.
+    let make_paired = |py: Python<'_>,
+                       writes: &crate::EdgeAttrWrites,
+                       ga: Option<&AttrMap>,
+                       ha: Option<&AttrMap>|
+     -> PyResult<Py<PyDict>> {
+        let dict = writes.new_dict(py)?;
+        if let Some(k) = single_key.as_deref() {
+            let gv = ga.and_then(|m| m.get(k));
+            let hv = ha.and_then(|m| m.get(k));
+            if gv.is_some() || hv.is_some() {
+                let gpy = match gv {
+                    Some(v) => crate::cgse_value_to_py(py, v)?,
+                    None => py.None(),
+                };
+                let hpy = match hv {
+                    Some(v) => crate::cgse_value_to_py(py, v)?,
+                    None => py.None(),
+                };
+                let tup = PyTuple::new(py, [gpy, hpy])?;
+                dict.set_item(k, tup)?;
             }
-            Ok(dict.unbind())
-        };
+        }
+        Ok(dict.unbind())
+    };
 
     {
         let bound = structure_obj.bind(py);
@@ -18363,9 +18398,11 @@ fn tensor_product_edge_attrs_fast(
                 // Two diagonals of the undirected tensor edge, each a SEPARATE dict
                 // (matching nx's two `_paired_edge_attrs` calls).
                 let d1 = crate::PyGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
-                structure.edge_py_attrs.insert(d1, make_paired(py, ga, ha)?);
+                let attrs = make_paired(py, &structure.edge_attr_writes, ga, ha)?;
+                structure.edge_py_attrs.insert(d1, attrs);
                 let d2 = crate::PyGraph::edge_key(&canon[gv * nh + hu], &canon[gu * nh + hv]);
-                structure.edge_py_attrs.insert(d2, make_paired(py, ga, ha)?);
+                let attrs = make_paired(py, &structure.edge_attr_writes, ga, ha)?;
+                structure.edge_py_attrs.insert(d2, attrs);
             }
         }
         structure.mark_edges_dirty();
@@ -18436,8 +18473,13 @@ fn strong_product_edge_attrs_fast(
         let ng = g_names.len();
         let nh = h_names.len();
         let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
-        let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
-            let dict = PyDict::new(py);
+        // br-r37-c1-urjxk: `writes` is the structure graph's, so each dict built
+        // here reports its writes to the graph that stores it.
+        let make_scalar = |py: Python<'_>,
+                           writes: &crate::EdgeAttrWrites,
+                           attrs: Option<&AttrMap>|
+         -> PyResult<Py<PyDict>> {
+            let dict = writes.new_dict(py)?;
             if let Some(k) = single_key.as_deref()
                 && let Some(v) = attrs.and_then(|m| m.get(k))
             {
@@ -18445,26 +18487,29 @@ fn strong_product_edge_attrs_fast(
             }
             Ok(dict.unbind())
         };
-        let make_paired =
-            |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
-                let dict = PyDict::new(py);
-                if let Some(k) = single_key.as_deref() {
-                    let gv = ga.and_then(|m| m.get(k));
-                    let hv = ha.and_then(|m| m.get(k));
-                    if gv.is_some() || hv.is_some() {
-                        let gpy = match gv {
-                            Some(v) => crate::cgse_value_to_py(py, v)?,
-                            None => py.None(),
-                        };
-                        let hpy = match hv {
-                            Some(v) => crate::cgse_value_to_py(py, v)?,
-                            None => py.None(),
-                        };
-                        dict.set_item(k, PyTuple::new(py, [gpy, hpy])?)?;
-                    }
+        let make_paired = |py: Python<'_>,
+                           writes: &crate::EdgeAttrWrites,
+                           ga: Option<&AttrMap>,
+                           ha: Option<&AttrMap>|
+         -> PyResult<Py<PyDict>> {
+            let dict = writes.new_dict(py)?;
+            if let Some(k) = single_key.as_deref() {
+                let gv = ga.and_then(|m| m.get(k));
+                let hv = ha.and_then(|m| m.get(k));
+                if gv.is_some() || hv.is_some() {
+                    let gpy = match gv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let hpy = match hv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    dict.set_item(k, PyTuple::new(py, [gpy, hpy])?)?;
                 }
-                Ok(dict.unbind())
-            };
+            }
+            Ok(dict.unbind())
+        };
         {
             let bound = structure_obj.bind(py);
             let cell = bound.downcast::<PyDiGraph>().map_err(|_| {
@@ -18477,7 +18522,8 @@ fn strong_product_edge_attrs_fast(
                     for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
                         let ha = d2.edge_attrs_by_indices(hu, hv);
                         let key = PyDiGraph::edge_key(&canon[gi * nh + hu], &canon[gi * nh + hv]);
-                        structure.edge_py_attrs.insert(key, make_scalar(py, ha)?);
+                        let attrs = make_scalar(py, &structure.edge_attr_writes, ha)?;
+                        structure.edge_py_attrs.insert(key, attrs);
                     }
                 }
             }
@@ -18487,7 +18533,8 @@ fn strong_product_edge_attrs_fast(
                     let ga = d1.edge_attrs_by_indices(gu, gv);
                     for hi in 0..nh {
                         let key = PyDiGraph::edge_key(&canon[gu * nh + hi], &canon[gv * nh + hi]);
-                        structure.edge_py_attrs.insert(key, make_scalar(py, ga)?);
+                        let attrs = make_scalar(py, &structure.edge_attr_writes, ga)?;
+                        structure.edge_py_attrs.insert(key, attrs);
                     }
                 }
             }
@@ -18500,9 +18547,8 @@ fn strong_product_edge_attrs_fast(
                             let ha = d2.edge_attrs_by_indices(hu, hv);
                             let key =
                                 PyDiGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
-                            structure
-                                .edge_py_attrs
-                                .insert(key, make_paired(py, ga, ha)?);
+                            let attrs = make_paired(py, &structure.edge_attr_writes, ga, ha)?;
+                            structure.edge_py_attrs.insert(key, attrs);
                         }
                     }
                 }
@@ -18563,9 +18609,14 @@ fn strong_product_edge_attrs_fast(
     let g_edges = undirected_edges(g1, ng);
     let h_edges = undirected_edges(h1, nh);
 
+    // br-r37-c1-urjxk: `writes` is the structure graph's, so each dict built here
+    // reports its writes to the graph that stores it.
     // Single-source scalar attrs: `dict(attrs)` for the ≤1 key.
-    let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
-        let dict = PyDict::new(py);
+    let make_scalar = |py: Python<'_>,
+                       writes: &crate::EdgeAttrWrites,
+                       attrs: Option<&AttrMap>|
+     -> PyResult<Py<PyDict>> {
+        let dict = writes.new_dict(py)?;
         if let Some(k) = single_key.as_deref()
             && let Some(v) = attrs.and_then(|m| m.get(k))
         {
@@ -18574,27 +18625,30 @@ fn strong_product_edge_attrs_fast(
         Ok(dict.unbind())
     };
     // Paired tuple attrs: `{k: (g_val, h_val)}`.
-    let make_paired =
-        |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
-            let dict = PyDict::new(py);
-            if let Some(k) = single_key.as_deref() {
-                let gv = ga.and_then(|m| m.get(k));
-                let hv = ha.and_then(|m| m.get(k));
-                if gv.is_some() || hv.is_some() {
-                    let gpy = match gv {
-                        Some(v) => crate::cgse_value_to_py(py, v)?,
-                        None => py.None(),
-                    };
-                    let hpy = match hv {
-                        Some(v) => crate::cgse_value_to_py(py, v)?,
-                        None => py.None(),
-                    };
-                    let tup = PyTuple::new(py, [gpy, hpy])?;
-                    dict.set_item(k, tup)?;
-                }
+    let make_paired = |py: Python<'_>,
+                       writes: &crate::EdgeAttrWrites,
+                       ga: Option<&AttrMap>,
+                       ha: Option<&AttrMap>|
+     -> PyResult<Py<PyDict>> {
+        let dict = writes.new_dict(py)?;
+        if let Some(k) = single_key.as_deref() {
+            let gv = ga.and_then(|m| m.get(k));
+            let hv = ha.and_then(|m| m.get(k));
+            if gv.is_some() || hv.is_some() {
+                let gpy = match gv {
+                    Some(v) => crate::cgse_value_to_py(py, v)?,
+                    None => py.None(),
+                };
+                let hpy = match hv {
+                    Some(v) => crate::cgse_value_to_py(py, v)?,
+                    None => py.None(),
+                };
+                let tup = PyTuple::new(py, [gpy, hpy])?;
+                dict.set_item(k, tup)?;
             }
-            Ok(dict.unbind())
-        };
+        }
+        Ok(dict.unbind())
+    };
 
     {
         let bound = structure_obj.bind(py);
@@ -18607,7 +18661,8 @@ fn strong_product_edge_attrs_fast(
             for &(hu, hv) in &h_edges {
                 let ha = h1.edge_attrs_by_indices(hu, hv);
                 let key = crate::PyGraph::edge_key(&canon[gi * nh + hu], &canon[gi * nh + hv]);
-                structure.edge_py_attrs.insert(key, make_scalar(py, ha)?);
+                let attrs = make_scalar(py, &structure.edge_attr_writes, ha)?;
+                structure.edge_py_attrs.insert(key, attrs);
             }
         }
         // Pass 2: cartesian G-layer (G-edge × same H-node) -> G-edge attrs.
@@ -18615,7 +18670,8 @@ fn strong_product_edge_attrs_fast(
             let ga = g1.edge_attrs_by_indices(gu, gv);
             for hi in 0..nh {
                 let key = crate::PyGraph::edge_key(&canon[gu * nh + hi], &canon[gv * nh + hi]);
-                structure.edge_py_attrs.insert(key, make_scalar(py, ga)?);
+                let attrs = make_scalar(py, &structure.edge_attr_writes, ga)?;
+                structure.edge_py_attrs.insert(key, attrs);
             }
         }
         // Passes 3 & 4: tensor layers (both diagonals) -> paired tuple.
@@ -18624,9 +18680,11 @@ fn strong_product_edge_attrs_fast(
             for &(hu, hv) in &h_edges {
                 let ha = h1.edge_attrs_by_indices(hu, hv);
                 let d1 = crate::PyGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
-                structure.edge_py_attrs.insert(d1, make_paired(py, ga, ha)?);
+                let attrs = make_paired(py, &structure.edge_attr_writes, ga, ha)?;
+                structure.edge_py_attrs.insert(d1, attrs);
                 let d2 = crate::PyGraph::edge_key(&canon[gv * nh + hu], &canon[gu * nh + hv]);
-                structure.edge_py_attrs.insert(d2, make_paired(py, ga, ha)?);
+                let attrs = make_paired(py, &structure.edge_attr_writes, ga, ha)?;
+                structure.edge_py_attrs.insert(d2, attrs);
             }
         }
         structure.mark_edges_dirty();
@@ -21799,6 +21857,7 @@ fn multidigraph_dijkstra_rows_for_graph(
     mdg: &PyMultiDiGraph,
     weight_attr: &str,
 ) -> Option<Arc<MultiDiDijkstraRows>> {
+    Python::attach(|py| mdg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
     if mdg.edges_dirty.load(Ordering::Relaxed) {
         return None;
     }
@@ -25181,6 +25240,12 @@ pub fn path_weight_rust(
     // min-over-parallel-edges semantics, and a dirty graph has authoritative
     // (unsynced) Python edge dicts that make `inner` stale — both defer to the
     // Python fallback. Bailing here avoids building the index Vec on the miss.
+    // br-r37-c1-urjxk: a held attr dict written since the last sync counts.
+    match &gr {
+        GraphRef::Undirected(pg) => pg.refresh_edges_dirty(py),
+        GraphRef::Directed { dg, .. } => dg.refresh_edges_dirty(py),
+        _ => {}
+    }
     match &gr {
         GraphRef::Undirected(pg) if !pg.edges_dirty.load(Ordering::Relaxed) => {
             let Some(indices) = exact_usize_path_sequence(path) else {
@@ -26555,6 +26620,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26683,6 +26749,7 @@ pub fn ego_graph_rust(
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26832,6 +26899,7 @@ pub fn full_join_rust(
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26880,6 +26948,7 @@ pub fn identified_nodes_rust(
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26987,6 +27056,7 @@ pub fn dedensify_rust(
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -27097,6 +27167,7 @@ pub fn get_edge_attributes_native(
     let GraphRef::Undirected(pg) = &gr else {
         return Ok(None);
     };
+    pg.refresh_edges_dirty(py); // br-r37-c1-urjxk
     if pg.edges_dirty.load(Ordering::Relaxed) {
         return Ok(None);
     }
@@ -27168,6 +27239,7 @@ pub fn quotient_graph_rust(
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -27209,17 +27281,19 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
     // the source) get an empty dict, matching the Python batch path exactly.
     let result = py.allow_threads(|| fnx_algorithms::moral_graph(dg));
 
+    // br-r37-c1-urjxk: created before the edge-attr copies, which become its
+    // edge dicts and so report their writes to it.
+    let mut py_graph =
+        PyGraph::new_empty_with_policy(py, gr.undirected().runtime_policy().clone())?;
     let mut edge_attr_map: HashMap<(String, String), Py<PyDict>> = HashMap::new();
     for (left, right, _) in dg.edges_ordered_borrowed() {
         let attrs = match gr.edge_attrs_for_directed(left, right) {
-            Some(d) => d.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+            Some(d) => py_graph.edge_attr_writes.adopt(py, d.bind(py))?,
+            None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
         edge_attr_map.insert(PyGraph::edge_key(left, right), attrs);
     }
 
-    let mut py_graph =
-        PyGraph::new_empty_with_policy(py, gr.undirected().runtime_policy().clone())?;
     py_graph.graph_attrs = gr.graph_attrs().bind(py).copy()?.unbind();
     for node in result.nodes_ordered() {
         py_graph
@@ -27237,7 +27311,7 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         let ek = PyGraph::edge_key(left, right);
         let attrs = match edge_attr_map.remove(&ek) {
             Some(d) => d,
-            None => PyDict::new(py).unbind(),
+            None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
         py_graph.edge_py_attrs.insert(ek, attrs);
     }
@@ -27743,6 +27817,7 @@ pub fn gomory_hu_tree_rust(
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -27810,6 +27885,7 @@ pub fn snap_aggregation_rust(
         // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
         // so its escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -33551,9 +33627,13 @@ mod tests {
             live_attrs
                 .set_item("weight", 0.25)
                 .expect("weight attr should set");
+            let live_attrs = graph
+                .edge_attr_writes
+                .adopt(py, &live_attrs)
+                .expect("edge attr dict should adopt");
             graph
                 .edge_py_attrs
-                .insert(PyGraph::edge_key("a", "b"), live_attrs.unbind());
+                .insert(PyGraph::edge_key("a", "b"), live_attrs);
             graph.edges_dirty.store(true, Ordering::Relaxed);
 
             let projection = dijkstra_single_weight_graph_projection(py, &graph, "weight")
@@ -33591,9 +33671,13 @@ mod tests {
             live_attrs
                 .set_item("weight", 0.25)
                 .expect("weight attr should set");
+            let live_attrs = graph
+                .edge_attr_writes
+                .adopt(py, &live_attrs)
+                .expect("edge attr dict should adopt");
             graph
                 .edge_py_attrs
-                .insert(PyDiGraph::edge_key("a", "b"), live_attrs.unbind());
+                .insert(PyDiGraph::edge_key("a", "b"), live_attrs);
             graph.edges_dirty.store(true, Ordering::Relaxed);
 
             let projection = dijkstra_single_weight_digraph_projection(py, &graph, "weight")

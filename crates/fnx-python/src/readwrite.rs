@@ -144,6 +144,8 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
     }
 
     let mut edge_py_attrs = rustc_hash::FxHashMap::default();
+    // br-r37-c1-urjxk: the edge dicts report their writes to the graph built below.
+    let edge_attr_writes = crate::EdgeAttrWrites::default();
     for (es_left, es_right, es_attrs) in g.edges_ordered_borrowed() {
         let left = raw_to_canonical
             .get(es_left)
@@ -157,11 +159,10 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
             .add_edge_with_attrs(left.clone(), right.clone(), es_attrs.clone())
             .map_err(|err| PyRuntimeError::new_err(format!("failed to import edge: {err}")))?;
         let key = PyGraph::edge_key(&left, &right);
-        let d = PyDict::new(py);
-        for (k, v) in es_attrs {
-            d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-        }
-        edge_py_attrs.insert(key, d.unbind());
+        edge_py_attrs.insert(
+            key,
+            edge_attr_writes.dict_from_attr_map(py, Some(es_attrs))?,
+        );
     }
 
     let py_graph_attrs = PyDict::new(py);
@@ -192,6 +193,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         // br-r37-c1-igdzi: a graph just read from a file has handed out
         // nothing, so its escape scope is the empty set, not the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes,
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -223,6 +225,8 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
     }
 
     let mut edge_py_attrs = rustc_hash::FxHashMap::default();
+    // br-r37-c1-urjxk: the edge dicts report their writes to the graph built below.
+    let edge_attr_writes = crate::EdgeAttrWrites::default();
     for (es_left, es_right, es_attrs) in g.edges_ordered_borrowed() {
         let left = raw_to_canonical
             .get(es_left)
@@ -236,11 +240,10 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
             .add_edge_with_attrs(left.clone(), right.clone(), es_attrs.clone())
             .map_err(|err| PyRuntimeError::new_err(format!("failed to import edge: {err}")))?;
         let key = PyDiGraph::edge_key(&left, &right);
-        let d = PyDict::new(py);
-        for (k, v) in es_attrs {
-            d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
-        }
-        edge_py_attrs.insert(key, d.unbind());
+        edge_py_attrs.insert(
+            key,
+            edge_attr_writes.dict_from_attr_map(py, Some(es_attrs))?,
+        );
     }
 
     let py_graph_attrs = PyDict::new(py);
@@ -259,6 +262,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         succ_row_py: HashMap::new(),
         succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+        edge_attr_writes,
         pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
         pred_row_py: HashMap::new(),
         graph_attrs: py_graph_attrs.unbind(),
@@ -347,6 +351,9 @@ fn digraph_absorb_graph_bidirected(
         nodes_bulk.push((nid.clone(), amap));
     }
 
+    // br-r37-c1-urjxk: the mirrors report their writes to `dst`, which takes
+    // this `EdgeAttrWrites` together with the map below.
+    let edge_attr_writes = crate::EdgeAttrWrites::default();
     let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
         rustc_hash::FxHashMap::default();
     let mut edges_bulk: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
@@ -355,7 +362,7 @@ fn digraph_absorb_graph_bidirected(
             continue;
         };
         for v in nbrs {
-            let mirror = PyDict::new(py);
+            let mirror = edge_attr_writes.new_dict(py)?;
             let mut amap = fnx_classes::AttrMap::new();
             if let Some(d) = src.edge_py_attrs.get(&PyGraph::edge_key(u, v)) {
                 let b = d.bind(py);
@@ -397,6 +404,7 @@ fn digraph_absorb_graph_bidirected(
     dst.node_key_map = node_key_map;
     dst.node_py_attrs = node_py_attrs;
     dst.edge_py_attrs = edge_py_attrs;
+    dst.edge_attr_writes = edge_attr_writes;
     dst.graph_attrs = gdict.unbind();
     dst.bump_nodes_seq();
     dst.bump_edges_seq();
@@ -612,6 +620,7 @@ fn can_write_gml_nx_int_noattr(py: Python<'_>, graph: &PyGraph) -> PyResult<bool
     if !graph.graph_attrs.bind(py).is_empty() {
         return Ok(false);
     }
+    graph.refresh_edges_dirty(py); // br-r37-c1-urjxk
     if !graph.node_py_attrs.is_empty() || graph.edges_dirty.load(Ordering::Relaxed) {
         return Ok(false);
     }
@@ -916,6 +925,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         // br-r37-c1-igdzi: a graph just read from a file has handed out
         // nothing, so its escape scope is the empty set, not the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -1182,6 +1192,8 @@ fn parse_edgelist_simple_content(
     let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::with_capacity(edge_hint);
     let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
         rustc_hash::FxHashMap::default();
+    // br-r37-c1-urjxk: the edge dicts report their writes to the graph built below.
+    let edge_attr_writes = crate::EdgeAttrWrites::default();
     for (chunk, remap) in chunks.iter().zip(&remaps) {
         for &(local_u, local_v, weight) in &chunk.edges {
             let u = remap[local_u as usize] as usize;
@@ -1194,9 +1206,14 @@ fn parse_edgelist_simple_content(
                 // deliberately allocate no empty Python edge dict: PyGraph
                 // materializes that live mirror lazily if Python later asks for
                 // or mutates edge attributes.
-                let mirror = edge_py_attrs
+                let mirror = match edge_py_attrs
                     .entry(PyGraph::edge_key(&nodes_order[u], &nodes_order[v]))
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                {
+                    std::collections::hash_map::Entry::Occupied(slot) => slot.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(slot) => {
+                        slot.insert(edge_attr_writes.new_dict(py)?.unbind())
+                    }
+                };
                 mirror.bind(py).set_item("weight", weight)?;
             }
             edges.push((u, v, attrs));
@@ -1232,6 +1249,7 @@ fn parse_edgelist_simple_content(
         // br-r37-c1-igdzi: a graph just read from a file has handed out
         // nothing, so its escape scope is the empty set, not the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes,
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -2038,14 +2056,13 @@ fn rebuild_dict_of_dicts_cache(py: Python<'_>, pg: &mut PyGraph) -> PyResult<()>
             };
             let edge_key = PyGraph::edge_key(u, v);
             let core_attrs = pg.inner.edge_attrs_by_indices(u_idx, v_idx).cloned();
-            let edge_dict = pg
-                .edge_py_attrs
-                .entry(edge_key)
-                .or_insert_with(|| match &core_attrs {
-                    Some(attrs) => attr_map_to_pydict(py, attrs)
-                        .expect("stored string-keyed edge attrs must convert to Python"),
-                    None => PyDict::new(py).unbind(),
-                });
+            let edge_dict = match pg.edge_py_attrs.entry(edge_key) {
+                std::collections::hash_map::Entry::Occupied(slot) => slot.into_mut(),
+                std::collections::hash_map::Entry::Vacant(slot) => slot.insert(
+                    pg.edge_attr_writes
+                        .dict_from_attr_map(py, core_attrs.as_ref())?,
+                ),
+            };
             row.set_item(v_key.bind(py), edge_dict.bind(py))?;
         }
         if let Some(u_key) = py_node_keys.get(u_idx) {
@@ -2761,6 +2778,7 @@ pub fn adjacency_arrays_multigraph_default_order_live_finite_checked(
             let mut rows: Vec<usize> = Vec::with_capacity(edge_count);
             let mut cols: Vec<usize> = Vec::with_capacity(edge_count);
             let mut data: Vec<f64> = Vec::with_capacity(edge_count);
+            Python::attach(|py| mdg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
             let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
             let dirty_keys = if use_stored_attrs {
                 Some(HashSet::new())
@@ -2836,6 +2854,7 @@ pub fn adjacency_csr_multidigraph_default_order_live_finite_checked(
     let mut data: Vec<f64> = Vec::with_capacity(inner.edge_count());
     indptr.push(0);
 
+    Python::attach(|py| mdg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
     let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
     let dirty_keys = if use_stored_attrs {
         Some(HashSet::new())
@@ -3093,6 +3112,7 @@ pub fn adjacency_csr_bytes_multidigraph_default_order_live_finite_checked(
     }
     append_csr_intp_bytes(&mut indptr, 0)?;
 
+    Python::attach(|py| mdg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
     let use_stored_attrs = !mdg.edges_dirty.load(Ordering::Relaxed);
     let mut current_row = 0usize;
     let mut emitted = 0usize;

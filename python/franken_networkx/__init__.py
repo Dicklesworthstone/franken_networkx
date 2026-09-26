@@ -2971,6 +2971,84 @@ class _MultiEdgeKeydict(dict):
 _fnx._set_multigraph_keydict_class(_MultiEdgeKeydict)
 
 
+class _EdgeAttrDict(dict):
+    """An edge's attribute dict: ``G[u][v]``, ``G.edges[u, v]``,
+    ``G.get_edge_data(u, v)``, the dicts ``G.edges(data=True)`` yields.
+
+    br-r37-c1-urjxk. networkx's is a plain ``dict``; this one reports every
+    write to its graph, which keeps a Rust copy of the attributes for its
+    native kernels. A caller can keep the dict and write it at any later time
+    - ``d = G[u][v]; shortest_path_length(G, ...); d["weight"] = 5`` - and the
+    kernels went on reading the copy they had synced before the write. Reads,
+    ``isinstance(d, dict)``, json, ``|``, ``d.copy()``, pickle and ``copy``
+    behave as networkx's (the copies are plain ``dict``s); ``type(d) is dict``
+    is False, as it already is for the multigraph keydict.
+    """
+
+    __slots__ = ("_fnx_watch",)
+
+    def __init__(self, *args, **kwargs):
+        self._fnx_watch = None
+        dict.__init__(self, *args, **kwargs)
+
+    def __setitem__(self, key, value):
+        dict.__setitem__(self, key, value)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+
+    def __delitem__(self, key):
+        dict.__delitem__(self, key)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+
+    def pop(self, key, *default):
+        value = dict.pop(self, key, *default)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+        return value
+
+    def popitem(self):
+        item = dict.popitem(self)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+        return item
+
+    def setdefault(self, key, default=None):
+        if key in self:
+            return dict.__getitem__(self, key)
+        dict.__setitem__(self, key, default)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+        return default
+
+    def update(self, *args, **kwargs):
+        dict.update(self, *args, **kwargs)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+
+    def clear(self):
+        dict.clear(self)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+
+    def __ior__(self, other):
+        dict.update(self, other)
+        if self._fnx_watch is not None:
+            self._fnx_watch.note(self)
+        return self
+
+    def __reduce__(self):
+        return (dict, (dict(self),))
+
+
+# networkx's edge attr dict is a dict, and type(G[u][v]).__name__ says so -
+# code that reports a value's type (and the held-row parity locks) reads the
+# name. Pickle and copy never look the class up by name: __reduce__ hands
+# them a plain dict.
+_EdgeAttrDict.__name__ = _EdgeAttrDict.__qualname__ = "dict"
+_fnx._set_edge_attr_dict_class(_EdgeAttrDict)
+
+
 def _graph_is_filtered(graph, _depth=0):
     """True when nx would be serving this graph through a FilterAtlas.
 
@@ -12606,12 +12684,15 @@ def _should_delegate_dijkstra_to_networkx(
             except Exception:
                 token = None
             if token is not None:
-                nodes_seq, edges_seq, edge_attrs_dirty = token
+                # br-r37-c1-urjxk: the 4th slot moves on every store rewrite
+                # from the attr dicts, so a synced held write is a new key.
+                nodes_seq, edges_seq, edge_attrs_dirty, attr_rewrites = token
                 if not edge_attrs_dirty:
                     cache_key = (
                         weight,
                         nodes_seq,
                         edges_seq,
+                        attr_rewrites,
                         _require_exact_string_nodes,
                     )
                     cached = vars(G).get("_fnx_dijkstra_weight_check_cache")
@@ -12713,10 +12794,10 @@ def _networkx_graph_for_dijkstra_parity(G):
         token = None
     if token is None:
         return _networkx_graph_for_parity(G)
-    nodes_seq, edges_seq, edge_attrs_dirty = token
+    nodes_seq, edges_seq, edge_attrs_dirty, attr_rewrites = token
     if edge_attrs_dirty:
         return _networkx_graph_for_parity(G)
-    cache_key = (type(G), nodes_seq, edges_seq)
+    cache_key = (type(G), nodes_seq, edges_seq, attr_rewrites)
     cached = vars(G).get("_fnx_dijkstra_nx_graph_cache")
     if cached is not None and cached[0] == cache_key:
         return cached[1]
@@ -12924,9 +13005,9 @@ def _should_delegate_bellman_ford_path_to_networkx(G, weight):
             except Exception:
                 token = None
             if token is not None:
-                nodes_seq, edges_seq, edge_attrs_dirty = token
+                nodes_seq, edges_seq, edge_attrs_dirty, attr_rewrites = token
                 if not edge_attrs_dirty:
-                    cache_key = (weight, nodes_seq, edges_seq)
+                    cache_key = (weight, nodes_seq, edges_seq, attr_rewrites)
                     cached = vars(G).get("_fnx_bellman_weight_check_cache")
                     if cached is not None and cached[0] == cache_key:
                         return cached[1]
@@ -27618,9 +27699,9 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
         except Exception:
             token = None
     if token is not None:
-        _n_seq, _e_seq, _edge_attrs_dirty = token
+        _n_seq, _e_seq, _edge_attrs_dirty, _attr_rewrites = token
         if not _edge_attrs_dirty:
-            _cache_key = (weight, _n_seq, _e_seq)
+            _cache_key = (weight, _n_seq, _e_seq, _attr_rewrites)
             _cached = vars(G).get("_fnx_bellman_collapse_cache")
             if _cached is not None and _cached[0] == _cache_key:
                 return _cached[1]
@@ -31481,9 +31562,9 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
         except Exception:
             token = None
         if token is not None:
-            nodes_seq, edges_seq, edge_attrs_dirty = token
+            nodes_seq, edges_seq, edge_attrs_dirty, attr_rewrites = token
             if not edge_attrs_dirty:
-                cache_key = (type(G), weight, nodes_seq, edges_seq)
+                cache_key = (type(G), weight, nodes_seq, edges_seq, attr_rewrites)
                 cached = vars(G).get("_fnx_pagerank_scipy_matrix_cache")
                 if cached is not None and cached[0] != cache_key:
                     cached = None
@@ -33855,7 +33936,7 @@ def _star_shape_certificate_size(G, weight):
         return None
     if token is None:
         return None
-    token_nodes_seq, token_edges_seq, edge_attrs_dirty = token
+    token_nodes_seq, token_edges_seq, edge_attrs_dirty, _attr_rewrites = token
     # br-r37-c1-starcertattr (cc): the clean-token (not edge_attrs_dirty) path
     # certified the star as UNWEIGHTED, but edges_dirty is cleared by a sync while
     # the weights remain in the native store -- so a *synced weighted* star (e.g.

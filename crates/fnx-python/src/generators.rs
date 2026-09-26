@@ -125,6 +125,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -180,6 +181,7 @@ fn report_to_pydigraph(
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         succ_row_py: HashMap::new(),
         succ_row_py_by_index: rustc_hash::FxHashMap::default(),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
         pred_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
@@ -250,6 +252,7 @@ fn report_to_pymultidigraph(
         edges_dirty: AtomicBool::new(false),
         edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
         pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
@@ -278,9 +281,12 @@ fn report_to_pymultidigraph(
     for source in pg.inner.nodes_ordered() {
         for target in pg.inner.successors(source).unwrap_or_default() {
             for key in pg.inner.edge_keys(source, target).unwrap_or_default() {
-                pg.edge_py_attrs
-                    .entry((source.to_owned(), target.to_owned(), key))
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                if let std::collections::hash_map::Entry::Vacant(slot) =
+                    pg.edge_py_attrs
+                        .entry((source.to_owned(), target.to_owned(), key))
+                {
+                    slot.insert(pg.edge_attr_writes.new_dict(py)?.unbind());
+                }
             }
         }
     }
@@ -392,6 +398,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -450,6 +457,7 @@ fn tuple_lattice_pygraph(
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -643,6 +651,7 @@ pub fn grid_graph_native(
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -721,6 +730,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -793,6 +803,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -869,6 +880,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -1143,6 +1155,7 @@ pub fn random_lobster_graph_lazy_int(
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -1250,6 +1263,7 @@ pub fn random_regular_graph_pyset_order(
         // br-r37-c1-igdzi: a generated graph has handed out nothing, so its
         // escape scope is the empty set rather than the unknown one.
         exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+        edge_attr_writes: crate::EdgeAttrWrites::default(),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),

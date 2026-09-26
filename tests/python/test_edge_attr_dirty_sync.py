@@ -160,3 +160,175 @@ def test_multidigraph_indexed_dirty_mark_broadens_after_node_renumbering():
     graph.remove_node(drop_b)
 
     assert fnx.shortest_path_length(graph, u, v, weight="weight") == 1
+
+
+# br-r37-c1-urjxk: a dict HELD across a native call. The native call syncs the
+# escaped dicts into the store and used to lift the dirty bit; a later write
+# through the held reference runs no exposure site, so every following native
+# read used the first call's weights. networkx is live, so each row compares
+# against it: the value before the write, after it, and after the references
+# are DROPPED (a fix that trusts the store once nobody holds a dict would
+# lose a write made while one was held).
+
+import networkx as nx  # noqa: E402
+
+_HOLD_ROUTES = {
+    "getitem": lambda g, u, v, multi: g[u][v][0] if multi else g[u][v],
+    "edges-subscript": lambda g, u, v, multi: g.edges[u, v, 0] if multi else g.edges[u, v],
+    "adj": lambda g, u, v, multi: g.adj[u][v][0] if multi else g.adj[u][v],
+    "get_edge_data": lambda g, u, v, multi: g.get_edge_data(u, v, key=0) if multi else g.get_edge_data(u, v),
+    "edges-data": lambda g, u, v, multi: next(
+        e[-1]
+        for e in (g.edges(keys=True, data=True) if multi else g.edges(data=True))
+        if (e[0], e[1]) in {(u, v), (v, u)} and (not multi or e[2] == 0)
+    ),
+}
+
+_WRITES = {
+    "assign": lambda d: d.__setitem__("weight", 1),
+    "update": lambda d: d.update(weight=1),
+    "delete": lambda d: d.pop("weight"),  # networkx's default weight is 1
+    "clear": lambda d: d.clear(),
+}
+
+
+def _weighted_twin(lib, cls_name, is_multi):
+    graph = getattr(lib, cls_name)()
+    for u, v, w in (("a", "b", 10), ("b", "c", 10), ("a", "c", 5)):
+        if is_multi:
+            graph.add_edge(u, v, key=0, weight=w)
+        else:
+            graph.add_edge(u, v, weight=w)
+    return graph
+
+
+def _weighted_reads(lib, graph):
+    return (
+        lib.shortest_path_length(graph, "a", "c", weight="weight"),
+        lib.dijkstra_path_length(graph, "a", "c"),
+        graph.size(weight="weight"),
+        sorted(graph.degree(weight="weight")),
+        lib.to_numpy_array(graph, nodelist=["a", "b", "c"], dtype=float).tolist(),
+    )
+
+
+@pytest.mark.parametrize("write", sorted(_WRITES))
+@pytest.mark.parametrize("route", sorted(_HOLD_ROUTES))
+@pytest.mark.parametrize(
+    ("cls_name", "is_multi"),
+    (("Graph", False), ("DiGraph", False), ("MultiGraph", True), ("MultiDiGraph", True)),
+)
+def test_a_write_through_a_dict_held_across_a_native_call_is_seen(cls_name, is_multi, route, write):
+    outcomes = []
+    for lib in (fnx, nx):
+        graph = _weighted_twin(lib, cls_name, is_multi)
+        held = [_HOLD_ROUTES[route](graph, u, v, is_multi) for u, v in (("a", "b"), ("b", "c"))]
+        before = _weighted_reads(lib, graph)
+        for attrs in held:
+            _WRITES[write](attrs)
+        after = _weighted_reads(lib, graph)
+        del held, attrs
+        dropped = _weighted_reads(lib, graph)
+        outcomes.append((before, after, dropped))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "is_multi"),
+    (("Graph", False), ("DiGraph", False), ("MultiGraph", True), ("MultiDiGraph", True)),
+)
+def test_writes_between_repeated_native_calls_are_each_seen(cls_name, is_multi):
+    outcomes = []
+    for lib in (fnx, nx):
+        graph = _weighted_twin(lib, cls_name, is_multi)
+        held = _HOLD_ROUTES["getitem"](graph, "a", "b", is_multi)
+        seen = []
+        for weight in (1, 7, 2, 30, 4):
+            seen.append(_weighted_reads(lib, graph))
+            held["weight"] = weight
+        seen.append(_weighted_reads(lib, graph))
+        outcomes.append(seen)
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("cls_name", ("Graph", "DiGraph"))
+def test_a_held_write_after_another_edge_is_exposed_is_seen(cls_name):
+    # After a sync the next exposure re-arms a NARROW escape scope around its
+    # own edge (br-r37-c1-igdzi); a dict held from before must still be checked.
+    outcomes = []
+    for lib in (fnx, nx):
+        graph = _weighted_twin(lib, cls_name, False)
+        held = graph["a"]["b"]
+        first = _weighted_reads(lib, graph)
+        graph["b"]["c"]  # expose another edge: the narrow scope is {b-c}
+        held["weight"] = 1
+        # Store-trusting readers FIRST - a kernel that syncs would rewrite the
+        # whole store and hide a reader that skipped the check.
+        store_reads = (graph.size(weight="weight"), sorted(graph.degree(weight="weight")))
+        outcomes.append((first, store_reads, _weighted_reads(lib, graph)))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("cls_name", ("Graph", "DiGraph", "MultiDiGraph"))
+def test_a_value_replaced_after_a_sync_does_not_keep_the_graph_alive(cls_name):
+    # The store's record of what each escaped dict held keeps the old values
+    # alive until the next sync; one that refers back to the graph must not make
+    # the graph uncollectable.
+    import gc
+    import weakref
+
+    class Holder:
+        pass
+
+    graph = _weighted_twin(fnx, cls_name, cls_name.startswith("Multi"))
+    attrs = graph["a"]["b"][0] if graph.is_multigraph() else graph["a"]["b"]
+    holder = Holder()
+    holder.graph = graph
+    attrs["back"] = holder
+    fnx.shortest_path_length(graph, "a", "c", weight="weight")  # sync + record
+    attrs["back"] = None
+    graph_ref = weakref.ref(graph)
+    del graph, attrs, holder
+    gc.collect()
+    assert graph_ref() is None
+
+
+# br-r37-c1-urjxk: every graph-building path hands out dicts that report their
+# writes. A path that stored a plain dict would stay correct - the store is not
+# trusted while an escaped dict cannot report - but every weighted call on its
+# graph would re-sync the whole mirror; the token's dirty slot after a sync is
+# where that shows.
+
+from franken_networkx._fnx import dijkstra_weight_cache_token as _token  # noqa: E402
+
+
+def _built(cls_name):
+    graph = getattr(fnx, cls_name)()
+    graph.add_weighted_edges_from([(i, (i + 1) % 10, 1.0 + i % 3) for i in range(10)] + [(0, 5, 2.5)])
+    graph.add_edge(1, 7, weight=4.0, color="red")
+    return graph
+
+
+_BUILD_PATHS = {
+    "add_edges": lambda g: g,
+    "copy": lambda g: g.copy(),
+    "deepcopy": lambda g: __import__("copy").deepcopy(g),
+    "subgraph-copy": lambda g: g.subgraph(range(8)).copy(),
+    "to_directed": lambda g: g.to_directed(),
+    "class-of-graph": lambda g: type(g)(g),
+    "relabel": lambda g: fnx.relabel_nodes(g, {i: i + 100 for i in range(10)}),
+    "compose": lambda g: fnx.compose(g, fnx.relabel_nodes(g, {i: i + 100 for i in range(10)})),
+    "disjoint_union": lambda g: fnx.disjoint_union(g, g),
+}
+
+
+@pytest.mark.parametrize("path", sorted(_BUILD_PATHS))
+@pytest.mark.parametrize("cls_name", ("Graph", "DiGraph", "MultiDiGraph"))
+def test_a_built_graph_trusts_its_store_again_after_a_sync(cls_name, path):
+    graph = _BUILD_PATHS[path](_built(cls_name))
+    held = [attrs for *_, attrs in graph.edges(data=True)]
+    node = next(iter(graph))
+    fnx.single_source_dijkstra_path_length(graph, node)
+    assert _token(graph)[2] is False
+    held[0]["weight"] = 9.0
+    assert _token(graph)[2] is True  # the write is reported, not missed

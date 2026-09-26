@@ -2784,6 +2784,7 @@ pub(crate) fn graph_edge_store_scalar_readable(pg: &PyGraph) -> bool {
     if pg.edge_py_attrs.is_empty() {
         return true;
     }
+    Python::attach(|py| pg.refresh_edges_dirty(py)); // br-r37-c1-urjxk
     if pg.edges_dirty.load(Ordering::Relaxed) {
         return false;
     }
@@ -3315,6 +3316,160 @@ impl InstanceDictGc {
     }
 }
 
+static EDGE_ATTR_DICT_CLASS: pyo3::sync::PyOnceLock<Py<pyo3::types::PyType>> =
+    pyo3::sync::PyOnceLock::new();
+
+/// br-r37-c1-urjxk: register the package's ``dict`` subclass for edge attr
+/// dicts (``_EdgeAttrDict``). Called once at import, right after the class is
+/// defined.
+#[pyfunction]
+pub(crate) fn _set_edge_attr_dict_class(
+    py: Python<'_>,
+    cls: Bound<'_, pyo3::types::PyType>,
+) -> PyResult<()> {
+    if !cls.is_subclass_of::<PyDict>()? {
+        return Err(PyTypeError::new_err(
+            "the edge attr dict class must subclass dict",
+        ));
+    }
+    let _ = EDGE_ATTR_DICT_CLASS.set(py, cls.unbind());
+    Ok(())
+}
+
+/// br-r37-c1-urjxk: the cell an edge attr dict reports its writes to.
+///
+/// `_EdgeAttrDict`'s mutators call `note(self)` after writing, so the graph
+/// learns WHICH of its escaped dicts changed without looking at any of them.
+/// A set of addresses, not a queue: a write loop hits the same dict again and
+/// again, and the set stays bounded by the escaped dicts.
+#[pyclass(module = "franken_networkx", frozen)]
+pub(crate) struct EdgeAttrWatch {
+    written: std::sync::Mutex<rustc_hash::FxHashSet<usize>>,
+}
+
+#[pymethods]
+impl EdgeAttrWatch {
+    fn note(&self, dict: &Bound<'_, PyAny>) {
+        self.written.lock().unwrap().insert(dict.as_ptr() as usize);
+    }
+}
+
+/// br-r37-c1-urjxk: how a graph learns that an escaped edge attr dict was
+/// written.
+///
+/// A dict handed to Python can be written at any later time through a
+/// reference the caller kept - `d = G[u][v]; shortest_path(G, ...);
+/// d["weight"] = 5` - and that write runs no exposure site. A sync used to
+/// lift `edges_dirty` and trust the store again, so every native read after
+/// such a write computed on the old weights. The graph's edge attr dicts are
+/// `_EdgeAttrDict`s that report their writes to this graph's `EdgeAttrWatch`;
+/// `refresh_edges_dirty` turns the reported dicts back into dirty edges before
+/// any reader trusts the store, in O(1) when nothing was written.
+///
+/// (An identity snapshot of every escaped dict, checked before each read, was
+/// built first and rejected: the check is O(escaped dicts), memory-bound, and
+/// one public call runs several readers - weighted dijkstra on 50k escaped
+/// edges went 8 ms -> 42 ms.)
+pub(crate) struct EdgeAttrWrites {
+    watch: pyo3::sync::PyOnceLock<Py<EdgeAttrWatch>>,
+    /// How many times the store has been rewritten from the escaped dicts. A
+    /// cache keyed on (nodes_seq, edges_seq) and a clean flag comes back to the
+    /// same key after a written dict is synced; this is what moves.
+    rewrites: u64,
+}
+
+impl Default for EdgeAttrWrites {
+    fn default() -> Self {
+        Self {
+            watch: pyo3::sync::PyOnceLock::new(),
+            rewrites: 0,
+        }
+    }
+}
+
+impl EdgeAttrWrites {
+    fn watch<'py>(&self, py: Python<'py>) -> PyResult<&Py<EdgeAttrWatch>> {
+        self.watch.get_or_try_init(py, || {
+            Py::new(
+                py,
+                EdgeAttrWatch {
+                    written: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
+                },
+            )
+        })
+    }
+
+    /// A new, empty attr dict for an edge of this graph that reports its writes
+    /// here - or a plain ``dict`` before the class is registered (import time).
+    pub(crate) fn new_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let Some(cls) = EDGE_ATTR_DICT_CLASS.get(py) else {
+            return Ok(PyDict::new(py));
+        };
+        // dict.__new__(cls): no Python __init__ frame; the one slot is set here.
+        let dict = py
+            .get_type::<PyDict>()
+            .call_method1(intern!(py, "__new__"), (cls.bind(py),))?
+            .cast_into::<PyDict>()?;
+        dict.setattr(intern!(py, "_fnx_watch"), self.watch(py)?.clone_ref(py))?;
+        Ok(dict)
+    }
+
+    /// `new_dict` holding a stored edge's attributes (`None`: it has none). The
+    /// items go in through the C-level dict API, which reports nothing.
+    pub(crate) fn dict_from_attr_map(
+        &self,
+        py: Python<'_>,
+        attrs: Option<&AttrMap>,
+    ) -> PyResult<Py<PyDict>> {
+        let dict = self.new_dict(py)?;
+        if let Some(attrs) = attrs {
+            for (key, value) in attrs {
+                dict.set_item(key, cgse_value_to_py(py, value)?)?;
+            }
+        }
+        Ok(dict.unbind())
+    }
+
+    /// `new_dict` holding `source`'s items, for a site that built a plain dict
+    /// nobody else has seen yet.
+    pub(crate) fn adopt<'py>(
+        &self,
+        py: Python<'py>,
+        source: &Bound<'py, PyDict>,
+    ) -> PyResult<Py<PyDict>> {
+        let dict = self.new_dict(py)?;
+        dict.update(source.as_mapping())?;
+        Ok(dict.unbind())
+    }
+
+    /// Whether `dict` reports its writes to THIS graph. A dict that does not
+    /// can be written unseen, so the store is never trusted while one escaped.
+    pub(crate) fn reports_here(&self, py: Python<'_>, dict: &Bound<'_, PyDict>) -> bool {
+        let Some(mine) = self.watch.get(py) else {
+            return false;
+        };
+        dict.getattr(intern!(py, "_fnx_watch"))
+            .is_ok_and(|watch| watch.is(mine))
+    }
+
+    /// The addresses of the dicts written since the last call.
+    pub(crate) fn take_written(&self, py: Python<'_>) -> rustc_hash::FxHashSet<usize> {
+        match self.watch.get(py) {
+            Some(watch) => std::mem::take(&mut *watch.get().written.lock().unwrap()),
+            None => rustc_hash::FxHashSet::default(),
+        }
+    }
+
+    /// Count one rewrite of the store from the escaped dicts.
+    pub(crate) fn note_rewrite(&mut self) {
+        self.rewrites = self.rewrites.wrapping_add(1);
+    }
+
+    pub(crate) const fn rewrites(&self) -> u64 {
+        self.rewrites
+    }
+}
+
 #[pyclass(module = "franken_networkx", name = "Graph", dict, weakref, subclass)]
 pub(crate) struct PyGraph {
     pub(crate) inner: Graph,
@@ -3491,6 +3646,9 @@ pub(crate) struct PyGraph {
     /// carrying stamps per entry: renumbering is rare next to edge reads, and
     /// widening is always the safe direction.
     pub(crate) exposed_edges: std::sync::Mutex<Option<rustc_hash::FxHashSet<(usize, usize)>>>,
+    /// br-r37-c1-urjxk: where this graph's edge attr dicts report their writes;
+    /// `refresh_edges_dirty` turns them into dirty edges.
+    pub(crate) edge_attr_writes: EdgeAttrWrites,
     /// Warm exact-string endpoints for `has_edge`. Values are compact native
     /// node indices and become invalid when a node mutation renumbers storage.
     has_edge_node_index_cache: NodeIndexLookupCache,
@@ -4190,10 +4348,10 @@ impl PyGraph {
         let attrs = self
             .edge_py_attrs
             .entry((left.to_owned(), right.to_owned()))
-            .or_insert_with(|| match self.inner.edge_attrs(left, right) {
-                Some(attrs) => attr_map_to_pydict(py, attrs)
-                    .expect("stored string-keyed edge attrs must convert to Python"),
-                None => PyDict::new(py).unbind(),
+            .or_insert_with(|| {
+                self.edge_attr_writes
+                    .dict_from_attr_map(py, self.inner.edge_attrs(left, right))
+                    .expect("stored string-keyed edge attrs must convert to Python")
             })
             .clone_ref(py);
         self.edge_py_attrs_by_endpoint
@@ -4323,6 +4481,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             // br-r37-c1-igdzi: a new graph has handed out nothing.
             exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+            edge_attr_writes: EdgeAttrWrites::default(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -4443,6 +4602,27 @@ impl PyGraph {
         *self.exposed_edges.lock().unwrap() = None;
     }
 
+    /// br-r37-c1-urjxk: mark the edges whose escaped attr dicts were written
+    /// since the last call (see `EdgeAttrWrites`).
+    ///
+    /// A clean flag, or a narrow escape scope, was trusted until the next
+    /// exposure site ran, but a caller that kept a dict writes it without one.
+    /// Every reader that trusts the store calls this first. Nothing written is
+    /// one lock and an emptiness test; each written dict is marked as a single
+    /// exposed edge, so a narrow scope stays narrow and its readers take that
+    /// edge's live dict.
+    pub(crate) fn refresh_edges_dirty(&self, py: Python<'_>) {
+        let written = self.edge_attr_writes.take_written(py);
+        if written.is_empty() {
+            return;
+        }
+        for ((u, v), dict) in &self.edge_py_attrs {
+            if written.contains(&(dict.as_ptr() as usize)) {
+                self.mark_edge_exposed_by_name(u, v);
+            }
+        }
+    }
+
     /// br-r37-c1-igdzi: `mark_edges_dirty` for a site that hands out ONE known
     /// edge's dict and can name its endpoints as node indices.
     ///
@@ -4528,6 +4708,7 @@ impl PyGraph {
         &self,
     ) -> Result<Option<std::sync::MutexGuard<'_, Option<rustc_hash::FxHashSet<(usize, usize)>>>>, ()>
     {
+        Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if !self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -5026,6 +5207,7 @@ impl PyGraph {
         for (u_index, v_index, attrs, mirror) in edges {
             if let Some(m) = mirror {
                 let ek = Self::edge_key(&u_index.to_string(), &v_index.to_string());
+                let m = self.edge_attr_writes.adopt(py, m.bind(py))?; // br-r37-c1-urjxk
                 self.edge_py_attrs.insert(ek, m);
             }
             store_edges.push((u_index, v_index, attrs));
@@ -5176,6 +5358,7 @@ impl PyGraph {
         let mut store_edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(edges.len());
         for (u_index, v_index, attrs, mirror) in edges {
             if let Some((ek, m)) = mirror {
+                let m = self.edge_attr_writes.adopt(py, m.bind(py))?; // br-r37-c1-urjxk
                 self.edge_py_attrs.insert(ek, m);
             }
             store_edges.push((u_index, v_index, attrs));
@@ -5860,6 +6043,7 @@ impl PyGraph {
         for (u_index, v_index, attrs, mirror) in edges {
             if let Some(m) = mirror {
                 let ek = Self::edge_key(&node_labels[u_index], &node_labels[v_index]);
+                let m = self.edge_attr_writes.adopt(py, m.bind(py))?; // br-r37-c1-urjxk
                 self.edge_py_attrs.insert(ek, m);
             }
             inner_edges.push((u_index, v_index, attrs));
@@ -6149,10 +6333,9 @@ impl PyGraph {
                             // its attributes there: seed the mirror from them, or
                             // the batch REPLACES them where nx's datadict.update
                             // merges (the store below merges; reads trust this).
-                            let seeded = match self.inner.edge_attrs(u, v) {
-                                Some(stored) => attr_map_to_pydict(py, stored)?,
-                                None => PyDict::new(py).unbind(),
-                            };
+                            let seeded = self
+                                .edge_attr_writes
+                                .dict_from_attr_map(py, self.inner.edge_attrs(u, v))?;
                             self.edge_py_attrs.insert(key, seeded.clone_ref(py));
                             seeded
                         }
@@ -13881,6 +14064,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: crate::digraph::PyMultiDiGraph::clean_edge_dirty_keys(),
             pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
+            edge_attr_writes: crate::EdgeAttrWrites::default(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -13918,6 +14102,7 @@ impl PyMultiGraph {
                         Some(attrs) => {
                             let (rust_attrs, py_attrs) =
                                 deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
+                            let py_attrs = mdg.edge_attr_writes.adopt(py, py_attrs.bind(py))?; // br-r37-c1-urjxk
                             mdg.edge_py_attrs
                                 .insert((source.to_owned(), target.to_owned(), key), py_attrs);
                             rust_attrs
@@ -14418,6 +14603,7 @@ impl PyMultiGraph {
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: crate::digraph::PyMultiDiGraph::clean_edge_dirty_keys(),
             pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
+            edge_attr_writes: crate::EdgeAttrWrites::default(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -14444,7 +14630,8 @@ impl PyMultiGraph {
             let mut py_attrs_copy = None;
             let ek = PyMultiGraph::edge_key(u, v, k);
             if let Some(py_attrs) = self.edge_py_attrs.get(&ek) {
-                py_attrs_copy = Some(py_attrs.bind(py).copy()?.unbind());
+                // br-r37-c1-urjxk: the MultiDiGraph's dict reports to it.
+                py_attrs_copy = Some(mdg.edge_attr_writes.adopt(py, py_attrs.bind(py))?);
             }
 
             let new_k1 = mdg
@@ -15683,7 +15870,7 @@ impl PyGraph {
                     }
                 }
                 for ((u, v), attrs) in &other.edge_py_attrs {
-                    let copied = attrs.bind(py).copy()?.unbind();
+                    let copied = g.edge_attr_writes.adopt(py, attrs.bind(py))?; // br-r37-c1-urjxk
                     g.edge_py_attrs
                         .insert((u.clone(), v.clone()), copied.clone_ref(py));
                     g.inner
@@ -15788,7 +15975,12 @@ impl PyGraph {
                                         let ek = Self::edge_key(&u_canonical, &v_canonical);
                                         g.edge_py_attrs
                                             .entry(ek)
-                                            .or_insert_with(|| PyDict::new(py).unbind())
+                                            .or_insert_with(|| {
+                                                g.edge_attr_writes
+                                                    .new_dict(py)
+                                                    .expect("creating an edge attr dict")
+                                                    .unbind()
+                                            })
                                             .bind(py)
                                             .update(d.as_mapping())?;
                                     }
@@ -16519,7 +16711,12 @@ impl PyGraph {
                 let mirror = if was_new_edge {
                     self.edge_py_attrs
                         .entry(Self::edge_key(&u_canonical, &v_canonical))
-                        .or_insert_with(|| PyDict::new(py).unbind())
+                        .or_insert_with(|| {
+                            self.edge_attr_writes
+                                .new_dict(py)
+                                .expect("creating an edge attr dict")
+                                .unbind()
+                        })
                         .clone_ref(py)
                 } else {
                     self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
@@ -17473,6 +17670,9 @@ impl PyGraph {
         {
             return None;
         }
+        if weight.is_some() {
+            Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
+        }
         if weight.is_some() && self.edges_dirty.load(Ordering::Relaxed) {
             return None;
         }
@@ -17849,6 +18049,7 @@ impl PyGraph {
             // br-r37-c1-igdzi: clean start, so the escape scope is empty for the
             // same reason the flag is false — these dicts were created here.
             exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+            edge_attr_writes: EdgeAttrWrites::default(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -17881,9 +18082,9 @@ impl PyGraph {
         // `G.edges()` order comes from the cloned inner — so the HashMap walk
         // order here is irrelevant (unlike the old rebuild-from-edge_py_attrs).
         for (key, attrs) in &self.edge_py_attrs {
-            new_graph
-                .edge_py_attrs
-                .insert(key.clone(), attrs.bind(py).copy()?.unbind());
+            // br-r37-c1-urjxk: the copy reports its writes to the NEW graph.
+            let copied = new_graph.edge_attr_writes.adopt(py, attrs.bind(py))?;
+            new_graph.edge_py_attrs.insert(key.clone(), copied);
         }
         Ok(new_graph)
     }
@@ -18001,6 +18202,8 @@ impl PyGraph {
                 self.edge_py_attrs.len(),
                 rustc_hash::FxBuildHasher,
             );
+        // br-r37-c1-urjxk: the copies report their writes to the NEW graph.
+        let edge_attr_writes = EdgeAttrWrites::default();
         let source_edges = self.inner.edges_ordered_borrowed();
         let mut edges_with_attrs: Vec<(String, String, AttrMap)> =
             Vec::with_capacity(source_edges.len());
@@ -18016,7 +18219,7 @@ impl PyGraph {
             {
                 edge_py_attrs.insert(
                     Self::edge_key(new_u, new_v),
-                    mirror.bind(py).copy()?.unbind(),
+                    edge_attr_writes.adopt(py, mirror.bind(py))?,
                 );
             }
             edges_with_attrs.push((new_u.clone(), new_v.clone(), attrs.clone()));
@@ -18057,6 +18260,7 @@ impl PyGraph {
             // it makes fresh dicts, but that has not been measured, and
             // inheriting the conservative scope keeps this commit to one claim.
             exposed_edges: std::sync::Mutex::new(None),
+            edge_attr_writes,
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -18087,6 +18291,7 @@ impl PyGraph {
             new_graph
                 .inner
                 .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
+            let copied = new_graph.edge_attr_writes.adopt(py, copied.bind(py))?; // br-r37-c1-urjxk
             new_graph
                 .edge_py_attrs
                 .insert((u.clone(), v.clone()), copied);
@@ -18143,6 +18348,7 @@ impl PyGraph {
             // none of them at construction, so it starts with an empty scope —
             // the same reasoning that already makes its dirty flag false.
             exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+            edge_attr_writes: EdgeAttrWrites::default(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -18184,6 +18390,7 @@ impl PyGraph {
                         let (rust_attrs, mirror) =
                             py_dict_to_attr_map_with_mirror(py, py_attrs.bind(py))?;
                         let _ = new_graph.inner.add_edge_with_attrs(u, v, rust_attrs);
+                        let mirror = new_graph.edge_attr_writes.adopt(py, mirror.bind(py))?;
                         new_graph.edge_py_attrs.insert(key, mirror);
                     }
                     None => {
@@ -18272,6 +18479,7 @@ impl PyGraph {
             // none of them at construction, so it starts with an empty scope —
             // the same reasoning that already makes its dirty flag false.
             exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+            edge_attr_writes: EdgeAttrWrites::default(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -18311,6 +18519,7 @@ impl PyGraph {
             new_graph
                 .inner
                 .replace_edge_attrs(u.as_str(), v.as_str(), rust_attrs);
+            let mirror = new_graph.edge_attr_writes.adopt(py, mirror.bind(py))?;
             new_graph.edge_py_attrs.insert(key.clone(), mirror);
         }
 
@@ -18360,6 +18569,7 @@ impl PyGraph {
             // none of them at construction, so it starts with an empty scope —
             // the same reasoning that already makes its dirty flag false.
             exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+            edge_attr_writes: EdgeAttrWrites::default(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -18406,6 +18616,7 @@ impl PyGraph {
                     let _ = new_graph
                         .inner
                         .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
+                    let mirror = new_graph.edge_attr_writes.adopt(py, mirror.bind(py))?; // br-r37-c1-urjxk
                     new_graph
                         .edge_py_attrs
                         .insert((u.clone(), v.clone()), mirror);
@@ -18472,7 +18683,8 @@ impl PyGraph {
             } else {
                 let ek = PyGraph::edge_key(u, v);
                 match self.edge_py_attrs.get(&ek) {
-                    Some(py_attrs) => Some(py_attrs.bind(py).copy()?.unbind()),
+                    // br-r37-c1-urjxk: the DiGraph's dict reports to it.
+                    Some(py_attrs) => Some(dg.edge_attr_writes.adopt(py, py_attrs.bind(py))?),
                     None => None,
                 }
             };
@@ -18653,12 +18865,9 @@ impl PyGraph {
                             (Some(attrs), None) => {
                                 // the result's store already holds an earlier
                                 // part's attributes for this edge, if any
-                                let seeded = match g.inner.edge_attrs(u, v) {
-                                    Some(stored) if !stored.is_empty() => {
-                                        attr_map_to_pydict(py, stored)?
-                                    }
-                                    _ => PyDict::new(py).unbind(),
-                                };
+                                let seeded = g
+                                    .edge_attr_writes
+                                    .dict_from_attr_map(py, g.inner.edge_attrs(u, v))?;
                                 seeded.bind(py).update(attrs.bind(py).as_mapping())?;
                                 g.edge_py_attrs.insert(ek_fwd, seeded);
                             }
@@ -18753,8 +18962,8 @@ impl PyGraph {
                         .get(&Self::edge_key(u, v))
                         .or_else(|| part.edge_py_attrs.get(&Self::edge_key(v, u)))
                     {
-                        g.edge_py_attrs
-                            .insert(Self::edge_key(&uc, &vc), attrs.bind(py).copy()?.unbind());
+                        let copied = g.edge_attr_writes.adopt(py, attrs.bind(py))?; // br-r37-c1-urjxk
+                        g.edge_py_attrs.insert(Self::edge_key(&uc, &vc), copied);
                     }
                     edge_batch.push((
                         uc,
@@ -18827,6 +19036,7 @@ impl PyGraph {
                     Some(attrs) => {
                         let (rust_attrs, py_attrs) =
                             deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
+                        let py_attrs = dg.edge_attr_writes.adopt(py, py_attrs.bind(py))?; // br-r37-c1-urjxk
                         dg.edge_py_attrs
                             .insert((source.to_owned(), target.to_owned()), py_attrs);
                         rust_attrs
@@ -19090,19 +19300,7 @@ impl PyGraph {
         for (canonical, attrs) in nodes {
             self.inner.replace_node_attrs(&canonical, attrs);
         }
-        if !self.edges_dirty.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        let edges: Vec<(String, String, AttrMap)> = self
-            .edge_py_attrs
-            .iter()
-            .map(|((u, v), dict)| Ok((u.clone(), v.clone(), py_dict_to_attr_map(dict.bind(py))?)))
-            .collect::<PyResult<_>>()?;
-        for (u, v, attrs) in edges {
-            self.inner.replace_edge_attrs(&u, &v, attrs);
-        }
-        self.edges_dirty.store(false, Ordering::Relaxed);
-        Ok(())
+        self._fnx_sync_edge_attrs_to_inner(py)
     }
 
     /// Edge-only sibling for kernels that read weights but never node attrs.
@@ -19111,7 +19309,14 @@ impl PyGraph {
     /// rebuild before the edge dirty check on every native sparse export. This
     /// preserves the same persistent dirty-edge semantics while leaving full
     /// node+edge sync available for callers that need node attributes.
+    ///
+    /// br-r37-c1-urjxk: writes reported by the escaped dicts are collected
+    /// first, and the flag is lifted only when every escaped dict reports its
+    /// writes to this graph - one that does not (a dict another graph shares,
+    /// or one a build path made plain) could be written unseen, so the store is
+    /// not trusted while it escaped.
     fn _fnx_sync_edge_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
+        self.refresh_edges_dirty(py);
         if !self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(());
         }
@@ -19123,7 +19328,14 @@ impl PyGraph {
         for (u, v, attrs) in edges {
             self.inner.replace_edge_attrs(&u, &v, attrs);
         }
-        self.edges_dirty.store(false, Ordering::Relaxed);
+        self.edge_attr_writes.note_rewrite();
+        if self
+            .edge_py_attrs
+            .values()
+            .all(|dict| self.edge_attr_writes.reports_here(py, dict.bind(py)))
+        {
+            self.edges_dirty.store(false, Ordering::Relaxed);
+        }
         Ok(())
     }
 
@@ -19347,6 +19559,7 @@ impl PyGraph {
     ///
     /// baseline minus this probe = the cost of `edge_attrs_by_indices`.
     fn _probe_size_no_lookup(&self, _weight: &str) -> Option<f64> {
+        Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return None;
         }
@@ -19397,6 +19610,7 @@ impl PyGraph {
     /// baseline minus this probe = the cost of the compensated arithmetic and
     /// its bookkeeping. Between the two probes the 7.1x gap is accounted for.
     fn _probe_size_no_compensation(&self, weight: &str) -> Option<f64> {
+        Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return None;
         }
@@ -19453,6 +19667,7 @@ impl PyGraph {
         // (0.64x clean) is not a win to begin with. `_weighted_size_fast` is
         // where the scope pays, because its clean path is a single store scalar
         // rather than a per-node walk. See the note there.
+        self.refresh_edges_dirty(py); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -19513,6 +19728,7 @@ impl PyGraph {
         // br-r37-c1-igdzi: not scope-aware, for the reason measured on the int
         // sibling above — the per-edge probe costs more than the fallback it
         // replaces on this shape.
+        self.refresh_edges_dirty(py); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -19597,6 +19813,7 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        self.refresh_edges_dirty(py); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -19743,6 +19960,7 @@ impl PyGraph {
         nbunch: &Bound<'_, PyAny>,
         weight: &str,
     ) -> PyResult<Vec<(PyObject, PyObject)>> {
+        self.refresh_edges_dirty(py); // br-r37-c1-urjxk
         // Materialize the (validated, in-graph) nbunch ONCE — nbunch may be a
         // one-shot iterator, and both the int-store fast path and the exact path
         // walk it. Preserve nx validation: unhashable -> TypeError, absent -> skip.
@@ -20036,6 +20254,7 @@ impl PyGraph {
             // this graph too. It inherits the flag and takes the widest scope —
             // the one case where starting clean would be unsound.
             exposed_edges: std::sync::Mutex::new(None),
+            edge_attr_writes: EdgeAttrWrites::default(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -20071,6 +20290,7 @@ impl PyGraph {
         for k in edge_keys {
             let deep =
                 deepcopy_py_dict_memo(py, &deepcopy, &new_graph.edge_py_attrs[&k], &memo_obj)?;
+            let deep = new_graph.edge_attr_writes.adopt(py, deep.bind(py))?; // br-r37-c1-urjxk
             new_graph.edge_py_attrs.insert(k, deep);
         }
         Ok(new_graph)
@@ -22501,6 +22721,9 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
         crate::live_keydict::_set_multigraph_keydict_class,
         m
     )?)?;
+    // br-r37-c1-urjxk: edge attr dicts that report their writes.
+    m.add_function(wrap_pyfunction!(_set_edge_attr_dict_class, m)?)?;
+    m.add_class::<EdgeAttrWatch>()?;
     m.add_class::<NodeIterator>()?;
 
     // DiGraph class + views
