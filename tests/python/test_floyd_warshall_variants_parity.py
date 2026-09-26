@@ -71,3 +71,31 @@ def test_floyd_warshall_goldens():
     assert {u: dict(d) for u, d in dist.items()} == {
         u: dict(d) for u, d in nx.floyd_warshall_predecessor_and_distance(ng)[1].items()
     }
+
+
+def _parallel_pair(seed, cls):
+    rng = random.Random(seed)
+    n = rng.randint(4, 8)
+    graphs = (getattr(fnx, cls)(), getattr(nx, cls)())
+    for graph in graphs:
+        graph.add_nodes_from(range(n))
+    for _ in range(3 * n):
+        u, v = sorted(rng.sample(range(n), 2))
+        w = rng.randint(1, 9)
+        for graph in graphs:
+            graph.add_edge(u, v, weight=w)
+    return graphs
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("seed", range(20))
+def test_floyd_warshall_numpy_takes_the_lightest_parallel_edge(seed, cls):
+    # br-r37-c1-545ld: networkx builds the matrix with multigraph_weight=min;
+    # fnx summed parallel edges (dist 1.5 came back 5.5 on a doubled pair)
+    fg, ng = _parallel_pair(seed, cls)
+    assert np.array_equal(fnx.floyd_warshall_numpy(fg), nx.floyd_warshall_numpy(ng))
+    nodelist = list(reversed(list(ng)))
+    assert np.array_equal(
+        fnx.floyd_warshall_numpy(fg, nodelist=nodelist),
+        nx.floyd_warshall_numpy(ng, nodelist=nodelist),
+    )

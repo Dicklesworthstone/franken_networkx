@@ -47411,7 +47411,11 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
     # weight-0 and negative-weight edges are handled correctly. The
     # previous `if A[i,j] != 0` gate skipped any edge with weight 0
     # (leaving dist[i,j] = inf) and silently dropped paths through them.
-    A = to_numpy_array(G, nodelist=nodelist, weight=weight, nonedge=np.inf)
+    # multigraph_weight=min, as networkx builds it: parallel edges contribute
+    # the lightest one, not their sum (br-r37-c1-545ld).
+    A = to_numpy_array(
+        G, nodelist=nodelist, weight=weight, nonedge=np.inf, multigraph_weight=min
+    )
     dist = np.array(A, dtype=float)
     np.fill_diagonal(dist, 0)
     for k in range(n):
