@@ -21626,9 +21626,10 @@ def transitive_reduction(G):
     # the snapshot preserves successor iteration order, so the emitted edge
     # order (``for v in u_nbrs``) is byte-identical to nx's
     # ``TR.add_edges_from(... for v in u_nbrs)``. Skips both conversions.
-    if not G.is_multigraph():
-        return _transitive_reduction_inprocess(G)
-    return _transitive_reduction_via_parity(G)
+    # br-r37-c1-rktno: a MultiDiGraph runs the same algorithm (its successor
+    # rows are unique neighbours, as nx's G[u] is), and the answer is a plain
+    # DiGraph for every input class, as nx's TR = nx.DiGraph() is.
+    return _transitive_reduction_inprocess(G)
 
 
 def _transitive_reduction_inprocess(G):
@@ -21661,7 +21662,7 @@ def _transitive_reduction_inprocess(G):
         seen.discard(v)
         return seen
 
-    R = _concrete_class_for(G)()
+    R = DiGraph()
     R.add_nodes_from(nodes)
     descendants = {}
     for u in nodes:
@@ -21676,33 +21677,6 @@ def _transitive_reduction_inprocess(G):
                 descendants.pop(v, None)
         R.add_edges_from([(u, v) for v in u_nbrs])
     return R
-
-
-def _transitive_reduction_via_parity(G):
-    """br-r37-c1-nhz31: private helper keeps the public
-    ``transitive_reduction`` classified as PY_WRAPPER in the
-    coverage matrix.
-
-    br-r37-c1-blaz5: ``type(G)`` for a SubgraphView is the synthetic
-    ``_FilteredGraphView`` whose ``__init__`` requires a ``graph`` arg —
-    so the bare ``type(G)()`` blew up with TypeError. Route through
-    ``_concrete_class_for(G)`` (same canonical-class resolver as the
-    cycle-225 br-r37-c1-k7dct operator fix family).
-    """
-    # br-r37-c1-trnoconv: for a concrete fnx DiGraph, nx.transitive_reduction runs
-    # directly over the fnx graph and (being deterministic) returns an fnx DiGraph
-    # byte-identical to the converted path — so skip BOTH the _networkx_graph_for_parity
-    # (fnx->nx) conversion AND the _from_nx_graph (nx->fnx) rebuild. View/synthetic
-    # classes (the blaz5 _FilteredGraphView whose ``type(G)()`` needs args) and any
-    # shape where the result is not an fnx graph fall back to the conversion path.
-    if type(G) is DiGraph:
-        direct = _nx.transitive_reduction(G, backend="networkx")
-        if isinstance(direct, DiGraph):
-            return direct
-    nx_result = _nx.transitive_reduction(_networkx_graph_for_parity(G), backend="networkx")
-    from franken_networkx.readwrite import _from_nx_graph
-    cls = _concrete_class_for(G)()
-    return _from_nx_graph(nx_result, create_using=cls)
 
 
 def degree_histogram(G):

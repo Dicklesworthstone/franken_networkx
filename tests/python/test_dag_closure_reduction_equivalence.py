@@ -168,3 +168,25 @@ def test_closure_of_already_closed_dag_is_identity():
     f.add_edge("a", "c")  # already closed
     tc = fnx.transitive_closure(f)
     assert sorted(tc.edges()) == sorted(f.edges())
+
+
+_REDUCTION_INPUTS = {
+    "digraph": lambda lib: lib.DiGraph([(0, 1), (1, 2), (0, 2), (2, 3), (0, 3)]),
+    "multidigraph": lambda lib: lib.MultiDiGraph([(0, 1), (1, 2), (0, 2), (0, 1), (2, 3), (1, 3)]),
+    "subclass": lambda lib: type("DiGraphSubclass", (lib.DiGraph,), {})([(0, 1), (1, 2), (0, 2)]),
+    "subgraph_view": lambda lib: lib.DiGraph([(0, 1), (1, 2), (2, 3), (0, 3), (0, 2)]).subgraph([0, 1, 2, 3]),
+    "empty_multidigraph": lambda lib: lib.MultiDiGraph(),
+}
+
+
+@needs_nx
+@pytest.mark.parametrize("name", sorted(_REDUCTION_INPUTS))
+def test_transitive_reduction_is_a_plain_digraph_like_networkx(name):
+    # br-r37-c1-rktno: nx builds TR = nx.DiGraph() for every input class; fnx
+    # returned a MultiDiGraph for a MultiDiGraph and the subclass for a subclass.
+    got = fnx.transitive_reduction(_REDUCTION_INPUTS[name](fnx))
+    expected = nx.transitive_reduction(_REDUCTION_INPUTS[name](nx))
+    assert type(got) is fnx.DiGraph
+    assert type(expected) is nx.DiGraph
+    assert list(got) == list(expected)
+    assert list(got.edges()) == list(expected.edges())
