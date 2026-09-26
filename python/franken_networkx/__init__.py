@@ -63518,8 +63518,22 @@ def _subgraph_filter_from_nbunch(G, nbunch):
         # an ordinary graph keeps the ``set(G)`` fast path above untouched; a
         # private-storage graph switches to the adjacency mapping, which excludes an
         # assigned ``_node`` key that has no adjacency row exactly as nx excludes it.
-        container = G.adj if _has_networkx_private_storage(G) else G
-        gnodes = set(container) if len(nb_list) * 4 >= len(G) else None
+        private = _has_networkx_private_storage(G)
+        container = G.adj if private else G
+        if type(G) in _CONCRETE_FNX_GRAPH_TYPES and not private and (
+            len(nb_list) * 4 >= len(G)
+            or vars(G).get("_fnx_native_node_key_set_state") == G.nodes_seq
+        ):
+            # br-r37-c1-5c2qc: the node set this filters against was rebuilt,
+            # set(G), on every subgraph() - 11.5 us of a 36 us
+            # DiGraph.subgraph(333 of 1000), which networkx makes in 18 us. The
+            # graph's cached node-key set (the one non_neighbors reads) is the
+            # same set, rebuilt only when nodes_seq moves; a small nbunch on a
+            # large graph still takes the per-node path unless the set is
+            # already built.
+            gnodes = _cached_native_node_key_set(G, G._native_node_keys)
+        else:
+            gnodes = set(container) if len(nb_list) * 4 >= len(G) else None
         if gnodes is not None:
             # br-r37-c1-yioox: the per-node loop hashed every node THREE times
             # — an explicit hash() for the error contract, again for the

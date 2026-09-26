@@ -154,3 +154,27 @@ def test_subgraph_view_stays_live(cls_name):
         graph.add_edge("n0", "n1", weight=99.0)
         graph.remove_edge("n2", "n17")
     assert _shape(sub_fx) == _shape(sub_nx)
+
+
+# br-r37-c1-5c2qc: the large-nbunch branch filters against the graph's CACHED
+# node-key set (rebuilt when nodes_seq moves) instead of set(G) on every call,
+# and a small nbunch uses it once it exists. A stale set would keep a removed
+# node or miss an added one; every step below re-subgraphs after a node change.
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_the_cached_node_set_follows_node_changes(cls_name):
+    nxg, fxg = _pair(cls_name)
+    steps = [
+        lambda G: None,
+        lambda G: G.add_node("late"),
+        lambda G: G.remove_node("n3"),
+        lambda G: G.add_edge("n3", "later"),
+        lambda G: G.remove_nodes_from(["late", "n5"]),
+        lambda G: G.add_node("n5"),
+    ]
+    wanted_big = [f"n{i}" for i in range(N)] + ["iso", "late", "later"]
+    wanted_small = ["n3", "late", "n5", "later"]
+    for step in steps:
+        step(nxg)
+        step(fxg)
+        for wanted in (wanted_big, wanted_small, wanted_big):
+            assert _shape(fxg.subgraph(wanted)) == _shape(nxg.subgraph(wanted))
