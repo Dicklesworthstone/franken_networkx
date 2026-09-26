@@ -34881,7 +34881,15 @@ def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     # neighbor sum), so the two diverge whenever a non-isolated node carries a
     # self-loop. Delegate self-loop graphs to nx rather than re-deriving nx's
     # subtle matrix semantics in Rust.
-    if weight is not None or G.is_directed() or number_of_selfloops(G) > 0:
+    # br-r37-c1-14vcl: a multigraph too - constraint_rust reads it as a simple
+    # graph, while networkx's matrix path sums parallel edges and its loop path
+    # counts each edge once (see _mutual_weight).
+    if (
+        weight is not None
+        or G.is_directed()
+        or G.is_multigraph()
+        or number_of_selfloops(G) > 0
+    ):
         # br-r37-c1-qurfc: nx's constraint(nodes=None) uses a deterministic
         # MATRIX path (P + P.T row-normalized), not the set-order summation —
         # so it is byte-reproducible in-process over the native adjacency_matrix
@@ -34995,7 +35003,8 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
     # br-r37-c1-1boe3: the Rust kernel also ignores self-loops, but nx folds a
     # self-loop into the mutual-weight normalization, so delegate self-loop
     # graphs to nx (same reasoning as constraint).
-    if weight is not None or G.is_directed() or has_selfloops:
+    # br-r37-c1-14vcl: a multigraph too, as in constraint.
+    if weight is not None or G.is_directed() or G.is_multigraph() or has_selfloops:
         # br-r37-c1-qurfc: nx's effective_size(nodes=None) uses a deterministic
         # MATRIX path, byte-reproducible in-process over the native
         # adjacency_matrix (proven 0/320 exact), dropping the fnx->nx conversion.
@@ -63069,27 +63078,24 @@ def mixing_dict(xy, normalized=False):
     return result
 
 
-def _edge_weight_sum(G, u, v, weight=None):
-    """Return the summed edge weight from ``u`` to ``v``.
+def _mutual_weight(G, u, v, weight=None):
+    """networkx's mutual_weight: ``G[u][v].get(weight, 1)`` each way, 0 where
+    there is no edge.
 
-    Multi-edges contribute the sum of their per-edge weights, matching the
-    observable NetworkX behavior for structural-hole helpers.
+    On a multigraph ``G[u][v]`` is the keydict, so networkx counts an edge 1
+    whatever its weights or its multiplicity; this keeps that reading
+    (br-r37-c1-14vcl). Summing the parallel edges' weights instead gave
+    local_constraint 0.056756 where networkx gives 0.036338.
     """
     try:
-        edge_data = G[u][v]
+        a_uv = G[u][v].get(weight, 1)
     except KeyError:
-        return 0
-
-    if G.is_multigraph():
-        if weight is None:
-            return len(edge_data)
-        return sum(attrs.get(weight, 1) for attrs in edge_data.values())
-    return edge_data.get(weight, 1)
-
-
-def _mutual_weight(G, u, v, weight=None):
-    """Return the combined weight of the edges between ``u`` and ``v``."""
-    return _edge_weight_sum(G, u, v, weight) + _edge_weight_sum(G, v, u, weight)
+        a_uv = 0
+    try:
+        a_vu = G[v][u].get(weight, 1)
+    except KeyError:
+        a_vu = 0
+    return a_uv + a_vu
 
 
 def _normalized_mutual_weight(G, u, v, weight=None, norm=sum):
