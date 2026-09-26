@@ -376,3 +376,42 @@ def test_disconnected_two_regular_graph_stays_on_matrix_route():
     assert fr.dtype == np.float64
     assert np.allclose(np.sort(fr), np.sort(nr))
     assert not np.allclose(np.sort(fr), cycle)
+
+
+_SPECTRUM_SHAPES = {
+    "cycle": [(0, 1), (1, 2), (2, 3), (3, 0)],
+    "path": [(0, 1), (1, 2), (2, 3)],
+    "star": [(0, 1), (0, 2), (0, 3)],
+    "complete": [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)],
+}
+
+
+def _one_bad_weight(lib, cls, shape, bad):
+    graph = getattr(lib, cls)()
+    for index, (u, v) in enumerate(_SPECTRUM_SHAPES[shape]):
+        graph.add_edge(u, v, weight=bad if index == 1 else 1.0 + index)
+    return graph
+
+
+def _outcome(fn, graph):
+    try:
+        values = np.asarray(fn(graph), dtype=complex)
+    except Exception as exc:  # noqa: BLE001 - the exception is what is compared
+        return type(exc).__name__, str(exc)
+    # + 0.0 folds -0.0 into 0.0, so solver sign noise on a zero eigenvalue is not a diff
+    parts = zip(np.round(values.real, 6) + 0.0, np.round(values.imag, 6) + 0.0)
+    return "ok", sorted((float(re), float(im)) for re, im in parts)
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+@pytest.mark.parametrize("fn_name", ["laplacian_spectrum", "normalized_laplacian_spectrum"])
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("shape", sorted(_SPECTRUM_SHAPES))
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -4.0], ids=["nan", "inf", "negative"])
+def test_non_finite_matrix_raises_networkx_value_error(fn_name, cls, shape, bad):
+    # br-r37-c1-63v34: networkx's scipy.linalg.eigvalsh rejects a nan/inf entry with
+    # ValueError('array must not contain infs or NaNs'); fnx's numpy eigvalsh failed
+    # later with LinAlgError. A finite negative weight must still give nx's values.
+    expected = _outcome(getattr(nx, fn_name), _one_bad_weight(nx, cls, shape, bad))
+    actual = _outcome(getattr(fnx, fn_name), _one_bad_weight(fnx, cls, shape, bad))
+    assert actual == expected

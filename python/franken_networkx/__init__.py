@@ -33718,7 +33718,10 @@ def laplacian_spectrum(G, weight="weight"):
                 return np.asarray(values, dtype=np.float64)
 
     L = laplacian_matrix(G, weight=weight)
-    dense = L.toarray()
+    # networkx's scipy.linalg.eigvalsh checks finiteness first: a nan or inf
+    # weight raises its ValueError, not LAPACK's non-convergence
+    # LinAlgError (br-r37-c1-63v34).
+    dense = np.asarray_chkfinite(L.toarray())
     n = dense.shape[0]
     # br-r37-c1-04z53.9109: small dense symmetric Laplacians use the safe-Rust
     # eigensolver after exact matrix construction.
@@ -42020,7 +42023,9 @@ def normalized_laplacian_spectrum(G, weight="weight"):
         return complete_bipartite_values
 
     NL = normalized_laplacian_matrix(G, weight=weight)
-    return np.sort(np.linalg.eigvalsh(NL.toarray()))
+    # A negative or non-finite weight puts nan in the matrix; networkx's
+    # scipy.linalg.eigvalsh rejects it with ValueError (br-r37-c1-63v34).
+    return np.sort(np.linalg.eigvalsh(np.asarray_chkfinite(NL.toarray())))
 
 
 def _edgeless_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
