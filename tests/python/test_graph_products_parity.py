@@ -377,3 +377,37 @@ def test_product_cross_edge_keys_match_nx(
     assert product.is_multigraph() is expected.is_multigraph()
     assert _canonical_nodes(product) == _canonical_nodes(expected)
     assert _normalize_graph_product_edges_with_keys(product) == _normalize_graph_product_edges_with_keys(expected)
+
+
+def test_modular_product_pairs_selfloops_like_networkx():
+    # br-r37-c1-1076l: nx pairs every edge of G with every edge of H - a
+    # selfloop included - then does the same over both complements; fnx's
+    # selfloop fallback only visited distinct node pairs, so (1, 1) in G with
+    # (0, 1) in H never joined (1, 0) and (1, 1).
+    import random
+
+    def canon(p):
+        return (
+            sorted(p.nodes(data=True), key=repr),
+            sorted(
+                (tuple(sorted((u, v), key=repr)), tuple(sorted(d.items())))
+                for u, v, d in p.edges(data=True)
+            ),
+        )
+
+    for seed in range(60):
+        pair = []
+        for lib in (fnx, nx):
+            rng = random.Random(seed)
+            graphs = []
+            for _ in range(2):
+                k = rng.randint(1, 4)
+                g = lib.Graph()
+                g.add_nodes_from((i, {"c": i}) for i in range(k))
+                g.add_edges_from(
+                    (rng.randrange(k), rng.randrange(k), {"w": rng.randint(0, 3)})
+                    for _ in range(rng.randint(0, 2 * k))
+                )
+                graphs.append(g)
+            pair.append(canon(lib.modular_product(*graphs)))
+        assert pair[0] == pair[1], seed

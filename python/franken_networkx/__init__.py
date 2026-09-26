@@ -44247,22 +44247,17 @@ def modular_product(G, H):
         for h, h_attrs in H.nodes(data=True):
             P.add_node((g, h), **_product_node_attrs(dict(g_attrs), dict(h_attrs)))
 
-    g_nodes = list(G.nodes())
-    h_nodes = list(H.nodes())
-    for g_left_index, g_left in enumerate(g_nodes):
-        for g_right in g_nodes[g_left_index + 1 :]:
-            g_adjacent = G.has_edge(g_left, g_right)
-            for h_left_index, h_left in enumerate(h_nodes):
-                for h_right in h_nodes[h_left_index + 1 :]:
-                    h_adjacent = H.has_edge(h_left, h_right)
-                    if g_adjacent != h_adjacent:
-                        continue
-                    attrs = _paired_edge_attrs(
-                        dict(G[g_left][g_right]) if g_adjacent else {},
-                        dict(H[h_left][h_right]) if h_adjacent else {},
-                    )
-                    P.add_edge((g_left, h_left), (g_right, h_right), **attrs)
-                    P.add_edge((g_left, h_right), (g_right, h_left), **attrs)
+    # br-r37-c1-1076l: networkx's algorithm - every edge of G against every
+    # edge of H (a selfloop is an edge like any other, so (1,1) in G with (0,1)
+    # in H joins (1,0) and (1,1); the old pair loop only visited distinct node
+    # pairs), then the same over both complements, which have no selfloops.
+    for pair_g, pair_h in ((G, H), (complement(G), complement(H))):
+        h_edges = list(pair_h.edges(data=True))
+        for u, v, c in pair_g.edges(data=True):
+            for x, y, d in h_edges:
+                attrs = _paired_edge_attrs(c, d)
+                P.add_edge((u, x), (v, y), **attrs)
+                P.add_edge((v, x), (u, y), **attrs)
 
     return P
 
