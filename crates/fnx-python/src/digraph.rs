@@ -15116,12 +15116,30 @@ impl PyDiGraph {
                     let u_obj = self.py_node_key(py, source);
                     g.maybe_store_adj_key(py, target, source, u_obj.bind(py));
                 }
-                let rust_attrs = match self
+                // The arc's dict when it takes the MIRROR path: its own mirror
+                // (deep-copied), or - for a store-only arc with attributes whose
+                // reverse arc exists - one built from the store. The two arcs of
+                // a reciprocal pair merge into ONE undirected dict, and reads
+                // trust that dict, so once either arc of the pair has a mirror
+                // both must go through it; a store-only arc merged only into the
+                // store left the result reading the other arc's stale values.
+                let mirror_src = match self
                     .edge_py_attrs
                     .get(&(source.to_owned(), target.to_owned()))
                 {
-                    Some(attrs) => {
-                        let py_attrs = crate::deepcopy_py_dict(py, &deepcopy, attrs)?;
+                    Some(attrs) => Some(crate::deepcopy_py_dict(py, &deepcopy, attrs)?),
+                    None if store_edges_bare => None,
+                    None => match self.inner.edge_attrs(source, target) {
+                        Some(stored)
+                            if !stored.is_empty() && self.inner.has_edge(target, source) =>
+                        {
+                            Some(crate::attr_map_to_pydict(py, stored)?)
+                        }
+                        _ => None,
+                    },
+                };
+                let rust_attrs = match mirror_src {
+                    Some(py_attrs) => {
                         let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
                         let ek_fwd = crate::PyGraph::edge_key(source, target);
                         let ek_rev = crate::PyGraph::edge_key(target, source);
@@ -17737,14 +17755,38 @@ impl PyDiGraph {
             for (ui, u) in nodes.iter().enumerate() {
                 for &vi in part.inner.successors_indices(ui).unwrap_or(&[]) {
                     let v = &nodes[vi];
-                    if !part.edge_py_attrs.is_empty()
-                        && let Some(attrs) = part.edge_py_attrs.get(&Self::edge_key(u, v))
-                    {
+                    if !(part.edge_py_attrs.is_empty() && g.edge_py_attrs.is_empty()) {
                         let ek = Self::edge_key(u, v);
-                        if let Some(existing) = g.edge_py_attrs.get(&ek) {
-                            existing.bind(py).update(attrs.bind(py).as_mapping())?;
-                        } else {
-                            g.edge_py_attrs.insert(ek, attrs.bind(py).copy()?.unbind());
+                        let part_mirror = part.edge_py_attrs.get(&ek);
+                        let existing = g.edge_py_attrs.get(&ek).map(|d| d.clone_ref(py));
+                        // An edge without a mirror keeps its attributes in the
+                        // store, on either side of the overlap (see
+                        // PyGraph::_native_compose): merge both ways, as nx's
+                        // datadict.update does.
+                        match (part_mirror, existing) {
+                            (Some(attrs), Some(existing)) => {
+                                existing.bind(py).update(attrs.bind(py).as_mapping())?;
+                            }
+                            (Some(attrs), None) => {
+                                let seeded = match g.inner.edge_attrs(u, v) {
+                                    Some(stored) if !stored.is_empty() => {
+                                        attr_map_to_pydict(py, stored)?
+                                    }
+                                    _ => PyDict::new(py).unbind(),
+                                };
+                                seeded.bind(py).update(attrs.bind(py).as_mapping())?;
+                                g.edge_py_attrs.insert(ek, seeded);
+                            }
+                            (None, Some(existing)) => {
+                                if let Some(stored) = part.inner.edge_attrs_by_indices(ui, vi)
+                                    && !stored.is_empty()
+                                {
+                                    existing.bind(py).update(
+                                        attr_map_to_pydict(py, stored)?.bind(py).as_mapping(),
+                                    )?;
+                                }
+                            }
+                            (None, None) => {}
                         }
                     }
                     edge_batch.push((

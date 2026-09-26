@@ -547,6 +547,39 @@ def test_set_edge_attributes_on_a_store_only_edge_keeps_its_other_attributes(cls
     assert outcomes["fnx"] == outcomes["nx"]
 
 
+# Eight weighted edges take the native batch, which leaves them store-only.
+_STORE_ONLY_TAIL = [(10 + i, 11 + i, 1.0) for i in range(8)]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("store_only", ["G", "H"])
+def test_compose_merges_an_overlapping_edge_held_only_in_the_store(cls, store_only):
+    """networkx updates the overlapping edge's dict with H's; the native compose
+    merged MIRRORS only, so H's dict replaced G's store-only attributes, or G's
+    mirror never saw H's store-only values."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        G, H = getattr(lib, cls)(), getattr(lib, cls)()
+        batch, mirrored = (G, H) if store_only == "G" else (H, G)
+        batch.add_weighted_edges_from([(0, 1, 7.5)] + _STORE_ONLY_TAIL)
+        mirrored.add_edge(0, 1, source="mirror", weight=None)
+        outcomes[name] = (dict(lib.compose(G, H)[0][1]), dict(lib.compose(H, G)[0][1]))
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
+def test_digraph_to_undirected_merges_a_mirrored_arc_with_its_store_only_reverse():
+    """0->1 re-added gets a mirror, 1->0 stays store-only; networkx applies 1->0's
+    dict last, the kernel merged it into the store only and read 0->1's 9.0.
+    (Int nodes: the batch must take the store-only native path.)"""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = lib.DiGraph()
+        graph.add_weighted_edges_from([(0, 1, 1.0), (1, 0, 2.0)] + _STORE_ONLY_TAIL)
+        graph.add_edge(0, 1, weight=9.0)
+        outcomes[name] = dict(graph.to_undirected()[0][1])
+    assert outcomes["fnx"] == outcomes["nx"] == {"weight": 2.0}
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the

@@ -18535,23 +18535,52 @@ impl PyGraph {
                     // skip the per-edge Python-dict copy — the inner edge batch +
                     // merge already carries every (scalar) attr losslessly.
                     if !both_edge_stores_readable
-                        && !part.edge_py_attrs.is_empty()
-                        && let Some(attrs) = part
-                            .edge_py_attrs
-                            .get(&Self::edge_key(u, v))
-                            .or_else(|| part.edge_py_attrs.get(&Self::edge_key(v, u)))
+                        && !(part.edge_py_attrs.is_empty() && g.edge_py_attrs.is_empty())
                     {
+                        let part_mirror = if part.edge_py_attrs.is_empty() {
+                            None
+                        } else {
+                            part.edge_py_attrs
+                                .get(&Self::edge_key(u, v))
+                                .or_else(|| part.edge_py_attrs.get(&Self::edge_key(v, u)))
+                        };
                         let ek_fwd = Self::edge_key(u, v);
-                        let ek_rev = Self::edge_key(v, u);
-                        if let Some(existing) = g
+                        let existing = g
                             .edge_py_attrs
                             .get(&ek_fwd)
-                            .or_else(|| g.edge_py_attrs.get(&ek_rev))
-                        {
-                            existing.bind(py).update(attrs.bind(py).as_mapping())?;
-                        } else {
-                            g.edge_py_attrs
-                                .insert(ek_fwd, attrs.bind(py).copy()?.unbind());
+                            .or_else(|| g.edge_py_attrs.get(&Self::edge_key(v, u)))
+                            .map(|d| d.clone_ref(py));
+                        // An edge without a mirror keeps its attributes in the
+                        // store, on either side of the overlap: a mirror-only
+                        // merge let the result's dict miss the earlier graph's
+                        // store-only attributes (H's dict REPLACED G's) or keep
+                        // stale ones (G's mirror never saw H's store-only values).
+                        match (part_mirror, existing) {
+                            (Some(attrs), Some(existing)) => {
+                                existing.bind(py).update(attrs.bind(py).as_mapping())?;
+                            }
+                            (Some(attrs), None) => {
+                                // the result's store already holds an earlier
+                                // part's attributes for this edge, if any
+                                let seeded = match g.inner.edge_attrs(u, v) {
+                                    Some(stored) if !stored.is_empty() => {
+                                        attr_map_to_pydict(py, stored)?
+                                    }
+                                    _ => PyDict::new(py).unbind(),
+                                };
+                                seeded.bind(py).update(attrs.bind(py).as_mapping())?;
+                                g.edge_py_attrs.insert(ek_fwd, seeded);
+                            }
+                            (None, Some(existing)) => {
+                                if let Some(stored) = part.inner.edge_attrs_by_indices(ui, vi)
+                                    && !stored.is_empty()
+                                {
+                                    existing.bind(py).update(
+                                        attr_map_to_pydict(py, stored)?.bind(py).as_mapping(),
+                                    )?;
+                                }
+                            }
+                            (None, None) => {}
                         }
                     }
                     edge_batch.push((
