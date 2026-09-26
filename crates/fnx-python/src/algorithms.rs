@@ -14008,18 +14008,50 @@ pub fn all_shortest_paths(
                 }
             }
             (Some(w), _) => {
-                let projection = gr
-                    .weighted_digraph_projection(w)
-                    .expect("is_directed checked above");
-                let dg_ref = projection.as_ref();
-                py.allow_threads(|| {
-                    fnx_algorithms::all_shortest_paths_weighted_directed(
-                        dg_ref,
-                        &source_key,
-                        &target_key,
-                        w,
-                    )
-                })
+                // br-r37-c1-q6rrt: a MultiDiGraph walks its cached min-parallel-weight
+                // rows (dijkstra_path_length's) instead of building a projection graph
+                // on every call; the rows keep G[u]'s successor order, so the paths and
+                // their order are the projection's.
+                let rows = match &gr {
+                    GraphRef::MultiDirected { mdg, .. } => {
+                        multidigraph_dijkstra_rows_for_graph(mdg, w)
+                    }
+                    _ => None,
+                };
+                if let Some(rows) = rows
+                    && let (Some(&source_idx), Some(&target_idx)) =
+                        (rows.index.get(&source_key), rows.index.get(&target_key))
+                {
+                    let index_paths = py.allow_threads(|| {
+                        fnx_algorithms::all_shortest_paths_weighted_indexed(
+                            rows.names.len(),
+                            source_idx,
+                            target_idx,
+                            |u| rows.rows[u].iter().map(|arc| (arc.target, arc.weight)),
+                        )
+                    });
+                    index_paths
+                        .into_iter()
+                        .map(|path| {
+                            path.into_iter()
+                                .map(|idx| rows.names[idx].clone())
+                                .collect()
+                        })
+                        .collect()
+                } else {
+                    let projection = gr
+                        .weighted_digraph_projection(w)
+                        .expect("is_directed checked above");
+                    let dg_ref = projection.as_ref();
+                    py.allow_threads(|| {
+                        fnx_algorithms::all_shortest_paths_weighted_directed(
+                            dg_ref,
+                            &source_key,
+                            &target_key,
+                            w,
+                        )
+                    })
+                }
             }
             (None, _) => {
                 let dg_ref = gr.digraph().expect("is_directed checked above");

@@ -243,3 +243,60 @@ def test_multigraph_hop_weighs_its_lightest_parallel_edge_like_networkx(cls, met
     got = list(fnx.all_shortest_paths(G, 0, target, weight="weight", method=method))
 
     assert got == expected
+
+
+# br-r37-c1-q6rrt: a MultiDiGraph's Dijkstra arm walks the cached min-parallel-
+# weight rows instead of a per-call projection. Ties (many equal paths), zero
+# weights (networkx appends predecessors to a node already final), int weights,
+# str nodes and shuffled insertion order all decide the path ORDER; and the rows
+# are a cache, so a graph mutated between calls must be answered afresh.
+def _random_multidigraph_edges(seed):
+    import random
+
+    rng = random.Random(seed)
+    n = rng.randint(4, 12)
+    label = (lambda i: f"n{i}") if seed % 2 else (lambda i: i)
+    order = list(range(n))
+    rng.shuffle(order)
+    edges = []
+    for _ in range(rng.randint(n, 4 * n)):
+        u, v = rng.randrange(n), rng.randrange(n)
+        if u != v:
+            edges.append((label(u), label(v), {"weight": rng.choice([0, 1, 1, 2, 2.0, 0.5, 3])}))
+    return [label(i) for i in order], edges, label
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_multidigraph_dijkstra_paths_and_order_match_networkx(seed):
+    nodes, edges, label = _random_multidigraph_edges(seed)
+    G, H = fnx.MultiDiGraph(), nx.MultiDiGraph()
+    for g in (G, H):
+        g.add_nodes_from(nodes)
+        g.add_edges_from(edges)
+    for source, target in [(nodes[0], nodes[-1]), (nodes[1], nodes[2]), (label(0), label(1))]:
+        try:
+            expected = list(nx.all_shortest_paths(H, source, target, weight="weight"))
+        except nx.NetworkXNoPath:
+            with pytest.raises(nx.NetworkXNoPath):
+                list(fnx.all_shortest_paths(G, source, target, weight="weight"))
+            continue
+        assert list(fnx.all_shortest_paths(G, source, target, weight="weight")) == expected
+
+
+@pytest.mark.parametrize("mutation", ["lighter_parallel_edge", "edge_dict_weight", "remove_edge"])
+def test_multidigraph_paths_follow_a_mutation_between_calls(mutation):
+    edges = [(0, 1, 1.0), (1, 3, 1.0), (0, 2, 1.0), (2, 3, 2.0), (0, 3, 5.0)]
+    G, H = fnx.MultiDiGraph(), nx.MultiDiGraph()
+    for g in (G, H):
+        g.add_weighted_edges_from(edges)
+    assert list(fnx.all_shortest_paths(G, 0, 3, weight="weight")) == [[0, 1, 3]]
+    for g in (G, H):
+        if mutation == "lighter_parallel_edge":
+            g.add_edge(2, 3, weight=1.0)
+        elif mutation == "edge_dict_weight":
+            g[2][3][0]["weight"] = 1.0
+        else:
+            g.remove_edge(1, 3)
+    assert list(fnx.all_shortest_paths(G, 0, 3, weight="weight")) == list(
+        nx.all_shortest_paths(H, 0, 3, weight="weight")
+    )

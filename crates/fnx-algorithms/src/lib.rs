@@ -25847,10 +25847,44 @@ pub fn all_shortest_paths_weighted_directed(
         .get_node_index(target)
         .expect("has_node checked above");
     let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
+    all_shortest_paths_weighted_indexed(nodes.len(), source_idx, target_idx, |u| {
+        digraph
+            .successors_indices(u)
+            .into_iter()
+            .flatten()
+            .map(move |&v| {
+                (
+                    v,
+                    digraph_edge_weight_or_default_idx(digraph, u, v, weight_attr),
+                )
+            })
+    })
+    .into_iter()
+    .map(|path| path.into_iter().map(|idx| nodes[idx].to_owned()).collect())
+    .collect()
+}
 
-    let mut dist = vec![f64::INFINITY; n];
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+/// The index-keyed core of [`all_shortest_paths_weighted_directed`]: Dijkstra with
+/// multi-predecessor tracking over `arcs(u)` - `(successor, weight)` in the order
+/// networkx iterates `G[u]` - then every shortest path source -> target, in
+/// networkx's `_build_paths_from_predecessors` order. Callers holding their own
+/// adjacency (a MultiDiGraph's min-parallel-weight rows) share it, so they run no
+/// projection graph per call (br-r37-c1-q6rrt).
+pub fn all_shortest_paths_weighted_indexed<I>(
+    node_count: usize,
+    source_idx: usize,
+    target_idx: usize,
+    mut arcs: impl FnMut(usize) -> I,
+) -> Vec<Vec<usize>>
+where
+    I: IntoIterator<Item = (usize, f64)>,
+{
+    if source_idx == target_idx {
+        return vec![vec![source_idx]];
+    }
+
+    let mut dist = vec![f64::INFINITY; node_count];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); node_count];
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
 
@@ -25880,24 +25914,21 @@ pub fn all_shortest_paths_weighted_directed(
             target_dist = d;
         }
 
-        if let Some(successors) = digraph.successors_indices(u) {
-            for &v in successors {
-                let weight = digraph_edge_weight_or_default_idx(digraph, u, v, weight_attr);
-                let next_dist = d + weight;
-                let current_dist_v = dist[v];
+        for (v, weight) in arcs(u) {
+            let next_dist = d + weight;
+            let current_dist_v = dist[v];
 
-                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
-                    dist[v] = next_dist;
-                    preds[v] = vec![u];
-                    seq_counter += 1;
-                    pq.push(DijkstraState {
-                        dist: next_dist,
-                        seq: seq_counter,
-                        node: v,
-                    });
-                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
-                    preds[v].push(u);
-                }
+            if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                dist[v] = next_dist;
+                preds[v] = vec![u];
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: v,
+                });
+            } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                preds[v].push(u);
             }
         }
     }
@@ -25906,7 +25937,7 @@ pub fn all_shortest_paths_weighted_directed(
         return Vec::new();
     }
 
-    build_all_paths_from_preds_index(&preds, source_idx, target_idx, &nodes)
+    build_index_paths_from_preds(&preds, source_idx, target_idx)
 }
 
 /// br-r37-c1-aspwdiridx A/B baseline: the pre-lever String-keyed directed weighted Dijkstra
@@ -26206,24 +26237,31 @@ fn build_all_paths_from_preds_index(
     target_idx: usize,
     nodes: &[&str],
 ) -> Vec<Vec<String>> {
+    build_index_paths_from_preds(preds, source_idx, target_idx)
+        .into_iter()
+        .map(|path| path.into_iter().map(|idx| nodes[idx].to_owned()).collect())
+        .collect()
+}
+
+/// [`build_all_paths_from_preds_index`] without the names: each path as node
+/// indices, source first.
+fn build_index_paths_from_preds(
+    preds: &[Vec<usize>],
+    source_idx: usize,
+    target_idx: usize,
+) -> Vec<Vec<usize>> {
     if preds[target_idx].is_empty() {
         return Vec::new();
     }
 
     let mut result = Vec::new();
-    let mut seen = vec![false; nodes.len()];
+    let mut seen = vec![false; preds.len()];
     seen[target_idx] = true;
     let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
 
     while let Some((current, pred_index)) = stack.last().copied() {
         if current == source_idx {
-            result.push(
-                stack
-                    .iter()
-                    .rev()
-                    .map(|(node, _)| nodes[*node].to_owned())
-                    .collect(),
-            );
+            result.push(stack.iter().rev().map(|(node, _)| *node).collect());
         }
 
         let pred_list = &preds[current];
