@@ -182,3 +182,23 @@ def test_negative_weights_key_order(seed):
             continue
         assert list(fl.keys()) == list(nl.keys())
         assert dict(fl) == dict(nl)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weights", ["float", "int", "mixed"])
+def test_all_pairs_bellman_ford_source_distance_is_the_int_zero(cls, weights):
+    """networkx seeds dist = {source: 0}, so a source's own distance is the int 0
+    whatever the weights; the native all-pairs path returned the kernel's 0.0 for
+    float weights. == cannot see it (0 == 0.0), so compare the types too."""
+    value = {"float": lambda i: float(i % 3) + 0.5, "int": lambda i: i % 3 + 1,
+             "mixed": lambda i: float(i) + 0.5 if i % 2 else i + 1}[weights]
+    edges = [(i, (i + 1) % 8, value(i)) for i in range(8)] + [(0, 4, value(9))]
+    rows = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(lib, cls)()
+        graph.add_weighted_edges_from(edges)
+        rows[name] = [
+            (source, [(target, type(d).__name__, d) for target, d in lengths.items()])
+            for source, lengths in lib.all_pairs_bellman_ford_path_length(graph)
+        ]
+    assert rows["fnx"] == rows["nx"]

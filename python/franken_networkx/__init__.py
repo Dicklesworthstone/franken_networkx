@@ -27954,11 +27954,19 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
         for node in G:
             yield (node, dict(single_source_bellman_ford_path_length(G, node, weight=weight)))
         return
+    # weighted sp batch 2: nx preserves int distances for all-int weights.
+    _coerce = _sp_edge_weights_all_int(G, weight)
+    if not _coerce and not _sp_edge_weights_all_float(G, weight):
+        # Mixed int/float weights: nx keeps a distance an int only where every
+        # edge on its path is int (int + int stays int), which the float kernel
+        # cannot tell; the per-source path re-derives it (as the Dijkstra
+        # all-pairs twin does through _sp_propagate_int_types).
+        for node in G:
+            yield (node, dict(single_source_bellman_ford_path_length(G, node, weight=weight)))
+        return
     # br-r37-c1-sk5be: iterate outer keys in node-insertion order
     # matching nx (Rust dict yields in arbitrary order).
     raw = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
-    # weighted sp batch 2: nx preserves int distances for all-int weights.
-    _coerce = _sp_edge_weights_all_int(G, weight)
     for node in G.nodes():
         if node in raw:
             # br-r37-c1-e9rea: the kernel already yields each source's lengths in
@@ -27966,6 +27974,11 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
             inner = dict(raw[node])
             if _coerce:
                 inner = _sp_coerce_dist_to_int(inner)
+            elif node in inner:
+                # nx seeds dist = {source: 0}: the source's own distance is the
+                # int 0 whatever the weights; the kernel's is a float. Assigning
+                # to the existing key keeps its position.
+                inner[node] = 0
             yield (node, inner)
 
 
