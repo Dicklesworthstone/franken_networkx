@@ -102,3 +102,34 @@ def test_moral_rejects_backend_kwargs_like_networkx_dispatch():
 
     with pytest.raises(TypeError):
         module.moral_graph(fnx.DiGraph([(0, 1)]), unsupported=True)
+
+
+# br-r37-c1-f5h1g: nx's moral_graph is G.to_undirected() plus the married
+# co-parents - so a MultiDiGraph gives a MultiGraph (a co-parent pair already
+# joined gets another parallel edge) and G.graph is copied. fnx built a simple
+# Graph and dropped G.graph.
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_moral_graph_class_graph_attrs_and_edges_match_networkx(cls):
+    import random
+
+    for seed in range(40):
+        rng = random.Random(seed)
+        n = rng.randint(3, 9)
+        edges = [(rng.randrange(n), rng.randrange(n), {"w": rng.randint(0, 3)}) for _ in range(rng.randint(n, 3 * n))]
+
+        def summary(lib):
+            g = getattr(lib, cls)()
+            g.add_nodes_from((i, {"c": i}) for i in range(n))
+            g.add_edges_from(edges)
+            g.graph["name"] = seed
+            m = lib.moral_graph(g)
+            kw = {"keys": True} if m.is_multigraph() else {}
+            return (
+                m.is_multigraph(),
+                dict(m.graph),
+                list(m.nodes(data=True)),
+                list(m.edges(data=True, **kw)),
+                {u: list(m[u]) for u in m},
+            )
+
+        assert summary(fnx) == summary(nx), seed

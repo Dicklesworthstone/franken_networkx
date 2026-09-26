@@ -47707,31 +47707,18 @@ def moral_graph(G):
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
 
-    # br-r37-c1-moralbatch: replace the per-node add_node(**dict) and per-edge
-    # add_edge(**data) loops with batch construction (add_nodes_from /
-    # add_edges_from). br-r37-c1-umz6c fixed the native moral_graph_rust binding
-    # (it had returned canonical str display keys and dropped attributes — the
-    # lazy-key divergence bug — and mis-handled reciprocal-edge data), but this
-    # Python batch path is already at nx parity (~1.07x) and guarantees the
-    # exact to_undirected tie-break, so it remains the live implementation. The
-    # co-parent marriage
-    # keeps the per-pair has_edge guard so existing edge data is preserved and
-    # only genuinely new edges are queued; add_edges_from idempotently dedupes
-    # repeated co-parent pairs while preserving first-seen insertion order, so
-    # the result is byte-identical to the per-pair loop.
-    H = Graph()
-    H.add_nodes_from((node, G.nodes[node]) for node in G.nodes())
-    # Add existing edges as undirected (preserving edge order and data).
-    H.add_edges_from(G.edges(data=True))
-
-    # Marry co-parents: for each node, connect all pairs of predecessors.
-    extra = []
-    for node in G.nodes():
-        preds = list(G.predecessors(node))
-        for u, v in _combinations(preds, 2):
-            if not H.has_edge(u, v):
-                extra.append((u, v))
-    H.add_edges_from(extra)
+    # br-r37-c1-f5h1g: networkx's algorithm - H = G.to_undirected(), so a
+    # MultiDiGraph gives a MultiGraph (whose add_edges_from ADDS a parallel edge
+    # for a co-parent pair already joined) and G.graph is copied, then each
+    # node's predecessors are married in G.pred order. One add_edges_from over
+    # every node's pairs, in that order, adds what nx's per-node calls add. On
+    # a simple H re-adding an existing pair is a data-less update - a no-op
+    # that keeps adjacency order - so only the new pairs are passed on.
+    H = G.to_undirected()
+    pairs = [pair for preds in G.pred.values() for pair in _combinations(preds, 2)]
+    if not H.is_multigraph():
+        pairs = [(u, v) for u, v in pairs if not H.has_edge(u, v)]
+    H.add_edges_from(pairs)
 
     return H
 
