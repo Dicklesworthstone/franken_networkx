@@ -55245,99 +55245,14 @@ MultiDiGraph.to_undirected = _directed_to_undirected_with_view(
 )
 
 
-def _materialize_attrs_before_convert(method):
-    # br-r37-c1-todirmaterialize: the native Graph.to_directed / DiGraph.to_undirected
-    # (and the other simple-type conversions) walk ``edges_ordered`` + the lazy edge
-    # mirror, both of which MISS edge attrs on a freshly batch-built INT-node graph
-    # (``add_edges_from``) — so as a first-op the converted graph silently loses every
-    # edge weight (sibling of the fnx->nx delegation drop fixed in backend.py). Self-
-    # correcting POST-check: run the native conversion, and ONLY if it returned with NO
-    # edge attrs while the source reports attrs, materialise the mirror (iterating
-    # ``edges(data=True)`` syncs inner->mirror via the display-key path get_edge_data/
-    # dijkstra read correctly) and redo. The ``any(... if _data)`` probe early-exits on
-    # the first non-empty attr, so a normal already-materialised graph pays O(1);
-    # multigraphs (``graph_has_any_attrs`` -> None) and attr-less graphs skip entirely.
-    import functools as _functools
-    import inspect as _inspect
-
-    @_functools.wraps(method)
-    def wrapped(self, *args, **kwargs):
-        result = method(self, *args, **kwargs)
-        # br-r37-c1-hgmnp: ``as_view=True`` returns a LIVE view, and the guard
-        # below is a copy-path guard - it exists because the NATIVE conversion
-        # walks a lazy edge mirror that can miss attrs on a freshly batch-built
-        # graph. A view copies nothing, so there is no copy to drop attrs from;
-        # it answers every query by reading through ``self`` on the public
-        # display-key path, which is the very path that syncs the mirror.
-        #
-        # Worse, the probe cannot even MEASURE a view. The conversion-view
-        # classes hold an EMPTY Rust base on purpose (br-r37-c1-y2b8t), so
-        # ``graph_has_any_edge_attrs(result)`` reads that empty base and returns
-        # False on every attributed graph - the guard then materialises the
-        # source O(E) and redoes the conversion, on EVERY call, for a result
-        # that was never wrong. That made a documented O(1) view O(E):
-        # 0.156x of networkx at 400 edges decaying to 0.018x at 6400, against a
-        # flat ~7us nx, while the ``reverse(copy=False)`` sibling stayed flat.
-        #
-        # Test the RESULT, not the arguments. Reading ``as_view`` off the call
-        # is a trap: ``DiGraph.to_undirected`` is
-        # ``(self, reciprocal=False, as_view=False)``, so its first positional
-        # is ``reciprocal`` - and networkx agrees, ``to_undirected(True)`` on a
-        # directed path graph yields ZERO edges in both libraries. A positional
-        # ``args[0]`` fallback would have skipped this guard for a genuine COPY
-        # whenever a caller passed ``reciprocal`` positionally, which is exactly
-        # the silent attr loss the guard exists to prevent. The result type
-        # cannot be fooled by a signature, and it is the honest predicate: what
-        # matters is that a live view came back, not how it was asked for.
-        if isinstance(result, _ConversionGraphViewBase):
-            return result
-        if self.number_of_edges() and _fnx.graph_has_any_attrs(self):
-            # br-r37-c1-todirprobe (cc): the old probe materialised the WHOLE result
-            # EdgeView (`result.edges(data=True)`, ~28% of to_directed/to_undirected
-            # wall time) AND marked it dirty, just to short-circuit `any(... if data)`.
-            # The native edge-attr check is byte-identical (`any_edge_has_attrs` ==
-            # `edges.values().any(!is_empty)` == Python's `if _data`), read-only, and
-            # skips all PyObject materialization. Multigraph results return None ->
-            # keep the Python probe (native check is simple-graph only).
-            _res_has_edge_data = _fnx.graph_has_any_edge_attrs(result)
-            if _res_has_edge_data is None:
-                _res_has_edge_data = any(
-                    True for *_edge, _data in result.edges(data=True) if _data
-                )
-            if not _res_has_edge_data:
-                for _ in self.edges(data=True):
-                    pass
-                result = method(self, *args, **kwargs)
-        return result
-
-    # ``functools.wraps`` carries ``__wrapped__`` so ``inspect.signature``
-    # resolves to the underlying wrapper's nx-matching signature (the
-    # signature-parity tests read it); keep an explicit copy too in case
-    # ``method`` exposes ``__signature__`` directly.
-    try:
-        wrapped.__signature__ = _inspect.signature(method)
-    except (TypeError, ValueError):
-        pass
-    return wrapped
-
-
-Graph.to_directed = _materialize_attrs_before_convert(Graph.to_directed)
-DiGraph.to_directed = _materialize_attrs_before_convert(DiGraph.to_directed)
-Graph.to_undirected = _materialize_attrs_before_convert(Graph.to_undirected)
-DiGraph.to_undirected = _materialize_attrs_before_convert(DiGraph.to_undirected)
-
-
 def _digraph_to_directed_deepcopy_fastpath(wrapped):
     # br-r37-c1-dgtodir (cc): an already-directed DiGraph's to_directed() is a full
     # deep copy into the same class. copy.deepcopy uses the native deep-copy
     # machinery (it preserves edge attrs from the store AND deep-copies graph-level
     # attrs) so it is byte-exact with networkx AND ~1.5-2.8x faster than nx. Route
     # there for an exact DiGraph with the default to_directed_class (and no nx
-    # private storage), AHEAD of the _materialize_attrs_before_convert wrapper —
-    # that wrapper's post-conversion probe walks result.edges(data=True), forcing an
-    # O(E) mirror materialisation of the copy (~10x the deepcopy itself), and it is
-    # pointless here because the deepcopy never drops attrs. Subclasses, nx-private
-    # storage, custom to_directed_class, and as_view=True fall through to `wrapped`.
+    # private storage). Subclasses, nx-private storage, custom to_directed_class,
+    # and as_view=True fall through to `wrapped`.
     import functools as _functools
 
     @_functools.wraps(wrapped)
@@ -55360,9 +55275,7 @@ DiGraph.to_directed = _digraph_to_directed_deepcopy_fastpath(DiGraph.to_directed
 def _graph_to_undirected_deepcopy_fastpath(wrapped):
     # br-r37-c1-dgtodir (cc): symmetric to the DiGraph.to_directed fast path — an
     # already-undirected Graph's to_undirected() is a full deep copy into the same
-    # class, so route to copy.deepcopy AHEAD of the _materialize_attrs_before_convert
-    # wrapper (whose post-conversion edges(data=True) probe forces an O(E) mirror
-    # build of the copy). Simple Graph had no native shortcut (MultiGraph already
+    # class, so route to a native deep copy. Simple Graph had no native shortcut (MultiGraph already
     # routes to _native_to_undirected_deepcopy). NOTE: only the undirected->Graph
     # case is a deepcopy; DiGraph.to_undirected COLLAPSES reciprocal edges and is
     # left untouched. Subclasses / nx-private storage / custom to_undirected_class /

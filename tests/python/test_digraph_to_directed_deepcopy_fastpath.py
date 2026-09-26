@@ -9,8 +9,8 @@ copy. Net: ~0.58x nx.
 
 An already-directed DiGraph's to_directed() is a full deep copy into the same
 class, so the fast path routes to copy.deepcopy (native deep copy, preserves store
-edge attrs + deep-copies graph attrs) AHEAD of the materialize wrapper. These
-tests lock byte-exactness with networkx and the attr-survival the wrapper guarded.
+edge attrs + deep-copies graph attrs). These tests lock byte-exactness with
+networkx and the survival of store-only edge attrs.
 """
 
 import copy
@@ -60,9 +60,8 @@ def test_to_directed_byte_exact_vs_networkx():
 
 
 def test_batch_built_edge_attrs_survive():
-    # The bug _materialize_attrs_before_convert guards: batch-built graphs keep
-    # edge attrs in the native store with a lazy mirror. The deepcopy fast path
-    # must preserve them.
+    # Batch-built graphs keep edge attrs in the native store with a lazy
+    # mirror. The deepcopy fast path must preserve them.
     gf, gx = fnx.DiGraph(), nx.DiGraph()
     gf.add_nodes_from(range(5))
     gx.add_nodes_from(range(5))

@@ -3018,8 +3018,58 @@ def workload_claim_add_edge(reps: int):
     return build, ops
 
 
+def workload_claim_convert_node_attrs(reps: int):
+    """Graph.to_directed / DiGraph.to_undirected when nodes carry attributes.
+
+    A wrapper redid the conversion whenever the source reported ANY attribute
+    and the result carried no EDGE attribute - true on every call for a graph
+    with labelled nodes and bare edges - so those rows ran the kernel twice plus
+    a full edge walk. The weighted rows (edges added one by one, so every edge
+    is mirrored) check the store scan that replaced the wrapper costs nothing
+    where edges do carry attributes. An op returns the node count and one arc
+    probe each way (NOT number_of_edges(): see claim-add-edge). Control:
+    Graph.copy() of the node-attributed graph, a kernel the change leaves alone.
+    `reps` is unused; these are millisecond operations.
+    """
+    ba = list(nx.barabasi_albert_graph(1500, 2, seed=3).edges())
+    random.Random(7).shuffle(ba)
+    u0, v0 = ba[0]
+
+    def build(module):
+        fixture = {}
+        for name in ("Graph", "DiGraph"):
+            labelled = getattr(module, name)()
+            labelled.add_edges_from(ba)
+            for node in labelled:
+                labelled.nodes[node]["color"] = node % 5
+            weighted = getattr(module, name)()
+            for u, v in ba:
+                weighted.add_edge(u, v, weight=float(u % 7) + 0.5)
+            fixture[name] = (labelled, weighted)
+        return fixture["Graph"][0], fixture
+
+    def ops(control, fixture):
+        def convert(graph, method):
+            def op():
+                result = getattr(graph, method)()
+                return len(result), result.has_edge(u0, v0), result.has_edge(v0, u0)
+
+            return op
+
+        return {
+            "G.to_directed() node attrs": convert(fixture["Graph"][0], "to_directed"),
+            "D.to_undirected() node attrs": convert(fixture["DiGraph"][0], "to_undirected"),
+            "G.to_directed() weighted": convert(fixture["Graph"][1], "to_directed"),
+            "D.to_undirected() weighted": convert(fixture["DiGraph"][1], "to_undirected"),
+            "CONTROL G.copy() node attrs": convert(control, "copy"),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
     "claim-add-edge": workload_claim_add_edge,
+    "claim-convert-node-attrs": workload_claim_convert_node_attrs,
     "claim-has-edge-neighbors": workload_claim_has_edge_neighbors,
     "claim-has-edge-neighbors-str": workload_claim_has_edge_neighbors_str,
     "view-reads": workload_view_reads,

@@ -347,6 +347,44 @@ def test_dijkstra_sees_a_negative_weight_on_a_reversed_multidigraph(call):
     assert outcomes["fnx"] == outcomes["nx"]
 
 
+def _store_only_graph(lib, cls, node_attrs):
+    """Edge attributes held only in the store, with NO mirror at all: a weighted
+    batch leaves Graph and DiGraph so; a MultiDiGraph batch mirrors, but reverse()
+    of round-tripping dicts does not. (5, 0) repeats (0, 5): one undirected edge,
+    and two arcs that to_undirected merges."""
+    graph = getattr(lib, cls)()
+    ring = [(i, (i + 1) % 12, float(i % 4) + 1.5) for i in range(12)]
+    graph.add_weighted_edges_from(ring + [(0, 5, 2.5), (5, 0, 3.5)])
+    if cls == "MultiDiGraph":
+        graph = graph.reverse()
+    if node_attrs:
+        for node in graph:
+            graph.nodes[node]["color"] = node % 3
+    return graph
+
+
+@pytest.mark.parametrize(
+    "cls, method",
+    [
+        ("Graph", "to_directed"),
+        ("DiGraph", "to_undirected"),
+        ("MultiDiGraph", "to_directed"),
+        ("MultiDiGraph", "to_undirected"),
+    ],
+)
+@pytest.mark.parametrize("node_attrs", [False, True])
+def test_conversion_of_a_store_only_graph_keeps_edge_attributes(cls, method, node_attrs):
+    """The deep-copy kernels read an EMPTY mirror map as "no edge attributes"
+    (MultiDiGraph: {} for any arc without a mirror). node_attrs=True is the shape
+    a removed re-run wrapper made slower than networkx."""
+    rows = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        result = getattr(_store_only_graph(lib, cls, node_attrs), method)()
+        keys = {"keys": True} if result.is_multigraph() else {}
+        rows[name] = sorted(map(repr, result.edges(data=True, **keys)))
+    assert rows["fnx"] == rows["nx"]
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the

@@ -8914,11 +8914,16 @@ impl PyMultiDiGraph {
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
                 for key in self.inner.edge_keys(source, target).unwrap_or_default() {
-                    let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
-                    let py_attrs = attrs_entry.map_or_else(
-                        || Ok(PyDict::new(py).unbind()),
-                        |attrs| crate::deepcopy_py_dict(py, &deepcopy, attrs),
-                    )?;
+                    // An arc without a mirror keeps its attributes in the store
+                    // (a reversed graph is store-only).
+                    let py_attrs =
+                        match self.edge_py_attrs.get(&Self::edge_key(source, target, key)) {
+                            Some(attrs) => crate::deepcopy_py_dict(py, &deepcopy, attrs)?,
+                            None => match self.inner.edge_attrs(source, target, key) {
+                                Some(stored) => crate::attr_map_to_pydict(py, stored)?,
+                                None => PyDict::new(py).unbind(),
+                            },
+                        };
                     let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
                     let new_key = new_graph
                         .inner
@@ -9036,10 +9041,20 @@ impl PyMultiDiGraph {
                             rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
                             Some(py_attrs)
                         }
-                        None => {
-                            rust_attrs = Default::default();
-                            None
-                        }
+                        // An arc without a mirror keeps its attributes in the
+                        // store (a reversed graph is store-only); an attributed
+                        // one takes the mirror path so a reciprocal arc merges
+                        // into the same dict either way round.
+                        None => match self.inner.edge_attrs(source, target, key) {
+                            Some(stored) if !stored.is_empty() => {
+                                rust_attrs = stored.clone();
+                                Some(crate::attr_map_to_pydict(py, stored)?)
+                            }
+                            _ => {
+                                rust_attrs = Default::default();
+                                None
+                            }
+                        },
                     };
                     let py_key = self.py_edge_key(py, source, target, key);
                     let lookup = crate::edge_key_lookup_string(py, py_key.bind(py).as_any())?;
@@ -15087,11 +15102,10 @@ impl PyDiGraph {
         // names; do not re-apply without checking the edge/node ratio first.
         let mut seen: std::collections::HashSet<(String, String)> =
             std::collections::HashSet::with_capacity(self.inner.edge_count());
-        // br-inedges-distorefix (bt): see PyGraph::_native_to_directed_deepcopy —
-        // a NON-pristine mirror (one stray get_edge_data/subgraph.copy entry) made
-        // the `None => Default` arm drop store-only edges' attrs. Read the store
-        // for store-only edges when the mirror is non-pristine.
-        let mirror_pristine = self.edge_py_attrs.is_empty();
+        // An edge without a mirror keeps its attributes in the store; skip the
+        // lookup only when the store holds no edge attributes at all (see
+        // PyGraph::_native_to_directed_deepcopy - an empty mirror proves nothing).
+        let store_edges_bare = !self.inner.any_edge_has_attrs();
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
                 let unordered = if source <= target {
@@ -15129,7 +15143,7 @@ impl PyDiGraph {
                         rust_attrs
                     }
                     // attr-less edge stays lazy (no PyDict alloc)
-                    None if mirror_pristine => Default::default(),
+                    None if store_edges_bare => Default::default(),
                     None => self
                         .inner
                         .edge_attrs(source, target)

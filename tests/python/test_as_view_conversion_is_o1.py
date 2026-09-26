@@ -1,10 +1,11 @@
 """``to_undirected(as_view=True)`` / ``to_directed(as_view=True)`` must be O(1).
 
-br-r37-c1-hgmnp. ``_materialize_attrs_before_convert`` wraps both conversion
-methods. It is a COPY-path guard: the native conversion walks a lazy edge mirror
-that can miss edge attrs on a freshly batch-built graph, so the wrapper probes
-the RESULT and, if the source has attrs but the result appears not to, walks
-``self.edges(data=True)`` to sync the mirror and redoes the conversion.
+br-r37-c1-hgmnp. ``_materialize_attrs_before_convert`` wrapped both conversion
+methods as a COPY-path guard: the native conversion read only the lazy edge
+mirror, which misses edge attrs on a freshly batch-built graph, so the wrapper
+probed the RESULT and, if the source had attrs but the result appeared not to,
+walked ``self.edges(data=True)`` to sync the mirror and redid the conversion.
+(The kernels now read the attr store themselves and the wrapper is gone.)
 
 On a view that post-check was both pointless and unmeasurable. The conversion
 view classes hold an EMPTY Rust base on purpose (br-r37-c1-y2b8t) because every
@@ -82,11 +83,11 @@ def test_view_matches_networkx_without_materialization(cls, conv, ints, attrs):
 @pytest.mark.parametrize("cls", CLASSES)
 @pytest.mark.parametrize("conv", CONVERSIONS)
 def test_copy_path_still_materializes_attrs(cls, conv):
-    """THE REGRESSION GUARD. The copy path must keep the wrapper's protection."""
+    """THE REGRESSION GUARD. The copy path must keep every edge attribute."""
     got = getattr(_batch_built(fnx, cls, ints=True), conv)()
     want = getattr(_batch_built(nx, cls, ints=True), conv)()
     assert _rows(got) == _rows(want)
-    assert _rows(got), "the copy lost every edge attr - the guard stopped firing"
+    assert _rows(got), "the copy lost every edge attr"
 
 
 @pytest.mark.parametrize("cls", CLASSES)
