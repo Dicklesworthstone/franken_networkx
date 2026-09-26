@@ -98,3 +98,33 @@ def test_negative_edge_cycle_real_cycle_undirected_unchanged():
     GX = nx.Graph()
     GX.add_weighted_edges_from([(0, 1, -1), (1, 2, -1), (0, 2, -1)])
     assert fnx.negative_edge_cycle(G, weight="weight") == nx.negative_edge_cycle(GX, weight="weight")
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("sign", ["positive", "negative"])
+@pytest.mark.parametrize("weight", ["weight", "callable"])
+def test_negative_edge_cycle_answers_on_every_class(cls, sign, weight):
+    """The undirected branch fed the multigraph weight function one parallel
+    edge's attr dict instead of G[u][v]'s keydict, so an undirected MultiGraph
+    raised AttributeError ('float' object has no attribute 'get')."""
+    last = -4.0 if sign == "negative" else 4.0
+    edges = [(0, 1, 1.5), (1, 2, 2.0), (2, 0, 3.0), (2, 3, last)]
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(lib, cls)()
+        graph.add_weighted_edges_from(edges)
+        if weight == "callable":
+            # nx passes G[u][v]: the keydict on a multigraph. .get(..., 1) as
+            # nx's own weight functions do - its helper edges carry no weight.
+            if graph.is_multigraph():
+                arg = lambda u, v, d: min(attrs.get("weight", 1) for attrs in d.values())  # noqa: E731
+            else:
+                arg = lambda u, v, d: d.get("weight", 1)  # noqa: E731
+        else:
+            arg = weight
+        try:
+            outcomes[name] = ("ok", lib.negative_edge_cycle(graph, weight=arg))
+        except Exception as exc:  # noqa: BLE001 - the raise is the defect
+            outcomes[name] = ("raise", type(exc).__name__)
+    assert outcomes["fnx"] == outcomes["nx"]

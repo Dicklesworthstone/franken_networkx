@@ -26928,10 +26928,14 @@ def _negative_edge_cycle_inprocess(G, weight):
         wt = lambda u, v, d: d.get(weight, 1)
 
     if not G.is_directed():
-        for u, v, *data in G.edges(data=True):
-            d = data[0] if data else {}
-            if wt(u, v, d) < 0:
-                return True
+        # nx's weight function takes G[u][v] - the keydict {key: attrs} on a
+        # multigraph, which the min-over-keys wt above expects. Walking
+        # edges(data=True) handed it one parallel edge's attr dict instead, and
+        # an undirected MultiGraph raised AttributeError ('float' has no 'get').
+        for u, nbrs in G.adj.items():
+            for v, d in nbrs.items():
+                if wt(u, v, d) < 0:
+                    return True
         return False
 
     # Directed
