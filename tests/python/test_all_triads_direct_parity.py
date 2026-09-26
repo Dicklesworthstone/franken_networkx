@@ -91,3 +91,44 @@ def test_triad_count_is_n_choose_3():
 
     _, DGf = _mk(12, 50, 9)
     assert len(list(fnx.all_triads(DGf))) == math.comb(12, 3)
+
+
+# br-r37-c1-sx0id: nx yields G.subgraph(triplet).copy() - selfloops kept,
+# successors in G's adjacency order, and a MultiDiGraph's triads are
+# MultiDiGraphs with their parallel edges; triads_by_type keys come in first-
+# occurrence order, a triad with a selfloop is not a triad (triad_type raises),
+# and a MultiDiGraph triad is classified by len(G.edges()), parallel edges
+# counted.
+def _triad_summary(t):
+    kw = {"keys": True} if t.is_multigraph() else {}
+    return (type(t).__name__, list(t.nodes(data=True)), list(t.edges(data=True, **kw)), dict(t.graph))
+
+
+def _triad_outcome(fn):
+    try:
+        return ("ok", fn())
+    except Exception as exc:  # noqa: BLE001 - the raise is the answer
+        return ("raise", type(exc).__name__, str(exc))
+
+
+def test_triads_selfloops_parallel_edges_and_key_order_match_networkx():
+    for seed in range(40):
+        rng = random.Random(seed)
+        n = rng.randint(3, 6)
+        edges = [(rng.randrange(n), rng.randrange(n), {"w": rng.randint(0, 2)}) for _ in range(rng.randint(n, 3 * n))]
+        if seed % 3:
+            edges = [(u, v, d) for u, v, d in edges if u != v]
+        for cls in ("DiGraph", "MultiDiGraph"):
+            gf, gn = getattr(fnx, cls)(), getattr(nx, cls)()
+            for g in (gf, gn):
+                g.add_nodes_from((i, {"c": i}) for i in range(n))
+                g.add_edges_from(edges)
+                g.graph["k"] = seed
+            assert [_triad_summary(t) for t in fnx.all_triads(gf)] == [
+                _triad_summary(t) for t in nx.all_triads(gn)
+            ], (seed, cls)
+            assert _triad_outcome(
+                lambda: [(k, [_triad_summary(t) for t in v]) for k, v in fnx.triads_by_type(gf).items()]
+            ) == _triad_outcome(
+                lambda: [(k, [_triad_summary(t) for t in v]) for k, v in nx.triads_by_type(gn).items()]
+            ), (seed, cls)

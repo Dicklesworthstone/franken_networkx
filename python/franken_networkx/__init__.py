@@ -43418,6 +43418,12 @@ def all_triads(G):
 
     nodes = list(G.nodes())
     n = len(nodes)
+    if G.is_multigraph():
+        # br-r37-c1-sx0id: nx yields G.subgraph(triplet).copy() - for a
+        # MultiDiGraph that is a MultiDiGraph with its keyed parallel edges.
+        for triplet in _itertools.combinations(nodes, 3):
+            yield G.subgraph(triplet).copy()
+        return
 
     # br-ctcg-triaddirect: `G.subgraph([i, j, k]).copy()` per triad routes
     # through fnx's filtered-view + materialize-copy machinery, ~7x slower than
@@ -43437,12 +43443,14 @@ def all_triads(G):
                 H = DiGraph()
                 H.graph.update(graph_attrs)
                 H.add_nodes_from((t, dict(node_attrs[t])) for t in triple)
+                # br-r37-c1-sx0id: the subgraph copy nx yields keeps selfloops
+                # and lists each node's successors in G's adjacency order.
                 H.add_edges_from(
                     [
-                        (a, b, dict(out_adj[a][b]))
+                        (a, b, dict(data))
                         for a in triple
-                        for b in triple
-                        if a != b and b in out_adj[a]
+                        for b, data in out_adj[a].items()
+                        if b in triple
                     ]
                 )
                 yield H
@@ -43474,8 +43482,59 @@ def triad_type(G):
         # DiGraph)' message — distinct exception class lets users
         # catch algorithmic invariants separately from generic errors.
         raise NetworkXAlgorithmError("G is not a triad (order-3 DiGraph)")
+    if G.is_multigraph():
+        return _triad_type_by_edge_count(G)
     nodes = list(G.nodes())
     return _fnx.triad_type_rust(G, nodes[0], nodes[1], nodes[2])
+
+
+def _triad_type_by_edge_count(G):
+    """networkx's triad_type, verbatim (br-r37-c1-sx0id): it classifies by
+    len(G.edges()), which on a MultiDiGraph counts parallel edges - so a
+    doubled arc reads as a mutual pair ('102') and more than six arcs give
+    None. The native kernel reads the simple adjacency and cannot say that."""
+    edges = list(G.edges())
+    num_edges = len(edges)
+    if num_edges == 0:
+        return "003"
+    if num_edges == 1:
+        return "012"
+    if num_edges == 2:
+        e1, e2 = edges
+        if set(e1) == set(e2):
+            return "102"
+        if e1[0] == e2[0]:
+            return "021D"
+        if e1[1] == e2[1]:
+            return "021U"
+        if e1[1] == e2[0] or e2[1] == e1[0]:
+            return "021C"
+    elif num_edges == 3:
+        for e1, e2, e3 in _itertools.permutations(edges, 3):
+            if set(e1) == set(e2):
+                if e3[0] in e1:
+                    return "111U"
+                return "111D"
+            if set(e1).symmetric_difference(set(e2)) == set(e3):
+                if {e1[0], e2[0], e3[0]} == {e1[0], e2[0], e3[0]} == set(G.nodes()):
+                    return "030C"
+                return "030T"
+    elif num_edges == 4:
+        for e1, e2, e3, e4 in _itertools.permutations(edges, 4):
+            if set(e1) == set(e2):
+                if set(e3) == set(e4):
+                    return "201"
+                if {e3[0]} == {e4[0]} == set(e3).intersection(set(e4)):
+                    return "120D"
+                if {e3[1]} == {e4[1]} == set(e3).intersection(set(e4)):
+                    return "120U"
+                if e3[1] == e4[0]:
+                    return "120C"
+    elif num_edges == 5:
+        return "210"
+    elif num_edges == 6:
+        return "300"
+    return None
 
 
 def is_triad(G):
@@ -43507,15 +43566,11 @@ def triads_by_type(G):
     """
     from collections import defaultdict as _defaultdict
 
-    result = {t: [] for t in _TRIAD_TYPES}
-    for triad in all_triads(G):
-        ttype = triad_type(triad)
-        if ttype in result:
-            result[ttype].append(triad)
+    # br-r37-c1-sx0id: nx's loop - keys in first-occurrence order, and a triad
+    # that is not a triad (a selfloop) raises from triad_type.
     out = _defaultdict(list)
-    for t, triads in result.items():
-        if triads:
-            out[t] = triads
+    for triad in all_triads(G):
+        out[triad_type(triad)].append(triad)
     return out
 
 
