@@ -43029,7 +43029,8 @@ def min_cost_flow_cost(G, demand="demand", capacity="capacity", weight="weight")
     float
     """
     flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
-    return cost_of_flow(G, flow, weight=weight)
+    # nx's min_cost_flow_cost is network_simplex(G)[0] (br-r37-c1-6soms).
+    return _network_simplex_cost(G, flow, weight)
 
 
 def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
@@ -43185,8 +43186,26 @@ def network_simplex(G, demand="demand", capacity="capacity", weight="weight"):
     """
     _validate_network_simplex_inputs(G, demand, capacity, weight)
     flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
-    cost = cost_of_flow(G, flow, weight=weight)
-    return (cost, flow)
+    return (_network_simplex_cost(G, flow, weight), flow)
+
+
+def _network_simplex_cost(G, flow, weight):
+    """networkx's network_simplex cost (br-r37-c1-6soms): sum(w * x) over the
+    non-selfloop edges, from the int 0, then w * x for each negative-weight
+    selfloop (saturated); a non-negative selfloop carries no flow and adds
+    nothing. cost_of_flow scores every edge, and 0 * 1.5 is 0.0."""
+    if G.is_multigraph():
+        rows = [
+            (u, v, flow[u][v][key] if isinstance(flow[u][v], dict) else flow[u][v], data)
+            for u, v, key, data in G.edges(keys=True, data=True)
+        ]
+    else:
+        rows = [(u, v, flow[u][v], data) for u, v, data in G.edges(data=True)]
+    cost = sum(data.get(weight, 0) * x for u, v, x, data in rows if u != v)
+    for u, v, x, data in rows:
+        if u == v and data.get(weight, 0) < 0:
+            cost += data.get(weight, 0) * x
+    return cost
 
 
 def flow_hierarchy(G, weight=None):

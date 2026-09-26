@@ -194,3 +194,31 @@ def test_max_flow_min_cost_multigraph_still_raises_like_networkx(cls):
     with pytest.raises(nx.NetworkXError) as fnx_exc:
         fnx.max_flow_min_cost(_build_undirected_flow(spec, fnx, cls), 0, n - 1)
     assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+# br-r37-c1-6soms: nx's network_simplex cost is sum(w * x) over the NON-selfloop
+# edges from the int 0, plus w * c per negative selfloop; a non-negative
+# selfloop adds nothing. fnx scored every edge (cost_of_flow), so selfloops
+# alone came to 0.0. min_cost_flow_cost is network_simplex(G)[0] in nx.
+_SIMPLEX_EDGES = {
+    "selfloops_only": [(0, 0, 1.5), (12, 12, 2.0)],
+    "negative_selfloop": [(0, 0, -1.5), (0, 1, 2.0)],
+    "idle_float_edge": [(0, 1, 1.5)],
+    "int_weights": [(0, 1, 2)],
+    "selfloop_among_edges": [(0, 0, 2.5), (0, 1, 1), (1, 2, 2)],
+}
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("case", sorted(_SIMPLEX_EDGES))
+@pytest.mark.parametrize("fn", ["network_simplex", "min_cost_flow_cost"])
+def test_network_simplex_cost_value_and_type_match_networkx(cls, case, fn):
+    def outcome(lib):
+        g = getattr(lib, cls)()
+        for u, v, w in _SIMPLEX_EDGES[case]:
+            g.add_edge(u, v, weight=w, capacity=3)
+        result = getattr(lib, fn)(g)
+        cost = result[0] if isinstance(result, tuple) else result
+        return (cost, type(cost).__name__)
+
+    assert outcome(fnx) == outcome(nx)
