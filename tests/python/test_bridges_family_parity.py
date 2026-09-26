@@ -74,3 +74,20 @@ def test_bridges_goldens():
     assert _span_set(fnx.local_bridges(p4)) == {
         ((0, 1), float("inf")), ((1, 2), float("inf")), ((2, 3), float("inf"))
     }
+
+
+# br-r37-c1-64xcg: local_bridges(weight=...) ran its own Dijkstra on a
+# (distance, node) heap, so a distance tie compared two nodes - TypeError on
+# mixed int / str labels, where networkx's heap breaks ties with a counter.
+@pytest.mark.parametrize("weight", [None, "weight", lambda u, v, d: d.get("weight", 1)])
+@pytest.mark.parametrize("with_span", [True, False])
+def test_local_bridges_on_mixed_labels_matches_networkx(with_span, weight):
+    edges = [(0, "n1", 1.5), ("n1", 2, 2.5), (2, "n3", 1.0), ("n3", 0, 2.0), (2, "n5", 1.0),
+             ("n5", 6, 0.5), (6, "n7", 1.5), ("n7", 0, 3.0), ("n5", 8, 2.0), (8, "n9", 1.0)]
+
+    def bridges(lib):
+        g = lib.Graph()
+        g.add_weighted_edges_from(edges)
+        return list(lib.local_bridges(g, with_span=with_span, weight=weight))
+
+    assert bridges(fnx) == bridges(nx)

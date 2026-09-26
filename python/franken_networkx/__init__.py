@@ -31078,11 +31078,16 @@ def local_bridges(G, with_span=True, weight=None, *, backend=None, **backend_kwa
                 else:
                     # Weighted: Dijkstra avoiding direct (u,v) edge.
                     import heapq
+                    from itertools import count as _count
 
+                    # br-r37-c1-64xcg: networkx's Dijkstra breaks distance
+                    # ties with a counter; (distance, node) compared the
+                    # nodes and raised TypeError on mixed int / str labels.
+                    push_order = _count()
                     dist = {u: 0}
-                    heap = [(0, u)]
+                    heap = [(0, next(push_order), u)]
                     while heap:
-                        d, curr = heapq.heappop(heap)
+                        d, _, curr = heapq.heappop(heap)
                         if d > dist.get(curr, float("inf")):
                             continue
                         if curr == v:
@@ -31103,7 +31108,7 @@ def local_bridges(G, with_span=True, weight=None, *, backend=None, **backend_kwa
                             nd = d + w
                             if nd < dist.get(nbr, float("inf")):
                                 dist[nbr] = nd
-                                heapq.heappush(heap, (nd, nbr))
+                                heapq.heappush(heap, (nd, next(push_order), nbr))
                     span = dist.get(v, float("inf"))
                 yield (u, v, span)
             else:
@@ -47732,9 +47737,54 @@ def intersection_array(G):
         raise NetworkXNotImplemented("not implemented for directed type")
     params = _global_parameters_from_graph(G)
     if params is None:
-        raise NetworkXError("Graph is not distance regular.")
+        # br-r37-c1-64xcg: networkx raises three ways - "... regular." when G is
+        # not regular or not connected or its diameter outgrows (8 log2 n) / 3,
+        # "... regular" (no period) when an intersection number disagrees -
+        # whichever its pair loop meets first; its loop, verbatim, decides.
+        return _intersection_array_networkx_loop(G)
     b, c = params
     return (b[:-1], c[1:])
+
+
+def _intersection_array_networkx_loop(G):
+    """networkx's intersection_array body, for the graphs the native solver rejects."""
+    from collections import defaultdict
+    from itertools import combinations_with_replacement
+
+    if not is_regular(G) or not is_connected(G):
+        raise NetworkXError("Graph is not distance regular.")
+    path_length = defaultdict(dict)
+    bint = {}
+    cint = {}
+    diam = 0
+    max_diameter_for_dr_graphs = (8 * _math.log(len(G), 2)) / 3
+    for u, v in combinations_with_replacement(G, 2):
+        pl_u = path_length[u]
+        if v not in pl_u:
+            pl_u.update(single_source_shortest_path_length(G, u))
+            for x, distance in pl_u.items():
+                path_length[x][u] = distance
+        i = path_length[u][v]
+        diam = max(diam, i)
+        if diam > max_diameter_for_dr_graphs:
+            raise NetworkXError("Graph is not distance regular.")
+        vnbrs = G[v]
+        for n in vnbrs:
+            pl_n = path_length[n]
+            if u not in pl_n:
+                pl_n.update(single_source_shortest_path_length(G, n))
+                for x, distance in pl_n.items():
+                    path_length[x][n] = distance
+        c = sum(1 for n in vnbrs if pl_u[n] == i - 1)
+        b = sum(1 for n in vnbrs if pl_u[n] == i + 1)
+        if cint.get(i, c) != c or bint.get(i, b) != b:
+            raise NetworkXError("Graph is not distance regular")
+        bint[i] = b
+        cint[i] = c
+    return (
+        [bint.get(j, 0) for j in range(diam)],
+        [cint.get(j + 1, 0) for j in range(diam)],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -65502,10 +65552,52 @@ def find_asteroidal_triple(G, *, backend=None, **backend_kwargs):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    result = _fnx.find_asteroidal_triple_rust(G)
-    if result is None:
+    # br-r37-c1-64xcg: networkx returns the FIRST triple its loops meet, and
+    # both loops iterate Python sets - non_edges pops ``set(G)`` and the
+    # third vertex runs over ``V - union_of_neighborhoods`` - so its answer
+    # follows hash order (for str labels, the process's hash seed). The
+    # native solver scans in index order and found another triple on str /
+    # tuple labels (and on ints whose small difference sets wrap the table).
+    # Whether a triple exists does not depend on the order, so the native
+    # solver still answers "none" (its full scan is the expensive case, >100x
+    # networkx); when one exists, networkx's loops run here on the same sets.
+    # Only "same component of G - N[x]" is ever compared, so a plain BFS
+    # labels the components.
+    V = set(G.nodes)
+    if len(V) < 6 or _fnx.find_asteroidal_triple_rust(G) is None:
         return None
-    return list(result)
+    adj = {u: set(G[u]) for u in G}
+    component_structure = {}
+    for x in V:
+        closed = adj[x] | {x}
+        row = dict.fromkeys(closed, 0)
+        label = 0
+        for start in V - closed:
+            if start in row:
+                continue
+            label += 1
+            row[start] = label
+            stack = [start]
+            while stack:
+                y = stack.pop()
+                for z in adj[y]:
+                    if z not in row:
+                        row[z] = label
+                        stack.append(z)
+        component_structure[x] = row
+    nodes = set(G)
+    while nodes:
+        u = nodes.pop()
+        for v in nodes - adj[u]:
+            union_of_neighborhoods = adj[u] | {u} | adj[v] | {v}
+            for w in V - union_of_neighborhoods:
+                if (
+                    component_structure[u][v] == component_structure[u][w]
+                    and component_structure[v][u] == component_structure[v][w]
+                    and component_structure[w][u] == component_structure[w][v]
+                ):
+                    return [u, v, w]
+    return None
 
 
 def is_perfect_graph(G):

@@ -72,3 +72,32 @@ def test_algorithms_asteroidal_path_uses_fnx_module():
         == nx.find_asteroidal_triple(nx.cycle_graph(6)),
         "algorithms.asteroidal should match NetworkX values",
     )
+
+
+# br-r37-c1-64xcg: networkx returns the FIRST triple its loops meet, and both
+# loops iterate Python sets (non_edges pops set(G); the third vertex runs over
+# V - union_of_neighborhoods), so the answer follows hash order. The native
+# solver scanned in index order: another (valid) triple on str / tuple labels
+# and on ints whose small difference sets wrap the table - 220 of these 600
+# rows before. Whether a triple exists is order-free, so None stays native.
+@pytest.mark.parametrize(
+    "labels",
+    [lambda x: x, lambda x: x * 37 + 5, lambda x: f"n{x}", lambda x: (x, x % 3)],
+    ids=["int", "sparse_int", "str", "tuple"],
+)
+@pytest.mark.parametrize("seed", range(150))
+def test_find_asteroidal_triple_returns_networkx_triple(labels, seed):
+    import random
+
+    r = random.Random(seed)
+    n = r.randint(3, 14)
+    p = r.choice((0.2, 0.35, 0.5))
+    edges = [(u, v) for u in range(n) for v in range(u + 1, n) if r.random() < p]
+
+    def triple(lib):
+        g = lib.Graph()
+        g.add_nodes_from(labels(i) for i in range(n))
+        g.add_edges_from((labels(u), labels(v)) for u, v in edges)
+        return lib.find_asteroidal_triple(g)
+
+    assert triple(fnx) == triple(nx)

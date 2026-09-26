@@ -98,3 +98,30 @@ def test_distance_regular_rejects_backend_kwargs_like_networkx_dispatch():
 
     with pytest.raises(TypeError):
         module.is_distance_regular(graph, unsupported=True)
+
+
+# br-r37-c1-64xcg: networkx raises "Graph is not distance regular." when G is
+# not regular / not connected / too wide, and "Graph is not distance regular"
+# (no period) when an intersection number disagrees - whichever its pair loop
+# meets first. fnx raised the first message for every rejected graph.
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda L: L.path_graph(4), lambda L: L.cycle_graph(6), lambda L: L.petersen_graph(),
+        lambda L: L.complete_bipartite_graph(3, 3), lambda L: L.circular_ladder_graph(5),
+        lambda L: L.disjoint_union(L.complete_graph(3), L.complete_graph(3)), lambda L: L.hypercube_graph(3),
+        lambda L: L.dodecahedral_graph(), lambda L: L.cycle_graph(12), lambda L: L.frucht_graph(),
+        lambda L: L.moebius_kantor_graph(), lambda L: L.complete_graph(1), lambda L: L.ladder_graph(4),
+        lambda L: L.relabel_nodes(L.circular_ladder_graph(6), {i: f"n{i}" for i in range(12)}),
+    ],
+    ids=["path4", "cycle6", "petersen", "K33", "prism5", "two_triangles", "cube", "dodecahedral",
+         "cycle12", "frucht", "moebius_kantor", "K1", "ladder4", "str_prism6"],
+)
+def test_intersection_array_answer_or_message_matches_networkx(build):
+    def outcome(lib):
+        try:
+            return lib.intersection_array(build(lib))
+        except Exception as exc:  # noqa: BLE001 - the exception is the outcome
+            return type(exc).__name__, str(exc)
+
+    assert outcome(fnx) == outcome(nx)
