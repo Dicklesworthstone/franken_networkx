@@ -332,6 +332,21 @@ def test_spanning_edges_of_a_partly_mirrored_graph_keep_every_edges_data(which, 
     assert outcomes["fnx"] == outcomes["nx"]
 
 
+@pytest.mark.parametrize("call", ["single_source", "all_pairs"])
+def test_dijkstra_sees_a_negative_weight_on_a_reversed_multidigraph(call):
+    """A MultiDiGraph batch mirrors every edge, but reverse() leaves the result
+    store-only; the multigraph arms of the delegation check scanned the mirrors
+    alone, so the native kernel ran on the negative weight."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = _lazy_weighted_with(lib, "MultiDiGraph", [(20, 21, -7.0), (21, 20, 3.0)]).reverse()
+        if call == "single_source":
+            outcomes[name] = _outcome(lambda: lib.single_source_dijkstra_path_length(graph, 20))
+        else:
+            outcomes[name] = _outcome(lambda: dict(lib.all_pairs_dijkstra_path_length(graph)))
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the

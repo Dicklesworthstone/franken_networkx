@@ -4720,20 +4720,18 @@ fn stored_dijkstra_weight_flags(
 /// add_weighted_edges_from ran the native kernel on a negative weight instead
 /// of delegating, and returned a wrong distance where networkx raises.
 ///
-/// `has_mirror` answers for one edge; a graph whose every edge is mirrored is
-/// skipped by the caller, so the eager case pays nothing.
+/// `store_only` yields the store attributes of exactly the edges without a
+/// mirror (every graph class keys its mirror differently, so the caller
+/// filters); a graph whose every edge is mirrored is skipped by the caller, so
+/// the eager case pays nothing. A reversed MultiDiGraph is store-only too.
 fn fold_store_only_dijkstra_weights<'a>(
-    edges: impl IntoIterator<Item = (&'a str, &'a str, &'a AttrMap)>,
-    has_mirror: impl Fn(&str, &str) -> bool,
+    store_only: impl IntoIterator<Item = &'a AttrMap>,
     weight_attr: &str,
     flags: &mut (bool, bool, bool),
     int_magnitude_total: &mut u128,
 ) {
     use fnx_runtime::CgseValue;
-    for (u, v, attrs) in edges {
-        if has_mirror(u, v) {
-            continue;
-        }
+    for attrs in store_only {
         match attrs.get(weight_attr) {
             Some(CgseValue::Int(value)) => {
                 flags.0 |= *value < 0;
@@ -4797,8 +4795,13 @@ pub fn check_dijkstra_edge_weights_fast(
             if pg.edge_py_attrs.len() < pg.inner.edge_count() {
                 let mut flags = (has_negative, has_nonfinite, has_nonnumeric);
                 fold_store_only_dijkstra_weights(
-                    pg.inner.edges_ordered_borrowed(),
-                    |u, v| pg.edge_py_attrs.contains_key(&PyGraph::edge_key(u, v)),
+                    pg.inner
+                        .edges_ordered_borrowed()
+                        .into_iter()
+                        .filter(|(u, v, _)| {
+                            !pg.edge_py_attrs.contains_key(&PyGraph::edge_key(u, v))
+                        })
+                        .map(|(_, _, attrs)| attrs),
                     weight_attr,
                     &mut flags,
                     &mut int_magnitude_total,
@@ -4841,8 +4844,13 @@ pub fn check_dijkstra_edge_weights_fast(
             if dg.edge_py_attrs.len() < dg.inner.edge_count() {
                 let mut flags = (has_negative, has_nonfinite, has_nonnumeric);
                 fold_store_only_dijkstra_weights(
-                    dg.inner.edges_ordered_borrowed(),
-                    |u, v| dg.edge_py_attrs.contains_key(&PyDiGraph::edge_key(u, v)),
+                    dg.inner
+                        .edges_ordered_borrowed()
+                        .into_iter()
+                        .filter(|(u, v, _)| {
+                            !dg.edge_py_attrs.contains_key(&PyDiGraph::edge_key(u, v))
+                        })
+                        .map(|(_, _, attrs)| attrs),
                     weight_attr,
                     &mut flags,
                     &mut int_magnitude_total,
@@ -4897,6 +4905,23 @@ pub fn check_dijkstra_edge_weights_fast(
                     if has_negative && has_positive_infinity && has_nonnumeric {
                         break;
                     }
+                }
+                if mg.edge_py_attrs.len() < mg.inner.edge_count() {
+                    let mut flags = (has_negative, has_positive_infinity, has_nonnumeric);
+                    fold_store_only_dijkstra_weights(
+                        mg.inner
+                            .edges_ordered_borrowed()
+                            .into_iter()
+                            .filter(|(u, v, key, _)| {
+                                !mg.edge_py_attrs
+                                    .contains_key(&PyMultiGraph::edge_key(u, v, *key))
+                            })
+                            .map(|(_, _, _, attrs)| attrs),
+                        weight_attr,
+                        &mut flags,
+                        &mut int_magnitude_total,
+                    );
+                    (has_negative, has_positive_infinity, has_nonnumeric) = flags;
                 }
                 // This arm's slot 2 is `has_positive_infinity`, not the general
                 // exactness channel, so the verdict lands in slot 3 instead. The
@@ -5007,6 +5032,26 @@ pub fn check_dijkstra_edge_weights_fast(
                 if has_negative && has_positive_infinity && has_nonnumeric {
                     break;
                 }
+            }
+            if mdg.edge_py_attrs.len() < mdg.inner.edge_count() {
+                let mut flags = (has_negative, has_positive_infinity, has_nonnumeric);
+                fold_store_only_dijkstra_weights(
+                    mdg.inner
+                        .edges_ordered_borrowed()
+                        .into_iter()
+                        .filter(|(u, v, key, _)| {
+                            !mdg.edge_py_attrs.contains_key(&(
+                                (*u).to_owned(),
+                                (*v).to_owned(),
+                                *key,
+                            ))
+                        })
+                        .map(|(_, _, _, attrs)| attrs),
+                    weight_attr,
+                    &mut flags,
+                    &mut int_magnitude_total,
+                );
+                (has_negative, has_positive_infinity, has_nonnumeric) = flags;
             }
             // As in the MultiUndirected arm above, slot 2 here is
             // `has_positive_infinity`, so the exactness verdict lands in slot 3.
