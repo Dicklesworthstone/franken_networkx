@@ -120,7 +120,11 @@ impl LiveKeydictRows {
 
     fn unregister(&mut self, source: &str, target: &str) -> Option<Py<PyDict>> {
         let row = self.rows.get_mut(source)?.remove(target)?;
-        if self.rows.get(source).is_some_and(|targets| targets.is_empty()) {
+        if self
+            .rows
+            .get(source)
+            .is_some_and(|targets| targets.is_empty())
+        {
             self.rows.remove(source);
         }
         if let Some(sources) = self.sources_by_target.get_mut(target) {

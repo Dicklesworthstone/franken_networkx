@@ -7294,9 +7294,12 @@ impl PyMultiDiGraph {
         for node in this.inner.nodes_ordered() {
             let row = PyDict::new(py);
             for successor in this.inner.successors(node).unwrap_or_default() {
-                let keydict = this.live_keydict_rows.get(py, node, successor).ok_or_else(|| {
-                    PyRuntimeError::new_err("to_dict_of_dicts: an edge pair has no keydict")
-                })?;
+                let keydict = this
+                    .live_keydict_rows
+                    .get(py, node, successor)
+                    .ok_or_else(|| {
+                        PyRuntimeError::new_err("to_dict_of_dicts: an edge pair has no keydict")
+                    })?;
                 row.set_item(this.py_succ_key(py, node, successor), keydict)?;
             }
             result.set_item(this.py_node_key(py, node), row)?;
@@ -10193,7 +10196,10 @@ impl PyMultiDiGraph {
             }
             // br-r37-c1-rc0923-epic-honest-measurement-vbneu.3: networkx
             // returns its own keydict, `_succ[u][v]` — a real `dict`.
-            Ok(this.live_keydict(py, slf.as_any(), u_c, v_c)?.into_any().unbind())
+            Ok(this
+                .live_keydict(py, slf.as_any(), u_c, v_c)?
+                .into_any()
+                .unbind())
         }
     }
 

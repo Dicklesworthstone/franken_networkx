@@ -9616,7 +9616,10 @@ impl PyMultiGraph {
             }
             // br-r37-c1-rc0923-epic-honest-measurement-vbneu.3: networkx
             // returns its own keydict, `_adj[u][v]` — a real `dict`.
-            Ok(this.live_keydict(py, slf.as_any(), lo, hi)?.into_any().unbind())
+            Ok(this
+                .live_keydict(py, slf.as_any(), lo, hi)?
+                .into_any()
+                .unbind())
         }
     }
 
@@ -10612,7 +10615,9 @@ impl PyMultiGraph {
     ) -> PyResult<Option<Py<PyList>>> {
         self.clear_stale_edge_mirrors();
         const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
-        if let Some(keys) = self.try_add_fresh_int_prefix_str_keyed_edges_from_batch(py, ebunch_to_add)? {
+        if let Some(keys) =
+            self.try_add_fresh_int_prefix_str_keyed_edges_from_batch(py, ebunch_to_add)?
+        {
             return Ok(Some(keys));
         }
         // A fresh-graph batch skips per-edge keydict maintenance: bail if a
