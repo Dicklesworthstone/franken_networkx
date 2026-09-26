@@ -693,3 +693,210 @@ def test_weighted_callable_does_not_depend_on_mirror_provenance(name):
                 assert eager == other, (
                     f"{name} on {cls} ({label} weights): eager {eager!r:.160} {mode} {other!r:.160}"
                 )
+
+
+# THE MATERIALISED-TWIN RUNNER (br-r37-c1-rc0923-epic-prevent-failure-classes-wvztf.1).
+# The contract above compares two BUILD PATHS for the weighted callables. This compares
+# ONE build recipe - untouched, or touched once - against the same recipe with every
+# edge and node dict walked. A difference is a reader or writer that trusts the lazy
+# mirror, by construction: churn, reordering and class conversion are shared by both
+# twins, so no networkx ordering noise enters. Subjects are every dispatchable, every
+# public weight-taking callable, and graph methods and mutations (conversions, copies,
+# weighted degree, merges onto an existing edge, attribute setters). On 685b16076 it
+# reported 208 differences - qry3d, gdd6l, pzd06, 6x99t and 5s4sd - and zao5p and
+# un5sp were found by the setter and compose shapes it did not yet have. Its blind
+# spot: a bug present in BOTH twins (then only a networkx oracle can see it).
+# FNX_PROVENANCE_FULL=1 runs every subject on every case; by default each
+# (class, recipe) case runs a quarter of them, rotating, so each is still exercised.
+import os as _os
+import signal as _signal
+
+_TWIN_FULL = _os.environ.get("FNX_PROVENANCE_FULL") == "1"
+_TWIN_CLASSES = ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+
+
+def _twin_weighted(cls, edges):
+    graph = getattr(fnx, cls)()
+    graph.add_weighted_edges_from(edges)
+    return graph
+
+
+def _twin_dict_batch(cls, edges):
+    graph = getattr(fnx, cls)()
+    graph.add_edges_from((u, v, {"cap": float(u % 4) + 1.0, "weight": w}) for u, v, w in edges)
+    return graph
+
+
+def _twin_plain_then_set(cls, edges):
+    graph = getattr(fnx, cls)()
+    graph.add_edges_from((u, v) for u, v, _ in edges)
+    keys = graph.edges(keys=True) if graph.is_multigraph() else graph.edges()
+    fnx.set_edge_attributes(graph, {e: float((e[0] * 3 + e[1]) % 7) + 0.5 for e in keys}, "weight")
+    return graph
+
+
+def _twin_labelled(cls, edges):
+    graph = getattr(fnx, cls)()
+    graph.add_nodes_from((i, {"color": i % 3}) for i in range(24))
+    graph.add_weighted_edges_from(edges)
+    return graph
+
+
+def _twin_churn(cls, edges):
+    graph = _twin_weighted(cls, edges)
+    graph.remove_edges_from([(u, v) for u, v, _ in edges[:4]])
+    graph.add_weighted_edges_from(edges[:4])
+    return graph
+
+
+def _twin_directed(cls):
+    return cls in ("DiGraph", "MultiDiGraph")
+
+
+_TWIN_RECIPES = {
+    "weighted_batch": _twin_weighted,
+    "dict_batch": _twin_dict_batch,
+    "plain_then_set": _twin_plain_then_set,
+    "labelled": _twin_labelled,
+    "copy": lambda cls, edges: _twin_weighted(cls, edges).copy(),
+    "subgraph_copy": lambda cls, edges: _twin_weighted(cls, edges).subgraph(range(20)).copy(),
+    "reverse": lambda cls, edges: _twin_weighted(cls, edges).reverse() if _twin_directed(cls) else None,
+    "dict_reverse": lambda cls, edges: _twin_dict_batch(cls, edges).reverse() if _twin_directed(cls) else None,
+    "churn": _twin_churn,
+    "ctor": lambda cls, edges: getattr(fnx, cls)(_twin_weighted(cls, edges)),
+    "convert": lambda cls, edges: (
+        _twin_weighted(cls, edges).to_undirected() if _twin_directed(cls) else _twin_weighted(cls, edges).to_directed()
+    ),
+    "karate": lambda cls, edges: getattr(fnx, cls)(fnx.karate_club_graph()),
+}
+
+
+def _twin_materialise(graph):
+    for _ in graph.edges(keys=True, data=True) if graph.is_multigraph() else graph.edges(data=True):
+        pass
+    for _ in graph.nodes(data=True):
+        pass
+    return graph
+
+
+def _twin_first_edge(graph):
+    return next(iter(graph.edges(keys=True) if graph.is_multigraph() else graph.edges()))
+
+
+def _twin_read_one(graph):
+    u, v = _twin_first_edge(graph)[:2]
+    _ = graph[u][v]
+    return graph
+
+
+def _twin_write_one(graph):
+    data = graph.get_edge_data(*_twin_first_edge(graph))
+    if "weight" in data:
+        data["weight"] = data["weight"]
+    return graph
+
+
+_TWIN_TOUCHES = {
+    "none": lambda graph: graph,
+    "read_one": _twin_read_one,
+    "write_one": _twin_write_one,
+    "nodes_walk": lambda graph: (list(graph.nodes(data=True)), graph)[1],
+}
+
+_TWIN_TAIL = [(40 + i, 41 + i, {"w": 1}) for i in range(7)]
+
+
+def _twin_mutated(graph, op):
+    op(graph)
+    return graph
+
+
+_TWIN_METHODS = {
+    "m:to_directed": lambda G: G.to_directed(),
+    "m:to_undirected": lambda G: G.to_undirected(),
+    "m:reverse": lambda G: G.reverse() if G.is_directed() else G.copy(),
+    "m:copy": lambda G: G.copy(),
+    "m:subgraph_copy": lambda G: G.subgraph(list(range(12))).copy(),
+    "m:degree_w": lambda G: list(G.degree(weight="weight")),
+    "m:degree_w_subset": lambda G: list(G.degree([0, 3, 9], weight="weight")),
+    "m:size_w": lambda G: G.size(weight="weight"),
+    "m:edges_data_w": lambda G: list(G.edges(data="weight")),
+    "m:adj_rows": lambda G: {u: {v: dict(d) for v, d in nbrs.items()} for u, nbrs in G.adj.items()},
+    "m:modularity_halves": lambda G: fnx.community.modularity(G, [set(list(G)[::2]), set(list(G)[1::2])]),
+    "m:compose_self_copy": lambda G: fnx.compose(G, G.copy()),
+    "m:batch_merge": lambda G: _twin_mutated(G, lambda g: g.add_edges_from([(0, 1, {"b": "x"})] + _TWIN_TAIL)),
+    "m:update_merge": lambda G: _twin_mutated(G, lambda g: g.update(edges=[(0, 1, {"b": "x"})] + _TWIN_TAIL)),
+    "m:add_edge_merge": lambda G: _twin_mutated(G, lambda g: g.add_edge(0, 1, b="x")),
+    "m:set_edge_attr": lambda G: _twin_mutated(
+        G, lambda g: fnx.set_edge_attributes(g, {_twin_first_edge(g): "red"}, "color")
+    ),
+    "m:set_edge_attr_dod": lambda G: _twin_mutated(
+        G, lambda g: fnx.set_edge_attributes(g, {_twin_first_edge(g): {"color": "red"}})
+    ),
+    "m:set_node_attr": lambda G: _twin_mutated(G, lambda g: fnx.set_node_attributes(g, {0: "red"}, "color")),
+}
+
+
+def _twin_subjects():
+    import franken_networkx.backend as _backend
+
+    subjects = {}
+    for name, impl in _backend._SUPPORTED_ALGORITHMS.items():
+        fn = getattr(fnx, name, None) or (impl if callable(impl) else None)
+        if fn is not None:
+            subjects[name] = fn
+    for name in _weighted_public_callables():
+        subjects.setdefault(name, getattr(fnx, name))
+    subjects.update(_TWIN_METHODS)
+    return subjects
+
+
+class _TwinTimeout(BaseException):
+    """BaseException: _provenance_call catches Exception as part of the answer."""
+
+
+def _twin_alarm(_signum, _frame):
+    raise _TwinTimeout
+
+
+def _twin_call(fn, graph):
+    """_provenance_call under a 3 s alarm; "timeout" when it fires."""
+    previous = _signal.signal(_signal.SIGALRM, _twin_alarm)
+    _signal.alarm(3)
+    try:
+        return _provenance_call(fn, graph)
+    except _TwinTimeout:
+        return "timeout"
+    finally:
+        _signal.alarm(0)
+        _signal.signal(_signal.SIGALRM, previous)
+
+
+_TWIN_CASES = [(cls, recipe) for cls in _TWIN_CLASSES for recipe in _TWIN_RECIPES]
+
+
+@pytest.mark.parametrize("cls, recipe", _TWIN_CASES)
+def test_materialised_twin_agrees(cls, recipe):
+    build = _TWIN_RECIPES[recipe]
+    if build(cls, _PROVENANCE_RING) is None:
+        pytest.skip(f"{recipe} does not apply to {cls}")
+    subjects = _twin_subjects()
+    names = sorted(subjects)
+    if not _TWIN_FULL:
+        names = names[_TWIN_CASES.index((cls, recipe)) % 4 :: 4]
+    failures = []
+    for label, edges in _PROVENANCE_EDGE_SETS.items():
+        if recipe == "karate" and label == "negative":
+            continue  # the recipe ignores the edge set
+        for name in names:
+            fn = subjects[name]
+            ref = _twin_call(fn, _twin_materialise(build(cls, edges)))
+            if ref is None or ref == "timeout":
+                continue
+            if _twin_call(fn, _twin_materialise(build(cls, edges))) != ref:
+                continue  # nondeterministic subject: no oracle
+            for touch, apply in _TWIN_TOUCHES.items():
+                got = _twin_call(fn, apply(build(cls, edges)))
+                if got not in (ref, "timeout"):
+                    failures.append(f"{label} {name} [{touch}]: materialised {ref!r:.120} got {got!r:.120}")
+    assert not failures, f"{len(failures)} provenance differences:\n" + "\n".join(failures[:25])
