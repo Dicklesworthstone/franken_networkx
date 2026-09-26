@@ -12442,20 +12442,28 @@ impl PyDiGraph {
         // one fresh PyDict per endpoint.
         let mut inner_edges = Vec::with_capacity(edges.len());
         for (u, v, attrs, src) in edges {
-            match src {
-                Some(src) => match self.edge_py_attrs.entry(Self::edge_key(&u, &v)) {
-                    std::collections::hash_map::Entry::Occupied(entry) => {
-                        entry.get().bind(py).update(src.bind(py).as_mapping())?;
-                    }
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(src);
-                    }
-                },
-                None => {
-                    self.edge_py_attrs
-                        .entry(Self::edge_key(&u, &v))
-                        .or_insert_with(|| PyDict::new(py).unbind());
+            let key = Self::edge_key(&u, &v);
+            if let Some(existing) = self.edge_py_attrs.get(&key) {
+                if let Some(src) = src {
+                    existing.bind(py).update(src.bind(py).as_mapping())?;
                 }
+            } else {
+                // An edge already in the store without a mirror keeps its
+                // attributes there (the store is read before this batch is
+                // extended into it): a new mirror starts from them, or the batch
+                // REPLACES them where nx's datadict.update merges.
+                let mirror = match (self.inner.edge_attrs(&u, &v), src) {
+                    (Some(stored), src) if !stored.is_empty() => {
+                        let seeded = crate::attr_map_to_pydict(py, stored)?;
+                        if let Some(src) = src {
+                            seeded.bind(py).update(src.bind(py).as_mapping())?;
+                        }
+                        seeded
+                    }
+                    (_, Some(src)) => src,
+                    (_, None) => PyDict::new(py).unbind(),
+                };
+                self.edge_py_attrs.insert(key, mirror);
             }
             inner_edges.push((u, v, attrs));
         }

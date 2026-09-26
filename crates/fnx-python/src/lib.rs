@@ -4925,7 +4925,9 @@ impl PyGraph {
             if u_index >= node_count || v_index >= node_count {
                 return Ok(None);
             }
-            if !seen_edges.insert((u_index, v_index)) {
+            // Undirected: (u,v) and (v,u) are the same edge (see the int-label
+            // twin below); a repeat declines to the per-edge merge.
+            if !seen_edges.insert((u_index.min(v_index), u_index.max(v_index))) {
                 return Ok(None);
             }
             let third = tuple.get_item(2)?;
@@ -5078,7 +5080,9 @@ impl PyGraph {
             let Some(&v_index) = label_to_index.get(&v_value) else {
                 return Ok(None);
             };
-            if !seen_edges.insert((u_index, v_index)) {
+            // Undirected: (u,v) and (v,u) are the same edge, and a repeat must
+            // merge into ONE mirror (nx datadict.update) - the per-edge path does.
+            if !seen_edges.insert((u_index.min(v_index), u_index.max(v_index))) {
                 return Ok(None);
             }
             let third = tuple.get_item(2)?;
@@ -6096,11 +6100,23 @@ impl PyGraph {
             if let Some(src) = src {
                 let bound = src.bind(py);
                 if !bound.is_empty() {
-                    self.edge_py_attrs
-                        .entry(Self::edge_key(u, v))
-                        .or_insert_with(|| PyDict::new(py).unbind())
-                        .bind(py)
-                        .update(bound.as_mapping())?;
+                    let key = Self::edge_key(u, v);
+                    let mirror = match self.edge_py_attrs.get(&key) {
+                        Some(existing) => existing.clone_ref(py),
+                        None => {
+                            // An edge already in the store without a mirror keeps
+                            // its attributes there: seed the mirror from them, or
+                            // the batch REPLACES them where nx's datadict.update
+                            // merges (the store below merges; reads trust this).
+                            let seeded = match self.inner.edge_attrs(u, v) {
+                                Some(stored) => attr_map_to_pydict(py, stored)?,
+                                None => PyDict::new(py).unbind(),
+                            };
+                            self.edge_py_attrs.insert(key, seeded.clone_ref(py));
+                            seeded
+                        }
+                    };
+                    mirror.bind(py).update(bound.as_mapping())?;
                 }
             }
         }

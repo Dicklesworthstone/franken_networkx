@@ -385,6 +385,56 @@ def test_conversion_of_a_store_only_graph_keeps_edge_attributes(cls, method, nod
     assert rows["fnx"] == rows["nx"]
 
 
+# Seven more edges make a batch of eight: the native batch paths start there.
+_BATCH_TAIL = [(20 + i, 21 + i, {"w": 1}) for i in range(7)]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("via", ["add_edges_from", "update"])
+def test_attributed_batch_merges_into_a_store_only_edge(cls, via):
+    """networkx updates the edge's dict; the batch started an EMPTY mirror for an
+    edge whose weight lived only in the store, and reads trust the mirror."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = _lazy_weighted_with(lib, cls, [])
+        batch = [(0, 1, {"b": "x"})] + _BATCH_TAIL
+        if via == "update":
+            graph.update(edges=batch)
+        else:
+            graph.add_edges_from(batch)
+        outcomes[name] = dict(graph[0][1])
+    assert outcomes["fnx"] == outcomes["nx"] == {"weight": 1.5, "b": "x"}
+
+
+@pytest.mark.parametrize("nodes", ["contiguous", "scrambled"])
+def test_repeated_undirected_pair_in_one_batch_merges(nodes):
+    """(u, v) then (v, u) is ONE undirected edge. The batches onto pre-added int
+    nodes de-duplicated on the ordered pair, so the second dict replaced the
+    first. DiGraph-subclass .to_undirected() rebuilds through this very call."""
+    order = list(range(40)) if nodes == "contiguous" else [(i * 7) % 40 for i in range(40)]
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = lib.Graph()
+        graph.add_nodes_from(order)
+        graph.add_edges_from(
+            [(30, 31, {"weight": 1.5, "a": 1}), (31, 30, {"weight": 9.0, "b": "x"})] + _BATCH_TAIL[:6]
+        )
+        outcomes[name] = dict(graph[30][31])
+    assert outcomes["fnx"] == outcomes["nx"] == {"weight": 9.0, "a": 1, "b": "x"}
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_mixed_pairs_and_triples_touching_an_existing_edge(cls):
+    """An early (u, v) that already exists made the batch replay every edge as a
+    pair - ValueError on the first 3-tuple after it."""
+    outcomes = {}
+    for name, lib in (("nx", nx), ("fnx", fnx)):
+        graph = _lazy_weighted_with(lib, cls, [])
+        outcome = _outcome(lambda: graph.add_edges_from([(0, 1)] + _BATCH_TAIL))
+        outcomes[name] = (outcome, sorted(map(repr, graph.edges(data=True))))
+    assert outcomes["fnx"] == outcomes["nx"]
+
+
 # THE PROVENANCE CONTRACT, over every public callable that takes a weight: two
 # graphs with IDENTICAL content - one built edge by edge (each edge gets an
 # eager Python mirror), one by add_weighted_edges_from (mirrors stay lazy, the

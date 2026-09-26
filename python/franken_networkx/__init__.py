@@ -6458,7 +6458,18 @@ _MULTIDIGRAPH_RAW_REMOVE_NODES_FROM = MultiDiGraph.remove_nodes_from
 _ADD_EDGES_UNSET = object()
 
 
+def _every_edge_is_a_pair(edges):
+    try:
+        return all(len(edge) == 2 for edge in edges)
+    except TypeError:
+        return False
+
+
 def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
+    # True only for a bunch of PLAIN (u, v) pairs of which one already exists:
+    # the caller then replays it as ``for u, v in edges``. A hit on an early
+    # pair must still check the rest - a mixed bunch with a 3-tuple after the
+    # hit made that replay raise "too many values to unpack".
     if type(graph) not in (Graph, DiGraph):
         return False
     # br-r37-c1-emptyaef (cc): an empty graph has no edge that could pre-exist, so the
@@ -6508,7 +6519,7 @@ def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
                     existing = None
                     break
                 if probe in existing:
-                    return True
+                    return _every_edge_is_a_pair(edges)
             else:
                 return False
     for edge in edges:
@@ -6520,7 +6531,7 @@ def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
             return False
         try:
             if graph.has_edge(u, v):
-                return True
+                return _every_edge_is_a_pair(edges)
         except TypeError:
             return False
     return False
