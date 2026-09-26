@@ -1,0 +1,179 @@
+"""A view's public methods answer from the view, not its empty Rust base.
+
+br-r37-c1-fabqo: the view classes sit in front of a PyO3 graph class whose own
+storage is EMPTY (br-r37-c1-pgfd2, q131o, y2b8t). A public method the view class
+never overrode ran on that empty storage:
+
+  * a filtered DiGraph / MultiDiGraph view's ``reverse()`` returned an empty graph;
+  * a ``to_directed`` / ``to_undirected(as_view=True)`` view answered
+    ``get_edge_data`` None and ``order()`` 0, its ``degree`` / ``in_degree`` /
+    ``out_degree`` were plain methods (``dict(view.degree)`` raised TypeError),
+    and ``to_scipy_sparse_array`` / ``johnson`` / ``bellman_ford`` read an
+    adjacency fallback bound to the empty storage - a zero matrix, KeyError;
+  * a reverse view's ``number_of_edges(u, v)`` raised TypeError.
+
+Each row calls the same thing on an fnx view and on the networkx view built the
+same way, and compares the value or the exception (type and message).
+"""
+
+import networkx as nx
+import numpy as np
+import pytest
+
+import franken_networkx as fnx
+
+EDGES = [(0, 1, 1.5), (1, 2, 2.0), (2, 0, 1.0), (2, 3, 4.0), (3, 4, 1.0), (1, 1, 0.5)]
+
+
+def _views(lib):
+    g = lib.Graph()
+    g.add_weighted_edges_from(EDGES)
+    dg = lib.DiGraph()
+    dg.add_weighted_edges_from(EDGES)
+    mg = lib.MultiGraph(g)
+    mg.add_edge(0, 1, weight=3.0)
+    mdg = lib.MultiDiGraph(dg)
+    mdg.add_edge(0, 1, weight=3.0)
+    return {
+        "G.sub": g.subgraph([0, 1, 2, 3]),
+        "G.to_directed": g.to_directed(as_view=True),
+        "D.sub": dg.subgraph([0, 1, 2, 3]),
+        "D.edge_sub": dg.edge_subgraph([(0, 1), (1, 2), (2, 3)]),
+        "D.reverse": dg.reverse(copy=False),
+        "D.to_undirected": dg.to_undirected(as_view=True),
+        "MG.sub": mg.subgraph([0, 1, 2, 3]),
+        "MG.to_directed": mg.to_directed(as_view=True),
+        "MDG.sub": mdg.subgraph([0, 1, 2, 3]),
+        "MDG.restricted": lib.restricted_view(mdg, [4], [(0, 1, 0)]),
+        "MDG.reverse": mdg.reverse(copy=False),
+        "MDG.to_undirected": mdg.to_undirected(as_view=True),
+    }
+
+
+KINDS = list(_views(nx))
+CONVERSION = [k for k in KINDS if "to_" in k]
+DIRECTED_FILTERED = ["D.sub", "D.edge_sub", "MDG.sub", "MDG.restricted"]
+REVERSE = ["D.reverse", "MDG.reverse"]
+
+
+def _norm(x):
+    if hasattr(x, "edges") and callable(getattr(x, "is_directed", None)):
+        return (
+            "graph",
+            type(x).__name__,
+            x.is_directed(),
+            x.is_multigraph(),
+            sorted(map(repr, x.nodes(data=True))),
+            sorted(map(repr, x.edges(data=True))),
+        )
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    if isinstance(x, (str, int, float, bool, type(None), tuple)):
+        return x
+    if hasattr(x, "items"):
+        return sorted((repr(k), repr(v)) for k, v in x.items())
+    return list(x)
+
+
+def _outcome(call, lib, G):
+    try:
+        return "ok", _norm(call(lib, G))
+    except Exception as exc:  # noqa: BLE001 - the exception IS the outcome compared
+        return "raise", type(exc).__name__, str(exc)
+
+
+def _check(kind, call):
+    fnx_view = _views(fnx)[kind]
+    nx_view = _views(nx)[kind]
+    assert _outcome(call, fnx, fnx_view) == _outcome(call, nx, nx_view)
+
+
+@pytest.mark.parametrize("kind", DIRECTED_FILTERED + CONVERSION + REVERSE)
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda L, G: G.reverse() if G.is_directed() else None, id="reverse"),
+        pytest.param(lambda L, G: G.get_edge_data(0, 1), id="get_edge_data"),
+        pytest.param(lambda L, G: G.get_edge_data(0, 9, default="d"), id="get_edge_data-missing"),
+        pytest.param(lambda L, G: G.order(), id="order"),
+        pytest.param(lambda L, G: G.number_of_edges(0, 1), id="number_of_edges-0-1"),
+        pytest.param(lambda L, G: G.number_of_edges(1, 0), id="number_of_edges-1-0"),
+        pytest.param(lambda L, G: G.number_of_edges(0, 9), id="number_of_edges-0-9"),
+        pytest.param(lambda L, G: G.number_of_edges(), id="number_of_edges"),
+        pytest.param(lambda L, G: list(G.degree), id="degree"),
+        pytest.param(lambda L, G: dict(G.degree(weight="weight")), id="degree-weighted"),
+        pytest.param(lambda L, G: G.degree[1], id="degree-item"),
+        pytest.param(lambda L, G: G.degree(1, weight="weight"), id="degree-node-weighted"),
+        pytest.param(lambda L, G: list(G.degree([0, 1])), id="degree-nbunch"),
+        pytest.param(lambda L, G: len(G.degree), id="degree-len"),
+        pytest.param(lambda L, G: repr(G.degree), id="degree-repr"),
+        pytest.param(lambda L, G: type(G.degree).__name__, id="degree-type"),
+        pytest.param(lambda L, G: G.size(weight="weight"), id="size-weighted"),
+    ],
+)
+def test_public_method_on_a_view_answers_like_networkx(kind, call):
+    _check(kind, call)
+
+
+@pytest.mark.parametrize("kind", CONVERSION)
+@pytest.mark.parametrize(
+    "call",
+    [
+        # The degree-view contract on the conversion views, whose degree was a
+        # plain method. (Filtered and reverse views' str() / missing-nbunch
+        # rows are br-r37-c1-dvvme.)
+        pytest.param(lambda L, G: str(G.degree), id="degree-str"),
+        pytest.param(lambda L, G: G.degree[9], id="degree-missing-item"),
+        pytest.param(lambda L, G: G.degree[[1]], id="degree-unhashable-item"),
+        pytest.param(lambda L, G: list(G.degree(9)), id="degree-missing-nbunch"),
+        pytest.param(lambda L, G: G.number_of_edges(9, 0), id="number_of_edges-missing"),
+        pytest.param(lambda L, G: hasattr(G, "reverse"), id="has-reverse"),
+        pytest.param(lambda L, G: L.to_scipy_sparse_array(G).toarray(), id="to_scipy_sparse_array"),
+        pytest.param(lambda L, G: L.laplacian_matrix(G).toarray(), id="laplacian"),
+        pytest.param(lambda L, G: L.bellman_ford_predecessor_and_distance(G, 0), id="bellman_ford"),
+        pytest.param(lambda L, G: L.describe(G), id="describe"),
+    ],
+)
+def test_conversion_view_answers_like_networkx(kind, call):
+    _check(kind, call)
+
+
+@pytest.mark.parametrize("kind", [k for k in CONVERSION if k.startswith(("G.", "D."))])
+def test_johnson_on_a_conversion_view(kind):
+    _check(kind, lambda L, G: L.johnson(G))
+
+
+@pytest.mark.parametrize("kind", [k for k in CONVERSION if not k.endswith("to_undirected")])
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda L, G: list(G.in_degree), id="in_degree"),
+        pytest.param(lambda L, G: dict(G.in_degree(weight="weight")), id="in_degree-weighted"),
+        pytest.param(lambda L, G: G.out_degree[0], id="out_degree-item"),
+        pytest.param(lambda L, G: type(G.in_degree).__name__, id="in_degree-type"),
+        pytest.param(lambda L, G: type(G.out_degree).__name__, id="out_degree-type"),
+    ],
+)
+def test_directed_conversion_view_in_out_degree(kind, call):
+    _check(kind, call)
+
+
+@pytest.mark.parametrize("kind", REVERSE)
+def test_reverse_view_counts_edges_between_two_nodes(kind):
+    for u, v in ((0, 1), (1, 0), (1, 1), (4, 3), (0, 9)):
+        _check(kind, lambda L, G, u=u, v=v: G.number_of_edges(u, v))
+    _check(kind, lambda L, G: G.number_of_edges(9, 0))
+
+
+def test_a_reversed_filtered_view_is_independent_of_the_view():
+    # The reverse is a fresh graph: writing its edge data leaves the view (and
+    # the concrete graph cached for it) untouched.
+    dg = fnx.DiGraph()
+    dg.add_weighted_edges_from(EDGES)
+    view = dg.subgraph([0, 1, 2, 3])
+    fnx.is_empty(view)  # materialise and cache the concrete graph first
+    reversed_copy = view.reverse()
+    reversed_copy[1][0]["weight"] = 99.0
+    assert view[0][1]["weight"] == 1.5
+    assert dg[0][1]["weight"] == 1.5
+    assert fnx.to_numpy_array(view)[0][1] == 1.5

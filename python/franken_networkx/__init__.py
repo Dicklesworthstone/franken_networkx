@@ -8938,7 +8938,10 @@ def _directed_reverse_with_copy_kwarg(cls):
         native O(V+E) path instead of rebuilding through Python add_edge.
         """
         if copy:
-            return raw(self)
+            # br-r37-c1-fabqo: a graph VIEW's own Rust storage is empty, so the
+            # raw reverse of a filtered view was an empty graph; reverse the
+            # concrete graph the view shows.
+            return raw(self if type(self) is cls else _coerce_arg_to_fnx_graph(self))
         # Live reversed view — matches nx.DiGraph.reverse(copy=False).
         return reverse_view(self)
 
@@ -48495,8 +48498,19 @@ class _ReverseDirectedViewBase:
         except Exception:
             return copied
 
-    def number_of_edges(self):
-        return self._graph.number_of_edges()
+    def number_of_edges(self, u=None, v=None):
+        if u is None:
+            return self._graph.number_of_edges()
+        # br-r37-c1-fabqo: networkx's (u, v) count on the REVERSED adjacency -
+        # the override took no arguments. A simple graph asks `v in _adj[u]`,
+        # so a missing u raises KeyError; a multigraph counts the keys and
+        # answers 0 for any missing endpoint.
+        if self._graph.is_multigraph():
+            try:
+                return len(self.adj[u][v])
+            except KeyError:
+                return 0
+        return 1 if v in self.adj[u] else 0
 
     def size(self, weight=None):
         if weight is None:
@@ -52127,16 +52141,16 @@ def _raw_neighbors_dispatch(G):
     A future regression that introduces a new private-storage flag
     only needs to update this helper, not every callsite.
 
-    br-r37-c1-4rhw0: a ``to_directed`` / ``to_undirected(as_view=True)``
-    view carries no private override yet its Rust storage is EMPTY, so the
-    raw binding read no nodes ("The node 0 is not in the digraph.").
+    Every graph view carries a private override (a conversion view since
+    br-r37-c1-fabqo), so none reaches the raw binding, which would read the
+    view's EMPTY Rust storage.
     """
     if isinstance(G, DiGraph):
-        if _has_networkx_private_storage(G) or isinstance(G, _ConversionGraphViewBase):
+        if _has_networkx_private_storage(G):
             return None
         return _DIGRAPH_NEIGHBORS
     if isinstance(G, Graph):
-        if _has_networkx_private_storage(G) or isinstance(G, _ConversionGraphViewBase):
+        if _has_networkx_private_storage(G):
             return None
         return _GRAPH_NEIGHBORS
     # Multigraph / unknown subclass / etc.: fall through.
@@ -55039,7 +55053,10 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
         # br-r37-c1-ish29 follow-up: _FilteredGraphView has its own
         # __reduce__ that snapshots to a real Graph copy. Delegate so
         # the SG view's custom path runs instead of our generic one.
-        if isinstance(self, _FilteredGraphView):
+        # br-r37-c1-fabqo: a conversion view has one too, and now carries its
+        # adjacency as a private override, which the generic path below would
+        # re-apply onto the unpickled copy as its `_adj`.
+        if isinstance(self, (_FilteredGraphView, _ConversionGraphViewBase)):
             return self.__reduce__()
         inner = raw_reduce_ex(self, protocol)
         if isinstance(inner, tuple) and len(inner) >= 2:
@@ -56114,6 +56131,83 @@ class _ConversionAdjacencyView(_Mapping):
         return _ConversionNeighborMap(self._view, node, reverse=self._reverse)
 
 
+class _ConversionDegreeView:
+    """br-r37-c1-fabqo: networkx's degree view over a to_directed /
+    to_undirected(as_view=True) view - the contract of
+    ``reportviews.DiDegreeView``: ``G.degree`` iterates (node, degree)
+    pairs, ``G.degree[n]`` is one degree, ``G.degree(weight=...)`` and
+    ``G.degree(nbunch)`` are views again and ``G.degree(n)`` is an int. The
+    view's ``degree`` was a plain method returning a generator, so
+    ``dict(view.degree)`` and ``describe(view)`` raised TypeError. The count
+    is still the view's own routine (``_compute`` names it), which keeps the
+    native count for the unweighted degree of an undirected view of a
+    DiGraph.
+    """
+
+    __slots__ = ("_graph", "_nodes", "_weight")
+    _compute = "_degree_compute"
+
+    def __init__(self, G, nbunch=None, weight=None):
+        self._graph = G
+        self._nodes = G if nbunch is None else list(G.nbunch_iter(nbunch))
+        self._weight = weight
+
+    def __call__(self, nbunch=None, weight=None):
+        if nbunch is None:
+            if weight == self._weight:
+                return self
+            return type(self)(self._graph, None, weight)
+        try:
+            if nbunch in self._nodes:
+                if weight == self._weight:
+                    return self[nbunch]
+                return type(self)(self._graph, None, weight)[nbunch]
+        except TypeError:
+            pass
+        return type(self)(self._graph, nbunch, weight)
+
+    def __getitem__(self, n):
+        G = self._graph
+        # networkx indexes a plain dict: its TypeError for an unhashable node,
+        # KeyError(n) for a missing one.
+        _HASH_PROBE.get(n)
+        if n not in G:
+            raise KeyError(n)
+        return getattr(G, self._compute)(n, self._weight)
+
+    def __iter__(self):
+        if self._nodes is self._graph:
+            return iter(getattr(self._graph, self._compute)(None, self._weight))
+        return ((n, self[n]) for n in self._nodes)
+
+    def __len__(self):
+        return len(self._nodes)
+
+    def __str__(self):
+        return str(list(self))
+
+    def __repr__(self):
+        return f"{type(self).__name__}({dict(self)})"
+
+
+def _conversion_degree_view_type(name, compute):
+    return type(name, (_ConversionDegreeView,), {"__slots__": (), "_compute": compute})
+
+
+# networkx's reportviews class names, keyed (directed, multigraph) for degree
+# and (direction, multigraph) for in_degree / out_degree.
+_CONVERSION_DEGREE_VIEW_TYPES = {
+    (False, False): _conversion_degree_view_type("DegreeView", "_degree_compute"),
+    (False, True): _conversion_degree_view_type("MultiDegreeView", "_degree_compute"),
+    (True, False): _conversion_degree_view_type("DiDegreeView", "_degree_compute"),
+    (True, True): _conversion_degree_view_type("DiMultiDegreeView", "_degree_compute"),
+    ("in", False): _conversion_degree_view_type("InDegreeView", "_in_degree_compute"),
+    ("in", True): _conversion_degree_view_type("InMultiDegreeView", "_in_degree_compute"),
+    ("out", False): _conversion_degree_view_type("OutDegreeView", "_out_degree_compute"),
+    ("out", True): _conversion_degree_view_type("OutMultiDegreeView", "_out_degree_compute"),
+}
+
+
 class _ConversionGraphViewBase:
     _directed = False
     _multigraph = False
@@ -56144,9 +56238,23 @@ class _ConversionGraphViewBase:
         self.__dict__["_nodes_view"] = _ConversionNodeView(self)
         self.__dict__["_edges_view"] = _ConversionEdgeView(self)
         self.__dict__["_adj_view"] = _ConversionAdjacencyView(self)
+        # br-r37-c1-fabqo: register the view's adjacency as the graph's private
+        # storage, as filtered and reverse views do, so an inherited accessor
+        # (the `_adj` fallback to_scipy_sparse_array / bellman_ford read) and
+        # the native private-override flag answer from the view instead of the
+        # EMPTY Rust base: to_scipy_sparse_array(view) was all zeros and
+        # johnson(view) raised KeyError. Written straight to the instance
+        # dict with the native markers; the full _set_private_overrides funnel
+        # would add ~2-5 us to a construction networkx does in 6.4 us, and the
+        # one method it would shadow, get_edge_data, is defined below.
+        self.__dict__[_PRIVATE_ADJ_OVERRIDE] = self._adj_view
+        self._fnx_set_private_adj_override()
         if self.is_directed():
             self.__dict__["_succ_view"] = self._adj_view
             self.__dict__["_pred_view"] = _ConversionAdjacencyView(self, reverse=True)
+            self.__dict__[_PRIVATE_SUCC_OVERRIDE] = self._adj_view
+            self.__dict__[_PRIVATE_PRED_OVERRIDE] = self.__dict__["_pred_view"]
+            self._fnx_set_private_dir_override()
 
     def _fnx_native_graph(self):
         # br-r37-c1-4rhw0: the converted graph, for native kernels (see
@@ -56457,7 +56565,31 @@ class _ConversionGraphViewBase:
     def number_of_nodes(self):
         return len(self)
 
-    def number_of_edges(self):
+    def order(self):
+        # br-r37-c1-fabqo: the inherited order() read the empty Rust base (0).
+        return len(self)
+
+    # br-r37-c1-fabqo: the inherited get_edge_data read the empty Rust base
+    # (None for every edge); this is the method the private-override funnel
+    # installs on a graph whose adjacency is assigned (multigraph views
+    # override it below).
+    get_edge_data = _assigned_private_get_edge_data_simple
+
+    def number_of_edges(self, u=None, v=None):
+        if u is not None:
+            # br-r37-c1-fabqo: networkx's edge count between u and v - the
+            # override took no arguments. A simple graph asks `v in _adj[u]`
+            # of a plain dict, so a missing u raises KeyError(u); a multigraph
+            # counts the keys and answers 0 for any missing endpoint.
+            if self.is_multigraph():
+                try:
+                    return len(self.adj[u][v])
+                except KeyError:
+                    return 0
+            _HASH_PROBE.get(u)
+            if u not in self:
+                raise KeyError(u)
+            return 1 if v in self.adj[u] else 0
         # br-cvundeg (cc): an UNDIRECTED view of a simple DiGraph can count edges
         # natively (sum(undirected_degree)//2) instead of materializing the whole
         # conversion-view edge list (per-edge tuple build + reciprocal dedup in
@@ -56517,7 +56649,11 @@ class _ConversionGraphViewBase:
     def adjacency(self):
         return ((node, self.adj[node]) for node in self)
 
-    def degree(self, nbunch=None, weight=None):
+    @property
+    def degree(self):
+        return _CONVERSION_DEGREE_VIEW_TYPES[(self._directed, self._multigraph)](self)
+
+    def _degree_compute(self, nbunch=None, weight=None):
         # br-cvundeg (cc): the whole-graph unweighted degree of an UNDIRECTED view
         # of a simple DiGraph routes to the native merged succ∪pred count (node
         # order) instead of iterating the Python-synthesized conversion-view
@@ -56682,15 +56818,6 @@ class _ConversionGraphViewBase:
     def to_undirected_class(self):
         return MultiGraph if self.is_multigraph() else Graph
 
-    def reverse(self, copy=True):
-        if not self.is_directed():
-            raise NetworkXError("Cannot reverse an undirected graph.")
-        reversed_view = _reverse_directed_view_for(self)
-        if copy:
-            return reversed_view.copy()
-        return reversed_view
-
-
 class _DirectedGraphConversionView(_ConversionGraphViewBase):
     _directed = True
 
@@ -56726,16 +56853,34 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
         pred = self.pred
         return u in pred and v in pred[u]
 
-    def in_degree(self, nbunch=None, weight=None):
+    @property
+    def in_degree(self):
+        return _CONVERSION_DEGREE_VIEW_TYPES["in", self._multigraph](self)
+
+    @property
+    def out_degree(self):
+        return _CONVERSION_DEGREE_VIEW_TYPES["out", self._multigraph](self)
+
+    def _in_degree_compute(self, nbunch=None, weight=None):
         return self._directed_degree(self.pred, nbunch, weight)
 
-    def out_degree(self, nbunch=None, weight=None):
+    def _out_degree_compute(self, nbunch=None, weight=None):
         return self._directed_degree(self.succ, nbunch, weight)
+
+    # br-r37-c1-fabqo: only on the directed views - networkx's undirected
+    # graphs have no reverse at all, and the shared base's raised
+    # NetworkXError where networkx raises AttributeError.
+    def reverse(self, copy=True):
+        reversed_view = _reverse_directed_view_for(self)
+        if copy:
+            return reversed_view.copy()
+        return reversed_view
 
 
 class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
     _directed = True
     _multigraph = True
+    get_edge_data = _assigned_private_get_edge_data_multi
 
     def _adj_neighbors(self, node):
         return iter(self._graph[node])
@@ -56769,11 +56914,28 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
         pred = self.pred
         return u in pred and v in pred[u]
 
-    def in_degree(self, nbunch=None, weight=None):
+    @property
+    def in_degree(self):
+        return _CONVERSION_DEGREE_VIEW_TYPES["in", self._multigraph](self)
+
+    @property
+    def out_degree(self):
+        return _CONVERSION_DEGREE_VIEW_TYPES["out", self._multigraph](self)
+
+    def _in_degree_compute(self, nbunch=None, weight=None):
         return self._directed_degree(self.pred, nbunch, weight)
 
-    def out_degree(self, nbunch=None, weight=None):
+    def _out_degree_compute(self, nbunch=None, weight=None):
         return self._directed_degree(self.succ, nbunch, weight)
+
+    # br-r37-c1-fabqo: only on the directed views - networkx's undirected
+    # graphs have no reverse at all, and the shared base's raised
+    # NetworkXError where networkx raises AttributeError.
+    def reverse(self, copy=True):
+        reversed_view = _reverse_directed_view_for(self)
+        if copy:
+            return reversed_view.copy()
+        return reversed_view
 
 
 _DIRECTED_CONVERSION_VIEW_TYPES = {
@@ -56818,6 +56980,7 @@ class _UndirectedGraphConversionView(_ConversionGraphViewBase):
 
 class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
     _multigraph = True
+    get_edge_data = _assigned_private_get_edge_data_multi
 
     def _adj_neighbors(self, node):
         if not self._graph.is_directed():
