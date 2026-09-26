@@ -56606,6 +56606,74 @@ _CONVERSION_DEGREE_VIEW_TYPES = {
 }
 
 
+_NOT_A_ROW_DEGREE_VIEW = object()
+
+
+def _undirected_row_degrees(view, nbunch, weight, factor):
+    """br-r37-c1-gue3i: degrees of a to_directed(as_view=True) view of a
+    concrete Graph / MultiGraph, from the source's native degree.
+
+    networkx's view has succ = pred = the source's rows, so a node's in- and
+    out-degree are both the sum over its row, s, and its degree is s + s
+    (``factor`` 1 or 2). The source's own degree is s too for every node
+    WITHOUT a self-loop (an undirected self-loop counts twice there, once
+    in the row); those few nodes are summed over their row directly, in row
+    order, rather than corrected by subtraction, so float weights come out
+    as networkx's sums do. The Python walk over the view's synthesized rows
+    this replaces was 0.02x networkx for list(view.degree).
+
+    Returns _NOT_A_ROW_DEGREE_VIEW for any other shape (a directed or
+    private-storage source, a subclass), which keeps the generic walk.
+    """
+    src = view._graph
+    if type(src) not in (Graph, MultiGraph) or _has_networkx_private_storage(src):
+        return _NOT_A_ROW_DEGREE_VIEW
+    multi = src.is_multigraph()
+
+    def row_sum(node):
+        nbrs = src[node]
+        if multi:
+            if weight is None:
+                return sum(len(keydict) for keydict in nbrs.values())
+            return sum(
+                attrs.get(weight, 1)
+                for keydict in nbrs.values()
+                for attrs in keydict.values()
+            )
+        if weight is None:
+            return len(nbrs)
+        return sum(attrs.get(weight, 1) for attrs in nbrs.values())
+
+    def scaled(s):
+        return s + s if factor == 2 else s
+
+    def single(node, looped):
+        if looped:
+            return scaled(row_sum(node))
+        if weight is None:
+            return scaled(src.degree[node])
+        return scaled(src.degree(node, weight=weight))
+
+    if nbunch is None:
+        pairs = src.degree(weight=weight)
+        loops = set(_selfloop_nodes_gen(src))
+        if not loops:
+            if factor == 2:
+                return ((node, degree + degree) for node, degree in pairs)
+            return iter(pairs)
+        return (
+            (node, scaled(row_sum(node)) if node in loops else scaled(degree))
+            for node, degree in pairs
+        )
+    try:
+        if nbunch in src:
+            return single(nbunch, src.has_edge(nbunch, nbunch))
+    except TypeError:
+        pass
+    loops = set(_selfloop_nodes_gen(src))
+    return ((node, single(node, node in loops)) for node in view._nbunch(nbunch))
+
+
 class _ConversionGraphViewBase:
     _directed = False
     _multigraph = False
@@ -57074,6 +57142,10 @@ class _ConversionGraphViewBase:
         return _CONVERSION_DEGREE_VIEW_TYPES[(self._directed, self._multigraph)](self)
 
     def _degree_compute(self, nbunch=None, weight=None):
+        if self.is_directed():
+            degrees = _undirected_row_degrees(self, nbunch, weight, 2)
+            if degrees is not _NOT_A_ROW_DEGREE_VIEW:
+                return degrees
         # br-cvundeg (cc): the whole-graph unweighted degree of an UNDIRECTED view
         # of a simple DiGraph routes to the native merged succ∪pred count (node
         # order) instead of iterating the Python-synthesized conversion-view
@@ -57282,9 +57354,15 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
         return _CONVERSION_DEGREE_VIEW_TYPES["out", self._multigraph](self)
 
     def _in_degree_compute(self, nbunch=None, weight=None):
+        degrees = _undirected_row_degrees(self, nbunch, weight, 1)
+        if degrees is not _NOT_A_ROW_DEGREE_VIEW:
+            return degrees
         return self._directed_degree(self.pred, nbunch, weight)
 
     def _out_degree_compute(self, nbunch=None, weight=None):
+        degrees = _undirected_row_degrees(self, nbunch, weight, 1)
+        if degrees is not _NOT_A_ROW_DEGREE_VIEW:
+            return degrees
         return self._directed_degree(self.succ, nbunch, weight)
 
     # br-r37-c1-fabqo: only on the directed views - networkx's undirected
@@ -57343,9 +57421,15 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
         return _CONVERSION_DEGREE_VIEW_TYPES["out", self._multigraph](self)
 
     def _in_degree_compute(self, nbunch=None, weight=None):
+        degrees = _undirected_row_degrees(self, nbunch, weight, 1)
+        if degrees is not _NOT_A_ROW_DEGREE_VIEW:
+            return degrees
         return self._directed_degree(self.pred, nbunch, weight)
 
     def _out_degree_compute(self, nbunch=None, weight=None):
+        degrees = _undirected_row_degrees(self, nbunch, weight, 1)
+        if degrees is not _NOT_A_ROW_DEGREE_VIEW:
+            return degrees
         return self._directed_degree(self.succ, nbunch, weight)
 
     # br-r37-c1-fabqo: only on the directed views - networkx's undirected

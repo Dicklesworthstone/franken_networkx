@@ -182,3 +182,49 @@ def test_construction_does_not_scale_with_parent_size():
     # The old O(N+E) copy was ~186ms on an 8000-node parent. An empty base
     # makes this ~microseconds. Generous bound that still fails on a regression.
     assert big < 5.0, f"to_directed ctor too slow on 8000-node parent: {big:.2f}ms"
+
+
+# br-r37-c1-gue3i: a to_directed(as_view=True) view of a Graph / MultiGraph reads
+# its degrees from the source's native degree (succ = pred = the source's rows,
+# so in = out = the row sum and degree is twice it), summing only the self-loop
+# nodes' rows directly - an undirected self-loop counts twice in the source's
+# degree but once in the row. Values AND types must be networkx's: int for an
+# unweighted or all-int row, float sums in networkx's order.
+@pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("seed", range(12))
+def test_to_directed_view_degrees_are_networkxs(cls, seed):
+    rng = random.Random(seed)
+    n = rng.choice([5, 20, 60])
+    edges = [(rng.randrange(n), rng.randrange(n)) for _ in range(3 * n)]
+    if seed % 3 == 0:
+        edges = [(u, v) for u, v in edges if u != v]
+    views = []
+    for lib in (fnx, nx):
+        G = getattr(lib, cls)()
+        G.add_nodes_from(range(n))
+        weights = random.Random(seed + 1000)
+        for u, v in edges:
+            w = weights.choice([1, 2, 0.1, 0.2, 0.7, 3.3, None])
+            G.add_edge(u, v, **({} if w is None else {"weight": w}))
+        views.append((G, G.to_directed(as_view=True)))
+    (fg, fv), (ng, nv) = views
+
+    def reads(view):
+        out = []
+        for attr in ("degree", "in_degree", "out_degree"):
+            for weight in (None, "weight", "absent"):
+                dv = getattr(view, attr)
+                out.append([(k, d, type(d)) for k, d in dv(weight=weight)])
+                out.append([(dv(k, weight=weight), type(dv(k, weight=weight))) for k in range(min(n, 6))])
+                out.append(list(dv(list(range(0, n, 2)) + [0, 0], weight=weight)))
+            out.append([getattr(view, attr)[k] for k in range(min(n, 6))])
+        return out
+
+    assert reads(fv) == reads(nv)
+    # live: the view reads the source at each call
+    fg.add_edge(0, 0, weight=4.5)
+    ng.add_edge(0, 0, weight=4.5)
+    fg.add_edge(1, 2)
+    ng.add_edge(1, 2)
+    assert reads(fv) == reads(nv)
