@@ -522,7 +522,13 @@ def test_store_only_multidigraph_hands_out_its_edge_attributes(read):
 
 @pytest.mark.parametrize(
     "cls, source",
-    [("DiGraph", "batch"), ("DiGraph", "reverse"), ("MultiDiGraph", "reverse")],
+    [
+        ("DiGraph", "batch"),
+        ("DiGraph", "reverse"),
+        ("MultiDiGraph", "reverse"),
+        ("MultiGraph", "ctor"),
+        ("MultiDiGraph", "ctor"),
+    ],
 )
 @pytest.mark.parametrize("form", ["dict", "dict_of_dicts", "scalar_all"])
 def test_set_edge_attributes_on_a_store_only_edge_keeps_its_other_attributes(cls, source, form):
@@ -535,6 +541,8 @@ def test_set_edge_attributes_on_a_store_only_edge_keeps_its_other_attributes(cls
         graph.add_weighted_edges_from([(i, (i + 1) % 12, float(i % 4) + 1.5) for i in range(12)])
         if source == "reverse":
             graph = graph.reverse()
+        elif source == "ctor":  # the class constructor leaves a MultiGraph store-only
+            graph = getattr(lib, cls)(lib.Graph(graph))
         edge = next(iter(graph.edges(keys=True) if graph.is_multigraph() else graph.edges()))
         if form == "dict":
             lib.set_edge_attributes(graph, {edge: "red"}, "color")

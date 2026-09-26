@@ -12656,10 +12656,12 @@ impl PyMultiGraph {
             let key_obj = k.get_item(2)?;
             if let Some(internal_key) = self.resolve_internal_edge_key(py, &u, &v, &key_obj)? {
                 let ek = Self::edge_key(&u, &v, internal_key);
+                // Seeded from the store for an edge without a mirror (the
+                // MultiGraph(graph) constructor leaves edges store-only): an
+                // empty dict here replaced every other attribute (zao5p's twin).
                 let dict = self
-                    .edge_py_attrs
-                    .entry(ek)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                    .ensure_edge_py_attrs_with_key(py, &u, &v, internal_key, &ek)
+                    .clone_ref(py);
                 dict.bind(py).set_item(name, &val)?;
             }
         }
