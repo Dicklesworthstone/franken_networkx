@@ -432,6 +432,11 @@ pub(crate) struct SlotOrder {
     /// slot -> its entry; meaningful for live slots only.
     entry_of: Vec<usize>,
     ranks: std::sync::OnceLock<NodeRanks>,
+    /// br-r37-c1-qaqog: every node's name is the decimal of its position -
+    /// `NodeOrder`'s sfq4w.3 flag for the MultiGraph table. Computed on first
+    /// use, then kept current: an insert checks its one name at the position
+    /// it takes (the end), a removal of any but the last entry clears it.
+    names_are_positions: std::sync::OnceLock<bool>,
 }
 
 impl SlotOrder {
@@ -493,6 +498,11 @@ impl SlotOrder {
     /// a reused free one.
     pub(crate) fn insert(&mut self, name: String) -> (usize, bool) {
         debug_assert!(!self.slots.contains_key(&name));
+        if let Some(flag) = self.names_are_positions.get_mut()
+            && *flag
+        {
+            *flag = is_decimal_of(&name, self.slots.len());
+        }
         let (slot, fresh) = if let Some(slot) = self.free.pop() {
             debug_assert!(self.names[slot].is_none());
             self.names[slot] = Some(name.clone());
@@ -528,6 +538,8 @@ impl SlotOrder {
             if let Some(ranks) = self.ranks.get_mut() {
                 ranks.remove(entry);
             }
+            // Every later node moved down a position.
+            self.names_are_positions = std::sync::OnceLock::from(false);
         }
         if self.entries.len() - self.slots.len() > self.slots.len() {
             self.compact();
@@ -544,7 +556,20 @@ impl SlotOrder {
             self.entries[self.entry_of[slot]] = usize::MAX;
             self.free.push(slot);
         }
+        if !doomed.is_empty() {
+            self.names_are_positions = std::sync::OnceLock::from(false);
+        }
         self.compact();
+    }
+
+    /// br-r37-c1-qaqog: is every node's name the decimal of its position?
+    /// O(V) on first use, O(1) after (see the field).
+    pub(crate) fn names_are_positions(&self) -> bool {
+        *self.names_are_positions.get_or_init(|| {
+            self.keys()
+                .enumerate()
+                .all(|(position, name)| is_decimal_of(name, position))
+        })
     }
 
     /// Drop the tombstoned entries; slots do not move.
@@ -5115,6 +5140,15 @@ impl MultiGraph {
     #[must_use]
     pub fn node_index_matches_int(&self, idx: usize) -> bool {
         self.slab_store().node_index_matches_int(idx)
+    }
+
+    /// br-r37-c1-qaqog: every node's name is the decimal of its position, so
+    /// an int key `k` IS the node at position `k` when `k < node_count()` and
+    /// is absent otherwise - `Graph::node_names_are_positions`. O(V) on first
+    /// use, kept current in O(1) after.
+    #[must_use]
+    pub fn node_names_are_positions(&self) -> bool {
+        self.slab_store().node_order.names_are_positions()
     }
 
     #[must_use]
@@ -10871,6 +10905,73 @@ mod tests {
                         NodeOrder::from_names(model.clone()).names_are_positions(),
                         truth(&model)
                     );
+                }
+            }
+        }
+    }
+
+    /// br-r37-c1-qaqog: the MultiGraph table's copy of the flag - never true
+    /// while some live name is off its position, through inserts (reusing
+    /// freed slots), removals of the last and of other entries, and batch
+    /// removals; and exactly the truth on a table built fresh.
+    #[test]
+    fn slot_order_names_are_positions_is_never_true_when_a_name_is_off_position() {
+        use super::SlotOrder;
+        let truth = |names: &[String]| {
+            names
+                .iter()
+                .enumerate()
+                .all(|(position, name)| *name == position.to_string())
+        };
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        for round in 0..200 {
+            let mut order = SlotOrder::default();
+            let mut model: Vec<String> = Vec::new();
+            for step in 0..40 {
+                match next(6) {
+                    0..=2 => {
+                        let name = if next(4) == 0 {
+                            format!("{}", next(50))
+                        } else {
+                            model.len().to_string()
+                        };
+                        if !order.contains_key(&name) {
+                            order.insert(name.clone());
+                            model.push(name);
+                        }
+                    }
+                    3 if !model.is_empty() => {
+                        let victim = model.pop().expect("non-empty");
+                        order.remove(&victim);
+                    }
+                    4 if !model.is_empty() => {
+                        let victim = model.remove(next(model.len()));
+                        order.remove(&victim);
+                    }
+                    5 if model.len() > 1 => {
+                        let victim = model.remove(next(model.len()));
+                        let slot = *order.get(&victim).expect("live");
+                        order.remove_slots(&std::iter::once(slot).collect());
+                    }
+                    _ => {}
+                }
+                if step % 3 == 0 {
+                    let flag = order.names_are_positions();
+                    assert!(
+                        !flag || truth(&model),
+                        "round {round} step {step}: {model:?}"
+                    );
+                    let mut fresh = SlotOrder::default();
+                    for name in &model {
+                        fresh.insert(name.clone());
+                    }
+                    assert_eq!(fresh.names_are_positions(), truth(&model));
                 }
             }
         }

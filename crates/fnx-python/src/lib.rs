@@ -12781,22 +12781,36 @@ impl PyMultiGraph {
         // edge KEY is hashed here because nx reaches it only after both
         // endpoints resolve, and every path below that consumes it does.
         require_hashable_node_key(u)?;
-        // br-r37-c1-04z53 (cc): identity-int fast path (mirror of
-        // PyGraph::has_edge cc-hasedgeintidx) for the keyless
-        // `MultiGraph.has_edge(u, v)` — the common shape. Exact int u,v (bool
-        // excluded: canonical "0"/"1") that fit usize AND sit at their own
-        // index resolve straight by index, skipping 2 `i.to_string()` heap
-        // allocs. Any key argument, or a non-identity int, falls through to the
-        // String path (exact keyed / non-int semantics unchanged).
-        if key.is_none()
-            && u.is_exact_instance_of::<PyInt>()
+        // br-r37-c1-04z53 (cc) / qaqog: identity-int fast path (PyGraph's
+        // sfq4w.3 route). When every node's name is the decimal of its
+        // position (int nodes added 0, 1, 2, ...), an EXACT int (bool
+        // excluded: it is an int subclass) is its own position, or absent past
+        // the last one: one flag test instead of parsing each endpoint's name
+        // back (190 of 604 instructions a keyless call). The keyed form takes
+        // it on a pristine key space, where the public int key is the
+        // internal one; any other key falls through to the routes below.
+        if u.is_exact_instance_of::<PyInt>()
             && v.is_exact_instance_of::<PyInt>()
-            && let Ok(iu) = u.extract::<usize>()
-            && let Ok(iv) = v.extract::<usize>()
-            && self.inner.node_index_matches_int(iu)
-            && self.inner.node_index_matches_int(iv)
+            && self.inner.node_names_are_positions()
+            && let Some(iu) = exact_int_node_index(u)
+            && let Some(iv) = exact_int_node_index(v)
         {
-            return Ok(self.inner.has_edge_by_indices(iu, iv));
+            let n = self.inner.node_count();
+            if key.is_none() {
+                return Ok(iu < n && iv < n && self.inner.has_edge_by_indices(iu, iv));
+            }
+            if !self.has_remapped_int_key
+                && let Some(edge_key) = key
+                && edge_key.is_exact_instance_of::<PyInt>()
+                && let Ok(internal_key) = edge_key.extract::<usize>()
+            {
+                return Ok(iu < n
+                    && iv < n
+                    && self
+                        .inner
+                        .edge_attrs_by_indices(iu, iv, internal_key)
+                        .is_some());
+            }
         }
         // br-r37-c1-paof2: the most-used keyless exact-string path interns the
         // graph's canonical public keys to native indices.  Python's dict
