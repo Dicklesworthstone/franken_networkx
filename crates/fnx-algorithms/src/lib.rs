@@ -7273,6 +7273,35 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
 }
 
 fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweennessCentralityResult {
+    edge_betweenness_centrality_brandes_run(graph, None, true)
+}
+
+/// networkx's `_rescale(betweenness, n, normalized=..., directed=...,
+/// sampled_nodes=...)` as `edge_betweenness_centrality` calls it - with
+/// `endpoints` left at True, so one scale for every edge: `1 / (k * (n - 1))`
+/// normalized, else `n / (k * correction)`; none below two nodes.
+fn edge_brandes_scale(n: usize, source_count: usize, normalized: bool, directed: bool) -> f64 {
+    if n < 2 {
+        return 1.0;
+    }
+    let n_f = n as f64;
+    let k_f = source_count as f64;
+    if normalized {
+        1.0 / (k_f * (n_f - 1.0))
+    } else {
+        let correction = if directed { 1.0 } else { 2.0 };
+        n_f / (k_f * correction)
+    }
+}
+
+/// Unweighted edge Brandes over every node as a source or - `sources`
+/// given - over networkx's `seed.sample(...)` in its order
+/// (br-r37-c1-f0uiy), rescaled as networkx rescales.
+fn edge_betweenness_centrality_brandes_run<G: GraphView>(
+    graph: &G,
+    sources: Option<&[&str]>,
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -7333,25 +7362,30 @@ fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweenne
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
+    let source_idx: Vec<usize> = match sources {
+        Some(sources) => sources
+            .iter()
+            .filter_map(|source| graph.get_node_index(source))
+            .collect(),
+        None => (0..n).collect(),
+    };
 
     // Parallel Brandes over sources, reduced in STRICT SOURCE ORDER for byte-exact
     // float parity with the sequential path. Sources chunked to cap peak delta
     // memory (~64 MiB); order preserved within and across chunks.
     const EDGE_BRANDES_PARALLEL_THRESHOLD: usize = 500;
-    if n >= EDGE_BRANDES_PARALLEL_THRESHOLD {
+    if n >= EDGE_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 {
         use rayon::prelude::*;
 
         let bytes_per_delta = n_edges.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
 
-        let mut start = 0usize;
-        while start < n {
-            let end = (start + chunk).min(n);
-            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = (start..end)
-                .into_par_iter()
+        for chunk_sources in source_idx.chunks(chunk) {
+            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = chunk_sources
+                .par_iter()
                 .map_init(
                     || EdgeBrandesScratch::new(n),
-                    |scratch, s| edge_brandes_source(scratch, &edge_csr, n_edges, s),
+                    |scratch, &s| edge_brandes_source(scratch, &edge_csr, n_edges, s),
                 )
                 .collect();
             for (delta, src_edges, src_touched, src_peak) in chunk_results {
@@ -7362,11 +7396,10 @@ fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweenne
                 nodes_touched += src_touched;
                 queue_peak = queue_peak.max(src_peak);
             }
-            start = end;
         }
     } else {
         let mut scratch = EdgeBrandesScratch::new(n);
-        for s in 0..n {
+        for &s in &source_idx {
             let (delta, src_edges, src_touched, src_peak) =
                 edge_brandes_source(&mut scratch, &edge_csr, n_edges, s);
             for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
@@ -7378,11 +7411,7 @@ fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweenne
         }
     }
 
-    let scale = if n > 1 {
-        1.0 / ((n * (n - 1)) as f64)
-    } else {
-        0.0
-    };
+    let scale = edge_brandes_scale(n, source_idx.len(), normalized, is_directed);
     let mut scores = (0..n_edges)
         .map(|e| {
             let (left_idx, right_idx) = edge_endpoints[e];
@@ -7496,9 +7525,14 @@ fn weighted_edge_brandes_source(
 /// Per-source contributions are reduced in strict source order `0..n`
 /// (parallelised over sources with a chunked, source-ordered reduction for large
 /// graphs), keeping the float summation order — and result — bit-identical.
+/// Weighted edge Brandes over every node as a source or - `sources` given -
+/// over networkx's `seed.sample(...)` in its order, rescaled as networkx
+/// rescales (br-r37-c1-f0uiy).
 fn edge_betweenness_centrality_weighted_generic<G: GraphView>(
     graph: &G,
     weight_attr: Option<&str>,
+    sources: Option<&[&str]>,
+    normalized: bool,
 ) -> EdgeBetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -7548,28 +7582,32 @@ fn edge_betweenness_centrality_weighted_generic<G: GraphView>(
     let n_edges = edge_endpoints.len();
 
     let mut edge_total = vec![0.0f64; n_edges];
+    let source_idx: Vec<usize> = match sources {
+        Some(sources) => sources
+            .iter()
+            .filter_map(|source| graph.get_node_index(source))
+            .collect(),
+        None => (0..n).collect(),
+    };
 
     const WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD: usize = 400;
-    if n >= WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD {
+    if n >= WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 {
         use rayon::prelude::*;
         let bytes_per_delta = n_edges.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
-        let mut start = 0usize;
-        while start < n {
-            let end = (start + chunk).min(n);
-            let chunk_results: Vec<Vec<f64>> = (start..end)
-                .into_par_iter()
-                .map(|s| weighted_edge_brandes_source(&adjacency, n, n_edges, s))
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
+        for chunk_sources in source_idx.chunks(chunk) {
+            let chunk_results: Vec<Vec<f64>> = chunk_sources
+                .par_iter()
+                .map(|&s| weighted_edge_brandes_source(&adjacency, n, n_edges, s))
                 .collect();
             for delta in chunk_results {
                 for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
                     *acc += *contribution;
                 }
             }
-            start = end;
         }
     } else {
-        for s in 0..n {
+        for &s in &source_idx {
             let delta = weighted_edge_brandes_source(&adjacency, n, n_edges, s);
             for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
                 *acc += *contribution;
@@ -7577,11 +7615,7 @@ fn edge_betweenness_centrality_weighted_generic<G: GraphView>(
         }
     }
 
-    let scale = if n > 1 {
-        1.0 / ((n * (n - 1)) as f64)
-    } else {
-        0.0
-    };
+    let scale = edge_brandes_scale(n, source_idx.len(), normalized, is_directed);
     let mut scores = (0..n_edges)
         .map(|e| {
             let (left_idx, right_idx) = edge_endpoints[e];
@@ -7616,7 +7650,7 @@ pub fn edge_betweenness_centrality_weighted(
     graph: &Graph,
     weight_attr: Option<&str>,
 ) -> EdgeBetweennessCentralityResult {
-    edge_betweenness_centrality_weighted_generic(graph, weight_attr)
+    edge_betweenness_centrality_weighted_generic(graph, weight_attr, None, true)
 }
 
 /// Weighted edge betweenness for a directed `DiGraph` (normalized, out-edges).
@@ -7625,7 +7659,41 @@ pub fn edge_betweenness_centrality_weighted_directed(
     graph: &DiGraph,
     weight_attr: Option<&str>,
 ) -> EdgeBetweennessCentralityResult {
-    edge_betweenness_centrality_weighted_generic(graph, weight_attr)
+    edge_betweenness_centrality_weighted_generic(graph, weight_attr, None, true)
+}
+
+/// networkx's `edge_betweenness_centrality(G, k=..., normalized=...,
+/// weight=...)`: `sources` is the sample networkx drew (in its order) or
+/// `None` for every node; `weight_attr` `None` is the unweighted BFS kernel.
+#[must_use]
+pub fn edge_betweenness_centrality_with_params(
+    graph: &Graph,
+    sources: Option<&[&str]>,
+    weight_attr: Option<&str>,
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    match weight_attr {
+        Some(_) => {
+            edge_betweenness_centrality_weighted_generic(graph, weight_attr, sources, normalized)
+        }
+        None => edge_betweenness_centrality_brandes_run(graph, sources, normalized),
+    }
+}
+
+/// [`edge_betweenness_centrality_with_params`] for a `DiGraph`.
+#[must_use]
+pub fn edge_betweenness_centrality_directed_with_params(
+    graph: &DiGraph,
+    sources: Option<&[&str]>,
+    weight_attr: Option<&str>,
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    match weight_attr {
+        Some(_) => {
+            edge_betweenness_centrality_weighted_generic(graph, weight_attr, sources, normalized)
+        }
+        None => edge_betweenness_centrality_brandes_run(graph, sources, normalized),
+    }
 }
 
 #[must_use]

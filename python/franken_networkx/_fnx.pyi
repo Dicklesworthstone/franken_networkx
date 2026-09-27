@@ -502,7 +502,12 @@ def betweenness_centrality_sampled_rust(
     normalized: bool = True,
     endpoints: bool = False,
 ) -> dict[Any, float]: ...
-def edge_betweenness_centrality(g: Graph) -> dict[tuple[Any, Any], float]: ...
+def edge_betweenness_centrality(
+    g: Graph,
+    sources: Optional[list[Any]] = None,
+    weight: Optional[str] = None,
+    normalized: bool = True,
+) -> dict[tuple[Any, Any], float]: ...
 def eigenvector_centrality(
     g: Graph,
     max_iter: int = 100,

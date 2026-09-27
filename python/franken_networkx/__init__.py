@@ -14894,7 +14894,6 @@ from franken_networkx._fnx import (
     degree_assortativity_coefficient_directed as _raw_degree_assortativity_coefficient_directed,
     degree_centrality as _raw_degree_centrality,
     edge_betweenness_centrality as _raw_edge_betweenness_centrality,
-    edge_betweenness_centrality_weighted as _raw_edge_betweenness_centrality_weighted,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
     edge_betweenness_centrality_subset_weighted_rust as _edge_betweenness_centrality_subset_weighted_rust,
     eigenvector_centrality as _raw_eigenvector_centrality,
@@ -32593,84 +32592,46 @@ def edge_betweenness_centrality(
         "edge_betweenness_centrality", backend, backend_kwargs
     )
 
-    # br-r37-c1-4v1mt: weighted edge betweenness (a string `weight` key,
-    # normalized) previously delegated to networkx's single-threaded Python
-    # Brandes (~595ms n=400). Run the native weighted edge-Brandes kernel
-    # (Dijkstra SSSP, parallel, byte-exact) and re-key into G.edges() order,
-    # exactly like the unweighted path. Mirror the dijkstra/astar family's
-    # weight contract: native only for a simple Graph/DiGraph whose `weight`
-    # values are all finite, non-negative and numeric; callable/non-string
-    # weight, multigraph, negative/+inf/non-numeric weight, non-normalized, and
-    # k/seed sampling all delegate to nx for exact parity.
-    if k is None and normalized and isinstance(weight, str) and not G.is_multigraph():
+    # A simple Graph / DiGraph runs the native edge Brandes: BFS, or Dijkstra
+    # (br-r37-c1-4v1mt) for a string `weight` whose values are all finite,
+    # non-negative and numeric - the dijkstra/astar weight contract - over
+    # every node or, with k, over the sources networkx samples, in its order,
+    # normalized or not, rescaled as networkx's _rescale does
+    # (br-r37-c1-f0uiy; the k path used to go through the SUBSET kernel,
+    # whose association and two-step rescale put the last bit of 37-58% of
+    # the values off networkx's). A callable or out-of-contract weight and a
+    # multigraph - networkx keys it by (u, v, key) with a value per parallel
+    # edge (br-gauntlet-ebc-multi) - run networkx's port.
+    native = not G.is_multigraph() and (weight is None or isinstance(weight, str))
+    if native and weight is not None:
         _sync_rust_edge_attrs(G)
-        if not (
+        native = not (
             _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
             or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
             or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-        ):
-            raw = _raw_edge_betweenness_centrality_weighted(G, weight)
-            reordered = {}
-            for u, v in G.edges():
-                if (u, v) in raw:
-                    reordered[(u, v)] = raw[(u, v)]
-                elif (v, u) in raw:
-                    reordered[(u, v)] = raw[(v, u)]
-            return reordered
-
-    # br-r37-c1-8ox3z.1: k-sampled unweighted edge betweenness has the same
-    # shape as edge_betweenness_centrality_subset(sources=sampled, targets=all)
-    # plus nx's sampled-edge rescale. Keep sampling in Python so seed semantics
-    # stay identical, then reuse the existing native subset edge-Brandes kernel.
-    if k is not None and weight is None and not G.is_multigraph():
-        sampled_nodes = rng.sample(list(G.nodes()), k)
-        if not isinstance(sampled_nodes, list):
+        )
+    if not native:
+        return _edge_betweenness_centrality_inproc(
+            G,
+            k=k,
+            normalized=normalized,
+            weight=weight,
+            seed=seed,
+        )
+    sources = None
+    if k is not None:
+        # networkx samples even when k == len(G): the draws, and the order the
+        # sources are summed in, are the sample's.
+        sources = rng.sample(list(G.nodes()), k)
+        if not isinstance(sources, list):
             # br-r37-c1-cdf1v: a numpy RandomState's wrapper returns an ndarray.
-            sampled_nodes = sampled_nodes.tolist()
-        if len(G) < 2:
-            return dict.fromkeys(G.edges(), 0.0)
-        scores = edge_betweenness_centrality_subset(
-            G,
-            sampled_nodes,
-            list(G.nodes()),
-            normalized=normalized,
-            weight=None,
-        )
-        scale = len(G) / len(sampled_nodes)
-        if scale != 1:
-            scores = {edge: value * scale for edge, value in scores.items()}
-        return scores
-
-    # Delegate to NetworkX for unsupported parameters
-    if k is not None or not normalized or weight is not None:
-        return _edge_betweenness_centrality_inproc(
-            G,
-            k=k,
-            normalized=normalized,
-            weight=weight,
-            seed=seed,
-        )
-    # br-gauntlet-ebc-multi: nx keys multigraph edge-betweenness by
-    # ``(u, v, key)`` 3-tuples and computes a separate value per parallel
-    # edge; the native ``_raw_edge_betweenness_centrality`` kernel collapses
-    # parallel edges to a single ``(u, v)`` 2-tuple, losing both the key
-    # dimension and the per-edge values. Delegate multigraphs to nx so the
-    # key shape and values match the reference.
-    if G.is_multigraph():
-        return _edge_betweenness_centrality_inproc(
-            G,
-            k=k,
-            normalized=normalized,
-            weight=weight,
-            seed=seed,
-        )
-    # Use fast Rust implementation for standard case, then re-key the
-    # dict in G.edges() iteration order to match nx's contract.
-    # br-r37-c1-pi615: the Rust dict had keys in canonical (smaller-
-    # first) edge order, but nx returns keys in G.edges() traversal
-    # order with the tuple direction nx encountered. Values are
-    # identical — only the dict key shape needed alignment.
-    raw = _raw_edge_betweenness_centrality(G)
+            sources = sources.tolist()
+        if not sources and len(G) >= 2:
+            # networkx's _rescale divides by the sample size once n >= 2.
+            raise ZeroDivisionError("division by zero")
+    # br-r37-c1-pi615: the Rust dict is keyed canonically (smaller first);
+    # networkx keys by G.edges() traversal, in that order and direction.
+    raw = _raw_edge_betweenness_centrality(G, sources, weight, normalized)
     reordered = {}
     for u, v in G.edges():
         if (u, v) in raw:

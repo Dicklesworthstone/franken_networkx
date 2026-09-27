@@ -332,3 +332,46 @@ def test_weighted_k_sampled_with_a_negative_weight_runs_networkx(python_port_cal
         ng, k=10, seed=2, weight="weight"
     )
     assert python_port_calls == ["_betweenness_centrality_inproc"]
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-f0uiy: edge betweenness - k-sampled and normalized=False, weighted
+# or not - runs the full edge Brandes over networkx's sample, bit for bit.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("directed", [False, True], ids=["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"], ids=["bfs", "dijkstra"])
+@pytest.mark.parametrize("normalized", [True, False], ids=["normalized", "unnormalized"])
+def test_edge_betweenness_sampled_and_unnormalized_are_native_and_bit_exact(
+    directed, weight, normalized, python_port_calls
+):
+    for n in (60, 520):  # 520: past both parallel thresholds (400 / 500)
+        fg, ng = _weighted_twins(n, directed)
+        cases = [{}] + [{"k": k, "seed": seed} for seed in (2, 9) for k in (1, 6, n // 4, n)]
+        for kwargs in cases:
+            want = nx.edge_betweenness_centrality(ng, weight=weight, normalized=normalized, **kwargs)
+            got = fnx.edge_betweenness_centrality(fg, weight=weight, normalized=normalized, **kwargs)
+            assert list(got) == list(want), (n, kwargs)
+            differ = [e for e in want if got[e] != want[e]]
+            assert not differ, (n, kwargs, len(differ), differ[:3])
+    assert python_port_calls == []
+
+
+def test_edge_betweenness_sampled_advances_a_random_instance_as_networkx_does():
+    fg, ng = _weighted_twins(80, directed=False)
+    mine, theirs = random.Random(33), random.Random(33)
+    for weight in (None, "weight"):
+        assert fnx.edge_betweenness_centrality(fg, k=12, seed=mine, weight=weight) == nx.edge_betweenness_centrality(
+            ng, k=12, seed=theirs, weight=weight
+        )
+    assert mine.getstate() == theirs.getstate()
+
+
+def test_edge_betweenness_empty_sample_raises_as_networkx_does():
+    fg, ng = _weighted_twins(10, directed=False)
+    with pytest.raises(ZeroDivisionError) as expected:
+        nx.edge_betweenness_centrality(ng, k=0, seed=1)
+    with pytest.raises(ZeroDivisionError) as actual:
+        fnx.edge_betweenness_centrality(fg, k=0, seed=1)
+    assert str(actual.value) == str(expected.value)

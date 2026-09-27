@@ -8249,77 +8249,64 @@ pub fn betweenness_centrality_sampled_rust(
     centrality_to_dict(py, &gr, &result.scores)
 }
 
-/// Return the edge betweenness centrality for all edges.
+/// Edge betweenness centrality: every node as a source, or `sources` (the
+/// sample networkx drew, in its order); Dijkstra when `weight` names the
+/// attribute (br-r37-c1-4v1mt, weights checked by the caller); `normalized`
+/// as networkx's `_rescale` (br-r37-c1-f0uiy). Returns a canonical-keyed dict
+/// that the Python wrapper re-keys into `G.edges()` order.
 #[pyfunction]
-pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-    let gr = extract_graph(g)?;
-    let result = match &gr {
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality(inner))
-        }
-        GraphRef::Directed { dg, .. } => {
-            let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality_directed(inner))
-        }
-        _ => {
-            if gr.is_directed() {
-                let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality_directed(inner))
-            } else {
-                let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality(inner))
-            }
-        }
-    };
-    let dict = PyDict::new(py);
-    for s in &result.scores {
-        let key = pyo3::types::PyTuple::new(
-            py,
-            &[gr.py_node_key(py, &s.left), gr.py_node_key(py, &s.right)],
-        )?;
-        dict.set_item(key, s.score)?;
-    }
-    Ok(dict.unbind())
-}
-
-/// Weighted edge betweenness centrality (normalized). br-r37-c1-4v1mt: native
-/// weighted Brandes (Dijkstra SSSP, parallel, byte-exact) for a string `weight`
-/// key; returns a canonical-keyed dict that the Python wrapper re-keys into
-/// `G.edges()` order, exactly like the unweighted path.
-#[pyfunction]
-pub fn edge_betweenness_centrality_weighted(
+#[pyo3(signature = (g, sources=None, weight=None, normalized=true))]
+pub fn edge_betweenness_centrality(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-    weight: &str,
+    sources: Option<Vec<Bound<'_, PyAny>>>,
+    weight: Option<&str>,
+    normalized: bool,
 ) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    let source_keys: Option<Vec<String>> = sources
+        .map(|sources| {
+            sources
+                .iter()
+                .map(|node| node_key_to_string(py, node))
+                .collect::<PyResult<_>>()
+        })
+        .transpose()?;
+    let source_refs: Option<Vec<&str>> = source_keys
+        .as_ref()
+        .map(|keys| keys.iter().map(String::as_str).collect());
+    let sources = source_refs.as_deref();
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
             py.allow_threads(|| {
-                fnx_algorithms::edge_betweenness_centrality_weighted(inner, Some(weight))
+                fnx_algorithms::edge_betweenness_centrality_with_params(
+                    inner, sources, weight, normalized,
+                )
             })
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| {
-                fnx_algorithms::edge_betweenness_centrality_weighted_directed(inner, Some(weight))
+                fnx_algorithms::edge_betweenness_centrality_directed_with_params(
+                    inner, sources, weight, normalized,
+                )
             })
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| {
-                    fnx_algorithms::edge_betweenness_centrality_weighted_directed(
-                        inner,
-                        Some(weight),
+                    fnx_algorithms::edge_betweenness_centrality_directed_with_params(
+                        inner, sources, weight, normalized,
                     )
                 })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| {
-                    fnx_algorithms::edge_betweenness_centrality_weighted(inner, Some(weight))
+                    fnx_algorithms::edge_betweenness_centrality_with_params(
+                        inner, sources, weight, normalized,
+                    )
                 })
             }
         }
@@ -29003,7 +28990,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality_sampled_rust, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
-    m.add_function(wrap_pyfunction!(edge_betweenness_centrality_weighted, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality_subset_rust, m)?)?;
     m.add_function(wrap_pyfunction!(
         betweenness_centrality_subset_weighted_rust,
