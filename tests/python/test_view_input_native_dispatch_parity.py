@@ -498,3 +498,37 @@ def test_multigraph_rows_are_set_only_while_nobody_holds_a_row_mirror(directed):
         reversed_source = fnx.MultiDiGraph([("c", "x"), ("a", "x"), ("b", "x")])
         assert graph._fnx_reorder_rows_like(reversed_source, True) is True
         assert list(graph.succ["x"]) == ["c", "a", "b"]
+
+
+# br-r37-c1-8xp4a: a reverse view of a concrete DiGraph / MultiDiGraph reaches a
+# native kernel as its root's native reverse copy, not a walk of the view - the
+# same graph: nodes and their data, every row, edges with keys and data, the
+# view's graph dict itself.
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_a_reverse_views_concrete_graph_is_the_view(cls):
+    def build(lib):
+        rng = random.Random(11)
+        graph = getattr(lib, cls)()
+        graph.graph["name"] = "g"
+        graph.add_nodes_from((n, {"size": n % 3}) for n in range(30))
+        for _ in range(90):
+            u, v = rng.randrange(30), rng.randrange(30)
+            graph.add_edge(u, v, weight=rng.randint(1, 9), tags=[u, v])
+        return graph
+
+    graph = build(fnx)
+    view = graph.reverse(copy=False)
+    concrete = _materialize_view(view)
+    walked = view.copy()
+    assert list(concrete.nodes(data=True)) == list(walked.nodes(data=True)) == list(view.nodes(data=True))
+    assert {n: list(concrete.succ[n]) for n in view} == {n: list(view.succ[n]) for n in view}
+    assert {n: list(concrete.pred[n]) for n in view} == {n: list(view.pred[n]) for n in view}
+    if concrete.is_multigraph():
+        assert list(concrete.edges(keys=True, data=True)) == list(view.edges(keys=True, data=True))
+    else:
+        assert list(concrete.edges(data=True)) == list(view.edges(data=True))
+    assert concrete.graph is view.graph is graph.graph
+    nx_view = build(nx).reverse(copy=False)
+    for source in (0, 7, 13):
+        assert list(fnx.bfs_edges(view, source)) == list(nx.bfs_edges(nx_view, source))
+        assert list(fnx.dfs_preorder_nodes(view, source)) == list(nx.dfs_preorder_nodes(nx_view, source))

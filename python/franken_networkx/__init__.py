@@ -9214,8 +9214,15 @@ MultiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(MultiGra
 MultiDiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(MultiDiGraph)
 
 
+# br-r37-c1-8xp4a: the native reverse copy of each directed class, as it was
+# before the public wrapper below - what _materialize_view builds a reverse
+# view's concrete graph from (it shares attribute values, as view.copy() does).
+_NATIVE_REVERSE = {}
+
+
 def _directed_reverse_with_copy_kwarg(cls):
     raw = cls.reverse
+    _NATIVE_REVERSE[cls] = raw
 
     def reverse(self, copy=True):
         """Return the reverse of a directed graph.
@@ -21164,7 +21171,9 @@ def _materialize_view(view):
         if cached is not None and cached[0] == cache_key:
             return cached[1]
 
-    out = view.copy()
+    out = _native_view_copy(view)
+    if out is None:
+        out = view.copy()
     # br-r37-c1-u9a13: networkx's views share the parent's graph dict; the
     # concrete graph shares it too (as copy.copy's result does), so a graph
     # attribute written after the cache was filled is there without a check.
@@ -21207,6 +21216,21 @@ def _materialize_view(view):
     if cache_key is not None:
         view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
     return out
+
+
+def _native_view_copy(view):
+    """br-r37-c1-8xp4a: the view's concrete graph built natively from its
+    root, or None to walk the view (view.copy()). A reverse view of a
+    concrete DiGraph / MultiDiGraph is its root's native reverse copy - the
+    same nodes, edges, keys and attribute values as the walk at a fraction
+    of its cost; its rows are then put in the view's order below, as the
+    walk's are."""
+    if type(view) is _ReverseDirectedView or type(view) is _ReverseMultiDirectedView:
+        root = view._graph
+        native = _NATIVE_REVERSE.get(type(root))
+        if native is not None and not _has_networkx_private_storage(root):
+            return native(root)
+    return None
 
 
 def _view_row_root(view):
