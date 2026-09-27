@@ -22,6 +22,7 @@ from networkx.algorithms.community import *  # noqa: F401,F403
 
 import franken_networkx as _fnx
 from franken_networkx._fnx import (
+    louvain_partitions_start as _native_louvain_partitions_start,
     networkx_greedy_modularity_merges as _native_greedy_modularity_merges,
 )
 
@@ -265,25 +266,12 @@ def louvain_communities(
     )
     # networkx's decorator resolves the seed before the body runs.
     kernel_seed = _fnx._kernel_seed(seed)
-    native_resolution = _as_exact_float(resolution)
-    native_threshold = _as_exact_float(threshold)
-    if (
-        kernel_seed is not None
-        and type(G) in (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
-        and (max_level is None or (type(max_level) is int and max_level > 0))
-        and type(weight) is str
-        and native_resolution is not None
-        and native_threshold is not None
-        and _math.isfinite(native_resolution)
-        and _math.isfinite(native_threshold)
+    native = _louvain_native_arguments(G, weight, resolution, threshold, kernel_seed)
+    if native is not None and (
+        max_level is None or (type(max_level) is int and max_level > 0)
     ):
         communities = _fnx._raw_louvain_communities(
-            G,
-            weight,
-            float(native_resolution),
-            float(native_threshold),
-            max_level,
-            kernel_seed,
+            G, weight, *native, max_level, kernel_seed
         )
         if communities is not None:
             return [set(community) for community in communities]
@@ -304,6 +292,80 @@ def louvain_communities(
         seed=seed,
         backend="networkx",
     )
+
+
+def _louvain_native_arguments(G, weight, resolution, threshold, kernel_seed):
+    """``(resolution, threshold)`` as the Louvain kernel takes them, or
+    ``None`` when networkx must run: a graph view or subclass, a seed with no
+    MT19937 state, a non-str weight, or a resolution / threshold whose float
+    is not what networkx's arithmetic uses."""
+    if kernel_seed is None or type(G) not in (
+        _fnx.Graph,
+        _fnx.DiGraph,
+        _fnx.MultiGraph,
+        _fnx.MultiDiGraph,
+    ):
+        return None
+    resolution = _as_exact_float(resolution)
+    threshold = _as_exact_float(threshold)
+    if (
+        type(weight) is not str
+        or resolution is None
+        or threshold is None
+        or not _math.isfinite(resolution)
+        or not _math.isfinite(threshold)
+    ):
+        return None
+    return float(resolution), float(threshold)
+
+
+def louvain_partitions(
+    G,
+    weight="weight",
+    resolution=1,
+    threshold=0.0000001,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Yield the partition at each level of the Louvain algorithm.
+
+    br-r37-c1-81vo1: networkx's generator ran on the fnx graph through its
+    views (0.77x networkx). The levels now come from the native kernel behind
+    ``louvain_communities``, one generator resume at a time, as networkx's do:
+    the seed is resolved when the generator is created, ``G`` is read at the
+    first resume, and each resume draws from the seed's generator only what
+    networkx's would - so a caller drawing between levels sees networkx's
+    stream. Where the kernel declines, networkx's generator runs on a
+    converted graph.
+    """
+    _fnx._validate_backend_dispatch_keywords(
+        "louvain_partitions", backend, backend_kwargs
+    )
+    kernel_seed = _fnx._kernel_seed(seed)
+    return _louvain_partition_levels(G, weight, resolution, threshold, seed, kernel_seed)
+
+
+def _louvain_partition_levels(G, weight, resolution, threshold, seed, kernel_seed):
+    # networkx's generator body: nothing runs before the first resume.
+    native = _louvain_native_arguments(G, weight, resolution, threshold, kernel_seed)
+    stepper = (
+        None if native is None else _native_louvain_partitions_start(G, weight, *native)
+    )
+    if stepper is None:
+        # Pinned for the reason louvain_communities' fallback is (br-r37-c1-egjfn).
+        yield from _nx_community.louvain_partitions(
+            _fnx._networkx_graph_for_parity(G),
+            weight=weight,
+            resolution=resolution,
+            threshold=threshold,
+            seed=seed,
+            backend="networkx",
+        )
+        return
+    while (partition := stepper.step(kernel_seed)) is not None:
+        yield [set(community) for community in partition]
 
 
 def _as_exact_float(value):

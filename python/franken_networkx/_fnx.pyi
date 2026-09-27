@@ -1117,6 +1117,16 @@ def louvain_communities(
     max_level: Optional[int] = None,
     seed: Optional[Any] = None,
 ) -> Optional[list[list[Any]]]: ...
+
+class LouvainPartitionStepper:
+    def step(self, seed: Any) -> Optional[list[list[Any]]]: ...
+
+def louvain_partitions_start(
+    g: Graph,
+    weight: str,
+    resolution: float,
+    threshold: float,
+) -> Optional[LouvainPartitionStepper]: ...
 def modularity(
     g: Graph,
     communities: list[list[str]],

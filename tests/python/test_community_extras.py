@@ -390,6 +390,112 @@ def test_louvain_communities_runs_networkx_for_weights_it_cannot_add_natively(lo
     assert str(actual.value) == str(expected.value)
 
 
+@pytest.fixture
+def louvain_partitions_fallbacks(monkeypatch):
+    """Count the calls ``community.louvain_partitions`` hands to networkx."""
+    import franken_networkx.community as fnx_community
+
+    reference = nx.community.louvain_partitions
+    calls = []
+
+    def counting(*args, **kwargs):
+        calls.append(args[0])
+        return reference(*args, **kwargs)
+
+    monkeypatch.setattr(fnx_community._nx_community, "louvain_partitions", counting)
+    return reference, calls
+
+
+def _louvain_levels_fixture(fnx_class=None, nx_class=None):
+    """A weighted graph whose Louvain run has several levels."""
+    edges = dict(_louvain_fixture_edges())["float weights"]
+    graph, nx_graph = (fnx_class or fnx.Graph)(), (nx_class or nx.Graph)()
+    for g in (graph, nx_graph):
+        g.add_edges_from(edges)
+    return graph, nx_graph
+
+
+@pytest.mark.parametrize(
+    "classes",
+    [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph), (fnx.MultiGraph, nx.MultiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],
+    ids=["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"],
+)
+def test_louvain_partitions_native_levels_match_networkx(classes, louvain_partitions_fallbacks):
+    """br-r37-c1-81vo1: every level networkx's generator yields, list order
+    included, from the native kernel."""
+    reference, fallbacks = louvain_partitions_fallbacks
+    graph, nx_graph = _louvain_levels_fixture(*classes)
+    for seed in range(12):
+        for kwargs in ({}, {"resolution": 0.6}, {"threshold": 1e-3}):
+            expected = list(reference(nx_graph, seed=seed, **kwargs))
+            assert list(fnx.community.louvain_partitions(graph, seed=seed, **kwargs)) == expected
+    assert fallbacks == []
+
+
+def test_louvain_partitions_draws_lazily_as_networkx_does(louvain_partitions_fallbacks):
+    """A draw from the seed's generator between two levels changes the next
+    level's shuffle - with networkx, and so natively: an implementation that
+    computes every level up front cannot pass."""
+    import random
+
+    reference, fallbacks = louvain_partitions_fallbacks
+    graph, nx_graph = _louvain_levels_fixture()
+    multi_level = 0
+    for k in range(6):
+        mine, theirs = random.Random(k), random.Random(k)
+        levels, nx_levels = fnx.community.louvain_partitions(graph, seed=mine), reference(nx_graph, seed=theirs)
+        assert next(levels) == next(nx_levels)
+        assert mine.random() == theirs.random()
+        rest = list(levels)
+        nx_rest = list(nx_levels)
+        assert rest == nx_rest
+        assert mine.getstate() == theirs.getstate()
+        multi_level += bool(nx_rest)
+
+        # seed=None: the global generator, drawn between levels too.
+        random.seed(50 + k)
+        nx_levels = reference(nx_graph)
+        expected = [next(nx_levels), random.random(), list(nx_levels), random.getstate()]
+        random.seed(50 + k)
+        levels = fnx.community.louvain_partitions(graph)
+        assert [next(levels), random.random(), list(levels), random.getstate()] == expected
+    assert multi_level >= 3  # the draw had later levels to reach
+    assert fallbacks == []
+
+
+def test_louvain_partitions_reads_the_graph_at_the_first_resume(louvain_partitions_fallbacks):
+    """networkx's generator body runs at the first next(): an edge added
+    before it counts, one added after it does not."""
+    reference, fallbacks = louvain_partitions_fallbacks
+    graph, nx_graph = _louvain_levels_fixture()
+    levels, nx_levels = fnx.community.louvain_partitions(graph, seed=4), reference(nx_graph, seed=4)
+    for g in (graph, nx_graph):
+        g.add_edge(0, 119, weight=40.0)
+    assert next(levels) == next(nx_levels)
+    for g in (graph, nx_graph):
+        g.add_edge(1, 118, weight=40.0)
+    assert list(levels) == list(nx_levels)
+    assert fallbacks == []
+
+    # The seed is resolved when the generator is created, as networkx's
+    # decorator does.
+    with pytest.raises(ValueError) as expected:
+        reference(nx_graph, seed="not a seed")
+    with pytest.raises(ValueError) as actual:
+        fnx.community.louvain_partitions(graph, seed="not a seed")
+    assert str(actual.value) == str(expected.value)
+
+
+def test_louvain_partitions_runs_networkx_where_the_kernel_declines(louvain_partitions_fallbacks):
+    from fractions import Fraction
+
+    reference, fallbacks = louvain_partitions_fallbacks
+    edges = [(u, v, {"weight": Fraction(1 + (u + v) % 3, 2)}) for u, v in nx.karate_club_graph().edges()]
+    graph, nx_graph = _louvain_pair(edges)
+    assert list(fnx.community.louvain_partitions(graph, seed=3)) == list(reference(nx_graph, seed=3))
+    assert len(fallbacks) == 1
+
+
 def test_louvain_communities_max_level_error_contract_matches_networkx():
     graph = fnx.path_graph(4)
     nx_graph = _to_nx(graph)

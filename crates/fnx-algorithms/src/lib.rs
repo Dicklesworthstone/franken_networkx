@@ -29265,13 +29265,157 @@ fn louvain_partition_to_node_names(
         .collect()
 }
 
+/// Where [`LouvainLevels`] is in networkx's `louvain_partitions` generator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LouvainStage {
+    /// `nx.is_empty(G)`: yield the singletons, no shuffle.
+    Singletons,
+    /// The first `_one_level`.
+    First,
+    /// The threshold test, `_gen_graph` and the next `_one_level`.
+    Next,
+    Done,
+}
+
+/// networkx's `louvain_partitions(G, ...)` one generator resume at a time
+/// (br-r37-c1-81vo1): [`LouvainLevels::advance`] runs exactly the code
+/// networkx runs between two `yield`s - a shuffle draw per `_one_level` - so a
+/// caller stepping it lazily, drawing from the same generator in between,
+/// sees networkx's stream. The partition is over node positions, in the
+/// order of `node_names`.
+#[derive(Clone, Debug)]
+pub struct LouvainLevels {
+    level: LouvainLevelGraph,
+    node_names: Vec<String>,
+    m: f64,
+    resolution: f64,
+    threshold: f64,
+    modularity: f64,
+    partition: Vec<Vec<usize>>,
+    inner_partition: Vec<Vec<usize>>,
+    stage: LouvainStage,
+}
+
+impl LouvainLevels {
+    /// The generator's state before its first resume, read from `graph` as
+    /// networkx reads `G` there. `None` - before any draw - where networkx
+    /// would raise (a weight it cannot add, a zero or overflowing `m**2`) or
+    /// where f64 could not follow its int arithmetic exactly (int weights
+    /// whose magnitudes total 2**25 or more, where a degree product can pass
+    /// 2**53); the caller runs networkx then.
+    #[must_use]
+    pub fn new<'a>(
+        graph: impl Into<LouvainInput<'a>>,
+        resolution: f64,
+        weight_attr: &str,
+        threshold: f64,
+        sum: PythonSum,
+    ) -> Option<Self> {
+        const INT_MAGNITUDE_LIMIT: f64 = (1u64 << 25) as f64;
+        let (level, node_names) = build_louvain_level_graph(graph.into(), weight_attr, sum)?;
+        let mut levels = Self {
+            partition: level.members.clone(),
+            level,
+            node_names,
+            m: 0.0,
+            resolution,
+            threshold,
+            modularity: 0.0,
+            inner_partition: Vec::new(),
+            stage: LouvainStage::Singletons,
+        };
+        if levels.level.weights.is_empty() {
+            return Some(levels);
+        }
+        let level = &levels.level;
+        let int_magnitude: f64 = level
+            .weights
+            .iter()
+            .filter(|weight| weight.int)
+            .map(|weight| weight.value.abs())
+            .sum();
+        if int_magnitude >= INT_MAGNITUDE_LIMIT {
+            return None;
+        }
+        let m = level.size();
+        // The squares networkx divides by: `modularity`'s `deg_sum**2` (a
+        // DiGraph's `m**2` over its out-degrees) and `_one_level`'s `m**2`.
+        let modularity_total = if level.directed {
+            level.total(&level.strengths().0)
+        } else {
+            2.0 * m
+        };
+        if [modularity_total, m].iter().any(|&total| {
+            let square = louvain_py_square(total);
+            square == 0.0 || !square.is_finite()
+        }) {
+            return None;
+        }
+        let singletons: Vec<Vec<usize>> = (0..level.members.len()).map(|node| vec![node]).collect();
+        levels.modularity = louvain_level_modularity(level, &singletons, resolution);
+        levels.m = m;
+        levels.stage = LouvainStage::First;
+        Some(levels)
+    }
+
+    /// One generator resume: `true` with the next partition in
+    /// [`Self::partition`], `false` once networkx's generator would raise
+    /// `StopIteration`.
+    pub fn advance(&mut self, rng: Option<&mut MT19937>) -> bool {
+        match self.stage {
+            LouvainStage::Singletons => {
+                self.stage = LouvainStage::Done;
+                true
+            }
+            LouvainStage::First => {
+                let (partition, inner_partition, _) =
+                    louvain_one_level(&self.level, self.m, self.resolution, rng);
+                self.partition = partition;
+                self.inner_partition = inner_partition;
+                self.stage = LouvainStage::Next;
+                true
+            }
+            LouvainStage::Next => {
+                let new_modularity =
+                    louvain_level_modularity(&self.level, &self.inner_partition, self.resolution);
+                if new_modularity - self.modularity <= self.threshold {
+                    self.stage = LouvainStage::Done;
+                    return false;
+                }
+                self.modularity = new_modularity;
+                self.level = louvain_coarsen(&self.level, &self.inner_partition);
+                let (partition, inner_partition, improvement) =
+                    louvain_one_level(&self.level, self.m, self.resolution, rng);
+                if !improvement {
+                    self.stage = LouvainStage::Done;
+                    return false;
+                }
+                self.partition = partition;
+                self.inner_partition = inner_partition;
+                true
+            }
+            LouvainStage::Done => false,
+        }
+    }
+
+    /// The partition the last [`Self::advance`] yielded, as node positions
+    /// (each community in ascending order).
+    #[must_use]
+    pub fn partition(&self) -> &[Vec<usize>] {
+        &self.partition
+    }
+
+    /// The graph's node names, in position order.
+    #[must_use]
+    pub fn node_names(&self) -> &[String] {
+        &self.node_names
+    }
+}
+
 /// `louvain_communities(G, ...)`: the last partition `louvain_partitions`
-/// yields (the `max_level`-th at most, and no generator step after it, so no
-/// shuffle draws beyond networkx's). `None` - before any draw - where networkx
-/// would raise (a weight it cannot add, a zero or overflowing `m**2`) or
-/// where f64 could not follow its int arithmetic exactly (int weights whose
-/// magnitudes total 2**25 or more, where a degree product can pass 2**53);
-/// the caller runs networkx then.
+/// yields - the `max_level`-th at most, and no generator step after it, so
+/// no shuffle draws beyond networkx's. `None` where [`LouvainLevels::new`]
+/// declines.
 fn louvain_run(
     input: LouvainInput<'_>,
     resolution: f64,
@@ -29281,63 +29425,19 @@ fn louvain_run(
     mut rng: Option<&mut MT19937>,
     sum: PythonSum,
 ) -> Option<Vec<Vec<String>>> {
-    const INT_MAGNITUDE_LIMIT: f64 = (1u64 << 25) as f64;
-    let (mut level, node_names) = build_louvain_level_graph(input, weight_attr, sum)?;
-    if level.weights.is_empty() {
-        // `nx.is_empty(G)`: the singletons, no shuffle.
-        return Some(louvain_partition_to_node_names(
-            level.members.clone(),
-            &node_names,
-        ));
-    }
-    let int_magnitude: f64 = level
-        .weights
-        .iter()
-        .filter(|weight| weight.int)
-        .map(|weight| weight.value.abs())
-        .sum();
-    if int_magnitude >= INT_MAGNITUDE_LIMIT {
-        return None;
-    }
-    let m = level.size();
-    // The squares networkx divides by: `modularity`'s `deg_sum**2` (a
-    // DiGraph's `m**2` over its out-degrees) and `_one_level`'s `m**2`.
-    let modularity_total = if level.directed {
-        level.total(&level.strengths().0)
-    } else {
-        2.0 * m
-    };
-    if [modularity_total, m].iter().any(|&total| {
-        let square = louvain_py_square(total);
-        square == 0.0 || !square.is_finite()
-    }) {
-        return None;
-    }
-
-    let singletons: Vec<Vec<usize>> = (0..level.members.len()).map(|node| vec![node]).collect();
-    let mut modularity_value = louvain_level_modularity(&level, &singletons, resolution);
-    let (mut partition, mut inner_partition, _) =
-        louvain_one_level(&level, m, resolution, rng.as_deref_mut());
-    let mut level_count = 1usize;
-    loop {
+    let mut levels = LouvainLevels::new(input, resolution, weight_attr, threshold, sum)?;
+    let mut level_count = 0usize;
+    while levels.advance(rng.as_deref_mut()) {
+        level_count += 1;
         if max_level.is_some_and(|limit| level_count >= limit) {
             break;
         }
-        let new_modularity = louvain_level_modularity(&level, &inner_partition, resolution);
-        if new_modularity - modularity_value <= threshold {
-            break;
-        }
-        modularity_value = new_modularity;
-        level = louvain_coarsen(&level, &inner_partition);
-        let (next_partition, next_inner, improvement) =
-            louvain_one_level(&level, m, resolution, rng.as_deref_mut());
-        if !improvement {
-            break;
-        }
-        partition = next_partition;
-        inner_partition = next_inner;
-        level_count += 1;
     }
+    let LouvainLevels {
+        partition,
+        node_names,
+        ..
+    } = levels;
     Some(louvain_partition_to_node_names(partition, &node_names))
 }
 

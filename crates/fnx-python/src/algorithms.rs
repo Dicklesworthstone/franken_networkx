@@ -19251,6 +19251,124 @@ fn louvain_mirror_weights_exact<'a>(
     Ok(true)
 }
 
+/// The kernel's view of `gr` for weight `weight`, or `None` when a Python
+/// edge dict holds a weight the kernel cannot add as networkx does.
+fn louvain_input<'a>(
+    py: Python<'_>,
+    gr: &'a GraphRef<'_>,
+    weight: &str,
+) -> PyResult<Option<fnx_algorithms::LouvainInput<'a>>> {
+    let (inner, exact) = match gr {
+        GraphRef::Undirected(pg) => (
+            fnx_algorithms::LouvainInput::Graph(&pg.inner),
+            louvain_mirror_weights_exact(py, pg.edge_py_attrs.values(), weight)?,
+        ),
+        GraphRef::Directed { dg, .. } => (
+            fnx_algorithms::LouvainInput::DiGraph(&dg.inner),
+            louvain_mirror_weights_exact(py, dg.edge_py_attrs.values(), weight)?,
+        ),
+        GraphRef::MultiUndirected { mg, .. } => (
+            fnx_algorithms::LouvainInput::MultiGraph(&mg.inner),
+            louvain_mirror_weights_exact(py, mg.edge_py_attrs.values(), weight)?,
+        ),
+        GraphRef::MultiDirected { mdg, .. } => (
+            fnx_algorithms::LouvainInput::MultiDiGraph(&mdg.inner),
+            louvain_mirror_weights_exact(py, mdg.edge_py_attrs.values(), weight)?,
+        ),
+    };
+    Ok(exact.then_some(inner))
+}
+
+/// networkx's `louvain_partitions` generator between two resumes
+/// (br-r37-c1-81vo1): the level state [`fnx_algorithms::LouvainLevels`]
+/// carries, the graph's node objects in position order, and - for an int
+/// seed - the one `random.Random(seed)` networkx makes for the whole run.
+#[pyclass(name = "LouvainPartitionStepper")]
+pub struct LouvainPartitionStepper {
+    levels: fnx_algorithms::LouvainLevels,
+    node_keys: Vec<PyObject>,
+    seeded: Option<fnx_generators::PythonRandom>,
+}
+
+#[pymethods]
+impl LouvainPartitionStepper {
+    /// One generator resume: the next partition as lists of nodes, or `None`
+    /// once networkx's generator is exhausted. `seed` is what the generator
+    /// was created with: an int, or a `random.Random` read and advanced at
+    /// this resume, so draws the caller makes between resumes interleave as
+    /// they do with networkx.
+    fn step(
+        &mut self,
+        py: Python<'_>,
+        seed: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Vec<Vec<PyObject>>>> {
+        let levels = &mut self.levels;
+        let advanced = if seed.is_instance_of::<PyInt>() {
+            let rng = match &mut self.seeded {
+                Some(rng) => rng,
+                seeded => seeded.insert(fnx_generators::PythonRandom::new(seed.extract::<u64>()?)),
+            };
+            let rng = rng.mt19937_mut();
+            py.allow_threads(|| levels.advance(Some(rng)))
+        } else {
+            crate::generators::with_python_random(seed, |rng| {
+                let rng = rng.mt19937_mut();
+                Ok(py.allow_threads(|| levels.advance(Some(rng))))
+            })?
+        };
+        if !advanced {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.levels
+                .partition()
+                .iter()
+                .map(|community| {
+                    community
+                        .iter()
+                        .map(|&node| self.node_keys[node].clone_ref(py))
+                        .collect()
+                })
+                .collect(),
+        ))
+    }
+}
+
+/// The first resume of networkx's `louvain_partitions` generator reads `G`:
+/// the stepper for the rest of the run, or `None` where networkx must run
+/// instead (a weight the kernel cannot add as networkx does, or an input
+/// networkx raises on).
+#[pyfunction]
+fn louvain_partitions_start(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+    resolution: f64,
+    threshold: f64,
+) -> PyResult<Option<LouvainPartitionStepper>> {
+    sync_rust_edge_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let Some(inner) = louvain_input(py, &gr, weight)? else {
+        return Ok(None);
+    };
+    let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
+    let Some(levels) = py.allow_threads(|| {
+        fnx_algorithms::LouvainLevels::new(inner, resolution, weight, threshold, sum)
+    }) else {
+        return Ok(None);
+    };
+    let node_keys = levels
+        .node_names()
+        .iter()
+        .map(|name| gr.py_node_key(py, name))
+        .collect();
+    Ok(Some(LouvainPartitionStepper {
+        levels,
+        node_keys,
+        seeded: None,
+    }))
+}
+
 /// networkx's `louvain_communities` on any of the four graph classes
 /// (br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.5): `seed` is an int
 /// (`random.Random(seed)`) or a `random.Random` whose state the kernel
@@ -19280,27 +19398,9 @@ fn louvain_communities(
     };
     sync_rust_edge_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
-    let (inner, exact) = match &gr {
-        GraphRef::Undirected(pg) => (
-            fnx_algorithms::LouvainInput::Graph(&pg.inner),
-            louvain_mirror_weights_exact(py, pg.edge_py_attrs.values(), weight)?,
-        ),
-        GraphRef::Directed { dg, .. } => (
-            fnx_algorithms::LouvainInput::DiGraph(&dg.inner),
-            louvain_mirror_weights_exact(py, dg.edge_py_attrs.values(), weight)?,
-        ),
-        GraphRef::MultiUndirected { mg, .. } => (
-            fnx_algorithms::LouvainInput::MultiGraph(&mg.inner),
-            louvain_mirror_weights_exact(py, mg.edge_py_attrs.values(), weight)?,
-        ),
-        GraphRef::MultiDirected { mdg, .. } => (
-            fnx_algorithms::LouvainInput::MultiDiGraph(&mdg.inner),
-            louvain_mirror_weights_exact(py, mdg.edge_py_attrs.values(), weight)?,
-        ),
-    };
-    if !exact {
+    let Some(inner) = louvain_input(py, &gr, weight)? else {
         return Ok(None);
-    }
+    };
     // networkx's degrees and sizes are this interpreter's `sum()`s.
     let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
     let result = match seed {
@@ -29103,6 +29203,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_dominating_set, m)?)?;
     // Community detection
     m.add_function(wrap_pyfunction!(louvain_communities, m)?)?;
+    m.add_function(wrap_pyfunction!(louvain_partitions_start, m)?)?;
+    m.add_class::<LouvainPartitionStepper>()?;
     m.add_function(wrap_pyfunction!(modularity, m)?)?;
     m.add_function(wrap_pyfunction!(label_propagation_communities, m)?)?;
     m.add_function(wrap_pyfunction!(networkx_greedy_modularity_merges, m)?)?;
