@@ -14,6 +14,7 @@ use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use rand_core::Rng;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use rustc_hash::FxHashMap;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt;
 
@@ -35855,6 +35856,10 @@ type OrderedTypedPredDistances = Vec<(String, f64, bool, Option<String>)>;
 /// Index-space form of [`OrderedTypedPredDistances`]. A predecessor of
 /// `u32::MAX` denotes the source row's root.
 pub type IndexedTypedPredDistances = Vec<(u32, f64, bool, u32)>;
+
+/// `(predecessor lists in first-seen order, (node, distance, all_int) in
+/// settle order)` of a lazy predecessor/distance Dijkstra, in index space.
+type IndexedPredecessorDistance = (Vec<(u32, Vec<u32>)>, Vec<(u32, f64, bool)>);
 /// Ordered `(node, distance, all-int-distance)` entries.
 type OrderedTypedDistances = Vec<(String, f64, bool)>;
 /// Ordered `(node, predecessor-list)` entries for NetworkX predecessor dicts.
@@ -35864,10 +35869,9 @@ type OrderedPredecessorLists = Vec<(String, Vec<String>)>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexedDijkstraFull {
     pub source_idx: usize,
-    pub finalize_order: Vec<u32>,
-    pub predecessors: Vec<u32>,
-    pub distances: Vec<f64>,
-    pub all_int_paths: Vec<bool>,
+    /// `(node, distance, all_int, predecessor)` in settle order - networkx's
+    /// dict order. A node's final predecessor settles before the node does.
+    pub settled: IndexedTypedPredDistances,
 }
 
 /// Single-source Dijkstra returning distances only (directed graph).
@@ -36078,45 +36082,33 @@ pub fn single_source_dijkstra_full(graph: &Graph, source: &str, weight_attr: &st
     (distances, paths)
 }
 
-/// Single-source Dijkstra metadata in index space for direct Python emission.
+/// Single-source Dijkstra metadata in index space for direct Python emission:
+/// the finalize order and predecessor chain of [`single_source_dijkstra_full`]
+/// without materializing every path as `Vec<String>` inside the algorithm crate.
 ///
-/// This carries the same finalize order and predecessor chain as
-/// [`single_source_dijkstra_full`] without materializing every path as
-/// `Vec<String>` inside the algorithm crate.
+/// br-r37-c1-qnj0n: rows expand LAZILY and the cutoff applies during
+/// relaxation, as in networkx. This built a weighted CSR of every edge first
+/// and applied the cutoff afterwards, so `single_source_dijkstra(G, s,
+/// cutoff=2)` beside a 32k-node component took 33 ms where networkx takes
+/// 10 us - and an unbounded search from a small component paid the same.
 #[must_use]
 pub fn single_source_dijkstra_indexed_full(
     graph: &Graph,
     source: &str,
     weight_attr: &str,
+    cutoff: Option<f64>,
 ) -> Option<IndexedDijkstraFull> {
     let source_idx = graph.get_node_index(source)?;
-    let names = graph.nodes_ordered();
-    let n = names.len();
-    let mut offsets = Vec::with_capacity(n + 1);
-    let mut targets: Vec<u32> = Vec::new();
-    let mut weights: Vec<f64> = Vec::new();
-    let mut weight_is_int: Vec<bool> = Vec::new();
-    offsets.push(0);
-    for u in 0..n {
-        if let Some(row) = graph.neighbors_indices(u) {
-            for &v in row {
-                let (weight, is_int) =
-                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
-                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
-                weights.push(weight);
-                weight_is_int.push(is_int);
-            }
-        }
-        offsets.push(targets.len());
-    }
-
-    Some(single_source_dijkstra_indexed_csr(
+    let settled = single_source_dijkstra_typed_lazy(
         source_idx,
-        &offsets,
-        &targets,
-        &weights,
-        &weight_is_int,
-    ))
+        graph.node_count(),
+        cutoff.unwrap_or(f64::INFINITY),
+        |u, row| undirected_weighted_row(graph, u, weight_attr, row),
+    );
+    Some(IndexedDijkstraFull {
+        source_idx,
+        settled,
+    })
 }
 
 /// Directed twin of [`single_source_dijkstra_indexed_full`].
@@ -36125,93 +36117,19 @@ pub fn single_source_dijkstra_indexed_full_directed(
     digraph: &DiGraph,
     source: &str,
     weight_attr: &str,
+    cutoff: Option<f64>,
 ) -> Option<IndexedDijkstraFull> {
     let source_idx = digraph.get_node_index(source)?;
-    let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
-    for u in 0..names.len() {
-        for &v in csr.successors(u) {
-            let (weight, is_int) =
-                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
-            weights.push(weight);
-            weight_is_int.push(is_int);
-        }
-    }
-
-    Some(single_source_dijkstra_indexed_csr(
+    let settled = single_source_dijkstra_typed_lazy(
         source_idx,
-        &csr.succ_offsets,
-        &csr.succ_targets,
-        &weights,
-        &weight_is_int,
-    ))
-}
-
-fn single_source_dijkstra_indexed_csr(
-    source_idx: usize,
-    offsets: &[usize],
-    targets: &[u32],
-    weights: &[f64],
-    weight_is_int: &[bool],
-) -> IndexedDijkstraFull {
-    let n = offsets.len().saturating_sub(1);
-    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
-    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
-    let mut all_int_paths = vec![false; n];
-    let mut pq = BinaryHeap::new();
-    let mut seq_counter: u64 = 0;
-    let mut finalize_order: Vec<u32> = Vec::with_capacity(n);
-    let mut finalized = vec![false; n];
-
-    distances[source_idx] = 0.0;
-    all_int_paths[source_idx] = true;
-    seq_counter += 1;
-    pq.push(DijkstraState {
-        dist: 0.0,
-        seq: seq_counter,
-        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
-    });
-
-    while let Some(DijkstraState {
-        dist: d, node: u, ..
-    }) = pq.pop()
-    {
-        let u_usize = u as usize;
-        if d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
-            continue;
-        }
-        if !finalized[u_usize] {
-            finalized[u_usize] = true;
-            finalize_order.push(u);
-        }
-
-        for edge_offset in offsets[u_usize]..offsets[u_usize + 1] {
-            let v = targets[edge_offset];
-            let v_usize = v as usize;
-            let next_dist = d + weights[edge_offset];
-            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
-                distances[v_usize] = next_dist;
-                predecessors[v_usize] = u;
-                all_int_paths[v_usize] = all_int_paths[u_usize] && weight_is_int[edge_offset];
-                seq_counter += 1;
-                pq.push(DijkstraState {
-                    dist: next_dist,
-                    seq: seq_counter,
-                    node: v,
-                });
-            }
-        }
-    }
-
-    IndexedDijkstraFull {
+        digraph.node_count(),
+        cutoff.unwrap_or(f64::INFINITY),
+        |u, row| successor_weighted_row(digraph, u, weight_attr, row),
+    );
+    Some(IndexedDijkstraFull {
         source_idx,
-        finalize_order,
-        predecessors,
-        distances,
-        all_int_paths,
-    }
+        settled,
+    })
 }
 
 /// Single-source Dijkstra returning paths only.
@@ -36520,63 +36438,35 @@ pub fn single_source_dijkstra_path_length_typed_with_pred(
     let Some(source_idx) = graph.get_node_index(source) else {
         return Vec::new();
     };
-    // br-r37-c1-dkwy7: a bounded search expands lazily instead of materialising
-    // the whole weighted graph first. Only the cutoff case diverges; the
-    // unbounded build below is byte-for-byte what it always was.
-    if let Some(limit) = cutoff {
-        let indexed = single_source_dijkstra_typed_lazy(source_idx, limit, |u, row| {
-            row.clear();
-            if let Some(neighbors) = graph.neighbors_indices(u) {
-                for &v in neighbors {
-                    let (weight, is_int) =
-                        graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
-                    row.push((v, weight, is_int));
-                }
-            }
-        });
-        return indexed
-            .into_iter()
-            .filter_map(|(idx, distance, all_int, predecessor)| {
-                let name = graph.get_node_name(idx as usize)?.to_owned();
-                let parent = if predecessor == u32::MAX {
-                    None
-                } else {
-                    Some(graph.get_node_name(predecessor as usize)?.to_owned())
-                };
-                Some((name, distance, all_int, parent))
-            })
-            .collect();
-    }
-
-    let names = graph.nodes_ordered();
-    let n = names.len();
-    let mut offsets = Vec::with_capacity(n + 1);
-    let mut targets: Vec<u32> = Vec::new();
-    let mut weights: Vec<f64> = Vec::new();
-    let mut weight_is_int: Vec<bool> = Vec::new();
-    offsets.push(0);
-    for u in 0..n {
-        if let Some(row) = graph.neighbors_indices(u) {
-            for &v in row {
-                let (weight, is_int) =
-                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
-                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
-                weights.push(weight);
-                weight_is_int.push(is_int);
-            }
-        }
-        offsets.push(targets.len());
-    }
-
-    single_source_dijkstra_typed_csr(
+    // br-r37-c1-dkwy7 made the bounded search expand lazily; br-r37-c1-qnj0n
+    // runs the unbounded one the same way (a search from a small component is
+    // bounded too, and a whole-component one runs on NodeTable's dense arrays).
+    let indexed = single_source_dijkstra_typed_lazy(
         source_idx,
-        &names,
-        &offsets,
-        &targets,
-        &weights,
-        &weight_is_int,
-        cutoff,
-    )
+        graph.node_count(),
+        cutoff.unwrap_or(f64::INFINITY),
+        |u, row| undirected_weighted_row(graph, u, weight_attr, row),
+    );
+    name_typed_pred_distances(indexed, |idx| graph.get_node_name(idx))
+}
+
+/// Names for [`single_source_dijkstra_typed_lazy`]'s indices.
+fn name_typed_pred_distances<'g>(
+    indexed: IndexedTypedPredDistances,
+    name: impl Fn(usize) -> Option<&'g str>,
+) -> OrderedTypedPredDistances {
+    indexed
+        .into_iter()
+        .filter_map(|(idx, distance, all_int, predecessor)| {
+            let node = name(idx as usize)?.to_owned();
+            let parent = if predecessor == u32::MAX {
+                None
+            } else {
+                Some(name(predecessor as usize)?.to_owned())
+            };
+            Some((node, distance, all_int, parent))
+        })
+        .collect()
 }
 
 /// Dijkstra predecessor/distance for an undirected simple graph.
@@ -36593,35 +36483,13 @@ pub fn dijkstra_predecessor_and_distance(
     let Some(source_idx) = graph.get_node_index(source) else {
         return (Vec::new(), Vec::new());
     };
-    let names = graph.nodes_ordered();
-    let n = names.len();
-    let mut offsets = Vec::with_capacity(n + 1);
-    let mut targets: Vec<u32> = Vec::new();
-    let mut weights: Vec<f64> = Vec::new();
-    let mut weight_is_int: Vec<bool> = Vec::new();
-    offsets.push(0);
-    for u in 0..n {
-        if let Some(row) = graph.neighbors_indices(u) {
-            for &v in row {
-                let (weight, is_int) =
-                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
-                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
-                weights.push(weight);
-                weight_is_int.push(is_int);
-            }
-        }
-        offsets.push(targets.len());
-    }
-
-    single_source_dijkstra_predecessor_distance_csr(
+    let found = single_source_dijkstra_predecessor_distance_lazy(
         source_idx,
-        &names,
-        &offsets,
-        &targets,
-        &weights,
-        &weight_is_int,
+        graph.node_count(),
         cutoff,
-    )
+        |u, row| undirected_weighted_row(graph, u, weight_attr, row),
+    );
+    name_predecessor_distance(found, |idx| graph.get_node_name(idx as usize))
 }
 
 /// Directed twin of single_source_dijkstra_path_length_with_pred.
@@ -36648,56 +36516,15 @@ pub fn single_source_dijkstra_path_length_typed_with_pred_directed(
     let Some(source_idx) = digraph.get_node_index(source) else {
         return Vec::new();
     };
-    // br-r37-c1-dkwy7: see the undirected sibling. The CSR itself is
-    // revision-cached, so the per-call cost this removes is the weight/type
-    // rebuild - an attribute lookup for EVERY edge in the graph - plus the four
-    // dense arrays inside the search.
-    let csr = digraph.csr();
-    if let Some(limit) = cutoff {
-        let indexed = single_source_dijkstra_typed_lazy(source_idx, limit, |u, row| {
-            row.clear();
-            for &v in csr.successors(u) {
-                let v_usize = v as usize;
-                let (weight, is_int) =
-                    digraph_edge_weight_or_default_idx_typed(digraph, u, v_usize, weight_attr);
-                row.push((v_usize, weight, is_int));
-            }
-        });
-        return indexed
-            .into_iter()
-            .filter_map(|(idx, distance, all_int, predecessor)| {
-                let name = digraph.get_node_name(idx as usize)?.to_owned();
-                let parent = if predecessor == u32::MAX {
-                    None
-                } else {
-                    Some(digraph.get_node_name(predecessor as usize)?.to_owned())
-                };
-                Some((name, distance, all_int, parent))
-            })
-            .collect();
-    }
-
-    let names = digraph.nodes_ordered();
-    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
-    for u in 0..names.len() {
-        for &v in csr.successors(u) {
-            let (weight, is_int) =
-                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
-            weights.push(weight);
-            weight_is_int.push(is_int);
-        }
-    }
-
-    single_source_dijkstra_typed_csr(
+    // See the undirected sibling. The successor rows are read by position, so
+    // not even the revision-cached CSR is built.
+    let indexed = single_source_dijkstra_typed_lazy(
         source_idx,
-        &names,
-        &csr.succ_offsets,
-        &csr.succ_targets,
-        &weights,
-        &weight_is_int,
-        cutoff,
-    )
+        digraph.node_count(),
+        cutoff.unwrap_or(f64::INFINITY),
+        |u, row| successor_weighted_row(digraph, u, weight_attr, row),
+    );
+    name_typed_pred_distances(indexed, |idx| digraph.get_node_name(idx))
 }
 
 /// Directed target-only Dijkstra, equivalent to NetworkX's
@@ -36747,28 +36574,13 @@ pub fn dijkstra_predecessor_and_distance_directed(
     let Some(source_idx) = digraph.get_node_index(source) else {
         return (Vec::new(), Vec::new());
     };
-    let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
-    for u in 0..names.len() {
-        for &v in csr.successors(u) {
-            let (weight, is_int) =
-                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
-            weights.push(weight);
-            weight_is_int.push(is_int);
-        }
-    }
-
-    single_source_dijkstra_predecessor_distance_csr(
+    let found = single_source_dijkstra_predecessor_distance_lazy(
         source_idx,
-        &names,
-        &csr.succ_offsets,
-        &csr.succ_targets,
-        &weights,
-        &weight_is_int,
+        digraph.node_count(),
         cutoff,
-    )
+        |u, row| successor_weighted_row(digraph, u, weight_attr, row),
+    );
+    name_predecessor_distance(found, |idx| digraph.get_node_name(idx as usize))
 }
 
 fn single_source_dijkstra_typed_csr(
@@ -36801,6 +36613,40 @@ fn single_source_dijkstra_typed_csr(
     .collect()
 }
 
+/// One undirected row for a lazy Dijkstra: `(neighbour, weight, weight is an
+/// int)` in adjacency order, read only when the search settles `u`.
+fn undirected_weighted_row(
+    graph: &Graph,
+    u: usize,
+    weight_attr: &str,
+    row: &mut Vec<(usize, f64, bool)>,
+) {
+    row.clear();
+    if let Some(neighbors) = graph.neighbors_indices(u) {
+        for &v in neighbors {
+            let (weight, is_int) = graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+            row.push((v, weight, is_int));
+        }
+    }
+}
+
+/// Directed twin of [`undirected_weighted_row`] over the successor row.
+fn successor_weighted_row(
+    digraph: &DiGraph,
+    u: usize,
+    weight_attr: &str,
+    row: &mut Vec<(usize, f64, bool)>,
+) {
+    row.clear();
+    if let Some(successors) = digraph.successors_indices(u) {
+        for &v in successors {
+            let (weight, is_int) =
+                digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
+            row.push((v, weight, is_int));
+        }
+    }
+}
+
 /// br-r37-c1-dkwy7: bounded Dijkstra that expands rows LAZILY.
 ///
 /// A cutoff-bounded Dijkstra settles a neighbourhood, but the CSR-slice search
@@ -36811,10 +36657,13 @@ fn single_source_dijkstra_typed_csr(
 /// therefore grew 39.37x between 200 and 12800 nodes while networkx stayed flat,
 /// from 0.9324x of the incumbent to 0.0235x - 42x SLOWER than networkx.
 ///
-/// This variant is used ONLY when a cutoff is present; the unbounded path is
-/// untouched, because a search that may settle every node is entitled to dense
-/// arrays and one CSR pass. `expand` fills a caller-owned buffer, which keeps
-/// the neighbour rows borrow-free and costs no allocation per expansion.
+/// dkwy7 used this only with a cutoff, reasoning that a search which may settle
+/// every node is entitled to dense arrays and one CSR pass. br-r37-c1-qnj0n
+/// also runs the unbounded full-path search through it (cutoff = +inf): an
+/// unbounded search from a small component is as bounded as a cutoff one, and a
+/// whole-component search reads the same weights either way. `expand` fills a
+/// caller-owned buffer, which keeps the neighbour rows borrow-free and costs no
+/// allocation per expansion.
 ///
 /// Every invariant of the dense search is preserved deliberately:
 ///   * `finalize_order` is the RETURN order and networkx's dict order, appended
@@ -36826,23 +36675,24 @@ fn single_source_dijkstra_typed_csr(
 ///   * the cutoff is applied to `next_dist` BEFORE relaxation.
 fn single_source_dijkstra_typed_lazy<F>(
     source_idx: usize,
+    node_count: usize,
     cutoff: f64,
     mut expand: F,
 ) -> IndexedTypedPredDistances
 where
     F: FnMut(usize, &mut Vec<(usize, f64, bool)>),
 {
-    let mut distances: HashMap<usize, f64> = HashMap::new();
-    let mut predecessors: HashMap<usize, u32> = HashMap::new();
-    let mut all_int_paths: HashMap<usize, bool> = HashMap::new();
-    let mut finalized: HashSet<usize> = HashSet::new();
+    let mut distances = NodeTable::new(node_count, f64::INFINITY);
+    let mut predecessors = NodeTable::new(node_count, u32::MAX);
+    let mut all_int_paths = NodeTable::new(node_count, false);
+    let mut finalized = NodeTable::new(node_count, false);
     let mut finalize_order: Vec<u32> = Vec::new();
     let mut pq: BinaryHeap<DijkstraState<u32>> = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
     let mut row: Vec<(usize, f64, bool)> = Vec::new();
 
-    distances.insert(source_idx, 0.0);
-    all_int_paths.insert(source_idx, true);
+    distances.set(source_idx, 0.0);
+    all_int_paths.set(source_idx, true);
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
@@ -36855,26 +36705,25 @@ where
     }) = pq.pop()
     {
         let u_usize = u as usize;
-        let known = distances.get(&u_usize).copied().unwrap_or(f64::INFINITY);
-        if d > known + DISTANCE_COMPARISON_EPSILON {
+        if d > distances.get(u_usize) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
-        if finalized.insert(u_usize) {
+        if !finalized.get(u_usize) {
+            finalized.set(u_usize, true);
             finalize_order.push(u);
         }
 
-        let u_all_int = all_int_paths.get(&u_usize).copied().unwrap_or(false);
+        let u_all_int = all_int_paths.get(u_usize);
         expand(u_usize, &mut row);
         for &(v, weight, is_int) in &row {
             let next_dist = d + weight;
             if next_dist > cutoff {
                 continue;
             }
-            let current = distances.get(&v).copied().unwrap_or(f64::INFINITY);
-            if next_dist < current - DISTANCE_COMPARISON_EPSILON {
-                distances.insert(v, next_dist);
-                predecessors.insert(v, u);
-                all_int_paths.insert(v, u_all_int && is_int);
+            if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+                distances.set(v, next_dist);
+                predecessors.set(v, u);
+                all_int_paths.set(v, u_all_int && is_int);
                 seq_counter += 1;
                 pq.push(DijkstraState {
                     dist: next_dist,
@@ -36888,15 +36737,61 @@ where
     finalize_order
         .into_iter()
         .map(|idx| {
-            let idx_usize = idx as usize;
-            (
-                idx,
-                distances.get(&idx_usize).copied().unwrap_or(f64::INFINITY),
-                all_int_paths.get(&idx_usize).copied().unwrap_or(false),
-                predecessors.get(&idx_usize).copied().unwrap_or(u32::MAX),
-            )
+            let at = idx as usize;
+            (idx, distances.get(at), all_int_paths.get(at), predecessors.get(at))
         })
         .collect()
+}
+
+/// br-r37-c1-qnj0n: per-node search state that costs what the search REACHES.
+///
+/// Sparse (Fx-hashed) while it is small, so a search inside a small component
+/// never pays O(V); promoted once to a dense array when it holds more than
+/// max(64, V/32) entries, after which every access is an index, so a search
+/// that covers the graph runs on the dense arrays it always had. An absent node
+/// reads as `absent`, which callers choose so it cannot be a real value.
+struct NodeTable<T: Copy> {
+    absent: T,
+    sparse: FxHashMap<usize, T>,
+    dense: Vec<T>,
+    node_count: usize,
+    promote_at: usize,
+}
+
+impl<T: Copy> NodeTable<T> {
+    fn new(node_count: usize, absent: T) -> Self {
+        Self {
+            absent,
+            sparse: FxHashMap::default(),
+            dense: Vec::new(),
+            node_count,
+            promote_at: (node_count / 32).max(64),
+        }
+    }
+
+    #[inline]
+    fn get(&self, node: usize) -> T {
+        if self.dense.is_empty() {
+            self.sparse.get(&node).copied().unwrap_or(self.absent)
+        } else {
+            self.dense[node]
+        }
+    }
+
+    #[inline]
+    fn set(&mut self, node: usize, value: T) {
+        if self.dense.is_empty() {
+            self.sparse.insert(node, value);
+            if self.sparse.len() > self.promote_at {
+                self.dense = vec![self.absent; self.node_count];
+                for (at, value) in self.sparse.drain() {
+                    self.dense[at] = value;
+                }
+            }
+        } else {
+            self.dense[node] = value;
+        }
+    }
 }
 
 fn single_source_dijkstra_typed_csr_indexed(
@@ -37033,34 +36928,48 @@ fn dijkstra_target_distance_typed_csr(
     None
 }
 
-fn single_source_dijkstra_predecessor_distance_csr(
+/// networkx's `_dijkstra_multisource(..., pred=pred, cutoff=cutoff)` for one
+/// source, expanding each settled node's row LAZILY through `expand` and
+/// holding state only for the nodes the search reaches (br-r37-c1-qnj0n). The
+/// callers used to build a weighted CSR of EVERY edge - an attribute lookup
+/// per edge - and V-sized arrays before relaxing one edge, so
+/// `dijkstra_predecessor_and_distance(G, s, cutoff=2)` beside a 32k-node
+/// component took 30 ms where networkx takes 5 us.
+///
+/// networkx's order is kept: a node's predecessor list sits where the node was
+/// FIRST seen, is replaced on an improvement and extended on a tie (a tie
+/// against a settled node included); distances come in settle order.
+fn single_source_dijkstra_predecessor_distance_lazy<F>(
     source_idx: usize,
-    names: &[&str],
-    offsets: &[usize],
-    targets: &[u32],
-    weights: &[f64],
-    weight_is_int: &[bool],
+    node_count: usize,
     cutoff: Option<f64>,
-) -> (OrderedPredecessorLists, OrderedTypedDistances) {
-    let n = names.len();
-    let mut seen: Vec<f64> = vec![f64::INFINITY; n];
-    let mut all_int_paths = vec![false; n];
-    let mut pred_lists: Vec<Option<Vec<u32>>> = vec![None; n];
-    let mut pred_order = Vec::new();
-    let mut dist_order = Vec::new();
-    let mut finalized = vec![false; n];
+    mut expand: F,
+) -> IndexedPredecessorDistance
+where
+    F: FnMut(usize, &mut Vec<(usize, f64, bool)>),
+{
+    let mut seen = NodeTable::new(node_count, f64::INFINITY);
+    let mut all_int_paths = NodeTable::new(node_count, false);
+    let mut pred_lists: Vec<(u32, Vec<u32>)> = Vec::new();
+    // Where a node's predecessor list sits in `pred_lists`; usize::MAX until
+    // the node is first seen, which is also what "seen" means here.
+    let mut pred_at = NodeTable::new(node_count, usize::MAX);
+    let mut settled: Vec<(u32, f64, bool)> = Vec::new();
+    let mut finalized = NodeTable::new(node_count, false);
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
+    let mut row: Vec<(usize, f64, bool)> = Vec::new();
 
-    seen[source_idx] = 0.0;
-    all_int_paths[source_idx] = true;
-    pred_lists[source_idx] = Some(Vec::new());
-    pred_order.push(u32::try_from(source_idx).unwrap_or(u32::MAX));
+    let source = u32::try_from(source_idx).unwrap_or(u32::MAX);
+    seen.set(source_idx, 0.0);
+    all_int_paths.set(source_idx, true);
+    pred_at.set(source_idx, 0);
+    pred_lists.push((source, Vec::new()));
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
         seq: seq_counter,
-        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
+        node: source,
     });
 
     while let Some(DijkstraState {
@@ -37070,75 +36979,61 @@ fn single_source_dijkstra_predecessor_distance_csr(
     }) = pq.pop()
     {
         let v_usize = v as usize;
-        if finalized[v_usize] || dist_v > seen[v_usize] {
+        let known = seen.get(v_usize);
+        if finalized.get(v_usize) || dist_v > known {
             continue;
         }
-        finalized[v_usize] = true;
-        dist_order.push(v);
+        finalized.set(v_usize, true);
+        let v_all_int = all_int_paths.get(v_usize);
+        settled.push((v, known, v_all_int));
 
-        for edge_offset in offsets[v_usize]..offsets[v_usize + 1] {
-            let u = targets[edge_offset];
-            let u_usize = u as usize;
-            let vu_dist = dist_v + weights[edge_offset];
+        expand(v_usize, &mut row);
+        for &(u_usize, weight, is_int) in &row {
+            let vu_dist = dist_v + weight;
             if let Some(limit) = cutoff
                 && vu_dist > limit
             {
                 continue;
             }
-            if finalized[u_usize] {
-                if vu_dist == seen[u_usize]
-                    && let Some(preds) = pred_lists[u_usize].as_mut()
-                {
-                    preds.push(v);
+            let at = pred_at.get(u_usize);
+            if at != usize::MAX && (finalized.get(u_usize) || vu_dist >= seen.get(u_usize)) {
+                if vu_dist == seen.get(u_usize) {
+                    pred_lists[at].1.push(v);
                 }
                 continue;
             }
-            if seen[u_usize].is_infinite() || vu_dist < seen[u_usize] {
-                seen[u_usize] = vu_dist;
-                all_int_paths[u_usize] = all_int_paths[v_usize] && weight_is_int[edge_offset];
-                if pred_lists[u_usize].is_none() {
-                    pred_order.push(u);
-                }
-                pred_lists[u_usize] = Some(vec![v]);
-                seq_counter += 1;
-                pq.push(DijkstraState {
-                    dist: vu_dist,
-                    seq: seq_counter,
-                    node: u,
-                });
-            } else if vu_dist == seen[u_usize]
-                && let Some(preds) = pred_lists[u_usize].as_mut()
-            {
-                preds.push(v);
+            seen.set(u_usize, vu_dist);
+            all_int_paths.set(u_usize, v_all_int && is_int);
+            if at == usize::MAX {
+                pred_at.set(u_usize, pred_lists.len());
+                pred_lists.push((u32::try_from(u_usize).unwrap_or(u32::MAX), vec![v]));
+            } else {
+                pred_lists[at].1 = vec![v];
             }
+            seq_counter += 1;
+            pq.push(DijkstraState {
+                dist: vu_dist,
+                seq: seq_counter,
+                node: u32::try_from(u_usize).unwrap_or(u32::MAX),
+            });
         }
     }
+    (pred_lists, settled)
+}
 
-    let predecessors = pred_order
+/// Names for [`single_source_dijkstra_predecessor_distance_lazy`]'s indices.
+fn name_predecessor_distance<'g>(
+    (pred_lists, settled): IndexedPredecessorDistance,
+    name: impl Fn(u32) -> Option<&'g str>,
+) -> (OrderedPredecessorLists, OrderedTypedDistances) {
+    let owned = |idx: u32| name(idx).unwrap_or_default().to_owned();
+    let predecessors = pred_lists
         .into_iter()
-        .filter_map(|idx| {
-            let idx_usize = idx as usize;
-            pred_lists[idx_usize].as_ref().map(|preds| {
-                (
-                    names[idx_usize].to_owned(),
-                    preds
-                        .iter()
-                        .map(|pred| names[*pred as usize].to_owned())
-                        .collect(),
-                )
-            })
-        })
+        .map(|(node, preds)| (owned(node), preds.into_iter().map(owned).collect()))
         .collect();
-    let distances = dist_order
+    let distances = settled
         .into_iter()
-        .map(|idx| {
-            let idx_usize = idx as usize;
-            (
-                names[idx_usize].to_owned(),
-                seen[idx_usize],
-                all_int_paths[idx_usize],
-            )
-        })
+        .map(|(node, distance, all_int)| (owned(node), distance, all_int))
         .collect();
     (predecessors, distances)
 }

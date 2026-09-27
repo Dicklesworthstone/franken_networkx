@@ -1269,7 +1269,7 @@ def bellman_ford_path_length(
     g: Union[Graph, DiGraph], source: Any, target: Any, weight: str = "weight"
 ) -> float: ...
 def single_source_dijkstra(
-    g: Graph, source: Any, weight: str = "weight"
+    g: Graph, source: Any, weight: str = "weight", cutoff: Optional[float] = None
 ) -> tuple[dict[Any, float], dict[Any, list[Any]]]: ...
 def single_source_dijkstra_path(
     g: Graph, source: Any, weight: str = "weight"

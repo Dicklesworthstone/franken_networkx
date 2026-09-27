@@ -27927,8 +27927,19 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
             _sync_rust_edge_attrs(G, edge_only=True)
             length, all_int, path = _ptt(G, source, target, weight)
             return (int(length) if all_int else float(length), path)
-    dists, paths = _raw_single_source_dijkstra(G, source, weight=weight)
-    dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
+    # br-r37-c1-qnj0n: a float cutoff, or an int a float holds exactly, bounds
+    # the native search as networkx bounds its own (NaN and +inf compare as
+    # there: unbounded). Any other cutoff keeps the view below, which compares
+    # it the Python way.
+    if (
+        cutoff is None
+        or type(cutoff) is float
+        or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
+    ):
+        dists, paths = _raw_single_source_dijkstra(G, source, weight=weight, cutoff=cutoff)
+    else:
+        dists, paths = _raw_single_source_dijkstra(G, source, weight=weight)
+        dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
     # br-r37-c1-0opkc: the raw binding now emits distances with nx's
     # observable int/float type directly from the selected path metadata, so
     # this combined API no longer needs a Python-side edge scan or path walk.
