@@ -7948,13 +7948,15 @@ impl PyMultiGraph {
         py: Python<'_>,
         items: &[Bound<'_, PyAny>],
     ) -> PyResult<Option<IndexedKeyedAttrEdgeBatch>> {
-        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        // Lookup-only maps (never iterated): Fx, not SipHash (br-r37-c1-19ngg).
+        let mut node_indices: rustc_hash::FxHashMap<i64, usize> = rustc_hash::FxHashMap::default();
         let mut node_labels: Vec<String> = Vec::new();
         let mut node_objects: Vec<PyObject> = Vec::new();
         if items.len() > (u32::MAX as usize) / 2 {
             return Ok(None);
         }
-        let mut pair_count: HashMap<u64, usize> = HashMap::with_capacity(items.len());
+        let mut pair_count: rustc_hash::FxHashMap<u64, usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(items.len(), rustc_hash::FxBuildHasher);
         let mut edges: Vec<(usize, usize, usize, AttrMap, Option<Py<PyDict>>)> =
             Vec::with_capacity(items.len());
         let mut node_bumps = 0_u64;
@@ -8098,14 +8100,15 @@ impl PyMultiGraph {
         py: Python<'_>,
         items: &[Bound<'_, PyAny>],
     ) -> PyResult<Option<IndexedKeyedAttrEdgeBatch>> {
-        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        // Lookup-only maps (never iterated): Fx, not SipHash (br-r37-c1-19ngg).
+        let mut node_indices: rustc_hash::FxHashMap<i64, usize> = rustc_hash::FxHashMap::default();
         let mut node_labels: Vec<String> = Vec::new();
         let mut node_objects: Vec<PyObject> = Vec::new();
         if items.len() > (u32::MAX as usize) / 2 {
             return Ok(None);
         }
-        let mut seen_canonical: HashSet<(usize, usize, usize)> =
-            HashSet::with_capacity(items.len());
+        let mut seen_canonical: rustc_hash::FxHashSet<(usize, usize, usize)> =
+            rustc_hash::FxHashSet::with_capacity_and_hasher(items.len(), rustc_hash::FxBuildHasher);
         let mut edges: Vec<(usize, usize, usize, AttrMap, Option<Py<PyDict>>)> =
             Vec::with_capacity(items.len());
         let mut node_bumps = 0_u64;
@@ -8327,7 +8330,9 @@ impl PyMultiGraph {
 
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
         let mut mirrors: Vec<((String, String, usize), Py<PyDict>)> = Vec::new();
-        let mut seen_canonical: HashSet<(String, String, usize)> = HashSet::new();
+        // Lookup-only (never iterated): Fx, not SipHash (br-r37-c1-19ngg).
+        let mut seen_canonical: rustc_hash::FxHashSet<(String, String, usize)> =
+            rustc_hash::FxHashSet::default();
         for item in &items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
                 return Ok(None);

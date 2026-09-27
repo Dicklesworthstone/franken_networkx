@@ -89,21 +89,6 @@ fn single_weight_float_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<Option<At
     Ok(Some(rust_attrs))
 }
 
-fn single_weight_float_attr_map_with_mirror(
-    py: Python<'_>,
-    attrs: &Bound<'_, PyDict>,
-) -> PyResult<Option<(AttrMap, Py<PyDict>)>> {
-    let Some(rust_attrs) = single_weight_float_attr_map(attrs)? else {
-        return Ok(None);
-    };
-    let Some((key, value)) = attrs.iter().next() else {
-        return Ok(None);
-    };
-    let mirror = PyDict::new(py);
-    mirror.set_item(&key, &value)?;
-    Ok(Some((rust_attrs, mirror.unbind())))
-}
-
 // ---------------------------------------------------------------------------
 // PyDiGraph
 // ---------------------------------------------------------------------------
@@ -3637,11 +3622,13 @@ impl PyMultiDiGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        // Lookup-only maps (never iterated): Fx, not SipHash (br-r37-c1-19ngg).
+        let mut node_indices: rustc_hash::FxHashMap<i64, usize> = rustc_hash::FxHashMap::default();
         let mut node_labels: Vec<String> = Vec::new();
         let mut node_objects: Vec<PyObject> = Vec::new();
-        let mut pair_count: HashMap<(usize, usize), usize> = HashMap::new();
-        let mut edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut pair_count: rustc_hash::FxHashMap<(usize, usize), usize> =
+            rustc_hash::FxHashMap::default();
+        let mut edges: Vec<MultiDiIndexedAttrEdge> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -3672,16 +3659,10 @@ impl PyMultiDiGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
-                Ok(converted) => converted,
-                Err(_) => return Ok(None),
-            };
-            let (attrs, mirror) = match fast_weight {
-                Some(converted) => converted,
-                None => match py_dict_to_attr_map_with_mirror(py, dict) {
-                    Ok(converted) => converted,
-                    Err(_) => return Ok(None),
-                },
+            // The dict that reports its writes to this graph, built once
+            // (a plain mirror adopted into a second dict made two).
+            let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -3731,7 +3712,7 @@ impl PyMultiDiGraph {
         py: Python<'_>,
         node_labels: Vec<String>,
         node_objects: Vec<PyObject>,
-        edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)>,
+        edges: Vec<MultiDiIndexedAttrEdge>,
         node_bumps: u64,
     ) -> PyResult<()> {
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
@@ -3747,12 +3728,11 @@ impl PyMultiDiGraph {
         for (source_idx, target_idx, key, attrs, mirror) in edges {
             let source = &node_labels[source_idx];
             let target = &node_labels[target_idx];
-            if !mirror.bind(py).is_empty()
-                && let std::collections::hash_map::Entry::Vacant(e) = self
-                    .edge_py_attrs
+            // The collectors' mirrors already report to this graph.
+            if let Some(mirror) = mirror {
+                self.edge_py_attrs
                     .entry(Self::edge_key(source, target, key))
-            {
-                e.insert(self.edge_attr_writes.adopt(py, mirror.bind(py))?);
+                    .or_insert(mirror);
             }
             inner_edges.push((source_idx, target_idx, key, attrs));
         }
@@ -3827,11 +3807,17 @@ impl PyMultiDiGraph {
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
         let node_capacity = len.saturating_mul(2);
-        let mut node_indices: HashMap<String, usize> = HashMap::with_capacity(node_capacity);
+        // Lookup-only maps (never iterated): Fx, not SipHash (br-r37-c1-19ngg).
+        let mut node_indices: rustc_hash::FxHashMap<String, usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(
+                node_capacity,
+                rustc_hash::FxBuildHasher,
+            );
         let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
         let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
-        let mut pair_count: HashMap<(usize, usize), usize> = HashMap::with_capacity(len);
-        let mut edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut pair_count: rustc_hash::FxHashMap<(usize, usize), usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(len, rustc_hash::FxBuildHasher);
+        let mut edges: Vec<MultiDiIndexedAttrEdge> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -3857,16 +3843,8 @@ impl PyMultiDiGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
-                Ok(converted) => converted,
-                Err(_) => return Ok(None),
-            };
-            let (attrs, mirror) = match fast_weight {
-                Some(converted) => converted,
-                None => match py_dict_to_attr_map_with_mirror(py, dict) {
-                    Ok(converted) => converted,
-                    Err(_) => return Ok(None),
-                },
+            let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -3974,11 +3952,13 @@ impl PyMultiDiGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut node_indices: HashMap<i64, usize> = HashMap::new();
+        // Lookup-only maps (never iterated): Fx, not SipHash (br-r37-c1-19ngg).
+        let mut node_indices: rustc_hash::FxHashMap<i64, usize> = rustc_hash::FxHashMap::default();
         let mut node_labels: Vec<String> = Vec::new();
         let mut node_objects: Vec<PyObject> = Vec::new();
-        let mut seen_pair_key: HashSet<(usize, usize, usize)> = HashSet::new();
-        let mut edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut seen_pair_key: rustc_hash::FxHashSet<(usize, usize, usize)> =
+            rustc_hash::FxHashSet::default();
+        let mut edges: Vec<MultiDiIndexedAttrEdge> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
 
         for item in items {
@@ -4025,16 +4005,8 @@ impl PyMultiDiGraph {
             if !crate::attr_dict_is_batch_lossless(dict) {
                 return Ok(None);
             }
-            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
-                Ok(converted) => converted,
-                Err(_) => return Ok(None),
-            };
-            let (attrs, mirror) = match fast_weight {
-                Some(converted) => converted,
-                None => match py_dict_to_attr_map_with_mirror(py, dict) {
-                    Ok(converted) => converted,
-                    Err(_) => return Ok(None),
-                },
+            let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -4163,7 +4135,9 @@ impl PyMultiDiGraph {
 
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
         let mut mirrors: Vec<((String, String, usize), Py<PyDict>)> = Vec::new();
-        let mut seen_pair_key: HashSet<(String, String, usize)> = HashSet::new();
+        // Lookup-only (never iterated): Fx, not SipHash (br-r37-c1-19ngg).
+        let mut seen_pair_key: rustc_hash::FxHashSet<(String, String, usize)> =
+            rustc_hash::FxHashSet::default();
         for item in &items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
                 return Ok(None);
@@ -4206,16 +4180,9 @@ impl PyMultiDiGraph {
             if !crate::attr_dict_is_batch_lossless(dict) {
                 return Ok(None);
             }
-            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
-                Ok(converted) => converted,
-                Err(_) => return Ok(None),
-            };
-            let (attrs, mirror) = match fast_weight {
-                Some(converted) => converted,
-                None => match py_dict_to_attr_map_with_mirror(py, dict) {
-                    Ok(converted) => converted,
-                    Err(_) => return Ok(None),
-                },
+            // The dict that reports its writes to this graph, built once.
+            let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
+                return Ok(None);
             };
             if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                 return Ok(None);
@@ -4223,7 +4190,7 @@ impl PyMultiDiGraph {
             if !seen_pair_key.insert((u_canonical.clone(), v_canonical.clone(), key)) {
                 return Ok(None);
             }
-            if !mirror.bind(py).is_empty() {
+            if let Some(mirror) = mirror {
                 mirrors.push(((u_canonical.clone(), v_canonical.clone(), key), mirror));
             }
             edges.push((u_canonical, v_canonical, key, attrs));
@@ -4232,12 +4199,9 @@ impl PyMultiDiGraph {
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
         let keys = crate::batch_key_list(py, edges.iter().map(|edge| edge.2))?;
         for ((source, target, key), mirror) in mirrors {
-            if let std::collections::hash_map::Entry::Vacant(e) = self
-                .edge_py_attrs
+            self.edge_py_attrs
                 .entry(Self::edge_key(&source, &target, key))
-            {
-                e.insert(self.edge_attr_writes.adopt(py, mirror.bind(py))?);
-            }
+                .or_insert(mirror);
         }
         let _inserted = self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
@@ -13201,12 +13165,12 @@ type DiIndexedAttrEdgeBatch = (
     Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)>,
     u64,
 );
-type MultiDiIndexedAttrEdgeBatch = (
-    Vec<String>,
-    Vec<PyObject>,
-    Vec<(usize, usize, usize, AttrMap, Py<PyDict>)>,
-    u64,
-);
+/// One collected edge: (source index, target index, key, attrs, the dict
+/// that reports its writes to the graph - `None` for an edge without attrs,
+/// whose dict is made when first handed out).
+type MultiDiIndexedAttrEdge = (usize, usize, usize, AttrMap, Option<Py<PyDict>>);
+
+type MultiDiIndexedAttrEdgeBatch = (Vec<String>, Vec<PyObject>, Vec<MultiDiIndexedAttrEdge>, u64);
 
 /// br-r37-c1-nodebatch: collected attributed-node batch for PyDiGraph —
 /// (nodes, new_nodes, node_bumps); each node carries its converted `AttrMap`

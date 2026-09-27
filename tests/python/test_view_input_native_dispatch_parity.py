@@ -629,3 +629,47 @@ def test_a_multigraph_pickles_its_stored_edge_attributes():
     restored = pickle.loads(pickle.dumps(graph))  # nosec B301 - trusted round trip
     assert list(restored.edges(keys=True, data=True)) == list(graph.edges(keys=True, data=True))
     assert list(restored.edges(data="weight"))[:3] == [(0, 1, 4), (0, 2, 5), (0, 3, 3)]
+
+
+# br-r37-c1-u9a13 / 19ngg: every native add_edges_from batch (8 edges and up)
+# of every class hands out edge dicts that report their writes - a cached
+# view follows a write through the dict. The batches build those dicts
+# themselves, so each shape is its own path.
+def _batch_edges(multi):
+    pairs = [(i % 6, (i * 5 + 1) % 6) for i in range(12)]
+    shapes = {
+        "int triples": lambda g: g.add_edges_from([(u, v, {"weight": float(u + v)}) for u, v in pairs]),
+        "str triples": lambda g: g.add_edges_from([(f"n{u}", f"n{v}", {"weight": 1.5}) for u, v in pairs]),
+        "pairs + attr": lambda g: g.add_edges_from(pairs, weight=2.0),
+        "weighted": lambda g: g.add_weighted_edges_from([(u, v, 0.5) for u, v in pairs]),
+    }
+    if multi:
+        shapes["int keyed 4-tuples"] = lambda g: g.add_edges_from(
+            [(u, v, k, {"weight": 1.0}) for k, (u, v) in enumerate(pairs)]
+        )
+        shapes["keyed 4-tuples, nodes first"] = lambda g: (
+            g.add_nodes_from(range(6)),
+            g.add_edges_from([(u, v, k, {"weight": 1.0}) for k, (u, v) in enumerate(pairs)]),
+        )
+    return shapes
+
+
+BATCH_ROWS = [
+    (cls, shape)
+    for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+    for shape in _batch_edges(cls.startswith("Multi"))
+]
+
+
+@pytest.mark.parametrize(("cls", "shape"), BATCH_ROWS)
+def test_a_batch_built_graphs_cached_view_follows_a_write(cls, shape):
+    graph = getattr(fnx, cls)()
+    _batch_edges(graph.is_multigraph())[shape](graph)
+    view = graph.subgraph(list(graph))
+    before = _weights(view)  # fills the view's cache
+    edge = next(iter(graph.edges(keys=True) if graph.is_multigraph() else graph.edges()))
+    data = graph.get_edge_data(*edge)
+    data["weight"] = 50.0
+    fresh = _weights(graph.subgraph(list(graph)))
+    assert _weights(view) == fresh
+    assert fresh != before
