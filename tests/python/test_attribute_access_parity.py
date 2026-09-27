@@ -1700,22 +1700,26 @@ class TestClassLevelPredicates:
             (fnx.MultiDiGraph, True, True),
         ],
     )
-    def test_instance_predicate_cache_does_not_alias_copies(
+    def test_instance_predicates_store_nothing_and_do_not_alias_copies(
         self, graph_cls, directed, multigraph
     ):
-        """br-r37-c1-8a89c: cached bound methods belong only to their graph."""
+        """br-r37-c1-8a89c: a predicate answers for its own graph, copies for
+        themselves. br-r37-c1-hfn6e: answering stores nothing on the graph -
+        a bound method cached in the instance dict made every graph that
+        answered a reference cycle, freed only by the cyclic GC."""
         import copy
         import pickle
+        import sys
 
         graph = graph_cls()
-        assert "is_directed" not in vars(graph)
-        assert "is_multigraph" not in vars(graph)
+        references = sys.getrefcount(graph)
         assert graph.is_directed() is directed
         assert graph.is_multigraph() is multigraph
-        assert type(vars(graph)["is_directed"]).__name__ == "builtin_function_or_method"
-        assert type(vars(graph)["is_multigraph"]).__name__ == "builtin_function_or_method"
-        assert vars(graph)["is_directed"].__self__ is graph
-        assert vars(graph)["is_multigraph"].__self__ is graph
+        assert "is_directed" not in vars(graph)
+        assert "is_multigraph" not in vars(graph)
+        assert sys.getrefcount(graph) == references
+        assert graph.is_directed.__self__ is graph
+        assert graph.is_multigraph.__self__ is graph
 
         for clone in (
             copy.copy(graph),
@@ -1727,8 +1731,8 @@ class TestClassLevelPredicates:
             assert "is_multigraph" not in vars(clone)
             assert clone.is_directed() is directed
             assert clone.is_multigraph() is multigraph
-            assert vars(clone)["is_directed"].__self__ is clone
-            assert vars(clone)["is_multigraph"].__self__ is clone
+            assert clone.is_directed.__self__ is clone
+            assert clone.is_multigraph.__self__ is clone
 
         graph.is_directed = _instance_predicate_override
         graph.is_multigraph = _instance_predicate_override
@@ -1747,6 +1751,27 @@ class TestClassLevelPredicates:
             assert vars(clone)["is_multigraph"] is _instance_predicate_override
             assert clone.is_directed() == "instance override"
             assert clone.is_multigraph() == "instance override"
+
+    @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph])
+    def test_a_graph_that_answered_is_freed_when_dropped(self, graph_cls):
+        """br-r37-c1-hfn6e: by refcount, at the del - not by a later cyclic-GC
+        pass, whose timing decided where its native storage's teardown was
+        paid (a build-and-drop loop measured 20-60% slower, twice the RSS)."""
+        import gc
+        import weakref
+
+        enabled = gc.isenabled()
+        gc.disable()
+        try:
+            graph = graph_cls([(0, 1), (1, 2)])
+            graph.is_directed()
+            graph.is_multigraph()
+            dropped = weakref.ref(graph)
+            del graph
+            assert dropped() is None
+        finally:
+            if enabled:
+                gc.enable()
 
     def test_nx_gnp_random_graph_with_fnx_create_using(self):
         import networkx as nx

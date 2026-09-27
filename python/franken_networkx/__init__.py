@@ -11899,96 +11899,51 @@ MultiDiGraph.to_undirected_class = _to_undirected_class
 # breaks ``nx.gnp_random_graph(..., create_using=fnx.Graph)`` and any nx
 # generator that passes a fnx class as create_using.
 #
-# br-r37-c1-8a89c: retain that class-level compatibility function, but make
-# the class entry a non-data descriptor. Its first instance access binds and
-# stores the raw PyO3 method under the public name, so every warm call is a
-# direct C-level instance-dict hit rather than another Python predicate frame.
-# The shared cached-name set makes copy/deepcopy/pickle omit the bound method,
-# preventing a clone from retaining a method bound to its source graph.
+# br-r37-c1-hfn6e: so they are networkx's plain methods returning the class's
+# constant (_install_class_predicate below). br-r37-c1-8a89c had cached the
+# bound PyO3 method in the instance dict for a C-level hit, which made every
+# graph that answered one a reference cycle - its dict held a method holding
+# it - freed only by the cyclic GC: native storage lingered (a build-and-drop
+# loop peaked near three times networkx's RSS) and its teardown landed in
+# whatever ran when the collector fired. The plain method is also faster than
+# that cache, and answers for None, a class or any object as networkx's does.
 _DESCRIPTOR_CACHED_VIEWS = "_fnx_descriptor_cached_views"
-_CLASS_PREDICATE_NAMES = frozenset(("is_directed", "is_multigraph"))
 _COMMON_CACHED_PUBLIC_NAMES = frozenset(("nodes", "edges", "degree"))
 _DIRECTED_CACHED_PUBLIC_NAMES = _COMMON_CACHED_PUBLIC_NAMES | frozenset(
     ("in_degree", "out_degree", "in_edges", "out_edges")
 )
 
 
-def _make_class_safe_predicate(raw, class_default):
-    def predicate(self, *args, **kwargs):
-        if self is None or isinstance(self, type):
-            return class_default
-        return raw(self, *args, **kwargs)
-
-    return predicate
+_CLASS_PREDICATE_DOCS = {
+    "is_directed": "Returns True if graph is directed, False otherwise.",
+    "is_multigraph": "Returns True if graph is a multigraph, False otherwise.",
+}
 
 
-class _CachedClassPredicateDescriptor:
-    """Class-safe predicate on the class, cached raw descriptor on instances."""
-
-    def __init__(self, raw, class_callable, name):
-        self._raw = raw
-        self._class_callable = class_callable
-        self._name = name
-        self.__doc__ = getattr(class_callable, "__doc__", None)
-
-    def __get__(self, obj, objtype=None):
-        if obj is None:
-            return self._class_callable
-        bound = self._raw.__get__(obj, objtype)
-        storage = vars(obj)
-        register_gc_dict = getattr(obj, "_fnx_register_gc_dict", None)
-        if register_gc_dict is not None:
-            register_gc_dict(storage)
-        storage[self._name] = bound
-        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
-        if cached is None:
-            storage[_DESCRIPTOR_CACHED_VIEWS] = {self._name}
-        else:
-            cached.add(self._name)
-        return bound
+def _install_class_predicate(cls, name, value):
+    """networkx's is_directed / is_multigraph: a plain method returning the
+    class's constant, whatever self is."""
+    if value:
+        def predicate(self):
+            return True
+    else:
+        def predicate(self):
+            return False
+    predicate.__name__ = name
+    predicate.__qualname__ = f"{cls.__name__}.{name}"
+    predicate.__doc__ = _CLASS_PREDICATE_DOCS[name]
+    setattr(cls, name, predicate)
 
 
-def _cached_class_safe_predicate(raw, class_default, name):
-    return _CachedClassPredicateDescriptor(
-        raw,
-        _make_class_safe_predicate(raw, class_default),
-        name,
-    )
-
-
-_GRAPH_RAW_IS_DIRECTED = Graph.is_directed
-_GRAPH_RAW_IS_MULTIGRAPH = Graph.is_multigraph
-_DIGRAPH_RAW_IS_DIRECTED = DiGraph.is_directed
-_DIGRAPH_RAW_IS_MULTIGRAPH = DiGraph.is_multigraph
-_MULTIGRAPH_RAW_IS_DIRECTED = MultiGraph.is_directed
-_MULTIGRAPH_RAW_IS_MULTIGRAPH = MultiGraph.is_multigraph
-_MULTIDIGRAPH_RAW_IS_DIRECTED = MultiDiGraph.is_directed
-_MULTIDIGRAPH_RAW_IS_MULTIGRAPH = MultiDiGraph.is_multigraph
-
-Graph.is_directed = _cached_class_safe_predicate(
-    _GRAPH_RAW_IS_DIRECTED, False, "is_directed"
-)
-Graph.is_multigraph = _cached_class_safe_predicate(
-    _GRAPH_RAW_IS_MULTIGRAPH, False, "is_multigraph"
-)
-DiGraph.is_directed = _cached_class_safe_predicate(
-    _DIGRAPH_RAW_IS_DIRECTED, True, "is_directed"
-)
-DiGraph.is_multigraph = _cached_class_safe_predicate(
-    _DIGRAPH_RAW_IS_MULTIGRAPH, False, "is_multigraph"
-)
-MultiGraph.is_directed = _cached_class_safe_predicate(
-    _MULTIGRAPH_RAW_IS_DIRECTED, False, "is_directed"
-)
-MultiGraph.is_multigraph = _cached_class_safe_predicate(
-    _MULTIGRAPH_RAW_IS_MULTIGRAPH, True, "is_multigraph"
-)
-MultiDiGraph.is_directed = _cached_class_safe_predicate(
-    _MULTIDIGRAPH_RAW_IS_DIRECTED, True, "is_directed"
-)
-MultiDiGraph.is_multigraph = _cached_class_safe_predicate(
-    _MULTIDIGRAPH_RAW_IS_MULTIGRAPH, True, "is_multigraph"
-)
+for _cls, _directed, _multigraph in (
+    (Graph, False, False),
+    (DiGraph, True, False),
+    (MultiGraph, False, True),
+    (MultiDiGraph, True, True),
+):
+    _install_class_predicate(_cls, "is_directed", _directed)
+    _install_class_predicate(_cls, "is_multigraph", _multigraph)
+del _cls, _directed, _multigraph
 Graph.adjacency = _simple_graph_adjacency
 DiGraph.adjacency = _simple_graph_adjacency
 MultiGraph.adjacency = _multigraph_adjacency
@@ -36441,8 +36396,8 @@ def freeze(G):
     # and freeze() measured 0.0768-0.0820x against networkx, which just rebinds
     # the names. The cost was per-assignment bookkeeping, not the assignments.
     #
-    # None of these names is in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES,
-    # _DIRECTED_CACHED_PUBLIC_NAMES or _CLASS_PREDICATE_NAMES, so the custom path
+    # None of these names is in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES or
+    # _DIRECTED_CACHED_PUBLIC_NAMES, so the custom path
     # would do nothing for them except the plain write and that redundant
     # registration. `G.frozen = True` is deliberately left on the normal path, so
     # the instance dict is still registered exactly once per freeze.
@@ -55570,11 +55525,7 @@ def _graph_setattr_with_cached_public_adj(self, name, value):
     # A user assignment after a plain access replaces the memoised view. Remove
     # only its internal-cache marker so deepcopy/pickle preserve the user value,
     # just as they do for any other genuine instance attribute.
-    if (
-        name == "adj"
-        or name in _COMMON_CACHED_PUBLIC_NAMES
-        or name in _CLASS_PREDICATE_NAMES
-    ):
+    if name == "adj" or name in _COMMON_CACHED_PUBLIC_NAMES:
         _discard_cached_descriptor_marker(self, name)
     result = _GRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
     self._fnx_register_gc_dict(vars(self))
@@ -55597,11 +55548,7 @@ def _multigraph_setattr_with_cached_public_adj(self, name, value):
     if name == "adj" and isinstance(self, _FilteredGraphView):
         return _MULTIGRAPH_PUBLIC_ADJ_PROPERTY.__set__(self, value)
 
-    if (
-        name == "adj"
-        or name in _COMMON_CACHED_PUBLIC_NAMES
-        or name in _CLASS_PREDICATE_NAMES
-    ):
+    if name == "adj" or name in _COMMON_CACHED_PUBLIC_NAMES:
         _discard_cached_descriptor_marker(self, name)
     result = _MULTIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
     self._fnx_register_gc_dict(vars(self))
@@ -55633,11 +55580,7 @@ def _digraph_setattr_with_cached_public_adjacency(self, name, value):
     ):
         return _DIGRAPH_PUBLIC_ADJ_PROPERTIES[name].__set__(self, value)
 
-    if (
-        name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES
-        or name in _DIRECTED_CACHED_PUBLIC_NAMES
-        or name in _CLASS_PREDICATE_NAMES
-    ):
+    if name in _DIGRAPH_PUBLIC_ADJ_PROPERTIES or name in _DIRECTED_CACHED_PUBLIC_NAMES:
         _discard_cached_descriptor_marker(self, name)
     result = _DIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
     self._fnx_register_gc_dict(vars(self))
@@ -55671,7 +55614,6 @@ def _multidigraph_setattr_with_cached_public_adjacency(self, name, value):
     if (
         name in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES
         or name in _DIRECTED_CACHED_PUBLIC_NAMES
-        or name in _CLASS_PREDICATE_NAMES
     ):
         _discard_cached_descriptor_marker(self, name)
     result = _MULTIDIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
