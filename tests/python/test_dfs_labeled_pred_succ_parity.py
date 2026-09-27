@@ -70,6 +70,49 @@ def test_dfs_labeled_edges_missing_source_raises_like_networkx(cls, edges, depth
     assert outcome(fnx) == outcome(nx)
 
 
+# br-r37-c1-qnj0n: nx reads a node's row from G.neighbors when the walk
+# reaches it - a LIVE row, and only the rows the walk reaches. The whole-graph
+# to_dict_of_lists snapshot fnx took per call (156 ms for a depth-3 walk beside
+# a 64k-node component) missed a mid-walk mutation and, on a subclass, read
+# every node's row.
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_dfs_labeled_edges_row_is_live_like_networkx(directed):
+    def outcome(lib):
+        G = (lib.DiGraph if directed else lib.Graph)([(0, 1), (1, 2), (0, 3), (3, 4)])
+        walk = lib.dfs_labeled_edges(G, 0)
+        seen = [next(walk), next(walk)]  # paused inside row 0, after child 1
+        G.add_edge(0, 9)
+        try:
+            seen.extend(walk)
+        except RuntimeError as exc:
+            return seen, str(exc)
+        return seen, None
+
+    fnx_outcome, nx_outcome = outcome(fnx), outcome(nx)
+    assert nx_outcome[1] is not None
+    assert fnx_outcome == nx_outcome
+
+
+@pytest.mark.parametrize("depth_limit", [None, 1, 2])
+def test_dfs_labeled_edges_reads_only_reached_rows_like_networkx(depth_limit):
+    def rows_read(lib):
+        class Recording(lib.Graph):
+            def neighbors(self, n):
+                reads.append(n)
+                return super().neighbors(n)
+
+        reads = []
+        G = Recording([(0, 1), (1, 2), (0, 3), (5, 6), (6, 7), (7, 5)])
+        events = list(lib.dfs_labeled_edges(G, 0, depth_limit=depth_limit))
+        return events, reads
+
+    fnx_rows, nx_rows = rows_read(fnx), rows_read(nx)
+    assert 5 not in nx_rows[1]
+    assert fnx_rows == nx_rows
+
+
 def test_goldens():
     g = fnx.Graph([(0, 1), (1, 2)])
     ng = nx.Graph([(0, 1), (1, 2)])

@@ -47438,26 +47438,24 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     (DFS over native `G.neighbors`, a stateful iterator resumed via the stack, in
     nx's order) instead of a full fnx->nx conversion per call. Byte-exact triple
     order verified vs nx.
+
+    br-r37-c1-qnj0n: rows come from ``G.neighbors`` when the walk reaches a
+    node, as in nx. The whole-graph ``to_dict_of_lists(G)`` snapshot this
+    replaced cost O(V+E) before the first event of a walk that might touch
+    four nodes (156 ms against nx's 7 us for a depth-3 walk beside a 64k-node
+    component), and a snapshot row cannot see a mutation the way nx's live row
+    does. A source missing from G still reaches G.neighbors and raises nx's
+    NetworkXError after the start's "forward" event (br-r37-c1-750hp).
     """
     G = _coerce_arg_to_fnx_graph(G)
     nodes = G if source is None else [source]
     if depth_limit is None:
         depth_limit = len(G)
-    if sort_neighbors is not None:
-        get_children = lambda n: iter(sort_neighbors(G.neighbors(n)))
-    else:
-        if type(G) in (Graph, DiGraph):
-            _adj = to_dict_of_lists(G)
-        else:
-            _adj = {n: list(G.neighbors(n)) for n in G}
-
-        def get_children(n):
-            # br-r37-c1-750hp: a source missing from G reaches G.neighbors, which
-            # raises nx's NetworkXError ("... is not in the graph." / "digraph.")
-            # after the start's "forward" event, as in nx; not a KeyError.
-            if n in _adj:
-                return iter(_adj[n])
-            return iter(G.neighbors(n))
+    get_children = (
+        G.neighbors
+        if sort_neighbors is None
+        else lambda n: iter(sort_neighbors(G.neighbors(n)))
+    )
 
     visited = set()
     for start in nodes:
@@ -47476,7 +47474,7 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
                     yield parent, child, "forward"
                     visited.add(child)
                     if depth_now < depth_limit:
-                        stack.append((child, get_children(child)))
+                        stack.append((child, iter(get_children(child))))
                         depth_now += 1
                         break
                     else:
