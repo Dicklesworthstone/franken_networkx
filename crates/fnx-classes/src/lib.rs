@@ -3331,7 +3331,9 @@ enum IntAdjEdgeDelta<'a> {
 /// alongside it as parity and benchmark comparators for the storage cutover.
 mod multigraph_storage {
     use super::{AttrMap, CompatibilityMode, MultiEdgeSnapshot, MultiGraphSnapshot, SlotOrder};
-    use indexmap::{IndexMap, IndexSet};
+    use indexmap::IndexMap;
+    #[cfg(test)]
+    use indexmap::IndexSet;
 
     /// Index-keyed analog of the MultiGraph storage core. Internal pair
     /// canonicalization is (min_idx, max_idx) — deliberately DIFFERENT from
@@ -3557,10 +3559,13 @@ mod multigraph_storage {
     /// exactly (dedup on insert, One -> Many promotion appends), but the
     /// singleton case — the overwhelmingly common one in real multigraphs —
     /// allocates NOTHING.
+    /// br-r37-c1-19ngg: Fx-hashed like the rest of the storage - the default
+    /// SipHash on these usize keys was 18.7% of a multigraph attr batch; the
+    /// set is insertion-ordered, so the hasher cannot change any order.
     #[derive(Debug, Clone)]
     pub enum CompactKeys {
         One(usize),
-        Many(IndexSet<usize>),
+        Many(crate::FxIndexSet<usize>),
     }
 
     impl CompactKeys {
@@ -3571,7 +3576,8 @@ mod multigraph_storage {
                     if *existing == key {
                         return false;
                     }
-                    let mut set = IndexSet::with_capacity(2);
+                    let mut set =
+                        crate::FxIndexSet::with_capacity_and_hasher(2, rustc_hash::FxBuildHasher);
                     set.insert(*existing);
                     set.insert(key);
                     *self = Self::Many(set);
@@ -3621,10 +3627,11 @@ mod multigraph_storage {
     /// insertion-key-ordered like `IndexMap<usize, AttrMap>`; the singleton
     /// case stores the key + attrs inline with no map allocation (an empty
     /// `AttrMap`/BTreeMap does not allocate).
+    /// br-r37-c1-19ngg: Fx-hashed, as `CompactKeys`.
     #[derive(Debug, Clone)]
     pub enum CompactBucket {
         One(usize, AttrMap),
-        Many(IndexMap<usize, AttrMap>),
+        Many(crate::FxIndexMap<usize, AttrMap>),
     }
 
     impl CompactBucket {
@@ -3637,17 +3644,24 @@ mod multigraph_storage {
                         existing_attrs.extend(attrs);
                         return false;
                     }
-                    let mut map = IndexMap::with_capacity(2);
+                    let mut map =
+                        crate::FxIndexMap::with_capacity_and_hasher(2, rustc_hash::FxBuildHasher);
                     map.insert(*existing, std::mem::take(existing_attrs));
                     map.insert(key, attrs);
                     *self = Self::Many(map);
                     true
                 }
-                Self::Many(map) => {
-                    let is_new = !map.contains_key(&key);
-                    map.entry(key).or_default().extend(attrs);
-                    is_new
-                }
+                // One hash: the entry decides both the merge and the answer.
+                Self::Many(map) => match map.entry(key) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        cell.get_mut().extend(attrs);
+                        false
+                    }
+                    indexmap::map::Entry::Vacant(cell) => {
+                        cell.insert(attrs);
+                        true
+                    }
+                },
             }
         }
 
@@ -3988,7 +4002,8 @@ mod multigraph_storage {
         /// cleared when a slot is freed.
         pub node_attrs: Vec<AttrMap>,
         /// slot -> neighbor slot -> parallel-key cell (row insertion order).
-        pub rows: Vec<IndexMap<usize, CompactKeys>>,
+        /// br-r37-c1-19ngg: Fx-hashed; order is the IndexMap's insertion order.
+        pub rows: Vec<crate::FxIndexMap<usize, CompactKeys>>,
         /// slot-canonical (min, max) pair -> compact bucket. Slots are stable,
         /// so pair keys survive any removal without rekeying.
         pub edges: IndexMap<(usize, usize), CompactBucket, rustc_hash::FxBuildHasher>,
@@ -4007,7 +4022,7 @@ mod multigraph_storage {
             }
             let (slot, fresh) = self.node_order.insert(name.to_owned());
             if fresh {
-                self.rows.push(IndexMap::new());
+                self.rows.push(crate::FxIndexMap::default());
                 self.node_attrs.push(AttrMap::new());
             } else {
                 debug_assert!(self.rows[slot].is_empty());
@@ -4094,7 +4109,7 @@ mod multigraph_storage {
             proto.node_attrs.reserve(node_count);
             for node in 0..node_count {
                 proto.node_order.insert(node.to_string());
-                proto.rows.push(IndexMap::new());
+                proto.rows.push(crate::FxIndexMap::default());
                 proto.node_attrs.push(AttrMap::new());
             }
             for (left_slot, right_slot, key) in iterator {
@@ -4742,7 +4757,10 @@ mod multigraph_storage {
             }
             for (u_slot, order) in new_orders {
                 let mut old = std::mem::take(&mut self.rows[u_slot]);
-                let mut rebuilt = IndexMap::with_capacity(old.len());
+                let mut rebuilt = crate::FxIndexMap::with_capacity_and_hasher(
+                    old.len(),
+                    rustc_hash::FxBuildHasher,
+                );
                 for v_slot in order {
                     if let Some(cell) = old.shift_remove(&v_slot) {
                         rebuilt.insert(v_slot, cell);
@@ -4761,7 +4779,10 @@ mod multigraph_storage {
                     continue;
                 };
                 let mut old = std::mem::take(&mut self.rows[slot]);
-                let mut new_row = IndexMap::with_capacity(old.len());
+                let mut new_row = crate::FxIndexMap::with_capacity_and_hasher(
+                    old.len(),
+                    rustc_hash::FxBuildHasher,
+                );
                 for v in order {
                     if let Some(&v_slot) = self.node_order.get(v.as_str())
                         && let Some((k, val)) = old.shift_remove_entry(&v_slot)
@@ -5595,7 +5616,7 @@ impl MultiGraph {
             for name in &node_names {
                 slab.node_order.insert(name.clone());
                 slab.node_attrs.push(AttrMap::new());
-                slab.rows.push(IndexMap::new());
+                slab.rows.push(crate::FxIndexMap::default());
             }
             slab
         };
@@ -5688,7 +5709,7 @@ impl MultiGraph {
             for name in &node_labels {
                 slab.node_order.insert(name.clone());
                 slab.node_attrs.push(AttrMap::new());
-                slab.rows.push(IndexMap::new());
+                slab.rows.push(crate::FxIndexMap::default());
             }
             slab
         };
@@ -6096,6 +6117,49 @@ impl MultiGraph {
 
 #[cfg(test)]
 mod tests {
+    /// br-r37-c1-19ngg: the compact key cells are Fx-hashed; their order must
+    /// stay insertion order (a pair's key order is what edges(keys=True) and
+    /// every keydict iterate) through the One -> Many promotion, a repeated
+    /// key, removals and re-insertion - never numeric or hash order.
+    #[test]
+    fn compact_key_cells_keep_insertion_order() {
+        use super::multigraph_storage::{CompactBucket, CompactKeys};
+
+        let inserted = [7_usize, 2, 9, 0, 5, 11, 3];
+        let mut keys = CompactKeys::One(inserted[0]);
+        let mut bucket = CompactBucket::One(inserted[0], AttrMap::new());
+        for &key in &inserted[1..] {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                "k".to_owned(),
+                CgseValue::Int(i64::try_from(key).expect("small key")),
+            );
+            assert!(keys.insert(key));
+            assert!(bucket.merge(key, attrs));
+        }
+        assert_eq!(keys.order(), inserted);
+        assert_eq!(bucket.key_order(), inserted);
+
+        // A repeated key is not new and moves nothing; its attrs merge in place.
+        let mut more = AttrMap::new();
+        more.insert("extra".to_owned(), CgseValue::Bool(true));
+        assert!(!keys.insert(9));
+        assert!(!bucket.merge(9, more));
+        assert_eq!(keys.order(), inserted);
+        assert_eq!(bucket.key_order(), inserted);
+        let merged = bucket.attrs_for(9).expect("key 9 is held");
+        assert_eq!(merged.get("k"), Some(&CgseValue::Int(9)));
+        assert_eq!(merged.get("extra"), Some(&CgseValue::Bool(true)));
+
+        // Removal keeps the rest in order; a key re-inserted goes to the end.
+        assert_eq!(keys.shift_remove(0), (true, false));
+        assert_eq!(bucket.shift_remove(0), (true, false));
+        assert!(keys.insert(0));
+        assert!(bucket.merge(0, AttrMap::new()));
+        assert_eq!(keys.order(), [7, 2, 9, 5, 11, 3, 0]);
+        assert_eq!(bucket.key_order(), [7, 2, 9, 5, 11, 3, 0]);
+    }
+
     /// br-r37-c1-2ndmw: `has_edge_by_indices` must agree with the string path
     /// for EVERY pair, including after removals move the positions away from the
     /// slots.

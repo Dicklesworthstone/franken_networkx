@@ -2386,7 +2386,9 @@ pub struct MultiDiGraph {
     nodes: MultiDiNodes,
     successors: MultiDiRows,
     predecessors: MultiDiRows,
-    edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
+    /// br-r37-c1-19ngg: the key -> attrs bucket is Fx-hashed too (it was the
+    /// one map here left on SipHash); insertion-ordered, so order is unchanged.
+    edges: crate::FxIndexMap<DirectedEdgeKey, crate::FxIndexMap<usize, AttrMap>>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
     csr_cache: MultiDiCsrCache,
@@ -4163,7 +4165,7 @@ impl MultiDiGraph {
             predecessors.insert(node.clone(), crate::FxIndexMap::default());
         }
 
-        let mut edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>> =
+        let mut edges: crate::FxIndexMap<DirectedEdgeKey, crate::FxIndexMap<usize, AttrMap>> =
             crate::FxIndexMap::with_capacity_and_hasher(
                 self.edges.len(),
                 rustc_hash::FxBuildHasher,
