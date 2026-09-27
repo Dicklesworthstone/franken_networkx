@@ -12,7 +12,11 @@ contract, which compares centrality scores with a 1e-12 absolute tolerance
 
 ``degree_centrality`` is the exception: its single reciprocal-multiply was
 made bit-exact (it does ``s = 1/(n-1); d*s`` like nx), so it is asserted
-exactly here as a guard against that fix regressing.
+exactly here as a guard against that fix regressing. So is unweighted Brandes
+betweenness, node and edge (br-r37-c1-79ceg): its per-source accumulation
+already follows networkx's order, and once its dependency term used
+networkx's association - ``sigma[v] * ((1 + delta[w]) / sigma[w])``, not
+``(sigma[v] / sigma[w]) * (1 + delta[w])`` - every value came out identical.
 
 This test documents the policy (so an exact-float probe doesn't re-file ~1e-16
 "bugs") and guards the tolerance bound at the public Python boundary — distinct
@@ -89,3 +93,50 @@ def test_degree_centrality_is_bit_exact():
     # degree_centrality was deliberately made bit-exact (s = 1/(n-1); d*s).
     gn, gf = _build(nx), _build(fnx)
     assert fnx.degree_centrality(gf) == nx.degree_centrality(gn)
+
+
+def _brandes_graphs():
+    # BA800 takes the rayon-chunked source arm (>= 500 nodes); the others the
+    # sequential one.
+    yield "karate", nx.karate_club_graph()
+    yield "BA400", nx.barabasi_albert_graph(400, 3, seed=2)
+    yield "WS200", nx.connected_watts_strogatz_graph(200, 6, 0.3, seed=1)
+    yield "gnp300 directed", nx.gnp_random_graph(300, 0.03, seed=5, directed=True)
+    yield "BA800", nx.barabasi_albert_graph(800, 3, seed=9)
+
+
+def _twins(g):
+    """``g`` rebuilt from its edge stream in networkx and in fnx. Both copies
+    get the same adjacency rows - the rebuild can reorder an undirected row
+    against ``g``'s own - so both libraries traverse in the same order."""
+    twins = []
+    for lib in (nx, fnx):
+        twin = lib.DiGraph() if g.is_directed() else lib.Graph()
+        twin.add_nodes_from(g)
+        twin.add_edges_from(g.edges())
+        twins.append(twin)
+    return twins
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"normalized": False}, {"endpoints": True}, {"k": 20, "seed": 3}],
+    ids=["default", "unnormalized", "endpoints", "k-sampled"],
+)
+def test_unweighted_betweenness_is_bit_exact(kwargs):
+    for name, g in _brandes_graphs():
+        nx_twin, fnx_twin = _twins(g)
+        expected = nx.betweenness_centrality(nx_twin, **kwargs)
+        actual = fnx.betweenness_centrality(fnx_twin, **kwargs)
+        differ = [n for n in expected if actual[n] != expected[n]]
+        assert not differ, (name, len(differ), differ[:3])
+
+
+def test_unweighted_edge_betweenness_is_bit_exact():
+    for name, g in _brandes_graphs():
+        nx_twin, fnx_twin = _twins(g)
+        expected = nx.edge_betweenness_centrality(nx_twin)
+        actual = fnx.edge_betweenness_centrality(fnx_twin)
+        assert set(actual) == set(expected), name
+        differ = [e for e in expected if actual[e] != expected[e]]
+        assert not differ, (name, len(differ), differ[:3])

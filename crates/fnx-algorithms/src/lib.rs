@@ -5829,13 +5829,16 @@ fn brandes_source_delta(
             let pred_dist = dist_w - 1;
             let lo = in_offsets[w] as usize;
             let hi = in_offsets[w + 1] as usize;
+            // networkx's `_accumulate_basic` / `_accumulate_endpoints`:
+            // `coeff = (1 + delta[w]) / sigma[w]` once, then `sigma[v] * coeff`
+            // per predecessor. `(sigma[v] / sigma_w) * (1.0 + delta_w)` - what
+            // this computed until br-r37-c1-79ceg - rounds differently and put
+            // the last bit of up to 18% of the values off networkx's.
+            let coeff = (1.0 + delta_w) / sigma_w;
             for &source in &in_targets[lo..hi] {
                 let v = source as usize;
                 if distance[v] == pred_dist {
-                    // Keep this expression literally as-is: hoisting the division
-                    // to `sigma[v] * ((1.0 + delta_w) / sigma_w)` is a different
-                    // f64 rounding and would break byte-identity with NetworkX.
-                    dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                    dependency[v] += sigma[v] * coeff;
                 }
             }
         }
@@ -6319,10 +6322,12 @@ fn betweenness_centrality_brandes_arm<G: GraphView>(
                     let pred_dist = dist_w - 1;
                     let lo = in_offsets[w] as usize;
                     let hi = in_offsets[w + 1] as usize;
+                    // networkx's association; see `brandes_source_delta`.
+                    let coeff = (1.0 + delta_w) / sigma_w;
                     for &source in &in_targets[lo..hi] {
                         let v = source as usize;
                         if distance[v] == pred_dist {
-                            dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                            dependency[v] += sigma[v] * coeff;
                         }
                     }
                 }
@@ -7136,10 +7141,13 @@ fn edge_brandes_source(
             let pred_dist = dist_w - 1;
             let lo = in_offsets[w] as usize;
             let hi = in_offsets[w + 1] as usize;
+            // networkx's `_accumulate_edges`: `c = sigma[v] * coeff` with
+            // `coeff = (1 + delta[w]) / sigma[w]` (br-r37-c1-79ceg).
+            let coeff = (1.0 + delta_w) / sigma_w;
             for k in lo..hi {
                 let v = in_sources[k] as usize;
                 if distance[v] == pred_dist {
-                    let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
+                    let contribution = sigma[v] * coeff;
                     delta[in_eidx[k] as usize] += contribution;
                     dependency[v] += contribution;
                 }
@@ -7672,6 +7680,8 @@ fn edge_betweenness_centrality_subset_weighted_generic<G: GraphView>(
         while let Some(w) = stack.pop() {
             let num_preds = preds[w].len() as f64;
             for &v in &preds[w] {
+                // networkx's `_accumulate_edges_subset` really does divide
+                // first here, unlike `_accumulate_edges` (br-r37-c1-79ceg).
                 let c = if target_bitmap[w] {
                     (sigma[v] / sigma[w]) * (1.0 + dependency[w])
                 } else {
@@ -7859,6 +7869,8 @@ fn edge_betweenness_centrality_subset_generic<G: GraphView>(
         while let Some(w) = stack.pop() {
             let num_preds = predecessors[w].len() as f64;
             for &v in &predecessors[w] {
+                // networkx's `_accumulate_edges_subset` really does divide
+                // first here, unlike `_accumulate_edges` (br-r37-c1-79ceg).
                 let c = if target_bitmap[w] {
                     (sigma[v] / sigma[w]) * (1.0 + dependency[w])
                 } else {
@@ -70323,8 +70335,11 @@ mod tests {
     ///
     /// The reference below is the exact pre-change kernel: `Vec<Vec<usize>>`
     /// adjacency built from `neighbors_iter` + `get_node_index`, per-node
-    /// predecessor lists pushed during the BFS, and the same
-    /// `(sigma[v] / sigma_w) * (1.0 + delta_w)` accumulation. Sizes straddle
+    /// predecessor lists pushed during the BFS, and the same accumulation -
+    /// networkx's `sigma[v] * ((1 + delta[w]) / sigma[w])` since
+    /// br-r37-c1-79ceg. It proves the CSR scan changes nothing; parity with
+    /// networkx itself is asserted exactly in
+    /// tests/python/test_accumulative_centrality_float_tolerance.py. Sizes straddle
     /// `BRANDES_PARALLEL_THRESHOLD` (500) so both the rayon-chunked arm and the
     /// sequential arm are covered, and the directed cases are what prove the
     /// reverse-CSR transpose really recovers in-neighbours.
@@ -70399,8 +70414,9 @@ mod tests {
                     let sigma_w = sigma[w];
                     let delta_w = dependency[w];
                     if sigma_w > 0.0 {
+                        let coeff = (1.0 + delta_w) / sigma_w;
                         for &v in &predecessors[w] {
-                            dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                            dependency[v] += sigma[v] * coeff;
                         }
                     }
                     if w != s {
@@ -70743,8 +70759,9 @@ mod tests {
                     let sigma_w = sigma[w];
                     let delta_w = dependency[w];
                     if sigma_w > 0.0 {
+                        let coeff = (1.0 + delta_w) / sigma_w;
                         for &(v, eidx) in &predecessors[w] {
-                            let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
+                            let contribution = sigma[v] * coeff;
                             total[eidx] += contribution;
                             dependency[v] += contribution;
                         }
