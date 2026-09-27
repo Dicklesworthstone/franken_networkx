@@ -18688,6 +18688,16 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     negative values. Match nx by short-circuiting to empty on
     negative depth_limit.
     """
+    # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
+    root = _reverse_view_root(G)
+    if root is not None:
+        return bfs_edges(
+            root,
+            source,
+            reverse=not reverse,
+            depth_limit=depth_limit,
+            sort_neighbors=sort_neighbors,
+        )
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     _HASH_PROBE.get(source)
@@ -19080,8 +19090,8 @@ def edge_dfs(G, source=None, orientation=None):
 
 def bfs_predecessors(G, source, depth_limit=None, sort_neighbors=None):
     """Return (node, predecessor) pairs from BFS."""
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-eghxq: bfs_edges accepts nx-typed inputs, and takes a reverse
+    # view to its root without a copy (br-r37-c1-8xp4a).
     return (
         (child, parent)
         for parent, child in bfs_edges(
@@ -19101,11 +19111,22 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
     they were discovered by the BFS. Honours the ``sort_neighbors``
     callable when provided.
     """
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    if sort_neighbors is not None:
+    # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
+    root = _reverse_view_root(G)
+    if root is not None:
+        edge_source = bfs_edges(
+            root,
+            source,
+            reverse=True,
+            depth_limit=depth_limit,
+            sort_neighbors=sort_neighbors,
+        )
+    elif sort_neighbors is not None:
+        # br-r37-c1-eghxq: accept nx-typed inputs.
+        G = _coerce_arg_to_fnx_graph(G)
         edge_source = _py_bfs_edges(G, source, depth_limit, sort_neighbors)
     else:
+        G = _coerce_arg_to_fnx_graph(G)
         # Build edge stream from bfs_edges which already emits in BFS
         # discovery order (matching upstream on both graph and digraph
         # inputs with the same neighbour-iteration order).
@@ -19129,6 +19150,16 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Return BFS tree rooted at source."""
+    # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
+    root = _reverse_view_root(G)
+    if root is not None:
+        return bfs_tree(
+            root,
+            source,
+            reverse=not reverse,
+            depth_limit=depth_limit,
+            sort_neighbors=sort_neighbors,
+        )
     G = _coerce_arg_to_fnx_graph(G)
     if sort_neighbors is None:
         try:
@@ -19136,7 +19167,9 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
         except Exception:
             pass
     if source not in G:
-        raise NetworkXError(f"The node {source} is not in the graph.")
+        # nx reaches G.neighbors / G.predecessors, which name the graph kind:
+        # "digraph" for a directed G (this said "graph" for every G).
+        raise _traversal_missing_source_error(G, source)
     T = DiGraph()
     T.add_node(source)
     T.add_edges_from(
@@ -21251,6 +21284,26 @@ def _native_view_copy(view):
         native = _NATIVE_REVERSE.get(type(root))
         if native is not None and not _has_networkx_private_storage(root):
             return native(root)
+    return None
+
+
+def _reverse_view_root(G):
+    """br-r37-c1-8xp4a: the concrete root an exact reverse view reads, or None.
+
+    A reverse view's successor rows ARE its root's predecessor rows, in their
+    order, so a traversal that follows successors on the view is the root's
+    traversal over predecessors - bfs_edges(view) is bfs_edges(root,
+    reverse=True), descendants(view) is ancestors(root) - with nothing to copy.
+    The materialised route built the root's whole reverse copy per call
+    (0.41x networkx for a fresh-view bfs_edges on a DiGraph). Same eligibility
+    as _native_view_copy: an exact reverse view over a concrete class without
+    networkx private storage."""
+    if type(G) is _ReverseDirectedView or type(G) is _ReverseMultiDirectedView:
+        root = G._graph
+        if _NATIVE_REVERSE.get(type(root)) is not None and not _has_networkx_private_storage(
+            root
+        ):
+            return root
     return None
 
 
@@ -23436,6 +23489,10 @@ def ancestors(G, source):
     br-r37-c1-i9whv: hash check up front for nx parity on unhashable
     inputs (TypeError, not NetworkXError).
     """
+    # br-r37-c1-8xp4a: a reverse view's ancestors are its root's descendants.
+    root = _reverse_view_root(G)
+    if root is not None:
+        return descendants(root, source)
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     _HASH_PROBE.get(source)
@@ -23462,6 +23519,10 @@ def descendants(G, source):
 
     br-r37-c1-i9whv: hash check up front for nx parity.
     """
+    # br-r37-c1-8xp4a: a reverse view's descendants are its root's ancestors.
+    root = _reverse_view_root(G)
+    if root is not None:
+        return ancestors(root, source)
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     _HASH_PROBE.get(source)

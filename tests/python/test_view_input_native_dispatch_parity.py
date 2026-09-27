@@ -673,3 +673,81 @@ def test_a_batch_built_graphs_cached_view_follows_a_write(cls, shape):
     fresh = _weights(graph.subgraph(list(graph)))
     assert _weights(view) == fresh
     assert fresh != before
+
+
+# br-r37-c1-8xp4a: a traversal over a reverse view walks its ROOT's predecessor
+# rows - bfs_edges(view) is bfs_edges(root, reverse=True), descendants(view) is
+# ancestors(root) - instead of building the root's whole reverse copy per call.
+# Twins come from one shuffled edge stream (rows in a non-sorted order) and
+# carry a removed node; the reverse copy is planted to fail, so any call that
+# still copies raises here.
+
+_REVERSE_CALLS = {
+    "bfs_edges": lambda m, V, s: list(m.bfs_edges(V, s)),
+    "bfs_edges_reverse": lambda m, V, s: list(m.bfs_edges(V, s, reverse=True)),
+    "bfs_edges_depth": lambda m, V, s: list(m.bfs_edges(V, s, depth_limit=2)),
+    "bfs_edges_sorted": lambda m, V, s: list(m.bfs_edges(V, s, sort_neighbors=sorted)),
+    "bfs_tree": lambda m, V, s: (list(m.bfs_tree(V, s).nodes), list(m.bfs_tree(V, s).edges)),
+    "bfs_tree_reverse": lambda m, V, s: list(m.bfs_tree(V, s, reverse=True).edges),
+    "bfs_predecessors": lambda m, V, s: list(m.bfs_predecessors(V, s)),
+    "bfs_successors": lambda m, V, s: list(m.bfs_successors(V, s, depth_limit=3)),
+    "bfs_successors_sorted": lambda m, V, s: list(
+        m.bfs_successors(V, s, sort_neighbors=sorted)
+    ),
+    "descendants": lambda m, V, s: m.descendants(V, s),
+    "ancestors": lambda m, V, s: m.ancestors(V, s),
+}
+
+
+def _reverse_twins(multi):
+    views = {}
+    for lib in (fnx, nx):
+        G, _edges = _shuffled(lib, True, multi)
+        G.add_node("gone")
+        G.remove_node("gone")
+        views[lib.__name__] = (G, G.reverse(copy=False))
+    return views
+
+
+@pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("name", sorted(_REVERSE_CALLS))
+def test_a_traversal_over_a_reverse_view_reads_the_roots_rows(name, multi, monkeypatch):
+    call = _REVERSE_CALLS[name]
+    views = _reverse_twins(multi)
+
+    def no_copy(view):
+        raise AssertionError("a reverse-view traversal built a copy")
+
+    monkeypatch.setattr(fnx, "_native_view_copy", no_copy)
+    for source in (0, 7, 31):
+        assert call(fnx, views["franken_networkx"][1], source) == call(
+            nx, views["networkx"][1], source
+        )
+
+
+@pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("name", sorted(_REVERSE_CALLS))
+def test_a_reverse_view_traversal_from_a_missing_node_raises_like_networkx(name, multi):
+    call = _REVERSE_CALLS[name]
+    views = _reverse_twins(multi)
+    raised = []
+    for lib in (fnx, nx):
+        with pytest.raises(nx.NetworkXError) as error:
+            call(lib, views[lib.__name__][1], 999)
+        raised.append(error.value.args)
+    assert raised[0] == raised[1]
+
+
+def test_a_reverse_view_traversal_follows_its_root_after_a_write():
+    views = _reverse_twins(False)
+    for lib in (fnx, nx):
+        root, view = views[lib.__name__]
+        root.add_edge(90, 0)
+        root.add_edge(91, 90)
+    assert fnx.descendants(views["franken_networkx"][1], 0) == nx.descendants(
+        views["networkx"][1], 0
+    )
+    assert {90, 91} <= nx.descendants(views["networkx"][1], 0)
+    assert list(fnx.bfs_edges(views["franken_networkx"][1], 0)) == list(
+        nx.bfs_edges(views["networkx"][1], 0)
+    )
