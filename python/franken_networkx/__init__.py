@@ -21146,11 +21146,10 @@ def _materialize_view(view):
     view computed on the copy's old weights - shortest_path_length 2.0
     where networkx answers 3.0. The epoch moves on exactly those writes and
     not on reads or syncs, so a loop of calls on an unchanged view still
-    hits. A MultiGraph's attr dicts report no writes (its epoch is None):
-    a view of one is still keyed on structure alone, and still misses such
-    a write - rebuilding it per call instead cost 26 ms a call (has_path on
-    a 900-node view 0.00x networkx). The concrete graph shares the view's
-    graph dict, as networkx's views do.
+    hits - on all four classes, a MultiGraph's attr dicts reporting their
+    writes too (not caching a MultiGraph view instead cost 26 ms a call:
+    has_path on a 900-node view 0.00x networkx). The concrete graph shares
+    the view's graph dict, as networkx's views do.
     """
     root = view
     while True:

@@ -2462,34 +2462,6 @@ pub(crate) fn py_dict_to_attr_map_with_mirror(
     Ok((rust_attrs, mirror.unbind()))
 }
 
-fn single_weight_float_attr_map_with_mirror(
-    py: Python<'_>,
-    attrs: &Bound<'_, PyDict>,
-) -> PyResult<Option<(AttrMap, Py<PyDict>)>> {
-    if attrs.len() != 1 {
-        return Ok(None);
-    }
-    let Some((key, value)) = attrs.iter().next() else {
-        return Ok(None);
-    };
-    if !key.is_exact_instance_of::<PyString>() || !value.is_exact_instance_of::<PyFloat>() {
-        return Ok(None);
-    }
-    let key_text = key.extract::<String>()?;
-    if key_text != "weight" {
-        return Ok(None);
-    }
-
-    let mut rust_attrs = AttrMap::new();
-    rust_attrs.insert(
-        "weight".to_owned(),
-        CgseValue::Float(value.extract::<f64>()?),
-    );
-    let mirror = PyDict::new(py);
-    mirror.set_item(&key, &value)?;
-    Ok(Some((rust_attrs, mirror.unbind())))
-}
-
 pub(crate) fn attr_map_to_pydict(py: Python<'_>, attrs: &AttrMap) -> PyResult<Py<PyDict>> {
     let dict = PyDict::new(py);
     for (key, value) in attrs {
@@ -3504,16 +3476,50 @@ impl EdgeAttrWrites {
     /// A new, empty attr dict for an edge of this graph that reports its writes
     /// here - or a plain ``dict`` before the class is registered (import time).
     pub(crate) fn new_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        static DICT_NEW: pyo3::sync::PyOnceLock<Py<PyAny>> = pyo3::sync::PyOnceLock::new();
         let Some(cls) = EDGE_ATTR_DICT_CLASS.get(py) else {
             return Ok(PyDict::new(py));
         };
         // dict.__new__(cls): no Python __init__ frame; the one slot is set here.
-        let dict = py
-            .get_type::<PyDict>()
-            .call_method1(intern!(py, "__new__"), (cls.bind(py),))?
+        // br-r37-c1-u9a13: the bound __new__ is looked up once, not per dict.
+        let dict_new = DICT_NEW.get_or_try_init(py, || {
+            py.get_type::<PyDict>()
+                .getattr(intern!(py, "__new__"))
+                .map(Bound::unbind)
+        })?;
+        let dict = dict_new
+            .bind(py)
+            .call1((cls.bind(py),))?
             .cast_into::<PyDict>()?;
         dict.setattr(intern!(py, "_fnx_watch"), self.watch(py)?.clone_ref(py))?;
         Ok(dict)
+    }
+
+    /// br-r37-c1-u9a13: `py_dict_to_attr_map_with_mirror` whose mirror is a
+    /// `new_dict` - the same items set in the same C-level walk, which reports
+    /// nothing - so a batch builds one dict per edge instead of a plain mirror
+    /// adopted into a second. An empty `source` gets no mirror (`None`): the
+    /// edge's dict is made when it is first handed out.
+    pub(crate) fn attr_map_with_mirror(
+        &self,
+        py: Python<'_>,
+        source: &Bound<'_, PyDict>,
+    ) -> PyResult<(AttrMap, Option<Py<PyDict>>)> {
+        if source.is_empty() {
+            return Ok((AttrMap::new(), None));
+        }
+        let mirror = self.new_dict(py)?;
+        let mut rust_attrs = AttrMap::new();
+        for (k, v) in source.iter() {
+            let key: String = if let Ok(s) = k.extract::<String>() {
+                s
+            } else {
+                k.str()?.to_string_lossy().into_owned()
+            };
+            rust_attrs.insert(key, py_value_to_cgse(&v)?);
+            mirror.set_item(&k, &v)?;
+        }
+        Ok((rust_attrs, Some(mirror.unbind())))
     }
 
     /// `new_dict` holding a stored edge's attributes (`None`: it has none). The
@@ -6737,6 +6743,12 @@ pub(crate) struct PyMultiGraph {
     pub(crate) adj_py_keys: HashMap<(String, String), PyObject>,
     pub(crate) node_py_attrs: PyNodeKeyMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>>,
+    /// br-r37-c1-u9a13: the edge attr dicts in `edge_py_attrs` report their
+    /// writes here (see PyGraph::edge_attr_writes), so `edge_attr_epoch` moves
+    /// on a write through a dict held from earlier - what a view's cached
+    /// concrete graph is keyed on. The store's own resync still runs off
+    /// `edges_dirty`.
+    pub(crate) edge_attr_writes: EdgeAttrWrites,
     /// FxHash like `edge_py_attrs` (wzoa7): a removal walks it per incident
     /// edge once any mirror is populated.
     pub(crate) edge_py_keys: rustc_hash::FxHashMap<(String, String, usize), PyObject>,
@@ -7489,11 +7501,11 @@ impl PyMultiGraph {
         ek: &(String, String, usize),
     ) -> &Py<PyDict> {
         if !self.edge_py_attrs.contains_key(ek) {
-            let dict = match self.inner.edge_attrs(u, v, key) {
-                Some(attrs) => attr_map_to_pydict(py, attrs)
-                    .expect("stored string-keyed edge attrs must convert to Python"),
-                None => PyDict::new(py).unbind(),
-            };
+            // br-r37-c1-u9a13: a dict that reports its writes to this graph.
+            let dict = self
+                .edge_attr_writes
+                .dict_from_attr_map(py, self.inner.edge_attrs(u, v, key))
+                .expect("stored string-keyed edge attrs must convert to Python");
             self.edge_py_attrs.insert(ek.clone(), dict);
         }
         self.edge_py_attrs
@@ -7635,11 +7647,10 @@ impl PyMultiGraph {
         if let Some(dict) = self.edge_py_attrs.get(ek) {
             return dict.clone_ref(py);
         }
-        let dict = match self.inner.edge_attrs(u, v, key) {
-            Some(attrs) => attr_map_to_pydict(py, attrs)
-                .expect("stored string-keyed edge attrs must convert to Python"),
-            None => PyDict::new(py).unbind(),
-        };
+        let dict = self
+            .edge_attr_writes
+            .dict_from_attr_map(py, self.inner.edge_attrs(u, v, key))
+            .expect("stored string-keyed edge attrs must convert to Python");
         self.edge_py_attrs.insert(ek.clone(), dict.clone_ref(py));
         dict
     }
@@ -7783,6 +7794,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: PyNodeKeyMap::default(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: false,
             edge_mirrors_stale: false,
@@ -7948,19 +7960,9 @@ impl PyMultiGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
-                Ok(converted) => converted,
-                Err(_) => return Ok(None),
-            };
-            let (attrs, mirror) = match fast_weight {
-                Some((attrs, mirror)) => (attrs, Some(mirror)),
-                None => match py_dict_to_attr_map_with_mirror(py, dict) {
-                    Ok((attrs, mirror)) => {
-                        let mirror = if dict.is_empty() { None } else { Some(mirror) };
-                        (attrs, mirror)
-                    }
-                    Err(_) => return Ok(None),
-                },
+            // br-r37-c1-u9a13: a mirror that reports its writes to this graph.
+            let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -8115,19 +8117,10 @@ impl PyMultiGraph {
             if !attr_dict_is_batch_lossless(dict) {
                 return Ok(None);
             }
-            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
-                Ok(converted) => converted,
-                Err(_) => return Ok(None),
-            };
-            let (attrs, mirror) = match fast_weight {
-                Some((attrs, mirror)) => (attrs, Some(mirror)),
-                None => match py_dict_to_attr_map_with_mirror(py, dict) {
-                    Ok((attrs, mirror)) => {
-                        let mirror = if dict.is_empty() { None } else { Some(mirror) };
-                        (attrs, mirror)
-                    }
-                    Err(_) => return Ok(None),
-                },
+            // br-r37-c1-u9a13: a mirror that reports its writes to this graph
+            // (a plain one here escaped: G[u][v][k] writes went unseen).
+            let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
+                return Ok(None);
             };
             if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                 return Ok(None);
@@ -8351,19 +8344,9 @@ impl PyMultiGraph {
             if !attr_dict_is_batch_lossless(dict) {
                 return Ok(None);
             }
-            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
-                Ok(converted) => converted,
-                Err(_) => return Ok(None),
-            };
-            let (attrs, mirror) = match fast_weight {
-                Some((attrs, mirror)) => (attrs, Some(mirror)),
-                None => match py_dict_to_attr_map_with_mirror(py, dict) {
-                    Ok((attrs, mirror)) => {
-                        let mirror = if dict.is_empty() { None } else { Some(mirror) };
-                        (attrs, mirror)
-                    }
-                    Err(_) => return Ok(None),
-                },
+            // br-r37-c1-u9a13: a mirror that reports its writes to this graph.
+            let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
+                return Ok(None);
             };
             if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                 return Ok(None);
@@ -8493,15 +8476,21 @@ impl PyMultiGraph {
                 let Ok(dict) = fourth.downcast::<PyDict>() else {
                     return Ok(false);
                 };
-                let py_attrs = edge_attrs
-                    .entry(edge_key.clone())
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // br-r37-c1-u9a13: a dict that reports its writes here.
+                let py_attrs = match edge_attrs.entry(edge_key.clone()) {
+                    std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(self.edge_attr_writes.new_dict(py)?.unbind())
+                    }
+                };
                 py_attrs.bind(py).update(dict.as_mapping())?;
                 py_dict_to_attr_map(dict)?
             } else if tuple_len == 3 {
-                edge_attrs
-                    .entry(edge_key.clone())
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    edge_attrs.entry(edge_key.clone())
+                {
+                    e.insert(self.edge_attr_writes.new_dict(py)?.unbind());
+                }
                 AttrMap::new()
             } else {
                 // br-r37-c1-ctor2tuple: bare 2-tuple, lazy attr dict (no per-edge alloc).
@@ -9279,6 +9268,8 @@ impl PyMultiGraph {
             bound.clear();
             bound.update(attrs_in.as_mapping())?;
             self.mark_edges_dirty();
+            // br-r37-c1-u9a13: C-level writes, which the dict does not report.
+            self.edge_attr_writes.note_native_write();
         } else {
             let u_obj = self.py_node_key(py, source);
             let v_obj = self.py_node_key(py, target);
@@ -9416,6 +9407,7 @@ impl PyMultiGraph {
                             let _ = g
                                 .inner
                                 .add_edge_with_key_and_attrs(left, right, key, rust_attrs);
+                            let mirror = g.edge_attr_writes.adopt(py, mirror.bind(py))?; // br-r37-c1-u9a13
                             g.edge_py_attrs.insert(ek.clone(), mirror);
                         }
                         None => {
@@ -9468,6 +9460,7 @@ impl PyMultiGraph {
                         .add_edge_with_key_and_attrs(left, right, 0, rust_attrs)
                         .map_err(|e| NetworkXError::new_err(e.to_string()))?;
                     if let Some(mirror) = mirror {
+                        let mirror = g.edge_attr_writes.adopt(py, mirror.bind(py))?; // br-r37-c1-u9a13
                         g.edge_py_attrs
                             .insert(Self::edge_key(left, right, key), mirror);
                     }
@@ -10419,10 +10412,13 @@ impl PyMultiGraph {
             self.ensure_edge_py_attrs_with_key(py, &u_canonical, &v_canonical, actual_key, &ek)
                 .clone_ref(py)
         } else {
-            self.edge_py_attrs
-                .entry(ek)
-                .or_insert_with(|| PyDict::new(py).unbind())
-                .clone_ref(py)
+            // br-r37-c1-u9a13: a dict that reports its writes to this graph.
+            match self.edge_py_attrs.entry(ek) {
+                std::collections::hash_map::Entry::Occupied(e) => e.get().clone_ref(py),
+                std::collections::hash_map::Entry::Vacant(e) => e
+                    .insert(self.edge_attr_writes.new_dict(py)?.unbind())
+                    .clone_ref(py),
+            }
         };
         if let Some(a) = attr {
             // br-r37-c1-aefbatch: single C-level dict.update instead of N
@@ -10888,7 +10884,8 @@ impl PyMultiGraph {
             if let Some(d) = src
                 && !d.is_empty()
             {
-                let mirror = PyDict::new(py);
+                // br-r37-c1-u9a13: a dict that reports its writes to this graph.
+                let mirror = self.edge_attr_writes.new_dict(py)?;
                 mirror.update(d.as_mapping())?;
                 mirrors.push((Self::edge_key(&uc, &vc, key), mirror.unbind()));
             }
@@ -11986,8 +11983,9 @@ impl PyMultiGraph {
                         let dst_ek = Self::edge_key(&uc, &vc, key);
                         let src_ek = Self::edge_key(u, &vk, key);
                         if let Some(attrs) = part.edge_py_attrs.get(&src_ek) {
-                            g.edge_py_attrs
-                                .insert(dst_ek.clone(), attrs.bind(py).copy()?.unbind());
+                            // br-r37-c1-u9a13: the union's dicts report to it.
+                            let copied = g.edge_attr_writes.adopt(py, attrs.bind(py))?;
+                            g.edge_py_attrs.insert(dst_ek.clone(), copied);
                         }
                         display.push((
                             uc.clone(),
@@ -13061,6 +13059,7 @@ impl PyMultiGraph {
             }
         }
         self.mark_edges_dirty();
+        self.edge_attr_writes.note_native_write(); // br-r37-c1-u9a13
         Ok(())
     }
 
@@ -14000,6 +13999,7 @@ impl PyMultiGraph {
             adj_py_keys: self.derive_copy_adj_py_keys(py), // br-r37-c1-z6uka
             node_py_attrs: PyNodeKeyMap::default(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
@@ -14058,6 +14058,8 @@ impl PyMultiGraph {
                     Some(attrs_py) => {
                         let (rust_attrs, mirror) =
                             py_dict_to_attr_map_with_mirror(py, attrs_py.bind(py))?;
+                        // br-r37-c1-u9a13: the copy's dicts report to the copy.
+                        let mirror = new_graph.edge_attr_writes.adopt(py, mirror.bind(py))?;
                         new_graph
                             .edge_py_attrs
                             .insert((u.to_owned(), v.to_owned(), key), mirror);
@@ -14067,10 +14069,10 @@ impl PyMultiGraph {
                 }
             } else {
                 if let Some(attrs_py) = attrs_entry {
-                    new_graph.edge_py_attrs.insert(
-                        (u.to_owned(), v.to_owned(), key),
-                        attrs_py.bind(py).copy()?.unbind(),
-                    );
+                    let copied = new_graph.edge_attr_writes.adopt(py, attrs_py.bind(py))?;
+                    new_graph
+                        .edge_py_attrs
+                        .insert((u.to_owned(), v.to_owned(), key), copied);
                 }
                 attrs.clone()
             };
@@ -14108,6 +14110,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: PyNodeKeyMap::default(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
@@ -14151,6 +14154,7 @@ impl PyMultiGraph {
                 .inner
                 .add_edge_with_key_and_attrs(u, v, key, rust_attrs)
                 .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+            let py_attrs = new_graph.edge_attr_writes.adopt(py, py_attrs.bind(py))?; // br-r37-c1-u9a13
             new_graph
                 .edge_py_attrs
                 .insert(Self::edge_key(u, v, key), py_attrs);
@@ -14301,6 +14305,7 @@ impl PyMultiGraph {
                 self.edge_py_attrs.len(),
                 rustc_hash::FxBuildHasher,
             ),
+            edge_attr_writes: EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::with_capacity_and_hasher(
                 self.edge_py_keys.len(),
                 rustc_hash::FxBuildHasher,
@@ -14360,9 +14365,9 @@ impl PyMultiGraph {
         // irrelevant — lookups probe both directions and edges() order comes
         // from the cloned inner.
         for (key, attrs) in &self.edge_py_attrs {
-            new_graph
-                .edge_py_attrs
-                .insert(key.clone(), attrs.bind(py).copy()?.unbind());
+            // br-r37-c1-u9a13: a copy's dicts report to the copy.
+            let copied = new_graph.edge_attr_writes.adopt(py, attrs.bind(py))?;
+            new_graph.edge_py_attrs.insert(key.clone(), copied);
         }
         for (key, py_key) in &self.edge_py_keys {
             new_graph
@@ -14388,6 +14393,8 @@ impl PyMultiGraph {
         // structures verbatim (node order, edge order, row order, key
         // buckets). Node/edge attr dicts are independent COPIES (fnx's
         // locked copy.copy contract — see test_adj_mapping_parity).
+        // br-r37-c1-u9a13: that report their writes to the copy.
+        let edge_attr_writes = EdgeAttrWrites::default();
         Ok(Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
@@ -14410,8 +14417,9 @@ impl PyMultiGraph {
             edge_py_attrs: self
                 .edge_py_attrs
                 .iter()
-                .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
+                .map(|(k, v)| Ok((k.clone(), edge_attr_writes.adopt(py, v.bind(py))?)))
                 .collect::<PyResult<_>>()?,
+            edge_attr_writes,
             edge_py_keys: self
                 .edge_py_keys
                 .iter()
@@ -14467,6 +14475,7 @@ impl PyMultiGraph {
         for k in edge_keys {
             let deep =
                 deepcopy_py_dict_memo(py, &deepcopy, &new_graph.edge_py_attrs[&k], &memo_obj)?;
+            let deep = new_graph.edge_attr_writes.adopt(py, deep.bind(py))?; // br-r37-c1-u9a13
             new_graph.edge_py_attrs.insert(k, deep);
         }
         Ok(new_graph)
@@ -14496,6 +14505,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: PyNodeKeyMap::default(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
@@ -14548,6 +14558,7 @@ impl PyMultiGraph {
                         let _ = new_graph
                             .inner
                             .add_edge_with_key_and_attrs(left, right, key, rust_attrs);
+                        let mirror = new_graph.edge_attr_writes.adopt(py, mirror.bind(py))?; // br-r37-c1-u9a13
                         new_graph.edge_py_attrs.insert(ek.clone(), mirror);
                     }
                     None => {
@@ -14610,6 +14621,7 @@ impl PyMultiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: PyNodeKeyMap::default(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::default(),
             has_remapped_int_key: self.has_remapped_int_key,
             edge_mirrors_stale: false,
@@ -14645,6 +14657,7 @@ impl PyMultiGraph {
                         k,
                         rust_attrs,
                     );
+                    let mirror = new_graph.edge_attr_writes.adopt(py, mirror.bind(py))?; // br-r37-c1-u9a13
                     new_graph.edge_py_attrs.insert(ek, mirror);
                     if let Some(py_key) = self.edge_py_keys.get(&Self::edge_key(u, v, k)) {
                         new_graph.remember_edge_key_object(py, u, v, k, py_key);
@@ -14917,17 +14930,22 @@ impl PyMultiGraph {
             .inner
             .edges_ordered_borrowed()
             .into_iter()
-            .map(|(left, right, key, _)| {
+            .map(|(left, right, key, stored)| -> PyResult<_> {
                 let py_u = self.py_node_key(py, left);
                 let py_v = self.py_adj_key(py, left, right) /* br-r37-c1-z6uka */;
                 let py_key = self.py_edge_key(py, left, right, key);
-                let attrs = self
-                    .edge_py_attrs
-                    .get(&Self::edge_key(left, right, key))
-                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                (py_u, py_v, py_key, attrs)
+                // br-r37-c1-u9a13: a MISSING edge mirror does not mean empty
+                // attrs either (the node half above): an edge of a natively
+                // built graph keeps them in the store, and
+                // pickle.loads(pickle.dumps(MultiGraph(karate_club_graph())))
+                // came back with every weight gone.
+                let attrs = match self.edge_py_attrs.get(&Self::edge_key(left, right, key)) {
+                    Some(d) => d.clone_ref(py),
+                    None => attr_map_to_pydict(py, stored)?,
+                };
+                Ok((py_u, py_v, py_key, attrs))
             })
-            .collect();
+            .collect::<PyResult<_>>()?;
         state.set_item("edges", edges_list)?;
         state.set_item("graph", self.graph_attrs.bind(py))?;
         // br-r37-c1-u3qyn: store adjacency rows + display overrides so the

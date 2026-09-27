@@ -5142,18 +5142,17 @@ pub fn dijkstra_weight_cache_token(
 /// br-r37-c1-u9a13: a number that moves on every write of `g`'s edge
 /// attributes - through any of its attr dicts, held or fresh, or natively -
 /// and on nothing else (`EdgeAttrWrites::epoch`). What a cache of a copy of
-/// `g`'s attributes keys on. `None` for a MultiGraph: its attr dicts report
-/// no writes, so such a cache cannot be trusted there.
+/// `g`'s attributes keys on.
 #[pyfunction]
 #[pyo3(signature = (g))]
-pub fn edge_attr_epoch(g: &Bound<'_, PyAny>) -> PyResult<Option<u64>> {
+pub fn edge_attr_epoch(g: &Bound<'_, PyAny>) -> PyResult<u64> {
     let py = g.py();
     let gr = extract_graph(g)?;
     Ok(match &gr {
-        GraphRef::Undirected(pg) => Some(pg.edge_attr_writes.epoch(py)),
-        GraphRef::Directed { dg, .. } => Some(dg.edge_attr_writes.epoch(py)),
-        GraphRef::MultiUndirected { .. } => None,
-        GraphRef::MultiDirected { mdg, .. } => Some(mdg.edge_attr_writes.epoch(py)),
+        GraphRef::Undirected(pg) => pg.edge_attr_writes.epoch(py),
+        GraphRef::Directed { dg, .. } => dg.edge_attr_writes.epoch(py),
+        GraphRef::MultiUndirected { mg, .. } => mg.edge_attr_writes.epoch(py),
+        GraphRef::MultiDirected { mdg, .. } => mdg.edge_attr_writes.epoch(py),
     })
 }
 
@@ -33766,6 +33765,7 @@ mod tests {
                 node_key_map: crate::PyNodeKeyMap::default(),
                 node_py_attrs: crate::PyNodeKeyMap::default(),
                 edge_py_attrs: rustc_hash::FxHashMap::default(),
+                edge_attr_writes: crate::EdgeAttrWrites::default(),
                 adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
                 edge_py_keys: rustc_hash::FxHashMap::default(),
                 edge_mirrors_stale: false,

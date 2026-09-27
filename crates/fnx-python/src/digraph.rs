@@ -4819,6 +4819,8 @@ impl PyMultiDiGraph {
             bound.clear();
             bound.update(attrs_in.as_mapping())?;
             self.mark_edges_dirty();
+            // br-r37-c1-u9a13: C-level writes, which the dict does not report.
+            self.edge_attr_writes.note_native_write();
         } else {
             let u_obj = self.py_node_key(py, source);
             let v_obj = self.py_node_key(py, target);
@@ -9122,6 +9124,7 @@ impl PyMultiDiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: PyNodeKeyMap::default(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: crate::EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::default(),
             // br-paralleladd (bt): cross-type MDG->MG conversion may carry
             // remapped int keys; stay on the always-correct slow auto-key path.
@@ -9224,6 +9227,11 @@ impl PyMultiDiGraph {
                                 None
                             }
                         },
+                    };
+                    // br-r37-c1-u9a13: the MultiGraph's dicts report to it.
+                    let mirror = match mirror {
+                        Some(dict) => Some(ug.edge_attr_writes.adopt(py, dict.bind(py))?),
+                        None => None,
                     };
                     let py_key = self.py_edge_key(py, source, target, key);
                     let lookup = crate::edge_key_lookup_string(py, py_key.bind(py).as_any())?;
@@ -9859,6 +9867,7 @@ impl PyMultiDiGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             node_py_attrs: PyNodeKeyMap::default(),
             edge_py_attrs: rustc_hash::FxHashMap::default(),
+            edge_attr_writes: crate::EdgeAttrWrites::default(),
             edge_py_keys: rustc_hash::FxHashMap::default(),
             // br-paralleladd (bt): cross-type MDG->MG conversion may carry
             // remapped int keys; stay on the always-correct slow auto-key path.
@@ -9904,7 +9913,8 @@ impl PyMultiDiGraph {
 
             let mut py_attrs_copy = None;
             if let Some(py_attrs) = self.edge_py_attrs.get(&(u.to_owned(), v.to_owned(), k)) {
-                py_attrs_copy = Some(py_attrs.bind(py).copy()?.unbind());
+                // br-r37-c1-u9a13: the MultiGraph's dicts report to it.
+                py_attrs_copy = Some(ug.edge_attr_writes.adopt(py, py_attrs.bind(py))?);
                 rust_attrs.extend(crate::py_dict_to_attr_map(py_attrs.bind(py))?);
             }
 

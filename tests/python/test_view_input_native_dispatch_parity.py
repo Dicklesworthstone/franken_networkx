@@ -14,6 +14,8 @@ way. A kernel that read the PARENT instead of the view would fail too: every vie
 here drops nodes or edges, or turns them around.
 """
 
+import copy
+import pickle
 import random
 from collections import Counter
 
@@ -357,8 +359,8 @@ def test_rows_are_reordered_only_while_nobody_holds_a_row_mirror():
 # call on the view then computed on the copy's old weights. The key carries the
 # root's edge-attribute epoch now (it moves on every write of an edge attr dict,
 # through a held reference too, and on set_edge_attributes' native paths; not
-# on reads), a MultiGraph root (whose dicts report no writes) is not cached,
-# and the graph dict is refreshed on a hit.
+# on reads) - a MultiGraph's dicts report their writes too - and the concrete
+# graph shares the view's graph dict.
 U9_EDGES = [(0, 1, 1.0), (1, 2, 1.0), (0, 2, 5.0), (2, 3, 1.0), (3, 0, 2.0)]
 
 
@@ -400,16 +402,7 @@ def _u9_reads(L, V):
 @pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("view_kind", list(U9_VIEWS))
 @pytest.mark.parametrize("writer", list(U9_WRITERS), ids=list(U9_WRITERS))
-def test_a_view_sees_an_attribute_write_on_its_parent(cls, view_kind, writer, request):
-    if cls == "MultiGraph" and writer != "graph attr":
-        # Still open: rebuilding a MultiGraph view per call instead cost 26 ms a
-        # call, so its cache stays keyed on structure until its dicts report.
-        request.applymarker(
-            pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-u9a13: a MultiGraph's edge attr dicts report no writes",
-            )
-        )
+def test_a_view_sees_an_attribute_write_on_its_parent(cls, view_kind, writer):
     results = []
     for L in (fnx, nx):
         G = _u9_graph(L, cls)
@@ -423,7 +416,7 @@ def test_a_view_sees_an_attribute_write_on_its_parent(cls, view_kind, writer, re
     assert results[0] == results[1]
 
 
-@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 def test_the_cache_still_hits_across_reads_and_misses_after_a_write(cls):
     G = _u9_graph(fnx, cls)
     V = G.subgraph([0, 1, 2, 3])
@@ -532,3 +525,107 @@ def test_a_reverse_views_concrete_graph_is_the_view(cls):
     for source in (0, 7, 13):
         assert list(fnx.bfs_edges(view, source)) == list(nx.bfs_edges(nx_view, source))
         assert list(fnx.dfs_preorder_nodes(view, source)) == list(nx.dfs_preorder_nodes(nx_view, source))
+
+
+# br-r37-c1-u9a13: a MultiGraph's attr dicts report their writes however the
+# graph was built - a copy, a conversion, an operator, a reader - and whichever
+# accessor handed the dict out. The oracle is a fresh (uncached) view of the
+# same graph: a cached view's native read must match it after the write.
+MG_EDGES = [(0, 1, {"weight": 1.0}), (1, 2, {"weight": 2.0}), (0, 1, {"weight": 3.0}), (2, 3, {})]
+
+
+def _mg_base():
+    graph = fnx.MultiGraph()
+    graph.add_edges_from(MG_EDGES)
+    return graph
+
+
+def _mg_from_mdg():
+    graph = fnx.MultiDiGraph()
+    graph.add_edges_from(MG_EDGES + [(1, 0, {"weight": 4.0})])
+    return graph.to_undirected()
+
+
+MG_BUILDERS = {
+    "add_edges_from": _mg_base,
+    "add_edge": lambda: _mg_add_edge(),
+    "from a networkx graph": lambda: fnx.MultiGraph(nx.MultiGraph(MG_EDGES)),
+    "copy()": lambda: _mg_base().copy(),
+    "copy.copy": lambda: copy.copy(_mg_base()),
+    "copy.deepcopy": lambda: copy.deepcopy(_mg_base()),
+    "pickle": lambda: pickle.loads(pickle.dumps(_mg_base())),  # nosec B301 - trusted round trip
+    "MultiDiGraph.to_undirected()": _mg_from_mdg,
+    "to_undirected()": lambda: _mg_base().to_undirected(),
+    "subgraph().copy()": lambda: _mg_base().subgraph([0, 1, 2, 3]).copy(),
+    "convert_node_labels_to_integers": lambda: fnx.convert_node_labels_to_integers(_mg_base()),
+    "disjoint_union": lambda: fnx.disjoint_union(_mg_base(), _mg_base()),
+    "compose": lambda: fnx.compose(_mg_base(), fnx.MultiGraph([(5, 6, {"weight": 1.0})])),
+    "karate club": lambda: fnx.MultiGraph(fnx.karate_club_graph()),
+    # add_edges_from takes a native batch from 8 edges on, one per shape:
+    # the builders above are all per-edge.
+    "batch: int triples": lambda: fnx.MultiGraph(MG_BATCH),
+    "batch: str triples": lambda: fnx.MultiGraph([(f"n{u}", f"n{v}", d) for u, v, d in MG_BATCH]),
+    "batch: int keyed 4-tuples": lambda: fnx.MultiGraph(
+        [(u, v, k, d) for k, (u, v, d) in enumerate(MG_BATCH)]
+    ),
+    "batch: 4-tuples, nodes first": lambda: _mg_nodes_first(),
+    "batch: pairs + attr": lambda: _mg_pairs_attr(),
+}
+MG_ACCESSORS = {
+    "G[u][v][k]": lambda graph, u, v, k: graph[u][v][k],
+    "G.edges[e]": lambda graph, u, v, k: graph.edges[u, v, k],
+    "get_edge_data": lambda graph, u, v, k: graph.get_edge_data(u, v, k),
+    "edges(data=True)": lambda graph, u, v, k: next(
+        d for a, b, key, d in graph.edges(keys=True, data=True) if (a, b, key) == (u, v, k)
+    ),
+}
+
+
+def _mg_add_edge():
+    graph = fnx.MultiGraph()
+    for u, v, d in MG_EDGES:
+        graph.add_edge(u, v, **d)
+    return graph
+
+
+MG_BATCH = [(i % 6, (i * 5 + 1) % 6, {"weight": float(i)}) for i in range(12)]
+
+
+def _mg_nodes_first():
+    graph = fnx.MultiGraph()
+    graph.add_nodes_from(range(6))
+    graph.add_edges_from([(u, v, k, d) for k, (u, v, d) in enumerate(MG_BATCH)])
+    return graph
+
+
+def _mg_pairs_attr():
+    graph = fnx.MultiGraph()
+    graph.add_edges_from([(u, v) for u, v, _ in MG_BATCH], weight=2.0)
+    return graph
+
+
+def _weights(view):
+    nodes = sorted(view, key=repr)
+    return fnx.to_numpy_array(view, nodelist=nodes, weight="weight").tolist()
+
+
+@pytest.mark.parametrize("accessor", list(MG_ACCESSORS))
+@pytest.mark.parametrize("builder", list(MG_BUILDERS))
+def test_a_multigraph_views_cache_follows_a_write_through_any_dict(builder, accessor):
+    graph = MG_BUILDERS[builder]()
+    view = graph.subgraph(list(graph))
+    before = _weights(view)  # fills the view's cache
+    u, v, k = next(iter(graph.edges(keys=True)))
+    MG_ACCESSORS[accessor](graph, u, v, k)["weight"] = 50.0
+    fresh = _weights(graph.subgraph(list(graph)))
+    assert _weights(view) == fresh
+    assert fresh != before
+
+
+def test_a_multigraph_pickles_its_stored_edge_attributes():
+    # br-r37-c1-u9a13: an edge whose attributes live only in the store (a
+    # MultiGraph built from another graph) pickled with none.
+    graph = fnx.MultiGraph(fnx.karate_club_graph())
+    restored = pickle.loads(pickle.dumps(graph))  # nosec B301 - trusted round trip
+    assert list(restored.edges(keys=True, data=True)) == list(graph.edges(keys=True, data=True))
+    assert list(restored.edges(data="weight"))[:3] == [(0, 1, 4), (0, 2, 5), (0, 3, 3)]
