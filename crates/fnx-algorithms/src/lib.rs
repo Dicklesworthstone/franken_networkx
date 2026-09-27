@@ -8098,7 +8098,7 @@ fn edge_betweenness_centrality_subset_generic<G: GraphView>(
 /// Matches `networkx.load_centrality`.
 #[must_use]
 pub fn load_centrality(graph: &Graph) -> LoadCentralityResult {
-    load_centrality_generic(graph, true)
+    load_centrality_generic(graph, true, None)
 }
 
 /// Compute load centrality for all nodes in a directed graph.
@@ -8106,13 +8106,13 @@ pub fn load_centrality(graph: &Graph) -> LoadCentralityResult {
 /// Matches `networkx.load_centrality` for directed graphs.
 #[must_use]
 pub fn load_centrality_directed(graph: &DiGraph) -> LoadCentralityResult {
-    load_centrality_generic(graph, true)
+    load_centrality_generic(graph, true, None)
 }
 
 /// Compute load centrality with optional normalization.
 #[must_use]
 pub fn load_centrality_normalized(graph: &Graph, normalized: bool) -> LoadCentralityResult {
-    load_centrality_generic(graph, normalized)
+    load_centrality_generic(graph, normalized, None)
 }
 
 /// Compute directed load centrality with optional normalization.
@@ -8121,7 +8121,30 @@ pub fn load_centrality_directed_normalized(
     graph: &DiGraph,
     normalized: bool,
 ) -> LoadCentralityResult {
-    load_centrality_generic(graph, normalized)
+    load_centrality_generic(graph, normalized, None)
+}
+
+/// [`load_centrality_normalized`] with networkx's tie order: `value_rank[v]`
+/// is `v`'s position in `sorted(G.nodes())`, which Rust alone cannot know.
+/// Without it, nodes at one distance go in BFS order - equal to networkx
+/// only up to the last bit.
+#[must_use]
+pub fn load_centrality_ranked(
+    graph: &Graph,
+    normalized: bool,
+    value_rank: &[usize],
+) -> LoadCentralityResult {
+    load_centrality_generic(graph, normalized, Some(value_rank))
+}
+
+/// [`load_centrality_ranked`] for a `DiGraph`.
+#[must_use]
+pub fn load_centrality_directed_ranked(
+    graph: &DiGraph,
+    normalized: bool,
+    value_rank: &[usize],
+) -> LoadCentralityResult {
+    load_centrality_generic(graph, normalized, Some(value_rank))
 }
 
 /// Reusable per-worker scratch for one Newman-load single-source pass.
@@ -8130,6 +8153,10 @@ struct LoadScratch {
     predecessors: Vec<Vec<usize>>,
     stack: Vec<usize>,
     queue: VecDeque<usize>,
+    /// The reached nodes in networkx's `sorted((length, vert))` order.
+    ordered: Vec<usize>,
+    /// Counting-sort bucket starts, by distance.
+    level_start: Vec<usize>,
 }
 
 impl LoadScratch {
@@ -8139,6 +8166,8 @@ impl LoadScratch {
             predecessors: std::iter::repeat_with(Vec::new).take(n).collect(),
             stack: Vec::with_capacity(n),
             queue: VecDeque::new(),
+            ordered: Vec::with_capacity(n),
+            level_start: Vec::new(),
         }
     }
 }
@@ -8150,10 +8179,17 @@ impl LoadScratch {
 /// reduce the deltas in STRICT SOURCE ORDER so the global float summation order
 /// is byte-identical to the sequential accumulation.
 /// `adjacency[v]` lists neighbor indices in the graph's neighbor-iteration order.
+/// `rank_order`, when given, lists the nodes in `sorted(G.nodes())` order:
+/// networkx walks a source's reached nodes as `sorted((length, vert))` from
+/// the end, so nodes at one distance go in node-VALUE order, not BFS order -
+/// the order `between[x]` receives its shares in (br-r37-c1-f0uiy), as
+/// `weighted_load_source` already does. A counting sort by distance over
+/// `rank_order` gives that order in O(n) per source.
 /// Returns `(delta, nodes_touched, edges_scanned, queue_peak)`.
 fn load_source(
     scratch: &mut LoadScratch,
     adjacency: &[Vec<usize>],
+    rank_order: Option<&[usize]>,
     n: usize,
     s: usize,
 ) -> (Vec<f64>, usize, usize, usize) {
@@ -8162,6 +8198,8 @@ fn load_source(
         predecessors,
         stack,
         queue,
+        ordered,
+        level_start,
     } = scratch;
 
     distance.fill(usize::MAX);
@@ -8204,6 +8242,32 @@ fn load_source(
     for &v in stack.iter() {
         between[v] = 1.0;
     }
+    if let Some(rank_order) = rank_order {
+        // The source stays first; the rest by (distance, node value): bucket
+        // the nodes by distance while walking them in value order.
+        let max_distance = stack.last().map_or(0, |&v| distance[v]);
+        level_start.clear();
+        level_start.resize(max_distance + 2, 0);
+        for &v in &stack[1..] {
+            level_start[distance[v] + 1] += 1;
+        }
+        for d in 1..level_start.len() {
+            level_start[d] += level_start[d - 1];
+        }
+        ordered.clear();
+        ordered.resize(stack.len() - 1, 0);
+        for &v in rank_order {
+            let d = distance[v];
+            if d != usize::MAX && v != s {
+                // Bucket starts: level_start[d] counts the nodes nearer
+                // than d, then advances as d's slots fill.
+                ordered[level_start[d]] = v;
+                level_start[d] += 1;
+            }
+        }
+        stack.truncate(1);
+        stack.extend_from_slice(ordered);
+    }
     while let Some(v) = stack.pop() {
         if predecessors[v].is_empty() {
             continue;
@@ -8226,7 +8290,11 @@ fn load_source(
     (between, nodes_touched, edges_scanned, queue_peak)
 }
 
-fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCentralityResult {
+fn load_centrality_generic<G: GraphView>(
+    graph: &G,
+    normalized: bool,
+    value_rank: Option<&[usize]>,
+) -> LoadCentralityResult {
     // br-r37-c1-3wzcj: native Newman load centrality (matches
     // ``networkx.algorithms.centrality.load._node_betweenness``). The
     // previous Rust impl computed Brandes' BETWEENNESS via the
@@ -8268,6 +8336,14 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
         })
         .collect();
 
+    // The nodes in `sorted(G.nodes())` order, once for every source.
+    let rank_order: Option<Vec<usize>> = value_rank.map(|value_rank| {
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_unstable_by_key(|&v| value_rank[v]);
+        order
+    });
+    let rank_order = rank_order.as_deref();
+
     let mut load = vec![0.0_f64; n];
     let mut total_nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
@@ -8290,7 +8366,7 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
                 .into_par_iter()
                 .map_init(
                     || LoadScratch::new(n),
-                    |scratch, s| load_source(scratch, &adjacency, n, s),
+                    |scratch, s| load_source(scratch, &adjacency, rank_order, n, s),
                 )
                 .collect();
             for (delta, src_touched, src_edges, src_peak) in chunk_results {
@@ -8307,7 +8383,7 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
         let mut scratch = LoadScratch::new(n);
         for s in 0..n {
             let (delta, src_touched, src_edges, src_peak) =
-                load_source(&mut scratch, &adjacency, n, s);
+                load_source(&mut scratch, &adjacency, rank_order, n, s);
             for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
                 *acc += *contribution;
             }

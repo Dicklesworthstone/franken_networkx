@@ -140,3 +140,57 @@ def test_unweighted_edge_betweenness_is_bit_exact():
         assert set(actual) == set(expected), name
         differ = [e for e in expected if actual[e] != expected[e]]
         assert not differ, (name, len(differ), differ[:3])
+
+
+@pytest.mark.parametrize("normalized", [True, False], ids=["normalized", "unnormalized"])
+def test_unweighted_load_centrality_is_bit_exact(normalized):
+    """br-r37-c1-f0uiy: networkx walks a source's reached nodes as
+    sorted((length, vert)) from the end - ties at one distance in node-VALUE
+    order - and the kernel takes that order as ranks."""
+    for name, g in _brandes_graphs():
+        nx_twin, fnx_twin = _twins(g)
+        expected = nx.load_centrality(nx_twin, normalized=normalized)
+        actual = fnx.load_centrality(fnx_twin, normalized=normalized)
+        differ = [n for n in expected if actual[n] != expected[n]]
+        assert not differ, (name, len(differ), differ[:3])
+
+
+def test_load_centrality_ties_follow_node_values_not_insertion():
+    """str nodes inserted out of lexicographic order, tuple nodes, and a
+    MultiGraph (whose load is its simple projection's)."""
+    base = nx.barabasi_albert_graph(150, 3, seed=11)
+    names = {n: f"v{(n * 37) % 150:03d}" for n in base}
+    str_graph = nx.relabel_nodes(base, names)
+    grid = nx.grid_2d_graph(9, 11)
+    for name, g in (("str nodes", str_graph), ("grid tuples", grid)):
+        nx_twin, fnx_twin = _twins(g)
+        expected = nx.load_centrality(nx_twin)
+        actual = fnx.load_centrality(fnx_twin)
+        assert not [n for n in expected if actual[n] != expected[n]], name
+        # cutoff= and v= run the Python port, which sorts the same pairs.
+        expected = nx.load_centrality(nx_twin, cutoff=4)
+        actual = fnx.load_centrality(fnx_twin, cutoff=4)
+        assert not [n for n in expected if actual[n] != expected[n]], (name, "cutoff")
+        node = list(g)[7]
+        assert fnx.load_centrality(fnx_twin, v=node) == nx.load_centrality(nx_twin, v=node), name
+
+    multi_edges = list(base.edges()) + [(u, v) for u, v in base.edges() if (u + v) % 4 == 0]
+    nx_multi, fnx_multi = nx.MultiGraph(), fnx.MultiGraph()
+    for g in (nx_multi, fnx_multi):
+        g.add_nodes_from(base)
+        g.add_edges_from(multi_edges)
+    expected = nx.load_centrality(nx_multi)
+    actual = fnx.load_centrality(fnx_multi)
+    assert not [n for n in expected if actual[n] != expected[n]]
+
+
+def test_load_centrality_unsortable_tie_raises_as_networkx_does():
+    """networkx compares the node objects of a distance tie: an int and a
+    str at one distance raise TypeError there, so fnx must not answer."""
+    edges = [("hub", 0), ("hub", "a"), (0, "z"), ("a", "z")]
+    nx_graph, fnx_graph = nx.Graph(edges), fnx.Graph(edges)
+    with pytest.raises(TypeError) as expected:
+        nx.load_centrality(nx_graph)
+    with pytest.raises(TypeError) as actual:
+        fnx.load_centrality(fnx_graph)
+    assert str(actual.value) == str(expected.value)

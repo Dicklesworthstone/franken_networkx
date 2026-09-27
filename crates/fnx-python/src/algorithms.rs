@@ -8617,8 +8617,11 @@ pub fn edge_betweenness_centrality_subset_weighted_rust(
 /// pass through that node.
 ///
 /// Matches `networkx.load_centrality`.
+/// `value_rank`, from the Python wrapper, is each node's position in
+/// `sorted(G.nodes())` in node-iteration order: networkx's tie order at one
+/// distance (br-r37-c1-f0uiy). Without it ties go in BFS order.
 #[pyfunction]
-#[pyo3(signature = (g, v=None, cutoff=None, normalized=true, weight=None))]
+#[pyo3(signature = (g, v=None, cutoff=None, normalized=true, weight=None, value_rank=None))]
 pub fn load_centrality(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
@@ -8626,6 +8629,7 @@ pub fn load_centrality(
     cutoff: Option<usize>,
     normalized: bool,
     weight: Option<&str>,
+    value_rank: Option<Vec<usize>>,
 ) -> PyResult<Py<PyDict>> {
     if v.is_some() || cutoff.is_some() || weight.is_some() {
         return Err(crate::NetworkXNotImplemented::new_err(
@@ -8634,26 +8638,30 @@ pub fn load_centrality(
     }
     let gr = extract_graph(g)?;
     log::info!(target: "franken_networkx", "load_centrality: nodes={}", gr.undirected().node_count());
+    let undirected = |inner: &fnx_classes::Graph| match value_rank.as_deref() {
+        Some(rank) => fnx_algorithms::load_centrality_ranked(inner, normalized, rank),
+        None => fnx_algorithms::load_centrality_normalized(inner, normalized),
+    };
+    let directed = |inner: &fnx_classes::digraph::DiGraph| match value_rank.as_deref() {
+        Some(rank) => fnx_algorithms::load_centrality_directed_ranked(inner, normalized, rank),
+        None => fnx_algorithms::load_centrality_directed_normalized(inner, normalized),
+    };
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::load_centrality_normalized(inner, normalized))
+            py.allow_threads(|| undirected(inner))
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::load_centrality_directed_normalized(inner, normalized)
-            })
+            py.allow_threads(|| directed(inner))
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| {
-                    fnx_algorithms::load_centrality_directed_normalized(inner, normalized)
-                })
+                py.allow_threads(|| directed(inner))
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::load_centrality_normalized(inner, normalized))
+                py.allow_threads(|| undirected(inner))
             }
         }
     };

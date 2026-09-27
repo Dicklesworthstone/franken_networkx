@@ -39253,11 +39253,13 @@ def _load_centrality_from_source_local(G, source, cutoff=None, weight=None):
             cutoff=cutoff,
         )
 
-    ordered_nodes = [
-        node
-        for node, distance in sorted(distances.items(), key=lambda item: item[1])
-        if distance > 0
-    ]
+    # networkx's _node_betweenness sorts (length, vert) PAIRS: ties at one
+    # distance go in node-value order, and nodes that do not compare raise
+    # TypeError there (br-r37-c1-f0uiy). A key on the distance alone kept
+    # the ties in discovery order and never raised.
+    onodes = [(distance, node) for node, distance in distances.items()]
+    onodes.sort()
+    ordered_nodes = [node for distance, node in onodes if distance > 0]
     between = dict.fromkeys(distances, 1.0)
 
     while ordered_nodes:
@@ -39346,6 +39348,19 @@ def _load_centrality_inproc(
         _raise_translated_networkx_exception(exc)
 
 
+def _load_value_rank(G):
+    """Each node's position in ``sorted(G.nodes())``, in node order - the
+    tie order of networkx's ``sorted((length, vert))`` walk in load
+    centrality - or ``None`` when the nodes do not sort."""
+    nodes = list(G.nodes())
+    try:
+        order = sorted(nodes)
+    except TypeError:
+        return None
+    rank = {node: i for i, node in enumerate(order)}
+    return [rank[node] for node in nodes]
+
+
 def load_centrality(
     G,
     v=None,
@@ -39369,29 +39384,27 @@ def load_centrality(
         "newman_betweenness_centrality", backend, backend_kwargs
     )
 
-    # br-r37-c1-3wzcj: the Rust ``load_centrality`` now implements
-    # Newman's actual load algorithm (split-equally-among-predecessors)
-    # rather than Brandes' betweenness — bit-exact parity with nx
-    # verified on karate / path / star / K5 / cycle (max_diff = 0.0).
-    # Use the Rust fast path for the all-nodes / unweighted /
-    # cutoff=None case.
-    if v is None and cutoff is None and weight is None and not G.is_multigraph():
-        return _raw_load_centrality(G, normalized=normalized)
-
-    # br-r37-c1-mgisol (cc): unweighted whole-graph load_centrality on a
-    # MULTIgraph delegated to nx (~137ms / 0.43x at n=200, ~157x self). Newman's
-    # load (split-equally-among-predecessors over node-sequence shortest paths)
-    # is unaffected by parallel edges, so it equals load centrality on the simple
-    # projection — which has a bit-exact native kernel. Build the simple
-    # projection (nodes in G order; add_edges_from dedupes parallels, keeps
-    # self-loops) and route to the native kernel. 18.5x, byte-exact (maxdiff
-    # ~1e-16 over 350 random MultiGraph/MultiDiGraph incl. self-loops/parallels +
-    # empty/single/2-node edge cases).
-    if v is None and cutoff is None and weight is None and G.is_multigraph():
-        _proj = (DiGraph if G.is_directed() else Graph)()
-        _proj.add_nodes_from(G.nodes())
-        _proj.add_edges_from(G.edges())
-        return _raw_load_centrality(_proj, normalized=normalized)
+    # br-r37-c1-3wzcj: the Rust ``load_centrality`` implements Newman's load
+    # (split-equally-among-predecessors), not Brandes' betweenness. networkx
+    # walks each source's reached nodes as sorted((length, vert)) from the end,
+    # so ties at one distance go in node-VALUE order; the kernel takes that
+    # order as ranks (br-r37-c1-f0uiy - in BFS order the last bit of 13-19% of
+    # the values was off networkx's), and nodes that do not sort fall through
+    # to the parity path, as the weighted route below does.
+    # br-r37-c1-mgisol (cc): a MULTIgraph's load is its simple projection's -
+    # parallel edges do not change node-sequence shortest paths, and with the
+    # value order fixed the projection's row order cannot change the sums.
+    if v is None and cutoff is None and weight is None:
+        value_rank = _load_value_rank(G)
+        if value_rank is not None:
+            if G.is_multigraph():
+                _proj = (DiGraph if G.is_directed() else Graph)()
+                _proj.add_nodes_from(G.nodes())
+                _proj.add_edges_from(G.edges())
+                return _raw_load_centrality(
+                    _proj, normalized=normalized, value_rank=value_rank
+                )
+            return _raw_load_centrality(G, normalized=normalized, value_rank=value_rank)
 
     # br-r37-c1-loadw: weighted load centrality (a string `weight` key,
     # whole-graph, no cutoff) ran a pure-Python per-source Newman loop
@@ -39414,14 +39427,8 @@ def load_centrality(
             or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
             or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
         ):
-            node_list = list(G.nodes())
-            try:
-                order = sorted(node_list)
-            except TypeError:
-                order = None
-            if order is not None:
-                rank = {node: i for i, node in enumerate(order)}
-                value_rank = [rank[node] for node in node_list]
+            value_rank = _load_value_rank(G)
+            if value_rank is not None:
                 return _raw_load_centrality_weighted(
                     G, weight, value_rank, normalized
                 )
