@@ -7889,9 +7889,15 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
     centrality_to_dict(py, &gr, &result.scores)
 }
 
-/// Return the closeness centrality for all nodes.
+/// Return the closeness centrality for all nodes; `wf_improved` as networkx's
+/// (br-r37-c1-mub4s: False used to run a Python loop over all-pairs lengths).
 #[pyfunction]
-pub fn closeness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+#[pyo3(signature = (g, wf_improved=true))]
+pub fn closeness_centrality(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    wf_improved: bool,
+) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     // br-r37-c1-or38d: every node in an edgeless graph is isolated, so NX
     // closeness is exactly +0.0. Emit the ordered Python dict directly instead
@@ -7906,19 +7912,23 @@ pub fn closeness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::closeness_centrality(inner))
+            py.allow_threads(|| fnx_algorithms::closeness_centrality_wf(inner, wf_improved))
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+            py.allow_threads(|| {
+                fnx_algorithms::closeness_centrality_directed_wf(inner, wf_improved)
+            })
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+                py.allow_threads(|| {
+                    fnx_algorithms::closeness_centrality_directed_wf(inner, wf_improved)
+                })
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::closeness_centrality(inner))
+                py.allow_threads(|| fnx_algorithms::closeness_centrality_wf(inner, wf_improved))
             }
         }
     };
@@ -30040,8 +30050,8 @@ mod tests {
     }
 
     fn assert_closeness_binding_matches_kernel(py: Python<'_>, graph: &Bound<'_, PyAny>) {
-        let candidate =
-            super::closeness_centrality(py, graph).expect("candidate closeness should succeed");
+        let candidate = super::closeness_centrality(py, graph, true)
+            .expect("candidate closeness should succeed");
         let baseline = super::closeness_centrality_kernel_baseline(py, graph)
             .expect("baseline closeness should succeed");
         assert_eq!(
@@ -30120,7 +30130,7 @@ mod tests {
             let graph = Py::new(py, graph).expect("graph should bind");
             let graph_any = graph.bind(py).as_any();
 
-            let candidate = super::closeness_centrality(py, graph_any)
+            let candidate = super::closeness_centrality(py, graph_any, true)
                 .expect("candidate closeness should succeed");
             let baseline = super::closeness_centrality_kernel_baseline(py, graph_any)
                 .expect("baseline closeness should succeed");
@@ -30139,7 +30149,7 @@ mod tests {
             let time = |candidate_route: bool| -> f64 {
                 let start = Instant::now();
                 let result = if candidate_route {
-                    super::closeness_centrality(py, graph_any)
+                    super::closeness_centrality(py, graph_any, true)
                 } else {
                     super::closeness_centrality_kernel_baseline(py, graph_any)
                 }

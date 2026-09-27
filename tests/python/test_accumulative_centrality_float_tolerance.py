@@ -194,3 +194,25 @@ def test_load_centrality_unsortable_tie_raises_as_networkx_does():
     with pytest.raises(TypeError) as actual:
         fnx.load_centrality(fnx_graph)
     assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize("wf_improved", [True, False], ids=["wf", "no-wf"])
+def test_closeness_centrality_wf_improved_is_native_and_bit_exact(wf_improved):
+    """br-r37-c1-mub4s: wf_improved=False only skips networkx's per-node
+    Wasserman-Faust multiply; it runs the native kernel like the default.
+    The disconnected graph is where the flag changes the values."""
+    disconnected = nx.disjoint_union(nx.barabasi_albert_graph(60, 2, seed=3), nx.path_graph(9))
+    graphs = list(_brandes_graphs()) + [("disconnected", disconnected)]
+    for name, g in graphs:
+        nx_twin, fnx_twin = _twins(g)
+        expected = nx.closeness_centrality(nx_twin, wf_improved=wf_improved)
+        actual = fnx.closeness_centrality(fnx_twin, wf_improved=wf_improved)
+        assert list(actual) == list(expected), name
+        assert not [n for n in expected if actual[n] != expected[n]], name
+    nx_multi, fnx_multi = nx.MultiGraph(), fnx.MultiGraph()
+    for multi in (nx_multi, fnx_multi):
+        multi.add_nodes_from(disconnected)
+        multi.add_edges_from(list(disconnected.edges()) * 2)
+    assert fnx.closeness_centrality(fnx_multi, wf_improved=wf_improved) == nx.closeness_centrality(
+        nx_multi, wf_improved=wf_improved
+    )

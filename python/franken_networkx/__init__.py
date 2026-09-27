@@ -32513,22 +32513,11 @@ def closeness_centrality(
             closeness_dict[n] = cc
         return closeness_dict
 
-    if not wf_improved and distance is None and u is None:
-        H = G.reverse() if G.is_directed() else G
-        apl = dict(all_pairs_shortest_path_length(H))
-        len_G = len(H)
-        closeness_dict = {}
-        for n in H:
-            sp = apl.get(n, {n: 0})
-            totsp = sum(sp.values())
-            cc = 0.0
-            if totsp > 0.0 and len_G > 1:
-                cc = (len(sp) - 1.0) / totsp
-            closeness_dict[n] = cc
-        return closeness_dict
-
-    # Use fast Rust implementation for standard case
-    return _raw_closeness_centrality(G)
+    # The native kernel (incoming distances for a DiGraph, as networkx reverses
+    # G). wf_improved=False only skips the per-node Wasserman-Faust multiply;
+    # it used to run a Python loop over all_pairs_shortest_path_length, 3.0x
+    # networkx where the default is 144x (br-r37-c1-mub4s).
+    return _raw_closeness_centrality(G, wf_improved=wf_improved)
 
 
 def _edge_betweenness_centrality_inproc(

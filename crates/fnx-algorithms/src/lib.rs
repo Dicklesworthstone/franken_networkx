@@ -3753,12 +3753,28 @@ fn degree_centrality_generic<G: GraphView>(graph: &G) -> DegreeCentralityResult 
 
 #[must_use]
 pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
-    closeness_centrality_generic(graph)
+    closeness_centrality_generic(graph, true)
 }
 
 #[must_use]
 pub fn closeness_centrality_directed(graph: &DiGraph) -> ClosenessCentralityResult {
-    closeness_centrality_generic(graph)
+    closeness_centrality_generic(graph, true)
+}
+
+/// networkx's `closeness_centrality(G, wf_improved=...)`: without the
+/// Wasserman-Faust rescale a node's score is `(reached - 1) / sum_dist`.
+#[must_use]
+pub fn closeness_centrality_wf(graph: &Graph, wf_improved: bool) -> ClosenessCentralityResult {
+    closeness_centrality_generic(graph, wf_improved)
+}
+
+/// [`closeness_centrality_wf`] for a `DiGraph` (incoming distances).
+#[must_use]
+pub fn closeness_centrality_directed_wf(
+    graph: &DiGraph,
+    wf_improved: bool,
+) -> ClosenessCentralityResult {
+    closeness_centrality_generic(graph, wf_improved)
 }
 
 /// Reusable per-worker scratch for one reverse-BFS pass (closeness/harmonic).
@@ -3778,20 +3794,20 @@ impl CentralityBfsScratch {
 }
 
 /// NX's closeness score for one source: `(reached-1)/sum_dist`, rescaled by
-/// `(reached-1)/(n-1)` when `n > 1`.
+/// `(reached-1)/(n-1)` when `n > 1` and `wf_improved`.
 ///
 /// `reached` (nodes seen by this source's reverse BFS, including itself) and
 /// `sum_dist` (their total distance) are exact integers, so every kernel that
 /// arrives at the same `(reached, sum_dist)` produces a bit-identical `f64` from
 /// this one expression. That is what lets the bit-parallel kernel below stand in
 /// for the per-source BFS without touching the observable result.
-fn closeness_score(reached: usize, sum_dist: usize, n: usize) -> f64 {
+fn closeness_score(reached: usize, sum_dist: usize, n: usize, wf_improved: bool) -> f64 {
     if reached <= 1 || sum_dist == 0 {
         return 0.0;
     }
     let reachable_minus_one = (reached - 1) as f64;
     let mut closeness = reachable_minus_one / (sum_dist as f64);
-    if n > 1 {
+    if wf_improved && n > 1 {
         closeness *= reachable_minus_one / ((n - 1) as f64);
     }
     closeness
@@ -3810,6 +3826,7 @@ fn closeness_source(
     reverse_adjacency: &[Vec<Option<usize>>],
     n: usize,
     s: usize,
+    wf_improved: bool,
 ) -> (f64, usize, usize, usize) {
     let distance = &mut scratch.distance;
     let queue = &mut scratch.queue;
@@ -3839,7 +3856,7 @@ fn closeness_source(
         }
     }
 
-    let score = closeness_score(reached, sum_dist, n);
+    let score = closeness_score(reached, sum_dist, n, wf_improved);
 
     (score, reached, edges_scanned, queue_peak)
 }
@@ -3909,7 +3926,7 @@ pub enum BitparArm {
 #[doc(hidden)]
 #[must_use]
 pub fn closeness_centrality_arm(graph: &Graph, arm: BitparArm) -> ClosenessCentralityResult {
-    closeness_centrality_generic_arm(graph, arm)
+    closeness_centrality_generic_arm(graph, arm, true)
 }
 
 /// Bench-only: the reverse-CSR construction ALONE, with nothing else, so its cost
@@ -3930,13 +3947,17 @@ pub fn closeness_reverse_csr_build_cost(graph: &Graph) -> usize {
     offsets.len() + targets.len()
 }
 
-fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityResult {
-    closeness_centrality_generic_arm(graph, BitparArm::Auto)
+fn closeness_centrality_generic<G: GraphView>(
+    graph: &G,
+    wf_improved: bool,
+) -> ClosenessCentralityResult {
+    closeness_centrality_generic_arm(graph, BitparArm::Auto, wf_improved)
 }
 
 fn closeness_centrality_generic_arm<G: GraphView>(
     graph: &G,
     arm: BitparArm,
+    wf_improved: bool,
 ) -> ClosenessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -4003,7 +4024,7 @@ fn closeness_centrality_generic_arm<G: GraphView>(
             let scores = (0..n)
                 .map(|s| CentralityScore {
                     node: nodes[s].to_owned(),
-                    score: closeness_score(reached[s], sum_dist[s], n),
+                    score: closeness_score(reached[s], sum_dist[s], n, wf_improved),
                 })
                 .collect();
             return ClosenessCentralityResult {
@@ -4053,13 +4074,13 @@ fn closeness_centrality_generic_arm<G: GraphView>(
             .into_par_iter()
             .map_init(
                 || CentralityBfsScratch::new(n),
-                |scratch, s| closeness_source(scratch, &reverse_adjacency, n, s),
+                |scratch, s| closeness_source(scratch, &reverse_adjacency, n, s, wf_improved),
             )
             .collect()
     } else {
         let mut scratch = CentralityBfsScratch::new(n);
         (0..n)
-            .map(|s| closeness_source(&mut scratch, &reverse_adjacency, n, s))
+            .map(|s| closeness_source(&mut scratch, &reverse_adjacency, n, s, wf_improved))
             .collect()
     };
 
@@ -55981,7 +56002,7 @@ mod bitpar_closeness_tests {
         // Reference integers, computed per source independently.
         let want = reference_closeness(&g);
         for (s, (node, want_score)) in want.iter().enumerate() {
-            let got = super::closeness_score(reached[s], sum_dist[s], n);
+            let got = super::closeness_score(reached[s], sum_dist[s], n, true);
             assert_eq!(
                 got.to_bits(),
                 want_score.to_bits(),
