@@ -184,6 +184,116 @@ def test_negative_weights_key_order(seed):
         assert dict(fl) == dict(nl)
 
 
+# br-r37-c1-qnj0n: the SPFA reads each node's row when it first pops the node
+# and keeps state only for what it reaches (it built a weighted CSR of every
+# edge first: 9 ms of kernel against networkx's 17 us beside a 32k-node
+# component, plus an uncached 17 ms type scan per call). Twins below carry a
+# REMOVED node, so node storage is non-dense and rows must be read by position,
+# and negative weights that improve already-seen nodes, so a path must follow
+# the predecessor of the LAST strict improvement.
+_IMPROVING_EDGES = [
+    ("gone", "s", 1), ("s", "a", 4), ("s", "b", 1), ("b", "a", -2), ("a", "c", 1),
+    ("b", "c", 3), ("c", "d", -1), ("s", "d", 5), ("d", "e", 2), ("b", "e", 4),
+    ("e", "f", 1), ("a", "f", 3), ("far", "s", 2),
+]
+
+
+def _improving_twins(directed):
+    graphs = []
+    for lib in (fnx, nx):
+        g = lib.DiGraph() if directed else lib.Graph()
+        for u, v, w in _IMPROVING_EDGES:
+            g.add_edge(u, v, weight=w)
+        g.remove_node("gone")
+        graphs.append(g)
+    return graphs
+
+
+@needs_nx
+def test_improved_nodes_follow_the_last_improvement_like_networkx():
+    fg, ng = _improving_twins(directed=True)
+    dist, paths = fnx.single_source_bellman_ford(fg, "s")
+    nx_dist, nx_paths = nx.single_source_bellman_ford(ng, "s")
+    assert list(dist.items()) == list(nx_dist.items())
+    assert list(paths.items()) == list(nx_paths.items())
+    assert fnx.bellman_ford_path(fg, "s", "f") == nx.bellman_ford_path(ng, "s", "f")
+    assert list(fnx.single_source_bellman_ford_path_length(fg, "s").items()) == list(
+        nx.single_source_bellman_ford_path_length(ng, "s").items()
+    )
+    # "a" is first reached at 4 from s and improved to -1 through b.
+    assert nx_paths["a"] == ["s", "b", "a"]
+
+
+@needs_nx
+def test_undirected_negative_edge_is_a_negative_cycle_like_networkx():
+    fg, ng = _improving_twins(directed=False)
+    for call in (
+        lambda m, g: m.single_source_bellman_ford(g, "s"),
+        lambda m, g: m.single_source_bellman_ford_path_length(g, "s"),
+        lambda m, g: m.bellman_ford_path(g, "s", "f"),
+    ):
+        with pytest.raises(nx.NetworkXUnbounded) as nx_error:
+            call(nx, ng)
+        with pytest.raises(fnx.NetworkXUnbounded) as fnx_error:
+            call(fnx, fg)
+        assert fnx_error.value.args == nx_error.value.args
+
+
+def _small_component_beside_a_ring(lib, ring):
+    graph = lib.DiGraph()
+    graph.add_edges_from((i, i + 1, {"weight": (i % 3) - 1 + 2 * (i % 2)}) for i in range(9))
+    graph.add_edges_from(
+        (100 + i, 100 + (i + 1) % ring, {"weight": 1}) for i in range(ring)
+    )
+    return graph
+
+
+def _best_of(fn, reps=30, rounds=7):
+    import time
+
+    fn()
+    best = None
+    for _ in range(rounds):
+        start = time.perf_counter()
+        for _ in range(reps):
+            fn()
+        elapsed = (time.perf_counter() - start) / reps
+        best = elapsed if best is None else min(best, elapsed)
+    return best
+
+
+_BF_PARENTS = {
+    (lib.__name__, ring): _small_component_beside_a_ring(lib, ring)
+    for lib in (fnx, nx)
+    for ring in (200, 12800)
+} if HAS_NX else {}
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda m, g: m.single_source_bellman_ford_path_length(g, 0),
+        lambda m, g: m.single_source_bellman_ford(g, 0),
+        lambda m, g: m.bellman_ford_path(g, 0, 5),
+    ],
+    ids=["path_length", "single_source", "path"],
+)
+def test_bounded_bellman_ford_cost_does_not_grow_with_the_parent(call):
+    """A walk inside a 10-node component beside a disconnected ring of 200 vs
+    12800 nodes. networkx is flat; fnx's growth is judged against networkx's in
+    the same process at the same moment, which calibrates the bound under load.
+    The whole-graph weight CSR and the uncached type scan grew ~60x here."""
+    growth = {}
+    for lib in (fnx, nx):
+        small = _BF_PARENTS[(lib.__name__, 200)]
+        large = _BF_PARENTS[(lib.__name__, 12800)]
+        growth[lib.__name__] = _best_of(lambda: call(lib, large)) / _best_of(
+            lambda: call(lib, small)
+        )
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), growth
+
+
 @pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("weights", ["float", "int", "mixed"])
 def test_all_pairs_bellman_ford_source_distance_is_the_int_zero(cls, weights):

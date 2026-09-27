@@ -943,3 +943,134 @@ def test_dijkstra_cutoff_cost_does_not_grow_with_the_parent():
         f"a {large // small}x bigger parent made fnx dijkstra {fnx_growth:.2f}x "
         f"slower for a cutoff=1 request while networkx moved {nx_growth:.2f}x"
     )
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-qnj0n: the rest of the vein
+# ---------------------------------------------------------------------------
+# A sweep holding the request fixed (a 10-node weighted path) beside a
+# DISCONNECTED ring grown 1k -> 32k found these still paying for the whole
+# graph per call - a nodes_ordered() name table, V-sized arrays (a Vec of Vecs
+# for predecessor lists, 24-byte Option pairs for A*), a degree Vec of every
+# node, a rebuild of every adjacency row - 36 us to 1.5 ms at 32k against
+# networkx's 4-15 us. Each graph below carries a REMOVED node, so node storage
+# is non-dense and every position -> name / row lookup is exercised.
+
+
+def _beside_ring(lib, ring, directed):
+    graph = lib.DiGraph() if directed else lib.Graph()
+    graph.add_node("gone")
+    graph.add_edges_from((i, i + 1, {"weight": 1 + i % 3}) for i in range(9))
+    graph.add_edges_from([(0, 2, {"weight": 2}), (2, 5, {"weight": 1}), (6, 3, {"weight": 1})])
+    graph.add_edges_from((100 + i, 100 + (i + 1) % ring, {"weight": 1}) for i in range(ring))
+    graph.remove_node("gone")
+    return graph
+
+
+_BESIDE = {
+    (lib.__name__, ring, directed): _beside_ring(lib, ring, directed)
+    for lib in (fnx, nx)
+    for ring in (200, 12800)
+    for directed in (False, True)
+}
+
+_QNJ0N_CALLS = {
+    "dijkstra_path": (False, lambda m, g: m.dijkstra_path(g, 0, 5)),
+    "dijkstra_path_dir": (True, lambda m, g: m.dijkstra_path(g, 0, 5)),
+    "bidirectional_dijkstra": (False, lambda m, g: m.bidirectional_dijkstra(g, 0, 5)),
+    "bidirectional_dijkstra_dir": (True, lambda m, g: m.bidirectional_dijkstra(g, 0, 5)),
+    "astar_path": (False, lambda m, g: m.astar_path(g, 0, 5)),
+    "astar_path_dir": (True, lambda m, g: m.astar_path(g, 0, 5)),
+    "all_shortest_paths": (False, lambda m, g: list(m.all_shortest_paths(g, 0, 5))),
+    "all_shortest_paths_dir": (True, lambda m, g: list(m.all_shortest_paths(g, 0, 5))),
+    "node_boundary": (False, lambda m, g: m.node_boundary(g, [0, 1])),
+    "node_boundary_dir": (True, lambda m, g: m.node_boundary(g, [0, 1])),
+    "node_connected_component": (False, lambda m, g: m.node_connected_component(g, 0)),
+    "bfs_layers": (False, lambda m, g: list(m.bfs_layers(g, [0]))),
+    "bfs_layers_dir": (True, lambda m, g: list(m.bfs_layers(g, [0]))),
+    "chain_decomposition_root": (False, lambda m, g: list(m.chain_decomposition(g, root=0))),
+    "sssp_cutoff_dir": (True, lambda m, g: m.single_source_shortest_path(g, 0, cutoff=2)),
+    "shortest_path_source_dir": (True, lambda m, g: m.shortest_path(g, 0)),
+    "stsp_length_dir": (True, lambda m, g: m.single_target_shortest_path_length(g, 5, cutoff=2)),
+    "shortest_path_length": (False, lambda m, g: m.shortest_path_length(g, 0, 5)),
+    "shortest_path_length_dir": (True, lambda m, g: m.shortest_path_length(g, 0, 5)),
+    "preferential_attachment": (
+        False,
+        lambda m, g: list(m.preferential_attachment(g, [(0, 2), (1, 3)])),
+    ),
+    "square_clustering_nodes": (False, lambda m, g: m.square_clustering(g, [0, 1, 2])),
+    "bellman_ford_path_length": (
+        False,
+        lambda m, g: m.single_source_bellman_ford_path_length(g, 0),
+    ),
+    "bellman_ford_path_dir": (True, lambda m, g: m.bellman_ford_path(g, 0, 5)),
+}
+
+
+@pytest.mark.parametrize("label", sorted(_QNJ0N_CALLS))
+def test_bounded_request_equals_networkx_and_does_not_grow_with_the_parent(label):
+    directed, call = _QNJ0N_CALLS[label]
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _BESIDE[(lib.__name__, 200, directed)]
+        large = _BESIDE[(lib.__name__, 12800, directed)]
+        results[lib.__name__] = call(lib, large)
+        growth[lib.__name__] = _best(lambda: call(lib, large), reps=20) / _best(
+            lambda: call(lib, small), reps=20
+        )
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), (label, growth)
+
+
+def _component_of_300(lib, directed, seed):
+    """300 connected-ish nodes with ties and a removed node - large enough that
+    the reach-sized tables promote from sparse to dense mid-search."""
+    import random
+
+    rng = random.Random(seed)
+    graph = lib.DiGraph() if directed else lib.Graph()
+    graph.add_node("gone")
+    for u in range(300):
+        for v in rng.sample(range(300), 3):
+            if u != v:
+                graph.add_edge(u, v, weight=rng.choice([1, 1, 2, 3]))
+    graph.remove_node("gone")
+    return graph
+
+
+_PROMOTING_CALLS = {
+    "dijkstra_path": lambda m, g: m.dijkstra_path(g, 0, 250),
+    "bidirectional_dijkstra": lambda m, g: m.bidirectional_dijkstra(g, 0, 250),
+    "astar_path": lambda m, g: m.astar_path(g, 0, 250),
+    "all_shortest_paths": lambda m, g: list(m.all_shortest_paths(g, 0, 250)),
+    "node_boundary": lambda m, g: m.node_boundary(g, range(0, 300, 2)),
+    "bfs_layers": lambda m, g: list(m.bfs_layers(g, [0, 7])),
+    "shortest_path_length": lambda m, g: m.shortest_path_length(g, 0, 250),
+    "shortest_path_source": lambda m, g: m.shortest_path(g, 0),
+    "bellman_ford": lambda m, g: m.single_source_bellman_ford(g, 0),
+}
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("label", sorted(_PROMOTING_CALLS))
+def test_reach_sized_state_past_promotion_equals_networkx(label, seed, directed):
+    call = _PROMOTING_CALLS[label]
+    try:
+        expected = call(nx, _component_of_300(nx, directed, seed))
+    except nx.NetworkXNoPath:
+        with pytest.raises(nx.NetworkXNoPath):
+            call(fnx, _component_of_300(fnx, directed, seed))
+        return
+    assert call(fnx, _component_of_300(fnx, directed, seed)) == expected
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_undirected_only_calls_past_promotion_equal_networkx(seed):
+    graphs = {lib.__name__: _component_of_300(lib, False, seed) for lib in (fnx, nx)}
+    for call in (
+        lambda m, g: m.node_connected_component(g, 0),
+        lambda m, g: list(m.chain_decomposition(g, root=0)),
+        lambda m, g: m.square_clustering(g, list(range(0, 300, 3))),
+    ):
+        assert call(fnx, graphs["franken_networkx"]) == call(nx, graphs["networkx"])

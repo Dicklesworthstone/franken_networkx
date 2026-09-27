@@ -12886,6 +12886,52 @@ def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
     return False
 
 
+def _cached_native_weight_scan(G, weight, require_exact_string_nodes=False):
+    """The native single-pass weight scan, ``(has_negative, has_nonfinite,
+    has_nonnumeric)``, or None when it is unavailable or declines.
+
+    br-gauntlet-perf1-fast: the scan skips the expensive _sync_rust_edge_attrs;
+    live Python edge dicts are authoritative and lazy store-only multigraph attrs
+    are read in the Rust store. It is O(E), so the answer is cached on the graph
+    under its generation token while no Python edge dict is dirty.
+
+    br-r37-c1-qnj0n: ONE cache for every gate that asks. The Dijkstra and
+    Bellman-Ford gates each kept their own copy of this logic, and the
+    type-parity gate had none, so every weighted Bellman-Ford call rescanned
+    all E weights (17 ms beside a 32k-node component, before the walk began).
+    """
+    if _native_check_dijkstra_weights_fast is None:
+        return None
+    cache_key = None
+    if _native_dijkstra_weight_cache_token is not None:
+        try:
+            token = _native_dijkstra_weight_cache_token(G)
+        except Exception:
+            token = None
+        if token is not None:
+            # br-r37-c1-urjxk: the 4th slot moves on every store rewrite
+            # from the attr dicts, so a synced held write is a new key.
+            nodes_seq, edges_seq, edge_attrs_dirty, attr_rewrites = token
+            if not edge_attrs_dirty:
+                cache_key = (
+                    weight,
+                    nodes_seq,
+                    edges_seq,
+                    attr_rewrites,
+                    require_exact_string_nodes,
+                )
+                cached = vars(G).get("_fnx_weight_scan_cache")
+                if cached is not None and cached[0] == cache_key:
+                    return cached[1]
+    try:
+        scan = _native_check_dijkstra_weights_fast(G, weight, require_exact_string_nodes)
+    except Exception:
+        scan = None
+    if scan is not None and cache_key is not None:
+        vars(G)["_fnx_weight_scan_cache"] = (cache_key, scan)
+    return scan
+
+
 def _should_delegate_dijkstra_to_networkx(
     G, weight, *, _require_exact_string_nodes=False
 ):
@@ -12893,44 +12939,10 @@ def _should_delegate_dijkstra_to_networkx(
         return True
     if not isinstance(weight, str):
         return True
-    # br-gauntlet-perf1-fast: use a single-pass native scan that returns
-    # (has_negative, requires_exact_fallback, has_nonnumeric) WITHOUT the
-    # expensive _sync_rust_edge_attrs. Live Python edge dicts are authoritative;
-    # lazy store-only multigraph attrs are checked directly in the Rust store.
-    cache_key = None
-    if _native_check_dijkstra_weights_fast is not None:
-        if _native_dijkstra_weight_cache_token is not None:
-            try:
-                token = _native_dijkstra_weight_cache_token(G)
-            except Exception:
-                token = None
-            if token is not None:
-                # br-r37-c1-urjxk: the 4th slot moves on every store rewrite
-                # from the attr dicts, so a synced held write is a new key.
-                nodes_seq, edges_seq, edge_attrs_dirty, attr_rewrites = token
-                if not edge_attrs_dirty:
-                    cache_key = (
-                        weight,
-                        nodes_seq,
-                        edges_seq,
-                        attr_rewrites,
-                        _require_exact_string_nodes,
-                    )
-                    cached = vars(G).get("_fnx_dijkstra_weight_check_cache")
-                    if cached is not None and cached[0] == cache_key:
-                        return cached[1]
-        try:
-            fast_result = _native_check_dijkstra_weights_fast(
-                G, weight, _require_exact_string_nodes
-            )
-        except Exception:
-            fast_result = None
-        if fast_result is not None:
-            has_negative, has_nonfinite, has_nonnumeric = fast_result
-            should_delegate = has_negative or has_nonfinite or has_nonnumeric
-            if cache_key is not None:
-                vars(G)["_fnx_dijkstra_weight_check_cache"] = (cache_key, should_delegate)
-            return should_delegate
+    scan = _cached_native_weight_scan(G, weight, _require_exact_string_nodes)
+    if scan is not None:
+        has_negative, has_nonfinite, has_nonnumeric = scan
+        return bool(has_negative or has_nonfinite or has_nonnumeric)
     # Native-helper fallback: retain the established shared MultiGraph scan
     # unless the bidirectional-only exact-domain flag is set. In that domain,
     # only exact built-in bool/int/float weights within the f64 exact-integer
@@ -13218,30 +13230,11 @@ def _should_delegate_bellman_ford_path_to_networkx(G, weight):
     """
     if callable(weight) or not isinstance(weight, str):
         return True
-    if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
-        cache_key = None
-        if _native_dijkstra_weight_cache_token is not None:
-            try:
-                token = _native_dijkstra_weight_cache_token(G)
-            except Exception:
-                token = None
-            if token is not None:
-                nodes_seq, edges_seq, edge_attrs_dirty, attr_rewrites = token
-                if not edge_attrs_dirty:
-                    cache_key = (weight, nodes_seq, edges_seq, attr_rewrites)
-                    cached = vars(G).get("_fnx_bellman_weight_check_cache")
-                    if cached is not None and cached[0] == cache_key:
-                        return cached[1]
-        try:
-            fast = _native_check_dijkstra_weights_fast(G, weight)
-        except Exception:
-            fast = None
-        if fast is not None:
-            _has_negative, has_nonfinite, has_nonnumeric = fast
-            should = has_nonfinite or has_nonnumeric
-            if cache_key is not None:
-                vars(G)["_fnx_bellman_weight_check_cache"] = (cache_key, should)
-            return should
+    if not G.is_multigraph():
+        scan = _cached_native_weight_scan(G, weight)
+        if scan is not None:
+            _has_negative, has_nonfinite, has_nonnumeric = scan
+            return bool(has_nonfinite or has_nonnumeric)
     return _has_nan_or_inf_edge_weight(G, weight) or _has_nonnumeric_edge_weight(G, weight)
 
 
@@ -27742,14 +27735,12 @@ def _sp_weights_need_networkx_for_type_parity(G, weight):
     """
     if not isinstance(weight, str):
         return False
-    if _native_check_dijkstra_weights_fast is not None:
-        try:
-            scan = _native_check_dijkstra_weights_fast(G, weight, False)
-        except Exception:  # noqa: BLE001 - an odd graph falls to the Python walk
-            scan = None
-        if scan is not None:
-            _has_negative, has_nonfinite, has_nonnumeric = scan
-            return bool(has_nonfinite or has_nonnumeric)
+    # br-r37-c1-qnj0n: through the shared cache - this scan ran uncached on
+    # every weighted Bellman-Ford call.
+    scan = _cached_native_weight_scan(G, weight)
+    if scan is not None:
+        _has_negative, has_nonfinite, has_nonnumeric = scan
+        return bool(has_nonfinite or has_nonnumeric)
     if G.is_multigraph():
         rows = (attrs for _u, _v, _k, attrs in G.edges(keys=True, data=True))
     else:

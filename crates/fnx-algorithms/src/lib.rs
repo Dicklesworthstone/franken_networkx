@@ -1108,7 +1108,9 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
 
     let n = graph.node_count();
     let mut visited = vec![false; n];
-    let mut predecessor: Vec<Option<usize>> = vec![None; n];
+    // br-r37-c1-qnj0n: a NodeTable - `vec![None; n]` wrote 16 bytes a node per
+    // call before the walk began. `visited` stays one dense byte a node.
+    let mut predecessor: NodeTable<Option<usize>> = NodeTable::new(n, None);
     let mut queue: VecDeque<usize> = VecDeque::new();
 
     visited[source_idx] = true;
@@ -1124,7 +1126,7 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
                 edges_scanned += 1;
                 if !visited[nbr] {
                     visited[nbr] = true;
-                    predecessor[nbr] = Some(current);
+                    predecessor.set(nbr, Some(current));
                     queue.push_back(nbr);
                     nodes_touched += 1;
                     queue_peak = queue_peak.max(queue.len());
@@ -1137,7 +1139,7 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
                             if cur == source_idx {
                                 break;
                             }
-                            match predecessor[cur] {
+                            match predecessor.get(cur) {
                                 Some(p) => cur = p,
                                 None => break,
                             }
@@ -1233,7 +1235,8 @@ fn shortest_path_unweighted_directed_fast_impl(
 
     let n = digraph.node_count();
     let mut visited = vec![false; n];
-    let mut predecessor: Vec<Option<usize>> = vec![None; n];
+    // br-r37-c1-qnj0n: see the undirected twin.
+    let mut predecessor: NodeTable<Option<usize>> = NodeTable::new(n, None);
     let mut queue: VecDeque<usize> = VecDeque::new();
 
     visited[source_idx] = true;
@@ -1244,7 +1247,7 @@ fn shortest_path_unweighted_directed_fast_impl(
             for &nbr in successors {
                 if !visited[nbr] {
                     visited[nbr] = true;
-                    predecessor[nbr] = Some(current);
+                    predecessor.set(nbr, Some(current));
                     queue.push_back(nbr);
 
                     if nbr == target_idx {
@@ -1255,7 +1258,7 @@ fn shortest_path_unweighted_directed_fast_impl(
                             if cur == source_idx {
                                 break;
                             }
-                            cur = predecessor[cur]?;
+                            cur = predecessor.get(cur)?;
                         }
                         path.reverse();
                         return Some(path);
@@ -2085,10 +2088,12 @@ pub fn bidirectional_dijkstra_undirected(
     let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
         return BidirectionalDijkstraOutcome::NodeMissing;
     };
-    let ordered = graph.nodes_ordered();
+    // br-r37-c1-qnj0n: names by position for the nodes the search touches -
+    // a whole-graph nodes_ordered() table cost O(V) per call.
+    let ordered = |i: usize| graph.get_node_name(i).unwrap_or_default();
     if s == t {
         // nx returns int 0 for a zero-length self path (no edges summed).
-        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![ordered[s].to_owned()]);
+        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![ordered(s).to_owned()]);
     }
 
     // [forward, backward]
@@ -2146,7 +2151,7 @@ pub fn bidirectional_dijkstra_undirected(
             let mut all_int = true;
             for pair in path.windows(2) {
                 let kind = graph
-                    .edge_attrs(ordered[pair[0]], ordered[pair[1]])
+                    .edge_attrs(ordered(pair[0]), ordered(pair[1]))
                     .and_then(|attrs| attrs.get(weight_attr));
                 match kind {
                     None => {} // absent => default int 1
@@ -2157,7 +2162,7 @@ pub fn bidirectional_dijkstra_undirected(
                     }
                 }
             }
-            let names = path.into_iter().map(|i| ordered[i].to_owned()).collect();
+            let names = path.into_iter().map(|i| ordered(i).to_owned()).collect();
             return BidirectionalDijkstraOutcome::Found(
                 finaldist.expect("finaldist set with meetnode"),
                 all_int,
@@ -2165,10 +2170,10 @@ pub fn bidirectional_dijkstra_undirected(
             );
         }
 
-        let v_name = ordered[v];
+        let v_name = ordered(v);
         if let Some(neighbors) = graph.neighbors_indices(v) {
             for &w in neighbors {
-                let w_name = ordered[w];
+                let w_name = ordered(w);
                 let cost = edge_weight_or_default(graph, v_name, w_name, weight_attr);
                 let vw_length = dist + cost;
                 if let Some(&existing) = dists[direction].get(&w) {
@@ -2219,9 +2224,10 @@ pub fn bidirectional_dijkstra_directed(
     let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
         return BidirectionalDijkstraOutcome::NodeMissing;
     };
-    let ordered = graph.nodes_ordered();
+    // br-r37-c1-qnj0n: see the undirected twin.
+    let ordered = |i: usize| graph.get_node_name(i).unwrap_or_default();
     if s == t {
-        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![ordered[s].to_owned()]);
+        return BidirectionalDijkstraOutcome::Found(0.0, true, vec![ordered(s).to_owned()]);
     }
 
     // [forward, backward]
@@ -2290,7 +2296,7 @@ pub fn bidirectional_dijkstra_directed(
                     }
                 }
             }
-            let names = path.into_iter().map(|i| ordered[i].to_owned()).collect();
+            let names = path.into_iter().map(|i| ordered(i).to_owned()).collect();
             return BidirectionalDijkstraOutcome::Found(
                 finaldist.expect("finaldist set with meetnode"),
                 all_int,
@@ -2396,44 +2402,24 @@ pub fn bellman_ford_shortest_paths(
     // equal-distance ties SPFA and textbook BF pick different (but equal-length)
     // shortest paths. Mirror nx's deque order so single_source/all_pairs path
     // outputs match exactly. (br-r37-c1-wloxg)
-    // br-r37-c1-d58s8 P1: integer-CSR walk — offsets/targets from the
-    // eager adj_indices rows (same insertion order as the String rows),
-    // weights resolved once per edge before the loop.
-    let names = graph.nodes_ordered();
-    let n = names.len();
-    let mut offsets = Vec::with_capacity(n + 1);
-    let mut targets: Vec<u32> = Vec::new();
-    offsets.push(0);
-    for (u, name_u) in names.iter().enumerate() {
-        if let Some(row) = graph.neighbors_indices(u) {
-            for &v in row {
-                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
-            }
-        }
-        let _ = name_u;
-        offsets.push(targets.len());
-    }
-    let mut weights: Vec<f64> = Vec::with_capacity(targets.len());
-    for (u, name_u) in names.iter().enumerate() {
-        for k in offsets[u]..offsets[u + 1] {
-            weights.push(signed_edge_weight_or_default(
-                graph,
-                name_u,
-                names[targets[k] as usize],
-                weight_attr,
-            ));
-        }
-    }
+    // br-r37-c1-d58s8 P1: an index walk over the eager adj_indices rows (same
+    // insertion order as the String rows). br-r37-c1-qnj0n: each row and its
+    // weights are read when the walk first pops the node, not up front.
     let source_idx = graph
         .get_node_index(source)
         .expect("has_node checked above");
-    let spfa = bellman_ford_spfa_csr(
+    let name = |index: usize| graph.get_node_name(index).unwrap_or_default();
+    let spfa = bellman_ford_spfa_lazy(
         source_idx,
-        &names,
-        &offsets,
-        &targets,
-        &weights,
         node_count,
+        |u, row| {
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                row.extend(neighbors.iter().map(|&v| {
+                    (v, signed_graph_edge_weight_or_default_idx(graph, u, v, weight_attr))
+                }));
+            }
+        },
+        name,
         &mut cgse_sink,
         &mut nodes_touched,
         &mut edges_scanned,
@@ -2448,7 +2434,7 @@ pub fn bellman_ford_shortest_paths(
 
     let queue_peak = spfa.queue_peak;
     weighted_paths_result_from_spfa(
-        &names,
+        name,
         spfa,
         ComplexityWitness {
             algorithm: "bellman_ford_shortest_paths".to_owned(),
@@ -2488,31 +2474,24 @@ pub fn bellman_ford_shortest_paths_directed(
 
     // Match networkx's SPFA (FIFO deque) processing order so equal-distance path
     // tie-breaks agree with nx for directed graphs too. (br-r37-c1-wloxg)
-    // br-r37-c1-d58s8 P1: integer-CSR walk via the revision-keyed
-    // DiGraph::csr() cache; weights resolved once per edge.
-    let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    for u in 0..names.len() {
-        for &v in csr.successors(u) {
-            weights.push(signed_digraph_edge_weight_or_default_idx(
-                digraph,
-                u,
-                v as usize,
-                weight_attr,
-            ));
-        }
-    }
+    // br-r37-c1-d58s8 P1: an index walk over the eager successor rows (the
+    // order DiGraph::csr() is built from). br-r37-c1-qnj0n: each row and its
+    // weights are read when the walk first pops the node, not up front.
     let source_idx = digraph
         .get_node_index(source)
         .expect("has_node checked above");
-    let spfa = bellman_ford_spfa_csr(
+    let name = |index: usize| digraph.get_node_name(index).unwrap_or_default();
+    let spfa = bellman_ford_spfa_lazy(
         source_idx,
-        &names,
-        &csr.succ_offsets,
-        &csr.succ_targets,
-        &weights,
         node_count,
+        |u, row| {
+            if let Some(successors) = digraph.successors_indices(u) {
+                row.extend(successors.iter().map(|&v| {
+                    (v, signed_digraph_edge_weight_or_default_idx(digraph, u, v, weight_attr))
+                }));
+            }
+        },
+        name,
         &mut cgse_sink,
         &mut nodes_touched,
         &mut edges_scanned,
@@ -2520,7 +2499,7 @@ pub fn bellman_ford_shortest_paths_directed(
 
     let queue_peak = spfa.queue_peak;
     weighted_paths_result_from_spfa(
-        &names,
+        name,
         spfa,
         ComplexityWitness {
             algorithm: "bellman_ford_shortest_paths_directed".to_owned(),
@@ -2683,11 +2662,11 @@ pub fn single_source_shortest_path_directed_index(
     // full-graph traversal pays no hashing.
     let mut visited = vec![false; n];
     // (node index, position of the discovering parent in this same vector).
-    // `usize::MAX` marks the source, which has no parent.
-    let mut discovery: Vec<(usize, usize)> = match cutoff {
-        Some(_) => Vec::new(),
-        None => Vec::with_capacity(n),
-    };
+    // `usize::MAX` marks the source, which has no parent. br-r37-c1-qnj0n: it
+    // grows with the reach - `with_capacity(n)` for an unbounded search was a
+    // 16-bytes-a-node allocation per call, and a source in a small component
+    // reaches a handful of nodes.
+    let mut discovery: Vec<(usize, usize)> = Vec::new();
 
     visited[source_idx] = true;
     discovery.push((source_idx, usize::MAX));
@@ -2756,15 +2735,11 @@ pub fn single_source_shortest_path_directed(
     // String-hashing `successors_iter` walk. Delegate to the integer-index core (mirror of the
     // undirected path) and materialise names once per node. Byte-identical: same adjacency-order
     // successor discovery, same first-visit predecessor tree, same BFS discovery order.
-    let nodes = digraph.nodes_ordered();
+    // br-r37-c1-qnj0n: names by position, not a whole-graph name table per call.
+    let name = |i: usize| digraph.get_node_name(i).unwrap_or_default().to_owned();
     single_source_shortest_path_directed_index(digraph, source, cutoff)
         .into_iter()
-        .map(|(target, path)| {
-            (
-                nodes[target].to_owned(),
-                path.into_iter().map(|i| nodes[i].to_owned()).collect(),
-            )
-        })
+        .map(|(target, path)| (name(target), path.into_iter().map(name).collect()))
         .collect()
 }
 
@@ -10416,36 +10391,35 @@ fn weighted_paths_result(
 struct BellmanFordSpfaState {
     negative_cycle_detected: bool,
     queue_peak: usize,
-    distances: Vec<f64>,
-    predecessors: Vec<u32>,
-    discovery_order: Vec<u32>,
+    /// `(node, distance, predecessor)` in first-discovery order; the
+    /// predecessor is `u32::MAX` for the source.
+    discovered: Vec<(u32, f64, u32)>,
 }
 
-/// Materialize a public Bellman-Ford result directly from the index arrays.
+/// Materialize a public Bellman-Ford result from the walk's index state.
 ///
 /// Keeping the walk index-backed avoids constructing three transient
 /// String-keyed containers only to copy the same entries into the two public
 /// vectors. The order remains SPFA first-discovery order, which is observable
-/// through NetworkX's returned dictionaries.
-fn weighted_paths_result_from_spfa(
-    names: &[&str],
+/// through NetworkX's returned dictionaries. Names are resolved per reached
+/// node, never through a whole-graph table (br-r37-c1-qnj0n).
+fn weighted_paths_result_from_spfa<'g>(
+    name: impl Fn(usize) -> &'g str,
     spfa: BellmanFordSpfaState,
     witness: ComplexityWitness,
 ) -> WeightedShortestPathsResult {
-    let capacity = spfa.discovery_order.len();
+    let capacity = spfa.discovered.len();
     let mut distances = Vec::with_capacity(capacity);
     let mut predecessors = Vec::with_capacity(capacity);
-    for index in spfa.discovery_order {
-        let index = index as usize;
-        let node = names[index].to_owned();
+    for (index, distance, predecessor) in spfa.discovered {
+        let node = name(index as usize).to_owned();
         distances.push(WeightedDistanceEntry {
             node: node.clone(),
-            distance: spfa.distances[index],
+            distance,
         });
         predecessors.push(WeightedPredecessorEntry {
             node,
-            predecessor: (spfa.predecessors[index] != u32::MAX)
-                .then(|| names[spfa.predecessors[index] as usize].to_owned()),
+            predecessor: (predecessor != u32::MAX).then(|| name(predecessor as usize).to_owned()),
         });
     }
 
@@ -10471,53 +10445,65 @@ fn weighted_paths_result_from_spfa(
 /// `node_count` times implies a reachable negative cycle. Returns
 /// `(negative_cycle_detected, queue_peak)`; `distances` and `predecessors` are
 /// filled in place. (br-r37-c1-wloxg)
-/// br-r37-c1-d58s8 P1: integer-CSR SPFA core. Replicates nx's
+/// br-r37-c1-d58s8 P1: index SPFA core. Replicates nx's
 /// _inner_bellman_ford exactly — FIFO deque, pred LISTS (strict
 /// improvement resets, EXACT-equality appends), and the pred-in-queue
-/// SKIP heuristic (86xx9 part 2) — on index arrays; String maps are
-/// flushed once at the end in first-discovery order.
-#[allow(clippy::too_many_arguments)]
-fn bellman_ford_spfa_csr(
+/// SKIP heuristic (86xx9 part 2); String maps are flushed once at the end
+/// in first-discovery order.
+///
+/// br-r37-c1-qnj0n: rows are read through `expand` the first time the walk
+/// pops a node and kept for its later pops, and all state is held only for
+/// the nodes the walk reaches, as networkx's dicts are. The callers used to
+/// build a weighted CSR of EVERY edge (a String-pair weight lookup each) and
+/// V-sized arrays first, so single_source_bellman_ford_path_length beside a
+/// 32k-node component took 9 ms of kernel where networkx takes 17 us.
+fn bellman_ford_spfa_lazy<'g>(
     source_idx: usize,
-    names: &[&str],
-    offsets: &[usize],
-    targets: &[u32],
-    weights: &[f64],
     node_count: usize,
+    mut expand: impl FnMut(usize, &mut Vec<(usize, f64)>),
+    name: impl Fn(usize) -> &'g str,
     cgse_sink: &mut Option<CgseWitnessSink>,
     nodes_touched: &mut usize,
     edges_scanned: &mut usize,
 ) -> BellmanFordSpfaState {
-    let n = names.len();
-    let mut dist: Vec<f64> = vec![f64::INFINITY; n];
-    let mut pred: Vec<u32> = vec![u32::MAX; n];
-    let mut pred_lists: Vec<Vec<u32>> = vec![Vec::new(); n];
+    let mut dist = NodeTable::new(node_count, f64::INFINITY);
+    let mut pred = NodeTable::new(node_count, u32::MAX);
+    let mut pred_lists: FxHashMap<usize, Vec<u32>> = FxHashMap::default();
     let mut discovered: Vec<u32> = Vec::new();
-    let mut in_queue = vec![false; n];
-    let mut enqueue_count: Vec<u32> = vec![0; n];
+    let mut in_queue = NodeTable::new(node_count, false);
+    let mut enqueue_count = NodeTable::new(node_count, 0u32);
+    let mut rows: FxHashMap<usize, Vec<(usize, f64)>> = FxHashMap::default();
     let mut queue = VecDeque::<u32>::new();
 
-    dist[source_idx] = 0.0;
-    discovered.push(u32::try_from(source_idx).unwrap_or(u32::MAX));
-    queue.push_back(u32::try_from(source_idx).unwrap_or(u32::MAX));
-    in_queue[source_idx] = true;
+    let source = u32::try_from(source_idx).unwrap_or(u32::MAX);
+    dist.set(source_idx, 0.0);
+    discovered.push(source);
+    queue.push_back(source);
+    in_queue.set(source_idx, true);
     let mut queue_peak = 1usize;
 
     let mut negative_cycle = false;
     'outer: while let Some(u) = queue.pop_front() {
-        in_queue[u as usize] = false;
+        let u_usize = u as usize;
+        in_queue.set(u_usize, false);
         // nx SPFA skip heuristic: defer u's relaxations while any of its
         // current predecessors is still queued.
-        if pred_lists[u as usize].iter().any(|&p| in_queue[p as usize]) {
+        if pred_lists
+            .get(&u_usize)
+            .is_some_and(|preds| preds.iter().any(|&p| in_queue.get(p as usize)))
+        {
             continue;
         }
-        let base = dist[u as usize];
-        let (row_start, row_end) = (offsets[u as usize], offsets[u as usize + 1]);
-        for k in row_start..row_end {
-            let v = targets[k] as usize;
+        let base = dist.get(u_usize);
+        let row = rows.entry(u_usize).or_insert_with(|| {
+            let mut row = Vec::new();
+            expand(u_usize, &mut row);
+            row
+        });
+        for &(v, weight) in row.iter() {
             *edges_scanned += 1;
-            let candidate = base + weights[k];
-            let existing = dist[v];
+            let candidate = base + weight;
+            let existing = dist.get(v);
             let improves = if existing.is_infinite() {
                 true
             } else {
@@ -10525,39 +10511,46 @@ fn bellman_ford_spfa_csr(
             };
             if !improves {
                 if !existing.is_infinite() && candidate == existing {
-                    pred_lists[v].push(u);
+                    pred_lists.entry(v).or_default().push(u);
                 }
                 continue;
             }
+            let v_u32 = u32::try_from(v).unwrap_or(u32::MAX);
             if existing.is_infinite() {
                 *nodes_touched += 1;
-                discovered.push(targets[k]);
+                discovered.push(v_u32);
             }
-            dist[v] = candidate;
-            pred[v] = u;
-            pred_lists[v].clear();
-            pred_lists[v].push(u);
-            cgse_record_decision(cgse_sink, names[v], names[u as usize]);
-            if !in_queue[v] {
-                let count = enqueue_count[v] + 1;
+            dist.set(v, candidate);
+            pred.set(v, u);
+            let preds = pred_lists.entry(v).or_default();
+            preds.clear();
+            preds.push(u);
+            cgse_record_decision(cgse_sink, name(v), name(u_usize));
+            if !in_queue.get(v) {
+                let count = enqueue_count.get(v) + 1;
                 if count as usize >= node_count {
                     negative_cycle = true;
                     break 'outer;
                 }
-                enqueue_count[v] = count;
-                queue.push_back(targets[k]);
-                in_queue[v] = true;
+                enqueue_count.set(v, count);
+                queue.push_back(v_u32);
+                in_queue.set(v, true);
                 queue_peak = queue_peak.max(queue.len());
             }
         }
     }
 
+    let discovered = discovered
+        .into_iter()
+        .map(|node| {
+            let at = node as usize;
+            (node, dist.get(at), pred.get(at))
+        })
+        .collect();
     BellmanFordSpfaState {
         negative_cycle_detected: negative_cycle,
         queue_peak,
-        distances: dist,
-        predecessors: pred,
-        discovery_order: discovered,
+        discovered,
     }
 }
 
@@ -10821,6 +10814,22 @@ fn graph_edge_weight_or_default_idx_typed(
             .edge_attrs_by_indices(source_idx, target_idx)
             .and_then(|attrs| attrs.get(weight_attr)),
     )
+}
+
+/// Index twin of [`signed_edge_weight_or_default`]: the same value, read from
+/// the edge the two node positions name.
+fn signed_graph_edge_weight_or_default_idx(
+    graph: &Graph,
+    source_idx: usize,
+    target_idx: usize,
+    weight_attr: &str,
+) -> f64 {
+    graph
+        .edge_attrs_by_indices(source_idx, target_idx)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .filter(|value| value.is_finite())
+        .unwrap_or(1.0)
 }
 
 fn signed_edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &str) -> f64 {
@@ -24639,16 +24648,18 @@ pub fn bfs_layers_multi_with_parents(
 ) -> Vec<Vec<(String, Option<String>)>> {
     // br-r37-c1-bfslayidx (cc): integer-index BFS (see bfs_layers); parent tracked as a node index,
     // materialised to a name (`nodes[pi]`) only in the output. Byte-identical.
+    // br-r37-c1-qnj0n: NodeTable marks and names by position - a whole-graph
+    // name table cost O(V) per call (42 us beside a 32k-node component).
     let mut layers: Vec<Vec<(String, Option<String>)>> = Vec::new();
-    let nodes = graph.nodes_ordered();
-    let mut visited = vec![false; nodes.len()];
+    let name = |i: usize| graph.get_node_name(i).unwrap_or_default().to_owned();
+    let mut visited = NodeTable::new(graph.node_count(), false);
 
     let mut current_layer: Vec<(usize, Option<usize>)> = Vec::new();
     for &s in sources {
         if let Some(si) = graph.get_node_index(s)
-            && !visited[si]
+            && !visited.get(si)
         {
-            visited[si] = true;
+            visited.set(si, true);
             current_layer.push((si, None));
         }
     }
@@ -24657,15 +24668,15 @@ pub fn bfs_layers_multi_with_parents(
         layers.push(
             current_layer
                 .iter()
-                .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
+                .map(|&(s, p)| (name(s), p.map(name)))
                 .collect(),
         );
         let mut next_layer: Vec<(usize, Option<usize>)> = Vec::new();
         for &(node, _) in &current_layer {
             if let Some(neighbors) = graph.neighbors_indices(node) {
                 for &nb in neighbors {
-                    if !visited[nb] {
-                        visited[nb] = true;
+                    if !visited.get(nb) {
+                        visited.set(nb, true);
                         next_layer.push((nb, Some(node)));
                     }
                 }
@@ -24686,18 +24697,18 @@ pub fn bfs_layers_directed_multi_with_parents(
     // br-r37-c1-d58s8 P1 (final port): integer-CSR layered BFS — seed
     // dedup and layer expansion on index arrays; CSR rows preserve
     // String-row order so layer membership order is byte-identical.
-    let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let n = names.len();
+    // br-r37-c1-qnj0n: successor rows by position, NodeTable marks and names by
+    // position - no CSR, name table or V-sized array per call.
+    let name = |i: usize| digraph.get_node_name(i).unwrap_or_default().to_owned();
     let mut layers: Vec<Vec<(String, Option<String>)>> = Vec::new();
-    let mut visited = vec![false; n];
+    let mut visited = NodeTable::new(digraph.node_count(), false);
 
     let mut current_layer: Vec<(u32, u32)> = Vec::new(); // (node, parent|MAX)
     for &s in sources {
         if let Some(idx) = digraph.get_node_index(s)
-            && !visited[idx]
+            && !visited.get(idx)
         {
-            visited[idx] = true;
+            visited.set(idx, true);
             current_layer.push((u32::try_from(idx).unwrap_or(u32::MAX), u32::MAX));
         }
     }
@@ -24708,22 +24719,18 @@ pub fn bfs_layers_directed_multi_with_parents(
                 .iter()
                 .map(|&(s, p)| {
                     (
-                        names[s as usize].to_owned(),
-                        if p == u32::MAX {
-                            None
-                        } else {
-                            Some(names[p as usize].to_owned())
-                        },
+                        name(s as usize),
+                        if p == u32::MAX { None } else { Some(name(p as usize)) },
                     )
                 })
                 .collect(),
         );
         let mut next_layer: Vec<(u32, u32)> = Vec::new();
         for &(node, _) in &current_layer {
-            for &succ in csr.successors(node as usize) {
-                if !visited[succ as usize] {
-                    visited[succ as usize] = true;
-                    next_layer.push((succ, node));
+            for &succ in digraph.successors_indices(node as usize).unwrap_or(&[]) {
+                if !visited.get(succ) {
+                    visited.set(succ, true);
+                    next_layer.push((u32::try_from(succ).unwrap_or(u32::MAX), node));
                 }
             }
         }
@@ -25623,44 +25630,64 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
     if source_idx == target_idx {
         return vec![vec![source.to_owned()]];
     }
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    // br-r37-c1-qnj0n: names by position and state for the reached nodes only -
+    // a whole-graph name table and V-sized dist/preds (preds a Vec of Vecs, filled
+    // and dropped per call) cost O(V), 82 us beside a 32k-node component.
+    let n = graph.node_count();
+    all_shortest_paths_index(
+        source_idx,
+        target_idx,
+        n,
+        |current| graph.neighbors_indices(current).unwrap_or(&[]),
+        |idx| graph.get_node_name(idx).unwrap_or_default(),
+    )
+}
 
-    let mut dist = vec![u32::MAX; n];
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+/// The unweighted all-shortest-paths walk of [`all_shortest_paths`] over
+/// position-indexed rows: a level BFS that records every predecessor at the
+/// target's depth, then networkx's `_build_paths_from_predecessors` DFS from
+/// the target. State is held for the reached nodes only.
+fn all_shortest_paths_index<'g>(
+    source_idx: usize,
+    target_idx: usize,
+    n: usize,
+    row: impl Fn(usize) -> &'g [usize],
+    name: impl Fn(usize) -> &'g str,
+) -> Vec<Vec<String>> {
+    let mut dist = NodeTable::new(n, u32::MAX);
+    let mut preds: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
     let mut queue: VecDeque<usize> = VecDeque::new();
 
-    dist[source_idx] = 0;
+    dist.set(source_idx, 0);
     queue.push_back(source_idx);
 
     let mut target_dist: Option<u32> = None;
 
     while let Some(current) = queue.pop_front() {
-        let d = dist[current];
+        let d = dist.get(current);
         // If we've already found target at a shorter distance, stop
         if let Some(td) = target_dist
             && d >= td
         {
             break;
         }
-        if let Some(neighbors) = graph.neighbors_indices(current) {
-            for &nbr in neighbors {
-                let nd = d + 1;
-                if dist[nbr] == u32::MAX {
-                    dist[nbr] = nd;
-                    preds[nbr].push(current);
-                    queue.push_back(nbr);
-                    if nbr == target_idx {
-                        target_dist = Some(nd);
-                    }
-                } else if dist[nbr] == nd {
-                    preds[nbr].push(current);
+        for &nbr in row(current) {
+            let nd = d + 1;
+            let known = dist.get(nbr);
+            if known == u32::MAX {
+                dist.set(nbr, nd);
+                preds.entry(nbr).or_default().push(current);
+                queue.push_back(nbr);
+                if nbr == target_idx {
+                    target_dist = Some(nd);
                 }
+            } else if known == nd {
+                preds.entry(nbr).or_default().push(current);
             }
         }
     }
 
-    if dist[target_idx] == u32::MAX {
+    if dist.get(target_idx) == u32::MAX {
         return Vec::new();
     }
 
@@ -25668,30 +25695,26 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
     // over the predecessor DAG from `target` back to `source` (matching
     // shortest_paths.generic._build_paths_from_predecessors). The `preds` lists are already in nx
     // BFS-discovery order (level-order BFS above), so this yields byte-identical path order.
+    let no_preds: Vec<usize> = Vec::new();
     let mut paths: Vec<Vec<String>> = Vec::new();
-    let mut seen = vec![false; n];
-    seen[target_idx] = true;
+    let mut seen = NodeTable::new(n, false);
+    seen.set(target_idx, true);
     let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
     while let Some(&(node, i)) = stack.last() {
         if node == source_idx {
-            paths.push(
-                stack
-                    .iter()
-                    .rev()
-                    .map(|(idx, _)| nodes[*idx].to_owned())
-                    .collect(),
-            );
+            paths.push(stack.iter().rev().map(|(idx, _)| name(*idx).to_owned()).collect());
         }
-        if preds[node].len() > i {
+        let node_preds = preds.get(&node).unwrap_or(&no_preds);
+        if node_preds.len() > i {
             stack.last_mut().unwrap().1 = i + 1;
-            let next = preds[node][i];
-            if seen[next] {
+            let next = node_preds[i];
+            if seen.get(next) {
                 continue;
             }
-            seen[next] = true;
+            seen.set(next, true);
             stack.push((next, 0));
         } else {
-            seen[node] = false;
+            seen.set(node, false);
             stack.pop();
         }
     }
@@ -25794,77 +25817,14 @@ pub fn all_shortest_paths_directed(
     if source_idx == target_idx {
         return vec![vec![source.to_owned()]];
     }
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-
-    let mut dist = vec![u32::MAX; n];
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
-    let mut queue: VecDeque<usize> = VecDeque::new();
-
-    dist[source_idx] = 0;
-    queue.push_back(source_idx);
-
-    let mut target_dist: Option<u32> = None;
-
-    while let Some(current) = queue.pop_front() {
-        let d = dist[current];
-        if let Some(td) = target_dist
-            && d >= td
-        {
-            break;
-        }
-        if let Some(succs) = digraph.successors_indices(current) {
-            for &nbr in succs {
-                let nd = d + 1;
-                if dist[nbr] == u32::MAX {
-                    dist[nbr] = nd;
-                    preds[nbr].push(current);
-                    queue.push_back(nbr);
-                    if nbr == target_idx {
-                        target_dist = Some(nd);
-                    }
-                } else if dist[nbr] == nd {
-                    preds[nbr].push(current);
-                }
-            }
-        }
-    }
-
-    if dist[target_idx] == u32::MAX {
-        return Vec::new();
-    }
-
-    // Enumerate paths in networkx's order (DFS over the predecessor DAG from `target` back to
-    // `source`, matching _build_paths_from_predecessors). The forward BFS builds `preds` in nx
-    // BFS-discovery order, so this yields byte-identical path order.
-    let mut paths: Vec<Vec<String>> = Vec::new();
-    let mut seen = vec![false; n];
-    seen[target_idx] = true;
-    let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
-    while let Some(&(node, i)) = stack.last() {
-        if node == source_idx {
-            paths.push(
-                stack
-                    .iter()
-                    .rev()
-                    .map(|(idx, _)| nodes[*idx].to_owned())
-                    .collect(),
-            );
-        }
-        if preds[node].len() > i {
-            stack.last_mut().unwrap().1 = i + 1;
-            let next = preds[node][i];
-            if seen[next] {
-                continue;
-            }
-            seen[next] = true;
-            stack.push((next, 0));
-        } else {
-            seen[node] = false;
-            stack.pop();
-        }
-    }
-    paths
+    // br-r37-c1-qnj0n: the same reach-sized walk as the undirected twin.
+    all_shortest_paths_index(
+        source_idx,
+        target_idx,
+        digraph.node_count(),
+        |current| digraph.successors_indices(current).unwrap_or(&[]),
+        |idx| digraph.get_node_name(idx).unwrap_or_default(),
+    )
 }
 
 /// br-r37-c1-aspidx A/B baseline: the pre-lever String-keyed `all_shortest_paths_directed`.
@@ -28751,9 +28711,9 @@ pub fn preferential_attachment(
     graph: &Graph,
     ebunch: &[(String, String)],
 ) -> Vec<(String, String, f64)> {
-    let degrees: Vec<usize> = (0..graph.node_count())
-        .map(|idx| graph.degree_by_index(idx))
-        .collect();
+    // br-r37-c1-qnj0n: an endpoint's degree is read when a pair needs it - a
+    // degree Vec of every node cost O(V) per call (481 us for two pairs beside a
+    // 32k-node component against nx's 4 us).
     let endpoint_pairs = LinkPredictionEndpointPairs::new(graph, ebunch);
     let mut score_cache = LinkPredictionPairScoreCache::new(&endpoint_pairs);
     ebunch
@@ -28768,8 +28728,8 @@ pub fn preferential_attachment(
             {
                 score
             } else {
-                let u_deg = u_idx.and_then(|idx| degrees.get(idx).copied()).unwrap_or(0);
-                let v_deg = v_idx.and_then(|idx| degrees.get(idx).copied()).unwrap_or(0);
+                let u_deg = u_idx.map_or(0, |idx| graph.degree_by_index(idx));
+                let v_deg = v_idx.map_or(0, |idx| graph.degree_by_index(idx));
                 let score = (u_deg * v_deg) as f64;
                 if let Some(key) = key {
                     score_cache.insert(key, score);
@@ -32132,11 +32092,14 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
     let Some(target_idx) = graph.get_node_index(target) else {
         return Ok(None);
     };
-    let names = graph.nodes_ordered();
-    let node_count = names.len();
-    let mut enqueued: Vec<Option<(f64, f64)>> = vec![None; node_count];
-    let mut explored = vec![false; node_count];
-    let mut explored_parent = vec![NO_PARENT; node_count];
+    // br-r37-c1-qnj0n: names by position and NodeTable state - a whole-graph
+    // name table and three V-sized arrays (24 bytes a node for `enqueued`) cost
+    // O(V) per call, 80 us beside a 32k-node component against nx's 7 us.
+    let names = |i: usize| graph.get_node_name(i).unwrap_or_default();
+    let node_count = graph.node_count();
+    let mut enqueued: NodeTable<Option<(f64, f64)>> = NodeTable::new(node_count, None);
+    let mut explored = NodeTable::new(node_count, false);
+    let mut explored_parent = NodeTable::new(node_count, NO_PARENT);
     let mut heap = BinaryHeap::new();
     let mut counter: u64 = 0;
 
@@ -32161,32 +32124,32 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
             let mut node = parent;
             while node != NO_PARENT {
                 path_indices.push(node);
-                node = explored_parent[node];
+                node = explored_parent.get(node);
             }
             path_indices.reverse();
             return Ok(Some(
                 path_indices
                     .into_iter()
-                    .map(|idx| names[idx].to_owned())
+                    .map(|idx| names(idx).to_owned())
                     .collect(),
             ));
         }
 
-        if explored[curnode] {
+        if explored.get(curnode) {
             // Only the source is explored with a `None` parent: never revisit it.
-            if explored_parent[curnode] == NO_PARENT {
+            if explored_parent.get(curnode) == NO_PARENT {
                 continue;
             }
             // A stale entry: a cheaper one for this node is (or was) queued.
-            if let Some((qcost, _)) = enqueued[curnode]
+            if let Some((qcost, _)) = enqueued.get(curnode)
                 && qcost < dist
             {
                 continue;
             }
         }
 
-        explored[curnode] = true;
-        explored_parent[curnode] = parent;
+        explored.set(curnode, true);
+        explored_parent.set(curnode, parent);
 
         // GraphView::neighbors_indices yields successors for DiGraph and
         // neighbors for Graph, in adjacency insertion order (nx's
@@ -32195,16 +32158,16 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
             for &neighbor in nbrs {
                 let cost = graph.edge_weight_by_indices(curnode, neighbor, Some(weight_attr));
                 let ncost = dist + cost;
-                let heur = match enqueued[neighbor] {
+                let heur = match enqueued.get(neighbor) {
                     Some((qcost, cached_h)) => {
                         if qcost <= ncost {
                             continue;
                         }
                         cached_h
                     }
-                    None => h(names[neighbor])?,
+                    None => h(names(neighbor))?,
                 };
-                enqueued[neighbor] = Some((ncost, heur));
+                enqueued.set(neighbor, Some((ncost, heur)));
                 heap.push(Entry {
                     f_score: ncost + heur,
                     counter,
@@ -34386,46 +34349,51 @@ pub fn node_boundary(graph: &Graph, nbunch: &[&str], nbunch2: Option<&[&str]>) -
     // node indices once, walk neighbors_indices (&[usize], no allocation),
     // gate membership with Vec<bool> stamp arrays, dedup the boundary with a
     // stamp array, and materialise names ONCE at the end.
+    // br-r37-c1-qnj0n: the membership stamps are NodeTables and names resolve by
+    // position - a whole-graph name table cost O(V) per call (71 us beside a
+    // 32k-node component against nx's 6 us). An nbunch2 costs what it holds.
     let n = graph.node_count();
-    let mut in_nbunch = vec![false; n];
+    let mut in_nbunch = NodeTable::new(n, false);
     let mut nbunch_idx: Vec<usize> = Vec::with_capacity(nbunch.len());
     for &node in nbunch {
         if let Some(i) = graph.get_node_index(node)
-            && !in_nbunch[i]
+            && !in_nbunch.get(i)
         {
-            in_nbunch[i] = true;
+            in_nbunch.set(i, true);
             nbunch_idx.push(i);
         }
     }
-    let set2: Option<Vec<bool>> = nbunch2.map(|s2| {
-        let mut v = vec![false; n];
+    let set2: Option<NodeTable<bool>> = nbunch2.map(|s2| {
+        let mut v = NodeTable::new(n, false);
         for &node in s2 {
             if let Some(i) = graph.get_node_index(node) {
-                v[i] = true;
+                v.set(i, true);
             }
         }
         v
     });
-    let names = graph.nodes_ordered();
-    let mut seen = vec![false; n];
+    let mut seen = NodeTable::new(n, false);
     let mut boundary: Vec<usize> = Vec::new();
     for &u in &nbunch_idx {
         if let Some(nbrs) = graph.neighbors_indices(u) {
             for &v in nbrs {
-                if in_nbunch[v] || seen[v] {
+                if in_nbunch.get(v) || seen.get(v) {
                     continue;
                 }
                 if let Some(ref s2) = set2
-                    && !s2[v]
+                    && !s2.get(v)
                 {
                     continue;
                 }
-                seen[v] = true;
+                seen.set(v, true);
                 boundary.push(v);
             }
         }
     }
-    boundary.into_iter().map(|i| names[i].to_owned()).collect()
+    boundary
+        .into_iter()
+        .map(|i| graph.get_node_name(i).unwrap_or_default().to_owned())
+        .collect()
 }
 
 /// Return the set of edges on the boundary in a directed graph.
@@ -34579,46 +34547,49 @@ pub fn node_boundary_directed(
     // nbunch/nbunch2 to indices once, walk successors_indices (&[usize], no
     // alloc), gate membership with Vec<bool> stamp arrays, dedup with a stamp
     // array, materialise names ONCE at the end.
+    // br-r37-c1-qnj0n: see the undirected sibling.
     let n = graph.node_count();
-    let mut in_nbunch = vec![false; n];
+    let mut in_nbunch = NodeTable::new(n, false);
     let mut nbunch_idx: Vec<usize> = Vec::with_capacity(nbunch.len());
     for &node in nbunch {
         if let Some(i) = graph.get_node_index(node)
-            && !in_nbunch[i]
+            && !in_nbunch.get(i)
         {
-            in_nbunch[i] = true;
+            in_nbunch.set(i, true);
             nbunch_idx.push(i);
         }
     }
-    let set2: Option<Vec<bool>> = nbunch2.map(|s2| {
-        let mut v = vec![false; n];
+    let set2: Option<NodeTable<bool>> = nbunch2.map(|s2| {
+        let mut v = NodeTable::new(n, false);
         for &node in s2 {
             if let Some(i) = graph.get_node_index(node) {
-                v[i] = true;
+                v.set(i, true);
             }
         }
         v
     });
-    let names = graph.nodes_ordered();
-    let mut seen = vec![false; n];
+    let mut seen = NodeTable::new(n, false);
     let mut boundary: Vec<usize> = Vec::new();
     for &u in &nbunch_idx {
         if let Some(succs) = graph.successors_indices(u) {
             for &v in succs {
-                if in_nbunch[v] || seen[v] {
+                if in_nbunch.get(v) || seen.get(v) {
                     continue;
                 }
                 if let Some(ref s2) = set2
-                    && !s2[v]
+                    && !s2.get(v)
                 {
                     continue;
                 }
-                seen[v] = true;
+                seen.set(v, true);
                 boundary.push(v);
             }
         }
     }
-    boundary.into_iter().map(|i| names[i].to_owned()).collect()
+    boundary
+        .into_iter()
+        .map(|i| graph.get_node_name(i).unwrap_or_default().to_owned())
+        .collect()
 }
 
 /// Return the size of the cut between two node sets in an undirected graph.
@@ -36171,8 +36142,10 @@ pub fn dijkstra_path_to_target(
         );
         return None;
     };
-    let names = graph.nodes_ordered();
-    let n = names.len();
+    // br-r37-c1-qnj0n: names by position and NodeTable state - a whole-graph
+    // name table and three V-sized arrays cost O(V) per call.
+    let names = |i: usize| graph.get_node_name(i).unwrap_or_default();
+    let n = graph.node_count();
     if s == t {
         cgse_publish(
             CgseReferenceAlgorithm::Dijkstra,
@@ -36180,14 +36153,14 @@ pub fn dijkstra_path_to_target(
             graph.edge_count(),
             cgse_sink,
         );
-        return Some((0.0, vec![names[s].to_owned()], true));
+        return Some((0.0, vec![names(s).to_owned()], true));
     }
-    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
-    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
+    let mut distances = NodeTable::new(n, f64::INFINITY);
+    let mut predecessors = NodeTable::new(n, u32::MAX);
     let mut pq: BinaryHeap<DijkstraState<u32>> = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
-    let mut finalized = vec![false; n];
-    distances[s] = 0.0;
+    let mut finalized = NodeTable::new(n, false);
+    distances.set(s, 0.0);
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
@@ -36199,15 +36172,21 @@ pub fn dijkstra_path_to_target(
     }) = pq.pop()
     {
         let u = u as usize;
-        if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
+        if d > distances.get(u) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
-        if !finalized[u] {
-            finalized[u] = true;
-            cgse_record_decision(&mut cgse_sink, names[u], "finalized");
+        if !finalized.get(u) {
+            finalized.set(u, true);
+            cgse_record_decision(&mut cgse_sink, names(u), "finalized");
             if u == t {
-                let result =
-                    reconstruct_target_path(graph, &predecessors, &names, t, d, weight_attr);
+                let result = reconstruct_target_path(
+                    graph,
+                    |at| predecessors.get(at),
+                    names,
+                    t,
+                    d,
+                    weight_attr,
+                );
                 cgse_publish(
                     CgseReferenceAlgorithm::Dijkstra,
                     graph.node_count(),
@@ -36221,9 +36200,9 @@ pub fn dijkstra_path_to_target(
             for &v in neighbors {
                 let (w, _) = graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
                 let next_dist = d + w;
-                if next_dist < distances[v] - DISTANCE_COMPARISON_EPSILON {
-                    distances[v] = next_dist;
-                    predecessors[v] = u32::try_from(u).unwrap_or(u32::MAX);
+                if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+                    distances.set(v, next_dist);
+                    predecessors.set(v, u32::try_from(u).unwrap_or(u32::MAX));
                     seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
@@ -36243,18 +36222,18 @@ pub fn dijkstra_path_to_target(
     None
 }
 
-fn reconstruct_target_path(
-    graph: &Graph,
-    predecessors: &[u32],
-    names: &[&str],
+fn reconstruct_target_path<'g>(
+    graph: &'g Graph,
+    predecessor: impl Fn(usize) -> u32,
+    name: impl Fn(usize) -> &'g str,
     t: usize,
     dist: f64,
     weight_attr: &str,
 ) -> (f64, Vec<String>, bool) {
     let mut chain: Vec<u32> = vec![u32::try_from(t).unwrap_or(u32::MAX)];
     let mut cur = t;
-    while predecessors[cur] != u32::MAX {
-        cur = predecessors[cur] as usize;
+    while predecessor(cur) != u32::MAX {
+        cur = predecessor(cur) as usize;
         chain.push(u32::try_from(cur).unwrap_or(u32::MAX));
     }
     chain.reverse();
@@ -36273,7 +36252,7 @@ fn reconstruct_target_path(
     }
     let path = chain
         .into_iter()
-        .map(|i| names[i as usize].to_owned())
+        .map(|i| name(i as usize).to_owned())
         .collect();
     (dist, path, all_int)
 }
@@ -36300,9 +36279,10 @@ pub fn dijkstra_path_to_target_directed(
         );
         return None;
     };
-    let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let n = names.len();
+    // br-r37-c1-qnj0n: see the undirected twin; successor rows are read by
+    // position, so not even the revision-cached CSR is needed.
+    let names = |i: usize| digraph.get_node_name(i).unwrap_or_default();
+    let n = digraph.node_count();
     if s == t {
         cgse_publish(
             CgseReferenceAlgorithm::Dijkstra,
@@ -36310,14 +36290,14 @@ pub fn dijkstra_path_to_target_directed(
             digraph.edge_count(),
             cgse_sink,
         );
-        return Some((0.0, vec![names[s].to_owned()], true));
+        return Some((0.0, vec![names(s).to_owned()], true));
     }
-    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
-    let mut predecessors: Vec<u32> = vec![u32::MAX; n];
+    let mut distances = NodeTable::new(n, f64::INFINITY);
+    let mut predecessors = NodeTable::new(n, u32::MAX);
     let mut pq: BinaryHeap<DijkstraState<u32>> = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
-    let mut finalized = vec![false; n];
-    distances[s] = 0.0;
+    let mut finalized = NodeTable::new(n, false);
+    distances.set(s, 0.0);
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
@@ -36329,17 +36309,17 @@ pub fn dijkstra_path_to_target_directed(
     }) = pq.pop()
     {
         let u = u as usize;
-        if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
+        if d > distances.get(u) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
-        if !finalized[u] {
-            finalized[u] = true;
-            cgse_record_decision(&mut cgse_sink, names[u], "finalized");
+        if !finalized.get(u) {
+            finalized.set(u, true);
+            cgse_record_decision(&mut cgse_sink, names(u), "finalized");
             if u == t {
                 let mut chain: Vec<u32> = vec![u32::try_from(t).unwrap_or(u32::MAX)];
                 let mut cur = t;
-                while predecessors[cur] != u32::MAX {
-                    cur = predecessors[cur] as usize;
+                while predecessors.get(cur) != u32::MAX {
+                    cur = predecessors.get(cur) as usize;
                     chain.push(u32::try_from(cur).unwrap_or(u32::MAX));
                 }
                 chain.reverse();
@@ -36358,7 +36338,7 @@ pub fn dijkstra_path_to_target_directed(
                 }
                 let path = chain
                     .into_iter()
-                    .map(|i| names[i as usize].to_owned())
+                    .map(|i| names(i as usize).to_owned())
                     .collect();
                 cgse_publish(
                     CgseReferenceAlgorithm::Dijkstra,
@@ -36369,13 +36349,12 @@ pub fn dijkstra_path_to_target_directed(
                 return Some((d, path, all_int));
             }
         }
-        for &v in csr.successors(u) {
-            let v = v as usize;
+        for &v in digraph.successors_indices(u).unwrap_or(&[]) {
             let (w, _) = digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
             let next_dist = d + w;
-            if next_dist < distances[v] - DISTANCE_COMPARISON_EPSILON {
-                distances[v] = next_dist;
-                predecessors[v] = u32::try_from(u).unwrap_or(u32::MAX);
+            if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+                distances.set(v, next_dist);
+                predecessors.set(v, u32::try_from(u).unwrap_or(u32::MAX));
                 seq_counter += 1;
                 pq.push(DijkstraState {
                     dist: next_dist,
@@ -37375,11 +37354,13 @@ pub fn single_target_shortest_path_length_directed(
     let Some(target_idx) = digraph.get_node_index(target) else {
         return Vec::new();
     };
+    // br-r37-c1-qnj0n: names by position and an `order` that grows with the
+    // reach - a whole-graph name table and a 16-bytes-a-node capacity cost O(V)
+    // per call (36 us beside a 32k-node component against nx's 4 us). `seen`
+    // stays one dense byte a node, as dkwy7 measured it should.
     let n = digraph.node_count();
-    let names = digraph.nodes_ordered();
-
     let mut seen = vec![false; n];
-    let mut order: Vec<(usize, usize)> = Vec::with_capacity(n);
+    let mut order: Vec<(usize, usize)> = Vec::new();
     seen[target_idx] = true;
     order.push((target_idx, 0));
     let mut frontier: Vec<usize> = vec![target_idx];
@@ -37409,7 +37390,7 @@ pub fn single_target_shortest_path_length_directed(
 
     order
         .into_iter()
-        .map(|(idx, dist)| (names[idx].to_owned(), dist))
+        .map(|(idx, dist)| (digraph.get_node_name(idx).unwrap_or_default().to_owned(), dist))
         .collect()
 }
 
@@ -39243,11 +39224,13 @@ pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
     let Some(start) = graph.get_node_index(node) else {
         return Vec::new();
     };
-    let names = graph.nodes_ordered();
+    // br-r37-c1-qnj0n: NodeTable marks and names by position - a whole-graph
+    // name table cost O(V) per call (49 us beside a 32k-node component against
+    // nx's 4 us); a component that is the whole graph promotes to the dense marks.
     let n = graph.node_count();
-    let mut visited = vec![false; n];
+    let mut visited = NodeTable::new(n, false);
     let mut stack: Vec<usize> = vec![start];
-    visited[start] = true;
+    visited.set(start, true);
     // br-connearly: accumulate at MARK time (was pop time) so we can stop the DFS
     // the moment every node is reached — on a dense single-component graph the
     // remaining stack's edges are pure redundant scanning (O(|E|) -> O(|V|)). The
@@ -39258,8 +39241,8 @@ pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
     'dfs: while let Some(u) = stack.pop() {
         if let Some(neighbors) = graph.neighbors_indices(u) {
             for &v in neighbors {
-                if !visited[v] {
-                    visited[v] = true;
+                if !visited.get(v) {
+                    visited.set(v, true);
                     comp.push(v);
                     stack.push(v);
                     visited_count += 1;
@@ -39270,7 +39253,9 @@ pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
             }
         }
     }
-    comp.into_iter().map(|i| names[i].to_owned()).collect()
+    comp.into_iter()
+        .map(|i| graph.get_node_name(i).unwrap_or_default().to_owned())
+        .collect()
 }
 
 /// Return True if the graph is biconnected (connected and no articulation points).
@@ -44068,8 +44053,12 @@ pub fn try_double_edge_swap(graph: &mut Graph, e1_idx: usize, e2_idx: usize) -> 
 /// component is the union of some chains.
 #[must_use]
 pub fn chain_decomposition(graph: &Graph, root: Option<&str>) -> Vec<Vec<(String, String)>> {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    // br-r37-c1-qnj0n: with a root the walk covers that component only, so its
+    // state is NodeTables and an Fx forest and names resolve by position; a
+    // whole-graph name table and four V-sized arrays (one a Vec of Vecs) cost
+    // O(V) per call. root=None walks every node and promotes to dense state.
+    let n = graph.node_count();
+    let name = |i: usize| graph.get_node_name(i).unwrap_or_default().to_owned();
     if n == 0 {
         return Vec::new();
     }
@@ -44088,17 +44077,17 @@ pub fn chain_decomposition(graph: &Graph, root: Option<&str>) -> Vec<Vec<(String
         None => (0..n).collect(),
     };
 
-    let mut dfs_visited = vec![false; n];
-    let mut parent = vec![None::<usize>; n];
-    let mut dfs_order = Vec::with_capacity(n);
-    let mut cycle_forest: Vec<Vec<ChainArc>> = vec![Vec::new(); n];
+    let mut dfs_visited = NodeTable::new(n, false);
+    let mut parent: NodeTable<Option<usize>> = NodeTable::new(n, None);
+    let mut dfs_order = Vec::new();
+    let mut cycle_forest: FxHashMap<usize, Vec<ChainArc>> = FxHashMap::default();
 
     for start in roots {
-        if dfs_visited[start] {
+        if dfs_visited.get(start) {
             continue;
         }
 
-        dfs_visited[start] = true;
+        dfs_visited.set(start, true);
         dfs_order.push(start);
         let mut stack = vec![(start, 0usize)];
 
@@ -44107,9 +44096,12 @@ pub fn chain_decomposition(graph: &Graph, root: Option<&str>) -> Vec<Vec<(String
                 continue;
             };
 
-            if dfs_visited[v] {
-                if !cycle_forest[u].iter().any(|edge| edge.to == v) {
-                    cycle_forest[v].push(ChainArc {
+            if dfs_visited.get(v) {
+                if !cycle_forest
+                    .get(&u)
+                    .is_some_and(|arcs| arcs.iter().any(|edge| edge.to == v))
+                {
+                    cycle_forest.entry(v).or_default().push(ChainArc {
                         to: u,
                         nontree: true,
                     });
@@ -44117,9 +44109,9 @@ pub fn chain_decomposition(graph: &Graph, root: Option<&str>) -> Vec<Vec<(String
                 continue;
             }
 
-            dfs_visited[v] = true;
-            parent[v] = Some(u);
-            cycle_forest[v].push(ChainArc {
+            dfs_visited.set(v, true);
+            parent.set(v, Some(u));
+            cycle_forest.entry(v).or_default().push(ChainArc {
                 to: u,
                 nontree: false,
             });
@@ -44129,10 +44121,13 @@ pub fn chain_decomposition(graph: &Graph, root: Option<&str>) -> Vec<Vec<(String
     }
 
     let mut chains = Vec::new();
-    let mut chain_visited = vec![false; n];
+    let mut chain_visited = NodeTable::new(n, false);
     for u in dfs_order {
-        chain_visited[u] = true;
-        for edge in &cycle_forest[u] {
+        chain_visited.set(u, true);
+        let Some(arcs) = cycle_forest.get(&u) else {
+            continue;
+        };
+        for edge in arcs {
             if !edge.nontree {
                 continue;
             }
@@ -44140,16 +44135,16 @@ pub fn chain_decomposition(graph: &Graph, root: Option<&str>) -> Vec<Vec<(String
             let mut chain = Vec::new();
             let mut left = u;
             let mut right = edge.to;
-            while !chain_visited[right] {
-                chain.push((nodes[left].to_owned(), nodes[right].to_owned()));
-                chain_visited[right] = true;
+            while !chain_visited.get(right) {
+                chain.push((name(left), name(right)));
+                chain_visited.set(right, true);
                 left = right;
-                let Some(next) = parent[right] else {
+                let Some(next) = parent.get(right) else {
                     break;
                 };
                 right = next;
             }
-            chain.push((nodes[left].to_owned(), nodes[right].to_owned()));
+            chain.push((name(left), name(right)));
             chains.push(chain);
         }
     }
@@ -46292,50 +46287,75 @@ pub fn square_clustering_map(graph: &Graph) -> std::collections::HashMap<String,
 #[must_use]
 pub fn square_clustering_pairs(graph: &Graph) -> Vec<(u64, i64)> {
     let n = graph.node_count();
+    // Every row is read, so all of them are built once up front.
+    let adj: Vec<Vec<u32>> = (0..n).map(|v| square_clustering_row(graph, v)).collect();
     let targets: Vec<usize> = (0..n).collect();
-    square_clustering_pairs_for(graph, &targets)
+    square_clustering_core(n, &targets, |x| adj[x].as_slice())
+}
+
+/// Node `v`'s neighbour positions with its self-loop removed. A simple graph
+/// has no parallel edges, so each neighbour appears exactly once.
+fn square_clustering_row(graph: &Graph, v: usize) -> Vec<u32> {
+    graph
+        .neighbors_indices(v)
+        .unwrap_or(&[])
+        .iter()
+        .filter(|&&x| x != v)
+        .map(|&x| x as u32)
+        .collect()
 }
 
 /// br-r37-c1-sqclsub (cc): square-clustering `(squares, potential)` pairs for a
 /// SUBSET of node indices, aligned to `targets`. `square_clustering(G, nodes)`
 /// with an explicit node list previously ran the Python neighbor-set port
 /// (per-node `_raw_neighbors -> set()` materialization, 0.5-0.66x vs nx and
-/// growing with N). This shares the exact stamp-array kernel below: the full
-/// adjacency + stamp arrays are built once (O(V+E) + O(V), microseconds in Rust),
-/// then ONLY the `targets` nodes are computed — the compute term (O(sum deg^2))
-/// dominates whole-node runtime, so restricting it to the subset is the win.
-/// Byte-identical to the all-node path (same arithmetic, same order).
+/// growing with N). Byte-identical to the all-node path (same arithmetic, same
+/// order).
+///
+/// br-r37-c1-qnj0n: only the rows the subset reads are built - each target's,
+/// its neighbours', and their neighbours' (the two-hop corners), which is what
+/// networkx touches. Building every row and two V-sized stamp arrays first cost
+/// O(V+E) per call: 1.5 ms for two nodes beside a 32k-node component against
+/// networkx's 15 us.
 pub fn square_clustering_pairs_for(graph: &Graph, targets: &[usize]) -> Vec<(u64, i64)> {
     let n = graph.node_count();
+    let mut local: FxHashMap<usize, Vec<u32>> = FxHashMap::default();
+    let mut level: Vec<usize> = targets.to_vec();
+    for _hop in 0..3 {
+        let mut next: Vec<usize> = Vec::new();
+        for &x in &level {
+            if let std::collections::hash_map::Entry::Vacant(slot) = local.entry(x) {
+                let row = square_clustering_row(graph, x);
+                next.extend(row.iter().map(|&y| y as usize));
+                slot.insert(row);
+            }
+        }
+        level = next;
+    }
+    square_clustering_core(n, targets, |x| local.get(&x).map_or(&[][..], Vec::as_slice))
+}
+
+/// The Lind/Zhang two-hop square count over rows handed out by `row`, with
+/// monotonic stamps: `vmark` flags membership of the current node's neighbour
+/// set; `seen` dedups two-hop opposite corners. A shared counter keeps the two
+/// stamps distinct and strictly increasing across nodes, so stale marks never
+/// collide with the current iteration. The stamps are NodeTables, so a subset
+/// never pays O(V) and the all-node run promotes them to dense arrays.
+fn square_clustering_core<'r>(
+    n: usize,
+    targets: &[usize],
+    row: impl Fn(usize) -> &'r [u32],
+) -> Vec<(u64, i64)> {
     let mut out: Vec<(u64, i64)> = Vec::with_capacity(targets.len());
     if n == 0 {
         return out;
     }
-
-    // Per-node neighbor index rows with self-loops removed. A simple graph
-    // has no parallel edges, so each neighbor appears exactly once.
-    let mut adj: Vec<Vec<u32>> = Vec::with_capacity(n);
-    for v in 0..n {
-        let row = graph.neighbors_indices(v).unwrap_or(&[]);
-        let mut nb: Vec<u32> = Vec::with_capacity(row.len());
-        for &x in row {
-            if x != v {
-                nb.push(x as u32);
-            }
-        }
-        adj.push(nb);
-    }
-
-    // Monotonic stamp arrays: `vmark` flags membership of the current node's
-    // neighbor set; `seen` dedups two-hop opposite corners. A shared counter
-    // keeps the two stamps distinct and strictly increasing across nodes, so
-    // stale marks never collide with the current iteration.
-    let mut vmark: Vec<u32> = vec![0; n];
-    let mut seen: Vec<u32> = vec![0; n];
+    let mut vmark = NodeTable::new(n, 0u32);
+    let mut seen = NodeTable::new(n, 0u32);
     let mut stamp: u32 = 0;
 
     for &v in targets {
-        let nv = &adj[v];
+        let nv = row(v);
         let k = nv.len();
         if k < 2 {
             out.push((0, 0));
@@ -46346,7 +46366,7 @@ pub fn square_clustering_pairs_for(graph: &Graph, targets: &[usize]) -> Vec<(u64
         stamp += 1;
         let vstamp = stamp;
         for &x in nv {
-            vmark[x as usize] = vstamp;
+            vmark.set(x as usize, vstamp);
         }
 
         let mut uw_degrees: i64 = 0;
@@ -46355,12 +46375,12 @@ pub fn square_clustering_pairs_for(graph: &Graph, targets: &[usize]) -> Vec<(u64
         let mut squares: i64 = 0;
 
         for &u in nv {
-            let nu = &adj[u as usize];
+            let nu = row(u as usize);
             uw_degrees += (nu.len() as i64) * v_deg_m1;
             // p2 = |N(u) ∩ N(v)|
             let mut p2: i64 = 0;
             for &x in nu {
-                if vmark[x as usize] == vstamp {
+                if vmark.get(x as usize) == vstamp {
                     p2 += 1;
                 }
             }
@@ -46373,16 +46393,16 @@ pub fn square_clustering_pairs_for(graph: &Graph, targets: &[usize]) -> Vec<(u64
         stamp += 1;
         let tstamp = stamp;
         for &u in nv {
-            for &w in &adj[u as usize] {
+            for &w in row(u as usize) {
                 let wi = w as usize;
-                if vmark[wi] == vstamp || wi == v || seen[wi] == tstamp {
+                if vmark.get(wi) == vstamp || wi == v || seen.get(wi) == tstamp {
                     continue;
                 }
-                seen[wi] = tstamp;
+                seen.set(wi, tstamp);
                 // p2 = |N(v) ∩ N(w)|
                 let mut p2: i64 = 0;
-                for &y in &adj[wi] {
-                    if vmark[y as usize] == vstamp {
+                for &y in row(wi) {
+                    if vmark.get(y as usize) == vstamp {
                         p2 += 1;
                     }
                 }

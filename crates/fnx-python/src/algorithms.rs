@@ -6254,11 +6254,15 @@ fn emit_dijkstra_indexed_full<'n>(
             pyo3::exceptions::PyRuntimeError::new_err("single_source_dijkstra node index missing")
         })
     };
-    let mut position: rustc_hash::FxHashMap<u32, usize> = rustc_hash::FxHashMap::with_capacity_and_hasher(
-        result.settled.len(),
-        Default::default(),
-    );
-    let mut paths: Vec<Bound<'_, PyList>> = Vec::with_capacity(result.settled.len());
+    let settled = result.settled.len();
+    let mut position: rustc_hash::FxHashMap<u32, usize> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(settled, Default::default());
+    // Per settle position: the display object, and the settle position of the
+    // parent (usize::MAX for the source) - a path is walked back through these
+    // and emitted as one list of its final size.
+    let mut keys: Vec<PyObject> = Vec::with_capacity(settled);
+    let mut parent_at: Vec<usize> = Vec::with_capacity(settled);
+    let mut chain: Vec<PyObject> = Vec::new();
     let dist_dict = PyDict::new(py);
     let path_dict = PyDict::new(py);
     for &(node, distance, all_int, pred) in &result.settled {
@@ -6282,19 +6286,21 @@ fn emit_dijkstra_indexed_full<'n>(
         } else {
             dist_dict.set_item(key.clone_ref(py), distance)?;
         }
-        let path = match parent.and_then(|pred| position.get(&pred)) {
-            // One list of the final size: the parent's path, then the node.
-            Some(&at) => {
-                let mut items: Vec<Bound<'_, PyAny>> = Vec::with_capacity(paths[at].len() + 1);
-                items.extend(paths[at].iter());
-                items.push(key.bind(py).clone());
-                PyList::new(py, items)?
-            }
-            None => PyList::new(py, [key.clone_ref(py)])?,
-        };
-        path_dict.set_item(key, &path)?;
-        position.insert(node, paths.len());
-        paths.push(path);
+        let parent_position = parent
+            .and_then(|pred| position.get(&pred).copied())
+            .unwrap_or(usize::MAX);
+        chain.clear();
+        chain.push(key.clone_ref(py));
+        let mut at = parent_position;
+        while at != usize::MAX {
+            chain.push(keys[at].clone_ref(py));
+            at = parent_at[at];
+        }
+        chain.reverse();
+        path_dict.set_item(key.clone_ref(py), PyList::new(py, chain.drain(..))?)?;
+        position.insert(node, keys.len());
+        keys.push(key);
+        parent_at.push(parent_position);
     }
 
     Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
