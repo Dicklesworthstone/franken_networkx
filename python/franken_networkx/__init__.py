@@ -58048,9 +58048,21 @@ def _directed_triangles_and_degree_iter_local(G, nodes=None):
     # per neighbour, ~21ms total on a 100-node 1k-edge graph
     # (~5× slower than nx).  Snapshot pred/succ as plain dicts once;
     # the entire inner loop becomes pure-Python set ops.
-    pred_snapshot = {u: set(G.pred[u]) - {u} for u in G}
-    succ_snapshot = {u: set(G.succ[u]) - {u} for u in G}
-    node_iter = G if nodes is None else nodes
+    # br-r37-c1-qnj0n: for nbunch / single-node calls, only the LOCAL universe -
+    # the queried nodes and their predecessors and successors, the only rows
+    # networkx reads. Snapshotting every node made clustering(G, node) cost
+    # 56 ms beside a 32k-node component where networkx takes 7 us.
+    if nodes is None:
+        universe = G
+        node_iter = G
+    else:
+        node_iter = list(nodes)
+        universe = dict.fromkeys(node_iter)
+        for node in node_iter:
+            universe.update(dict.fromkeys(G.pred[node]))
+            universe.update(dict.fromkeys(G.succ[node]))
+    pred_snapshot = {u: set(G.pred[u]) - {u} for u in universe}
+    succ_snapshot = {u: set(G.succ[u]) - {u} for u in universe}
 
     for node in node_iter:
         predecessor_set = pred_snapshot.get(node, set())

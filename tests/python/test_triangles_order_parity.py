@@ -182,3 +182,69 @@ def test_node_not_in_graph_raises_like_networkx():
         with pytest.raises(nx.NetworkXError) as nx_error:
             call(nx, GX)
         assert fnx_error.value.args == nx_error.value.args
+
+
+# br-r37-c1-qnj0n: directed clustering(nodes=) reads only the requested nodes'
+# rows and their neighbours' rows, as networkx does. It snapshotted pred and
+# succ for EVERY node, so clustering(G, node) beside a 32k-node component took
+# 56 ms where networkx takes 7 us. Twins carry reciprocal edges (the
+# reciprocal-degree term) and self-loops on queried nodes and neighbours.
+
+
+def _directed_loopy_twins():
+    import random
+
+    rng = random.Random(11)
+    edges = [(u, v) for u in range(50) for v in range(50) if u != v and rng.random() < 0.08]
+    edges += [(v, u) for u, v in edges[::5]] + [(v, v) for v in range(0, 50, 6)]
+    rng.shuffle(edges)
+    G, GX = fnx.DiGraph(), nx.DiGraph()
+    G.add_nodes_from(range(49, -1, -1))
+    GX.add_nodes_from(range(49, -1, -1))
+    G.add_edges_from(edges)
+    GX.add_edges_from(edges)
+    return G, GX
+
+
+@needs_nx
+def test_directed_clustering_nbunch_and_single_nodes_equal_networkx():
+    G, GX = _directed_loopy_twins()
+    _same_mapping(fnx.clustering(G, nodes=_NBUNCH), nx.clustering(GX, nodes=_NBUNCH))
+    for node in GX:
+        f, n = fnx.clustering(G, node), nx.clustering(GX, node)
+        assert f == n and type(f) is type(n)
+    G.remove_edges_from([(u, v) for u, v in list(G.edges(0))])
+    GX.remove_edges_from([(u, v) for u, v in list(GX.edges(0))])
+    G.add_edge(12, 0)
+    GX.add_edge(12, 0)
+    _same_mapping(fnx.clustering(G, nodes=_NBUNCH), nx.clustering(GX, nodes=_NBUNCH))
+
+
+def _directed_best_of(fn, reps=30, rounds=7):
+    import time
+
+    fn()
+    best = None
+    for _ in range(rounds):
+        start = time.perf_counter()
+        for _ in range(reps):
+            fn()
+        elapsed = (time.perf_counter() - start) / reps
+        best = elapsed if best is None else min(best, elapsed)
+    return best
+
+
+@needs_nx
+def test_directed_single_node_clustering_does_not_grow_with_the_parent():
+    """A node of a 10-node component beside a disconnected directed ring of 200
+    vs 12800 nodes; fnx's growth judged against networkx's in the same process."""
+    growth = {}
+    for lib in (fnx, nx):
+        times = []
+        for ring in (200, 12800):
+            g = lib.DiGraph()
+            g.add_edges_from([(i, i + 1) for i in range(9)] + [(2, 0), (5, 3)])
+            g.add_edges_from((100 + i, 100 + (i + 1) % ring) for i in range(ring))
+            times.append(_directed_best_of(lambda: lib.clustering(g, 1)))
+        growth[lib.__name__] = times[1] / times[0]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), growth
