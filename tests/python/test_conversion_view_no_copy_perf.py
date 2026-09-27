@@ -228,3 +228,49 @@ def test_to_directed_view_degrees_are_networkxs(cls, seed):
     fg.add_edge(1, 2)
     ng.add_edge(1, 2)
     assert reads(fv) == reads(nv)
+
+
+# br-r37-c1-gue3i: a to_undirected(as_view=True) view of a DiGraph /
+# MultiDiGraph reads a node's degree off the source's rows: networkx's degree
+# over the UnionAtlas set(succ) | set(pred) (a pair both ways counts once, its
+# multiedge keys as the union of both key sets), float weights summed by one
+# sum() in the union's order plus the self-loop's - the view's per-neighbour
+# walk summed differently (58.900000000000006 where networkx answers 58.9).
+@pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("seed", range(12))
+def test_to_undirected_view_degrees_are_networkxs(cls, seed):
+    rng = random.Random(seed)
+    n = rng.choice([5, 20, 60])
+    edges = [(rng.randrange(n), rng.randrange(n)) for _ in range(4 * n)]
+    edges += [(v, u) for u, v in edges[: n]]  # reciprocal pairs
+    if seed % 3 == 0:
+        edges = [(u, v) for u, v in edges if u != v]
+    views = []
+    for lib in (fnx, nx):
+        G = getattr(lib, cls)()
+        G.add_nodes_from(range(n))
+        weights = random.Random(seed + 1000)
+        for u, v in edges:
+            w = weights.choice([1, 2, 0.1, 0.2, 0.7, 3.3, None])
+            G.add_edge(u, v, **({} if w is None else {"weight": w}))
+        views.append((G, G.to_undirected(as_view=True)))
+    (fg, fv), (ng, nv) = views
+
+    def reads(view):
+        out = []
+        for weight in (None, "weight", "absent"):
+            dv = view.degree
+            out.append([(k, d, type(d)) for k, d in dv(weight=weight)])
+            out.append([(dv(k, weight=weight), type(dv(k, weight=weight))) for k in range(n)])
+            out.append(list(dv(list(range(0, n, 2)) + [0, 0], weight=weight)))
+        out.append([view.degree[k] for k in range(n)])
+        return out
+
+    assert reads(fv) == reads(nv)
+    # live: the view reads the source at each call
+    for G in (fg, ng):
+        G.add_edge(0, 0, weight=4.5)
+        G.add_edge(1, 2, weight=0.1)
+        G.add_edge(2, 1, weight=0.2)
+    assert reads(fv) == reads(nv)

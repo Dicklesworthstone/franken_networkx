@@ -57413,10 +57413,27 @@ class _ConversionGraphViewBase:
                 if native is not None:
                     return zip(self, native())
 
+        # br-r37-c1-gue3i: a to_undirected view of a concrete DiGraph reads a
+        # node's degree off the source's rows (_union_node_degree); one node
+        # is answered before anything below is built.
+        union_source = union_degree = None
+        if not self.is_directed():
+            source = self._graph
+            union_degree = _UNION_NODE_DEGREE.get(type(source))
+            if union_degree is not None and not _has_networkx_private_storage(source):
+                union_source = source
+                try:
+                    if nbunch is not None and nbunch in source:
+                        return union_degree(source, nbunch, weight)
+                except TypeError:
+                    pass
+
         def edge_weight(attrs):
             return attrs.get(weight, 1)
 
         def node_degree(node):
+            if union_source is not None:
+                return union_degree(union_source, node, weight)
             if self.is_multigraph():
                 if self.is_directed():
                     if weight is None:
@@ -57707,6 +57724,62 @@ def _union_row(graph, node):
     # without building a row mapping (1.8 ms against 6.3 ms for every row of
     # a gnp(1000, 0.01) digraph).
     return iter(set(graph.successors(node)) | set(graph.predecessors(node)))
+
+
+def _union_node_degree(graph, node, weight):
+    """br-r37-c1-gue3i: node's degree in a to_undirected(as_view=True) view
+    of the DiGraph `graph` - networkx's Graph degree over the UnionAtlas,
+    len(nbrs) + (node in nbrs), or the sum of its weights in the union's
+    order (sum() itself, whose float accumulation the order decides) plus
+    the self-loop's - read off the source's rows. Going through the view's
+    synthesized row built each neighbour's value in Python: degree[n] was
+    0.03x networkx, weighted 0.24x."""
+    if weight is None:
+        nbrs = set(graph.successors(node)) | set(graph.predecessors(node))
+        return len(nbrs) + (node in nbrs)
+    succ = dict(graph.succ[node])
+    pred = dict(graph.pred[node])
+    # UnionAtlas answers from succ first.
+    total = sum(
+        (succ[nbr] if nbr in succ else pred[nbr]).get(weight, 1)
+        for nbr in _union_row(graph, node)
+    )
+    loop = succ[node] if node in succ else pred.get(node)
+    return total + (loop is not None and loop.get(weight, 1))
+
+
+def _union_multi_node_degree(graph, node, weight):
+    """br-r37-c1-gue3i: _union_node_degree for the MultiDiGraph `graph` -
+    networkx's MultiDegreeView over the UnionMultiInner: one sum() over every
+    key dict's values in the union's order (a pair both ways is a UnionAtlas
+    over set(succ keys) | set(pred keys), succ first), plus the self-loop's.
+    The view's per-neighbour subtotals summed differently: 58.900000000000006
+    where networkx answers 58.9."""
+    succ = dict(graph.succ[node])
+    pred = dict(graph.pred[node])
+
+    def keydicts(nbr):
+        out_keys = succ.get(nbr)
+        in_keys = pred.get(nbr)
+        if out_keys is not None and in_keys is not None:
+            return [
+                out_keys[key] if key in out_keys else in_keys[key]
+                for key in set(out_keys.keys()) | set(in_keys.keys())
+            ]
+        return list((out_keys if out_keys is not None else in_keys).values())
+
+    has_loop = node in succ or node in pred
+    if weight is None:
+        return sum(len(keydicts(nbr)) for nbr in _union_row(graph, node)) + (
+            has_loop and len(keydicts(node))
+        )
+    total = sum(d.get(weight, 1) for nbr in _union_row(graph, node) for d in keydicts(nbr))
+    if has_loop:
+        total += sum(d.get(weight, 1) for d in keydicts(node))
+    return total
+
+
+_UNION_NODE_DEGREE = {DiGraph: _union_node_degree, MultiDiGraph: _union_multi_node_degree}
 
 
 class _UndirectedGraphConversionView(_ConversionGraphViewBase):
