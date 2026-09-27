@@ -2494,6 +2494,14 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
         // Oversized int: fall through to the chain (which yields Float via f64).
     } else if v.is_exact_instance_of::<PyString>() {
         return Ok(CgseValue::String(v.extract::<String>()?));
+    } else if v.is_none()
+        || v.is_exact_instance_of::<PyList>()
+        || v.is_exact_instance_of::<PyTuple>()
+    {
+        // br-r37-c1-uwvq4: where the chain below ends for these - none is a
+        // dict, a str, a bool, an index or a float, so it stores str(v) -
+        // without its four failed extractions, each building a PyErr.
+        return Ok(CgseValue::String(v.str()?.to_string()));
     }
 
     // Graphs may be stored as arbitrary Python attribute values, including a
@@ -2796,6 +2804,25 @@ pub(crate) fn deepcopy_py_dict_memo(
         .call1((bound, memo))?
         .downcast_into::<PyDict>()?
         .unbind())
+}
+
+/// br-r37-c1-uwvq4: one attr dict for a copy of a graph - a shallow copy, or
+/// with `deepcopy` networkx's `deepcopy(d)`: a call of its own, so two dicts
+/// holding one object get a copy each, as networkx's separate calls give them
+/// (`deepcopy_py_dict_memo` with a fresh memo, which skips the call for a dict
+/// of exact scalars, the values `copy.deepcopy` hands back as they are).
+pub(crate) fn copy_attr_dict(
+    py: Python<'_>,
+    deepcopy: Option<&Bound<'_, PyAny>>,
+    attrs: &Py<PyDict>,
+) -> PyResult<Py<PyDict>> {
+    match deepcopy {
+        None => Ok(attrs.bind(py).copy()?.unbind()),
+        Some(deepcopy) => {
+            let memo = PyDict::new(py);
+            deepcopy_py_dict_memo(py, deepcopy, attrs, memo.as_any())
+        }
+    }
 }
 
 use pyo3::IntoPyObjectExt;
@@ -20850,6 +20877,51 @@ class FnxMultiGraphCtorEdgeIterable:
         let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed");
         graph.runtime_policy().clone()
+    }
+
+    /// The extraction chain `py_value_to_cgse` runs for a value no fast path
+    /// takes (br-r37-c1-uwvq4 added one for None / list / tuple).
+    fn cgse_by_the_chain(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
+        if let Ok(d) = v.downcast::<PyDict>() {
+            return Ok(CgseValue::Map(py_dict_to_attr_map(d)?));
+        }
+        if let Ok(s) = v.extract::<String>() {
+            return Ok(CgseValue::String(s));
+        }
+        if let Ok(b) = v.extract::<bool>() {
+            return Ok(CgseValue::Bool(b));
+        }
+        if let Ok(i) = v.extract::<i64>() {
+            return Ok(CgseValue::Int(i));
+        }
+        if let Ok(f) = v.extract::<f64>() {
+            return Ok(CgseValue::Float(f));
+        }
+        Ok(CgseValue::String(v.str()?.to_string()))
+    }
+
+    #[test]
+    fn none_list_and_tuple_values_store_what_the_chain_stores() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let values = py.eval(
+                c"[None, [], [1, 2], (), (1, 'a'), [(1, [2.5, None])], ([],), \
+                   __import__('collections').namedtuple('P', 'x y')(1, 2), \
+                   {1, 2}, True, 3, 2.5, 'text', {'k': [1]}]",
+                None,
+                None,
+            )?;
+            for value in values.try_iter()? {
+                let value = value?;
+                assert_eq!(
+                    py_value_to_cgse(&value)?,
+                    cgse_by_the_chain(&value)?,
+                    "{value:?}"
+                );
+            }
+            Ok(())
+        })
+        .expect("value conversion must agree with the chain");
     }
 
     #[test]

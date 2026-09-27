@@ -3202,6 +3202,17 @@ class _EdgeAttrDict(dict):
     def __reduce__(self):
         return (dict, (dict(self),))
 
+    def __deepcopy__(self, memo):
+        # br-r37-c1-uwvq4: what copy.deepcopy makes of networkx's plain dict
+        # (copy._deepcopy_dict: a new plain dict, registered in the memo before
+        # its items are copied) - __reduce__ reached the same through a
+        # reconstruction at twice the cost.
+        copied = {}
+        memo[id(self)] = copied
+        for key, value in dict.items(self):
+            copied[_deepcopy(key, memo)] = _deepcopy(value, memo)
+        return copied
+
 
 # networkx's edge attr dict is a dict, and type(G[u][v]).__name__ says so -
 # code that reports a value's type (and the held-row parity locks) reads the
@@ -9238,8 +9249,9 @@ def _directed_reverse_with_copy_kwarg(cls):
         if copy:
             # br-r37-c1-fabqo: a graph VIEW's own Rust storage is empty, so the
             # raw reverse of a filtered view was an empty graph; reverse the
-            # concrete graph the view shows.
-            return raw(self if type(self) is cls else _coerce_arg_to_fnx_graph(self))
+            # concrete graph the view shows. br-r37-c1-uwvq4: deep - networkx
+            # deep-copies the graph dict and every node's and edge's attrs.
+            return raw(self if type(self) is cls else _coerce_arg_to_fnx_graph(self), deep=True)
         # Live reversed view — matches nx.DiGraph.reverse(copy=False).
         return reverse_view(self)
 

@@ -152,3 +152,28 @@ def test_subgraph_copy_shares_nested_values_unlike_to_directed():
     """
     assert _subgraph_copy_sharing(fnx) == _subgraph_copy_sharing(nx)
     assert _subgraph_copy_sharing(fnx) is True
+
+
+# br-r37-c1-uwvq4: copy.deepcopy of an edge's attr dict is what it is for
+# networkx's plain dict - a plain dict, its values copied, two keys naming one
+# object still naming one copy, the dict met twice in one deepcopy copied once.
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_deepcopy_of_an_edge_attr_dict_is_networkxs(cls):
+    def facts(lib):
+        shared = [0, 1]
+        g = getattr(lib, cls)()
+        g.add_edge(0, 1, path=shared, again=shared, weight=1.5, name="e")
+        d = g[0][1][0] if g.is_multigraph() else g[0][1]
+        c = copy.deepcopy(d)
+        pair = copy.deepcopy([d, d])
+        return (
+            type(c) is dict,
+            c == dict(d),
+            c["path"] is not shared,
+            c["path"] is c["again"],
+            c["name"] is d["name"],
+            pair[0] is pair[1],
+            pair[0] is not d,
+        )
+
+    assert facts(fnx) == facts(nx) == (True, True, True, True, True, True, True)

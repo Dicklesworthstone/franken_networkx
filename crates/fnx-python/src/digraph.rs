@@ -9934,7 +9934,17 @@ impl PyMultiDiGraph {
         Ok(ug)
     }
 
-    fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
+    /// br-r37-c1-uwvq4: `deep` is networkx's reverse(copy=True) - the graph
+    /// dict, each node's and each edge's attributes deep-copied, a copy each;
+    /// without it the attribute values are shared with this graph, as a view's
+    /// concrete graph shares them (`_materialize_view`).
+    #[pyo3(signature = (deep = false))]
+    fn reverse(&self, py: Python<'_>, deep: bool) -> PyResult<Self> {
+        let deepcopy = if deep {
+            Some(py.import("copy")?.getattr("deepcopy")?)
+        } else {
+            None
+        };
         self.refresh_edges_dirty(py); // br-r37-c1-urjxk
         let source_edges_dirty = self.edges_dirty.load(Ordering::Relaxed);
         // br-r37-c1-6r00i: reader of the dirty set — resolve the queued
@@ -9973,7 +9983,7 @@ impl PyMultiDiGraph {
                 rustc_hash::FxBuildHasher,
             ),
             has_remapped_int_key: self.has_remapped_int_key,
-            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            graph_attrs: crate::copy_attr_dict(py, deepcopy.as_ref(), &self.graph_attrs)?,
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
@@ -10000,7 +10010,7 @@ impl PyMultiDiGraph {
         // dirty bit, so copy them and refresh the transposed inner store exactly
         // as the old per-node rebuild did.
         for (canonical, attrs) in &self.node_py_attrs {
-            let copied_attrs = attrs.bind(py).copy()?.unbind();
+            let copied_attrs = crate::copy_attr_dict(py, deepcopy.as_ref(), attrs)?;
             let rust_attrs = crate::py_dict_to_attr_map(copied_attrs.bind(py))?;
             new_graph.inner.replace_node_attrs(canonical, rust_attrs);
             new_graph
@@ -10027,7 +10037,13 @@ impl PyMultiDiGraph {
             // accepted any int and any key order rebuilt 2**70 as a float and
             // {'weight', 'color'} as ['color', 'weight'].
             if should_sync || !crate::attr_dict_round_trips_through_store(bound_attrs) {
-                let copied_attrs = new_graph.edge_attr_writes.adopt(py, bound_attrs)?;
+                let copied_attrs = match &deepcopy {
+                    Some(_) => {
+                        let deep = crate::copy_attr_dict(py, deepcopy.as_ref(), attrs)?;
+                        new_graph.edge_attr_writes.adopt(py, deep.bind(py))?
+                    }
+                    None => new_graph.edge_attr_writes.adopt(py, bound_attrs)?,
+                };
                 if should_sync {
                     let rust_attrs = crate::py_dict_to_attr_map(copied_attrs.bind(py))?;
                     new_graph.inner.replace_edge_attrs(v, u, *key, rust_attrs);
@@ -15041,7 +15057,20 @@ impl PyDiGraph {
     }
 
     /// Return a reversed copy of the digraph.
-    fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
+    ///
+    /// br-r37-c1-uwvq4: `deep` is networkx's reverse(copy=True) - the graph
+    /// dict, each node's and each edge's attributes deep-copied, a copy each;
+    /// without it the attribute values are shared with this graph, as a view's
+    /// concrete graph shares them (`_materialize_view`). Values served from the
+    /// store are built fresh on every read, so only the Python dicts need it.
+    #[pyo3(signature = (deep = false))]
+    fn reverse(&self, py: Python<'_>, deep: bool) -> PyResult<Self> {
+        let deepcopy = if deep {
+            Some(py.import("copy")?.getattr("deepcopy")?)
+        } else {
+            None
+        };
+        let graph_attrs = crate::copy_attr_dict(py, deepcopy.as_ref(), &self.graph_attrs)?;
         // br-r37-c1-revborrow: FAST PATH for the common case where no Python
         // attribute mirror dicts have been materialised (the inner Rust attr
         // maps are then the sole source of truth — true for every generator /
@@ -15094,7 +15123,7 @@ impl PyDiGraph {
                 edge_attr_writes: crate::EdgeAttrWrites::default(),
                 pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
                 pred_row_py: HashMap::new(),
-                graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+                graph_attrs,
                 nodes_seq: 0,
                 edges_seq: 0,
                 edges_dirty: AtomicBool::new(false),
@@ -15128,7 +15157,7 @@ impl PyDiGraph {
             edge_attr_writes: crate::EdgeAttrWrites::default(),
             pred_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
-            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            graph_attrs,
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
@@ -15159,8 +15188,10 @@ impl PyDiGraph {
             rev.node_key_map
                 .insert(canonical.to_owned(), self.py_node_key(py, canonical));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                rev.node_py_attrs
-                    .insert(canonical.to_owned(), attrs.bind(py).copy()?.unbind());
+                rev.node_py_attrs.insert(
+                    canonical.to_owned(),
+                    crate::copy_attr_dict(py, deepcopy.as_ref(), attrs)?,
+                );
             }
             node_batch.push((canonical.to_owned(), rust_attrs));
         }
@@ -15169,7 +15200,13 @@ impl PyDiGraph {
         for (u, v, attrs) in self.inner.edges_ordered_borrowed() {
             let edge_key = Self::edge_key(u, v);
             let rust_attrs = if let Some(attrs_py) = self.edge_py_attrs.get(&edge_key) {
-                let copied = rev.edge_attr_writes.adopt(py, attrs_py.bind(py))?;
+                let copied = match &deepcopy {
+                    Some(_) => {
+                        let deep = crate::copy_attr_dict(py, deepcopy.as_ref(), attrs_py)?;
+                        rev.edge_attr_writes.adopt(py, deep.bind(py))?
+                    }
+                    None => rev.edge_attr_writes.adopt(py, attrs_py.bind(py))?,
+                };
                 let am = py_dict_to_attr_map(copied.bind(py))?;
                 rev.edge_py_attrs
                     .insert((v.to_owned(), u.to_owned()), copied);
@@ -21966,7 +22003,7 @@ def fnx_keyed_attr_edges(mixed):
             let graph = PyMultiDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multidigraph should initialize");
 
-            let reversed = graph.reverse(py).expect("reverse should succeed");
+            let reversed = graph.reverse(py, false).expect("reverse should succeed");
 
             assert_eq!(reversed.inner.runtime_policy(), &expected_policy);
         });
@@ -21985,24 +22022,27 @@ def fnx_keyed_attr_edges(mixed):
                     .expect("edge add should succeed");
             }
 
-            let reversed = graph.reverse(py).expect("reverse should succeed");
-            let edges = reversed
-                .inner
-                .edges_ordered_borrowed()
-                .into_iter()
-                .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
-                .collect::<Vec<_>>();
+            // br-r37-c1-uwvq4: a deep reverse copies values, not topology.
+            for deep in [false, true] {
+                let reversed = graph.reverse(py, deep).expect("reverse should succeed");
+                let edges = reversed
+                    .inner
+                    .edges_ordered_borrowed()
+                    .into_iter()
+                    .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+                    .collect::<Vec<_>>();
 
-            assert_eq!(
-                edges,
-                vec![
-                    ("c".to_owned(), "b".to_owned()),
-                    ("d".to_owned(), "c".to_owned()),
-                    ("a".to_owned(), "c".to_owned()),
-                    ("a".to_owned(), "d".to_owned()),
-                    ("b".to_owned(), "a".to_owned()),
-                ]
-            );
+                assert_eq!(
+                    edges,
+                    vec![
+                        ("c".to_owned(), "b".to_owned()),
+                        ("d".to_owned(), "c".to_owned()),
+                        ("a".to_owned(), "c".to_owned()),
+                        ("a".to_owned(), "d".to_owned()),
+                        ("b".to_owned(), "a".to_owned()),
+                    ]
+                );
+            }
         });
     }
 
@@ -22025,7 +22065,7 @@ def fnx_keyed_attr_edges(mixed):
                 .add_edge("b".to_owned(), "c".to_owned())
                 .expect("edge add should succeed");
 
-            let reversed = graph.reverse(py).expect("reverse should succeed");
+            let reversed = graph.reverse(py, false).expect("reverse should succeed");
             let edges = reversed
                 .inner
                 .edges_ordered_borrowed()
