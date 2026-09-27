@@ -103,3 +103,86 @@ def test_graph_reading_generator_returns_networkx_keys(cls):
 @pytest.mark.parametrize("cls", CLASSES)
 def test_empty_ebunch_returns_empty_list(cls):
     assert getattr(fnx, cls)().add_edges_from([]) == getattr(nx, cls)().add_edges_from([]) == []
+
+
+# br-r37-c1-lesqm: the plain-pair batch takes a graph that already has edges -
+# each pair's next key is networkx's new_edge_key over the keys it holds, and
+# existing nodes stay where they are - so the ORDER of everything, not only the
+# edge set, is compared: nodes, every adjacency row (and pred row), each pair's
+# keys, the edge walk. Graphs whose state the per-edge path maintains in place
+# (a remapped int key, a held keydict, a live neighbour iterator, a node whose
+# display object differs) keep the per-edge path and must match all the same.
+GROW = [(0, 1), (1, 2), (0, 1), (5, 0), (2, 2), (7, 1), (0, 1), (1, 0), (8, 8), (2, 5), (0, 1), (9, 2)]
+
+
+def _grown(build):
+    def make(lib, cls):
+        graph = getattr(lib, cls)()
+        build(graph)
+        return graph
+
+    return make
+
+
+EXISTING = {
+    "batch-built, parallel": _grown(lambda g: g.add_edges_from([(0, 1), (0, 1), (1, 2), (2, 0), (1, 2), (3, 3), (0, 4), (4, 1)])),
+    "add_edge-built": _grown(lambda g: [g.add_edge(u, v) for u, v in [(0, 1), (0, 1), (1, 2), (2, 0)]]),
+    "a removed key's gap": _grown(
+        lambda g: ([g.add_edge(0, 1) for _ in range(3)], g.remove_edge(0, 1, key=1), g.add_edge(1, 2))
+    ),
+    "key 0 removed": _grown(
+        lambda g: ([g.add_edge(0, 1) for _ in range(3)], g.remove_edge(0, 1, key=0), g.add_edge(2, 1))
+    ),
+    "an explicit int key": _grown(lambda g: (g.add_edge(0, 1, key=5), g.add_edge(0, 1), g.add_edge(1, 2))),
+    "a str key": _grown(lambda g: (g.add_edge(0, 1, key="a"), g.add_edge(0, 1), g.add_edge(2, 5))),
+    "isolated nodes first": _grown(lambda g: (g.add_nodes_from([9, 8, 7]), g.add_edge(1, 0))),
+    "self-loops": _grown(lambda g: (g.add_edge(2, 2), g.add_edge(2, 2), g.add_edge(0, 2))),
+}
+
+
+def _ordered_state(graph):
+    rows = {n: [(m, list(graph.adj[n][m])) for m in graph.adj[n]] for n in graph}
+    pred = {n: list(graph.pred[n]) for n in graph} if graph.is_directed() else None
+    return list(graph), rows, pred, list(graph.edges(keys=True, data=True))
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("existing", list(EXISTING))
+def test_a_batch_into_a_graph_with_edges_is_networkxs(cls, existing):
+    results = []
+    for lib in (nx, fnx):
+        graph = EXISTING[existing](lib, cls)
+        keys = graph.add_edges_from(list(GROW))
+        again = graph.add_edges_from(tuple(GROW[::-1]))
+        results.append((keys, again, _ordered_state(graph), graph.add_edge(0, 1)))
+    assert results[1] == results[0]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_a_batch_reaches_a_held_keydict_and_a_live_neighbour_iterator(cls):
+    results = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)([(0, 1), (0, 1), (1, 2)])
+        held = graph[0][1]
+        graph.add_edges_from(list(GROW))
+        seen = sorted(held)
+        live = iter(graph.neighbors(1))
+        next(live)
+        graph.add_edges_from([(1, 20 + i) for i in range(10)])
+        try:
+            next(live)
+            outcome = "ok"
+        except RuntimeError as exc:
+            outcome = str(exc)
+        results.append((seen, outcome, _ordered_state(graph)))
+    assert results[1] == results[0]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_a_batch_whose_node_display_differs_matches_networkx(cls):
+    results = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)([(1, 2), (2, 3)])
+        keys = graph.add_edges_from([(1.0, 2), (True, 3)] + list(GROW))
+        results.append((keys, _ordered_state(graph), [type(n).__name__ for n in graph]))
+    assert results[1] == results[0]

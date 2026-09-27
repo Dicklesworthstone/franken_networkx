@@ -10484,11 +10484,17 @@ impl PyMultiGraph {
     ) -> PyResult<Option<Py<PyList>>> {
         self.clear_stale_edge_mirrors();
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
-        // A fresh-graph batch skips per-edge keydict maintenance: bail if a
-        // ghost keydict row exists (the only kind an edgeless graph can hold).
-        if self.inner.edge_count() != 0
+        // The batch skips per-edge keydict maintenance: bail if a keydict row
+        // or a row display key is out, or a live neighbour row (add_edge
+        // maintains those in place).
+        // br-r37-c1-lesqm: a graph that already has edges takes the batch
+        // too, unless an int key was remapped off its internal key - then a
+        // pair's next public key is not the internal auto key assigned below.
+        let has_edges = self.inner.edge_count() != 0;
+        if (has_edges && self.has_remapped_int_key)
             || !self.adj_py_keys.is_empty()
             || !self.live_keydict_rows.is_empty()
+            || self.neighbor_rows_live()
         {
             return Ok(None);
         }
@@ -10508,21 +10514,24 @@ impl PyMultiGraph {
 
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
         let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
-        let mut seen_nodes: HashSet<String> = self
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
+        // br-r37-c1-lesqm: the nodes this batch adds; the graph's own are asked
+        // per endpoint. A set of every existing node, built per call, made a
+        // small batch into a large graph O(V).
+        // Lookups only, never iterated: Fx hashing (br-r37-c1-lesqm: SipHash
+        // was ~8% of the directed twin's batch).
+        let mut batch_new: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
         let mut batch_first: HashMap<String, PyObject> = HashMap::new();
-        let mut pair_count: HashMap<(String, String), usize> = HashMap::new();
+        let mut pair_count: rustc_hash::FxHashMap<(String, String), usize> =
+            rustc_hash::FxHashMap::default();
+        let mut pair_keys: rustc_hash::FxHashMap<(String, String), rustc_hash::FxHashSet<usize>> =
+            rustc_hash::FxHashMap::default();
         let mut node_bumps = 0_u64;
         // br-r37-c1-batchstrmemo: memoize node_key_to_string by Python object IDENTITY
         // within this batch. The same node object recurs across many edges (a star's
         // hub is in every edge; dense generators reuse cached small ints), so the
         // canonical-key string was re-formatted O(deg) times per node. Cache it (keyed
         // by the object pointer, stable within one call) -> O(unique) builds, not O(E).
-        let mut str_memo: HashMap<usize, String> = HashMap::new();
+        let mut str_memo: rustc_hash::FxHashMap<usize, String> = rustc_hash::FxHashMap::default();
 
         for item in &items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
@@ -10536,34 +10545,33 @@ impl PyMultiGraph {
             if !PyGraph::is_plain_batch_node(&u) || !PyGraph::is_plain_batch_node(&v) {
                 return Ok(None);
             }
-            let uc = match str_memo.get(&(u.as_ptr() as usize)) {
-                Some(s) => s.clone(),
-                None => {
-                    let s = node_key_to_string(py, &u)?;
-                    str_memo.insert(u.as_ptr() as usize, s.clone());
-                    s
+            // br-r37-c1-lesqm: the display check runs once per object, on the
+            // memo's miss: the same object again cannot conflict where it did
+            // not the first time.
+            let mut canonical = |node: &Bound<'_, PyAny>| -> PyResult<Option<String>> {
+                let ptr = node.as_ptr() as usize;
+                if let Some(s) = str_memo.get(&ptr) {
+                    return Ok(Some(s.clone()));
                 }
-            };
-            let vc = match str_memo.get(&(v.as_ptr() as usize)) {
-                Some(s) => s.clone(),
-                None => {
-                    let s = node_key_to_string(py, &v)?;
-                    str_memo.insert(v.as_ptr() as usize, s.clone());
-                    s
+                let s = node_key_to_string(py, node)?;
+                if self.batch_display_conflict(py, &s, node, &mut batch_first) {
+                    return Ok(None);
                 }
+                str_memo.insert(ptr, s.clone());
+                Ok(Some(s))
             };
-            if self.batch_display_conflict(py, &uc, &u, &mut batch_first)
-                || self.batch_display_conflict(py, &vc, &v, &mut batch_first)
-            {
+            let (Some(uc), Some(vc)) = (canonical(&u)?, canonical(&v)?) else {
                 return Ok(None);
-            }
-            if !seen_nodes.contains(&uc) || !seen_nodes.contains(&vc) {
+            };
+            let u_known = self.inner.has_node(&uc) || batch_new.contains(&uc);
+            let v_known = self.inner.has_node(&vc) || batch_new.contains(&vc);
+            if !u_known || !v_known {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            if seen_nodes.insert(uc.clone()) {
+            if !u_known && batch_new.insert(uc.clone()) {
                 new_nodes.push((uc.clone(), u.clone().unbind()));
             }
-            if seen_nodes.insert(vc.clone()) {
+            if !v_known && batch_new.insert(vc.clone()) {
                 new_nodes.push((vc.clone(), v.clone().unbind()));
             }
             // Undirected pair key matches `EdgeKey::new` (string-ordered).
@@ -10572,14 +10580,36 @@ impl PyMultiGraph {
             } else {
                 (vc.clone(), uc.clone())
             };
-            let counter = pair_count.entry(pair).or_insert(0);
-            let key = *counter;
-            *counter += 1;
+            let key = if has_edges {
+                // add_edge's auto key: the pair's key count, then the next
+                // free one (networkx's new_edge_key), over the keys it holds.
+                let taken = pair_keys.entry(pair).or_insert_with(|| {
+                    self.inner
+                        .edge_keys(&uc, &vc)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .collect()
+                });
+                let mut key = taken.len();
+                while taken.contains(&key) {
+                    key += 1;
+                }
+                taken.insert(key);
+                key
+            } else {
+                let counter = pair_count.entry(pair).or_insert(0);
+                *counter += 1;
+                *counter - 1
+            };
             edges.push((uc, vc, key, AttrMap::new()));
         }
 
         let edge_bumps = u64::try_from(edges.len()).unwrap_or(u64::MAX);
         let keys = batch_key_list(py, edges.iter().map(|edge| edge.2))?;
+        if has_edges {
+            // What bump_edges_seq clears besides the counter.
+            self.edge_py_attrs_by_index.clear();
+        }
         let mirror_active = self.node_iter_mirror_active();
         for (canonical, node) in new_nodes {
             let mk = if mirror_active {
