@@ -5404,6 +5404,12 @@ impl PythonRandom {
         self.origin
     }
 
+    /// The generator itself, for a kernel outside this crate that draws as
+    /// `random.Random` does (`fnx_algorithms::louvain_communities_with_rng`).
+    pub fn mt19937_mut(&mut self) -> &mut MT19937 {
+        &mut self.inner
+    }
+
     fn random(&mut self) -> f64 {
         gen_res53(&mut self.inner)
     }

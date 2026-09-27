@@ -2313,7 +2313,9 @@ fn run_fixture(
                     1.0e-7,
                     None,
                     seed,
-                );
+                    fnx_algorithms::PythonSum::Compensated,
+                )
+                .expect("conformance louvain fixtures must have weights networkx can add");
                 context.louvain_communities_result = Some(result);
             }
             Operation::ModularityQuery {

@@ -1115,8 +1115,8 @@ def louvain_communities(
     resolution: float = 1.0,
     threshold: float = 1.0e-7,
     max_level: Optional[int] = None,
-    seed: Optional[int] = None,
-) -> list[list[Any]]: ...
+    seed: Optional[Any] = None,
+) -> Optional[list[list[Any]]]: ...
 def modularity(
     g: Graph,
     communities: list[list[str]],

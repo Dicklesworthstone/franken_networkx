@@ -19224,6 +19224,40 @@ fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<Vec
 // Community Detection
 // ===========================================================================
 
+/// Whether every `weight_attr` value networkx would read off a graph's Python
+/// edge dicts is one the Louvain kernel adds as networkx does: an exact bool,
+/// int or float. A NumPy scalar, a Fraction, a Decimal or a subclass keeps
+/// its own arithmetic in networkx, and the store holds each as a plain float.
+/// The ints' magnitudes are totalled here too, because an int past i64 is
+/// stored as a float, where the kernel's own int envelope cannot see it.
+/// Edges without a Python dict hold their weights only in the store, which
+/// the kernel checks itself.
+fn louvain_mirror_weights_exact<'a>(
+    py: Python<'_>,
+    dicts: impl Iterator<Item = &'a Py<PyDict>>,
+    weight_attr: &str,
+) -> PyResult<bool> {
+    const INT_MAGNITUDE_LIMIT: u128 = 1 << 25;
+    let mut int_magnitude: u128 = 0;
+    for dict in dicts {
+        if let Some(value) = dict.bind(py).get_item(weight_attr)? {
+            let (inexact, magnitude) = py_weight_exactness(&value);
+            int_magnitude = int_magnitude.saturating_add(magnitude);
+            if inexact || int_magnitude >= INT_MAGNITUDE_LIMIT {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+/// networkx's `louvain_communities` on any of the four graph classes
+/// (br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.5): `seed` is an int
+/// (`random.Random(seed)`) or a `random.Random` whose state the kernel
+/// shuffles with and hands back advanced, as networkx advances it; with no
+/// seed the nodes are visited unshuffled. `None` where networkx must run
+/// instead: a weight the kernel cannot add as networkx does, or an input
+/// networkx raises on (`fnx_algorithms::louvain_run`).
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight", resolution=1.0, threshold=1.0e-7, max_level=None, seed=None))]
 fn louvain_communities(
@@ -19233,9 +19267,8 @@ fn louvain_communities(
     resolution: f64,
     threshold: f64,
     max_level: Option<isize>,
-    seed: Option<u64>,
-) -> PyResult<Vec<Vec<PyObject>>> {
-    let gr = extract_graph(g)?;
+    seed: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<Vec<Vec<PyObject>>>> {
     let max_level = match max_level {
         Some(level) if level <= 0 => {
             return Err(PyValueError::new_err(
@@ -19245,15 +19278,52 @@ fn louvain_communities(
         Some(level) => Some(level as usize),
         None => None,
     };
-    let projection = gr.weighted_undirected_projection(weight);
-    let inner = projection.as_ref();
-    let result = py.allow_threads(|| {
-        fnx_algorithms::louvain_communities(inner, resolution, weight, threshold, max_level, seed)
-    });
-    Ok(result
-        .into_iter()
-        .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
-        .collect())
+    sync_rust_edge_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let (inner, exact) = match &gr {
+        GraphRef::Undirected(pg) => (
+            fnx_algorithms::LouvainInput::Graph(&pg.inner),
+            louvain_mirror_weights_exact(py, pg.edge_py_attrs.values(), weight)?,
+        ),
+        GraphRef::Directed { dg, .. } => (
+            fnx_algorithms::LouvainInput::DiGraph(&dg.inner),
+            louvain_mirror_weights_exact(py, dg.edge_py_attrs.values(), weight)?,
+        ),
+        GraphRef::MultiUndirected { mg, .. } => (
+            fnx_algorithms::LouvainInput::MultiGraph(&mg.inner),
+            louvain_mirror_weights_exact(py, mg.edge_py_attrs.values(), weight)?,
+        ),
+        GraphRef::MultiDirected { mdg, .. } => (
+            fnx_algorithms::LouvainInput::MultiDiGraph(&mdg.inner),
+            louvain_mirror_weights_exact(py, mdg.edge_py_attrs.values(), weight)?,
+        ),
+    };
+    if !exact {
+        return Ok(None);
+    }
+    // networkx's degrees and sizes are this interpreter's `sum()`s.
+    let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
+    let result = match seed {
+        None => py.allow_threads(|| {
+            fnx_algorithms::louvain_communities(
+                inner, resolution, weight, threshold, max_level, None, sum,
+            )
+        }),
+        Some(seed) => crate::generators::with_python_random(seed, |rng| {
+            let rng = rng.mt19937_mut();
+            Ok(py.allow_threads(|| {
+                fnx_algorithms::louvain_communities_with_rng(
+                    inner, resolution, weight, threshold, max_level, rng, sum,
+                )
+            }))
+        })?,
+    };
+    Ok(result.map(|communities| {
+        communities
+            .into_iter()
+            .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
+            .collect()
+    }))
 }
 
 #[pyfunction]

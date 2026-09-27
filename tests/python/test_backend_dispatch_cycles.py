@@ -130,21 +130,36 @@ def test_previously_recursing_algorithms_match_networkx(name, backend_priority):
 def test_louvain_networkx_fallback_pins_the_backend():
     """The fallback in ``community.louvain_communities`` must stay pinned.
 
-    The native gate declines for a graph carrying the weight attribute, so this
-    call reaches the networkx fallback; unpinned it would re-enter fnx.
+    The native kernel declines Fraction weights (networkx keeps their exact
+    arithmetic), so this call reaches the networkx fallback; unpinned it would
+    re-enter fnx.
     """
+    from fractions import Fraction
+
+    import franken_networkx.community as fnx_community
+
     weighted = fnx.Graph()
-    weighted.add_edge("a", "b", weight=1.0)
-    weighted.add_edge("b", "c", weight=2.0)
-    weighted.add_edge("c", "a", weight=1.5)
+    weighted.add_edge("a", "b", weight=Fraction(1))
+    weighted.add_edge("b", "c", weight=Fraction(2))
+    weighted.add_edge("c", "a", weight=Fraction(3, 2))
+
+    reference = fnx_community._nx_community.louvain_communities
+    fallbacks = []
+
+    def counting(*args, **kwargs):
+        fallbacks.append(kwargs.get("backend"))
+        return reference(*args, **kwargs)
 
     previous = list(nx.config.backend_priority.algos)
     _set_backend_priority(["franken_networkx"])
+    fnx_community._nx_community.louvain_communities = counting
     try:
         communities = fnx.community.louvain_communities(weighted, seed=7)
     finally:
+        fnx_community._nx_community.louvain_communities = reference
         _set_backend_priority(previous)
 
+    assert fallbacks == ["networkx"]
     assert {frozenset(community) for community in communities} == {
         frozenset({"a", "b", "c"})
     }

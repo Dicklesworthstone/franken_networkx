@@ -28514,27 +28514,302 @@ pub fn resource_allocation_index(
 // Community Detection — Louvain
 // ===========================================================================
 
-/// Louvain community detection algorithm.
-///
-/// Returns a list of communities, where each community is a sorted list of
-/// node names. Communities are sorted by their smallest element (deterministic).
-///
-/// The `resolution` parameter controls the size of communities: larger values
-/// lead to more, smaller communities. Default is 1.0.
-///
-/// The `weight_attr` parameter specifies the edge attribute name for weights.
-///
-/// Matches `networkx.community.louvain_communities(
-///     G, weight=..., resolution=..., threshold=..., max_level=..., seed=...
-/// )`.
+// Louvain community detection, networkx's `louvain_partitions` step for step
+// (br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.5): the partition it moves
+// to depends on the order it visits neighbour communities (a strictly greater
+// gain wins, so ties go to the first) and on the last bits of its float sums,
+// so both are reproduced, not approximated:
+//
+// - every level is the graph networkx builds - `graph` from `G.edges(data=
+//   weight, default=1)` (`_convert_multigraph` for a multigraph), then
+//   `_gen_graph` - with its adjacency rows (successor and predecessor rows,
+//   directed) in insertion order, the neighbour order `_one_level` walks, and
+//   its edges walked node-major, the order the next level is built in;
+// - weights keep Python's int / float split through `wt + temp`, because
+//   degrees and `size()` are CPython `sum()`s, which add ints exactly and
+//   then, since 3.12, Neumaier-compensate (`LouvainPySum`, `PythonSum`);
+// - gains are networkx's expressions in its association, `m` is the first
+//   level's `size()` throughout, and the node's own community is appended to
+//   the candidates when absent, as the `defaultdict` read in `remove_cost`
+//   does;
+// - the node order is `seed.shuffle` on the caller's generator.
+
+/// An edge weight as networkx holds it: a Python int stays an int through
+/// `wt + temp`, which decides how CPython's `sum()` adds it.
+#[derive(Clone, Copy, Debug)]
+struct LouvainWeight {
+    value: f64,
+    int: bool,
+}
+
+impl LouvainWeight {
+    const ZERO_INT: Self = Self {
+        value: 0.0,
+        int: true,
+    };
+
+    /// Python's `self + other`.
+    fn plus(self, other: Self) -> Self {
+        Self {
+            value: self.value + other.value,
+            int: self.int && other.int,
+        }
+    }
+
+    /// The weight `G.edges(data=weight, default=1)` reports for an edge;
+    /// `None` for a value networkx could not add (a string, a mapping) or an
+    /// int an f64 does not hold exactly - the caller runs networkx instead.
+    fn from_attr(value: Option<&CgseValue>) -> Option<Self> {
+        const EXACT: i64 = 1 << 53;
+        match value {
+            None => Some(Self {
+                value: 1.0,
+                int: true,
+            }),
+            Some(CgseValue::Int(i)) if (-EXACT..=EXACT).contains(i) => Some(Self {
+                value: *i as f64,
+                int: true,
+            }),
+            Some(CgseValue::Bool(b)) => Some(Self {
+                value: f64::from(u8::from(*b)),
+                int: true,
+            }),
+            Some(CgseValue::Float(f)) => Some(Self {
+                value: *f,
+                int: false,
+            }),
+            Some(CgseValue::Int(_) | CgseValue::String(_) | CgseValue::Map(_)) => None,
+        }
+    }
+}
+
+/// How the running CPython's builtin `sum()` adds once a float has appeared -
+/// it changed twice, and networkx's degrees and sizes are `sum()`s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PythonSum {
+    /// CPython 3.10 and 3.11: a plain left fold.
+    Plain,
+    /// CPython 3.12 and 3.13: floats Neumaier-compensated, an int added
+    /// plainly.
+    CompensatedFloats,
+    /// CPython 3.14: every add compensated, ints included.
+    Compensated,
+}
+
+impl PythonSum {
+    /// The `sum()` of CPython `3.minor`.
+    #[must_use]
+    pub fn for_minor_version(minor: u8) -> Self {
+        match minor {
+            ..=11 => Self::Plain,
+            12 | 13 => Self::CompensatedFloats,
+            _ => Self::Compensated,
+        }
+    }
+}
+
+/// CPython's builtin `sum()` over ints and floats: ints add exactly until the
+/// first float, and that add is a plain one; later adds follow `semantics`,
+/// and a non-zero finite compensation is added at the end.
+struct LouvainPySum {
+    total: f64,
+    compensation: f64,
+    int_phase: bool,
+    semantics: PythonSum,
+}
+
+impl LouvainPySum {
+    fn new(semantics: PythonSum) -> Self {
+        Self {
+            total: 0.0,
+            compensation: 0.0,
+            int_phase: true,
+            semantics,
+        }
+    }
+
+    fn add(&mut self, weight: LouvainWeight) {
+        if self.int_phase {
+            // Exact while every addend is an int below 2**53; the add that
+            // leaves the int loop is plain.
+            self.total += weight.value;
+            self.int_phase = weight.int;
+            return;
+        }
+        let compensated = match self.semantics {
+            PythonSum::Plain => false,
+            PythonSum::CompensatedFloats => !weight.int,
+            PythonSum::Compensated => true,
+        };
+        if !compensated {
+            self.total += weight.value;
+            return;
+        }
+        let x = weight.value;
+        let t = self.total + x;
+        if self.total.abs() >= x.abs() {
+            self.compensation += (self.total - t) + x;
+        } else {
+            self.compensation += (x - t) + self.total;
+        }
+        self.total = t;
+    }
+
+    fn finish(&self) -> LouvainWeight {
+        if self.int_phase {
+            return LouvainWeight {
+                value: self.total,
+                int: true,
+            };
+        }
+        let value = if self.compensation != 0.0 && self.compensation.is_finite() {
+            self.total + self.compensation
+        } else {
+            self.total
+        };
+        LouvainWeight { value, int: false }
+    }
+}
+
+/// One level's graph as networkx holds it: node `i` of the level stands for
+/// `members[i]` (original node indices), `rows[i]` lists `(neighbour, edge
+/// id)` in insertion order - the adjacency of a Graph (a self-loop once), the
+/// successors of a DiGraph, whose predecessors are `pred[i]` - and
+/// `weights[edge id]` is the one data dict an edge's entries share; `sum` is
+/// how the running CPython's `sum()` adds.
 #[derive(Clone, Debug)]
 struct LouvainLevelGraph {
     members: Vec<Vec<usize>>,
-    edges: Vec<(usize, usize, f64)>,
+    rows: Vec<Vec<(usize, usize)>>,
+    pred: Vec<Vec<(usize, usize)>>,
+    weights: Vec<LouvainWeight>,
+    directed: bool,
+    sum: PythonSum,
 }
 
-type LouvainNeighborWeights = Vec<(usize, f64)>;
-type LouvainLevelStats = (f64, Vec<f64>, Vec<LouvainNeighborWeights>);
+impl LouvainLevelGraph {
+    fn with_members(members: Vec<Vec<usize>>, directed: bool, sum: PythonSum) -> Self {
+        let rows = vec![Vec::new(); members.len()];
+        let pred = if directed {
+            vec![Vec::new(); members.len()]
+        } else {
+            Vec::new()
+        };
+        Self {
+            members,
+            rows,
+            pred,
+            weights: Vec::new(),
+            directed,
+            sum,
+        }
+    }
+
+    /// An empty `sum()`.
+    fn py_sum(&self) -> LouvainPySum {
+        LouvainPySum::new(self.sum)
+    }
+
+    /// `sum(d["weight"] for d in row.values())`.
+    fn row_sum(&self, row: &[(usize, usize)]) -> LouvainWeight {
+        let mut sum = self.py_sum();
+        for &(_, id) in row {
+            sum.add(self.weights[id]);
+        }
+        sum.finish()
+    }
+
+    /// `sum()` of the listed values.
+    fn total(&self, values: &[LouvainWeight]) -> f64 {
+        let mut sum = self.py_sum();
+        for &value in values {
+            sum.add(value);
+        }
+        sum.finish().value
+    }
+
+    /// networkx's `add_edge(u, v, weight=w)` for a pair not yet joined: `v`
+    /// ends `u`'s row and `u` ends `v`'s (or `v`'s predecessors), one shared
+    /// weight.
+    fn push_new_edge(&mut self, u: usize, v: usize, weight: LouvainWeight) -> usize {
+        let id = self.weights.len();
+        self.weights.push(weight);
+        self.rows[u].push((v, id));
+        if self.directed {
+            self.pred[v].push((u, id));
+        } else if u != v {
+            self.rows[v].push((u, id));
+        }
+        id
+    }
+
+    /// The key `get_edge_data(u, v)` finds a pair's edge under.
+    fn pair_key(&self, u: usize, v: usize) -> (usize, usize) {
+        if self.directed {
+            (u, v)
+        } else {
+            (u.min(v), u.max(v))
+        }
+    }
+
+    /// `G.edges(data="weight")`: node-major over the rows; undirected, each
+    /// edge from the first of its endpoints to be walked (a self-loop
+    /// included).
+    fn edges(&self) -> Vec<(usize, usize, LouvainWeight)> {
+        let mut edges = Vec::with_capacity(self.weights.len());
+        for (u, row) in self.rows.iter().enumerate() {
+            for &(v, id) in row {
+                if self.directed || v >= u {
+                    edges.push((u, v, self.weights[id]));
+                }
+            }
+        }
+        edges
+    }
+
+    /// `dict(G.out_degree(weight="weight"))`'s values (the degrees of a Graph)
+    /// and, directed, `dict(G.in_degree(weight="weight"))`'s.
+    fn strengths(&self) -> (Vec<LouvainWeight>, Vec<LouvainWeight>) {
+        if self.directed {
+            let out_degrees = self.rows.iter().map(|row| self.row_sum(row)).collect();
+            let in_degrees = self.pred.iter().map(|row| self.row_sum(row)).collect();
+            return (out_degrees, in_degrees);
+        }
+        (self.degrees(), Vec::new())
+    }
+
+    /// `dict(G.degree(weight="weight"))`'s values: a Graph's `sum()` over the
+    /// row, then `+ (n in nbrs and nbrs[n]["weight"])` - a self-loop counts
+    /// twice; a DiGraph's successor `sum()` plus its predecessor `sum()`.
+    fn degrees(&self) -> Vec<LouvainWeight> {
+        if self.directed {
+            return self
+                .rows
+                .iter()
+                .zip(&self.pred)
+                .map(|(succ, pred)| self.row_sum(succ).plus(self.row_sum(pred)))
+                .collect();
+        }
+        self.rows
+            .iter()
+            .enumerate()
+            .map(|(u, row)| {
+                let self_loop = row
+                    .iter()
+                    .find(|&&(v, _)| v == u)
+                    .map(|&(_, id)| self.weights[id]);
+                // `sum + False` for a node without one.
+                self.row_sum(row)
+                    .plus(self_loop.unwrap_or(LouvainWeight::ZERO_INT))
+            })
+            .collect()
+    }
+
+    /// `G.size(weight="weight")`: `sum()` of the degrees, halved.
+    fn size(&self) -> f64 {
+        self.total(&self.degrees()) / 2.0
+    }
+}
 
 fn louvain_seed_rng(seed: Option<u64>) -> Option<MT19937> {
     seed.map(|value| {
@@ -28568,63 +28843,114 @@ fn louvain_shuffle(node_order: &mut [usize], rng: &mut MT19937) {
     }
 }
 
-fn build_louvain_level_graph(graph: &Graph, weight_attr: &str) -> (LouvainLevelGraph, Vec<String>) {
-    let mut edges = Vec::with_capacity(graph.edge_count());
-    for (u, v, attrs) in graph.edges_ordered_indices_borrowed() {
-        let weight = attrs
-            .get(weight_attr)
-            .and_then(|value| value.as_f64())
-            .filter(|value| value.is_finite() && *value >= 0.0)
-            .unwrap_or(1.0);
-        let (left_idx, right_idx) = if u <= v { (u, v) } else { (v, u) };
-        edges.push((left_idx, right_idx, weight));
-    }
-
-    let node_names: Vec<String> = graph
-        .nodes_ordered()
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    let members = (0..node_names.len()).map(|index| vec![index]).collect();
-    (LouvainLevelGraph { members, edges }, node_names)
+/// The graph [`louvain_communities`] partitions: any of the four classes, as
+/// networkx's `louvain_communities` takes them.
+#[derive(Clone, Copy)]
+pub enum LouvainInput<'a> {
+    Graph(&'a Graph),
+    DiGraph(&'a DiGraph),
+    MultiGraph(&'a MultiGraph),
+    MultiDiGraph(&'a MultiDiGraph),
 }
 
-fn louvain_add_ordered_weight(entries: &mut Vec<(usize, f64)>, key: usize, weight: f64) {
-    if let Some((_, existing_weight)) = entries
-        .iter_mut()
-        .find(|(existing_key, _)| *existing_key == key)
-    {
-        *existing_weight += weight;
-    } else {
-        entries.push((key, weight));
+impl<'a> From<&'a Graph> for LouvainInput<'a> {
+    fn from(graph: &'a Graph) -> Self {
+        Self::Graph(graph)
     }
 }
 
-fn louvain_ordered_weight(entries: &[(usize, f64)], key: usize) -> f64 {
-    entries
-        .iter()
-        .find_map(|&(existing_key, weight)| (existing_key == key).then_some(weight))
-        .unwrap_or(0.0)
+impl<'a> From<&'a DiGraph> for LouvainInput<'a> {
+    fn from(graph: &'a DiGraph) -> Self {
+        Self::DiGraph(graph)
+    }
 }
 
-fn louvain_level_stats(level: &LouvainLevelGraph) -> LouvainLevelStats {
-    let mut degrees = vec![0.0; level.members.len()];
-    let mut neighbors = vec![LouvainNeighborWeights::new(); level.members.len()];
-    let mut total_weight = 0.0;
+impl<'a> From<&'a MultiGraph> for LouvainInput<'a> {
+    fn from(graph: &'a MultiGraph) -> Self {
+        Self::MultiGraph(graph)
+    }
+}
 
-    for &(left, right, weight) in &level.edges {
-        total_weight += weight;
-        if left == right {
-            degrees[left] += 2.0 * weight;
+impl<'a> From<&'a MultiDiGraph> for LouvainInput<'a> {
+    fn from(graph: &'a MultiDiGraph) -> Self {
+        Self::MultiDiGraph(graph)
+    }
+}
+
+/// networkx's first level. A simple graph is rebuilt - `graph.add_nodes_from
+/// (G)`, `graph.add_weighted_edges_from(G.edges(data=weight, default=1))` - so
+/// its rows fill in that edge stream's order; a multigraph goes through
+/// `_convert_multigraph`, which adds each pair's first weight as it is and
+/// `+=`s its parallel edges onto it. `None` when a weight is one networkx could
+/// not add (see `LouvainWeight::from_attr`).
+fn build_louvain_level_graph(
+    input: LouvainInput<'_>,
+    weight_attr: &str,
+    sum: PythonSum,
+) -> Option<(LouvainLevelGraph, Vec<String>)> {
+    fn names(nodes: Vec<&str>) -> Vec<String> {
+        nodes.into_iter().map(str::to_owned).collect()
+    }
+    let (node_names, directed, merge_parallel, edges): (Vec<String>, bool, bool, Vec<_>) =
+        match input {
+            LouvainInput::Graph(graph) => (
+                names(graph.nodes_ordered()),
+                false,
+                false,
+                graph.edges_ordered_indices_borrowed(),
+            ),
+            LouvainInput::DiGraph(graph) => (
+                names(graph.nodes_ordered()),
+                true,
+                false,
+                graph.edges_ordered_indices_borrowed(),
+            ),
+            LouvainInput::MultiGraph(graph) => (
+                names(graph.nodes_ordered()),
+                false,
+                true,
+                graph
+                    .edges_ordered_indices_borrowed()
+                    .into_iter()
+                    .map(|(u, v, _, attrs)| (u, v, attrs))
+                    .collect(),
+            ),
+            LouvainInput::MultiDiGraph(graph) => {
+                let nodes = graph.nodes_ordered();
+                let position: HashMap<&str, usize> = nodes
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &name)| (name, index))
+                    .collect();
+                let edges = graph
+                    .edges_ordered_borrowed()
+                    .into_iter()
+                    .map(|(u, v, _, attrs)| (position[u], position[v], attrs))
+                    .collect();
+                (names(nodes), true, true, edges)
+            }
+        };
+    let mut level = LouvainLevelGraph::with_members(
+        (0..node_names.len()).map(|index| vec![index]).collect(),
+        directed,
+        sum,
+    );
+    let mut pair_ids: HashMap<(usize, usize), usize> = HashMap::new();
+    for (u, v, attrs) in edges {
+        let weight = LouvainWeight::from_attr(attrs.get(weight_attr))?;
+        if !merge_parallel {
+            level.push_new_edge(u, v, weight);
+            continue;
+        }
+        let pair = level.pair_key(u, v);
+        if let Some(&id) = pair_ids.get(&pair) {
+            level.weights[id] = level.weights[id].plus(weight);
         } else {
-            degrees[left] += weight;
-            degrees[right] += weight;
-            louvain_add_ordered_weight(&mut neighbors[left], right, weight);
-            louvain_add_ordered_weight(&mut neighbors[right], left, weight);
+            let id = level.push_new_edge(u, v, weight);
+            pair_ids.insert(pair, id);
         }
     }
-
-    (total_weight, degrees, neighbors)
+    Some((level, node_names))
 }
 
 fn louvain_collect_partitions(
@@ -28655,57 +28981,177 @@ fn louvain_collect_partitions(
     (partition, inner_partition)
 }
 
+/// networkx's `modularity(G, communities, weight="weight", resolution=...)`
+/// on a level graph - both sides of the threshold test. networkx sums over
+/// each community in its SET order, read here in node order, and computes the
+/// first side on `G` itself, whose rows (and, for a multigraph, unmerged
+/// parallel edges) the rebuilt first level may order differently: either can
+/// move the last bits of a value that is only compared with `threshold`.
 fn louvain_level_modularity(
     level: &LouvainLevelGraph,
     communities: &[Vec<usize>],
     resolution: f64,
 ) -> f64 {
-    let (m, degrees, _) = louvain_level_stats(level);
-    if m == 0.0 {
-        return 0.0;
-    }
+    let (out_degrees, in_degrees) = level.strengths();
+    let in_degrees = if level.directed {
+        &in_degrees
+    } else {
+        &out_degrees
+    };
+    let (m, norm) = if level.directed {
+        let m = level.total(&out_degrees);
+        (m, 1.0 / louvain_py_square(m))
+    } else {
+        let deg_sum = level.total(&out_degrees);
+        (deg_sum / 2.0, 1.0 / louvain_py_square(deg_sum))
+    };
 
-    let mut node_to_community = vec![usize::MAX; level.members.len()];
-    let mut degree_sums = vec![0.0; communities.len()];
-    for (community_index, community) in communities.iter().enumerate() {
-        for &node in community {
-            node_to_community[node] = community_index;
-            degree_sums[community_index] += degrees[node];
+    let mut in_community = vec![false; level.rows.len()];
+    let mut walked = vec![false; level.rows.len()];
+    let mut total = level.py_sum();
+    for community in communities {
+        let mut members = community.clone();
+        members.sort_unstable();
+        for &node in &members {
+            in_community[node] = true;
         }
-    }
-
-    let mut intra_weights = vec![0.0; communities.len()];
-    for &(left, right, weight) in &level.edges {
-        let community = node_to_community[left];
-        if community != usize::MAX && community == node_to_community[right] {
-            intra_weights[community] += weight;
+        // `sum(wt for u, v, wt in G.edges(comm, ...) if v in comm)`: each
+        // internal edge once - undirected, from the first of its endpoints
+        // walked.
+        let mut internal = level.py_sum();
+        let mut out_sum = level.py_sum();
+        let mut in_sum = level.py_sum();
+        for &u in &members {
+            for &(v, id) in &level.rows[u] {
+                if in_community[v] && (level.directed || !walked[v]) {
+                    internal.add(level.weights[id]);
+                }
+            }
+            walked[u] = true;
+            out_sum.add(out_degrees[u]);
+            in_sum.add(in_degrees[u]);
         }
+        for &node in &members {
+            in_community[node] = false;
+            walked[node] = false;
+        }
+        total.add(LouvainWeight {
+            value: internal.finish().value / m
+                - resolution * out_sum.finish().value * in_sum.finish().value * norm,
+            int: false,
+        });
     }
-
-    intra_weights
-        .iter()
-        .zip(degree_sums.iter())
-        .map(|(intra_weight, degree_sum)| {
-            intra_weight / m - resolution * (degree_sum / (2.0 * m)).powi(2)
-        })
-        .sum()
+    total.finish().value
 }
 
+/// Python's `x**2` on a float: libm's `pow`, which CPython calls and which is
+/// not always `x * x` in the last bit. The exponent is hidden from the
+/// optimiser, which would otherwise fold the call into that product.
+fn louvain_py_square(x: f64) -> f64 {
+    x.powf(std::hint::black_box(2.0))
+}
+
+/// A dict filled in insertion order - `defaultdict(float)`'s `d[key] += w` -
+/// over keys below a fixed bound: `slot[key]` is the key's position in
+/// `entries`, `usize::MAX` when absent, and `clear` resets only the keys used.
+struct LouvainOrderedSums {
+    slot: Vec<usize>,
+    entries: Vec<(usize, f64)>,
+}
+
+impl LouvainOrderedSums {
+    fn new(key_bound: usize) -> Self {
+        Self {
+            slot: vec![usize::MAX; key_bound],
+            entries: Vec::new(),
+        }
+    }
+
+    /// `d[key] += weight` (a new key starts from `0.0`).
+    fn add(&mut self, key: usize, weight: f64) {
+        match self.slot[key] {
+            usize::MAX => {
+                self.slot[key] = self.entries.len();
+                self.entries.push((key, 0.0 + weight));
+            }
+            index => self.entries[index].1 += weight,
+        }
+    }
+
+    /// `d[key]`, which inserts `0.0` last for an absent key.
+    fn get_or_insert(&mut self, key: usize) -> f64 {
+        match self.slot[key] {
+            usize::MAX => {
+                self.slot[key] = self.entries.len();
+                self.entries.push((key, 0.0));
+                0.0
+            }
+            index => self.entries[index].1,
+        }
+    }
+
+    fn clear(&mut self) {
+        for &(key, _) in &self.entries {
+            self.slot[key] = usize::MAX;
+        }
+        self.entries.clear();
+    }
+}
+
+/// networkx's `_one_level`: `m` is the FIRST level's `size()`, which networkx
+/// passes to every level.
 fn louvain_one_level(
     level: &LouvainLevelGraph,
+    m: f64,
     resolution: f64,
     rng: Option<&mut MT19937>,
 ) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, bool) {
     let node_count = level.members.len();
-    let (m, degrees, neighbors) = louvain_level_stats(level);
-    if node_count == 0 || m == 0.0 {
-        let singleton_partition = level.members.clone();
-        let singleton_inner = (0..node_count).map(|index| vec![index]).collect();
-        return (singleton_partition, singleton_inner, false);
-    }
+    let directed = level.directed;
+    // Undirected: the degrees, and `Stot`; directed: the out- and in-degrees,
+    // and `Stot_out` / `Stot_in`.
+    let (out_degrees, in_degrees) = level.strengths();
+    let out_degrees: Vec<f64> = out_degrees.iter().map(|degree| degree.value).collect();
+    let in_degrees: Vec<f64> = in_degrees.iter().map(|degree| degree.value).collect();
+    let mut sums = LouvainOrderedSums::new(node_count);
+    // `nbrs[u]` without the self-loop: the row's weights as they are, or
+    // directed, a `defaultdict(float)` over the out-edges then the in-edges.
+    let neighbors: Vec<Vec<(usize, f64)>> = (0..node_count)
+        .map(|u| {
+            if !directed {
+                return level.rows[u]
+                    .iter()
+                    .filter(|&&(v, _)| v != u)
+                    .map(|&(v, id)| (v, level.weights[id].value))
+                    .collect();
+            }
+            for &(v, id) in level.rows[u].iter().chain(&level.pred[u]) {
+                if v != u {
+                    sums.add(v, level.weights[id].value);
+                }
+            }
+            let row = sums.entries.clone();
+            sums.clear();
+            row
+        })
+        .collect();
 
     let mut node_to_community: Vec<usize> = (0..node_count).collect();
-    let mut sigma_tot = degrees.clone();
+    let mut stot_out = out_degrees.clone();
+    let mut stot_in = in_degrees.clone();
+    // The resolution term's numerator for `node` against `community`.
+    let pull = |node: usize, community: usize, stot_out: &[f64], stot_in: &[f64]| {
+        if directed {
+            out_degrees[node] * stot_in[community] + in_degrees[node] * stot_out[community]
+        } else {
+            stot_out[community] * out_degrees[node]
+        }
+    };
+    let denominator = if directed {
+        louvain_py_square(m)
+    } else {
+        2.0 * louvain_py_square(m)
+    };
 
     let mut node_order: Vec<usize> = (0..node_count).collect();
     if let Some(rng) = rng {
@@ -28714,6 +29160,8 @@ fn louvain_one_level(
 
     let mut improvement = false;
     let mut moved = 1;
+    // networkx has no such guard: a repeated state is a sweep that would never
+    // end there either, so leaving it changes no answer networkx gives.
     let mut seen_states = HashSet::<Vec<usize>>::new();
     while moved > 0 {
         if !seen_states.insert(node_to_community.clone()) {
@@ -28723,37 +29171,39 @@ fn louvain_one_level(
 
         for &node in &node_order {
             let current_community = node_to_community[node];
-            let degree = degrees[node];
-
-            let mut weights_to_community = Vec::<(usize, f64)>::new();
+            // `_neighbor_weights`: the communities in the order they are met.
             for &(neighbor, weight) in &neighbors[node] {
-                louvain_add_ordered_weight(
-                    &mut weights_to_community,
-                    node_to_community[neighbor],
-                    weight,
-                );
+                sums.add(node_to_community[neighbor], weight);
             }
 
-            sigma_tot[current_community] -= degree;
-            let remove_cost = -louvain_ordered_weight(&weights_to_community, current_community) / m
-                + resolution * sigma_tot[current_community] * degree / (2.0 * m * m);
+            stot_out[current_community] -= out_degrees[node];
+            if directed {
+                stot_in[current_community] -= in_degrees[node];
+            }
+            // `weights2com[best_com]` on the defaultdict inserts the node's own
+            // community, last, when no neighbour is in it - so it is a
+            // candidate too, with weight 0.0.
+            let own_weight = sums.get_or_insert(current_community);
+            let remove_cost = -own_weight / m
+                + resolution * pull(node, current_community, &stot_out, &stot_in) / denominator;
 
-            // NetworkX accepts every strictly positive modularity gain. Track
-            // repeated states above so zero-floor floating-point dust cannot
-            // loop forever on degenerate inputs.
-            const LOUVAIN_GAIN_EPS: f64 = 0.0;
-            let mut best_gain = LOUVAIN_GAIN_EPS;
+            // A strictly greater gain than the best so far, from 0.
+            let mut best_gain = 0.0;
             let mut best_community = current_community;
-            for &(target_community, weight) in &weights_to_community {
+            for &(target_community, weight) in &sums.entries {
                 let gain = remove_cost + weight / m
-                    - resolution * sigma_tot[target_community] * degree / (2.0 * m * m);
+                    - resolution * pull(node, target_community, &stot_out, &stot_in) / denominator;
                 if gain > best_gain {
                     best_gain = gain;
                     best_community = target_community;
                 }
             }
+            sums.clear();
 
-            sigma_tot[best_community] += degree;
+            stot_out[best_community] += out_degrees[node];
+            if directed {
+                stot_in[best_community] += in_degrees[node];
+            }
             if best_community != current_community {
                 node_to_community[node] = best_community;
                 improvement = true;
@@ -28766,6 +29216,10 @@ fn louvain_one_level(
     (partition, inner_partition, improvement)
 }
 
+/// networkx's `_gen_graph`: node `i` stands for `communities[i]`, and the
+/// level's edges, walked node-major, are added as `add_edge(com1, com2,
+/// weight=wt + temp)` - `temp` the pair's weight so far, int 0 for a new pair
+/// - so the new rows fill in the order pairs are first met.
 fn louvain_coarsen(level: &LouvainLevelGraph, communities: &[Vec<usize>]) -> LouvainLevelGraph {
     let mut node_to_community = vec![usize::MAX; level.members.len()];
     let mut members = Vec::with_capacity(communities.len());
@@ -28779,26 +29233,19 @@ fn louvain_coarsen(level: &LouvainLevelGraph, communities: &[Vec<usize>]) -> Lou
         members.push(original_members);
     }
 
-    let mut edges = Vec::<(usize, usize, f64)>::new();
-    for &(left, right, weight) in &level.edges {
-        let left_community = node_to_community[left];
-        let right_community = node_to_community[right];
-        let (left_community, right_community) = if left_community <= right_community {
-            (left_community, right_community)
+    let mut next = LouvainLevelGraph::with_members(members, level.directed, level.sum);
+    let mut pair_ids: HashMap<(usize, usize), usize> = HashMap::new();
+    for (u, v, weight) in level.edges() {
+        let (left, right) = (node_to_community[u], node_to_community[v]);
+        let pair = next.pair_key(left, right);
+        if let Some(&id) = pair_ids.get(&pair) {
+            next.weights[id] = weight.plus(next.weights[id]);
         } else {
-            (right_community, left_community)
-        };
-        if let Some((_, _, existing_weight)) = edges
-            .iter_mut()
-            .find(|(left, right, _)| *left == left_community && *right == right_community)
-        {
-            *existing_weight += weight;
-        } else {
-            edges.push((left_community, right_community, weight));
+            let id = next.push_new_edge(left, right, weight.plus(LouvainWeight::ZERO_INT));
+            pair_ids.insert(pair, id);
         }
     }
-
-    LouvainLevelGraph { members, edges }
+    next
 }
 
 fn louvain_partition_to_node_names(
@@ -28818,51 +29265,132 @@ fn louvain_partition_to_node_names(
         .collect()
 }
 
-/// Matches the NetworkX multi-level Louvain routine for undirected graphs.
+/// `louvain_communities(G, ...)`: the last partition `louvain_partitions`
+/// yields (the `max_level`-th at most, and no generator step after it, so no
+/// shuffle draws beyond networkx's). `None` - before any draw - where networkx
+/// would raise (a weight it cannot add, a zero or overflowing `m**2`) or
+/// where f64 could not follow its int arithmetic exactly (int weights whose
+/// magnitudes total 2**25 or more, where a degree product can pass 2**53);
+/// the caller runs networkx then.
+fn louvain_run(
+    input: LouvainInput<'_>,
+    resolution: f64,
+    weight_attr: &str,
+    threshold: f64,
+    max_level: Option<usize>,
+    mut rng: Option<&mut MT19937>,
+    sum: PythonSum,
+) -> Option<Vec<Vec<String>>> {
+    const INT_MAGNITUDE_LIMIT: f64 = (1u64 << 25) as f64;
+    let (mut level, node_names) = build_louvain_level_graph(input, weight_attr, sum)?;
+    if level.weights.is_empty() {
+        // `nx.is_empty(G)`: the singletons, no shuffle.
+        return Some(louvain_partition_to_node_names(
+            level.members.clone(),
+            &node_names,
+        ));
+    }
+    let int_magnitude: f64 = level
+        .weights
+        .iter()
+        .filter(|weight| weight.int)
+        .map(|weight| weight.value.abs())
+        .sum();
+    if int_magnitude >= INT_MAGNITUDE_LIMIT {
+        return None;
+    }
+    let m = level.size();
+    // The squares networkx divides by: `modularity`'s `deg_sum**2` (a
+    // DiGraph's `m**2` over its out-degrees) and `_one_level`'s `m**2`.
+    let modularity_total = if level.directed {
+        level.total(&level.strengths().0)
+    } else {
+        2.0 * m
+    };
+    if [modularity_total, m].iter().any(|&total| {
+        let square = louvain_py_square(total);
+        square == 0.0 || !square.is_finite()
+    }) {
+        return None;
+    }
+
+    let singletons: Vec<Vec<usize>> = (0..level.members.len()).map(|node| vec![node]).collect();
+    let mut modularity_value = louvain_level_modularity(&level, &singletons, resolution);
+    let (mut partition, mut inner_partition, _) =
+        louvain_one_level(&level, m, resolution, rng.as_deref_mut());
+    let mut level_count = 1usize;
+    loop {
+        if max_level.is_some_and(|limit| level_count >= limit) {
+            break;
+        }
+        let new_modularity = louvain_level_modularity(&level, &inner_partition, resolution);
+        if new_modularity - modularity_value <= threshold {
+            break;
+        }
+        modularity_value = new_modularity;
+        level = louvain_coarsen(&level, &inner_partition);
+        let (next_partition, next_inner, improvement) =
+            louvain_one_level(&level, m, resolution, rng.as_deref_mut());
+        if !improvement {
+            break;
+        }
+        partition = next_partition;
+        inner_partition = next_inner;
+        level_count += 1;
+    }
+    Some(louvain_partition_to_node_names(partition, &node_names))
+}
+
+/// networkx's `louvain_communities` with an int seed (`random.Random(seed)`),
+/// or none: then the nodes are visited unshuffled, which no networkx call
+/// does - a caller matching networkx passes a seed or uses
+/// [`louvain_communities_with_rng`]. `sum` is the `sum()` of the CPython
+/// networkx would run on. `None` where networkx must run instead (see
+/// `louvain_run`).
 #[must_use]
-pub fn louvain_communities(
-    graph: &Graph,
+pub fn louvain_communities<'a>(
+    graph: impl Into<LouvainInput<'a>>,
     resolution: f64,
     weight_attr: &str,
     threshold: f64,
     max_level: Option<usize>,
     seed: Option<u64>,
-) -> Vec<Vec<String>> {
-    let node_count = graph.node_count();
-    if node_count == 0 {
-        return Vec::new();
-    }
-
-    let (mut level_graph, node_names) = build_louvain_level_graph(graph, weight_attr);
-    if level_graph.edges.is_empty() {
-        return louvain_partition_to_node_names(level_graph.members, &node_names);
-    }
-
-    let singleton_partition: Vec<Vec<usize>> = (0..level_graph.members.len())
-        .map(|index| vec![index])
-        .collect();
-    let mut modularity_value =
-        louvain_level_modularity(&level_graph, &singleton_partition, resolution);
+    sum: PythonSum,
+) -> Option<Vec<Vec<String>>> {
     let mut rng = louvain_seed_rng(seed);
-    let mut level_count = 0usize;
+    louvain_run(
+        graph.into(),
+        resolution,
+        weight_attr,
+        threshold,
+        max_level,
+        rng.as_mut(),
+        sum,
+    )
+}
 
-    loop {
-        let (partition, inner_partition, improvement) =
-            louvain_one_level(&level_graph, resolution, rng.as_mut());
-        level_count += 1;
-
-        if max_level.is_some_and(|limit| level_count >= limit) {
-            return louvain_partition_to_node_names(partition, &node_names);
-        }
-
-        let new_modularity = louvain_level_modularity(&level_graph, &inner_partition, resolution);
-        if !improvement || new_modularity - modularity_value <= threshold {
-            return louvain_partition_to_node_names(partition, &node_names);
-        }
-
-        modularity_value = new_modularity;
-        level_graph = louvain_coarsen(&level_graph, &inner_partition);
-    }
+/// [`louvain_communities`] shuffling with the caller's generator - a Python
+/// `random.Random`'s state, which the caller writes back so later draws
+/// continue where networkx's would.
+#[must_use]
+pub fn louvain_communities_with_rng<'a>(
+    graph: impl Into<LouvainInput<'a>>,
+    resolution: f64,
+    weight_attr: &str,
+    threshold: f64,
+    max_level: Option<usize>,
+    rng: &mut MT19937,
+    sum: PythonSum,
+) -> Option<Vec<Vec<String>>> {
+    louvain_run(
+        graph.into(),
+        resolution,
+        weight_attr,
+        threshold,
+        max_level,
+        Some(rng),
+        sum,
+    )
 }
 
 /// Compute modularity of a partition.
@@ -55806,12 +56334,15 @@ mod tests {
         FlowError,
         GraphMLWriterConfig,
         LinkPredictionEndpointPairs,
+        LouvainPySum,
+        LouvainWeight,
         MaximalIndependentSetError,
         ModularityError,
         NetworkxBranchingError,
         NetworkxBranchingPlan,
         NetworkxGreedyModularityError,
         PartitionState,
+        PythonSum,
         SpannerError,
         TopologicalGenerationsTrace,
         adamic_adar_index,
@@ -56245,8 +56776,8 @@ mod tests {
         write_graphml_string_config_with_graph_attrs,
         write_graphml_string_directed,
     };
-    use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
+    use fnx_classes::{Graph, MultiGraph};
     use fnx_runtime::{
         CompatibilityMode, ForensicsBundleIndex, RuntimePolicy, StructuredTestLog, TestKind,
         TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
@@ -76187,10 +76718,12 @@ mod tests {
     // Community Detection Tests
     // =======================================================================
 
+    const PYTHON_SUM: PythonSum = PythonSum::Compensated;
+
     #[test]
     fn louvain_empty_graph() {
         let g = Graph::strict();
-        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None, PYTHON_SUM).unwrap();
         assert!(comms.is_empty());
     }
 
@@ -76198,7 +76731,7 @@ mod tests {
     fn louvain_single_node() {
         let mut g = Graph::strict();
         g.add_node("a");
-        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None, PYTHON_SUM).unwrap();
         assert_eq!(comms.len(), 1);
         assert_eq!(comms[0], vec!["a"]);
     }
@@ -76222,7 +76755,7 @@ mod tests {
         // Bridge
         let _ = g.add_edge("a0", "b0");
 
-        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None, PYTHON_SUM).unwrap();
         // Should find 2 communities
         assert_eq!(comms.len(), 2);
         // Total nodes should cover all 10
@@ -76236,7 +76769,7 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("c", "d");
-        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None, PYTHON_SUM).unwrap();
         // At least 2 communities
         assert!(comms.len() >= 2);
     }
@@ -76258,8 +76791,10 @@ mod tests {
             }
         }
 
-        let first_level = louvain_communities(&g, 0.5, "weight", 1.0e-7, Some(1), Some(7));
-        let full = louvain_communities(&g, 0.5, "weight", 1.0e-7, None, Some(7));
+        let first_level =
+            louvain_communities(&g, 0.5, "weight", 1.0e-7, Some(1), Some(7), PYTHON_SUM).unwrap();
+        let full =
+            louvain_communities(&g, 0.5, "weight", 1.0e-7, None, Some(7), PYTHON_SUM).unwrap();
 
         assert_eq!(first_level.len(), 3);
         assert_eq!(full.len(), 2);
@@ -76277,7 +76812,7 @@ mod tests {
                 }
             }
         }
-        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None, PYTHON_SUM).unwrap();
         let total: usize = comms.iter().map(|c| c.len()).sum();
         assert_eq!(total, 10);
         // Check no duplicates
@@ -76285,6 +76820,155 @@ mod tests {
         all_nodes.sort();
         all_nodes.dedup();
         assert_eq!(all_nodes.len(), 10);
+    }
+
+    #[test]
+    fn louvain_py_sum_adds_as_each_cpython_sum_does() {
+        let int = |value: f64| LouvainWeight { value, int: true };
+        let float = |value: f64| LouvainWeight { value, int: false };
+        let sum = |semantics: PythonSum, items: &[LouvainWeight]| {
+            let mut total = LouvainPySum::new(semantics);
+            for &item in items {
+                total.add(item);
+            }
+            total.finish()
+        };
+        // What CPython 3.10/3.11, 3.12/3.13 and 3.14 print for each `sum()`.
+        let cases: [(&[LouvainWeight], [f64; 3]); 4] = [
+            // sum([1e16, 1, -1e16]): only 3.14 compensates the int.
+            (&[float(1e16), int(1.0), float(-1e16)], [0.0, 0.0, 1.0]),
+            // sum([1e16, 1.0, -1e16]): 3.12 compensates floats.
+            (&[float(1e16), float(1.0), float(-1e16)], [0.0, 1.0, 1.0]),
+            // sum([0.1] * 10)
+            (&[float(0.1); 10], [0.999_999_999_999_999_9, 1.0, 1.0]),
+            // sum([1, 1e-17, -1.0]): the add that leaves the int loop is plain.
+            (&[int(1.0), float(1e-17), float(-1.0)], [0.0, 0.0, 0.0]),
+        ];
+        let semantics = [
+            PythonSum::Plain,
+            PythonSum::CompensatedFloats,
+            PythonSum::Compensated,
+        ];
+        for (items, expected) in cases {
+            for (semantics, expected) in semantics.into_iter().zip(expected) {
+                let total = sum(semantics, items);
+                assert!(!total.int);
+                assert_eq!(total.value, expected, "{semantics:?}");
+            }
+        }
+        for semantics in semantics {
+            let ints = sum(semantics, &[int(2.0), int(3.0)]);
+            assert!(ints.int);
+            assert_eq!(ints.value, 5.0);
+            let nothing = sum(semantics, &[]);
+            assert!(nothing.int);
+            assert_eq!(nothing.value, 0.0);
+        }
+        assert_eq!(PythonSum::for_minor_version(10), PythonSum::Plain);
+        assert_eq!(PythonSum::for_minor_version(11), PythonSum::Plain);
+        assert_eq!(
+            PythonSum::for_minor_version(12),
+            PythonSum::CompensatedFloats
+        );
+        assert_eq!(
+            PythonSum::for_minor_version(13),
+            PythonSum::CompensatedFloats
+        );
+        assert_eq!(PythonSum::for_minor_version(14), PythonSum::Compensated);
+    }
+
+    #[test]
+    fn louvain_multigraph_merges_parallel_edges_as_convert_multigraph_does() {
+        // Each weight-2 edge of the Graph is two weight-1 parallel edges of the
+        // MultiGraph: `_convert_multigraph` makes them the same first level.
+        let mut graph = Graph::strict();
+        let mut multi = MultiGraph::strict();
+        for (u, v) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("c", "d"),
+            ("d", "e"),
+            ("e", "f"),
+            ("f", "d"),
+        ] {
+            graph
+                .add_edge_with_attrs(
+                    u,
+                    v,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::Int(2))]),
+                )
+                .expect("edge add should succeed");
+            for _ in 0..2 {
+                multi
+                    .add_edge_with_attrs(
+                        u,
+                        v,
+                        BTreeMap::from([("weight".to_owned(), CgseValue::Int(1))]),
+                    )
+                    .expect("edge add should succeed");
+            }
+        }
+        for seed in 0..5 {
+            let simple =
+                louvain_communities(&graph, 1.0, "weight", 1.0e-7, None, Some(seed), PYTHON_SUM);
+            let merged =
+                louvain_communities(&multi, 1.0, "weight", 1.0e-7, None, Some(seed), PYTHON_SUM);
+            assert!(simple.is_some());
+            assert_eq!(simple, merged);
+        }
+    }
+
+    #[test]
+    fn louvain_directed_splits_two_cycles_joined_by_one_arc() {
+        let mut graph = DiGraph::strict();
+        for cycle in [["a", "b", "c", "d"], ["e", "f", "g", "h"]] {
+            for index in 0..4 {
+                graph
+                    .add_edge(cycle[index], cycle[(index + 1) % 4])
+                    .unwrap();
+                graph
+                    .add_edge(cycle[index], cycle[(index + 2) % 4])
+                    .unwrap();
+            }
+        }
+        graph.add_edge("a", "e").unwrap();
+        let mut communities =
+            louvain_communities(&graph, 1.0, "weight", 1.0e-7, None, Some(3), PYTHON_SUM)
+                .expect("unweighted digraph runs natively");
+        communities.sort();
+        assert_eq!(
+            communities,
+            vec![vec!["a", "b", "c", "d"], vec!["e", "f", "g", "h"]]
+        );
+    }
+
+    #[test]
+    fn louvain_declines_where_networkx_raises_or_its_ints_leave_f64() {
+        let weighted = |weight: CgseValue| {
+            let mut g = Graph::strict();
+            g.add_edge_with_attrs("a", "b", BTreeMap::from([("weight".to_owned(), weight)]))
+                .expect("edge add should succeed");
+            let _ = g.add_edge("b", "c");
+            g
+        };
+        let run =
+            |g: &Graph| louvain_communities(g, 1.0, "weight", 1.0e-7, None, Some(1), PYTHON_SUM);
+        // `str + int` raises in networkx.
+        assert!(run(&weighted(CgseValue::String("heavy".to_owned()))).is_none());
+        // m == 0: networkx divides by zero.
+        let mut zero = Graph::strict();
+        zero.add_edge_with_attrs(
+            "a",
+            "b",
+            BTreeMap::from([("weight".to_owned(), CgseValue::Int(0))]),
+        )
+        .expect("edge add should succeed");
+        assert!(run(&zero).is_none());
+        // Int weights past the exact envelope; one inside it still runs.
+        assert!(run(&weighted(CgseValue::Int(1 << 25))).is_none());
+        assert!(run(&weighted(CgseValue::Int(1 << 20))).is_some());
+        assert!(run(&weighted(CgseValue::Float(2.5))).is_some());
     }
 
     #[test]

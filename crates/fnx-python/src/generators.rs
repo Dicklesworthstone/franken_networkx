@@ -25,7 +25,7 @@ const MAX_NATIVE_RARY_N: usize = 100_000;
 /// state goes back even when the kernel fails, since networkx also consumes
 /// its draws before raising. The Python wrappers pass an int or an exact
 /// `random.Random`; a numpy-backed generator never reaches a kernel.
-fn with_python_random<T>(
+pub(crate) fn with_python_random<T>(
     seed: &Bound<'_, PyAny>,
     kernel: impl FnOnce(&mut PythonRandom) -> PyResult<T>,
 ) -> PyResult<T> {

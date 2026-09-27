@@ -240,12 +240,19 @@ def louvain_communities(
 ):
     """Find communities via the Louvain algorithm.
 
-    br-r37-c1-louvainsubmod / br-r37-c1-cy2me: nx's multi-level
-    Louvain produces wrong partitions when called on an fnx Graph
-    without conversion. Convert via ``_networkx_graph_for_parity``
-    then dispatch through nx.algorithms.community.louvain_communities.
-    Previously this routed through ``_fnx.louvain_communities``
-    (top-level), which was hidden in br-r37-c1-uwm5v.
+    br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.5: the four graph classes
+    run the native kernel, which follows networkx's ``louvain_partitions``
+    step for step - ``_convert_multigraph``, its level graphs' row order, its
+    int / float sums, its directed and undirected gain expressions and
+    ``seed.shuffle`` on the same generator (``seed=None`` draws from
+    ``random._inst``, a ``random.Random`` is advanced as networkx advances
+    it) - so weighted graphs, self-loops and every seed networkx resolves to
+    a ``random.Random`` give networkx's partition. The kernel returns
+    ``None`` where networkx must run instead: a weight it cannot add as
+    networkx does (a NumPy scalar, a Fraction, a string), or an input
+    networkx raises on. Everything else - a graph view or subclass, a
+    numpy-backed seed - converts via ``_networkx_graph_for_parity`` and runs
+    networkx (br-r37-c1-louvainsubmod / br-r37-c1-cy2me).
 
     Accepts ``backend=`` and arbitrary backend kwargs to match nx's
     public signature (``nx.community.louvain_communities`` exposes
@@ -256,50 +263,30 @@ def louvain_communities(
     _fnx._validate_backend_dispatch_keywords(
         "louvain_communities", backend, backend_kwargs
     )
-    native_seed = (
-        seed
-        if isinstance(seed, int)
-        and not isinstance(seed, bool)
-        and 0 <= seed <= 0xFFFF_FFFF_FFFF_FFFF
-        else None
-    )
-    native_max_level = (
-        max_level
-        if max_level is None
-        or (
-            isinstance(max_level, int)
-            and not isinstance(max_level, bool)
-            and max_level > 0
-        )
-        else None
-    )
+    # networkx's decorator resolves the seed before the body runs.
+    kernel_seed = _fnx._kernel_seed(seed)
+    native_resolution = _as_exact_float(resolution)
+    native_threshold = _as_exact_float(threshold)
     if (
-        type(G) is _fnx.Graph
-        and native_seed is not None
-        and native_max_level == max_level
-        and isinstance(weight, str)
-        and isinstance(resolution, (int, float))
-        and isinstance(threshold, (int, float))
-        and not isinstance(resolution, bool)
-        and not isinstance(threshold, bool)
-        and _math.isfinite(float(resolution))
-        and _math.isfinite(float(threshold))
-        and float(threshold) >= 0.0
-        and G.number_of_edges() > 0
-        and _fnx.number_of_selfloops(G) == 0
-        and not _fnx._graph_has_edge_attribute(G, weight)
+        kernel_seed is not None
+        and type(G) in (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+        and (max_level is None or (type(max_level) is int and max_level > 0))
+        and type(weight) is str
+        and native_resolution is not None
+        and native_threshold is not None
+        and _math.isfinite(native_resolution)
+        and _math.isfinite(native_threshold)
     ):
-        return [
-            set(community)
-            for community in _fnx._raw_louvain_communities(
-                G,
-                weight,
-                float(resolution),
-                float(threshold),
-                native_max_level,
-                native_seed,
-            )
-        ]
+        communities = _fnx._raw_louvain_communities(
+            G,
+            weight,
+            float(native_resolution),
+            float(native_threshold),
+            max_level,
+            kernel_seed,
+        )
+        if communities is not None:
+            return [set(community) for community in communities]
 
     # br-r37-c1-egjfn: ``backend="networkx"`` is load-bearing, not decoration.
     # ``louvain_communities`` is a registered entry of

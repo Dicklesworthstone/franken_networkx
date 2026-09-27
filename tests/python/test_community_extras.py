@@ -245,6 +245,151 @@ def test_louvain_communities_matches_networkx_for_multilevel_controls(kwargs):
     _assert_partition_equal(result, expected)
 
 
+def _louvain_fixture_edges():
+    """Edge lists (u, v, attrs) where networkx's partition depends on the
+    weights, the self-loops, the int / float split and the row order."""
+    import random
+
+    rng = random.Random(3)
+    ba = nx.barabasi_albert_graph(120, 3, seed=4)
+    yield "les_miserables", list(nx.les_miserables_graph().edges(data=True))
+    yield "float weights", [(u, v, {"weight": rng.uniform(0.1, 5.0)}) for u, v in ba.edges()]
+    yield "self-loops", [(u, v, {"weight": rng.uniform(0.5, 2.0)}) for u, v in ba.edges()] + [
+        (n, n, {"weight": rng.uniform(0.5, 3.0)}) for n in range(0, 120, 7)
+    ]
+    yield "int, float and bool weights", [
+        (u, v, {"weight": rng.choice([1, 2, 0.5, 1.25, True])}) for u, v in ba.edges()
+    ]
+    yield "some weights missing", [
+        (u, v, {"weight": 3} if (u * v) % 4 == 0 else {}) for u, v in ba.edges()
+    ]
+
+
+def _louvain_pair(edges):
+    graph, nx_graph = fnx.Graph(), nx.Graph()
+    for g in (graph, nx_graph):
+        g.add_edges_from(edges)
+    return graph, nx_graph
+
+
+@pytest.fixture
+def louvain_fallbacks(monkeypatch):
+    """Count the calls ``community.louvain_communities`` hands to networkx."""
+    import franken_networkx.community as fnx_community
+
+    reference = nx.community.louvain_communities
+    calls = []
+
+    def counting(*args, **kwargs):
+        calls.append(args[0])
+        return reference(*args, **kwargs)
+
+    monkeypatch.setattr(fnx_community._nx_community, "louvain_communities", counting)
+    return reference, calls
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"resolution": 0.5}, {"resolution": 2, "threshold": 0}, {"max_level": 1}])
+def test_louvain_communities_native_matches_networkx_over_a_seed_sweep(kwargs, louvain_fallbacks):
+    """br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.5: weighted graphs,
+    self-loops and mixed int / float weights run the native kernel and give
+    networkx's partition, list order included, for every seed."""
+    reference, fallbacks = louvain_fallbacks
+    for name, edges in _louvain_fixture_edges():
+        graph, nx_graph = _louvain_pair(edges)
+        for seed in range(15):
+            expected = reference(nx_graph, seed=seed, **kwargs)
+            assert fnx.community.louvain_communities(graph, seed=seed, **kwargs) == expected, (name, seed)
+    assert fallbacks == []
+
+
+def test_louvain_communities_sweep_depends_on_the_weights():
+    """The sweep above can only catch a kernel that drops the weights if
+    networkx's weighted partition differs from its unweighted one there."""
+    for name, edges in _louvain_fixture_edges():
+        nx_graph = nx.Graph(edges)
+        unweighted = nx.Graph(nx_graph.edges())
+        assert any(
+            nx.community.louvain_communities(nx_graph, seed=seed)
+            != nx.community.louvain_communities(unweighted, seed=seed)
+            for seed in range(15)
+        ), name
+
+
+@pytest.mark.parametrize(
+    "classes",
+    [(fnx.DiGraph, nx.DiGraph), (fnx.MultiGraph, nx.MultiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],
+    ids=["DiGraph", "MultiGraph", "MultiDiGraph"],
+)
+def test_louvain_communities_native_matches_networkx_on_every_graph_class(classes, louvain_fallbacks):
+    """Directed gains, ``_convert_multigraph``'s merged parallel edges and
+    self-loops, natively, for every seed."""
+    import random
+
+    reference, fallbacks = louvain_fallbacks
+    fnx_class, nx_class = classes
+    rng = random.Random(9)
+    edges = []
+    for u, v in nx.barabasi_albert_graph(120, 2, seed=6).edges():
+        edges.append((u, v, {"weight": rng.choice([1, 2, 1.5])}))
+        if (u + v) % 3 == 0:
+            # a second arc, or a parallel edge (MultiGraph)
+            edges.append((v, u, {"weight": rng.uniform(0.2, 1.0)}))
+        if (u * v) % 5 == 0:
+            # a parallel edge (both multigraphs), or a new weight (DiGraph)
+            edges.append((u, v, {"weight": rng.choice([3, 0.5])}))
+    edges += [(n, n, {"weight": 2}) for n in range(0, 120, 11)] * 2
+    graph, nx_graph = fnx_class(), nx_class()
+    for g in (graph, nx_graph):
+        g.add_edges_from(edges)
+    for seed in range(15):
+        for kwargs in ({}, {"resolution": 0.7}):
+            expected = reference(nx_graph, seed=seed, **kwargs)
+            assert fnx.community.louvain_communities(graph, seed=seed, **kwargs) == expected, (seed, kwargs)
+    assert fallbacks == []
+    unweighted = nx_class(list(nx_graph.edges()))
+    assert any(reference(nx_graph, seed=seed) != reference(unweighted, seed=seed) for seed in range(15))
+
+
+def test_louvain_communities_advances_the_callers_generator_as_networkx_does(louvain_fallbacks):
+    import random
+
+    reference, fallbacks = louvain_fallbacks
+    graph, nx_graph = _louvain_pair(dict(_louvain_fixture_edges())["float weights"])
+    for k in range(3):
+        mine, theirs = random.Random(k), random.Random(k)
+        assert fnx.community.louvain_communities(graph, seed=mine) == reference(nx_graph, seed=theirs)
+        assert mine.getstate() == theirs.getstate()
+
+        # seed=None draws from the global generator.
+        random.seed(100 + k)
+        expected = reference(nx_graph)
+        expected_state = random.getstate()
+        random.seed(100 + k)
+        assert fnx.community.louvain_communities(graph) == expected
+        assert random.getstate() == expected_state
+    assert fallbacks == []
+
+
+def test_louvain_communities_runs_networkx_for_weights_it_cannot_add_natively(louvain_fallbacks):
+    """A Fraction keeps exact arithmetic in networkx; a string makes it raise.
+    Neither may run on the kernel's floats."""
+    from fractions import Fraction
+
+    reference, fallbacks = louvain_fallbacks
+    edges = [(u, v, {"weight": Fraction(1 + (u + v) % 3, 2)}) for u, v in nx.karate_club_graph().edges()]
+    graph, nx_graph = _louvain_pair(edges)
+    assert fnx.community.louvain_communities(graph, seed=3) == reference(nx_graph, seed=3)
+    assert len(fallbacks) == 1
+
+    graph.add_edge(0, 1, weight="heavy")
+    nx_graph.add_edge(0, 1, weight="heavy")
+    with pytest.raises(TypeError) as expected:
+        reference(nx_graph, seed=3)
+    with pytest.raises(TypeError) as actual:
+        fnx.community.louvain_communities(graph, seed=3)
+    assert str(actual.value) == str(expected.value)
+
+
 def test_louvain_communities_max_level_error_contract_matches_networkx():
     graph = fnx.path_graph(4)
     nx_graph = _to_nx(graph)
