@@ -260,6 +260,14 @@ pub(crate) fn require_hashable_node_key(key: &Bound<'_, PyAny>) -> PyResult<()> 
     hash_key_as_dict_would(key)
 }
 
+/// br-r37-c1-qaqog: an exact built-in `str` or `int` (bool excluded - it is
+/// not an exact int) - the node keys the lookaside's Rust tables resolve, and
+/// whose hash can neither raise nor be observed, so an index route may
+/// resolve them in any order.
+pub(crate) fn exact_int_or_str_node(key: &Bound<'_, PyAny>) -> bool {
+    key.is_exact_instance_of::<PyString>() || key.is_exact_instance_of::<PyInt>()
+}
+
 /// `PyObject_Hash`, reporting a failure the way a DICT SUBSCRIPT reports it.
 ///
 /// br-r37-c1-q32e6: CPython 3.14 gives a dict subscript a longer `TypeError`
@@ -7909,6 +7917,24 @@ impl PyMultiGraph {
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
+        // br-r37-c1-qaqog: sfq4w.3's Rust tables, as PyGraph resolves - exact
+        // `str` and exact `int` keys through the lookaside's own maps instead
+        // of a Python dict probe or a canonical String; anything else keeps
+        // the dict probe.
+        if let Ok(text) = key.downcast_exact::<PyString>() {
+            return self.has_edge_node_index_cache.exact_str_position(
+                py,
+                self.nodes_seq,
+                text,
+                || Ok(self.inner.get_node_index(&node_key_to_string(py, key)?)),
+            );
+        }
+        if key.is_exact_instance_of::<PyInt>()
+            && let Ok(value) = key.extract::<i64>()
+        {
+            let [index] = self.cached_exact_int_node_indices(py, [value]);
+            return Ok(index);
+        }
         if let Some(index) = self
             .has_edge_node_index_cache
             .get(py, self.nodes_seq, key)?
@@ -7923,6 +7949,21 @@ impl PyMultiGraph {
         self.has_edge_node_index_cache
             .insert(py, public_key.bind(py), index)?;
         Ok(Some(index))
+    }
+
+    /// br-r37-c1-qaqog: the positions of the nodes exact built-in ints name
+    /// (an int's canonical key is its bare decimal), through the lookaside's
+    /// Rust map - PyGraph's `cached_exact_int_node_indices`.
+    fn cached_exact_int_node_indices<const N: usize>(
+        &self,
+        py: Python<'_>,
+        keys: [i64; N],
+    ) -> [Option<usize>; N] {
+        self.has_edge_node_index_cache
+            .exact_int_positions_of(py, self.nodes_seq, keys, |key| {
+                let mut buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+                self.inner.get_node_index(write_int_decimal(&mut buf, key))
+            })
     }
 
     #[inline]
@@ -12763,10 +12804,9 @@ impl PyMultiGraph {
         // strings; nodes_seq invalidation preserves compact-index correctness
         // across removal/re-add.  Explicit edge keys and every non-exact string
         // shape retain the established canonical fallback below.
-        if key.is_none()
-            && u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
-        {
+        // br-r37-c1-qaqog: exact ints off their own index take it too, through
+        // the lookaside's int map.
+        if key.is_none() && exact_int_or_str_node(u) && exact_int_or_str_node(v) {
             let u_index = self.cached_exact_string_node_index(py, u)?;
             let v_index = self.cached_exact_string_node_index(py, v)?;
             return Ok(u_index
@@ -12797,9 +12837,14 @@ impl PyMultiGraph {
         // all of which are always hashable, so no user `__hash__` can run and
         // the resolution order is unobservable. An absent endpoint still returns
         // False without touching the other.
+        //
+        // br-r37-c1-qaqog: exact-int endpoints take it too (always hashable
+        // the same way) - they had no keyed route and paid two canonical
+        // Strings, two String-keyed lookups and the key scan: 0.62-0.70x
+        // networkx on has_edge(u, v, 0), 0.57-0.60x on (u, v, 0) in G.edges.
         if !self.has_remapped_int_key
-            && u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+            && exact_int_or_str_node(u)
+            && exact_int_or_str_node(v)
             && let Some(edge_key) = key
             && edge_key.is_exact_instance_of::<PyInt>()
             && let Ok(internal_key) = edge_key.extract::<usize>()
@@ -12821,16 +12866,21 @@ impl PyMultiGraph {
             return Ok(false);
         }
         require_hashable_node_key(v)?;
-        if let Some(edge_key) = key {
-            hash_key_as_dict_would(edge_key)?;
-        }
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
-            Some(edge_key) => self
-                .resolve_internal_edge_key(py, &u_c, &v_c, edge_key)?
-                .is_some_and(|internal_key| {
-                    self.inner.edge_attrs(&u_c, &v_c, internal_key).is_some()
-                }),
+            Some(edge_key) => {
+                // br-r37-c1-qaqog: networkx's `key in self._adj[u][v]` hashes
+                // the key only once the pair's keydict is reached - an absent
+                // pair answers False first, even for an unhashable key.
+                if !self.inner.has_edge(&u_c, &v_c) {
+                    return Ok(false);
+                }
+                hash_key_as_dict_would(edge_key)?;
+                self.resolve_internal_edge_key(py, &u_c, &v_c, edge_key)?
+                    .is_some_and(|internal_key| {
+                        self.inner.edge_attrs(&u_c, &v_c, internal_key).is_some()
+                    })
+            }
             None => self.inner.has_edge(&u_c, &v_c),
         })
     }

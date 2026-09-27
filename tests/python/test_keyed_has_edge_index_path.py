@@ -139,7 +139,9 @@ def test_non_integer_and_remapped_keys_keep_the_string_path(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-def test_non_string_endpoints_keep_the_string_path(cls_name):
+def test_int_and_tuple_endpoints_answer_as_networkx(cls_name):
+    # Exact ints take the index path since br-r37-c1-qaqog; tuples keep the
+    # string path. Both must answer as networkx does.
     gnx, gfx = _pair(cls_name)
     for g in (gnx, gfx):
         g.add_edge(1, 2, weight=1.0)
@@ -489,3 +491,105 @@ def test_number_of_edges_tracks_mutations_through_the_lookaside(cls_name):
     for graph in (gnx, gfx):
         graph.remove_node("a2")             # renumbers every later node
     agree()
+
+
+# ------------------------------------ br-r37-c1-qaqog: exact-int endpoints
+#
+# Int endpoints now resolve through the lookaside's Rust int map (as PyGraph /
+# PyDiGraph do since sfq4w.3) on both the keyed and the keyless route. The
+# risks are the same two index spaces (a position handed to the slot store
+# after a removal), the int map going stale across node removal and re-add,
+# and the gate: bool endpoints (True == 1 in a dict), float nodes equal to an
+# int, ints past i64, remapped int keys and unhashable keys must answer
+# exactly as before - as networkx does.
+
+INT_SEQUENCES = [
+    ("plain", []),
+    ("remove an early node", [("delnode", 5)]),
+    ("remove then re-add a node", [("delnode", 3), ("add", 3, 12)]),
+    ("parallel keys then drop one", [("addkey", 5, 3), ("del", 5, 3)]),
+    ("clear edges then re-add", [("clear", None), ("add", 9, 5)]),
+]
+
+
+def _int_graphs(cls_name):
+    gnx, gfx = _pair(cls_name)
+    # Out of insertion order, so positions are not the ints themselves.
+    edges = [(5, 3), (9, 5), (3, 12), (12, 9), (7, 7), (5, 3), (40, 5)]
+    for g in (gnx, gfx):
+        g.add_edges_from(edges)
+    return gnx, gfx
+
+
+def _int_pairs_agree(gnx, gfx, nodes):
+    for a in nodes:
+        for b in nodes:
+            assert gfx.has_edge(a, b) == gnx.has_edge(a, b), (a, b)
+            assert ((a, b) in gfx.edges) == ((a, b) in gnx.edges), (a, b)
+            for key in (0, 1, 2, 7):
+                assert gfx.has_edge(a, b, key) == gnx.has_edge(a, b, key), (a, b, key)
+                assert ((a, b, key) in gfx.edges) == ((a, b, key) in gnx.edges), (a, b, key)
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+@pytest.mark.parametrize("label,steps", INT_SEQUENCES, ids=[s[0] for s in INT_SEQUENCES])
+def test_int_endpoints_agree_with_networkx_through_mutations(cls_name, label, steps):
+    gnx, gfx = _int_graphs(cls_name)
+    nodes = [5, 3, 9, 12, 7, 40, 99]
+    _int_pairs_agree(gnx, gfx, nodes)  # builds the int map before mutating
+    for op, *args in steps:
+        for g in (gnx, gfx):
+            if op == "delnode" and g.has_node(args[0]):
+                g.remove_node(args[0])
+            elif op == "add":
+                g.add_edge(*args)
+            elif op == "addkey":
+                g.add_edge(*args, key=2)
+            elif op == "del" and g.has_edge(*args):
+                g.remove_edge(*args)
+            elif op == "clear":
+                g.clear_edges()
+        _int_pairs_agree(gnx, gfx, nodes)
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_bool_float_and_huge_int_endpoints_answer_as_networkx(cls_name):
+    gnx, gfx = _pair(cls_name)
+    huge = 2**70
+    for g in (gnx, gfx):
+        g.add_edge(1, 2)
+        g.add_edge(3.0, 4)
+        g.add_edge(huge, 0)
+    probes = [(True, 2), (1, 2), (3, 4), (3.0, 4), (huge, 0), (0, huge), (False, huge)]
+    for a, b in probes:
+        for key in (None, 0, 1):
+            ok, want, got = _same_has_edge(gnx, gfx, a, b, key)
+            assert ok, f"{a!r},{b!r},{key}: nx={want} fnx={got}"
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_int_endpoints_with_a_remapped_or_odd_key_answer_as_networkx(cls_name):
+    gnx, gfx = _pair(cls_name)
+    for g in (gnx, gfx):
+        g.add_edge(5, 3, key=7)  # an int key other than the auto key
+        g.add_edge(5, 3)
+        g.add_edge(9, 5, key="s")
+    for a, b in [(5, 3), (3, 5), (9, 5), (5, 9)]:
+        for key in (0, 1, 7, "s", 1.0, True, -1):
+            ok, want, got = _same_has_edge(gnx, gfx, a, b, key)
+            assert ok, f"{a!r},{b!r},{key!r}: nx={want} fnx={got}"
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_int_endpoints_with_an_unhashable_key_raise_as_networkx(cls_name):
+    gnx, gfx = _pair(cls_name)
+    for g in (gnx, gfx):
+        g.add_edge(5, 3)
+    for a, b in [(5, 3), (5, 99)]:
+        outcomes = []
+        for g in (gnx, gfx):
+            try:
+                outcomes.append(("ok", g.has_edge(a, b, [])))
+            except TypeError as exc:
+                outcomes.append(("TypeError", str(exc)))
+        assert outcomes[0] == outcomes[1], (a, b, outcomes)
