@@ -226,3 +226,109 @@ def test_k_sampled_betweenness_takes_numpy_seeds_like_networkx(edge, k, kind):
     for key in nr:
         # k=1 rescales by 1/(k-1)-style factors to NaN on both sides.
         assert fr[key] == pytest.approx(nr[key], abs=1e-12, nan_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-quim8: a seed given without k, and weighted k-sampled calls, run
+# native - equal to networkx bit for bit, and never through the Python port.
+# ---------------------------------------------------------------------------
+
+
+def _weighted_twins(n, directed, seed=5):
+    r = random.Random(seed)
+    base = nx.gnp_random_graph(n, 6.0 / n, seed=seed, directed=directed)
+    edges = [(u, v, {"weight": r.choice([1, 2, 3, 0.5, 1.5])}) for u, v in base.edges()]
+    graphs = []
+    for lib in (fnx, nx):
+        g = lib.DiGraph() if directed else lib.Graph()
+        g.add_nodes_from(range(n))
+        g.add_edges_from(edges)
+        graphs.append(g)
+    return graphs
+
+
+@pytest.fixture
+def python_port_calls(monkeypatch):
+    """Count the calls that reach the in-process networkx port."""
+    calls = []
+    for name in ("_betweenness_centrality_inproc", "_edge_betweenness_centrality_inproc"):
+        original = getattr(fnx, name)
+
+        def counting(*args, _original=original, _name=name, **kwargs):
+            calls.append(_name)
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(fnx, name, counting)
+    return calls
+
+
+@pytest.mark.parametrize("seed", [0, 3, random.Random(9)], ids=["0", "3", "Random"])
+def test_seed_without_k_runs_native_and_equal(seed, python_port_calls):
+    """networkx draws from seed only to sample k sources; with k=None the
+    call is the full computation, native."""
+    for n in (60, 450):  # 450: the parallel source arm
+        fg, ng = _weighted_twins(n, directed=False)
+        for kwargs in ({}, {"weight": "weight"}, {"endpoints": True}):
+            assert fnx.betweenness_centrality(fg, seed=seed, **kwargs) == nx.betweenness_centrality(
+                ng, seed=seed, **kwargs
+            ), (n, kwargs)
+        for kwargs in ({}, {"weight": "weight"}):
+            assert fnx.edge_betweenness_centrality(fg, seed=seed, **kwargs) == nx.edge_betweenness_centrality(
+                ng, seed=seed, **kwargs
+            ), (n, kwargs)
+    assert python_port_calls == []
+
+
+@pytest.mark.parametrize("directed", [False, True], ids=["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"endpoints": True}, {"normalized": False}, {"normalized": False, "endpoints": True}],
+    ids=["default", "endpoints", "unnormalized", "unnormalized-endpoints"],
+)
+def test_weighted_k_sampled_betweenness_is_native_and_bit_exact(directed, kwargs, python_port_calls):
+    for n in (60, 450):
+        fg, ng = _weighted_twins(n, directed)
+        for seed in (1, 4, 11):
+            for k in (1, 7, n // 3):
+                want = nx.betweenness_centrality(ng, k=k, seed=seed, weight="weight", **kwargs)
+                got = fnx.betweenness_centrality(fg, k=k, seed=seed, weight="weight", **kwargs)
+                assert list(got) == list(want)
+                differ = [
+                    node for node in want
+                    if got[node] != want[node] and not (got[node] != got[node] and want[node] != want[node])
+                ]
+                assert not differ, (n, seed, k, differ[:3])
+    assert python_port_calls == []
+
+
+def test_weighted_k_sampled_advances_a_random_instance_as_networkx_does():
+    fg, ng = _weighted_twins(80, directed=False)
+    mine, theirs = random.Random(21), random.Random(21)
+    for _ in range(3):
+        assert fnx.betweenness_centrality(fg, k=10, seed=mine, weight="weight") == nx.betweenness_centrality(
+            ng, k=10, seed=theirs, weight="weight"
+        )
+    assert mine.getstate() == theirs.getstate()
+
+
+def test_invalid_seed_raises_networkx_error_without_k():
+    fg, ng = _weighted_twins(20, directed=False)
+    for fn in ("betweenness_centrality", "edge_betweenness_centrality"):
+        with pytest.raises(ValueError) as expected:
+            getattr(nx, fn)(ng, seed="not a seed")
+        with pytest.raises(ValueError) as actual:
+            getattr(fnx, fn)(fg, seed="not a seed")
+        assert str(actual.value) == str(expected.value)
+
+
+def test_weighted_k_sampled_with_a_negative_weight_runs_networkx(python_port_calls):
+    """The native kernels take non-negative weights only; networkx's own
+    Dijkstra runs on anything, so a negative weight goes to the port."""
+    fg, ng = _weighted_twins(40, directed=False)
+    u, v = next(iter(ng.edges()))
+    for g in (fg, ng):
+        g[u][v]["weight"] = -1
+    assert fnx.betweenness_centrality(fg, k=10, seed=2, weight="weight") == nx.betweenness_centrality(
+        ng, k=10, seed=2, weight="weight"
+    )
+    assert python_port_calls == ["_betweenness_centrality_inproc"]

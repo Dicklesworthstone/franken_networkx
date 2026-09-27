@@ -15597,6 +15597,13 @@ def betweenness_centrality(
     **backend_kwargs,
 ):
     """Compute betweenness centrality for nodes."""
+    # networkx's @py_random_state wraps its dispatcher, so the seed is
+    # resolved - and an invalid one raises - before anything else. It is
+    # only DRAWN from to sample k sources: with k=None it changes nothing,
+    # and routing on `seed is not None` sent betweenness_centrality(G,
+    # seed=1) to the Python port, 0.99x networkx where the same call without
+    # the seed is 25.9x (br-r37-c1-quim8).
+    rng = _create_py_random_state(seed)
     _validate_backend_dispatch_keywords("betweenness_centrality", backend, backend_kwargs)
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
@@ -15609,20 +15616,31 @@ def betweenness_centrality(
     # all finite, non-negative and numeric (nx requires weights > 0 for
     # betweenness); a callable/non-string weight, a multigraph, or any
     # negative / +inf / non-numeric weight delegates to nx for exact parity.
-    if k is None and seed is None and isinstance(weight, str) and not G.is_multigraph():
+    # br-r37-c1-quim8: a k-sampled call takes it too, over the sources
+    # networkx samples.
+    if isinstance(weight, str) and not G.is_multigraph():
         _sync_rust_edge_attrs(G)
         if not (
             _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
             or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
             or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
         ):
-            return _raw_betweenness_centrality(
+            if k is None or k == len(G):
+                return _raw_betweenness_centrality(
+                    G,
+                    k=None,
+                    normalized=normalized,
+                    weight=weight,
+                    endpoints=endpoints,
+                    seed=None,
+                )
+            sampled_nodes = _betweenness_sampled_sources(G, rng, k, endpoints)
+            return _betweenness_centrality_sampled_rust(
                 G,
-                k=None,
+                sampled_nodes,
                 normalized=normalized,
-                weight=weight,
                 endpoints=endpoints,
-                seed=None,
+                weight=weight,
             )
 
     # br-r37-c1-8ox3z: k-sampled unweighted betweenness was the remaining common
@@ -15631,7 +15649,6 @@ def betweenness_centrality(
     # substrate. Keep nx's exact source sampling semantics in Python, then run the
     # sampled source list through native Brandes with nx's sampled rescale.
     if k is not None and weight is None and not G.is_multigraph():
-        rng = _create_py_random_state(seed)
         if k == len(G):
             return _raw_betweenness_centrality(
                 G,
@@ -15641,16 +15658,7 @@ def betweenness_centrality(
                 endpoints=endpoints,
                 seed=None,
             )
-        sampled_nodes = rng.sample(list(G.nodes()), k)
-        if not isinstance(sampled_nodes, list):
-            # br-r37-c1-cdf1v: networkx's wrapper for a numpy RandomState
-            # samples with rng.choice, an ndarray ('if not sampled_nodes'
-            # raised); tolist() gives the node values back.
-            sampled_nodes = sampled_nodes.tolist()
-        if not sampled_nodes and (len(G) if endpoints else len(G) - 1) >= 2:
-            # networkx's _rescale divides by the sample size once N >= 2; the
-            # native rescale's float 0/0 would return NaN for every node.
-            raise ZeroDivisionError("division by zero")
+        sampled_nodes = _betweenness_sampled_sources(G, rng, k, endpoints)
         return _betweenness_centrality_sampled_rust(
             G,
             sampled_nodes,
@@ -15658,7 +15666,7 @@ def betweenness_centrality(
             endpoints=endpoints,
         )
 
-    if k is not None or weight is not None or seed is not None:
+    if k is not None or weight is not None:
         return _betweenness_centrality_inproc(
             G,
             k=k,
@@ -15674,8 +15682,23 @@ def betweenness_centrality(
         normalized=normalized,
         weight=weight,
         endpoints=endpoints,
-        seed=seed,
+        seed=None,
     )
+
+
+def _betweenness_sampled_sources(G, rng, k, endpoints):
+    """networkx's ``seed.sample(list(G.nodes()), k)`` for sampled betweenness."""
+    sampled_nodes = rng.sample(list(G.nodes()), k)
+    if not isinstance(sampled_nodes, list):
+        # br-r37-c1-cdf1v: networkx's wrapper for a numpy RandomState
+        # samples with rng.choice, an ndarray ('if not sampled_nodes'
+        # raised); tolist() gives the node values back.
+        sampled_nodes = sampled_nodes.tolist()
+    if not sampled_nodes and (len(G) if endpoints else len(G) - 1) >= 2:
+        # networkx's _rescale divides by the sample size once N >= 2; the
+        # native rescale's float 0/0 would return NaN for every node.
+        raise ZeroDivisionError("division by zero")
+    return sampled_nodes
 
 
 def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
@@ -32561,6 +32584,10 @@ def edge_betweenness_centrality(
     dict
         Dictionary of edges with betweenness centrality as value.
     """
+    # networkx's @py_random_state resolves - and validates - the seed before
+    # anything else, and draws from it only to sample k sources; with k=None
+    # it must not route the call (br-r37-c1-quim8, as betweenness_centrality).
+    rng = _create_py_random_state(seed)
     G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "edge_betweenness_centrality", backend, backend_kwargs
@@ -32575,13 +32602,7 @@ def edge_betweenness_centrality(
     # values are all finite, non-negative and numeric; callable/non-string
     # weight, multigraph, negative/+inf/non-numeric weight, non-normalized, and
     # k/seed sampling all delegate to nx for exact parity.
-    if (
-        k is None
-        and seed is None
-        and normalized
-        and isinstance(weight, str)
-        and not G.is_multigraph()
-    ):
+    if k is None and normalized and isinstance(weight, str) and not G.is_multigraph():
         _sync_rust_edge_attrs(G)
         if not (
             _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
@@ -32602,7 +32623,6 @@ def edge_betweenness_centrality(
     # plus nx's sampled-edge rescale. Keep sampling in Python so seed semantics
     # stay identical, then reuse the existing native subset edge-Brandes kernel.
     if k is not None and weight is None and not G.is_multigraph():
-        rng = _create_py_random_state(seed)
         sampled_nodes = rng.sample(list(G.nodes()), k)
         if not isinstance(sampled_nodes, list):
             # br-r37-c1-cdf1v: a numpy RandomState's wrapper returns an ndarray.
@@ -32622,7 +32642,7 @@ def edge_betweenness_centrality(
         return scores
 
     # Delegate to NetworkX for unsupported parameters
-    if k is not None or not normalized or weight is not None or seed is not None:
+    if k is not None or not normalized or weight is not None:
         return _edge_betweenness_centrality_inproc(
             G,
             k=k,

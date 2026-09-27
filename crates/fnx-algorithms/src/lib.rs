@@ -5878,6 +5878,69 @@ fn brandes_build_csr<G: GraphView>(
     (offsets, targets, in_offsets, in_targets)
 }
 
+/// networkx's `_rescale(..., sampled_nodes=...)` for betweenness summed over
+/// the sampled sources `source_idx`: one scale with `endpoints`, else the
+/// sampled nodes (which lose their own source) get `scale_source` and the
+/// others `scale_nonsource`.
+fn brandes_rescale_sampled(
+    centrality: &mut [f64],
+    source_idx: &[usize],
+    normalized: bool,
+    endpoints: bool,
+    directed: bool,
+) {
+    let n = centrality.len();
+    let pair_nodes = if endpoints { n } else { n.saturating_sub(1) };
+    if pair_nodes < 2 {
+        return;
+    }
+    let source_count = source_idx.len();
+    let source_count_f = source_count as f64;
+    let pair_nodes_f = pair_nodes as f64;
+    let correction = if directed { 1.0 } else { 2.0 };
+
+    if endpoints {
+        let scale = if normalized {
+            1.0 / (source_count_f * (pair_nodes_f - 1.0))
+        } else {
+            pair_nodes_f / (source_count_f * correction)
+        };
+        if scale != 1.0 {
+            for score in centrality.iter_mut() {
+                *score *= scale;
+            }
+        }
+        return;
+    }
+    let scale_source = if normalized {
+        if source_count > 1 {
+            1.0 / (((source_count - 1) as f64) * (pair_nodes_f - 1.0))
+        } else {
+            f64::NAN
+        }
+    } else if source_count > 1 {
+        pair_nodes_f / (((source_count - 1) as f64) * correction)
+    } else {
+        f64::NAN
+    };
+    let scale_nonsource = if normalized {
+        1.0 / (source_count_f * (pair_nodes_f - 1.0))
+    } else {
+        pair_nodes_f / (source_count_f * correction)
+    };
+    let mut sampled = vec![false; n];
+    for &source in source_idx {
+        sampled[source] = true;
+    }
+    for (i, score) in centrality.iter_mut().enumerate() {
+        *score *= if sampled[i] {
+            scale_source
+        } else {
+            scale_nonsource
+        };
+    }
+}
+
 fn betweenness_centrality_sampled_generic<G: GraphView>(
     graph: &G,
     sources: &[&str],
@@ -5972,54 +6035,13 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
         }
     }
 
-    let pair_nodes = if endpoints { n } else { n.saturating_sub(1) };
-    if pair_nodes >= 2 {
-        let source_count = source_idx.len();
-        let source_count_f = source_count as f64;
-        let pair_nodes_f = pair_nodes as f64;
-        let correction = if graph.is_directed() { 1.0 } else { 2.0 };
-
-        if endpoints {
-            let scale = if normalized {
-                1.0 / (source_count_f * (pair_nodes_f - 1.0))
-            } else {
-                pair_nodes_f / (source_count_f * correction)
-            };
-            if scale != 1.0 {
-                for score in &mut centrality {
-                    *score *= scale;
-                }
-            }
-        } else {
-            let scale_source = if normalized {
-                if source_count > 1 {
-                    1.0 / (((source_count - 1) as f64) * (pair_nodes_f - 1.0))
-                } else {
-                    f64::NAN
-                }
-            } else if source_count > 1 {
-                pair_nodes_f / (((source_count - 1) as f64) * correction)
-            } else {
-                f64::NAN
-            };
-            let scale_nonsource = if normalized {
-                1.0 / (source_count_f * (pair_nodes_f - 1.0))
-            } else {
-                pair_nodes_f / (source_count_f * correction)
-            };
-            let mut sampled = vec![false; n];
-            for &source in &source_idx {
-                sampled[source] = true;
-            }
-            for (i, score) in centrality.iter_mut().enumerate() {
-                *score *= if sampled[i] {
-                    scale_source
-                } else {
-                    scale_nonsource
-                };
-            }
-        }
-    }
+    brandes_rescale_sampled(
+        &mut centrality,
+        &source_idx,
+        normalized,
+        endpoints,
+        graph.is_directed(),
+    );
 
     let ordered_scores = nodes
         .iter()
@@ -6510,11 +6532,14 @@ fn weighted_brandes_source_delta(
 /// unweighted kernel. Parallelised over sources for large graphs with a chunked,
 /// source-ordered reduction (identical float summation order to the sequential
 /// path, so the result is bit-identical regardless of thread count).
+/// Weighted Brandes over every node as a source, or - `sources` given - over
+/// networkx's `seed.sample(...)` in its order, with the sampled rescale.
 fn betweenness_centrality_weighted_generic<G: GraphView>(
     graph: &G,
     weight_attr: Option<&str>,
     normalized: bool,
     endpoints: bool,
+    sources: Option<&[&str]>,
 ) -> BetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -6553,33 +6578,67 @@ fn betweenness_centrality_weighted_generic<G: GraphView>(
         .collect();
 
     let mut centrality = vec![0.0f64; n];
+    let source_idx: Vec<usize> = match sources {
+        Some(sources) => sources
+            .iter()
+            .filter_map(|source| index.get(source).copied())
+            .collect(),
+        None => (0..n).collect(),
+    };
 
+    // Per-source deltas are folded in source order, parallel or not, so the
+    // sums are networkx's.
     const WEIGHTED_BRANDES_PARALLEL_THRESHOLD: usize = 400;
-    if n >= WEIGHTED_BRANDES_PARALLEL_THRESHOLD {
+    if n >= WEIGHTED_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 {
         use rayon::prelude::*;
         let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
-        let mut start = 0usize;
-        while start < n {
-            let end = (start + chunk).min(n);
-            let chunk_results: Vec<Vec<f64>> = (start..end)
-                .into_par_iter()
-                .map(|s| weighted_brandes_source_delta(&adjacency, s, n, endpoints))
+        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
+        for chunk_sources in source_idx.chunks(chunk) {
+            let chunk_results: Vec<Vec<f64>> = chunk_sources
+                .par_iter()
+                .map(|&s| weighted_brandes_source_delta(&adjacency, s, n, endpoints))
                 .collect();
             for delta in chunk_results {
                 for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
                     *acc += *contribution;
                 }
             }
-            start = end;
         }
     } else {
-        for s in 0..n {
+        for &s in &source_idx {
             let delta = weighted_brandes_source_delta(&adjacency, s, n, endpoints);
             for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
                 *acc += *contribution;
             }
         }
+    }
+
+    if sources.is_some() {
+        brandes_rescale_sampled(
+            &mut centrality,
+            &source_idx,
+            normalized,
+            endpoints,
+            graph.is_directed(),
+        );
+        let ordered_scores = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| CentralityScore {
+                node: (*node).to_owned(),
+                score: centrality[i],
+            })
+            .collect();
+        return BetweennessCentralityResult {
+            scores: ordered_scores,
+            witness: ComplexityWitness {
+                algorithm: "brandes_betweenness_centrality_weighted_sampled".to_owned(),
+                complexity_claim: "O(|S| * (|E| + |V| log |V|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
     }
 
     let pair_base = if endpoints { n } else { n.saturating_sub(1) };
@@ -6622,7 +6681,7 @@ pub fn betweenness_centrality_weighted(
     normalized: bool,
     endpoints: bool,
 ) -> BetweennessCentralityResult {
-    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints)
+    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints, None)
 }
 
 /// Weighted Brandes betweenness for a directed `DiGraph` (out-edge projection).
@@ -6633,7 +6692,44 @@ pub fn betweenness_centrality_weighted_directed(
     normalized: bool,
     endpoints: bool,
 ) -> BetweennessCentralityResult {
-    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints)
+    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints, None)
+}
+
+/// networkx's `betweenness_centrality(G, k=..., weight=...)` over the sources
+/// networkx sampled, in the order it sampled them.
+#[must_use]
+pub fn betweenness_centrality_weighted_sampled(
+    graph: &Graph,
+    sources: &[&str],
+    weight_attr: Option<&str>,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_weighted_generic(
+        graph,
+        weight_attr,
+        normalized,
+        endpoints,
+        Some(sources),
+    )
+}
+
+/// [`betweenness_centrality_weighted_sampled`] for a `DiGraph`.
+#[must_use]
+pub fn betweenness_centrality_weighted_sampled_directed(
+    graph: &DiGraph,
+    sources: &[&str],
+    weight_attr: Option<&str>,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_weighted_generic(
+        graph,
+        weight_attr,
+        normalized,
+        endpoints,
+        Some(sources),
+    )
 }
 
 #[must_use]

@@ -8158,15 +8158,18 @@ pub fn betweenness_centrality(
     centrality_to_dict(py, &gr, &result.scores)
 }
 
-/// Compute unweighted betweenness centrality from a sampled source list.
+/// Compute betweenness centrality from a sampled source list - weighted
+/// (Dijkstra) when `weight` names the attribute, on a simple Graph or
+/// DiGraph whose weights the caller has checked (br-r37-c1-quim8).
 #[pyfunction]
-#[pyo3(signature = (g, sources, normalized=true, endpoints=false))]
+#[pyo3(signature = (g, sources, normalized=true, endpoints=false, weight=None))]
 pub fn betweenness_centrality_sampled_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     sources: Vec<Bound<'_, PyAny>>,
     normalized: bool,
     endpoints: bool,
+    weight: Option<&str>,
 ) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     let source_keys: Vec<String> = sources
@@ -8174,6 +8177,40 @@ pub fn betweenness_centrality_sampled_rust(
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let src_refs: Vec<&str> = source_keys.iter().map(String::as_str).collect();
+    if let Some(weight) = weight {
+        let result = match &gr {
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_weighted_sampled(
+                        inner,
+                        &src_refs,
+                        Some(weight),
+                        normalized,
+                        endpoints,
+                    )
+                })
+            }
+            GraphRef::Directed { dg, .. } => {
+                let inner = &dg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_weighted_sampled_directed(
+                        inner,
+                        &src_refs,
+                        Some(weight),
+                        normalized,
+                        endpoints,
+                    )
+                })
+            }
+            _ => {
+                return Err(PyTypeError::new_err(
+                    "weighted sampled betweenness takes a Graph or DiGraph",
+                ));
+            }
+        };
+        return centrality_to_dict(py, &gr, &result.scores);
+    }
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
