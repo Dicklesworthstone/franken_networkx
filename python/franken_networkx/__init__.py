@@ -18597,28 +18597,17 @@ from franken_networkx._fnx import (
 
 
 def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None, reverse=False):
-    """Python-level BFS with sort_neighbors support."""
-    from collections import deque as _deque
-
-    visited = {source}
-    queue = _deque([(source, 0)])
-    max_depth = depth_limit if depth_limit is not None else float("inf")
-    if reverse and G.is_directed():
-        neighbor_iter = G.predecessors
-    else:
-        neighbor_iter = G.neighbors
-    while queue:
-        node, depth = queue.popleft()
-        if depth >= max_depth:
-            continue
-        nbrs = list(neighbor_iter(node))
-        if sort_neighbors is not None:
-            nbrs = list(sort_neighbors(nbrs))
-        for neighbor in nbrs:
-            if neighbor not in visited:
-                visited.add(neighbor)
-                yield (node, neighbor)
-                queue.append((neighbor, depth + 1))
+    """networkx's ``bfs_edges``: ``generic_bfs_edges`` over the successors (the
+    predecessors when reversing a digraph), each row passed through
+    ``sort_neighbors`` as networkx passes it - the row ITERATOR, when the node
+    is discovered. ``depth_limit`` is networkx's raw value (NaN, inf, floats
+    and negatives compare as networkx compares them)."""
+    successors = G.predecessors if reverse and G.is_directed() else G.neighbors
+    if sort_neighbors is None:
+        return generic_bfs_edges(G, source, successors, depth_limit)
+    return generic_bfs_edges(
+        G, source, lambda node: iter(sort_neighbors(successors(node))), depth_limit
+    )
 
 
 def _py_dfs_labeled_edges(G, source=None, depth_limit=None, sort_neighbors=None):
@@ -18702,27 +18691,25 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     _HASH_PROBE.get(source)
+    # br-r37-c1-mub4s: a sort_neighbors walk is networkx's own loop, fed the
+    # raw depth_limit.
+    if sort_neighbors is not None:
+        return _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
     # br-r37-c1-bfs-cutfloat: nx accepts any numeric ``depth_limit``
     # (NaN / +inf / negative / float).  fnx's Rust binding's PyO3
     # signature requires a non-negative int and raises TypeError /
     # OverflowError on the floats.  Same family as br-r37-c1-asp-nan
     # (all_simple_paths cutoff).  Normalise to None / int / -1 (for
     # short-circuit-empty) before delegating.
-    depth_limit = _normalize_bfs_depth_limit(depth_limit)
-    if depth_limit is _DEPTH_EMPTY:
-        # Empty iteration matches nx contract on NaN, -inf, or
-        # negative int depth_limit.
-        def _empty():
-            if False:
-                yield
-        return _empty()
+    normalized_depth = _normalize_bfs_depth_limit(depth_limit)
+    if normalized_depth is _DEPTH_EMPTY:
+        # NaN, -inf or a negative depth yields nothing - after networkx has
+        # read the source's row, so an absent source still raises.
+        return _py_bfs_edges(G, source, depth_limit, reverse=reverse)
 
     def _gen():
         try:
-            if sort_neighbors is not None:
-                yield from _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
-                return
-            yield from _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+            yield from _bfs_edges_raw(G, source, reverse=reverse, depth_limit=normalized_depth)
         except NodeNotFound as exc:
             raise _traversal_missing_source_error(G, source) from exc
 
@@ -47509,25 +47496,36 @@ def generic_bfs_edges(G, source, neighbors=None, depth_limit=None):
     path yielded edges with adj iteration in a different order than
     nx (e.g. for adj[a]=[b,c], fnx returned (a,c),(a,b),... while
     nx yields (a,b),(a,c),...). Route through the Python path
-    always, defaulting neighbors=G.neighbors when None — the
-    Python branch already matches nx exactly.
+    always, defaulting neighbors=G.neighbors when None.
+
+    br-r37-c1-mub4s: networkx's loop line for line. ``neighbors(child)`` is
+    called when the child is DISCOVERED - before its edge is yielded, and for
+    children on the last level ``depth_limit`` allows - and the walk stops as
+    soon as every node is seen. The level-queue this replaced called it when
+    the child was expanded, so a callable with effects (a counter, a sort that
+    records, a lazy row) saw different calls, and a row was consumed lazily
+    there only by accident.
     """
     if neighbors is None:
         neighbors = G.neighbors
-    visited = {source}
-    queue = [(source, 0)]
-    while queue:
-        next_queue = []
-        for node, depth in queue:
-            if depth_limit is not None and depth >= depth_limit:
-                continue
-            nbrs = list(neighbors(node))
-            for nbr in nbrs:
-                if nbr not in visited:
-                    visited.add(nbr)
-                    yield (node, nbr)
-                    next_queue.append((nbr, depth + 1))
-        queue = next_queue
+    if depth_limit is None:
+        depth_limit = len(G)
+    seen = {source}
+    n = len(G)
+    depth = 0
+    next_parents_children = [(source, neighbors(source))]
+    while next_parents_children and depth < depth_limit:
+        this_parents_children = next_parents_children
+        next_parents_children = []
+        for parent, children in this_parents_children:
+            for child in children:
+                if child not in seen:
+                    seen.add(child)
+                    next_parents_children.append((child, neighbors(child)))
+                    yield parent, child
+            if len(seen) == n:
+                return
+        depth += 1
 
 
 # ---------------------------------------------------------------------------
