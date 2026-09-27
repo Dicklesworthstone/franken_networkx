@@ -9253,6 +9253,33 @@ pub fn triangles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     Ok(dict.unbind())
 }
 
+/// `(degree, doubled triangle count)` for each of `nodes`, in order, on an
+/// undirected graph - networkx's `_triangles_and_degree_iter(G, nodes)`
+/// integers, for `clustering(G, nodes=...)` and `triangles(G, nodes=...)`
+/// (br-r37-c1-mub4s). A multigraph answers on its simple projection, whose
+/// neighbour SETS are networkx's `set(G[w])`. `nodes` must all be in G.
+#[pyfunction]
+pub fn triangles_and_degrees_for(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Vec<Bound<'_, PyAny>>,
+) -> PyResult<Vec<(usize, usize)>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "triangles")?;
+    let inner = gr.undirected();
+    let positions = nodes
+        .iter()
+        .map(|node| match inner.get_node_index(&node_key_to_string(py, node)?) {
+            Some(position) => Ok(position),
+            None => Err(NodeNotFound::new_err(format!(
+                "The node {} is not in the graph.",
+                node.repr()?
+            ))),
+        })
+        .collect::<PyResult<Vec<usize>>>()?;
+    Ok(py.allow_threads(|| fnx_algorithms::triangles_and_degrees_for(inner, &positions)))
+}
+
 /// Return the square clustering coefficient for each node.
 #[pyfunction]
 pub fn square_clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
@@ -29040,6 +29067,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(average_clustering, m)?)?;
     m.add_function(wrap_pyfunction!(transitivity, m)?)?;
     m.add_function(wrap_pyfunction!(triangles, m)?)?;
+    m.add_function(wrap_pyfunction!(triangles_and_degrees_for, m)?)?;
     m.add_function(wrap_pyfunction!(square_clustering, m)?)?;
     m.add_function(wrap_pyfunction!(robins_alexander_counts, m)?)?;
     m.add_function(wrap_pyfunction!(find_cliques, m)?)?;

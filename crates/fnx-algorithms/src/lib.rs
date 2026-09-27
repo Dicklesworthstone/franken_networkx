@@ -16755,6 +16755,44 @@ fn triangles_census_node(
     }
 }
 
+/// networkx's `_triangles_and_degree_iter(G, nodes)` for the node positions
+/// `nodes`, in that order: each node's degree without its self-loop and
+/// `sum(len(vs & (set(G[w]) - {w})) for w in vs)` - the triangle count
+/// DOUBLED - for `vs = set(G[v]) - {v}`. Both are exact integers, so
+/// `clustering`'s `t / (d * (d - 1))` and `triangles`' `t // 2` follow
+/// bit for bit. Each node costs O(its neighbours' degrees) - no O(|V|) work,
+/// which is what a small `nodes=` request needs (br-r37-c1-mub4s).
+#[must_use]
+pub fn triangles_and_degrees_for(graph: &Graph, nodes: &[usize]) -> Vec<(usize, usize)> {
+    let mut neighbours: HashSet<usize> = HashSet::new();
+    nodes
+        .iter()
+        .map(|&v| {
+            neighbours.clear();
+            neighbours.extend(
+                graph
+                    .neighbors_indices(v)
+                    .unwrap_or(&[])
+                    .iter()
+                    .copied()
+                    .filter(|&w| w != v),
+            );
+            let doubled: usize = neighbours
+                .iter()
+                .map(|&w| {
+                    graph
+                        .neighbors_indices(w)
+                        .unwrap_or(&[])
+                        .iter()
+                        .filter(|&&x| x != w && neighbours.contains(&x))
+                        .count()
+                })
+                .sum();
+            (neighbours.len(), doubled)
+        })
+        .collect()
+}
+
 /// Counts the number of triangles each node participates in.
 ///
 /// A triangle is a 3-clique. Each triangle is counted once per participating node.
@@ -63539,6 +63577,39 @@ mod tests {
         println!("HITS_RESOLVE_ONCE_AB n={n} deg={deg} rounds={rounds} (>1 = index faster)");
         report("INDEX_vs_names", &paired(true, false));
         report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-mub4s: the per-node kernel ignores self-loops on the queried
+    /// node (not a neighbour, not in the degree) and on its neighbours (a
+    /// loop does not close a triangle), and repeats a repeated request.
+    #[test]
+    fn triangles_and_degrees_for_skips_self_loops() {
+        let mut g = Graph::strict();
+        for (u, v) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("c", "d"),
+            ("d", "b"),
+            ("a", "a"),
+            ("c", "c"),
+            ("e", "e"),
+        ] {
+            g.add_edge(u, v).expect("edge");
+        }
+        let at = |name: &str| g.get_node_index(name).expect("node");
+        let nodes = [at("a"), at("c"), at("e"), at("d"), at("a")];
+        assert_eq!(
+            super::triangles_and_degrees_for(&g, &nodes),
+            vec![(2, 2), (3, 4), (0, 0), (2, 2), (2, 2)]
+        );
+        let whole: Vec<usize> = super::triangles(&g).triangles.iter().map(|t| t.count).collect();
+        let doubled: Vec<usize> = super::triangles_and_degrees_for(&g, &(0..5).collect::<Vec<_>>())
+            .into_iter()
+            .map(|(_, doubled)| doubled / 2)
+            .collect();
+        assert_eq!(doubled, whole);
+        assert!(super::triangles_and_degrees_for(&g, &[]).is_empty());
     }
 
     /// br-r37-c1-trimark: paired-interleaved median A/B for the mark-array (bitset)

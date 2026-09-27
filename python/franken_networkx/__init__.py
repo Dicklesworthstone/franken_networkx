@@ -15782,6 +15782,7 @@ from franken_networkx._fnx import (
     square_clustering,
     transitivity as _raw_transitivity,
     triangles as _raw_triangles,
+    triangles_and_degrees_for as _native_triangles_and_degrees_for,
 )
 
 try:
@@ -58313,10 +58314,12 @@ def clustering(G, nodes=None, weight=None):
                 for node, degree, triangle_count in triangle_data
             }
         else:
-            triangle_data = _triangles_and_degree_iter_local(G, selected_nodes)
+            # br-r37-c1-mub4s: nodes= counts natively (the Python snapshot
+            # ran 0.36x networkx); the exact integers, networkx's division.
+            counts = _native_triangles_and_degrees_for(G, selected_nodes)
             clustering_coefficients = {
                 node: 0 if triangle_count == 0 else triangle_count / (degree * (degree - 1))
-                for node, degree, triangle_count, _ in triangle_data
+                for node, (degree, triangle_count) in zip(selected_nodes, counts)
             }
 
     if single_node:
@@ -58499,22 +58502,15 @@ def triangles(G, nodes=None):
 
     # br-r37-c1-triloc: a single node / nbunch only needs the local triangle
     # count, not a whole-graph _raw_triangles(G) (was O(V+E), 12-46x slower
-    # than nx for one node). _triangles_and_degree_iter_local now snapshots
-    # only the local universe; triangles(n) == its triangle_count // 2.
+    # than nx for one node). br-r37-c1-mub4s: the local count is native -
+    # the Python snapshot of set(G[w]) per neighbour ran 0.36x networkx on
+    # 72 nodes of a 500-node graph.
     if nodes in G:
-        for _node, _degree, triangle_count, _gd in _triangles_and_degree_iter_local(
-            G, [nodes]
-        ):
-            return triangle_count // 2
-        return 0
+        return _native_triangles_and_degrees_for(G, [nodes])[0][1] // 2
 
     nbunch_nodes = _global_nbunch_nodes(G, nodes)
-    return {
-        node: triangle_count // 2
-        for node, _degree, triangle_count, _gd in _triangles_and_degree_iter_local(
-            G, nbunch_nodes
-        )
-    }
+    counts = _native_triangles_and_degrees_for(G, nbunch_nodes)
+    return {node: doubled // 2 for node, (_degree, doubled) in zip(nbunch_nodes, counts)}
 
 
 def edges(G, nbunch=None):
