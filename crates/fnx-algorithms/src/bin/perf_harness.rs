@@ -26,6 +26,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
+#[cfg(feature = "profile-pprof")]
 use std::collections::BTreeMap;
 #[cfg(feature = "profile-pprof")]
 use std::collections::HashSet;
@@ -198,7 +199,7 @@ fn run_spanning_tree_ab(node_count: usize, iterations: usize) {
             let right = (left + step) % node_count;
             let attrs: fnx_classes::AttrMap = (0..8usize)
                 .map(|index| (format!("payload-{index}"), payload.to_owned().into()))
-                .collect::<BTreeMap<_, _>>();
+                .collect();
             let _ = graph.add_edge_with_attrs(name(left), name(right), attrs);
         }
     }
@@ -438,7 +439,7 @@ fn run_edge_disjoint_paths_ab(node_count: usize, iterations: usize) {
     let payload = "attribute-payload-that-is-intentionally-long-enough-to-make-cloning-visible";
     let attrs: fnx_classes::AttrMap = (0..8usize)
         .map(|index| (format!("payload-{index}"), payload.to_owned().into()))
-        .collect::<BTreeMap<_, _>>();
+        .collect();
     let mut graph = Graph::strict();
     for index in 0..node_count {
         let _ = graph.add_node(name(index));

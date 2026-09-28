@@ -900,3 +900,104 @@ def test_materialised_twin_agrees(cls, recipe):
                 if got not in (ref, "timeout"):
                     failures.append(f"{label} {name} [{touch}]: materialised {ref!r:.120} got {got!r:.120}")
     assert not failures, f"{len(failures)} provenance differences:\n" + "\n".join(failures[:25])
+
+
+# br-r37-c1-6hyf1: the native store keeps each attribute dict's key order, so a
+# dict with several keys NOT in sorted order is rebuilt from the store exactly as
+# the caller wrote it - the batches, constructors and copies no longer keep an
+# ordered Python mirror beside it. Every reader below runs on a graph whose
+# dicts were never handed out, so a store that sorted its keys (or a reader
+# that sorts them) fails the order comparison.
+
+_ORDER_CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+
+
+def _order_graph(lib, cls, how, str_nodes=False):
+    label = (lambda i: f"n{i:02d}") if str_nodes else (lambda i: i)
+    nodes = [(label(i), {"z": i, "a": -i, "m": i % 3}) for i in range(13)]
+    edges = [
+        (label(i), label(i + 1), {"weight": i, "color": f"c{i % 4}", "cap": i / 2})
+        for i in range(12)
+    ]
+    G = getattr(lib, cls)()
+    if how == "batch":
+        G.add_nodes_from(nodes)
+        G.add_edges_from(edges)
+    elif how == "per_item":
+        for n, d in nodes:
+            G.add_node(n, **d)
+        for u, v, d in edges:
+            G.add_edge(u, v, **d)
+    elif how == "iterator":
+        G.add_edges_from(iter(edges))
+        G.add_nodes_from(iter(nodes))
+    elif how == "constructor":
+        G = getattr(lib, cls)(edges)
+        G.add_nodes_from(nodes)
+    elif how == "merged":
+        G.add_edges_from([(u, v, {"weight": d["weight"]}) for u, v, d in edges])
+        G.add_edges_from([(u, v, {"color": d["color"], "cap": d["cap"]}) for u, v, d in edges])
+        G.add_nodes_from(nodes)
+    return G
+
+
+def _edge_rows(G):
+    if G.is_multigraph():
+        return [(repr(u), repr(v), k, list(d.items())) for u, v, k, d in G.edges(keys=True, data=True)]
+    return [(repr(u), repr(v), list(d.items())) for u, v, d in G.edges(data=True)]
+
+
+_ORDER_READERS = {
+    "edges_data": _edge_rows,
+    "nodes_data": lambda G: [(repr(n), list(d.items())) for n, d in G.nodes(data=True)],
+    "row_dicts": lambda G: [
+        (repr(u), list(G[u][v].items()) if not G.is_multigraph() else [list(d.items()) for d in G[u][v].values()])
+        for u, v in list(G.edges())[:5]
+    ],
+    "get_edge_data": lambda G: [
+        list(G.get_edge_data(u, v, **({"key": 0} if G.is_multigraph() else {})).items())
+        for u, v in list(G.edges())[:5]
+    ],
+    "node_lookup": lambda G: [list(G.nodes[n].items()) for n in list(G)[:5]],
+    "copy": lambda G: _edge_rows(G.copy()),
+    "to_directed": lambda G: _edge_rows(G.to_directed()),
+    "to_undirected": lambda G: _edge_rows(G.to_undirected()),
+    "subgraph_copy": lambda G: _edge_rows(G.subgraph(list(G)[:6]).copy()),
+    "class_ctor": lambda G: _edge_rows(type(G)(G)),
+}
+
+
+@pytest.mark.parametrize("str_nodes", [False, True], ids=["int", "str"])
+@pytest.mark.parametrize("reader", sorted(_ORDER_READERS))
+@pytest.mark.parametrize("how", ["batch", "per_item", "iterator", "constructor", "merged"])
+@pytest.mark.parametrize("cls", _ORDER_CLASSES)
+def test_unsorted_attr_keys_come_back_in_networkx_order(cls, how, reader, str_nodes):
+    read = _ORDER_READERS[reader]
+    got = read(_order_graph(fnx, cls, how, str_nodes))
+    want = read(_order_graph(nx, cls, how, str_nodes))
+    assert got == want
+
+
+@pytest.mark.parametrize("cls", _ORDER_CLASSES)
+def test_writes_through_a_rebuilt_dict_keep_dict_order_in_store_readers(cls):
+    """del then set moves a key last in the dict AND in the store, and a
+    merge appends: the store's order is what a later rebuilt dict shows."""
+    results = []
+    for lib in (fnx, nx):
+        G = _order_graph(lib, cls, "batch")
+        key = {"key": 0} if G.is_multigraph() else {}
+        d = G.get_edge_data(0, 1, **key)
+        del d["weight"]
+        d["weight"] = 40
+        G.add_edge(2, 3, extra=True, **key)
+        H = G.copy()  # rebuilt from the store where fnx has no dict
+        results.append(
+            (
+                list(G.get_edge_data(0, 1, **key).items()),
+                list(H.get_edge_data(0, 1, **key).items()),
+                list(H.get_edge_data(2, 3, **key).items()),
+                sorted(G.edges(data="weight")),
+                G.size(weight="weight"),
+            )
+        )
+    assert results[0] == results[1]

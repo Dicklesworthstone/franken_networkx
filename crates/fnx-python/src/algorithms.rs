@@ -12197,9 +12197,9 @@ pub fn stochastic_graph_copy_multidigraph(
                 let bound = attrs.bind(py);
                 // The copy below leaves every edge dict to be rebuilt from the
                 // store, so anything that would not round-trip (a big int, a
-                // key order the sorted store would change) takes the Python
-                // path.
-                if !crate::attr_dict_round_trips_through_store(bound) {
+                // tuple) takes the Python path. A weight key networkx adds
+                // goes last, as the store appends it (br-r37-c1-6hyf1).
+                if !crate::attr_dict_is_batch_lossless(bound) {
                     return Ok(py.None());
                 }
                 match bound.get_item(weight)? {
@@ -12207,21 +12207,7 @@ pub fn stochastic_graph_copy_multidigraph(
                         Some(value) => value,
                         None => return Ok(py.None()),
                     },
-                    None => {
-                        // networkx APPENDS the weight key it adds; the sorted
-                        // store would place it by name, so a key sorting
-                        // after it sends the call to the Python path.
-                        let later_key = bound.keys().iter().any(|key| {
-                            key.downcast::<PyString>()
-                                .ok()
-                                .and_then(|key| key.to_str().ok().map(|key| key > weight))
-                                .unwrap_or(true)
-                        });
-                        if later_key {
-                            return Ok(py.None());
-                        }
-                        1.0
-                    }
+                    None => 1.0,
                 }
             }
             None => match cgse_stochastic_numeric(attrs.get(weight)) {

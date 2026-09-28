@@ -5,7 +5,7 @@
 //! Run:   cargo bench -p fnx-algorithms
 //! Gate:  check p50/p95/p99 via criterion JSON output in target/criterion/
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use criterion::{BenchmarkId, Criterion, criterion_group};
 #[cfg(feature = "bench-internals")]
@@ -26,7 +26,7 @@ use fnx_algorithms::{
     shortest_path_weighted, single_source_dijkstra_path_length,
 };
 use fnx_classes::{AttrMap, Graph, MultiGraph, MultiGraphSnapshot, digraph::DiGraph};
-use fnx_runtime::{CgseValue, CompatibilityMode};
+use fnx_runtime::CompatibilityMode;
 use indexmap::{IndexMap, IndexSet};
 use rustc_hash::FxBuildHasher;
 use sha2::{Digest, Sha256};
@@ -49,8 +49,8 @@ fn self_identity() -> String {
     )
 }
 
-fn attr(key: &str, val: &str) -> BTreeMap<String, CgseValue> {
-    let mut m = BTreeMap::new();
+fn attr(key: &str, val: &str) -> AttrMap {
+    let mut m = AttrMap::new();
     m.insert(key.to_owned(), val.to_owned().into());
     m
 }
@@ -244,7 +244,7 @@ fn encode_multigraph_snapshot(snapshot: &MultiGraphSnapshot) -> Vec<u64> {
     encoded.push(snapshot.nodes.len() as u64);
     for node in &snapshot.nodes {
         push_string(&mut encoded, node);
-        encoded.push(snapshot.node_attrs.get(node).map_or(0, BTreeMap::len) as u64);
+        encoded.push(snapshot.node_attrs.get(node).map_or(0, |attrs| attrs.len()) as u64);
     }
     encoded.push(snapshot.edges.len() as u64);
     for edge in &snapshot.edges {

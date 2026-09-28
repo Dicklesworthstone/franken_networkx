@@ -47,10 +47,331 @@ pub enum CgseValue {
     Int(i64),
     Float(f64),
     String(String),
-    Map(BTreeMap<String, CgseValue>),
+    Map(AttrMap),
 }
 
 impl Eq for CgseValue {}
+
+/// An attribute map that keeps its keys in INSERTION order, as the Python dict
+/// it stands for does (br-r37-c1-6hyf1).
+///
+/// It was a `BTreeMap`, which lists keys sorted. networkx hands out dicts in
+/// the order their keys were set, so every attribute dict with two or more
+/// keys that were not already sorted needed a Python mirror dict beside the
+/// store just to remember that order - an extra dict, a write-watch adoption
+/// and a `(String, String)` map entry per edge, about 30% of a multi-key
+/// `add_edges_from`. With the order kept here, a dict rebuilt from the store
+/// is the caller's dict, and only a value the store cannot hold (a tuple, a
+/// nested dict, an object) still needs a mirror.
+///
+/// The entries live in one `Vec`, in insertion order: an attribute map almost
+/// always holds a handful of keys, which a scan finds faster than a hash, and
+/// one allocation per map is what the batch and copy kernels pay per edge (an
+/// `IndexMap` made two and grew `CgseValue` from 32 to 64 bytes, and single-key
+/// `add_edges_from` measured ~10% slower on it). Past `INDEXED_LEN` keys a
+/// hash index is kept beside the entries, so a map with thousands of keys -
+/// an adversarial graph - still finds one in O(1) rather than O(keys).
+///
+/// Removal keeps the other keys in order (a dict's `del`). Equality ignores
+/// order, as a dict's does.
+#[derive(Clone, Default)]
+pub struct AttrMap {
+    entries: Vec<(String, CgseValue)>,
+    // Boxed so a map is 32 bytes, not 56: the index is absent from nearly every
+    // map, and `CgseValue::Map` holds an `AttrMap` inline.
+    #[allow(clippy::box_collection)]
+    index: Option<Box<std::collections::HashMap<String, usize, rustc_hash::FxBuildHasher>>>,
+}
+
+impl AttrMap {
+    /// Keys at which a map starts keeping a hash index.
+    const INDEXED_LEN: usize = 16;
+
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: Vec::with_capacity(capacity),
+            index: None,
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn position(&self, key: &str) -> Option<usize> {
+        match &self.index {
+            Some(index) => index.get(key).copied(),
+            None => self.entries.iter().position(|(k, _)| k == key),
+        }
+    }
+
+    fn rebuild_index(&mut self) {
+        self.index = (self.entries.len() >= Self::INDEXED_LEN).then(|| {
+            Box::new(
+                self.entries
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (k, _))| (k.clone(), i))
+                    .collect(),
+            )
+        });
+    }
+
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&CgseValue> {
+        self.position(key).map(|i| &self.entries[i].1)
+    }
+
+    #[must_use]
+    pub fn get_key_value(&self, key: &str) -> Option<(&String, &CgseValue)> {
+        self.position(key).map(|i| {
+            let (k, v) = &self.entries[i];
+            (k, v)
+        })
+    }
+
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut CgseValue> {
+        self.position(key).map(|i| &mut self.entries[i].1)
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.position(key).is_some()
+    }
+
+    /// Set `key`: an existing key keeps its place, a new one goes last (a
+    /// dict's `d[k] = v`). Returns the value it replaced.
+    pub fn insert(&mut self, key: String, value: CgseValue) -> Option<CgseValue> {
+        if let Some(i) = self.position(&key) {
+            return Some(std::mem::replace(&mut self.entries[i].1, value));
+        }
+        let position = self.entries.len();
+        match &mut self.index {
+            Some(index) => {
+                index.insert(key.clone(), position);
+                self.entries.push((key, value));
+            }
+            None => {
+                self.entries.push((key, value));
+                if self.entries.len() >= Self::INDEXED_LEN {
+                    self.rebuild_index();
+                }
+            }
+        }
+        None
+    }
+
+    /// Remove `key`, keeping every other key where it was (a dict's `del`).
+    pub fn remove(&mut self, key: &str) -> Option<CgseValue> {
+        let i = self.position(key)?;
+        let (_, value) = self.entries.remove(i);
+        if self.index.is_some() {
+            self.rebuild_index();
+        }
+        Some(value)
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.index = None;
+    }
+
+    pub fn retain(&mut self, mut keep: impl FnMut(&String, &mut CgseValue) -> bool) {
+        self.entries.retain_mut(|(k, v)| keep(k, v));
+        if self.index.is_some() {
+            self.rebuild_index();
+        }
+    }
+
+    pub fn iter(&self) -> AttrMapIter<'_> {
+        AttrMapIter(self.entries.iter())
+    }
+
+    pub fn iter_mut(&mut self) -> AttrMapIterMut<'_> {
+        AttrMapIterMut(self.entries.iter_mut())
+    }
+
+    pub fn keys(&self) -> impl DoubleEndedIterator<Item = &String> + ExactSizeIterator + Clone {
+        self.entries.iter().map(|(k, _)| k)
+    }
+
+    pub fn values(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &CgseValue> + ExactSizeIterator + Clone {
+        self.entries.iter().map(|(_, v)| v)
+    }
+
+    pub fn values_mut(
+        &mut self,
+    ) -> impl DoubleEndedIterator<Item = &mut CgseValue> + ExactSizeIterator {
+        self.entries.iter_mut().map(|(_, v)| v)
+    }
+
+    pub fn into_values(self) -> impl DoubleEndedIterator<Item = CgseValue> + ExactSizeIterator {
+        self.entries.into_iter().map(|(_, v)| v)
+    }
+}
+
+/// `AttrMap::iter`: `(key, value)` pairs in insertion order.
+#[derive(Clone)]
+pub struct AttrMapIter<'a>(std::slice::Iter<'a, (String, CgseValue)>);
+
+impl<'a> Iterator for AttrMapIter<'a> {
+    type Item = (&'a String, &'a CgseValue);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(k, v)| (k, v))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for AttrMapIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|(k, v)| (k, v))
+    }
+}
+
+impl ExactSizeIterator for AttrMapIter<'_> {}
+
+/// `AttrMap::iter_mut`: `(key, value)` pairs in insertion order.
+pub struct AttrMapIterMut<'a>(std::slice::IterMut<'a, (String, CgseValue)>);
+
+impl<'a> Iterator for AttrMapIterMut<'a> {
+    type Item = (&'a String, &'a mut CgseValue);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(k, v)| (&*k, v))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for AttrMapIterMut<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|(k, v)| (&*k, v))
+    }
+}
+
+impl ExactSizeIterator for AttrMapIterMut<'_> {}
+
+impl std::ops::Index<&str> for AttrMap {
+    type Output = CgseValue;
+
+    /// The value for `key`; panics when there is none, as a map's index does.
+    fn index(&self, key: &str) -> &CgseValue {
+        self.get(key).expect("AttrMap has no such key")
+    }
+}
+
+impl PartialEq for AttrMap {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().all(|(k, v)| other.get(k) == Some(v))
+    }
+}
+
+impl Eq for AttrMap {}
+
+impl std::fmt::Debug for AttrMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl Serialize for AttrMap {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.iter())
+    }
+}
+
+impl<'de> Deserialize<'de> for AttrMap {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct AttrMapVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for AttrMapVisitor {
+            type Value = AttrMap;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a map of attribute names to values")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut access: A) -> Result<AttrMap, A::Error> {
+                let mut map = AttrMap::with_capacity(access.size_hint().unwrap_or(0));
+                while let Some((key, value)) = access.next_entry::<String, CgseValue>()? {
+                    map.insert(key, value);
+                }
+                Ok(map)
+            }
+        }
+
+        deserializer.deserialize_map(AttrMapVisitor)
+    }
+}
+
+impl FromIterator<(String, CgseValue)> for AttrMap {
+    fn from_iter<I: IntoIterator<Item = (String, CgseValue)>>(iter: I) -> Self {
+        let mut map = Self::new();
+        map.extend(iter);
+        map
+    }
+}
+
+impl<const N: usize> From<[(String, CgseValue); N]> for AttrMap {
+    fn from(entries: [(String, CgseValue); N]) -> Self {
+        entries.into_iter().collect()
+    }
+}
+
+impl Extend<(String, CgseValue)> for AttrMap {
+    fn extend<I: IntoIterator<Item = (String, CgseValue)>>(&mut self, iter: I) {
+        for (key, value) in iter {
+            self.insert(key, value);
+        }
+    }
+}
+
+impl IntoIterator for AttrMap {
+    type Item = (String, CgseValue);
+    type IntoIter = std::vec::IntoIter<(String, CgseValue)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a AttrMap {
+    type Item = (&'a String, &'a CgseValue);
+    type IntoIter = AttrMapIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut AttrMap {
+    type Item = (&'a String, &'a mut CgseValue);
+    type IntoIter = AttrMapIterMut<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
 
 impl From<String> for CgseValue {
     fn from(s: String) -> Self {
@@ -5410,6 +5731,88 @@ mod tests {
         structured_test_log_schema_version,
     };
     use std::collections::{BTreeMap, BTreeSet};
+
+    fn attr_keys(map: &super::AttrMap) -> Vec<&str> {
+        map.keys().map(String::as_str).collect()
+    }
+
+    // br-r37-c1-6hyf1: an AttrMap behaves as the Python dict it stands for.
+    #[test]
+    fn attr_map_keeps_dict_order_on_insert_update_and_remove() {
+        use super::{AttrMap, CgseValue};
+        let mut map = AttrMap::new();
+        map.insert("weight".to_owned(), CgseValue::Int(1));
+        map.insert("color".to_owned(), CgseValue::String("red".to_owned()));
+        map.insert("cap".to_owned(), CgseValue::Float(2.5));
+        assert_eq!(attr_keys(&map), ["weight", "color", "cap"]);
+
+        // Updating a key keeps its place; a new key goes last.
+        assert_eq!(map.insert("weight".to_owned(), CgseValue::Int(7)), Some(CgseValue::Int(1)));
+        map.insert("a".to_owned(), CgseValue::Bool(true));
+        assert_eq!(attr_keys(&map), ["weight", "color", "cap", "a"]);
+        assert_eq!(map["weight"], CgseValue::Int(7));
+
+        // Removing leaves the rest in order; re-adding the key puts it last.
+        assert_eq!(map.remove("color"), Some(CgseValue::String("red".to_owned())));
+        assert_eq!(map.remove("color"), None);
+        assert_eq!(attr_keys(&map), ["weight", "cap", "a"]);
+        map.insert("color".to_owned(), CgseValue::Int(0));
+        assert_eq!(attr_keys(&map), ["weight", "cap", "a", "color"]);
+
+        map.retain(|key, _| key != "cap");
+        assert_eq!(attr_keys(&map), ["weight", "a", "color"]);
+        assert!(!map.contains_key("cap"));
+    }
+
+    #[test]
+    fn attr_map_lookups_hold_across_the_index_threshold() {
+        use super::{AttrMap, CgseValue};
+        let mut map = AttrMap::new();
+        for i in 0..40_i64 {
+            map.insert(format!("k{:02}", 39 - i), CgseValue::Int(i));
+        }
+        let expected: Vec<String> = (0..40).map(|i| format!("k{:02}", 39 - i)).collect();
+        assert_eq!(attr_keys(&map), expected.iter().map(String::as_str).collect::<Vec<_>>());
+        for i in 0..40_i64 {
+            assert_eq!(map.get(&format!("k{:02}", 39 - i)), Some(&CgseValue::Int(i)));
+        }
+        // Remove down through the threshold; every survivor is still found,
+        // in order, and an update still lands in place.
+        for i in (0..40).step_by(2) {
+            assert!(map.remove(&format!("k{:02}", 39 - i)).is_some());
+        }
+        for i in (1..40).step_by(2) {
+            assert_eq!(map.get(&format!("k{:02}", 39 - i)), Some(&CgseValue::Int(i)));
+        }
+        assert!(map.get("k39").is_none());
+        map.insert("k00".to_owned(), CgseValue::Int(-1));
+        assert_eq!(map.len(), 20);
+        assert_eq!(map.keys().last().map(String::as_str), Some("k00"));
+        assert_eq!(map["k00"], CgseValue::Int(-1));
+    }
+
+    #[test]
+    fn attr_map_equality_ignores_order_and_serde_keeps_it() {
+        use super::{AttrMap, CgseValue};
+        let forward = AttrMap::from([
+            ("weight".to_owned(), CgseValue::Int(1)),
+            ("color".to_owned(), CgseValue::String("red".to_owned())),
+        ]);
+        let backward = AttrMap::from([
+            ("color".to_owned(), CgseValue::String("red".to_owned())),
+            ("weight".to_owned(), CgseValue::Int(1)),
+        ]);
+        assert_eq!(forward, backward);
+        assert_ne!(forward, AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]));
+
+        let json = serde_json::to_string(&forward).expect("serialize");
+        assert_eq!(json, r#"{"weight":1,"color":"red"}"#);
+        let back: AttrMap = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(attr_keys(&back), ["weight", "color"]);
+        let nested = CgseValue::Map(backward);
+        let json = serde_json::to_string(&nested).expect("serialize nested");
+        assert_eq!(json, r#"{"color":"red","weight":1}"#);
+    }
 
     fn base_env() -> BTreeMap<String, String> {
         let mut env = BTreeMap::new();

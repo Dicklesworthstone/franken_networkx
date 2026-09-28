@@ -363,8 +363,8 @@ fn digraph_absorb_graph_bidirected(
     // this `EdgeAttrWrites` together with the map below.
     //
     // br-r37-c1-gelud: an edge's dict is built only when the store cannot
-    // rebuild it exactly (attr_dict_round_trips_through_store: a value the
-    // store would change, or keys out of the store's sorted order); every
+    // rebuild it exactly (attr_dict_is_batch_lossless: a value or key the
+    // store would change); every
     // other edge keeps its attrs in the store and materialises its own dict on
     // first read, as a batch-built graph's edges do. Building one write-watched
     // dict per DIRECTED edge - twice the source's edges - and filling it from a
@@ -389,7 +389,7 @@ fn digraph_absorb_graph_bidirected(
                     if amap.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                         return Ok(false);
                     }
-                    if !crate::attr_dict_round_trips_through_store(b) {
+                    if !crate::attr_dict_is_batch_lossless(b) {
                         let mirror = edge_attr_writes.new_dict(py)?;
                         mirror.update(b.as_mapping())?;
                         edge_py_attrs.insert(PyDiGraph::edge_key(u, v), mirror.unbind());
@@ -440,9 +440,10 @@ fn digraph_absorb_graph_bidirected(
 ///   reciprocal one UPDATES that dict - its values win, keys it adds come
 ///   after the first's - and adds no row entry;
 /// - a dict is built only where the store cannot rebuild it exactly
-///   (attr_dict_round_trips_through_store, or a merge whose key order the
-///   sorted store would change); every other edge and node keeps its
-///   attributes in the store and materialises its dict on first read.
+///   (attr_dict_is_batch_lossless; the store keeps key order, and merges a
+///   reciprocal direction as dict.update does); every other edge and node
+///   keeps its attributes in the store and materialises its dict on first
+///   read.
 ///
 /// The Python rebuild this replaces (add_nodes_from + add_edges_from over the
 /// source's views) was 0.43x networkx. Returns false, having mutated nothing,
@@ -483,7 +484,7 @@ fn graph_absorb_digraph(py: Python<'_>, g: &Bound<'_, PyAny>, dg: &Bound<'_, PyA
                 if incompatible(&amap) {
                     return Ok(false);
                 }
-                if !crate::attr_dict_round_trips_through_store(b) {
+                if !crate::attr_dict_is_batch_lossless(b) {
                     let mirror = PyDict::new(py);
                     mirror.update(b.as_mapping())?;
                     node_py_attrs.insert(nid.clone(), mirror.unbind());
@@ -529,7 +530,7 @@ fn graph_absorb_digraph(py: Python<'_>, g: &Bound<'_, PyAny>, dg: &Bound<'_, PyA
             match first_of.get(&pair) {
                 None => {
                     if let Some(d) = &source_dict
-                        && !crate::attr_dict_round_trips_through_store(d.bind(py))
+                        && !crate::attr_dict_is_batch_lossless(d.bind(py))
                     {
                         let mirror = edge_attr_writes.new_dict(py)?;
                         mirror.update(d.bind(py).as_mapping())?;
@@ -542,15 +543,14 @@ fn graph_absorb_digraph(py: Python<'_>, g: &Bound<'_, PyAny>, dg: &Bound<'_, PyA
                     if amap.is_empty() {
                         continue;
                     }
-                    // networkx: the first direction's dict .update(this one's).
-                    let adds_keys = {
-                        let first_amap = &edges_bulk[*first_pos].2;
-                        amap.keys().any(|k| !first_amap.contains_key(k))
-                    };
+                    // networkx: the first direction's dict .update(this one's),
+                    // which the store's merge reproduces - new keys after the
+                    // first's - so only a value the store cannot hold needs a
+                    // dict.
                     let this_round_trips = source_dict
                         .as_ref()
-                        .is_none_or(|d| crate::attr_dict_round_trips_through_store(d.bind(py)));
-                    if !edge_py_attrs.contains_key(&own_key) && (adds_keys || !this_round_trips) {
+                        .is_none_or(|d| crate::attr_dict_is_batch_lossless(d.bind(py)));
+                    if !edge_py_attrs.contains_key(&own_key) && !this_round_trips {
                         let mirror = edge_attr_writes.new_dict(py)?;
                         match first_dict {
                             Some(d) => mirror.update(d.bind(py).as_mapping())?,

@@ -1869,9 +1869,9 @@ impl EdgeListEngine {
         graph.apply_node_defaults(&graphml_node_defaults);
         graph.apply_edge_defaults(&graphml_edge_defaults);
         for (key, value) in &graphml_graph_defaults {
-            graph_attrs
-                .entry(key.clone())
-                .or_insert_with(|| value.clone());
+            if !graph_attrs.contains_key(key) {
+                graph_attrs.insert(key.clone(), value.clone());
+            }
         }
 
         let mut combined_graph_attrs = AttrMap::new();
@@ -5826,7 +5826,7 @@ impl EdgeListEngine {
 mod tests {
     use super::{EdgeListEngine, ReadWriteError};
     use fnx_classes::digraph::DiGraph;
-    use fnx_classes::{EdgeSnapshot, Graph, GraphSnapshot};
+    use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
     use fnx_runtime::{
         CgseValue, CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog,
         TestKind, TestStatus, canonical_environment_fingerprint,
@@ -5846,7 +5846,7 @@ mod tests {
             .replace('\r', "%0D")
     }
 
-    fn encode_attrs_frozen(attrs: &BTreeMap<String, CgseValue>) -> String {
+    fn encode_attrs_frozen(attrs: &AttrMap) -> String {
         if attrs.is_empty() {
             return "-".to_owned();
         }
@@ -5927,7 +5927,7 @@ mod tests {
 
     fn serialize_digraph_json_graph_frozen(
         graph: &DiGraph,
-        graph_attrs: &BTreeMap<String, CgseValue>,
+        graph_attrs: &AttrMap,
     ) -> Result<String, serde_json::Error> {
         let snapshot = graph.snapshot();
         let payload = super::JsonGraphPayload {
@@ -5942,7 +5942,7 @@ mod tests {
 
     fn assert_digraph_json_payload_parity(
         graph: &DiGraph,
-        graph_attrs: &BTreeMap<String, CgseValue>,
+        graph_attrs: &AttrMap,
     ) {
         let frozen = serialize_digraph_json_graph_frozen(graph, graph_attrs)
             .map_err(|error| error.to_string());
@@ -5957,21 +5957,21 @@ mod tests {
             .add_edge_with_attrs(
                 "a",
                 "b",
-                BTreeMap::from([("weight".to_owned(), CgseValue::Int(1))]),
+                AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
                 "a",
                 "c",
-                BTreeMap::from([("label".to_owned(), CgseValue::String("blue".to_owned()))]),
+                AttrMap::from([("label".to_owned(), CgseValue::String("blue".to_owned()))]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
                 "b",
                 "d",
-                BTreeMap::from([
+                AttrMap::from([
                     ("weight".to_owned(), CgseValue::Int(3)),
                     ("capacity".to_owned(), CgseValue::Int(7)),
                 ]),
@@ -6005,7 +6005,7 @@ mod tests {
             .add_edge_with_attrs(
                 "a",
                 "b",
-                BTreeMap::from([
+                AttrMap::from([
                     (
                         "note".to_owned(),
                         CgseValue::String("line1\nline2\tend\r".to_owned()),
@@ -6066,7 +6066,7 @@ mod tests {
         }
         assert_eq!(super::attr_escape("%20"), "%2520");
 
-        let attrs = BTreeMap::from([
+        let attrs = AttrMap::from([
             (
                 "z key%=#;".to_owned(),
                 CgseValue::String("line 1\tline 2\nend\r".to_owned()),
@@ -6124,7 +6124,7 @@ mod tests {
                     )),
                 )
             })
-            .collect::<BTreeMap<_, _>>();
+            .collect::<AttrMap>();
 
         assert_eq!(
             super::encode_attrs(&attrs),
@@ -6878,12 +6878,12 @@ mod tests {
 
     #[test]
     fn borrowed_digraph_json_payload_is_byte_identical() {
-        assert_digraph_json_payload_parity(&DiGraph::strict(), &BTreeMap::new());
+        assert_digraph_json_payload_parity(&DiGraph::strict(), &AttrMap::new());
 
         let mut graph = DiGraph::hardened();
         graph.add_node_with_attrs(
             "isolated-\"é\n".to_owned(),
-            BTreeMap::from([(
+            AttrMap::from([(
                 "currently-omitted-node-attr".to_owned(),
                 CgseValue::String("must remain omitted".to_owned()),
             )]),
@@ -6892,13 +6892,13 @@ mod tests {
             .add_edge_with_attrs(
                 "z-last",
                 "a-first",
-                BTreeMap::from([
+                AttrMap::from([
                     ("bool".to_owned(), CgseValue::Bool(true)),
                     ("float".to_owned(), CgseValue::Float(-0.0)),
                     ("int".to_owned(), CgseValue::Int(-7)),
                     (
                         "map".to_owned(),
-                        CgseValue::Map(BTreeMap::from([(
+                        CgseValue::Map(AttrMap::from([(
                             "nested".to_owned(),
                             CgseValue::String("line\nquote\"".to_owned()),
                         )])),
@@ -6910,23 +6910,23 @@ mod tests {
             .add_edge_with_attrs(
                 "a-first",
                 "z-last",
-                BTreeMap::from([(
+                AttrMap::from([(
                     "string".to_owned(),
                     CgseValue::String("antiparallel".to_owned()),
                 )]),
             )
             .expect("antiparallel edge add should succeed");
         graph
-            .add_edge_with_attrs("z-last", "z-last", BTreeMap::new())
+            .add_edge_with_attrs("z-last", "z-last", AttrMap::new())
             .expect("self-loop add should succeed");
-        let graph_attrs = BTreeMap::from([
+        let graph_attrs = AttrMap::from([
             (
                 "name".to_owned(),
                 CgseValue::String("demo\n\"graph".to_owned()),
             ),
             (
                 "nested".to_owned(),
-                CgseValue::Map(BTreeMap::from([(
+                CgseValue::Map(AttrMap::from([(
                     "enabled".to_owned(),
                     CgseValue::Bool(false),
                 )])),
@@ -6968,7 +6968,7 @@ mod tests {
                     .add_edge_with_attrs(
                         labels[source].clone(),
                         labels[target].clone(),
-                        BTreeMap::from([
+                        AttrMap::from([
                             (
                                 "kind".to_owned(),
                                 CgseValue::String("payload-edge".to_owned()),
@@ -6982,7 +6982,7 @@ mod tests {
                     .expect("fixture edge add should succeed");
             }
         }
-        let graph_attrs = BTreeMap::from([
+        let graph_attrs = AttrMap::from([
             (
                 "fixture".to_owned(),
                 CgseValue::String("borrowed-json".to_owned()),
@@ -7131,7 +7131,7 @@ mod tests {
         let mut graph = Graph::strict();
         graph.add_node_with_attrs(
             "n0".to_owned(),
-            BTreeMap::from([
+            AttrMap::from([
                 (
                     "label".to_owned(),
                     CgseValue::String("Node Zero".to_owned()),
@@ -7146,7 +7146,7 @@ mod tests {
             .add_edge_with_attrs(
                 "n0",
                 "n1",
-                BTreeMap::from([
+                AttrMap::from([
                     ("weight".to_owned(), CgseValue::Float(2.5)),
                     ("kind".to_owned(), CgseValue::String("demo".to_owned())),
                 ]),
@@ -7271,14 +7271,14 @@ mod tests {
             .add_edge_with_attrs(
                 "a",
                 "b",
-                BTreeMap::from([("weight".to_owned(), "1".into())]),
+                AttrMap::from([("weight".to_owned(), "1".into())]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
                 "b",
                 "c",
-                BTreeMap::from([("weight".to_owned(), "3".into())]),
+                AttrMap::from([("weight".to_owned(), "3".into())]),
             )
             .expect("edge add should succeed");
 
@@ -7298,11 +7298,11 @@ mod tests {
         let mut graph = Graph::strict();
         graph.add_node_with_attrs(
             "a".to_owned(),
-            BTreeMap::from([("color".to_owned(), "red".into())]),
+            AttrMap::from([("color".to_owned(), "red".into())]),
         );
         graph.add_node_with_attrs(
             "b".to_owned(),
-            BTreeMap::from([("color".to_owned(), "blue".into())]),
+            AttrMap::from([("color".to_owned(), "blue".into())]),
         );
         graph.add_edge("a", "b").expect("edge add should succeed");
 
@@ -7326,7 +7326,7 @@ mod tests {
         let mut graph = Graph::strict();
         graph.add_node_with_attrs(
             "a".to_owned(),
-            BTreeMap::from([
+            AttrMap::from([
                 ("count".to_owned(), CgseValue::Int(2)),
                 ("ratio".to_owned(), CgseValue::Float(1.5)),
                 ("ok".to_owned(), CgseValue::Bool(true)),
@@ -7336,7 +7336,7 @@ mod tests {
             .add_edge_with_attrs(
                 "a",
                 "b",
-                BTreeMap::from([
+                AttrMap::from([
                     ("weight".to_owned(), CgseValue::Float(2.5)),
                     ("flag".to_owned(), CgseValue::Bool(false)),
                 ]),
@@ -7367,7 +7367,7 @@ mod tests {
     fn write_json_graph_preserves_graph_attrs_and_directed_flag() {
         let mut graph = DiGraph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
-        let graph_attrs = BTreeMap::from([
+        let graph_attrs = AttrMap::from([
             ("name".to_owned(), CgseValue::String("demo".to_owned())),
             ("version".to_owned(), CgseValue::Int(3)),
         ]);
@@ -8716,7 +8716,7 @@ mod tests {
     fn write_gml_preserves_graph_attrs() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
-        let graph_attrs = BTreeMap::from([
+        let graph_attrs = AttrMap::from([
             ("label".to_owned(), CgseValue::String("demo".to_owned())),
             ("owner".to_owned(), CgseValue::String("qa".to_owned())),
         ]);
@@ -8748,7 +8748,7 @@ mod tests {
     fn write_gml_preserves_string_types_and_scalars() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
-        let graph_attrs = BTreeMap::from([
+        let graph_attrs = AttrMap::from([
             ("enabled".to_owned(), CgseValue::Bool(true)),
             ("ratio".to_owned(), CgseValue::Float(1.0)),
             ("version".to_owned(), CgseValue::String("01".to_owned())),
@@ -8768,7 +8768,7 @@ mod tests {
     fn write_graphml_preserves_graph_attrs() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
-        let graph_attrs = BTreeMap::from([
+        let graph_attrs = AttrMap::from([
             ("name".to_owned(), CgseValue::String("demo".to_owned())),
             ("version".to_owned(), CgseValue::Int(3)),
             ("public".to_owned(), CgseValue::Bool(true)),
@@ -8794,9 +8794,9 @@ mod tests {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
         let node_defaults =
-            BTreeMap::from([("color".to_owned(), CgseValue::String("yellow".to_owned()))]);
-        let edge_defaults = BTreeMap::from([("weight".to_owned(), CgseValue::Int(7))]);
-        let graph_attrs = BTreeMap::from([
+            AttrMap::from([("color".to_owned(), CgseValue::String("yellow".to_owned()))]);
+        let edge_defaults = AttrMap::from([("weight".to_owned(), CgseValue::Int(7))]);
+        let graph_attrs = AttrMap::from([
             ("node_default".to_owned(), CgseValue::Map(node_defaults)),
             ("edge_default".to_owned(), CgseValue::Map(edge_defaults)),
         ]);
@@ -9726,7 +9726,7 @@ mod tests {
                     .add_edge_with_attrs(
                         left_node,
                         right_node,
-                        BTreeMap::from([(
+                        AttrMap::from([(
                             "weight".to_owned(),
                             ((u16::from(*left) + u16::from(*right)) + 1)
                                 .to_string()
@@ -9941,7 +9941,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -9972,7 +9972,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -10030,7 +10030,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -10080,7 +10080,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -10106,7 +10106,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -10132,7 +10132,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -10183,7 +10183,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -10218,7 +10218,7 @@ mod tests {
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);

@@ -50914,7 +50914,7 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
         let flow = max_flow_edmonds_karp(graph, s, t, weight_attr);
         match flow {
             Ok(f) => {
-                let mut attrs = std::collections::BTreeMap::new();
+                let mut attrs = AttrMap::new();
                 attrs.insert("weight".to_owned(), CgseValue::Float(f.value));
                 let _ = tree.add_edge_with_attrs(s, t, attrs);
 
@@ -67212,15 +67212,15 @@ mod tests {
         }
     }
 
-    fn attrs<const N: usize>(entries: [(&str, &str); N]) -> BTreeMap<String, CgseValue> {
+    fn attrs<const N: usize>(entries: [(&str, &str); N]) -> AttrMap {
         entries
             .into_iter()
             .map(|(key, value)| (key.to_owned(), value.into()))
             .collect()
     }
 
-    fn single_attr(key: &str, value: impl Into<String>) -> BTreeMap<String, CgseValue> {
-        BTreeMap::from([(key.to_owned(), value.into().into())])
+    fn single_attr(key: &str, value: impl Into<String>) -> AttrMap {
+        AttrMap::from([(key.to_owned(), value.into().into())])
     }
 
     fn canonical_edge_pairs(graph: &Graph) -> Vec<(String, String)> {
@@ -74715,7 +74715,7 @@ mod tests {
     fn all_shortest_paths_weighted_diamond() {
         // Diamond with equal weights: 0-1(w=1), 0-2(w=1), 1-3(w=1), 2-3(w=1)
         let mut g = Graph::strict();
-        let mut attrs = BTreeMap::new();
+        let mut attrs = AttrMap::new();
         attrs.insert("weight".to_owned(), "1.0".into());
         g.add_edge_with_attrs("0", "1", attrs.clone()).unwrap();
         g.add_edge_with_attrs("0", "2", attrs.clone()).unwrap();
@@ -74730,9 +74730,9 @@ mod tests {
     #[test]
     fn all_shortest_paths_weighted_preserves_networkx_path_order() {
         let mut g = Graph::strict();
-        let mut w1 = BTreeMap::new();
+        let mut w1 = AttrMap::new();
         w1.insert("weight".to_owned(), "1.0".into());
-        let mut w2 = BTreeMap::new();
+        let mut w2 = AttrMap::new();
         w2.insert("weight".to_owned(), "2.0".into());
 
         g.add_edge_with_attrs("a", "b", w1.clone()).unwrap();
@@ -74767,9 +74767,9 @@ mod tests {
     fn all_shortest_paths_weighted_unique() {
         // 0-1(w=1), 1-2(w=1), 0-2(w=10) — only one shortest path
         let mut g = Graph::strict();
-        let mut w1 = BTreeMap::new();
+        let mut w1 = AttrMap::new();
         w1.insert("weight".to_owned(), "1.0".into());
-        let mut w10 = BTreeMap::new();
+        let mut w10 = AttrMap::new();
         w10.insert("weight".to_owned(), "10.0".into());
         g.add_edge_with_attrs("0", "1", w1.clone()).unwrap();
         g.add_edge_with_attrs("1", "2", w1.clone()).unwrap();
@@ -74793,11 +74793,11 @@ mod tests {
     #[test]
     fn all_shortest_paths_weighted_directed_preserves_successor_order() {
         let mut dg = DiGraph::strict();
-        let mut w1 = BTreeMap::new();
+        let mut w1 = AttrMap::new();
         w1.insert("weight".to_owned(), "1.0".into());
-        let mut w2 = BTreeMap::new();
+        let mut w2 = AttrMap::new();
         w2.insert("weight".to_owned(), "2.0".into());
-        let mut w3 = BTreeMap::new();
+        let mut w3 = AttrMap::new();
         w3.insert("weight".to_owned(), "3.0".into());
 
         dg.add_edge_with_attrs("a", "b", w1.clone()).unwrap();
@@ -74835,7 +74835,7 @@ mod tests {
     #[test]
     fn all_shortest_paths_weighted_directed_bellman_ford_diamond() {
         let mut dg = DiGraph::strict();
-        let mut w1 = BTreeMap::new();
+        let mut w1 = AttrMap::new();
         w1.insert("weight".to_owned(), "1.0".into());
         dg.add_edge_with_attrs("0", "1", w1.clone()).unwrap();
         dg.add_edge_with_attrs("0", "2", w1.clone()).unwrap();
@@ -74852,9 +74852,9 @@ mod tests {
     #[test]
     fn all_shortest_paths_weighted_directed_bellman_ford_negative_cycle() {
         let mut dg = DiGraph::strict();
-        let mut wpos = BTreeMap::new();
+        let mut wpos = AttrMap::new();
         wpos.insert("weight".to_owned(), "1.0".into());
-        let mut wneg = BTreeMap::new();
+        let mut wneg = AttrMap::new();
         wneg.insert("weight".to_owned(), "-2.0".into());
         dg.add_edge_with_attrs("a", "b", wpos).unwrap();
         dg.add_edge_with_attrs("b", "a", wneg).unwrap();
@@ -74876,7 +74876,7 @@ mod tests {
     #[test]
     fn all_shortest_paths_weighted_undirected_bellman_ford_diamond() {
         let mut g = Graph::strict();
-        let mut w1 = BTreeMap::new();
+        let mut w1 = AttrMap::new();
         w1.insert("weight".to_owned(), "1.0".into());
         g.add_edge_with_attrs("0", "1", w1.clone()).unwrap();
         g.add_edge_with_attrs("0", "2", w1.clone()).unwrap();
@@ -74893,7 +74893,7 @@ mod tests {
     #[test]
     fn all_shortest_paths_weighted_undirected_bellman_ford_negative_edge_is_negative_cycle() {
         let mut g = Graph::strict();
-        let mut wneg = BTreeMap::new();
+        let mut wneg = AttrMap::new();
         wneg.insert("weight".to_owned(), "-1.0".into());
         g.add_edge_with_attrs("a", "b", wneg).unwrap();
 
@@ -77498,7 +77498,7 @@ mod tests {
                 .add_edge_with_attrs(
                     u,
                     v,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::Int(2))]),
+                    AttrMap::from([("weight".to_owned(),CgseValue::Int(2))]),
                 )
                 .expect("edge add should succeed");
             for _ in 0..2 {
@@ -77506,7 +77506,7 @@ mod tests {
                     .add_edge_with_attrs(
                         u,
                         v,
-                        BTreeMap::from([("weight".to_owned(), CgseValue::Int(1))]),
+                        AttrMap::from([("weight".to_owned(),CgseValue::Int(1))]),
                     )
                     .expect("edge add should succeed");
             }
@@ -77549,7 +77549,7 @@ mod tests {
     fn louvain_declines_where_networkx_raises_or_its_ints_leave_f64() {
         let weighted = |weight: CgseValue| {
             let mut g = Graph::strict();
-            g.add_edge_with_attrs("a", "b", BTreeMap::from([("weight".to_owned(), weight)]))
+            g.add_edge_with_attrs("a", "b", AttrMap::from([("weight".to_owned(),weight)]))
                 .expect("edge add should succeed");
             let _ = g.add_edge("b", "c");
             g
@@ -77563,7 +77563,7 @@ mod tests {
         zero.add_edge_with_attrs(
             "a",
             "b",
-            BTreeMap::from([("weight".to_owned(), CgseValue::Int(0))]),
+            AttrMap::from([("weight".to_owned(),CgseValue::Int(0))]),
         )
         .expect("edge add should succeed");
         assert!(run(&zero).is_none());
@@ -83883,9 +83883,9 @@ mod tests {
     #[test]
     fn test_cut_size_directed_counts_both_directions() {
         let mut d = DiGraph::strict();
-        let mut forward = BTreeMap::new();
+        let mut forward = AttrMap::new();
         forward.insert("weight".to_owned(), "-2".into());
-        let mut reverse = BTreeMap::new();
+        let mut reverse = AttrMap::new();
         reverse.insert("weight".to_owned(), "5".into());
         let _ = d.add_edge_with_attrs("a", "b", forward);
         let _ = d.add_edge_with_attrs("b", "a", reverse);
@@ -83905,9 +83905,9 @@ mod tests {
     #[test]
     fn test_normalized_cut_size_directed_supports_signed_weights() {
         let mut d = DiGraph::strict();
-        let mut forward = BTreeMap::new();
+        let mut forward = AttrMap::new();
         forward.insert("weight".to_owned(), "-2".into());
-        let mut reverse = BTreeMap::new();
+        let mut reverse = AttrMap::new();
         reverse.insert("weight".to_owned(), "5".into());
         let _ = d.add_edge_with_attrs("a", "b", forward);
         let _ = d.add_edge_with_attrs("b", "a", reverse);
@@ -85163,7 +85163,7 @@ mod tests {
         // CgseValue::Float should map to "double"
         // This matches NX: type(2.5) is float → "double"
         let mut g = Graph::strict();
-        let mut attrs = BTreeMap::new();
+        let mut attrs = AttrMap::new();
         attrs.insert("weight".to_owned(), CgseValue::Float(2.5));
         let _ = g.add_edge_with_attrs("a", "b", attrs);
         let config = GraphMLWriterConfig {
@@ -85178,7 +85178,7 @@ mod tests {
     fn test_graphml_writer_type_inference_int() {
         // CgseValue::Int(42) should map to "int"
         let mut g = Graph::strict();
-        let mut attrs = BTreeMap::new();
+        let mut attrs = AttrMap::new();
         attrs.insert("count".to_owned(), CgseValue::Int(42));
         let _ = g.add_edge_with_attrs("a", "b", attrs);
         let config = GraphMLWriterConfig {

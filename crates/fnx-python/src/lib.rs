@@ -1395,7 +1395,6 @@ struct GraphExactIntAttrRow {
     u_object: PyObject,
     v_object: PyObject,
     attrs: AttrMap,
-    mirror: Option<Py<PyDict>>,
 }
 
 #[derive(Default)]
@@ -1461,7 +1460,7 @@ impl GraphExactIntAttrStage {
             if edge_added_node {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            edges.push((u_index, v_index, row.attrs, row.mirror));
+            edges.push((u_index, v_index, row.attrs));
         }
         Some((node_labels, node_objects, edges, node_bumps))
     }
@@ -1507,7 +1506,6 @@ fn normalize_graph_exact_int_attr_row<'py>(
     {
         return Ok(Some((normalized, None)));
     }
-    let mirror = (attrs.len() >= 2).then(|| attrs.unbind());
     Ok(Some((
         normalized,
         Some(GraphExactIntAttrRow {
@@ -1516,7 +1514,6 @@ fn normalize_graph_exact_int_attr_row<'py>(
             u_object: u.unbind(),
             v_object: v.unbind(),
             attrs: rust_attrs,
-            mirror,
         }),
     )))
 }
@@ -2573,6 +2570,11 @@ pub(crate) fn batch_key_list(
 /// a NEW NaN object, and since NaN != NaN, a dict holding it no longer
 /// compares equal to one holding the caller's (networkx's dicts compare equal
 /// through identity). So NaN keeps the caller's object too.
+///
+/// This is also the whole test for dropping a dict in favour of the store:
+/// the store keeps keys in insertion order (br-r37-c1-6hyf1), so a lossless
+/// dict comes back from it with the caller's key order as well. It used to
+/// need its keys pre-sorted too, when the store was a `BTreeMap`.
 pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
     d.iter()
         .all(|(k, v)| k.is_exact_instance_of::<PyString>() && attr_value_is_batch_lossless(&v))
@@ -2584,35 +2586,6 @@ fn attr_value_is_batch_lossless(v: &Bound<'_, PyAny>) -> bool {
             .is_ok_and(|value| !value.value().is_nan())
         || v.is_exact_instance_of::<PyString>()
         || (v.is_exact_instance_of::<PyInt>() && v.extract::<i64>().is_ok())
-}
-
-/// A dict that a site may drop in favour of rebuilding it from the store
-/// later: batch-lossless, AND its keys already in the store's order. The store
-/// is an `AttrMap` (a `BTreeMap`), so a dict rebuilt from it lists its keys
-/// sorted, while networkx keeps insertion order: `{'weight', 'color'}` came
-/// back as `['color', 'weight']` from `MultiDiGraph.reverse()`. The batch
-/// constructors that keep the caller's dict as the mirror do not need this.
-pub(crate) fn attr_dict_round_trips_through_store(d: &Bound<'_, PyDict>) -> bool {
-    // One pass: every key an exact str sorting after the one before, every
-    // value lossless. The weighted add_edge path calls this per edge, and the
-    // two-pass form built and freed a d.keys() list each time (br-r37-c1-olyn6).
-    let mut previous: Option<Bound<'_, PyString>> = None;
-    for (key, value) in d.iter() {
-        let Ok(key) = key.downcast_into_exact::<PyString>() else {
-            return false;
-        };
-        if !attr_value_is_batch_lossless(&value) {
-            return false;
-        }
-        if let Some(prev) = &previous {
-            match (prev.to_str(), key.to_str()) {
-                (Ok(prev), Ok(current)) if prev < current => {}
-                _ => return false,
-            }
-        }
-        previous = Some(key);
-    }
-    true
 }
 
 /// br-r37-c1-edgebatchlossless (cc): true iff every 3-tuple edge's attr dict in the
@@ -5221,10 +5194,9 @@ impl PyGraph {
     /// third element, an out-of-range index, or a FailClosed attr key.
     fn collect_existing_exact_int_attr_edge_indices<'py, I>(
         &self,
-        py: Python<'py>,
         items: I,
         len: usize,
-    ) -> PyResult<Option<Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)>>>
+    ) -> PyResult<Option<Vec<(usize, usize, AttrMap)>>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
@@ -5235,8 +5207,7 @@ impl PyGraph {
         let mut edges = Vec::with_capacity(len);
         // br-r37-c1-batchattrorder (cc): duplicate edge -> nx merges attrs; decline
         // to the per-edge path (exact merge). Rare in from_dict_of_dicts (unique
-        // neighbour keys). Lets the >=2-key ordered mirror below skip the multi-
-        // occurrence merge.
+        // neighbour keys).
         let mut seen_edges: HashSet<(usize, usize)> = HashSet::with_capacity(len);
         for item in items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
@@ -5278,19 +5249,10 @@ impl PyGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            // br-r37-c1-batchattrorder (cc): >=2-key dict -> retain the ORDERED
-            // mirror so edges(data) keeps nx insertion order (the BTreeMap store
-            // sorts). Single-key/empty stay mirror-free (no order to preserve).
-            let (attrs, mirror) = if dict.len() >= 2 {
-                let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                    return Ok(None);
-                };
-                (attrs, Some(m))
-            } else {
-                let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                    return Ok(None);
-                };
-                (attrs, None)
+            // No dict: the batch is lossless and the store keeps key order, so
+            // edges(data) rebuilds the caller's dict from it (br-r37-c1-6hyf1).
+            let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -5298,7 +5260,7 @@ impl PyGraph {
             {
                 return Ok(None);
             }
-            edges.push((u_index, v_index, attrs, mirror));
+            edges.push((u_index, v_index, attrs));
         }
         Ok(Some(edges))
     }
@@ -5326,12 +5288,12 @@ impl PyGraph {
             if list.len() < EXACT_INT_ATTR_INDEX_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_existing_exact_int_attr_edge_indices(py, list.iter(), list.len())?
+            self.collect_existing_exact_int_attr_edge_indices(list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < EXACT_INT_ATTR_INDEX_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_existing_exact_int_attr_edge_indices(py, tuple.iter(), tuple.len())?
+            self.collect_existing_exact_int_attr_edge_indices(tuple.iter(), tuple.len())?
         } else {
             return Ok(false);
         };
@@ -5341,21 +5303,9 @@ impl PyGraph {
         let edge_bumps = u64::try_from(edges.len())
             .unwrap_or(u64::MAX)
             .wrapping_add(1);
-        // br-r37-c1-batchattrorder (cc): store the ORDERED mirror for multi-attr
-        // edges (label == index for the contiguous-int prefix; undirected key
-        // canonicalised) so edges(data) preserves nx insertion order.
-        let mut store_edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(edges.len());
-        for (u_index, v_index, attrs, mirror) in edges {
-            if let Some(m) = mirror {
-                let ek = Self::edge_key(&u_index.to_string(), &v_index.to_string());
-                let m = self.edge_attr_writes.adopt(py, m.bind(py))?; // br-r37-c1-urjxk
-                self.edge_py_attrs.insert(ek, m);
-            }
-            store_edges.push((u_index, v_index, attrs));
-        }
         let _ = self
             .inner
-            .extend_existing_index_edges_with_attrs_unrecorded(store_edges);
+            .extend_existing_index_edges_with_attrs_unrecorded(edges);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(true)
     }
@@ -5370,19 +5320,9 @@ impl PyGraph {
     #[allow(clippy::type_complexity)]
     fn collect_existing_int_label_attr_edge_indices<'py, I>(
         &self,
-        py: Python<'py>,
         items: I,
         len: usize,
-    ) -> PyResult<
-        Option<
-            Vec<(
-                usize,
-                usize,
-                AttrMap,
-                Option<((String, String), Py<PyDict>)>,
-            )>,
-        >,
-    >
+    ) -> PyResult<Option<Vec<(usize, usize, AttrMap)>>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
@@ -5426,7 +5366,7 @@ impl PyGraph {
                 return Ok(None);
             };
             // Undirected: (u,v) and (v,u) are the same edge, and a repeat must
-            // merge into ONE mirror (nx datadict.update) - the per-edge path does.
+            // merge (nx datadict.update) - the per-edge path does.
             if !seen_edges.insert((u_index.min(v_index), u_index.max(v_index))) {
                 return Ok(None);
             }
@@ -5434,20 +5374,9 @@ impl PyGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            // br-r37-c1-batchattrorder (cc): >=2-key dict -> retain the ORDERED
-            // mirror keyed by the canonical LABEL pair (label != index here) so
-            // edges(data) preserves nx insertion order; single-key/empty stay lazy.
-            let (attrs, mirror) = if dict.len() >= 2 {
-                let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                    return Ok(None);
-                };
-                let ek = Self::edge_key(&u_value.to_string(), &v_value.to_string());
-                (attrs, Some((ek, m)))
-            } else {
-                let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                    return Ok(None);
-                };
-                (attrs, None)
+            // No dict: lossless batch, order-keeping store (br-r37-c1-6hyf1).
+            let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -5455,7 +5384,7 @@ impl PyGraph {
             {
                 return Ok(None);
             }
-            edges.push((u_index, v_index, attrs, mirror));
+            edges.push((u_index, v_index, attrs));
         }
         Ok(Some(edges))
     }
@@ -5479,12 +5408,12 @@ impl PyGraph {
             if list.len() < INT_LABEL_ATTR_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_existing_int_label_attr_edge_indices(py, list.iter(), list.len())?
+            self.collect_existing_int_label_attr_edge_indices(list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             if tuple.len() < INT_LABEL_ATTR_BATCH_MIN {
                 return Ok(false);
             }
-            self.collect_existing_int_label_attr_edge_indices(py, tuple.iter(), tuple.len())?
+            self.collect_existing_int_label_attr_edge_indices(tuple.iter(), tuple.len())?
         } else {
             return Ok(false);
         };
@@ -5494,19 +5423,9 @@ impl PyGraph {
         let edge_bumps = u64::try_from(edges.len())
             .unwrap_or(u64::MAX)
             .wrapping_add(1);
-        // br-r37-c1-batchattrorder (cc): store the ordered mirror (canonical label
-        // key) for multi-attr edges so edges(data) keeps nx insertion order.
-        let mut store_edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(edges.len());
-        for (u_index, v_index, attrs, mirror) in edges {
-            if let Some((ek, m)) = mirror {
-                let m = self.edge_attr_writes.adopt(py, m.bind(py))?; // br-r37-c1-urjxk
-                self.edge_py_attrs.insert(ek, m);
-            }
-            store_edges.push((u_index, v_index, attrs));
-        }
         let _ = self
             .inner
-            .extend_existing_index_edges_with_attrs_unrecorded(store_edges);
+            .extend_existing_index_edges_with_attrs_unrecorded(edges);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(true)
     }
@@ -5821,10 +5740,8 @@ impl PyGraph {
 
     fn collect_fresh_exact_int_attr_edge_batch<'py, I>(
         &self,
-        py: Python<'py>,
         items: I,
         len: usize,
-        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<Option<IndexedAttrEdgeBatch>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
@@ -5837,10 +5754,9 @@ impl PyGraph {
             );
         let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
         let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
-        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(len);
         // br-r37-c1-batchattrorder (cc): a duplicate edge => nx merges attrs
-        // (dict.update); the ordered mirror would need the same multi-occurrence
-        // merge, so decline to the per-edge path (exact merge+order). Undirected:
+        // (dict.update); decline to the per-edge path (exact merge). Undirected:
         // (u,v)==(v,u), so canonicalise the seen key. Rare in a fresh batch.
         let mut seen_edges: rustc_hash::FxHashSet<(i64, i64)> =
             rustc_hash::FxHashSet::with_capacity_and_hasher(len, rustc_hash::FxBuildHasher);
@@ -5883,32 +5799,12 @@ impl PyGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            // br-r37-c1-batchattrorder (cc): >=2 keys -> retain the ORDERED mirror so
-            // edges(data)/get_edge_data preserve nx insertion order (the BTreeMap store
-            // sorts keys). Single-key/empty dicts have no order to preserve.
-            let (attrs, mirror) = if dict.len() >= 2 {
-                if reuse_materialized_dict_as_mirror {
-                    // br-r37-c1-04z53.9178: the true-iterator decoder created
-                    // this shallow snapshot privately for this construction.
-                    // Transfer that affine-owned dict into the ordered mirror
-                    // instead of immediately copying it a second time. Public
-                    // list/tuple batches pass false because callers still own
-                    // their dictionaries.
-                    let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                        return Ok(None);
-                    };
-                    (attrs, Some(dict.clone().unbind()))
-                } else {
-                    let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                        return Ok(None);
-                    };
-                    (attrs, Some(m))
-                }
-            } else {
-                let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                    return Ok(None);
-                };
-                (attrs, None)
+            // No dict: the batch is lossless and the store keeps key order, so
+            // edges(data) / get_edge_data rebuild the caller's dict from it. An
+            // ordered mirror per >=2-key edge was ~30% of the batch
+            // (br-r37-c1-6hyf1).
+            let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -5943,7 +5839,7 @@ impl PyGraph {
             if edge_added_node {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            edges.push((u_index, v_index, attrs, mirror));
+            edges.push((u_index, v_index, attrs));
         }
 
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
@@ -6005,18 +5901,16 @@ impl PyGraph {
     /// this collector keeps ONE fresh merged dict per canonical pair (first-seen
     /// orientation) and replays `update` per occurrence. The final merged dict is
     /// byte-identical to nx's stored edge datadict (same keys, insertion order,
-    /// last-write-wins values); the store `AttrMap` derives from it and the
-    /// ordered mirror is retained iff the merged dict has >=2 keys — the same
-    /// rule the streaming collector uses. It is a strict superset of the
+    /// last-write-wins values); the store `AttrMap` derives from it and keeps
+    /// its key order. It is a strict superset of the
     /// streaming path: on a duplicate-FREE batch it yields identical output from
-    /// the sole occurrence (copying only a required multi-key ordered mirror),
+    /// the sole occurrence,
     /// and it declines (`Ok(None)`) on every non-conforming shape the streaming
     /// path declines on, so the per-edge Python loop still owns those. Only
     /// invoked as a fallback after the streaming collector returns None, so
     /// duplicate-free batches on the common fast path never pay this merge pass.
     fn collect_fresh_exact_int_attr_edge_batch_merged<'py, I>(
         &self,
-        _py: Python<'py>,
         items: I,
         len: usize,
     ) -> PyResult<Option<IndexedAttrEdgeBatch>>
@@ -6127,9 +6021,8 @@ impl PyGraph {
             merged.push((u_index, v_index, dict.clone(), false));
         }
 
-        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> =
-            Vec::with_capacity(merged.len());
-        for (u_index, v_index, mdict, owned) in merged {
+        let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(merged.len());
+        for (u_index, v_index, mdict, _owned) in merged {
             let Ok(attrs) = py_dict_to_attr_map(&mdict) else {
                 return Ok(None);
             };
@@ -6139,22 +6032,9 @@ impl PyGraph {
             {
                 return Ok(None);
             }
-            // Same mirror rule as the streaming collector: >=2 keys -> keep the
-            // ordered mirror (BTreeMap store sorts keys); <2 keys have no order.
-            // The mirror must be fnx-owned: an owned dict (had a duplicate) is
-            // used directly; a still-borrowed multi-attr dict is copied here,
-            // exactly as the streaming path's `py_dict_to_attr_map_with_mirror`
-            // builds a fresh mirror.
-            let mirror = if mdict.len() >= 2 {
-                Some(if owned {
-                    mdict.unbind()
-                } else {
-                    mdict.copy()?.unbind()
-                })
-            } else {
-                None
-            };
-            edges.push((u_index, v_index, attrs, mirror));
+            // No dict, as in the streaming collector: the store keeps the
+            // merged dict's key order (br-r37-c1-6hyf1).
+            edges.push((u_index, v_index, attrs));
         }
 
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
@@ -6165,7 +6045,7 @@ impl PyGraph {
         py: Python<'_>,
         node_labels: Vec<String>,
         node_objects: Vec<PyObject>,
-        edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)>,
+        edges: Vec<(usize, usize, AttrMap)>,
         node_bumps: u64,
     ) -> PyResult<()> {
         let edge_bumps = u64::try_from(edges.len())
@@ -6177,22 +6057,9 @@ impl PyGraph {
             self.node_iter_mirror_insert(py, canonical)?;
         }
 
-        // br-r37-c1-batchattrorder (cc): store ORDERED mirrors for multi-attr edges
-        // (undirected key canonicalised) before the node_labels move, then insert the
-        // store edges. edges(data)/get_edge_data read the mirror -> insertion order.
-        let mut inner_edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(edges.len());
-        for (u_index, v_index, attrs, mirror) in edges {
-            if let Some(m) = mirror {
-                let ek = Self::edge_key(&node_labels[u_index], &node_labels[v_index]);
-                let m = self.edge_attr_writes.adopt(py, m.bind(py))?; // br-r37-c1-urjxk
-                self.edge_py_attrs.insert(ek, m);
-            }
-            inner_edges.push((u_index, v_index, attrs));
-        }
-
         let _inserted = self
             .inner
-            .extend_fresh_index_edges_with_attrs_unrecorded(node_labels, inner_edges);
+            .extend_fresh_index_edges_with_attrs_unrecorded(node_labels, edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(())
@@ -6202,7 +6069,6 @@ impl PyGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
-        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.node_count() != 0
@@ -6217,8 +6083,7 @@ impl PyGraph {
         }
 
         // br-bt-dupmerge: the streaming `collect` returns None on the FIRST duplicate
-        // canonical pair (its ordered mirror can't merge multi-occurrence attrs
-        // in-stream). Rather than concede the whole batch to the ~2x-slower per-edge
+        // canonical pair. Rather than concede the whole batch to the ~2x-slower per-edge
         // Python loop, retry with the merge collector, which replays nx's exact
         // `datadict.update(dd)` semantics natively. The merge collector is a strict
         // superset of the streaming one (byte-identical output on duplicate-free
@@ -6237,20 +6102,13 @@ impl PyGraph {
                 )?,
                 Some(true)
             ) {
-                self.collect_fresh_exact_int_attr_edge_batch_merged(py, list.iter(), list.len())?
+                self.collect_fresh_exact_int_attr_edge_batch_merged(list.iter(), list.len())?
             } else {
-                match self.collect_fresh_exact_int_attr_edge_batch(
-                    py,
-                    list.iter(),
-                    list.len(),
-                    reuse_materialized_dict_as_mirror,
-                )? {
+                match self.collect_fresh_exact_int_attr_edge_batch(list.iter(), list.len())? {
                     Some(batch) => Some(batch),
-                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
-                        py,
-                        list.iter(),
-                        list.len(),
-                    )?,
+                    None => {
+                        self.collect_fresh_exact_int_attr_edge_batch_merged(list.iter(), list.len())?
+                    }
                 }
             }
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
@@ -6264,20 +6122,12 @@ impl PyGraph {
                 )?,
                 Some(true)
             ) {
-                self.collect_fresh_exact_int_attr_edge_batch_merged(py, tuple.iter(), tuple.len())?
+                self.collect_fresh_exact_int_attr_edge_batch_merged(tuple.iter(), tuple.len())?
             } else {
-                match self.collect_fresh_exact_int_attr_edge_batch(
-                    py,
-                    tuple.iter(),
-                    tuple.len(),
-                    reuse_materialized_dict_as_mirror,
-                )? {
+                match self.collect_fresh_exact_int_attr_edge_batch(tuple.iter(), tuple.len())? {
                     Some(batch) => Some(batch),
-                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
-                        py,
-                        tuple.iter(),
-                        tuple.len(),
-                    )?,
+                    None => self
+                        .collect_fresh_exact_int_attr_edge_batch_merged(tuple.iter(), tuple.len())?,
                 }
             }
         } else {
@@ -6299,10 +6149,9 @@ impl PyGraph {
     /// str+attr construction ~0.46x vs nx while int+attr — which already remaps to
     /// a dense index and uses `extend_fresh_index_edges_with_attrs_unrecorded` —
     /// wins 1.15x. Canonicalise each DISTINCT node ONCE, remap to a 0..N index, and
-    /// reuse the int fast path's index extend + applier. Same mirror rule as the int
-    /// batch (>=2 attrs -> fresh ordered mirror; <2 -> deferred; the deferred single-
-    /// attr case is safe now that fnx_to_nx_adjacency store-falls-back). Declines
-    /// (-> the general merge path) on duplicate edges or non-plain nodes.
+    /// reuse the int fast path's index extend + applier. Like the int batch it
+    /// makes no dict per edge (the store keeps key order, br-r37-c1-6hyf1).
+    /// Declines (-> the general merge path) on duplicate edges or non-plain nodes.
     fn collect_fresh_general_attr_edge_batch<'py, I>(
         &self,
         py: Python<'py>,
@@ -6315,7 +6164,7 @@ impl PyGraph {
         let mut node_indices: HashMap<String, usize> = HashMap::new();
         let mut node_labels: Vec<String> = Vec::new();
         let mut node_objects: Vec<PyObject> = Vec::new();
-        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(len);
         let mut seen_edges: HashSet<(usize, usize)> = HashSet::with_capacity(len);
         let mut node_bumps = 0_u64;
 
@@ -6338,17 +6187,8 @@ impl PyGraph {
             let Ok(dict) = third.downcast::<PyDict>() else {
                 return Ok(None);
             };
-            // Mirror rule identical to collect_fresh_exact_int_attr_edge_batch.
-            let (attrs, mirror) = if dict.len() >= 2 {
-                let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                    return Ok(None);
-                };
-                (attrs, Some(m))
-            } else {
-                let Ok(attrs) = py_dict_to_attr_map(dict) else {
-                    return Ok(None);
-                };
-                (attrs, None)
+            let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                return Ok(None);
             };
             if attrs
                 .keys()
@@ -6394,7 +6234,7 @@ impl PyGraph {
             if !seen_edges.insert(canon) {
                 return Ok(None);
             }
-            edges.push((u_index, v_index, attrs, mirror));
+            edges.push((u_index, v_index, attrs));
         }
 
         Ok(Some((node_labels, node_objects, edges, node_bumps)))
@@ -6459,30 +6299,15 @@ impl PyGraph {
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_iter_mirror_insert(py, &canonical)?;
         }
-        // br-r37-c1-89kxg: mirrors are LAZY — only attributed edges
-        // materialize a dict here (content copy); empty mirrors are
-        // created on first observation by the render paths.
+        // br-r37-c1-89kxg: mirrors are LAZY. The store below merges each
+        // edge's attributes as nx's datadict.update does - new keys after the
+        // old ones (br-r37-c1-6hyf1) - so an edge gets no dict here; only one
+        // whose dict is already out takes the update too, since reads trust it.
         for (u, v, _, src) in &edges {
-            if let Some(src) = src {
-                let bound = src.bind(py);
-                if !bound.is_empty() {
-                    let key = Self::edge_key(u, v);
-                    let mirror = match self.edge_py_attrs.get(&key) {
-                        Some(existing) => existing.clone_ref(py),
-                        None => {
-                            // An edge already in the store without a mirror keeps
-                            // its attributes there: seed the mirror from them, or
-                            // the batch REPLACES them where nx's datadict.update
-                            // merges (the store below merges; reads trust this).
-                            let seeded = self
-                                .edge_attr_writes
-                                .dict_from_attr_map(py, self.inner.edge_attrs(u, v))?;
-                            self.edge_py_attrs.insert(key, seeded.clone_ref(py));
-                            seeded
-                        }
-                    };
-                    mirror.bind(py).update(bound.as_mapping())?;
-                }
+            if let Some(src) = src
+                && let Some(existing) = self.edge_py_attrs.get(&Self::edge_key(u, v))
+            {
+                existing.bind(py).update(src.bind(py).as_mapping())?;
             }
         }
 
@@ -6502,7 +6327,6 @@ impl PyGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
-        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.py_adj_rows_live() {
@@ -6519,11 +6343,7 @@ impl PyGraph {
             return Ok(false);
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
-            && self.try_add_fresh_exact_int_attr_edge_batch(
-                py,
-                ebunch_to_add,
-                reuse_materialized_dict_as_mirror,
-            )?
+            && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
         {
             return Ok(true);
         }
@@ -6578,12 +6398,11 @@ impl PyGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
-        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         if self.try_add_plain_edge_batch(py, ebunch_to_add)? {
             return Ok(true);
         }
-        self.try_add_attr_edge_batch(py, ebunch_to_add, None, reuse_materialized_dict_as_mirror)
+        self.try_add_attr_edge_batch(py, ebunch_to_add, None)
     }
 
     /// br-r37-c1-nodebatch: collect a batch of attributed nodes — a mix of
@@ -6607,11 +6426,9 @@ impl PyGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        // Per-occurrence (canonical, AttrMap, Option<src dict>) — duplicate
-        // canonicals are merged by `extend_nodes_with_attrs_unrecorded`
-        // (later wins) and by the mirror `entry().update` below, matching the
-        // per-node `add_node` sequence exactly.
-        let mut nodes: Vec<(String, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        // Per-occurrence (canonical, AttrMap); a duplicate canonical declines
+        // to the per-node path below.
+        let mut nodes: Vec<(String, AttrMap)> = Vec::with_capacity(len);
         let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
         let mut seen_nodes: HashSet<String> = HashSet::new();
         let mut node_bumps = 0_u64;
@@ -6641,7 +6458,7 @@ impl PyGraph {
                 return Ok(None);
             }
 
-            let (rust_attrs, src) = match &src_dict {
+            let rust_attrs = match &src_dict {
                 Some(d) => {
                     if !attr_dict_is_batch_lossless(d) {
                         // non-store-round-trippable attr (tuple/list/None/dict/oversized
@@ -6655,9 +6472,9 @@ impl PyGraph {
                     if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                         return Ok(None);
                     }
-                    (attrs, Some(d.clone().unbind()))
+                    attrs
                 }
-                None => (AttrMap::new(), None),
+                None => AttrMap::new(),
             };
 
             let Ok(canonical) = node_key_to_string(py, &node) else {
@@ -6672,30 +6489,28 @@ impl PyGraph {
             }
             if !seen_nodes.insert(canonical.clone()) {
                 // br-r37-c1-batchattrorder (cc): duplicate node -> nx merges attrs; decline to
-                // the per-node path (exact merge+order); the multi-attr mirror only keeps the
-                // last occurrence, so a per-node merge is required for correctness.
+                // the per-node path (exact merge).
                 return Ok(None);
             }
             node_bumps = node_bumps.wrapping_add(1);
             new_nodes.push((canonical.clone(), node.clone().unbind()));
-            nodes.push((canonical, rust_attrs, src));
+            nodes.push((canonical, rust_attrs));
         }
 
         Ok(Some((nodes, new_nodes, node_bumps)))
     }
 
     /// Commit a collected attributed-node batch: node display objects +
-    /// iter-mirror keys first, then LAZY PyDict mirrors (only non-empty attr
-    /// dicts materialize — `entry().update` merges duplicate-node attrs
-    /// exactly like the per-node `add_node`), then ONE
-    /// `extend_nodes_with_attrs_unrecorded` (insert-or-merge, no per-node
-    /// ledger), then the `nodes_seq` bumps the per-node path performs - through
+    /// iter-mirror keys first, then ONE `extend_nodes_with_attrs_unrecorded`
+    /// (no per-node ledger; each node's dict is made from the store, which
+    /// keeps its key order, on first read - br-r37-c1-6hyf1), then the
+    /// `nodes_seq` bumps the per-node path performs - through
     /// `bump_nodes_seq`, so a graph with edges gets add_node's cache and
     /// escape-scope resets too (br-r37-c1-ow0ie).
     fn add_attr_node_batch(
         &mut self,
         py: Python<'_>,
-        nodes: Vec<(String, AttrMap, Option<Py<PyDict>>)>,
+        nodes: Vec<(String, AttrMap)>,
         new_nodes: Vec<(String, PyObject)>,
         node_bumps: u64,
     ) -> PyResult<()> {
@@ -6703,29 +6518,7 @@ impl PyGraph {
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_iter_mirror_insert(py, &canonical)?;
         }
-        // br-r37-c1-batchattrorder (cc): create+merge the ORDERED mirror for ATTR'd
-        // nodes. The store's AttrMap (BTreeMap) sorts keys, so lazy materialisation
-        // of nodes(data)/nodes[n] from it ALPHABETISED multi-attr dicts vs nx's
-        // insertion order. `dict.update(src)` preserves the src key order and merges
-        // duplicate-node attrs exactly like the per-node add_node sequence. Plain
-        // (attr-less) nodes stay mirror-free (empty -> order trivial), so single-
-        // weight bulk construction keeps the lazynodeattr win. Matches the DiGraph
-        // node batch, which already carried this.
-        for (canonical, _, src) in &nodes {
-            if let Some(src) = src {
-                let bound = src.bind(py);
-                if bound.len() >= 2 {
-                    let dict = self
-                        .node_py_attrs
-                        .entry(canonical.clone())
-                        .or_insert_with(|| PyDict::new(py).unbind());
-                    dict.bind(py).update(bound.as_mapping())?;
-                }
-            }
-        }
-        let _inserted = self
-            .inner
-            .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
+        let _inserted = self.inner.extend_nodes_with_attrs_unrecorded(nodes);
         if node_bumps > 0 {
             self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps - 1);
             self.bump_nodes_seq();
@@ -6746,10 +6539,9 @@ type AttrEdgeBatch = (
 type IndexedAttrEdgeBatch = (
     Vec<String>,
     Vec<PyObject>,
-    // br-r37-c1-batchattrorder (cc): 4th slot = ORDERED mirror PyDict for multi-key
-    // (>=2) attr dicts. The store's AttrMap (BTreeMap) sorts keys, so materialising
-    // edges(data) from it alphabetises multi-attr dicts vs nx's insertion order.
-    Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)>,
+    // No dict per edge: the batches are lossless, and the store keeps each
+    // dict's key order, so edges(data) rebuilds it (br-r37-c1-6hyf1).
+    Vec<(usize, usize, AttrMap)>,
     u64,
 );
 
@@ -6762,12 +6554,9 @@ type IndexedKeyedAttrEdgeBatch = (
 
 /// br-r37-c1-nodebatch: collected attributed-node batch —
 /// (nodes, new_nodes, node_bumps); each node carries its converted
-/// `AttrMap` plus the source `PyDict` for the lazy mirror update.
-type AttrNodeBatch = (
-    Vec<(String, AttrMap, Option<Py<PyDict>>)>,
-    Vec<(String, PyObject)>,
-    u64,
-);
+/// `AttrMap`, which keeps the caller's key order, so no dict is made for it
+/// (br-r37-c1-6hyf1).
+type AttrNodeBatch = (Vec<(String, AttrMap)>, Vec<(String, PyObject)>, u64);
 
 #[pyclass(
     module = "franken_networkx",
@@ -8644,7 +8433,7 @@ impl PyMultiGraph {
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut nodes: Vec<(String, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut nodes: Vec<(String, AttrMap)> = Vec::with_capacity(len);
         let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
         let mut seen_nodes: HashSet<String> = HashSet::new();
         let mut node_bumps = 0_u64;
@@ -8671,7 +8460,7 @@ impl PyMultiGraph {
                 return Ok(None);
             }
 
-            let (rust_attrs, src) = match &src_dict {
+            let rust_attrs = match &src_dict {
                 Some(d) => {
                     if !attr_dict_is_batch_lossless(d) {
                         // non-store-round-trippable attr (tuple/list/None/dict/oversized
@@ -8685,9 +8474,9 @@ impl PyMultiGraph {
                     if attrs.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                         return Ok(None);
                     }
-                    (attrs, Some(d.clone().unbind()))
+                    attrs
                 }
-                None => (AttrMap::new(), None),
+                None => AttrMap::new(),
             };
 
             let Ok(canonical) = node_key_to_string(py, &node) else {
@@ -8702,13 +8491,12 @@ impl PyMultiGraph {
             }
             if !seen_nodes.insert(canonical.clone()) {
                 // br-r37-c1-batchattrorder (cc): duplicate node -> nx merges attrs; decline to
-                // the per-node path (exact merge+order); the multi-attr mirror only keeps the
-                // last occurrence, so a per-node merge is required for correctness.
+                // the per-node path (exact merge).
                 return Ok(None);
             }
             node_bumps = node_bumps.wrapping_add(1);
             new_nodes.push((canonical.clone(), node.clone().unbind()));
-            nodes.push((canonical, rust_attrs, src));
+            nodes.push((canonical, rust_attrs));
         }
 
         Ok(Some((nodes, new_nodes, node_bumps)))
@@ -8716,13 +8504,13 @@ impl PyMultiGraph {
 
     /// Commit a collected attributed-node batch (MultiGraph LAZY mirror —
     /// matching `add_node`'s `ensure_node_py_attrs`-only-when-attrs): node
-    /// display objects first, then non-empty PyDict mirrors (`entry().update`
-    /// merges duplicate-node attrs), then ONE
-    /// `extend_nodes_with_attrs_unrecorded` and the `nodes_seq` bump.
+    /// display objects first, then ONE `extend_nodes_with_attrs_unrecorded`
+    /// (each node's dict is made from the order-keeping store on first read,
+    /// br-r37-c1-6hyf1) and the `nodes_seq` bump.
     fn add_attr_node_batch(
         &mut self,
         py: Python<'_>,
-        nodes: Vec<(String, AttrMap, Option<Py<PyDict>>)>,
+        nodes: Vec<(String, AttrMap)>,
         new_nodes: Vec<(String, PyObject)>,
         node_bumps: u64,
     ) -> PyResult<()> {
@@ -8738,24 +8526,7 @@ impl PyMultiGraph {
                 let _ = self.node_iter_mirror_insert(py, &c);
             }
         }
-        // br-r37-c1-batchattrorder (cc): ordered mirror for ATTR'd nodes so
-        // nodes(data) preserves nx insertion order (the BTreeMap store sorts) +
-        // merges duplicate-node attrs. Plain nodes stay lazy. See PyGraph twin.
-        for (canonical, _, src) in &nodes {
-            if let Some(src) = src {
-                let bound = src.bind(py);
-                if bound.len() >= 2 {
-                    let dict = self
-                        .node_py_attrs
-                        .entry(canonical.clone())
-                        .or_insert_with(|| PyDict::new(py).unbind());
-                    dict.bind(py).update(bound.as_mapping())?;
-                }
-            }
-        }
-        let _inserted = self
-            .inner
-            .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
+        let _inserted = self.inner.extend_nodes_with_attrs_unrecorded(nodes);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         Ok(())
     }
@@ -16151,7 +15922,7 @@ impl PyGraph {
                         .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g.try_add_edges_from_batch_impl(py, edata, materialized.is_some())? {
+            } else if g.try_add_edges_from_batch_impl(py, edata)? {
                 // br-r37-c1-ctorbatch (cc): route fresh edge-list construction
                 // through the add_edges_from fast batch — the constructor's own
                 // edge loop pays per-edge `has_node`/`has_edge`/`maybe_store_adj_key`
@@ -16715,7 +16486,7 @@ impl PyGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        self.try_add_edges_from_batch_impl(py, ebunch_to_add, false)
+        self.try_add_edges_from_batch_impl(py, ebunch_to_add)
     }
 
     /// br-r37-c1-nodebatch: native attributed-node batch for
@@ -16975,13 +16746,13 @@ impl PyGraph {
             // by 3. networkx merges into the existing datadict, so seed first.
             //
             // A NEW edge whose dict round-trips through the native store (str
-            // keys already in its sorted order, bool / float / str / i64 int
-            // values - attr_dict_round_trips_through_store) gets no dict here
-            // at all: the store is authoritative and the first read
+            // keys, bool / float / str / i64 int values -
+            // attr_dict_is_batch_lossless; the store keeps key order) gets no
+            // dict here at all: the store is authoritative and the first read
             // materialises the dict from it, as for an edge the attributed
-            // batch built. Anything else keeps the caller's objects, and their
-            // order, in an eager dict.
-            if !was_new_edge || !attr_dict_round_trips_through_store(a) {
+            // batch built. Anything else keeps the caller's objects in an
+            // eager dict.
+            if !was_new_edge || !attr_dict_is_batch_lossless(a) {
                 let mirror = if was_new_edge {
                     self.edge_py_attrs
                         .entry(Self::edge_key(&u_canonical, &v_canonical))
@@ -17036,7 +16807,7 @@ impl PyGraph {
         // replicate exactly falls through to the loop unchanged.
         // br-r37-c1-d58s8: global **attr now batches too (was the 7x
         // residual: nx merge order = global first, per-edge overrides).
-        if self.try_add_attr_edge_batch(py, ebunch_to_add, attr, false)? {
+        if self.try_add_attr_edge_batch(py, ebunch_to_add, attr)? {
             return Ok(());
         }
         let iter = PyIterator::from_object(ebunch_to_add)?;
@@ -21558,7 +21329,7 @@ class FnxMultiGraphCtorEdgeIterable:
             };
             let commit = |materialized: &Bound<'_, PyAny>| -> PyResult<()> {
                 let mut graph = PyGraph::new_empty(py)?;
-                assert!(graph.try_add_edges_from_batch_impl(py, materialized, true)?);
+                assert!(graph.try_add_edges_from_batch_impl(py, materialized)?);
                 black_box(graph.inner.edge_count());
                 black_box(graph.edge_py_attrs.len());
                 Ok(())
@@ -21665,7 +21436,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 node_bumps,
             )?;
         } else {
-            assert!(graph.try_add_edges_from_batch_impl(py, &decoded.items, true)?);
+            assert!(graph.try_add_edges_from_batch_impl(py, &decoded.items)?);
         }
         Ok(graph)
     }
@@ -21715,15 +21486,21 @@ class FnxMultiGraphCtorEdgeIterable:
                 .expect("the fixture has a first attribute dictionary")
                 .bind(py)
                 .set_item("weight", 9999)?;
-            let first_edge = PyGraph::edge_key("0", "1");
+            let first_edge = fused
+                .inner
+                .edge_attrs("0", "1")
+                .expect("the first edge is in the store");
             assert_eq!(
-                fused.edge_py_attrs[&first_edge]
-                    .bind(py)
-                    .get_item("weight")?
-                    .expect("weight must remain present")
-                    .extract::<usize>()?,
-                0,
+                first_edge.get("weight"),
+                Some(&CgseValue::Int(0)),
                 "the fused stage must retain the yield-time shallow snapshot"
+            );
+            // br-r37-c1-6hyf1: no dict per edge - the store holds the caller's
+            // key order, which is what edges(data) rebuilds.
+            assert!(fused.edge_py_attrs.is_empty());
+            assert_eq!(
+                first_edge.keys().map(String::as_str).collect::<Vec<_>>(),
+                ["weight", "cost", "tag"]
             );
 
             let duplicate_rows = PyList::empty(py);
@@ -21882,123 +21659,6 @@ class FnxMultiGraphCtorEdgeIterable:
         .expect("Graph attributed iterator fused-stage A/B should run");
     }
 
-    /// `br-r37-c1-04z53.9178`: same-binary proof for affine transfer of the
-    /// true-iterator decoder's private attribute snapshots versus the frozen
-    /// second-copy path. Run with the release profile, `--ignored`, and
-    /// `--nocapture` on one remote worker.
-    #[test]
-    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
-    fn graph_attr_iterator_owned_mirror_ab() {
-        use std::hint::black_box;
-        use std::time::Instant;
-
-        ensure_python();
-        Python::attach(|py| -> PyResult<()> {
-            let edge_count = 10_000usize;
-            let repetitions = 32usize;
-            let rounds = 21usize;
-            let rows = PyList::empty(py);
-            for node in 0..edge_count {
-                let attrs = PyDict::new(py);
-                attrs.set_item("weight", node % 97)?;
-                attrs.set_item("cost", node as f64 / 17.0)?;
-                attrs.set_item("tag", format!("e{}", node % 11))?;
-                let row = PyList::new(
-                    py,
-                    [
-                        node.into_py_any(py)?,
-                        (node + 1).into_py_any(py)?,
-                        attrs.unbind().into_any(),
-                    ],
-                )?;
-                rows.append(row)?;
-            }
-
-            let build = |reuse_materialized_dict_as_mirror: bool| -> PyResult<PyGraph> {
-                let iterator = rows.call_method0("__iter__")?;
-                let materialized =
-                    materialize_iterator_edge_list(py, &iterator, false, false, false)?
-                    .expect("a true iterator must materialize");
-                let mut graph = PyGraph::new_empty(py)?;
-                assert!(graph.try_add_edges_from_batch_impl(
-                    py,
-                    &materialized.items,
-                    reuse_materialized_dict_as_mirror,
-                )?);
-                black_box(graph.inner.edge_count());
-                black_box(graph.edge_py_attrs.len());
-                Ok(graph)
-            };
-            let time = |reuse_materialized_dict_as_mirror: bool| -> PyResult<f64> {
-                let start = Instant::now();
-                for _ in 0..repetitions {
-                    black_box(build(reuse_materialized_dict_as_mirror)?);
-                }
-                Ok(start.elapsed().as_secs_f64())
-            };
-
-            let baseline = build(false)?;
-            let candidate = build(true)?;
-            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
-            assert_eq!(candidate.node_key_map.len(), baseline.node_key_map.len());
-            assert_eq!(candidate.edge_py_attrs.len(), baseline.edge_py_attrs.len());
-            for (edge, candidate_attrs) in &candidate.edge_py_attrs {
-                let baseline_attrs = baseline
-                    .edge_py_attrs
-                    .get(edge)
-                    .expect("both paths must retain every ordered mirror");
-                assert_eq!(
-                    candidate_attrs.bind(py).repr()?.to_str()?,
-                    baseline_attrs.bind(py).repr()?.to_str()?,
-                    "ordered Python edge payload must stay byte-identical"
-                );
-            }
-            black_box(time(false)?);
-            black_box(time(true)?);
-
-            let paired = |baseline_reuses_mirror: bool| -> PyResult<Vec<f64>> {
-                let mut ratios = Vec::with_capacity(rounds);
-                for round in 0..rounds {
-                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
-                        (time(baseline_reuses_mirror)?, time(true)?)
-                    } else {
-                        let candidate_time = time(true)?;
-                        let baseline_time = time(baseline_reuses_mirror)?;
-                        (baseline_time, candidate_time)
-                    };
-                    ratios.push(baseline_time / candidate_time);
-                }
-                Ok(ratios)
-            };
-            let report = |name: &str, ratios: &[f64]| {
-                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
-                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
-                let variance = ratios
-                    .iter()
-                    .map(|ratio| (ratio - mean).powi(2))
-                    .sum::<f64>()
-                    / (ratios.len() - 1) as f64;
-                let cv_pct = variance.sqrt() / mean * 100.0;
-                let mut sorted = ratios.to_vec();
-                sorted.sort_by(f64::total_cmp);
-                println!(
-                    "GRAPH_ATTR_ITER_MIRROR_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
-                    sorted[rounds / 2],
-                    sorted[rounds * 5 / 100],
-                    sorted[rounds * 95 / 100],
-                );
-            };
-
-            println!(
-                "GRAPH_ATTR_ITER_MIRROR_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = affine transfer faster)"
-            );
-            report("candidate_vs_second_copy", &paired(false)?);
-            report("candidate_null", &paired(true)?);
-            Ok(())
-        })
-        .expect("Graph attributed iterator mirror A/B should run");
-    }
-
     fn exact_int_attr_ebunch(py: Python<'_>) -> PyResult<(Bound<'_, PyList>, Py<PyDict>)> {
         let ebunch = PyList::empty(py);
         let mut first_attrs = None;
@@ -22098,19 +21758,27 @@ class FnxMultiGraphCtorEdgeIterable:
     }
 
     #[test]
-    fn graph_fresh_exact_int_attr_batch_preserves_ordered_mirrors() {
+    fn graph_fresh_exact_int_attr_batch_keeps_key_order_without_dicts() {
         ensure_python();
         Python::attach(|py| -> PyResult<()> {
             let (ebunch, first_source_attrs) = exact_int_attr_ebunch(py)?;
             let mut sparse = PyGraph::new_empty(py)?;
 
-            assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any(), false,)?);
+            assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
             assert_eq!(sparse.inner.node_count(), 9);
             assert_eq!(sparse.inner.edge_count(), 8);
+            // br-r37-c1-6hyf1: {'weight', 'label'} is not in sorted order, and
+            // the batch still makes no dict: the store keeps the caller's order.
+            assert!(sparse.edge_py_attrs.is_empty());
             assert_eq!(
-                sparse.edge_py_attrs.len(),
-                8,
-                "multi-attribute edges retain owned mirrors so Python dict key order matches NetworkX"
+                sparse
+                    .inner
+                    .edge_attrs("0", "1")
+                    .expect("the first edge is in the store")
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                ["weight", "label"]
             );
 
             let first_inner_attrs = sparse
@@ -22157,19 +21825,14 @@ class FnxMultiGraphCtorEdgeIterable:
                     .extract::<String>()?,
                 "edge-0"
             );
-            assert_eq!(
-                sparse.edge_py_attrs.len(),
-                8,
-                "__getstate__ must not add mirrors beyond the order-preserving batch mirrors"
+            assert!(
+                sparse.edge_py_attrs.is_empty(),
+                "__getstate__ must not materialize edge dicts"
             );
 
             let (ebunch, _) = exact_int_attr_ebunch(py)?;
             let mut materialized = PyGraph::new_empty(py)?;
-            assert!(materialized.try_add_fresh_exact_int_attr_edge_batch(
-                py,
-                ebunch.as_any(),
-                false,
-            )?);
+            assert!(materialized.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
             let zero = 0_i64.into_pyobject(py)?.into_any();
             let one = 1_i64.into_pyobject(py)?.into_any();
             let data = materialized.get_edge_data(py, &zero, &one, None)?;
@@ -22181,7 +21844,12 @@ class FnxMultiGraphCtorEdgeIterable:
                     .extract::<i64>()?,
                 0
             );
-            assert_eq!(materialized.edge_py_attrs.len(), 8);
+            assert_eq!(
+                data_dict.keys().extract::<Vec<String>>()?,
+                ["weight", "label"],
+                "the dict rebuilt from the store has the caller's key order"
+            );
+            assert_eq!(materialized.edge_py_attrs.len(), 1);
 
             let sparse_py = Py::new(py, sparse)?;
             let materialized_py = Py::new(py, materialized)?;
@@ -22219,7 +21887,7 @@ class FnxMultiGraphCtorEdgeIterable:
             }
 
             let mut graph = PyGraph::new_empty(py)?;
-            assert!(graph.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any(), false,)?);
+            assert!(graph.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
             assert!(
                 graph.edge_py_attrs.is_empty(),
                 "single-attribute edges do not need an order-preserving mirror"

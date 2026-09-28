@@ -15,7 +15,7 @@ use fnx_classes::digraph::DiGraph;
 use fnx_classes::{AttrMap, Graph};
 use fnx_runtime::CgseValue;
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -82,7 +82,7 @@ fn build_undirected_graph(spec: &GraphSpec) -> Graph {
     }
     for edge in &spec.edges {
         if let Some(w) = edge.weight {
-            let mut attrs: AttrMap = BTreeMap::new();
+            let mut attrs = AttrMap::new();
             attrs.insert("weight".to_string(), CgseValue::Float(w));
             let _ = g.add_edge_with_attrs(&edge.u, &edge.v, attrs);
         } else {
@@ -99,7 +99,7 @@ fn build_directed_graph(spec: &GraphSpec) -> DiGraph {
     }
     for edge in &spec.edges {
         if let Some(w) = edge.weight {
-            let mut attrs: AttrMap = BTreeMap::new();
+            let mut attrs = AttrMap::new();
             attrs.insert("weight".to_string(), CgseValue::Float(w));
             let _ = g.add_edge_with_attrs(&edge.u, &edge.v, attrs);
         } else {

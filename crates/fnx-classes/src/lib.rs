@@ -26,7 +26,7 @@ pub(crate) type FxIndexSet<T> = indexmap::IndexSet<T, rustc_hash::FxBuildHasher>
 use std::collections::HashSet;
 use std::fmt;
 
-pub type AttrMap = BTreeMap<String, CgseValue>;
+pub use fnx_runtime::AttrMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphError {
@@ -11368,11 +11368,13 @@ mod tests {
         graph
             .add_edge_with_attrs("a", "b", extra)
             .expect("edge is allowed");
+        // A merged key goes after the ones already there, as dict.update puts
+        // it (br-r37-c1-6hyf1: the store keeps insertion order).
         assert_eq!(
             stored(&graph, "a", "b"),
             vec![
-                ("k".to_owned(), CgseValue::Int(2)),
                 ("w".to_owned(), CgseValue::Int(9)),
+                ("k".to_owned(), CgseValue::Int(2)),
             ]
         );
     }
