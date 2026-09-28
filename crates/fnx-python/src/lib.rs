@@ -3737,7 +3737,9 @@ pub(crate) struct PyGraph {
     /// that maintain `adj_row_py`, never rebuilt behind an open iterator -- and
     /// every guard asking whether a mirror is live must ask `py_adj_rows_live()`
     /// rather than `adj_row_py`, because a key row goes stale just as easily.
-    pub(crate) neighbor_key_rows: HashMap<String, Py<PyDict>>,
+    /// br-r37-c1-qnj0n: Fx-hashed - every cold `G.neighbors(n)` probes and
+    /// inserts here, and SipHash was ~9% of a cold row's instructions.
+    pub(crate) neighbor_key_rows: rustc_hash::FxHashMap<String, Py<PyDict>>,
     /// br-r37-c1-3rtyk: the node-INDEX twin of `neighbor_key_rows`, exactly as
     /// `adj_row_py_by_index` twins `adj_row_py` and for the same reason -- the
     /// borrowed-canonical probe copies and hashes the key's bytes, making a hit
@@ -3989,16 +3991,12 @@ impl PyGraph {
             return Err(missing_key_error(node));
         }
         let row = PyDict::new(py);
-        let neighbors: Vec<String> = self
-            .inner
-            .neighbors(&canonical)
-            .unwrap_or_default()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        for neighbor in neighbors {
-            let py_neighbor = self.py_adj_key(py, &canonical, &neighbor);
-            row.set_item(py_neighbor, py.None())?;
+        // br-r37-c1-qnj0n: the neighbour names are borrowed from the store -
+        // an owned String per neighbour was ~9% of a cold row.
+        if let Some(neighbors) = self.inner.neighbors_iter(&canonical) {
+            for neighbor in neighbors {
+                row.set_item(self.py_adj_key(py, &canonical, neighbor), py.None())?;
+            }
         }
         let row = row.unbind();
         if let Some(index) = index {
@@ -4616,7 +4614,7 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-            neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+            neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
             neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
@@ -18272,7 +18270,7 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-            neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+            neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
             neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -18496,7 +18494,7 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-            neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+            neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
             neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -18588,7 +18586,7 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-            neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+            neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
             neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -18719,7 +18717,7 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-            neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+            neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
             neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -18864,7 +18862,7 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-            neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+            neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
             neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -20530,7 +20528,7 @@ impl PyGraph {
             edges_alldata_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-            neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+            neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
             neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
             node_py_attrs: self
                 .node_py_attrs

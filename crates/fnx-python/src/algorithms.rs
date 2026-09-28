@@ -28,6 +28,18 @@ use std::sync::{
 };
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
+
+/// A binding's discovery / display objects keyed by canonical node name
+/// (br-r37-c1-6hpa9). Filled once per emitted node or edge, so its hash is on
+/// every output row: SipHash (std's default) was over a third of dfs_edges'
+/// instructions (br-r37-c1-qnj0n). The keys are the graph's own canonical
+/// names, which the node table already holds in Fx-hashed maps.
+type DisplayMap = rustc_hash::FxHashMap<String, PyObject>;
+
+fn display_map_with_capacity(capacity: usize) -> DisplayMap {
+    DisplayMap::with_capacity_and_hasher(capacity, Default::default())
+}
+
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
 const PY_DISTANCE_COMPARISON_EPSILON: f64 = 1.0e-12;
 
@@ -211,9 +223,8 @@ impl<'py> GraphRef<'py> {
         edges: &[(String, String)],
         seed: Option<(&str, PyObject)>,
         reverse: bool,
-    ) -> std::collections::HashMap<String, PyObject> {
-        let mut disp: std::collections::HashMap<String, PyObject> =
-            std::collections::HashMap::with_capacity(edges.len() + 1);
+    ) -> DisplayMap {
+        let mut disp = display_map_with_capacity(edges.len() + 1);
         if let Some((k, s)) = seed {
             disp.insert(k.to_owned(), s);
         }
@@ -235,7 +246,7 @@ impl<'py> GraphRef<'py> {
     fn disp_or_node_key(
         &self,
         py: Python<'_>,
-        disp: &std::collections::HashMap<String, PyObject>,
+        disp: &DisplayMap,
         key: &str,
     ) -> PyObject {
         disp.get(key)
@@ -2177,8 +2188,7 @@ fn emit_paths_dict_discovery(
     source_key: &str,
     source_obj: PyObject,
 ) -> PyResult<pyo3::Py<PyDict>> {
-    let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(paths.len());
+    let mut disp = display_map_with_capacity(paths.len());
     disp.insert(source_key.to_owned(), source_obj);
     for (node, p) in paths {
         if p.len() >= 2 {
@@ -2257,8 +2267,7 @@ fn emit_single_target_paths_dict(
     let mut paths: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::with_capacity(edges.len() + 1);
     paths.insert(target_key.to_owned(), vec![target_key.to_owned()]);
-    let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(edges.len() + 1);
+    let mut disp = display_map_with_capacity(edges.len() + 1);
     disp.insert(target_key.to_owned(), target_obj.clone_ref(py));
     let dict = PyDict::new(py);
     dict.set_item(target_obj.clone_ref(py), vec![target_obj])?;
@@ -2295,8 +2304,7 @@ fn emit_reversed_target_paths_dict(
     target_key: &str,
     target_obj: PyObject,
 ) -> PyResult<pyo3::Py<PyDict>> {
-    let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(paths.len() + 1);
+    let mut disp = display_map_with_capacity(paths.len() + 1);
     disp.insert(target_key.to_owned(), target_obj);
     for (node, p) in paths {
         if p.len() >= 2 {
@@ -5331,8 +5339,7 @@ pub fn multi_source_dijkstra(
     // `{source: [source] for source in sources}`, so sources display AS
     // PASSED (iterating the caller's set object in-process also gives
     // nx's exact seed order at any hash seed).
-    let mut seed_objs: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::new();
+    let mut seed_objs = DisplayMap::default();
     for item in iter {
         let item = item?;
         let s = node_key_to_string(py, &item)?;
@@ -5365,7 +5372,7 @@ pub fn multi_source_dijkstra(
 
     // br-r37-c1-7hsew: discovery objects — seeds as passed, every other
     // node as its finalizing predecessor's row object.
-    let mut disp: std::collections::HashMap<String, PyObject> = seed_objs;
+    let mut disp: DisplayMap = seed_objs;
     for entry in &result.distances {
         if let Some(Some(p)) = pred_map.get(entry.node.as_str()) {
             disp.entry(entry.node.clone())
@@ -5425,8 +5432,7 @@ pub fn multi_source_dijkstra_path_length(
     let gr = extract_graph(g)?;
     let iter = pyo3::types::PyIterator::from_object(sources)?;
     let mut source_strs = Vec::new();
-    let mut seed_objs: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::new();
+    let mut seed_objs = DisplayMap::default();
     for item in iter {
         let item = item?;
         let s = node_key_to_string(py, &item)?;
@@ -5452,7 +5458,7 @@ pub fn multi_source_dijkstra_path_length(
         .iter()
         .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
         .collect();
-    let mut disp: std::collections::HashMap<String, PyObject> = seed_objs;
+    let mut disp: DisplayMap = seed_objs;
     for entry in &result.distances {
         if let Some(Some(p)) = pred_map.get(entry.node.as_str()) {
             disp.entry(entry.node.clone())
@@ -12440,7 +12446,7 @@ pub fn bfs_layers(
     // adjacency-row object. The _with_parents kernels emit the parent for
     // free; seeds map canonical -> passed object.
     let emit = |layers: Vec<Vec<(String, Option<String>)>>,
-                seeds: &std::collections::HashMap<String, PyObject>|
+                seeds: &DisplayMap|
      -> Vec<Vec<PyObject>> {
         layers
             .into_iter()
@@ -12471,7 +12477,7 @@ pub fn bfs_layers(
             let inner = gr.undirected();
             py.allow_threads(|| fnx_algorithms::bfs_layers_multi_with_parents(inner, &source_refs))
         };
-        let mut seeds = std::collections::HashMap::new();
+        let mut seeds = DisplayMap::default();
         seeds.insert(source_key, sources.clone().unbind());
         return Ok(emit(layers, &seeds));
     }
@@ -12486,8 +12492,7 @@ pub fn bfs_layers(
         let items: Vec<Bound<'_, PyAny>> = iter.collect::<PyResult<Vec<_>>>()?;
         let py_set = pyo3::types::PySet::new(py, &items)?;
         let mut source_keys: Vec<String> = Vec::new();
-        let mut seeds: std::collections::HashMap<String, PyObject> =
-            std::collections::HashMap::new();
+        let mut seeds = DisplayMap::default();
         for item in py_set.iter() {
             let k = node_key_to_string(py, &item)?;
             if !gr.has_node(&k) {
@@ -12950,7 +12955,7 @@ pub fn dfs_edges(
     // br-r37-c1-wvbzw: nx yields DISCOVERY objects — the source as passed,
     // every other node as its parent's adjacency-ROW object (z6uka row
     // overrides for mixed hash-equal keys). Propagate along the walk.
-    let mut disp: std::collections::HashMap<String, PyObject> = std::collections::HashMap::new();
+    let mut disp = DisplayMap::default();
     if let (Some(k), Some(s)) = (source_key, source) {
         disp.insert(k, s.clone().unbind());
     }
@@ -13297,7 +13302,7 @@ pub fn dfs_successors(
     // exactly-sized PyList and no Python generator/defaultdict frame runs per
     // edge.
     let edges = dfs_edges_canonical(py, &gr, source_key.clone(), depth_limit);
-    let mut display: HashMap<String, PyObject> = HashMap::with_capacity(edges.len() + 1);
+    let mut display = display_map_with_capacity(edges.len() + 1);
     if let (Some(key), Some(seed)) = (&source_key, source) {
         display.insert(key.clone(), seed.clone().unbind());
     }
@@ -22747,7 +22752,7 @@ fn multidigraph_single_source_dijkstra_path_length(
     };
 
     let nodes = inner.nodes_ordered();
-    let mut disp: HashMap<String, PyObject> = HashMap::with_capacity(entries.len() + 1);
+    let mut disp = display_map_with_capacity(entries.len() + 1);
     disp.insert(s.clone(), source.clone().unbind());
     for (node_idx, _, _, pred_idx) in &entries {
         if let Some(parent_idx) = pred_idx {
@@ -22838,7 +22843,7 @@ fn multidigraph_single_source_dijkstra(
         &predecessors,
     )?;
 
-    let mut display: HashMap<String, PyObject> = HashMap::with_capacity(entries.len() + 1);
+    let mut display = display_map_with_capacity(entries.len() + 1);
     display.insert(source_key, source.clone().unbind());
     for (node_idx, _, _, predecessor) in &entries {
         if let Some(parent_idx) = predecessor {
@@ -23021,8 +23026,7 @@ fn single_source_dijkstra_path_length(
             )
         })
     };
-    let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(entries.len() + 1);
+    let mut disp = display_map_with_capacity(entries.len() + 1);
     disp.insert(s.clone(), source.clone().unbind());
     for (node, _, _, pred) in &entries {
         if let Some(p) = pred {
@@ -23069,8 +23073,7 @@ fn single_target_dijkstra_path_length(
             __wp, &t, weight, cutoff,
         )
     });
-    let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(entries.len() + 1);
+    let mut disp = display_map_with_capacity(entries.len() + 1);
     disp.insert(t.clone(), target.clone().unbind());
     for (node, _, _, pred) in &entries {
         if let Some(p) = pred {
@@ -23122,8 +23125,7 @@ fn dijkstra_predecessor_and_distance(
             })
         };
 
-    let mut disp: std::collections::HashMap<String, PyObject> =
-        std::collections::HashMap::with_capacity(predecessors.len() + 1);
+    let mut disp = display_map_with_capacity(predecessors.len() + 1);
     disp.insert(s.clone(), source.clone().unbind());
     for (node, preds) in &predecessors {
         if node == &s {
@@ -23216,8 +23218,7 @@ fn single_source_bellman_ford(
             // weighted sp batch 2: discovery objects — a node displays as
             // its path's second-to-last element's row object (the SPFA
             // relaxation parent); source as passed.
-            let mut disp: std::collections::HashMap<String, PyObject> =
-                std::collections::HashMap::with_capacity(paths.len() + 1);
+            let mut disp = display_map_with_capacity(paths.len() + 1);
             disp.insert(s.clone(), source.clone().unbind());
             for (node, p) in &paths {
                 if p.len() >= 2 {
@@ -23343,8 +23344,7 @@ fn single_source_bellman_ford_path_length(
     };
     match result {
         Some((dists, preds)) => {
-            let mut disp: std::collections::HashMap<String, PyObject> =
-                std::collections::HashMap::with_capacity(dists.len() + 1);
+            let mut disp = display_map_with_capacity(dists.len() + 1);
             disp.insert(s.clone(), source.clone().unbind());
             for (node, _) in &dists {
                 if let Some(Some(p)) = preds.get(node) {
@@ -23798,8 +23798,7 @@ fn all_pairs_bellman_ford_path_length(
                     "Negative cycle detected.",
                 ));
             }
-            let mut disp: std::collections::HashMap<String, PyObject> =
-                std::collections::HashMap::with_capacity(bf.distances.len());
+            let mut disp = display_map_with_capacity(bf.distances.len());
             for e in &bf.predecessors {
                 if let Some(p) = &e.predecessor {
                     disp.insert(e.node.clone(), gr.py_row_key(py, p, &e.node));
@@ -23823,8 +23822,7 @@ fn all_pairs_bellman_ford_path_length(
                     "Negative cycle detected.",
                 ));
             }
-            let mut disp: std::collections::HashMap<String, PyObject> =
-                std::collections::HashMap::with_capacity(bf.distances.len());
+            let mut disp = display_map_with_capacity(bf.distances.len());
             for e in &bf.predecessors {
                 if let Some(p) = &e.predecessor {
                     disp.insert(e.node.clone(), gr.py_row_key(py, p, &e.node));
@@ -26209,8 +26207,7 @@ fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyR
     let outer = PyDict::new(py);
     for (source, (dists, paths)) in &result {
         // br-r37-c1-7hsew: per-source discovery objects via the paths.
-        let mut disp: std::collections::HashMap<String, PyObject> =
-            std::collections::HashMap::with_capacity(paths.len());
+        let mut disp = display_map_with_capacity(paths.len());
         for (node, p) in paths {
             if p.len() >= 2 {
                 disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
@@ -26334,8 +26331,7 @@ pub fn stoer_wagner_phases(
     let result = py.allow_threads(|| fnx_algorithms::stoer_wagner_nx(inner, weight));
     match result {
         Ok((cut_value, contractions, best_phase, copy_nodes)) => {
-            let mut disp: std::collections::HashMap<String, PyObject> =
-                std::collections::HashMap::with_capacity(copy_nodes.len());
+            let mut disp = display_map_with_capacity(copy_nodes.len());
             let mut nodes_py: Vec<PyObject> = Vec::with_capacity(copy_nodes.len());
             for (node, parent) in &copy_nodes {
                 let obj = match parent {
@@ -26861,7 +26857,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -26990,7 +26986,7 @@ pub fn ego_graph_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -27140,7 +27136,7 @@ pub fn full_join_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -27189,7 +27185,7 @@ pub fn identified_nodes_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -27297,7 +27293,7 @@ pub fn dedensify_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -27480,7 +27476,7 @@ pub fn quotient_graph_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -28058,7 +28054,7 @@ pub fn gomory_hu_tree_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
@@ -28126,7 +28122,7 @@ pub fn snap_aggregation_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-nbrow
-        neighbor_key_rows: HashMap::new(),                     // br-r37-c1-3rtyk
+        neighbor_key_rows: Default::default(),                 // br-r37-c1-3rtyk
         neighbor_key_rows_by_index: rustc_hash::FxHashMap::default(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
