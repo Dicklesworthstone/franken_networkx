@@ -29646,20 +29646,6 @@ def _edgelist_native_writer_preserves_node_labels(G):
     return not any(isinstance(node, str) for node in G.nodes())
 
 
-def _edgelist_has_multiattr_edge(G):
-    # br-cc-wredge-genfast: the native `_rust_write_edgelist` reads edge attrs
-    # from the sorted Rust store (BTreeMap), so an edge with >=2 attrs is emitted
-    # in ALPHABETICAL key order instead of networkx's INSERTION order — a
-    # pre-existing byte-mismatch (e.g. `{'c': ..., 'weight': ...}` vs nx's
-    # `{'weight': ..., 'c': ...}`). Route any such graph to the (mirror-ordered,
-    # byte-exact) generate_edgelist path. Cheap native "any attrs?" gate first so
-    # the common no-attr graph never pays the O(|E|) scan; the scan itself
-    # short-circuits on the first multi-attr edge.
-    if not _graph_has_any_edge_attrs(G):
-        return False
-    return any(len(d) >= 2 for _, _, d in G.edges(data=True))
-
-
 def _write_edgelist_generate_fast(G, path, delimiter, data, encoding):
     # br-cc-wredge-genfast: string/tuple-labelled graphs bail the native
     # `_rust_write_edgelist` and previously fell to `_write_edgelist_via_nx`,
@@ -29744,16 +29730,15 @@ def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="ut
         # this check. So the conversion buys nothing here either.
         #
         # The NATIVE writer stays simple-graph-only: it has no parallel-edge key
-        # handling, and nothing about this change asks it to grow one.
-        if (
-            not G.is_multigraph()
-            and _edgelist_native_writer_preserves_node_labels(G)
-            and not _edgelist_has_multiattr_edge(G)
-        ):
+        # handling, and nothing about this change asks it to grow one. It writes
+        # each edge's own dict where it has one and the stored attributes
+        # otherwise - kept in insertion order since br-r37-c1-6hyf1, so an edge
+        # with several attributes no longer needs the generate path
+        # (br-r37-c1-x5l4x).
+        if not G.is_multigraph() and _edgelist_native_writer_preserves_node_labels(G):
             return _rust_write_edgelist(G, path)
-        # br-cc-wredge-genfast: default-args string/tuple-node OR multi-attr graphs
-        # no longer pay the _to_nx(G) conversion in _write_edgelist_via_nx (and no
-        # longer hit the native writer's sorted-attr byte-mismatch) — drive nx's
+        # br-cc-wredge-genfast: default-args string/tuple-node graphs no longer
+        # pay the _to_nx(G) conversion in _write_edgelist_via_nx — drive nx's
         # exact write loop over fnx's fast, byte-identical generate_edgelist.
         return _write_edgelist_generate_fast(G, path, delimiter, data, encoding)
     return _write_edgelist_via_nx(

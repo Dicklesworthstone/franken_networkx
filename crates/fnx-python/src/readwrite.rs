@@ -876,18 +876,41 @@ fn edge_attr_dict_repr(py: Python<'_>, attrs: &fnx_classes::AttrMap) -> PyResult
     dict.repr()?.extract()
 }
 
-fn graph_networkx_edgelist(py: Python<'_>, graph: &fnx_classes::Graph) -> PyResult<String> {
+/// The edges' own dicts, keyed as the class keys them - `None` for a graph
+/// that has none out.
+type EdgeDicts<'a> = Option<&'a rustc_hash::FxHashMap<(String, String), Py<PyDict>>>;
+
+/// One edge's `str(dict)`, as networkx writes it: the edge's own dict when it
+/// has one, else the stored attributes. br-r37-c1-x5l4x: every value the store
+/// cannot hold (a tuple, None, a list, a big int) lives only in that dict - the
+/// store keeps a stand-in - so a writer that read the store alone printed
+/// {'pos': '(1, 2)'} for networkx's {'pos': (1, 2)}.
+fn edge_data_repr(
+    py: Python<'_>,
+    dict: Option<&Py<PyDict>>,
+    attrs: &fnx_classes::AttrMap,
+) -> PyResult<String> {
+    match dict {
+        Some(dict) => dict.bind(py).repr()?.extract(),
+        None if attrs.is_empty() => Ok("{}".to_owned()),
+        None => edge_attr_dict_repr(py, attrs),
+    }
+}
+
+fn graph_networkx_edgelist(
+    py: Python<'_>,
+    graph: &fnx_classes::Graph,
+    dicts: EdgeDicts<'_>,
+) -> PyResult<String> {
+    let dicts = dicts.filter(|dicts| !dicts.is_empty());
     let mut content = String::with_capacity(graph.edge_count() * 16);
     for (left, right, attrs) in graph.edges_ordered_borrowed() {
         content.push_str(left);
         content.push(' ');
         content.push_str(right);
         content.push(' ');
-        if attrs.is_empty() {
-            content.push_str("{}");
-        } else {
-            content.push_str(&edge_attr_dict_repr(py, attrs)?);
-        }
+        let dict = dicts.and_then(|dicts| dicts.get(&PyGraph::edge_key(left, right)));
+        content.push_str(&edge_data_repr(py, dict, attrs)?);
         content.push('\n');
     }
     Ok(content)
@@ -896,18 +919,17 @@ fn graph_networkx_edgelist(py: Python<'_>, graph: &fnx_classes::Graph) -> PyResu
 fn digraph_networkx_edgelist(
     py: Python<'_>,
     graph: &fnx_classes::digraph::DiGraph,
+    dicts: EdgeDicts<'_>,
 ) -> PyResult<String> {
+    let dicts = dicts.filter(|dicts| !dicts.is_empty());
     let mut content = String::with_capacity(graph.edge_count() * 16);
     for (source, target, attrs) in graph.edges_ordered_borrowed() {
         content.push_str(source);
         content.push(' ');
         content.push_str(target);
         content.push(' ');
-        if attrs.is_empty() {
-            content.push_str("{}");
-        } else {
-            content.push_str(&edge_attr_dict_repr(py, attrs)?);
-        }
+        let dict = dicts.and_then(|dicts| dicts.get(&PyDiGraph::edge_key(source, target)));
+        content.push_str(&edge_data_repr(py, dict, attrs)?);
         content.push('\n');
     }
     Ok(content)
@@ -935,8 +957,10 @@ fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>)
     let gr = extract_graph(g)?;
     reject_multigraph_write(&gr, "write_edgelist")?;
     let content = match &gr {
-        GraphRef::Undirected(pg) => graph_networkx_edgelist(py, &pg.inner)?,
-        GraphRef::Directed { dg, .. } => digraph_networkx_edgelist(py, &dg.inner)?,
+        GraphRef::Undirected(pg) => graph_networkx_edgelist(py, &pg.inner, Some(&pg.edge_py_attrs))?,
+        GraphRef::Directed { dg, .. } => {
+            digraph_networkx_edgelist(py, &dg.inner, Some(&dg.edge_py_attrs))?
+        }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().ok_or_else(|| {
@@ -944,10 +968,10 @@ fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>)
                         "expected directed graph backend for directed graph value",
                     )
                 })?;
-                digraph_networkx_edgelist(py, inner)?
+                digraph_networkx_edgelist(py, inner, None)?
             } else {
                 let inner = gr.undirected();
-                graph_networkx_edgelist(py, inner)?
+                graph_networkx_edgelist(py, inner, None)?
             }
         }
     };

@@ -160,6 +160,68 @@ class TestEdgelistIO:
         }
 
 
+# br-r37-c1-x5l4x: the native writer printed the STORE's stand-in for any value
+# the store cannot hold ({'pos': '(1, 2)'} for networkx's {'pos': (1, 2)}), and
+# the key order was the store's. These compare written bytes with networkx's.
+_EDGELIST_ATTR_SHAPES = {
+    "tuple": {"pos": (1, 2)},
+    "none": {"w": None},
+    "list": {"w": [1, 2]},
+    "big_int": {"w": 2**70},
+    "nested": {"w": {"x": 1}},
+    "nan": {"w": float("nan")},
+    "unsorted_keys": {"weight": 3, "color": "red", "cap": 1.5},
+    "sorted_keys": {"a": 1, "b": 2.5},
+    "one_key": {"weight": 7},
+}
+
+
+def _edgelist_graph(lib, cls, shape, how):
+    attrs = _EDGELIST_ATTR_SHAPES[shape]
+    G = getattr(lib, cls)()
+    edges = [(i, (i * 5 + 3) % 12, dict(attrs)) for i in range(12)] + [(20, 21, {})]
+    if how == "batch":
+        G.add_edges_from(edges)
+    elif how == "per_edge":
+        for u, v, d in edges:
+            G.add_edge(u, v, **d)
+    else:  # a batch, then writes through the dicts it handed out
+        G.add_edges_from(edges)
+        d = G[0][3]
+        d["later"] = (9,)
+        d.pop(next(iter(attrs)), None)
+        G.add_edge(1, 8, extra=True)
+    return G
+
+
+def _written(lib, G):
+    buffer = io.BytesIO()
+    lib.write_edgelist(G, buffer)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("how", ["batch", "per_edge", "written_through"])
+@pytest.mark.parametrize("shape", sorted(_EDGELIST_ATTR_SHAPES))
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_write_edgelist_writes_networkx_bytes_for_every_value(cls, shape, how):
+    import networkx as nx
+
+    assert _written(fnx, _edgelist_graph(fnx, cls, shape, how)) == _written(
+        nx, _edgelist_graph(nx, cls, shape, how)
+    )
+
+
+@pytest.mark.parametrize("shape", ["unsorted_keys", "tuple"])
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_write_edgelist_native_writer_takes_every_attribute_shape(cls, shape, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("took the generate_edgelist path")
+
+    monkeypatch.setattr(fnx, "_write_edgelist_generate_fast", refuse)
+    monkeypatch.setattr(fnx, "_write_edgelist_via_nx", refuse)
+    _written(fnx, _edgelist_graph(fnx, cls, shape, "batch"))
+
+
 # ---------------------------------------------------------------------------
 # read/write_adjlist
 # ---------------------------------------------------------------------------
