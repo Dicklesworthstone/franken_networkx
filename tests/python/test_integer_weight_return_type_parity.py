@@ -93,3 +93,48 @@ def test_unweighted_distance_is_int():
     df = dict(fnx.single_source_shortest_path_length(gf, 0))
     _dict_types_match(dn, df)
     assert all(type(v) is int for v in df.values())
+
+
+# br-r37-c1-svsam: bellman_ford_path_length takes its type from the kernel's
+# predecessor chain instead of re-summing the path through G[u][v]. networkx's
+# type is that of the relaxation that SET the target's distance, so it depends
+# on which route relaxed first, not on the graph's weights as a whole: a float
+# edge off the path leaves the length int, and an equal-length int / float tie
+# is decided by insertion order.
+_BF_TYPE_CASES = {
+    "int_tie_first": [(0, 1, 1), (1, 3, 2), (0, 2, 1.5), (2, 3, 1.5)],
+    "float_tie_first": [(0, 2, 1.5), (2, 3, 1.5), (0, 1, 1), (1, 3, 2)],
+    "float_off_path": [(0, 1, 1), (1, 2, 1), (2, 3, 1), (0, 4, 2.5), (4, 3, 5)],
+    "float_on_path": [(0, 1, 1), (1, 2, 0.5), (2, 3, 1), (0, 3, 9)],
+    "negative_int": [(0, 1, 4), (1, 3, -2), (0, 3, 3)],
+    "bool_and_missing": [(0, 1, True), (1, 2, None), (2, 3, 2)],
+}
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("case", sorted(_BF_TYPE_CASES))
+def test_bellman_ford_path_length_type_follows_the_relaxed_route(case, directed):
+    if case == "negative_int" and not directed:
+        pytest.skip("an undirected negative edge is a negative cycle")
+    results = {}
+    for mod in (nx, fnx):
+        g = (mod.DiGraph if directed else mod.Graph)()
+        for u, v, w in _BF_TYPE_CASES[case]:
+            if w is None:
+                g.add_edge(u, v)
+            else:
+                g.add_edge(u, v, weight=w)
+        results[mod.__name__] = mod.bellman_ford_path_length(g, 0, 3)
+    vn, vf = results["networkx"], results["franken_networkx"]
+    assert type(vf) is type(vn) and vf == vn, (vn, vf)
+
+
+def test_bellman_ford_path_length_tie_fixtures_decide_the_type():
+    """The two tie fixtures must disagree in networkx itself, or the parity
+    test above could pass with a kernel that ignores the route."""
+    types = set()
+    for case in ("int_tie_first", "float_tie_first"):
+        g = nx.Graph()
+        g.add_weighted_edges_from(_BF_TYPE_CASES[case])
+        types.add(type(nx.bellman_ford_path_length(g, 0, 3)))
+    assert types == {int, float}

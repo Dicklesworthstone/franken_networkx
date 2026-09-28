@@ -70,7 +70,8 @@ def test_raw_weighted_path_length_sees_add_weighted_edges_from_attrs():
     g.add_weighted_edges_from([(0, 1, 5.5), (1, 2, 7.25)])
 
     assert raw.dijkstra_path_length(g, 0, 2) == pytest.approx(12.75)
-    assert raw.bellman_ford_path_length(g, 0, 2) == pytest.approx(12.75)
+    # (length, all_int): the binding reports networkx's result type too.
+    assert raw.bellman_ford_path_length(g, 0, 2) == (12.75, False)
 
 
 def test_raw_dag_longest_path_length_sees_post_creation_attrs():

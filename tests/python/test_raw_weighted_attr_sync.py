@@ -12,7 +12,7 @@ def test_raw_weighted_algorithms_see_add_weighted_edges_from_attrs():
     graph.add_weighted_edges_from([(0, 1, 5), (1, 2, 7), (0, 2, 20)])
 
     assert _fnx.dijkstra_path_length(graph, 0, 2, weight="weight") == pytest.approx(12.0)
-    assert _fnx.bellman_ford_path_length(graph, 0, 2, weight="weight") == pytest.approx(12.0)
+    assert _fnx.bellman_ford_path_length(graph, 0, 2, weight="weight") == (12.0, True)
     assert _fnx.dag_longest_path_length(graph, weight="weight") == pytest.approx(20.0)
 
 
@@ -25,5 +25,5 @@ def test_raw_weighted_algorithms_see_post_creation_edge_attr_mutation():
     graph[0][2]["weight"] = 20
 
     assert _fnx.dijkstra_path_length(graph, 0, 2, weight="weight") == pytest.approx(12.0)
-    assert _fnx.bellman_ford_path_length(graph, 0, 2, weight="weight") == pytest.approx(12.0)
+    assert _fnx.bellman_ford_path_length(graph, 0, 2, weight="weight") == (12.0, True)
     assert _fnx.dag_longest_path_length(graph, weight="weight") == pytest.approx(20.0)

@@ -2936,7 +2936,9 @@ pub fn single_source_shortest_path_length_directed_with_parents(
     let Some(source_idx) = digraph.get_node_index(source) else {
         return Vec::new();
     };
-    let csr = digraph.csr();
+    // br-r37-c1-svsam: successor rows by position, not the revision-keyed CSR -
+    // a write between two calls rebuilt the whole CSR (~250 us at 32k nodes)
+    // for a bounded walk. Same rows, same order.
     let n = digraph.node_count();
 
     // br-r37-c1-dkwy7: the undirected sibling's defect, plus one of its own.
@@ -2948,10 +2950,7 @@ pub fn single_source_shortest_path_length_directed_with_parents(
     // `get_index`, O(1)). `visited` stays dense - see the undirected sibling
     // for why that one is worth keeping.
     let mut visited = vec![false; n];
-    let mut order: Vec<(u32, usize, Option<u32>)> = match cutoff {
-        Some(_) => Vec::new(),
-        None => Vec::with_capacity(n),
-    };
+    let mut order: Vec<(u32, usize, Option<u32>)> = Vec::new();
     visited[source_idx] = true;
     order.push((u32::try_from(source_idx).unwrap_or(u32::MAX), 0, None));
 
@@ -2965,9 +2964,10 @@ pub fn single_source_shortest_path_length_directed_with_parents(
         }
         let mut next_frontier: Vec<u32> = Vec::new();
         for &node in &frontier {
-            for &nbr in csr.successors(node as usize) {
-                if !visited[nbr as usize] {
-                    visited[nbr as usize] = true;
+            for &nbr in digraph.successors_indices(node as usize).unwrap_or(&[]) {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    let nbr = u32::try_from(nbr).unwrap_or(u32::MAX);
                     order.push((nbr, level + 1, Some(node)));
                     next_frontier.push(nbr);
                 }
@@ -23990,7 +23990,9 @@ pub fn dfs_edges_directed(
     // (IndexMap `get_index`, O(1)) once per edge emitted, and the stack and
     // result vectors no longer reserve the whole graph for a bounded walk.
     // `visited` stays dense; see the sssp siblings for why.
-    let csr = digraph.csr();
+    // br-r37-c1-svsam: successor rows by position, not the revision-keyed CSR,
+    // which a write between two calls made this walk rebuild whole.
+    let successors = |node: usize| digraph.successors_indices(node).unwrap_or(&[]);
     let mut visited = vec![false; digraph.node_count()];
     visited[source_idx] = true;
     let mut stack: Vec<(u32, u32, usize)> = Vec::new();
@@ -23998,9 +24000,9 @@ pub fn dfs_edges_directed(
     // NetworkX always visits immediate successors at depth 1, regardless of depth_limit.
     // The depth_limit check only affects whether we recurse beyond those successors.
     let src = u32::try_from(source_idx).unwrap_or(u32::MAX);
-    for &succ in csr.successors(source_idx).iter().rev() {
-        if !visited[succ as usize] {
-            stack.push((src, succ, 1));
+    for &succ in successors(source_idx).iter().rev() {
+        if !visited[succ] {
+            stack.push((src, u32::try_from(succ).unwrap_or(u32::MAX), 1));
         }
     }
 
@@ -24018,9 +24020,9 @@ pub fn dfs_edges_directed(
         cgse_record_decision(&mut cgse_sink, node_name, parent_name);
         edges.push((parent_name.to_owned(), node_name.to_owned()));
         if depth < max_depth {
-            for &succ in csr.successors(node as usize).iter().rev() {
-                if !visited[succ as usize] {
-                    stack.push((node, succ, depth + 1));
+            for &succ in successors(node as usize).iter().rev() {
+                if !visited[succ] {
+                    stack.push((node, u32::try_from(succ).unwrap_or(u32::MAX), depth + 1));
                 }
             }
         }
@@ -24387,7 +24389,8 @@ pub fn bfs_edges_directed(
     // dequeued or discovered, which is strictly fewer lookups than the vector
     // had entries. `visited` stays dense; see the sibling in
     // single_source_shortest_path_length_with_parents_borrowed for why.
-    let csr = digraph.csr();
+    // br-r37-c1-svsam: successor rows by position, not the revision-keyed CSR,
+    // which a write between two calls made this walk rebuild whole.
     let mut visited = vec![false; digraph.node_count()];
     visited[source_idx] = true;
     let mut queue: VecDeque<(u32, usize)> = VecDeque::new();
@@ -24400,17 +24403,17 @@ pub fn bfs_edges_directed(
         let Some(node_str) = digraph.get_node_name(node as usize) else {
             continue;
         };
-        for &nbr in csr.successors(node as usize) {
-            if !visited[nbr as usize] {
+        for &nbr in digraph.successors_indices(node as usize).unwrap_or(&[]) {
+            if !visited[nbr] {
                 // Resolved BEFORE marking visited so the unreachable None case
                 // cannot strand a node as seen-but-never-emitted.
-                let Some(nbr_str) = digraph.get_node_name(nbr as usize) else {
+                let Some(nbr_str) = digraph.get_node_name(nbr) else {
                     continue;
                 };
-                visited[nbr as usize] = true;
+                visited[nbr] = true;
                 cgse_record_decision(&mut cgse_sink, nbr_str, node_str);
                 edges.push((node_str.to_owned(), nbr_str.to_owned()));
-                queue.push_back((nbr, depth + 1));
+                queue.push_back((u32::try_from(nbr).unwrap_or(u32::MAX), depth + 1));
             }
         }
     }
@@ -24458,7 +24461,8 @@ pub fn bfs_edges_directed_reverse(
     // dequeued or discovered, which is strictly fewer lookups than the vector
     // had entries. `visited` stays dense; see the sibling in
     // single_source_shortest_path_length_with_parents_borrowed for why.
-    let csr = digraph.csr();
+    // br-r37-c1-svsam: predecessor rows by position, not the revision-keyed
+    // CSR (built from the same rows), which a write made this walk rebuild.
     let mut visited = vec![false; digraph.node_count()];
     visited[source_idx] = true;
     let mut queue: VecDeque<(u32, usize)> = VecDeque::new();
@@ -24471,17 +24475,17 @@ pub fn bfs_edges_directed_reverse(
         let Some(node_str) = digraph.get_node_name(node as usize) else {
             continue;
         };
-        for &nbr in csr.predecessors(node as usize) {
-            if !visited[nbr as usize] {
+        for &nbr in digraph.predecessors_indices(node as usize).unwrap_or(&[]) {
+            if !visited[nbr] {
                 // Resolved BEFORE marking visited so the unreachable None case
                 // cannot strand a node as seen-but-never-emitted.
-                let Some(nbr_str) = digraph.get_node_name(nbr as usize) else {
+                let Some(nbr_str) = digraph.get_node_name(nbr) else {
                     continue;
                 };
-                visited[nbr as usize] = true;
+                visited[nbr] = true;
                 cgse_record_decision(&mut cgse_sink, nbr_str, node_str);
                 edges.push((node_str.to_owned(), nbr_str.to_owned()));
-                queue.push_back((nbr, depth + 1));
+                queue.push_back((u32::try_from(nbr).unwrap_or(u32::MAX), depth + 1));
             }
         }
     }
@@ -35719,34 +35723,11 @@ pub fn dijkstra_path_length_typed(
 ) -> Option<(f64, bool)> {
     let source_idx = graph.get_node_index(source)?;
     let target_idx = graph.get_node_index(target)?;
-    let names = graph.nodes_ordered();
-    let n = names.len();
-    let mut offsets = Vec::with_capacity(n + 1);
-    let mut targets: Vec<u32> = Vec::new();
-    let mut weights: Vec<f64> = Vec::new();
-    let mut weight_is_int: Vec<bool> = Vec::new();
-    offsets.push(0);
-    for u in 0..n {
-        if let Some(row) = graph.neighbors_indices(u) {
-            for &v in row {
-                let (weight, is_int) =
-                    graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
-                targets.push(u32::try_from(v).unwrap_or(u32::MAX));
-                weights.push(weight);
-                weight_is_int.push(is_int);
-            }
-        }
-        offsets.push(targets.len());
-    }
-
-    dijkstra_target_distance_typed_csr(
-        source_idx,
-        target_idx,
-        &offsets,
-        &targets,
-        &weights,
-        &weight_is_int,
-    )
+    // br-r37-c1-svsam: rows are read as nodes settle - this built a weighted
+    // CSR of EVERY edge before relaxing one, O(E) per s-t query.
+    dijkstra_target_distance_typed_lazy(source_idx, target_idx, graph.node_count(), |u, row| {
+        undirected_weighted_row(graph, u, weight_attr, row);
+    })
 }
 
 /// Return the shortest path length from source to target using Dijkstra's
@@ -35772,27 +35753,10 @@ pub fn dijkstra_path_length_typed_directed(
 ) -> Option<(f64, bool)> {
     let source_idx = digraph.get_node_index(source)?;
     let target_idx = digraph.get_node_index(target)?;
-    let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
-    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
-    for u in 0..names.len() {
-        for &v in csr.successors(u) {
-            let (weight, is_int) =
-                digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
-            weights.push(weight);
-            weight_is_int.push(is_int);
-        }
-    }
-
-    dijkstra_target_distance_typed_csr(
-        source_idx,
-        target_idx,
-        &csr.succ_offsets,
-        &csr.succ_targets,
-        &weights,
-        &weight_is_int,
-    )
+    // br-r37-c1-svsam: see the undirected sibling; no CSR is built either.
+    dijkstra_target_distance_typed_lazy(source_idx, target_idx, digraph.node_count(), |u, row| {
+        successor_weighted_row(digraph, u, weight_attr, row);
+    })
 }
 
 /// Return the shortest path length from source to target using Bellman-Ford.
@@ -36518,28 +36482,23 @@ pub fn single_target_dijkstra_path_length_typed_with_pred_directed(
     let Some(target_idx) = digraph.get_node_index(target) else {
         return Vec::new();
     };
-    let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut weights: Vec<f64> = Vec::with_capacity(csr.pred_targets.len());
-    let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.pred_targets.len());
-    for v in 0..names.len() {
-        for &u in csr.predecessors(v) {
-            let (weight, is_int) =
-                digraph_edge_weight_or_default_idx_typed(digraph, u as usize, v, weight_attr);
-            weights.push(weight);
-            weight_is_int.push(is_int);
-        }
-    }
-
-    single_source_dijkstra_typed_csr(
+    // br-r37-c1-svsam: the reverse search reads each node's predecessor row
+    // (the edge u -> v's weight) when the node settles - this built a CSR and
+    // a weight for EVERY edge before relaxing one.
+    let indexed = single_source_dijkstra_typed_lazy(
         target_idx,
-        &names,
-        &csr.pred_offsets,
-        &csr.pred_targets,
-        &weights,
-        &weight_is_int,
-        cutoff,
-    )
+        digraph.node_count(),
+        cutoff.unwrap_or(f64::INFINITY),
+        |v, row| {
+            row.clear();
+            for &u in digraph.predecessors_indices(v).unwrap_or(&[]) {
+                let (weight, is_int) =
+                    digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
+                row.push((u, weight, is_int));
+            }
+        },
+    );
+    name_typed_pred_distances(indexed, |idx| digraph.get_node_name(idx))
 }
 
 /// Directed twin of [`dijkstra_predecessor_and_distance`].
@@ -36560,36 +36519,6 @@ pub fn dijkstra_predecessor_and_distance_directed(
         |u, row| successor_weighted_row(digraph, u, weight_attr, row),
     );
     name_predecessor_distance(found, |idx| digraph.get_node_name(idx as usize))
-}
-
-fn single_source_dijkstra_typed_csr(
-    source_idx: usize,
-    names: &[&str],
-    offsets: &[usize],
-    targets: &[u32],
-    weights: &[f64],
-    weight_is_int: &[bool],
-    cutoff: Option<f64>,
-) -> OrderedTypedPredDistances {
-    single_source_dijkstra_typed_csr_indexed(
-        source_idx,
-        names.len(),
-        offsets,
-        targets,
-        weights,
-        weight_is_int,
-        cutoff,
-    )
-    .into_iter()
-    .map(|(idx, distance, all_int, predecessor)| {
-        (
-            names[idx as usize].to_owned(),
-            distance,
-            all_int,
-            (predecessor != u32::MAX).then(|| names[predecessor as usize].to_owned()),
-        )
-    })
-    .collect()
 }
 
 /// One undirected row for a lazy Dijkstra: `(neighbour, weight, weight is an
@@ -36850,23 +36779,29 @@ fn single_source_dijkstra_typed_csr_indexed(
         .collect()
 }
 
-fn dijkstra_target_distance_typed_csr(
+/// Source-to-target Dijkstra distance with networkx's int/float typing: the
+/// search stops when the target settles, reads a node's row through `expand`
+/// only when it settles, and holds NodeTable state for what it reaches
+/// (br-r37-c1-svsam). Same loop, epsilons and FIFO tie-break as the CSR
+/// search it replaced.
+fn dijkstra_target_distance_typed_lazy<F>(
     source_idx: usize,
     target_idx: usize,
-    offsets: &[usize],
-    targets: &[u32],
-    weights: &[f64],
-    weight_is_int: &[bool],
-) -> Option<(f64, bool)> {
-    let n = offsets.len().saturating_sub(1);
-    let mut distances: Vec<f64> = vec![f64::INFINITY; n];
-    let mut all_int_paths = vec![false; n];
-    let mut finalized = vec![false; n];
+    node_count: usize,
+    mut expand: F,
+) -> Option<(f64, bool)>
+where
+    F: FnMut(usize, &mut Vec<(usize, f64, bool)>),
+{
+    let mut distances = NodeTable::new(node_count, f64::INFINITY);
+    let mut all_int_paths = NodeTable::new(node_count, false);
+    let mut finalized = NodeTable::new(node_count, false);
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
+    let mut row: Vec<(usize, f64, bool)> = Vec::new();
 
-    distances[source_idx] = 0.0;
-    all_int_paths[source_idx] = true;
+    distances.set(source_idx, 0.0);
+    all_int_paths.set(source_idx, true);
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
@@ -36879,26 +36814,26 @@ fn dijkstra_target_distance_typed_csr(
     }) = pq.pop()
     {
         let u_usize = u as usize;
-        if finalized[u_usize] || d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
+        if finalized.get(u_usize) || d > distances.get(u_usize) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
-        finalized[u_usize] = true;
+        finalized.set(u_usize, true);
+        let u_all_int = all_int_paths.get(u_usize);
         if u_usize == target_idx {
-            return Some((d, all_int_paths[u_usize]));
+            return Some((d, u_all_int));
         }
 
-        for edge_offset in offsets[u_usize]..offsets[u_usize + 1] {
-            let v = targets[edge_offset];
-            let v_usize = v as usize;
-            let next_dist = d + weights[edge_offset];
-            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
-                distances[v_usize] = next_dist;
-                all_int_paths[v_usize] = all_int_paths[u_usize] && weight_is_int[edge_offset];
+        expand(u_usize, &mut row);
+        for &(v, weight, is_int) in &row {
+            let next_dist = d + weight;
+            if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+                distances.set(v, next_dist);
+                all_int_paths.set(v, u_all_int && is_int);
                 seq_counter += 1;
                 pq.push(DijkstraState {
                     dist: next_dist,
                     seq: seq_counter,
-                    node: v,
+                    node: u32::try_from(v).unwrap_or(u32::MAX),
                 });
             }
         }

@@ -1074,3 +1074,101 @@ def test_undirected_only_calls_past_promotion_equal_networkx(seed):
         lambda m, g: m.square_clustering(g, list(range(0, 300, 3))),
     ):
         assert call(fnx, graphs["franken_networkx"]) == call(nx, graphs["networkx"])
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-svsam: the next query after a write
+# ---------------------------------------------------------------------------
+# The directed traversal kernels read DiGraph::csr(), a snapshot keyed by the
+# graph's revision, so the first query after ANY write rebuilt it over every
+# node and edge: single_source_shortest_path_length(cutoff=2) beside a 32k ring
+# cost ~250 us per write-then-query against networkx's few us. They now read
+# the successor / predecessor rows by position, as the lazy Dijkstra kernels
+# do. Each step below toggles one edge inside the ring the query never reaches.
+
+_AFTER_A_WRITE = {
+    "sssp_length_cutoff": lambda m, g: m.single_source_shortest_path_length(g, 0, cutoff=2),
+    "bfs_edges_depth": lambda m, g: list(m.bfs_edges(g, 0, depth_limit=2)),
+    "bfs_edges_reverse": lambda m, g: list(m.bfs_edges(g, 5, reverse=True, depth_limit=2)),
+    "dfs_edges_depth": lambda m, g: list(m.dfs_edges(g, 0, depth_limit=2)),
+    "descendants": lambda m, g: m.descendants(g, 0),
+    "shortest_path_to_target": lambda m, g: m.shortest_path(g, target=5),
+}
+
+
+def _write_then(lib, graph, call):
+    toggled = [False]
+
+    def step():
+        if toggled[0]:
+            graph.remove_edge(100, 102)
+        else:
+            graph.add_edge(100, 102)
+        toggled[0] = not toggled[0]
+        return call(lib, graph)
+
+    return step
+
+
+@pytest.mark.parametrize("label", sorted(_AFTER_A_WRITE))
+def test_directed_query_after_a_write_does_not_grow_with_the_parent(label):
+    call = _AFTER_A_WRITE[label]
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _write_then(lib, _beside_ring(lib, 200, True), call)
+        large = _write_then(lib, _beside_ring(lib, 12800, True), call)
+        results[lib.__name__] = large()
+        growth[lib.__name__] = _best(large, reps=20) / _best(small, reps=20)
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), (label, growth)
+
+
+# bellman_ford_path_length re-summed its path through G[u][v]. Reading an edge
+# dict that way marks the store dirty, so the NEXT weighted call resynced and
+# rescanned every weight: a repeated query on an UNCHANGED graph paid 17 ms at
+# 32k. It now takes the length and its int / float type from the kernel.
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_repeated_bellman_ford_path_length_does_not_grow_with_the_parent(directed):
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _BESIDE[(lib.__name__, 200, directed)]
+        large = _BESIDE[(lib.__name__, 12800, directed)]
+        results[lib.__name__] = lib.bellman_ford_path_length(large, 0, 5)
+        growth[lib.__name__] = _best(
+            lambda: lib.bellman_ford_path_length(large, 0, 5), reps=20
+        ) / _best(lambda: lib.bellman_ford_path_length(small, 0, 5), reps=20)
+    assert type(results["franken_networkx"]) is type(results["networkx"])
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), growth
+
+
+_POSITIONAL_ROWS = {
+    "sssp_length": lambda m, g: list(m.single_source_shortest_path_length(g, 0).items()),
+    "bfs_edges": lambda m, g: list(m.bfs_edges(g, 0)),
+    "bfs_edges_reverse": lambda m, g: list(m.bfs_edges(g, 250, reverse=True)),
+    "dfs_edges": lambda m, g: list(m.dfs_edges(g, 0)),
+    "dfs_edges_depth": lambda m, g: list(m.dfs_edges(g, 0, depth_limit=3)),
+    "shortest_path_to_target": lambda m, g: list(m.shortest_path(g, target=250).items()),
+    "dijkstra_length_to_target": lambda m, g: list(
+        m.shortest_path_length(g, target=250, weight="weight").items()
+    ),
+    "dijkstra_path_length": lambda m, g: m.dijkstra_path_length(g, 0, 250),
+    "bellman_ford_path_length": lambda m, g: m.bellman_ford_path_length(g, 0, 250),
+}
+
+
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("label", sorted(_POSITIONAL_ROWS))
+def test_directed_positional_rows_on_sparse_storage_equal_networkx(label, seed):
+    """The rewritten kernels map positions to names over storage with a hole
+    (the removed node) and past the sparse -> dense promotion."""
+    call = _POSITIONAL_ROWS[label]
+    try:
+        expected = call(nx, _component_of_300(nx, True, seed))
+    except nx.NetworkXNoPath:
+        with pytest.raises(nx.NetworkXNoPath):
+            call(fnx, _component_of_300(fnx, True, seed))
+        return
+    assert call(fnx, _component_of_300(fnx, True, seed)) == expected

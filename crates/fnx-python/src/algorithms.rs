@@ -22872,7 +22872,55 @@ fn multidigraph_single_source_dijkstra(
     Ok(Some((distances.into_any().unbind(), paths.into_any())))
 }
 
-/// Return the shortest path length from source to target using Bellman-Ford.
+/// The source -> target length of a Bellman-Ford result with networkx's type:
+/// `all_int` when every edge on the final predecessor chain carries an int /
+/// bool weight or none (networkx's `dist[source] = 0` plus int weights stays
+/// int). `Err(true)` = negative cycle, `Err(false)` = unreachable.
+fn bellman_ford_typed_length(
+    result: &fnx_algorithms::WeightedShortestPathsResult,
+    s: &str,
+    t: &str,
+    weight_is_int: impl Fn(&str, &str) -> bool,
+) -> Result<(f64, bool), bool> {
+    if result.negative_cycle_detected {
+        return Err(true);
+    }
+    let distance = result
+        .distances
+        .iter()
+        .find(|entry| entry.node == t)
+        .map(|entry| entry.distance)
+        .ok_or(false)?;
+    let pred: HashMap<&str, Option<&str>> = result
+        .predecessors
+        .iter()
+        .map(|entry| (entry.node.as_str(), entry.predecessor.as_deref()))
+        .collect();
+    let mut all_int = true;
+    let mut current = t;
+    while current != s {
+        match pred.get(current) {
+            Some(Some(prev)) => {
+                all_int &= weight_is_int(prev, current);
+                current = prev;
+            }
+            _ => break,
+        }
+    }
+    Ok((distance, all_int))
+}
+
+fn stored_weight_is_int(attrs: Option<&AttrMap>, weight: &str) -> bool {
+    matches!(
+        attrs.and_then(|attrs| attrs.get(weight)),
+        None | Some(fnx_runtime::CgseValue::Int(_) | fnx_runtime::CgseValue::Bool(_))
+    )
+}
+
+/// Return the shortest path length from source to target using Bellman-Ford,
+/// with networkx's int/float type (br-r37-c1-svsam: the wrapper used to re-sum
+/// the path through G[u][v], which exposes every edge dict on it - and an
+/// exposed dict makes the next weighted call resync and rescan every edge).
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
 fn bellman_ford_path_length(
@@ -22881,7 +22929,7 @@ fn bellman_ford_path_length(
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
-) -> PyResult<f64> {
+) -> PyResult<(f64, bool)> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
@@ -22889,27 +22937,20 @@ fn bellman_ford_path_length(
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        let bf = {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
-                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
-            })
-        };
-        if bf.negative_cycle_detected {
-            Err(true)
-        } else {
-            bf.distances
-                .iter()
-                .find(|entry| entry.node == t)
-                .map(|entry| entry.distance)
-                .ok_or(false)
-        }
+        let __wp = weighted_projection.as_ref();
+        let bf = py.allow_threads(|| {
+            fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
+        });
+        bellman_ford_typed_length(&bf, &s, &t, |u, v| {
+            stored_weight_is_int(__wp.edge_attrs(u, v), weight)
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::bellman_ford_path_length(__wp, &s, &t, weight))
-        }
+        let __wp = weighted_projection.as_ref();
+        let bf = py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight));
+        bellman_ford_typed_length(&bf, &s, &t, |u, v| {
+            stored_weight_is_int(__wp.edge_attrs(u, v), weight)
+        })
     };
     match result {
         Ok(d) => Ok(d),

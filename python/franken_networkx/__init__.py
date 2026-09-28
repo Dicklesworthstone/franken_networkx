@@ -13707,21 +13707,6 @@ def dijkstra_path(G, source, target, weight="weight"):
     return paths[target]
 
 
-def _path_length_preserving_weight_type(G, path, weight):
-    if weight is None:
-        return len(path) - 1
-
-    total = 0
-    if G.is_multigraph():
-        for node, neighbor in _itertools.pairwise(path):
-            total += min(attrs.get(weight, 1) for attrs in G[node][neighbor].values())
-        return total
-
-    for node, neighbor in _itertools.pairwise(path):
-        total += G[node][neighbor].get(weight, 1)
-    return total
-
-
 def _build_paths_from_predecessors(sources, target, pred):
     """Compute all simple paths to target, given predecessors, terminating at sources."""
     if target not in pred:
@@ -27521,13 +27506,22 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
         raise NodeNotFound(f"Source {source} not in G")
     if source == target:
         return 0
+    # br-r37-c1-svsam: the kernel reports the length with networkx's type
+    # (int when every edge on the path is int / bool / unweighted). Re-summing
+    # the path through G[u][v] exposed each edge dict on it, and an exposed
+    # dict makes the next weighted call resync and rescan all E weights - so a
+    # repeated query on an UNCHANGED graph paid O(E) every time. The gate above
+    # already routes inexact types and int sums past 2**53 to networkx, so the
+    # f64 distance of an all-int path is exact.
     try:
-        path = _raw_bellman_ford_path(G, source, target, weight=weight)
+        length, all_int = _raw_bellman_ford_path_length(
+            G, source, target, weight=weight
+        )
     except NetworkXUnbounded:
         raise NetworkXUnbounded("Negative cycle detected.")
     except (NetworkXNoPath, NodeNotFound):
         raise NetworkXNoPath(f"node {target} not reachable from {source}")
-    return _path_length_preserving_weight_type(G, path, weight)
+    return int(length) if all_int else length
 
 
 def negative_edge_cycle(G, weight="weight", heuristic=True):
