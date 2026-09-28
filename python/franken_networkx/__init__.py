@@ -31198,6 +31198,15 @@ def _validate_product_graph_types(G, H, *, allow_directed=True, allow_multigraph
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
 
+def _product_factors(G, H):
+    """The factors a product builds from: a view materialised, as every native
+    call site takes it (br-r37-c1-45koy). The edge-attribute product kernels
+    take exact classes only, so a subgraph view with edge attributes took the
+    O(product) Python build - lexicographic_product 0.45-0.54x networkx - for
+    want of an O(factor) copy."""
+    return _coerce_arg_to_fnx_graph(G), _coerce_arg_to_fnx_graph(H)
+
+
 def _product_graph_class(G, H):
     if G.is_directed():
         return MultiDiGraph if (G.is_multigraph() or H.is_multigraph()) else DiGraph
@@ -31357,6 +31366,7 @@ def cartesian_product(G, H):
     is an edge in *G*.
     """
     _validate_product_graph_types(G, H)
+    G, H = _product_factors(G, H)
     # br-r37-c1-prodnative: native fast path for the no-attr, non-multigraph,
     # self-loop-free case (canonicalizes each product tuple once, assembles edges
     # in Rust). Falls back to the Python construction below for any other shape.
@@ -31441,6 +31451,7 @@ def tensor_product(G, H):
     ``(u1, u2)`` is an edge in *G* AND ``(v1, v2)`` is an edge in *H*.
     """
     _validate_product_graph_types(G, H)
+    G, H = _product_factors(G, H)
     _fast = _native_graph_product(G, H, kind="tensor")
     if _fast is not None:
         return _fast
@@ -31582,6 +31593,7 @@ def strong_product(G, H):
     Union of Cartesian and tensor products.
     """
     _validate_product_graph_types(G, H)
+    G, H = _product_factors(G, H)
     # br-r37-c1-prodstronglex: native fast path (simple, no-attr, self-loop-free)
     # assembles the cartesian ∪ tensor edge set in Rust, canonicalising each
     # product tuple once instead of per-edge — same edge set as the Python build
@@ -44969,6 +44981,7 @@ def corona_product(G, H):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     _validate_product_graph_types(G, H, allow_multigraph=True)
+    G, H = _product_factors(G, H)
 
     # br-r37-c1-prodrooted: native fast path (simple, self-loop-free).
     # corona's result mixes G's original nodes with (g, h) tuples; the native
@@ -45161,6 +45174,7 @@ def lexicographic_product(G, H):
     OR u1==u2 and v1-v2 is an edge in H.
     """
     _validate_product_graph_types(G, H)
+    G, H = _product_factors(G, H)
     # br-r37-c1-prodstronglex: native fast path (simple, no-attr, self-loop-free).
     # Each G-edge fully connects the two H-copies (|G.edges| x |H|^2 edges) + the
     # H-edges within each G-node copy — assembled in Rust with one canonicalised

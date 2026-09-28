@@ -411,3 +411,70 @@ def test_modular_product_pairs_selfloops_like_networkx():
                 graphs.append(g)
             pair.append(canon(lib.modular_product(*graphs)))
         assert pair[0] == pair[1], seed
+
+
+# br-r37-c1-45koy: a view factor is materialised before the product is built, so
+# an edge-attributed subgraph view reaches the native kernels (which take exact
+# classes) instead of the O(product) Python build.
+
+VIEW_PRODUCTS = {
+    "cartesian": "cartesian_product",
+    "tensor": "tensor_product",
+    "strong": "strong_product",
+    "lexicographic": "lexicographic_product",
+    "corona": "corona_product",
+}
+
+
+def _view_factors(lib, weighted, view, directed=False):
+    g = lib.DiGraph() if directed else lib.Graph()
+    g.graph["name"] = "factor"
+    g.add_nodes_from((i, {"c": i % 3}) for i in range(12))
+    if weighted:
+        g.add_weighted_edges_from((i, (i * 5 + 1) % 12, i % 4 + 1) for i in range(12))
+    else:
+        g.add_edges_from((i, (i * 5 + 1) % 12) for i in range(12))
+    if view == "subgraph":
+        return g.subgraph(range(7)), g.subgraph(range(3, 9))
+    if view == "concrete":
+        return g.subgraph(range(7)).copy(), g.subgraph(range(3, 9)).copy()
+    return lib.restricted_view(g, [11], [(0, 1)]), g.subgraph(range(5))
+
+
+@pytest.mark.parametrize("directed", [False, True], ids=["undirected", "directed"])
+@pytest.mark.parametrize("view", ["subgraph", "restricted", "concrete"])
+@pytest.mark.parametrize("weighted", [False, True], ids=["plain", "weighted"])
+@pytest.mark.parametrize("product", list(VIEW_PRODUCTS))
+def test_products_of_views_match_networkx(product, weighted, view, directed):
+    name = VIEW_PRODUCTS[product]
+    if directed and product == "corona":
+        for lib in (fnx, nx):
+            with pytest.raises(lib.NetworkXNotImplemented):
+                getattr(lib, name)(*_view_factors(lib, weighted, view, directed))
+        return
+    actual = getattr(fnx, name)(*_view_factors(fnx, weighted, view, directed))
+    expected = getattr(nx, name)(*_view_factors(nx, weighted, view, directed))
+    assert type(actual).__name__ == type(expected).__name__
+    assert actual.graph == expected.graph
+    assert [repr(n) for n in actual] == [repr(n) for n in expected]
+    assert _canonical_nodes(actual) == _canonical_nodes(expected)
+    assert _canonical_edges(actual) == _canonical_edges(expected)
+    assert [(repr(u), repr(v)) for u, v in actual.edges()] == [
+        (repr(u), repr(v)) for u, v in expected.edges()
+    ]
+
+
+@pytest.mark.parametrize("product", ["cartesian", "tensor", "strong", "lexicographic"])
+def test_edge_attributed_view_factor_takes_the_native_kernel(product, monkeypatch):
+    kernel = f"{product}_product_edge_attrs_fast"
+    native = getattr(fnx._fnx, kernel)
+    answered = []
+
+    def counting(*args):
+        built = native(*args)
+        answered.append(built is not None)
+        return built
+
+    monkeypatch.setattr(fnx._fnx, kernel, counting)
+    getattr(fnx, VIEW_PRODUCTS[product])(*_view_factors(fnx, True, "subgraph"))
+    assert answered == [True]

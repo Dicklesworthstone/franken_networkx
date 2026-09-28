@@ -18267,8 +18267,9 @@ fn product_factor_store_readable_directed(dg: &PyDiGraph) -> bool {
 /// zero non-scalar data-loss risk. Each cartesian product edge inherits exactly one
 /// source edge's attrs (G-layer copies an H-edge, H-layer copies a G-edge — no
 /// pairing), so this is a direct clone. Returns None on any other shape (directed /
-/// multigraph / non-pristine mirror), letting the Python wrapper batch. Edge order
-/// matches the no-attr native path (parity tests canonicalise); node attrs are
+/// multigraph / non-pristine mirror), letting the Python wrapper batch. Edges go in
+/// in networkx's order - every G-edge across H, then every H-edge within each
+/// G-node - since the adjacency rows follow it (br-r37-c1-45koy); node attrs are
 /// decorated by the Python wrapper.
 #[pyfunction]
 #[pyo3(signature = (g, h))]
@@ -18313,20 +18314,6 @@ fn cartesian_product_edge_attrs_fast(
             let h_edges = undirected_edges(h1, nh);
 
             let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-            // G-layer: same G-node + H-edge -> inherit the H-edge's attrs.
-            for gi in 0..ng {
-                for &(hu, hv) in &h_edges {
-                    let attrs = h1
-                        .edge_attrs_by_indices(hu, hv)
-                        .cloned()
-                        .unwrap_or_default();
-                    edges.push((
-                        canon[gi * nh + hu].clone(),
-                        canon[gi * nh + hv].clone(),
-                        attrs,
-                    ));
-                }
-            }
             // H-layer: same H-node + G-edge -> inherit the G-edge's attrs.
             for &(gu, gv) in &g_edges {
                 for hi in 0..nh {
@@ -18337,6 +18324,20 @@ fn cartesian_product_edge_attrs_fast(
                     edges.push((
                         canon[gu * nh + hi].clone(),
                         canon[gv * nh + hi].clone(),
+                        attrs,
+                    ));
+                }
+            }
+            // G-layer: same G-node + H-edge -> inherit the H-edge's attrs.
+            for gi in 0..ng {
+                for &(hu, hv) in &h_edges {
+                    let attrs = h1
+                        .edge_attrs_by_indices(hu, hv)
+                        .cloned()
+                        .unwrap_or_default();
+                    edges.push((
+                        canon[gi * nh + hu].clone(),
+                        canon[gi * nh + hv].clone(),
                         attrs,
                     ));
                 }
@@ -18365,22 +18366,6 @@ fn cartesian_product_edge_attrs_fast(
             let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
 
             let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-            // G-layer: same G-node + directed H-edge (hu->hv) -> inherit H-edge attrs.
-            for gi in 0..ng {
-                for hu in 0..nh {
-                    for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
-                        let attrs = d2
-                            .edge_attrs_by_indices(hu, hv)
-                            .cloned()
-                            .unwrap_or_default();
-                        edges.push((
-                            canon[gi * nh + hu].clone(),
-                            canon[gi * nh + hv].clone(),
-                            attrs,
-                        ));
-                    }
-                }
-            }
             // H-layer: same H-node + directed G-edge (gu->gv) -> inherit G-edge attrs.
             for gu in 0..ng {
                 for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
@@ -18392,6 +18377,22 @@ fn cartesian_product_edge_attrs_fast(
                         edges.push((
                             canon[gu * nh + hi].clone(),
                             canon[gv * nh + hi].clone(),
+                            attrs,
+                        ));
+                    }
+                }
+            }
+            // G-layer: same G-node + directed H-edge (hu->hv) -> inherit H-edge attrs.
+            for gi in 0..ng {
+                for hu in 0..nh {
+                    for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                        let attrs = d2
+                            .edge_attrs_by_indices(hu, hv)
+                            .cloned()
+                            .unwrap_or_default();
+                        edges.push((
+                            canon[gi * nh + hu].clone(),
+                            canon[gi * nh + hv].clone(),
                             attrs,
                         ));
                     }
