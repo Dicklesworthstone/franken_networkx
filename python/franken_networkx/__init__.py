@@ -18404,6 +18404,15 @@ def _build_paths_from_predecessors(sources, target, pred):
             top -= 1
 
 
+def _rows_hold_other_key_objects(G):
+    """True when some adjacency row keys a neighbour by an object other than
+    the node's own (an equal key of another type, 1.0 beside node 1)."""
+    probe = getattr(G, "_native_has_adj_py_keys", None) or getattr(
+        G, "_native_has_succ_py_keys", None
+    )
+    return probe is None or probe()
+
+
 def all_shortest_paths(
     G, source, target, weight=None, method="dijkstra", *, backend=None, **backend_kwargs
 ):
@@ -18443,6 +18452,17 @@ def all_shortest_paths(
         # different message for an unreachable (but present) target, so re-raise
         # with nx's exact wording.
         if weight is None or method == "unweighted":
+            if G.is_multigraph() or _rows_hold_other_key_objects(G):
+                # br-r37-c1-7jysw: networkx's own route - predecessor, then the
+                # paths out of it - over the index-space predecessor kernel. The
+                # native enumerator projects a multigraph to a simple graph first
+                # (1.5-6 ms on a 800-node BA graph, 0.12-0.59x networkx), and it
+                # emits node objects where networkx's paths carry the row's key
+                # (1.0 in a row of a graph whose node is 1).
+                built = _raw_predecessor_indexed(G, source, None)
+                if built is not None:
+                    yield from _build_paths_from_predecessors({source}, target, built[0])
+                    return
             try:
                 paths = _raw_all_shortest_paths(G, source, target, method="unweighted")
             except NetworkXNoPath:
@@ -27455,6 +27475,7 @@ from franken_networkx._fnx import (
     bidirectional_shortest_path as _raw_bidirectional_shortest_path,
     negative_edge_cycle as _raw_negative_edge_cycle,
     predecessor as _raw_predecessor,
+    predecessor_indexed as _raw_predecessor_indexed,
     path_weight,
 )
 
@@ -27603,6 +27624,25 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
     G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
+    # br-r37-c1-7jysw: networkx's level BFS in index space, emitted in its
+    # discovery order with its key objects (a cutoff other than none or a
+    # positive int keeps the routes below).
+    native_cutoff = _normalize_predecessor_cutoff(cutoff)
+    if native_cutoff is None or (type(native_cutoff) is int and 0 < native_cutoff < 2**63):
+        built = _raw_predecessor_indexed(G, source, native_cutoff)
+        if built is not None:
+            pred, seen = built
+            if target is not None:
+                if return_seen:
+                    if target not in pred:
+                        return ([], -1)
+                    return (pred[target], seen[target])
+                if target not in pred:
+                    return []
+                return pred[target]
+            if return_seen:
+                return (pred, seen)
+            return pred
     if G.is_directed():
         level = 0
         nextlevel = [source]

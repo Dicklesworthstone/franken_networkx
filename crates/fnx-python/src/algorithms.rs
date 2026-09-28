@@ -24578,6 +24578,152 @@ fn predecessor_fn(
     Ok(dict.into_any().unbind())
 }
 
+/// networkx's `predecessor` level BFS in index space (br-r37-c1-7jysw): every
+/// node reached, in discovery order, with each frontier node of the previous
+/// level that reaches it, and its level. `cutoff` is the normalised one - stop
+/// after that level, `None` unbounded.
+fn predecessor_levels<R: IntoIterator<Item = usize>>(
+    n: usize,
+    source_idx: usize,
+    cutoff: Option<usize>,
+    row: impl Fn(usize) -> R,
+) -> (Vec<usize>, Vec<usize>, Vec<Vec<usize>>) {
+    const UNSEEN: usize = usize::MAX;
+    let mut level = vec![UNSEEN; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut order = vec![source_idx];
+    let mut nextlevel = vec![source_idx];
+    let mut thislevel = Vec::new();
+    let mut depth = 0usize;
+    level[source_idx] = 0;
+    while !nextlevel.is_empty() {
+        depth += 1;
+        std::mem::swap(&mut thislevel, &mut nextlevel);
+        nextlevel.clear();
+        for &v in &thislevel {
+            for w in row(v) {
+                if w >= n {
+                    continue;
+                }
+                if level[w] == UNSEEN {
+                    level[w] = depth;
+                    preds[w].push(v);
+                    nextlevel.push(w);
+                    order.push(w);
+                } else if level[w] == depth {
+                    preds[w].push(v);
+                }
+            }
+        }
+        if cutoff.is_some_and(|limit| limit <= depth) {
+            break;
+        }
+    }
+    (order, level, preds)
+}
+
+/// `predecessor(G, source, cutoff)` as networkx builds it: `(pred, seen)` in
+/// discovery order, each key the object networkx's row walk yields (the
+/// source as passed, every other node as its discoverer's row key), each
+/// predecessor list the frontier nodes' own keys in frontier order. None when
+/// the source is not a node.
+/// br-r37-c1-7jysw: the undirected route called a String-keyed kernel and then
+/// re-walked the BFS through Python `G[node]` rows to put the dict in
+/// networkx's order - with the node objects, not the row keys networkx
+/// yields - and the directed route ran the whole BFS in Python (0.53x).
+#[pyfunction]
+#[pyo3(signature = (g, source, cutoff=None))]
+fn predecessor_indexed(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<Option<(Py<PyDict>, Py<PyDict>)>> {
+    let gr = extract_graph(g)?;
+    let source_key = node_key_to_string(py, source)?;
+    let (order, level, preds) = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            let Some(source_idx) = inner.get_node_index(&source_key) else {
+                return Ok(None);
+            };
+            py.allow_threads(|| {
+                predecessor_levels(inner.node_count(), source_idx, cutoff, |v| {
+                    inner.neighbors_indices(v).unwrap_or(&[]).iter().copied()
+                })
+            })
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let Some(source_idx) = inner.get_node_index(&source_key) else {
+                return Ok(None);
+            };
+            py.allow_threads(|| {
+                predecessor_levels(inner.node_count(), source_idx, cutoff, |v| {
+                    inner.successors_indices(v).unwrap_or(&[]).iter().copied()
+                })
+            })
+        }
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            let Some(source_idx) = inner.get_node_index(&source_key) else {
+                return Ok(None);
+            };
+            // G[v] of a multigraph is keyed by neighbour, once each, in row order.
+            py.allow_threads(|| {
+                predecessor_levels(inner.node_count(), source_idx, cutoff, |v| {
+                    inner
+                        .get_node_name(v)
+                        .and_then(|name| inner.neighbors_iter(name))
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|name| inner.get_node_index(name))
+                })
+            })
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            let Some(source_idx) = inner.get_node_index(&source_key) else {
+                return Ok(None);
+            };
+            // The revision-cached CSR keeps each successor row's order, parallel
+            // edges collapsed (see multidigraph_sssp_predecessors_index).
+            let csr = inner.csr();
+            py.allow_threads(|| {
+                predecessor_levels(inner.node_count(), source_idx, cutoff, |v| {
+                    csr.successors(v).iter().map(|&w| w as usize)
+                })
+            })
+        }
+    };
+    let name_of = |i: usize| match &gr {
+        GraphRef::Undirected(pg) => pg.inner.get_node_name(i),
+        GraphRef::Directed { dg, .. } => dg.inner.get_node_name(i),
+        GraphRef::MultiUndirected { mg, .. } => mg.inner.get_node_name(i),
+        GraphRef::MultiDirected { mdg, .. } => mdg.inner.get_node_name(i),
+    };
+    let pred = PyDict::new(py);
+    let seen = PyDict::new(py);
+    let mut disp: rustc_hash::FxHashMap<usize, PyObject> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(order.len(), Default::default());
+    for (position, &w) in order.iter().enumerate() {
+        let key = if position == 0 {
+            source.clone().unbind()
+        } else {
+            gr.py_row_key(
+                py,
+                name_of(preds[w][0]).unwrap_or_default(),
+                name_of(w).unwrap_or_default(),
+            )
+        };
+        let list = PyList::new(py, preds[w].iter().map(|v| disp[v].clone_ref(py)))?;
+        pred.set_item(&key, list)?;
+        seen.set_item(&key, level[w])?;
+        disp.insert(w, key);
+    }
+    Ok(Some((pred.unbind(), seen.unbind())))
+}
+
 /// Return the weight of a path given edge weights.
 #[pyfunction]
 #[pyo3(signature = (g, path, weight="weight"))]
@@ -29662,6 +29808,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bidirectional_shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(negative_edge_cycle, m)?)?;
     m.add_function(wrap_pyfunction!(predecessor_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(predecessor_indexed, m)?)?;
     m.add_function(wrap_pyfunction!(path_weight, m)?)?;
     // Additional centrality algorithms
     m.add_function(wrap_pyfunction!(in_degree_centrality, m)?)?;

@@ -242,3 +242,126 @@ def test_predecessor_callable_weight_keeps_parity_fallback():
     n_pred, n_dist = nx.dijkstra_predecessor_and_distance(gx, "s", weight=weight)
     assert list(f_pred.items()) == list(n_pred.items())
     assert list(f_dist.items()) == list(n_dist.items())
+
+
+# br-r37-c1-7jysw: ``predecessor`` - networkx's level BFS, every predecessor on
+# the previous level in frontier order, the dict in discovery order with the key
+# objects networkx's row walk yields, from an index-space kernel on every class.
+# The undirected route re-walked in Python with node objects, so a row keyed by
+# an equal object of another type (1.0 in a row of int 1's graph) came out as
+# the node object instead of the row key networkx yields.
+
+PRED_CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+PRED_CUTOFFS = [None, 0, 1, 2, -1, 1.5, float("inf"), float("-inf"), float("nan")]
+
+
+def _pred_shapes(lib, class_name):
+    import networkx as _nx
+
+    ba = _nx.barabasi_albert_graph(120, 3, seed=4)
+    grid = _nx.grid_2d_graph(6, 7)
+    shapes = {}
+    g = getattr(lib, class_name)()
+    g.add_edges_from(ba.edges())
+    g.add_edges_from((v, u) for u, v in list(ba.edges())[::3])
+    g.add_edge(5, 5)
+    shapes["ba"] = (g, 0)
+    g = getattr(lib, class_name)()
+    g.add_edges_from(grid.edges())
+    shapes["grid"] = (g, (0, 0))
+    g = getattr(lib, class_name)()
+    g.add_edges_from([("s", "a"), ("s", "b"), ("a", "t"), ("b", "t"), ("t", "u"), ("x", "y")])
+    shapes["str diamond"] = (g, "s")
+    g = getattr(lib, class_name)()
+    g.add_edge(0, 1)
+    g.add_edge(1.0, 2)  # row 2 keys the float 1.0, which networkx yields from it
+    g.add_edge(2, 3)
+    if g.is_directed():  # a successor row keying 1.0, reachable from 3
+        g.add_edges_from([(3, 2), (2, 1.0), (1, 0)])
+    shapes["equal keys"] = (g, 3)
+    return shapes
+
+
+def _typed(obj):
+    if isinstance(obj, dict):
+        return [(repr(k), type(k).__name__, _typed(v)) for k, v in obj.items()]
+    if isinstance(obj, (list, tuple)):
+        return [(repr(x), type(x).__name__) for x in obj]
+    return (repr(obj), type(obj).__name__)
+
+
+@needs_nx
+@pytest.mark.parametrize("class_name", PRED_CLASSES)
+@pytest.mark.parametrize("cutoff", PRED_CUTOFFS, ids=repr)
+def test_predecessor_matches_networkx(class_name, cutoff):
+    fshapes, nshapes = _pred_shapes(fnx, class_name), _pred_shapes(nx, class_name)
+    for label in fshapes:
+        fg, source = fshapes[label]
+        ng, _ = nshapes[label]
+        f = fnx.predecessor(fg, source, cutoff=cutoff)
+        n = nx.predecessor(ng, source, cutoff=cutoff)
+        assert _typed(f) == _typed(n), label
+        f_pred, f_seen = fnx.predecessor(fg, source, cutoff=cutoff, return_seen=True)
+        n_pred, n_seen = nx.predecessor(ng, source, cutoff=cutoff, return_seen=True)
+        assert _typed(f_pred) == _typed(n_pred) and _typed(f_seen) == _typed(n_seen), label
+        for target in list(ng)[:: max(1, len(ng) // 7)] + [source]:
+            assert _typed(fnx.predecessor(fg, source, target=target, cutoff=cutoff)) == _typed(
+                nx.predecessor(ng, source, target=target, cutoff=cutoff)
+            ), (label, target)
+            assert fnx.predecessor(
+                fg, source, target=target, cutoff=cutoff, return_seen=True
+            ) == nx.predecessor(ng, source, target=target, cutoff=cutoff, return_seen=True)
+
+
+@needs_nx
+@pytest.mark.parametrize("class_name", PRED_CLASSES)
+def test_predecessor_answers_from_the_index_kernel(class_name, monkeypatch):
+    answered = []
+    kernel = fnx._raw_predecessor_indexed
+
+    def counting(*args):
+        built = kernel(*args)
+        answered.append(built is not None)
+        return built
+
+    monkeypatch.setattr(fnx, "_raw_predecessor_indexed", counting)
+    graph, source = _pred_shapes(fnx, class_name)["ba"]
+    fnx.predecessor(graph, source)
+    fnx.predecessor(graph, source, cutoff=2, return_seen=True)
+    assert answered == [True, True]
+
+
+def _paths_outcome(call):
+    try:
+        return [[(repr(n), type(n).__name__) for n in path] for path in call()]
+    except Exception as exc:  # noqa: BLE001 - the exception is part of the compared state
+        return (type(exc).__name__, str(exc))
+
+
+@needs_nx
+@pytest.mark.parametrize("class_name", PRED_CLASSES)
+def test_unweighted_all_shortest_paths_match_networkx(class_name):
+    """br-r37-c1-7jysw: a multigraph's unweighted all_shortest_paths is networkx's
+    predecessor + path build over the index kernel (the native enumerator
+    projected the multigraph first, 0.12-0.59x); single_source_all_shortest_paths
+    rides on predecessor on every class."""
+    fshapes, nshapes = _pred_shapes(fnx, class_name), _pred_shapes(nx, class_name)
+    for label in fshapes:
+        fg, source = fshapes[label]
+        ng, _ = nshapes[label]
+        if fg.is_multigraph():
+            first = next(iter(fg.edges()))
+            fg.add_edge(*first)
+            ng.add_edge(*first)
+        for target in list(ng)[:: max(1, len(ng) // 9)] + [source, "absent"]:
+            assert _paths_outcome(
+                lambda: list(fnx.all_shortest_paths(fg, source, target))
+            ) == _paths_outcome(lambda: list(nx.all_shortest_paths(ng, source, target))), (
+                label,
+                target,
+            )
+        assert _paths_outcome(
+            lambda: [p for _, paths in fnx.single_source_all_shortest_paths(fg, source) for p in paths]
+        ) == _paths_outcome(
+            lambda: [p for _, paths in nx.single_source_all_shortest_paths(ng, source) for p in paths]
+        ), label
