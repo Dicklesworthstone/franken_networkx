@@ -1123,6 +1123,41 @@ def test_directed_query_after_a_write_does_not_grow_with_the_parent(label):
     assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), (label, growth)
 
 
+# The weighted searches asked the delegation gate first, and the gate's O(E)
+# weight scan is cached by revision - so after one write, dijkstra_path beside
+# a 32k ring cost 18 ms against networkx's 13 us. On a cache miss the search
+# now checks only the rows it expands (see test_weighted_path_adversarial_parity
+# for the hostile-weight side of that).
+
+_WEIGHTED_AFTER_A_WRITE = {
+    "dijkstra_path": lambda m, g: m.dijkstra_path(g, 0, 5),
+    "dijkstra_path_length": lambda m, g: m.dijkstra_path_length(g, 0, 5),
+    "single_source_dijkstra_cutoff": lambda m, g: m.single_source_dijkstra(g, 0, cutoff=2),
+    "ss_dijkstra_path_length_cutoff": lambda m, g: m.single_source_dijkstra_path_length(
+        g, 0, cutoff=2
+    ),
+    "bidirectional_dijkstra": lambda m, g: m.bidirectional_dijkstra(g, 0, 5),
+    "astar_path": lambda m, g: m.astar_path(g, 0, 5),
+    "bellman_ford_path": lambda m, g: m.bellman_ford_path(g, 0, 5),
+    "bellman_ford_path_length": lambda m, g: m.bellman_ford_path_length(g, 0, 5),
+    "shortest_path_weighted": lambda m, g: m.shortest_path(g, 0, 5, weight="weight"),
+}
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("label", sorted(_WEIGHTED_AFTER_A_WRITE))
+def test_weighted_query_after_a_write_does_not_grow_with_the_parent(label, directed):
+    call = _WEIGHTED_AFTER_A_WRITE[label]
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _write_then(lib, _beside_ring(lib, 200, directed), call)
+        large = _write_then(lib, _beside_ring(lib, 12800, directed), call)
+        results[lib.__name__] = large()
+        growth[lib.__name__] = _best(large, reps=20) / _best(small, reps=20)
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), (label, growth)
+
+
 # bellman_ford_path_length re-summed its path through G[u][v]. Reading an edge
 # dict that way marks the store dirty, so the NEXT weighted call resynced and
 # rescanned every weight: a repeated query on an UNCHANGED graph paid 17 ms at

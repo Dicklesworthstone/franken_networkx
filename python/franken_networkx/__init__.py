@@ -46,6 +46,7 @@ import math as _math
 import numbers as _numbers
 import operator as _operator
 import sys as _sys
+import threading as _threading
 import types as _types
 
 # br-r37-c1-u5tyh: bound once, here, because the nbunch edge guard reads it from
@@ -12648,6 +12649,57 @@ except ImportError:  # pragma: no cover — defensive for partial builds
     _native_dijkstra_weight_cache_token = None
     _native_has_explicit_nonunit_weight_fast = None
 
+from franken_networkx._fnx import WeightRowsUnverified as _WeightRowsUnverified
+
+# br-r37-c1-svsam: see _cached_native_weight_scan. _CHECK_ROWS stands in for a
+# scan the caller's native search replaces by checking the rows it expands;
+# _WEIGHT_ROWS.full_scan is raised while a call that met _WeightRowsUnverified
+# re-runs, so that re-run takes the whole scan instead.
+_CHECK_ROWS = object()
+_WEIGHT_ROWS = _threading.local()
+_ROW_CHECKS_PER_REVISION = 8
+
+
+def _dijkstra_weight_route(G, weight):
+    """br-r37-c1-svsam: ``"networkx"``, ``"native"``, or ``"rows"`` - run the
+    native search with ``check_rows=True`` and re-run on
+    ``_WeightRowsUnverified`` (see _rerun_with_weight_scan). Simple graphs
+    only; the answer is ``_should_delegate_dijkstra_to_networkx``'s."""
+    if callable(weight) or not isinstance(weight, str):
+        return "networkx"
+    scan = _cached_native_weight_scan(G, weight, rows_ok=not G.is_multigraph())
+    if scan is _CHECK_ROWS:
+        return "rows"
+    if scan is None:
+        return "networkx" if _should_delegate_dijkstra_to_networkx(G, weight) else "native"
+    return "networkx" if any(scan) else "native"
+
+
+def _bellman_ford_weight_route(G, weight):
+    """Bellman-Ford's counterpart of _dijkstra_weight_route: negative weights
+    stay native (see _should_delegate_bellman_ford_path_to_networkx)."""
+    if callable(weight) or not isinstance(weight, str):
+        return "networkx"
+    scan = _cached_native_weight_scan(G, weight, rows_ok=not G.is_multigraph())
+    if scan is _CHECK_ROWS:
+        return "rows"
+    if scan is None:
+        delegate = _should_delegate_bellman_ford_path_to_networkx(G, weight)
+        return "networkx" if delegate else "native"
+    _has_negative, has_nonfinite, has_nonnumeric = scan
+    return "networkx" if (has_nonfinite or has_nonnumeric) else "native"
+
+
+def _rerun_with_weight_scan(fn, *args, **kwargs):
+    """br-r37-c1-svsam: a row-checked native search met a weight the gate must
+    see (or read too many rows to check them one by one). Run the public call
+    again from the top, gated by the whole-graph scan as before the change."""
+    _WEIGHT_ROWS.full_scan = getattr(_WEIGHT_ROWS, "full_scan", 0) + 1
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        _WEIGHT_ROWS.full_scan -= 1
+
 try:
     from franken_networkx._fnx import (
         bidirectional_dijkstra as _native_bidirectional_dijkstra,
@@ -12886,7 +12938,9 @@ def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
     return False
 
 
-def _cached_native_weight_scan(G, weight, require_exact_string_nodes=False):
+def _cached_native_weight_scan(
+    G, weight, require_exact_string_nodes=False, rows_ok=False
+):
     """The native single-pass weight scan, ``(has_negative, has_nonfinite,
     has_nonnumeric)``, or None when it is unavailable or declines.
 
@@ -12899,10 +12953,20 @@ def _cached_native_weight_scan(G, weight, require_exact_string_nodes=False):
     Bellman-Ford gates each kept their own copy of this logic, and the
     type-parity gate had none, so every weighted Bellman-Ford call rescanned
     all E weights (17 ms beside a 32k-node component, before the walk began).
+
+    br-r37-c1-svsam: with ``rows_ok`` a cache MISS returns ``_CHECK_ROWS``
+    instead of scanning - the caller's native search then checks the weights
+    on the rows it expands, which are the only weights networkx reads. The
+    cache is keyed by revision, so every graph write missed it, and a bounded
+    query after one write re-scanned all E weights (18 ms beside a 32k ring,
+    against networkx's 13 us). A revision gets ``_ROW_CHECKS_PER_REVISION``
+    such searches; after that the whole scan runs and is cached, so repeated
+    queries on an unchanged graph go back to costing nothing here.
     """
     if _native_check_dijkstra_weights_fast is None:
         return None
     cache_key = None
+    token = None
     if _native_dijkstra_weight_cache_token is not None:
         try:
             token = _native_dijkstra_weight_cache_token(G)
@@ -12923,6 +12987,13 @@ def _cached_native_weight_scan(G, weight, require_exact_string_nodes=False):
                 cached = vars(G).get("_fnx_weight_scan_cache")
                 if cached is not None and cached[0] == cache_key:
                     return cached[1]
+    if rows_ok and token is not None and not getattr(_WEIGHT_ROWS, "full_scan", 0):
+        revision = (weight, token[0], token[1], token[3])
+        checks = vars(G).get("_fnx_weight_row_checks")
+        count = checks[1] if checks is not None and checks[0] == revision else 0
+        if count < _ROW_CHECKS_PER_REVISION:
+            vars(G)["_fnx_weight_row_checks"] = (revision, count + 1)
+            return _CHECK_ROWS
     try:
         scan = _native_check_dijkstra_weights_fast(G, weight, require_exact_string_nodes)
     except Exception:
@@ -13680,11 +13751,15 @@ def dijkstra_path(G, source, target, weight="weight"):
         if _delegate:
             return single_source_dijkstra(G, source, target=target, weight=weight)[1]
         return dijkstra_path(_simple, source, target, weight=weight)
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    route = _dijkstra_weight_route(G, weight)
+    if route == "networkx":
         return single_source_dijkstra(G, source, target=target, weight=weight)[1]
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
     if target not in G:
+        if route == "rows":
+            # networkx walks the whole component (reading its weights) first.
+            return _rerun_with_weight_scan(dijkstra_path, G, source, target, weight)
         raise NetworkXNoPath(f"No path to {target}.")
     # br-r37-c1-lc2qy (cc): native single-pair Dijkstra with TARGET early-exit — stops
     # when the target finalizes and reconstructs only the target's predecessor chain,
@@ -13697,9 +13772,13 @@ def dijkstra_path(G, source, target, weight="weight"):
     if _ptt is not None and isinstance(weight, str):
         _sync_rust_edge_attrs(G, edge_only=True)
         try:
-            _length, _all_int, path = _ptt(G, source, target, weight)
+            _length, _all_int, path = _ptt(G, source, target, weight, route == "rows")
         except NetworkXNoPath:
             raise NetworkXNoPath(f"No path to {target}.") from None
+        except _WeightRowsUnverified:
+            path = None
+        if path is None:
+            return _rerun_with_weight_scan(dijkstra_path, G, source, target, weight)
         return path
     paths = single_source_dijkstra_path(G, source, weight=weight)
     if target not in paths:
@@ -13926,7 +14005,8 @@ def bellman_ford_path(G, source, target, weight="weight"):
     # NaN/inf or non-numeric edge values. Bellman-Ford legitimately allows
     # NEGATIVE weights, so — unlike the Dijkstra gate — a negative edge does NOT
     # trigger fallback.
-    if _should_delegate_bellman_ford_path_to_networkx(G, weight):
+    route = _bellman_ford_weight_route(G, weight)
+    if route == "networkx":
         return _single_source_bellman_ford_inproc(
             G, source, target=target, weight=weight
         )[1]
@@ -13938,14 +14018,26 @@ def bellman_ford_path(G, source, target, weight="weight"):
     # Mirror nx's early return.
     if source == target:
         return [source]
+    if target not in G:
+        # networkx walks the source's component (reading its weights) before
+        # it finds the target missing, so a negative cycle there wins.
+        if route == "rows":
+            return _rerun_with_weight_scan(bellman_ford_path, G, source, target, weight)
+        single_source_bellman_ford_path_length(G, source, weight=weight)
+        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
     try:
-        return _raw_bellman_ford_path(G, source, target, weight=weight)
+        return _raw_bellman_ford_path(
+            G, source, target, weight=weight, check_rows=route == "rows"
+        )
     except NetworkXUnbounded:
         raise NetworkXUnbounded("Negative cycle detected.")
     except (NetworkXNoPath, NodeNotFound):
         raise NetworkXNoPath(
             f"Target {target} cannot be reached from given sources"
         )
+    except _WeightRowsUnverified:
+        pass
+    return _rerun_with_weight_scan(bellman_ford_path, G, source, target, weight)
 
 
 def shortest_path(
@@ -13992,35 +14084,22 @@ def shortest_path(
             else:
                 paths = single_source_dijkstra_path(H, target, weight=weight)
             return {u: list(reversed(p)) for u, p in paths.items()}
+    if isinstance(weight, str) and source is not None and target is not None:
+        # br-r37-c1-spw (cc): the weighted SINGLE-PAIR case must match nx's path
+        # tie-break. nx.shortest_path routes weighted point-to-point through
+        # bidirectional_dijkstra (dijkstra) / bellman_ford_path - whose specific path
+        # among equal-weight alternatives differs from the native _raw_shortest_path
+        # single-pair kernel (n30yf class). fnx's bidirectional_dijkstra /
+        # bellman_ford_path are byte-identical to nx, so route through them.
+        # br-r37-c1-04z53.9171 / br-r37-c1-svsam: both own their weight
+        # validation (including the row-checked route after a write), and a point
+        # query ended in them whichever way a gate here answered - so a
+        # whole-graph weight scan here only made the call O(E).
+        if method == "bellman-ford":
+            return bellman_ford_path(G, source, target, weight=weight)
+        return bidirectional_dijkstra(G, source, target, weight=weight)[1]
     if weight is not None:
-        # br-r37-c1-04z53.9171: exact-string MultiGraph point queries route
-        # directly to ``bidirectional_dijkstra`` below. That function owns the
-        # identical exact-domain/weight validation, so scanning the whole graph
-        # here as well made ``shortest_path`` pay the classifier twice. Keep the
-        # pre-check for every other shape; only the branch with a second
-        # authoritative check skips it.
-        _bidirectional_owns_dijkstra_validation = (
-            method == "dijkstra"
-            and type(G) is MultiGraph
-            and isinstance(weight, str)
-            and type(source) is str
-            and type(target) is str
-        )
-        if (
-            method == "dijkstra"
-            and not _bidirectional_owns_dijkstra_validation
-            and _should_delegate_dijkstra_to_networkx(
-                G,
-                weight,
-                _require_exact_string_nodes=(
-                    type(G) is MultiGraph
-                    and source is not None
-                    and target is not None
-                    and type(source) is str
-                    and type(target) is str
-                ),
-            )
-        ):
+        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
             if source is not None and target is not None:
                 return bidirectional_dijkstra(G, source, target, weight=weight)[1]
             if source is not None and target is None:
@@ -14068,17 +14147,6 @@ def shortest_path(
         # (~0.76x nx). Byte-identical: same (source, paths_dict) generator
         # contract, same BFS-discovery inner-key order, same source node order.
         return all_pairs_shortest_path(G)
-    if isinstance(weight, str) and source is not None and target is not None:
-        # br-r37-c1-spw (cc): the weighted SINGLE-PAIR case must match nx's path
-        # tie-break. nx.shortest_path routes weighted point-to-point through
-        # bidirectional_dijkstra (dijkstra) / bellman_ford_path — whose specific path
-        # among equal-weight alternatives differs from the native _raw_shortest_path
-        # single-pair kernel (n30yf class). fnx's bidirectional_dijkstra /
-        # bellman_ford_path are byte-identical to nx, so route through them. Source-only
-        # / target-only / all-pairs keep the native batch kernel below.
-        if method == "bellman-ford":
-            return bellman_ford_path(G, source, target, weight=weight)
-        return bidirectional_dijkstra(G, source, target, weight=weight)[1]
     if isinstance(weight, str):
         # br-gauntlet-sp-weightsync: the weighted path runs the native
         # ``_raw_shortest_path`` kernel, which reads edge weights from the Rust
@@ -14144,17 +14212,18 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
             return dict(single_source_shortest_path_length(H, target))
 
     if weight is not None:
-        # br-cc-mgdijkstra: for a MULTIGRAPH with a SOURCE given, the dijkstra
-        # weight-validity gate is redundant — the dispatch routes through
-        # dijkstra_path_length / single_source_dijkstra_path_length, which already
-        # validate + delegate bad weights via the min-weight collapse, so running
-        # the O(|E|) gate too (no native multigraph variant) was DOUBLE work
-        # (shortest_path_length(MG,source) 0.45x vs the collapse funcs' 0.58x).
-        # Skip it only there; the source-less all_pairs dispatch still needs the gate.
-        _mg_source_collapse = G.is_multigraph() and source is not None
+        # br-cc-mgdijkstra / br-r37-c1-svsam: with a SOURCE given, the dijkstra
+        # weight-validity gate is redundant - the dispatch routes through
+        # dijkstra_path_length / single_source_dijkstra_path_length whichever way
+        # it answers, and both validate + delegate bad weights themselves (for a
+        # multigraph via the min-weight collapse, for a simple graph through the
+        # row-checked route after a write). Running the O(|E|) gate too was DOUBLE
+        # work (shortest_path_length(MG,source) 0.45x vs the collapse funcs'
+        # 0.58x), and after a write it made a point query O(E). Only the
+        # source-less dispatches still need it.
         if (
             method == "dijkstra"
-            and not _mg_source_collapse
+            and source is None
             and _should_delegate_dijkstra_to_networkx(G, weight)
         ):
             if source is not None and target is not None:
@@ -24340,7 +24409,8 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # gate makes repeat calls on a graph free -> parity. (nan-weighted edges now
     # delegate to nx, matching dijkstra — strictly more correct than the old
     # silent native run on an unordered-comparison weight.)
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    route = _dijkstra_weight_route(G, weight)
+    if route == "networkx":
         return _astar_path_inproc(
             G,
             source,
@@ -24354,13 +24424,23 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     _sync_rust_edge_attrs(G, edge_only=True)
     try:
         return _raw_astar_path(
-            G, source, target, heuristic=heuristic, weight=weight
+            G,
+            source,
+            target,
+            heuristic=heuristic,
+            weight=weight,
+            check_rows=route == "rows",
         )
+    except _WeightRowsUnverified:
+        pass
     except ValueError as exc:
         translated = _translate_astar_no_path(exc, source, target)
         if translated is not None:
             raise translated from exc
         raise
+    return _rerun_with_weight_scan(
+        astar_path, G, source, target, heuristic=heuristic, weight=weight, cutoff=cutoff
+    )
 
 
 def astar_path_length(
@@ -27445,7 +27525,8 @@ def dijkstra_path_length(G, source, target, weight="weight"):
         if _delegate:
             return _dijkstra_path_length_inproc(G, source, target, weight=weight)
         return dijkstra_path_length(_simple, source, target, weight=weight)
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    route = _dijkstra_weight_route(G, weight)
+    if route == "networkx":
         return _dijkstra_path_length_inproc(G, source, target, weight=weight)
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
@@ -27455,14 +27536,22 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     # raise NetworkXNoPath instead.
     _HASH_PROBE.get(target)
     if target not in G:
+        if route == "rows":
+            # networkx walks the whole component (reading its weights) first.
+            return _rerun_with_weight_scan(dijkstra_path_length, G, source, target, weight)
         raise NetworkXNoPath(f"Node {target} not reachable from {source}")
     # br-r37-c1-04z53.9102: call the target-only native length kernel directly.
     # It preserves nx's int-vs-float result type at the PyO3 boundary, so the
     # wrapper no longer needs to construct the path and re-sum edge attrs here.
     try:
-        return _raw_dijkstra_path_length(G, source, target, weight=weight)
+        return _raw_dijkstra_path_length(
+            G, source, target, weight=weight, check_rows=route == "rows"
+        )
     except NetworkXNoPath as exc:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}") from exc
+    except _WeightRowsUnverified:
+        pass
+    return _rerun_with_weight_scan(dijkstra_path_length, G, source, target, weight)
 
 
 def bellman_ford_path_length(G, source, target, weight="weight"):
@@ -27498,7 +27587,8 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
                 G, source, target, weight=weight
             )
         return bellman_ford_path_length(_simple, source, target, weight=weight)
-    if _should_delegate_bellman_ford_path_to_networkx(G, weight):
+    route = _bellman_ford_weight_route(G, weight)
+    if route == "networkx":
         return _bellman_ford_path_length_inproc(
             G, source, target, weight=weight
         )
@@ -27513,14 +27603,25 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     # repeated query on an UNCHANGED graph paid O(E) every time. The gate above
     # already routes inexact types and int sums past 2**53 to networkx, so the
     # f64 distance of an all-int path is exact.
+    if target not in G:
+        # networkx walks the source's component (reading its weights) before
+        # it finds the target missing, so a negative cycle there wins.
+        if route == "rows":
+            return _rerun_with_weight_scan(bellman_ford_path_length, G, source, target, weight)
+        single_source_bellman_ford_path_length(G, source, weight=weight)
+        raise NetworkXNoPath(f"node {target} not reachable from {source}")
     try:
         length, all_int = _raw_bellman_ford_path_length(
-            G, source, target, weight=weight
+            G, source, target, weight=weight, check_rows=route == "rows"
         )
     except NetworkXUnbounded:
         raise NetworkXUnbounded("Negative cycle detected.")
     except (NetworkXNoPath, NodeNotFound):
         raise NetworkXNoPath(f"node {target} not reachable from {source}")
+    except _WeightRowsUnverified:
+        length = None
+    if length is None:
+        return _rerun_with_weight_scan(bellman_ford_path_length, G, source, target, weight)
     return int(length) if all_int else length
 
 
@@ -27955,37 +28056,53 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 raise NetworkXNoPath(f"No path to {target}.")
             return dists[target], paths[target]
         return dists, paths
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    route = _dijkstra_weight_route(G, weight)
+    if route == "networkx":
         return _multi_source_dijkstra_inproc(
             G, {source}, target=target, cutoff=cutoff, weight=weight
         )
+    check_rows = route == "rows"
     # br-r37-c1-k4pod: pre-check membership so we get nx's exact
     # 'Node X not found in graph' wording.  The Rust binding emits
     # ``"Source '<repr>' is not in G"`` with quoted repr — distinct
     # enough that users matching on the message string break.
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
-    if target is not None and cutoff is None and isinstance(weight, str):
-        if target not in G:
-            raise NetworkXNoPath(f"No path to {target}.")
-        _ptt = getattr(_fnx, "dijkstra_path_to_target", None)
-        if _ptt is not None:
-            _sync_rust_edge_attrs(G, edge_only=True)
-            length, all_int, path = _ptt(G, source, target, weight)
-            return (int(length) if all_int else float(length), path)
-    # br-r37-c1-qnj0n: a float cutoff, or an int a float holds exactly, bounds
-    # the native search as networkx bounds its own (NaN and +inf compare as
-    # there: unbounded). Any other cutoff keeps the view below, which compares
-    # it the Python way.
-    if (
-        cutoff is None
-        or type(cutoff) is float
-        or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
-    ):
-        dists, paths = _raw_single_source_dijkstra(G, source, weight=weight, cutoff=cutoff)
-    else:
-        dists, paths = _raw_single_source_dijkstra(G, source, weight=weight)
-        dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
+    try:
+        if target is not None and cutoff is None and isinstance(weight, str):
+            if target not in G:
+                if check_rows:
+                    # networkx walks the whole component (reading its weights) first.
+                    raise _WeightRowsUnverified
+                raise NetworkXNoPath(f"No path to {target}.")
+            _ptt = getattr(_fnx, "dijkstra_path_to_target", None)
+            if _ptt is not None:
+                _sync_rust_edge_attrs(G, edge_only=True)
+                length, all_int, path = _ptt(G, source, target, weight, check_rows)
+                return (int(length) if all_int else float(length), path)
+        # br-r37-c1-qnj0n: a float cutoff, or an int a float holds exactly, bounds
+        # the native search as networkx bounds its own (NaN and +inf compare as
+        # there: unbounded). Any other cutoff keeps the view below, which compares
+        # it the Python way.
+        if (
+            cutoff is None
+            or type(cutoff) is float
+            or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
+        ):
+            dists, paths = _raw_single_source_dijkstra(
+                G, source, weight=weight, cutoff=cutoff, check_rows=check_rows
+            )
+        else:
+            dists, paths = _raw_single_source_dijkstra(
+                G, source, weight=weight, check_rows=check_rows
+            )
+            dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
+    except _WeightRowsUnverified:
+        dists = None
+    if dists is None:
+        return _rerun_with_weight_scan(
+            single_source_dijkstra, G, source, target=target, cutoff=cutoff, weight=weight
+        )
     # br-r37-c1-0opkc: the raw binding now emits distances with nx's
     # observable int/float type directly from the selected path metadata, so
     # this combined API no longer needs a Python-side edge scan or path walk.
@@ -28222,8 +28339,10 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
         )
     # br-r37-c1-dijknone: weight=None means "every edge weighs 1", which the
     # native kernel already computes for any attribute no edge carries.
+    weight_arg = weight
     weight = _dijkstra_weight_for_none(G, weight)
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    route = _dijkstra_weight_route(G, weight)
+    if route == "networkx":
         return _multi_source_dijkstra_inproc(
             G, {source}, cutoff=cutoff, weight=weight
         )[0]
@@ -28232,11 +28351,18 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     # br-r37-c1-1kor1: the raw length-only kernel now preserves nx's
     # integer-vs-float distance types and applies cutoff during relaxation, so
     # this API no longer needs to materialize full paths just to repair types.
-    return _raw_single_source_dijkstra_path_length(
-        G,
-        source,
-        weight=weight,
-        cutoff=cutoff,
+    try:
+        return _raw_single_source_dijkstra_path_length(
+            G,
+            source,
+            weight=weight,
+            cutoff=cutoff,
+            check_rows=route == "rows",
+        )
+    except _WeightRowsUnverified:
+        pass
+    return _rerun_with_weight_scan(
+        single_source_dijkstra_path_length, G, source, cutoff=cutoff, weight=weight_arg
     )
 
 
@@ -38212,22 +38338,22 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
     # from nx's *bidirectional* path on ~2% of pairs. The in-process search is
     # 14-23x faster than that delegation and byte-exact with
     # ``nx.bidirectional_dijkstra`` (450/450 incl. the bidirectional tie-break).
-    if (
-        G.is_multigraph()
-        and (
+    if G.is_multigraph():
+        if (
             G.is_directed()
             or type(G) is not MultiGraph
             or type(source) is not str
             or type(target) is not str
-        )
-    ) or _should_delegate_dijkstra_to_networkx(
-        G,
-        weight,
-        _require_exact_string_nodes=type(G) is MultiGraph,
-    ):
-        return _bidirectional_dijkstra_local(
-            G, source, target, weight=weight
-        )
+            or _should_delegate_dijkstra_to_networkx(
+                G, weight, _require_exact_string_nodes=True
+            )
+        ):
+            return _bidirectional_dijkstra_local(G, source, target, weight=weight)
+        route = "native"
+    else:
+        route = _dijkstra_weight_route(G, weight)
+        if route == "networkx":
+            return _bidirectional_dijkstra_local(G, source, target, weight=weight)
     # br-r37-c1-ybw1s: nx checks ``source not in G`` (silent False on unhashable,
     # no hash op) and raises NodeNotFound — not TypeError.
     if source not in G:
@@ -38250,7 +38376,14 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
         # that access would mark the graph attr-dirty and force a resync on the
         # next call.
         _sync_rust_edge_attrs(G, edge_only=True)
-        length, all_int, path = _native_bidirectional_dijkstra(G, source, target, weight)
+        try:
+            length, all_int, path = _native_bidirectional_dijkstra(
+                G, source, target, weight, route == "rows"
+            )
+        except _WeightRowsUnverified:
+            path = None
+        if path is None:
+            return _rerun_with_weight_scan(bidirectional_dijkstra, G, source, target, weight)
         # The Rust kernel accumulates in f64 (byte-exact with nx's arithmetic
         # ORDER); nx preserves Python int arithmetic, so the length is int iff
         # every weight summed along the path is int/bool (else int + float ->

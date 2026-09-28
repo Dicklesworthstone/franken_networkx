@@ -4789,6 +4789,173 @@ fn fold_store_only_dijkstra_weights<'a>(
     }
 }
 
+/// One live Python edge weight into the scan's `(negative, non-finite or
+/// inexact, non-numeric)` flags and its running int magnitude.
+fn fold_py_dijkstra_weight(
+    val: &Bound<'_, PyAny>,
+    flags: &mut (bool, bool, bool),
+    int_magnitude_total: &mut u128,
+) {
+    if let Ok(f) = val.extract::<f64>() {
+        flags.0 |= f < 0.0;
+        flags.1 |= !f.is_finite();
+    } else if let Ok(i) = val.extract::<i64>() {
+        flags.0 |= i < 0;
+    } else if val.extract::<bool>().is_err() {
+        flags.2 = true;
+    }
+    let (inexact, magnitude) = py_weight_exactness(val);
+    flags.1 |= inexact;
+    *int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
+}
+
+pyo3::create_exception!(
+    _fnx,
+    WeightRowsUnverified,
+    pyo3::exceptions::PyException,
+    "br-r37-c1-svsam: a weighted search that checked only the rows it expanded \
+     met a weight the delegation gate must see, or read too many rows to check \
+     them one by one. The caller re-runs with the whole-graph weight scan."
+);
+
+/// The most rows a row-checked search may expand, and the most row entries
+/// [`check_expanded_weight_rows`] reads: an eighth of the edges, at least
+/// 256. Past that the whole-graph scan, which the caller then caches, is the
+/// cheaper check.
+fn expanded_row_limit(gr: &GraphRef<'_>) -> usize {
+    let edges = match gr {
+        GraphRef::Undirected(pg) => pg.inner.edge_count(),
+        GraphRef::Directed { dg, .. } => dg.inner.edge_count(),
+        _ => 0,
+    };
+    (edges / 8).max(256)
+}
+
+/// Run `search`, recording up to `limit` expanded rows when one is given.
+/// The rows are `None` when the search wanted more (it was cut off).
+fn run_recording_rows<R>(
+    limit: Option<usize>,
+    search: impl FnOnce() -> R,
+) -> (R, Option<Vec<usize>>) {
+    match limit {
+        Some(limit) => fnx_algorithms::recording_expanded_rows(limit, search),
+        None => (search(), Some(Vec::new())),
+    }
+}
+
+/// br-r37-c1-svsam: the delegation gate's weight scan is keyed by the graph's
+/// revision, so after ONE write a bounded weighted query re-scanned all E
+/// weights (18 ms beside a 32k-node ring, against networkx's 13 us). networkx
+/// reads a weight only on a row its search expands, so a search whose expanded
+/// rows hold no weight the gate would route answers exactly as networkx does.
+/// This checks those rows - a directed node's in-edges too - with the scan's
+/// own per-edge rule, reading the live Python dict where an edge has one.
+///
+/// Raises [`WeightRowsUnverified`] when a row fails, when the search was cut
+/// off or its rows hold more entries than [`expanded_row_limit`] (the whole
+/// scan, which the caller caches, is then the cheaper check), or for a graph
+/// class rows are not recorded on.
+fn check_expanded_weight_rows(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    rows: Option<Vec<usize>>,
+    weight_attr: &str,
+    allow_negative: bool,
+) -> PyResult<()> {
+    let Some(mut rows) = rows else {
+        return Err(WeightRowsUnverified::new_err(()));
+    };
+    rows.sort_unstable();
+    rows.dedup();
+    let limit = expanded_row_limit(gr);
+    let mut flags = (false, false, false);
+    let mut int_magnitude_total: u128 = 0;
+    match gr {
+        GraphRef::Undirected(pg) => {
+            let graph = &pg.inner;
+            let read: usize = rows
+                .iter()
+                .map(|&u| graph.neighbors_indices(u).map_or(0, <[usize]>::len))
+                .sum();
+            if read > limit {
+                return Err(WeightRowsUnverified::new_err(()));
+            }
+            for &u in &rows {
+                let Some(u_name) = graph.get_node_name(u) else {
+                    continue;
+                };
+                for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                    let Some(v_name) = graph.get_node_name(v) else {
+                        continue;
+                    };
+                    if let Some(dict) = pg.edge_py_attrs.get(&PyGraph::edge_key(u_name, v_name)) {
+                        if let Some(val) = dict.bind(py).get_item(weight_attr)? {
+                            fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
+                        }
+                    } else {
+                        fold_store_only_dijkstra_weights(
+                            graph.edge_attrs_by_indices(u, v),
+                            weight_attr,
+                            &mut flags,
+                            &mut int_magnitude_total,
+                        );
+                    }
+                }
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            let graph = &dg.inner;
+            let read: usize = rows
+                .iter()
+                .map(|&u| {
+                    graph.successors_indices(u).map_or(0, <[usize]>::len)
+                        + graph.predecessors_indices(u).map_or(0, <[usize]>::len)
+                })
+                .sum();
+            if read > limit {
+                return Err(WeightRowsUnverified::new_err(()));
+            }
+            let mut fold_edge = |source: usize, target: usize| -> PyResult<()> {
+                let (Some(source_name), Some(target_name)) =
+                    (graph.get_node_name(source), graph.get_node_name(target))
+                else {
+                    return Ok(());
+                };
+                if let Some(dict) = dg
+                    .edge_py_attrs
+                    .get(&PyDiGraph::edge_key(source_name, target_name))
+                {
+                    if let Some(val) = dict.bind(py).get_item(weight_attr)? {
+                        fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
+                    }
+                } else {
+                    fold_store_only_dijkstra_weights(
+                        graph.edge_attrs_by_indices(source, target),
+                        weight_attr,
+                        &mut flags,
+                        &mut int_magnitude_total,
+                    );
+                }
+                Ok(())
+            };
+            for &u in &rows {
+                for &v in graph.successors_indices(u).unwrap_or(&[]) {
+                    fold_edge(u, v)?;
+                }
+                for &v in graph.predecessors_indices(u).unwrap_or(&[]) {
+                    fold_edge(v, u)?;
+                }
+            }
+        }
+        _ => return Err(WeightRowsUnverified::new_err(())),
+    }
+    flags.1 |= int_magnitude_total > MAX_EXACT_F64_INT;
+    if flags.1 || flags.2 || (flags.0 && !allow_negative) {
+        return Err(WeightRowsUnverified::new_err(()));
+    }
+    Ok(())
+}
+
 #[pyfunction]
 #[pyo3(signature = (g, weight_attr, require_exact_string_nodes=false))]
 pub fn check_dijkstra_edge_weights_fast(
@@ -4800,38 +4967,18 @@ pub fn check_dijkstra_edge_weights_fast(
     let gr = extract_graph(g)?;
     match &gr {
         GraphRef::Undirected(pg) => {
-            let mut has_negative = false;
-            let mut has_nonfinite = false;
-            let mut has_nonnumeric = false;
+            let mut flags = (false, false, false);
             // br-r37-c1-04z53.9172: running upper bound on any path sum.
             let mut int_magnitude_total: u128 = 0;
             for dict in pg.edge_py_attrs.values() {
-                let bound = dict.bind(py);
-                if let Some(val) = bound.get_item(weight_attr)? {
-                    if let Ok(f) = val.extract::<f64>() {
-                        if f < 0.0 {
-                            has_negative = true;
-                        }
-                        if !f.is_finite() {
-                            has_nonfinite = true;
-                        }
-                    } else if let Ok(i) = val.extract::<i64>() {
-                        if i < 0 {
-                            has_negative = true;
-                        }
-                    } else if val.extract::<bool>().is_err() {
-                        has_nonnumeric = true;
-                    }
-                    let (inexact, magnitude) = py_weight_exactness(&val);
-                    has_nonfinite |= inexact;
-                    int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
+                if let Some(val) = dict.bind(py).get_item(weight_attr)? {
+                    fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
                 }
-                if has_negative && has_nonfinite && has_nonnumeric {
+                if flags.0 && flags.1 && flags.2 {
                     break;
                 }
             }
             if pg.edge_py_attrs.len() < pg.inner.edge_count() {
-                let mut flags = (has_negative, has_nonfinite, has_nonnumeric);
                 fold_store_only_dijkstra_weights(
                     pg.inner
                         .edges_ordered_borrowed()
@@ -4844,43 +4991,22 @@ pub fn check_dijkstra_edge_weights_fast(
                     &mut flags,
                     &mut int_magnitude_total,
                 );
-                (has_negative, has_nonfinite, has_nonnumeric) = flags;
             }
-            has_nonfinite |= int_magnitude_total > MAX_EXACT_F64_INT;
-            Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
+            flags.1 |= int_magnitude_total > MAX_EXACT_F64_INT;
+            Ok(Some(flags))
         }
         GraphRef::Directed { dg, .. } => {
-            let mut has_negative = false;
-            let mut has_nonfinite = false;
-            let mut has_nonnumeric = false;
+            let mut flags = (false, false, false);
             let mut int_magnitude_total: u128 = 0;
             for dict in dg.edge_py_attrs.values() {
-                let bound = dict.bind(py);
-                if let Some(val) = bound.get_item(weight_attr)? {
-                    if let Ok(f) = val.extract::<f64>() {
-                        if f < 0.0 {
-                            has_negative = true;
-                        }
-                        if !f.is_finite() {
-                            has_nonfinite = true;
-                        }
-                    } else if let Ok(i) = val.extract::<i64>() {
-                        if i < 0 {
-                            has_negative = true;
-                        }
-                    } else if val.extract::<bool>().is_err() {
-                        has_nonnumeric = true;
-                    }
-                    let (inexact, magnitude) = py_weight_exactness(&val);
-                    has_nonfinite |= inexact;
-                    int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
+                if let Some(val) = dict.bind(py).get_item(weight_attr)? {
+                    fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
                 }
-                if has_negative && has_nonfinite && has_nonnumeric {
+                if flags.0 && flags.1 && flags.2 {
                     break;
                 }
             }
             if dg.edge_py_attrs.len() < dg.inner.edge_count() {
-                let mut flags = (has_negative, has_nonfinite, has_nonnumeric);
                 fold_store_only_dijkstra_weights(
                     dg.inner
                         .edges_ordered_borrowed()
@@ -4893,10 +5019,9 @@ pub fn check_dijkstra_edge_weights_fast(
                     &mut flags,
                     &mut int_magnitude_total,
                 );
-                (has_negative, has_nonfinite, has_nonnumeric) = flags;
             }
-            has_nonfinite |= int_magnitude_total > MAX_EXACT_F64_INT;
-            Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
+            flags.1 |= int_magnitude_total > MAX_EXACT_F64_INT;
+            Ok(Some(flags))
         }
         GraphRef::MultiUndirected { mg, .. } => {
             if !require_exact_string_nodes {
@@ -5209,35 +5334,43 @@ pub fn dijkstra_path(
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (g, source, target, weight="weight"))]
+#[pyo3(signature = (g, source, target, weight="weight", check_rows=false))]
 pub fn bellman_ford_path(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
+    check_rows: bool,
 ) -> PyResult<Vec<PyObject>> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
 
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
+    let (result, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
+    {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
                 fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
             })
-        }
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight))
-        }
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight)
+            })
+        })
     };
+    if check_rows {
+        check_expanded_weight_rows(py, &gr, rows, weight, true)?;
+    }
     if result.negative_cycle_detected {
         return Err(crate::NetworkXUnbounded::new_err(
             "Negative cost cycle detected.",
@@ -5489,6 +5622,7 @@ fn bidirectional_dijkstra_with_multigraph_kernel(
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
+    check_rows: bool,
     multigraph_kernel: fn(
         &fnx_classes::MultiGraph,
         &str,
@@ -5503,6 +5637,7 @@ fn bidirectional_dijkstra_with_multigraph_kernel(
     // re-syncs all node attrs (O(n)) on every call, which dominated the
     // single-pair cost and made the native kernel slower than nx.
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let source_str = node_key_to_string(py, source)?;
     let target_str = node_key_to_string(py, target)?;
     validate_node_str(&gr, &source_str, "Source")?;
@@ -5511,10 +5646,14 @@ fn bidirectional_dijkstra_with_multigraph_kernel(
     // br-r37-c1-04z53.9170: an undirected MultiGraph must not take the projected
     // simple-graph route. Projection both dominated this public row and can
     // reorder per-node adjacency, changing NetworkX's meeting-node tie-break.
-    let outcome = match &gr {
+    let (outcome, rows) = match &gr {
         GraphRef::MultiUndirected { mg, .. } => {
             let inner = &mg.inner;
-            py.allow_threads(|| multigraph_kernel(inner, &source_str, &target_str, weight))
+            py.allow_threads(|| {
+                run_recording_rows(row_limit, || {
+                    multigraph_kernel(inner, &source_str, &target_str, weight)
+                })
+            })
         }
         _ => {
             // br-r37-c1-p60i1 (cc): directed graphs route to the directed kernel
@@ -5523,27 +5662,34 @@ fn bidirectional_dijkstra_with_multigraph_kernel(
             if let Some(projection) = gr.weighted_digraph_projection(weight) {
                 let inner = projection.as_ref();
                 py.allow_threads(|| {
-                    fnx_algorithms::bidirectional_dijkstra_directed(
-                        inner,
-                        &source_str,
-                        &target_str,
-                        weight,
-                    )
+                    run_recording_rows(row_limit, || {
+                        fnx_algorithms::bidirectional_dijkstra_directed(
+                            inner,
+                            &source_str,
+                            &target_str,
+                            weight,
+                        )
+                    })
                 })
             } else {
                 let projection = gr.weighted_undirected_projection(weight);
                 let inner = projection.as_ref();
                 py.allow_threads(|| {
-                    fnx_algorithms::bidirectional_dijkstra_undirected(
-                        inner,
-                        &source_str,
-                        &target_str,
-                        weight,
-                    )
+                    run_recording_rows(row_limit, || {
+                        fnx_algorithms::bidirectional_dijkstra_undirected(
+                            inner,
+                            &source_str,
+                            &target_str,
+                            weight,
+                        )
+                    })
                 })
             }
         }
     };
+    if check_rows {
+        check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+    }
 
     match outcome {
         fnx_algorithms::BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
@@ -5571,13 +5717,14 @@ fn bidirectional_dijkstra_with_multigraph_kernel(
 }
 
 #[pyfunction]
-#[pyo3(signature = (g, source, target, weight="weight"))]
+#[pyo3(signature = (g, source, target, weight="weight", check_rows=false))]
 pub fn bidirectional_dijkstra(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
+    check_rows: bool,
 ) -> PyResult<(f64, bool, PyObject)> {
     bidirectional_dijkstra_with_multigraph_kernel(
         py,
@@ -5585,6 +5732,7 @@ pub fn bidirectional_dijkstra(
         source,
         target,
         weight,
+        check_rows,
         multigraph_bidirectional_dijkstra,
     )
 }
@@ -5609,6 +5757,7 @@ fn bench_bidirectional_dijkstra_orig(
         source,
         target,
         weight,
+        false,
         multigraph_bidirectional_dijkstra_orig,
     )
 }
@@ -5622,38 +5771,50 @@ fn bench_bidirectional_dijkstra_orig(
 /// slow). Byte-identical to ``networkx.dijkstra_path``. The wrapper has already validated
 /// the source and edge-only-synced post-construction weight mutations.
 #[pyfunction]
+#[pyo3(signature = (g, source, target, weight, check_rows=false))]
 pub fn dijkstra_path_to_target(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
+    check_rows: bool,
 ) -> PyResult<(f64, bool, PyObject)> {
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let source_str = node_key_to_string(py, source)?;
     let target_str = node_key_to_string(py, target)?;
-    let outcome = if let Some(projection) = gr.weighted_digraph_projection(weight) {
+    let (outcome, rows) = if let Some(projection) = gr.weighted_digraph_projection(weight) {
         let inner = projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::dijkstra_path_to_target_directed(
-                inner,
-                &source_str,
-                &target_str,
-                weight,
-            )
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::dijkstra_path_to_target_directed(
+                    inner,
+                    &source_str,
+                    &target_str,
+                    weight,
+                )
+            })
         })
     } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
         py.allow_threads(|| {
-            multigraph_dijkstra_path_to_target_lazy(inner, &source_str, &target_str, weight)
+            run_recording_rows(row_limit, || {
+                multigraph_dijkstra_path_to_target_lazy(inner, &source_str, &target_str, weight)
+            })
         })
     } else {
         let projection = gr.weighted_undirected_projection(weight);
         let inner = projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::dijkstra_path_to_target(inner, &source_str, &target_str, weight)
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::dijkstra_path_to_target(inner, &source_str, &target_str, weight)
+            })
         })
     };
+    if check_rows {
+        check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+    }
     match outcome {
         Some((length, path, all_int)) => {
             let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -19693,7 +19854,7 @@ fn run_astar_path_length<G: fnx_algorithms::GraphView + ?Sized + Sync>(
 /// ``heuristic`` is an optional Python callable ``heuristic(u, v) -> float``
 /// where *v* is the target node.  When omitted, A* degenerates to Dijkstra.
 #[pyfunction]
-#[pyo3(signature = (g, source, target, heuristic=None, weight="weight"))]
+#[pyo3(signature = (g, source, target, heuristic=None, weight="weight", check_rows=false))]
 fn astar_path(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
@@ -19701,8 +19862,10 @@ fn astar_path(
     target: &Bound<'_, PyAny>,
     heuristic: Option<&Bound<'_, PyAny>>,
     weight: &str,
+    check_rows: bool,
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let src_key = node_key_to_string(py, source)?;
     let tgt_key = node_key_to_string(py, target)?;
     validate_node(&gr, &src_key, source, "Source")?;
@@ -19710,7 +19873,9 @@ fn astar_path(
 
     // Directed graphs run the kernel against their DiGraph projection so edge
     // direction is respected; undirected graphs use the inner Graph.
-    let result = match gr.weighted_digraph_projection(weight) {
+    let (result, rows) = run_recording_rows(row_limit, || match gr
+        .weighted_digraph_projection(weight)
+    {
         Some(proj) => run_astar_path(
             py,
             &gr,
@@ -19739,7 +19904,10 @@ fn astar_path(
                 weight,
             )
         }
-    };
+    });
+    if check_rows {
+        check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+    }
 
     match result {
         Ok(Some(path)) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
@@ -21814,38 +21982,44 @@ fn find_cycle(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, P
 
 /// Return the shortest path length from source to target using Dijkstra.
 #[pyfunction]
-#[pyo3(signature = (g, source, target, weight="weight"))]
+#[pyo3(signature = (g, source, target, weight="weight", check_rows=false))]
 fn dijkstra_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
+    check_rows: bool,
 ) -> PyResult<PyObject> {
     sync_rust_edge_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
+    let (result, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
+    {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
                 fnx_algorithms::dijkstra_path_to_target_directed(__wp, &s, &t, weight)
                     .map(|(distance, _path, all_int)| (distance, all_int))
             })
-        }
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
                 fnx_algorithms::dijkstra_path_to_target(__wp, &s, &t, weight)
                     .map(|(distance, _path, all_int)| (distance, all_int))
             })
-        }
+        })
     };
+    if check_rows {
+        check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+    }
     match result {
         Some((d, all_int))
             if all_int
@@ -22922,32 +23096,46 @@ fn stored_weight_is_int(attrs: Option<&AttrMap>, weight: &str) -> bool {
 /// the path through G[u][v], which exposes every edge dict on it - and an
 /// exposed dict makes the next weighted call resync and rescan every edge).
 #[pyfunction]
-#[pyo3(signature = (g, source, target, weight="weight"))]
+#[pyo3(signature = (g, source, target, weight="weight", check_rows=false))]
 fn bellman_ford_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
     weight: &str,
+    check_rows: bool,
 ) -> PyResult<(f64, bool)> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        let bf = py.allow_threads(|| {
-            fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
+        let (bf, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
+            })
         });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, true)?;
+        }
         bellman_ford_typed_length(&bf, &s, &t, |u, v| {
             stored_weight_is_int(__wp.edge_attrs(u, v), weight)
         })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        let bf = py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight));
+        let (bf, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight)
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, true)?;
+        }
         bellman_ford_typed_length(&bf, &s, &t, |u, v| {
             stored_weight_is_int(__wp.edge_attrs(u, v), weight)
         })
@@ -22967,23 +23155,33 @@ fn bellman_ford_path_length(
 /// Return (distances, paths) from a single source using Dijkstra, relaxing
 /// only edges within `cutoff` as networkx does (br-r37-c1-qnj0n).
 #[pyfunction]
-#[pyo3(signature = (g, source, weight="weight", cutoff=None))]
+#[pyo3(signature = (g, source, weight="weight", cutoff=None, check_rows=false))]
 fn single_source_dijkstra(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     weight: &str,
     cutoff: Option<f64>,
+    check_rows: bool,
 ) -> PyResult<(PyObject, PyObject)> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
     if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        let Some(result) = py.allow_threads(|| {
-            fnx_algorithms::single_source_dijkstra_indexed_full_directed(__wp, &s, weight, cutoff)
-        }) else {
+        let (result, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::single_source_dijkstra_indexed_full_directed(
+                    __wp, &s, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let Some(result) = result else {
             return Ok((
                 PyDict::new(py).into_any().unbind(),
                 PyDict::new(py).into_any().unbind(),
@@ -22994,9 +23192,15 @@ fn single_source_dijkstra(
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        let Some(result) = py.allow_threads(|| {
-            fnx_algorithms::single_source_dijkstra_indexed_full(__wp, &s, weight, cutoff)
-        }) else {
+        let (result, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::single_source_dijkstra_indexed_full(__wp, &s, weight, cutoff)
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let Some(result) = result else {
             return Ok((
                 PyDict::new(py).into_any().unbind(),
                 PyDict::new(py).into_any().unbind(),
@@ -23035,38 +23239,48 @@ fn single_source_dijkstra_path(
 
 /// Return distances from a single source using Dijkstra.
 #[pyfunction]
-#[pyo3(signature = (g, source, weight="weight", cutoff=None))]
+#[pyo3(signature = (g, source, weight="weight", cutoff=None, check_rows=false))]
 fn single_source_dijkstra_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     weight: &str,
     cutoff: Option<f64>,
+    check_rows: bool,
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
     // br-r37-c1-d58s8 scoreboard fix: length-only queries no longer
     // build full path Vecs — the with_pred kernels give the finalizing
     // PREDECESSOR (== path[-2], the discovery-object parent) alongside
     // finalize-ordered distances.
-    let entries = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+    let (entries, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
+    {
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred_directed(
-                __wp, &s, weight, cutoff,
-            )
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred_directed(
+                    __wp, &s, weight, cutoff,
+                )
+            })
         })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| {
-            fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred(
-                __wp, &s, weight, cutoff,
-            )
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred(
+                    __wp, &s, weight, cutoff,
+                )
+            })
         })
     };
+    if check_rows {
+        check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+    }
     let mut disp = display_map_with_capacity(entries.len() + 1);
     disp.insert(s.clone(), source.clone().unbind());
     for (node, _, _, pred) in &entries {
@@ -23106,7 +23320,7 @@ fn single_target_dijkstra_path_length(
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
     let Some(weighted_projection) = gr.weighted_digraph_projection(weight) else {
-        return single_source_dijkstra_path_length(py, g, target, weight, cutoff);
+        return single_source_dijkstra_path_length(py, g, target, weight, cutoff, false);
     };
     let __wp = weighted_projection.as_ref();
     let entries = py.allow_threads(|| {
@@ -29000,6 +29214,7 @@ pub fn edge_current_flow_betweenness_centrality_nx_ordered_rust(
 
 /// Register all algorithm functions into the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("WeightRowsUnverified", m.py().get_type::<WeightRowsUnverified>())?;
     // Shortest path
     m.add_function(wrap_pyfunction!(shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(shortest_path_length, m)?)?;

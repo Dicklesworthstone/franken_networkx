@@ -15,6 +15,7 @@ this locks that against regressions. Uses exact ``==`` (not tolerance) because
 the paths/lengths are integer-weighted and the selections are deterministic.
 """
 
+from fractions import Fraction
 import random
 
 import networkx as nx
@@ -450,3 +451,107 @@ def test_shortest_path_exact_multigraph_runs_one_authoritative_weight_scan(monke
     assert fnx.shortest_path(graph, "s", "t", weight="weight") == ["s", "m", "t"]
     assert len(calls) == 1
     assert calls[0][1] == {"_require_exact_string_nodes": True}
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-svsam: a search that checks only the rows it expands
+# ---------------------------------------------------------------------------
+# On a weight-scan cache miss - a fresh graph, or any write - these searches no
+# longer scan all E weights before running natively. The native search checks
+# the weights on the rows it expanded, and a weight the gate would route on any
+# of them re-runs the call through the whole-graph gate. So a hostile weight
+# INSIDE the searched region must still give networkx's exact outcome (value,
+# type, or exception), and the same weight in a component the search never
+# reaches must leave the native answer equal to networkx's.
+
+_HOSTILE = {
+    "negative": -3,
+    "nan": float("nan"),
+    "inf": float("inf"),
+    "string": "heavy",
+    "fraction": Fraction(1, 3),
+    "huge_int": 2**60,
+}
+
+_ROW_CHECKED = {
+    "dijkstra_path": lambda m, g: m.dijkstra_path(g, 0, 5),
+    "dijkstra_path_length": lambda m, g: m.dijkstra_path_length(g, 0, 5),
+    "single_source_dijkstra_target": lambda m, g: m.single_source_dijkstra(g, 0, target=5),
+    "single_source_dijkstra_cutoff": lambda m, g: m.single_source_dijkstra(g, 0, cutoff=6),
+    "ss_dijkstra_path_length_cutoff": lambda m, g: m.single_source_dijkstra_path_length(
+        g, 0, cutoff=6
+    ),
+    "bidirectional_dijkstra": lambda m, g: m.bidirectional_dijkstra(g, 0, 5),
+    "astar_path": lambda m, g: m.astar_path(g, 0, 5),
+    "bellman_ford_path": lambda m, g: m.bellman_ford_path(g, 0, 5),
+    "bellman_ford_path_length": lambda m, g: m.bellman_ford_path_length(g, 0, 5),
+    "dijkstra_path_absent_target": lambda m, g: m.dijkstra_path(g, 0, "absent"),
+    "bellman_ford_path_absent_target": lambda m, g: m.bellman_ford_path(g, 0, "absent"),
+    "bellman_ford_path_length_absent_target": lambda m, g: m.bellman_ford_path_length(
+        g, 0, "absent"
+    ),
+    "shortest_path_weighted": lambda m, g: m.shortest_path(g, 0, 5, weight="weight"),
+    "shortest_path_length_weighted": lambda m, g: m.shortest_path_length(g, 0, 5, weight="weight"),
+}
+
+
+def _hostile_graph(lib, directed, where, value, written):
+    """A weighted 10-node path the searches cover, beside a 50-node ring they
+    never reach. The hostile weight sits on (1, 2) or on a ring edge, either
+    from construction or written into the edge dict after a first query."""
+    graph = (lib.DiGraph if directed else lib.Graph)()
+    edge = (1, 2) if where == "reached" else (110, 111)
+    edges = [(i, i + 1, 1 + i % 3) for i in range(9)] + [(0, 2, 2), (2, 5, 1)]
+    edges += [(100 + i, 100 + (i + 1) % 50, 1) for i in range(50)]
+    for u, v, w in edges:
+        graph.add_edge(u, v, weight=value if (u, v) == edge and not written else w)
+    if written:
+        _exact_outcome(lambda: lib.dijkstra_path(graph, 0, 5))
+        graph[edge[0]][edge[1]]["weight"] = value
+    return graph
+
+
+@pytest.mark.parametrize("written", [False, True])
+@pytest.mark.parametrize("where", ["reached", "unreached"])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("hostile", sorted(_HOSTILE))
+@pytest.mark.parametrize("label", sorted(_ROW_CHECKED))
+def test_row_checked_search_meets_networkx_on_hostile_weights(
+    label, hostile, directed, where, written
+):
+    if label == "astar_path" and hostile == "negative" and not directed and where == "reached":
+        pytest.skip("an undirected negative edge is a negative cycle; networkx's A* never ends")
+    call = _ROW_CHECKED[label]
+    outcomes = {}
+    for lib in (fnx, nx):
+        graph = _hostile_graph(lib, directed, where, _HOSTILE[hostile], written)
+        outcomes[lib.__name__] = repr(_exact_outcome(lambda: call(lib, graph)))
+    assert outcomes["franken_networkx"] == outcomes["networkx"]
+
+
+def test_row_checked_search_past_its_budget_reruns_on_the_cached_scan():
+    """A search reading more than an eighth of the edges is not checked row by
+    row: it re-runs on the whole-graph scan, which is then cached."""
+    graphs = {lib: lib.Graph() for lib in (fnx, nx)}
+    for graph in graphs.values():
+        graph.add_edges_from((i, (i + 1) % 3000, {"weight": 1 + i % 4}) for i in range(3000))
+    assert "_fnx_weight_scan_cache" not in vars(graphs[fnx])
+    expected = list(nx.single_source_dijkstra_path_length(graphs[nx], 0).items())
+    assert list(fnx.single_source_dijkstra_path_length(graphs[fnx], 0).items()) == expected
+    assert "_fnx_weight_scan_cache" in vars(graphs[fnx])
+
+
+def test_row_checks_per_revision_are_bounded_then_the_scan_is_cached():
+    """Repeated queries on an unchanged graph must not re-check rows forever:
+    after _ROW_CHECKS_PER_REVISION of them the whole scan runs and is cached,
+    and a write starts a fresh allowance."""
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from((i, i + 1, 1 + i % 3) for i in range(9))
+    for _ in range(fnx._ROW_CHECKS_PER_REVISION):
+        assert fnx.dijkstra_path(graph, 0, 5) == [0, 1, 2, 3, 4, 5]
+        assert "_fnx_weight_scan_cache" not in vars(graph)
+    assert fnx.dijkstra_path(graph, 0, 5) == [0, 1, 2, 3, 4, 5]
+    assert "_fnx_weight_scan_cache" in vars(graph)
+    graph.add_edge(20, 21)
+    assert fnx.dijkstra_path(graph, 0, 5) == [0, 1, 2, 3, 4, 5]
+    assert vars(graph)["_fnx_weight_row_checks"][1] == 1

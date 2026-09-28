@@ -457,8 +457,12 @@ def multidigraph_single_source_dijkstra_path_length(
     weight: str = "weight",
     cutoff: Optional[float] = None,
 ) -> Optional[dict[Any, float]]: ...
+class WeightRowsUnverified(Exception):
+    """A ``check_rows=True`` search met a weight the delegation gate must see,
+    or read too many rows to check them one by one."""
+
 def bellman_ford_path(
-    g: Graph, source: Any, target: Any, weight: str = "weight"
+    g: Graph, source: Any, target: Any, weight: str = "weight", check_rows: bool = False
 ) -> list[Any]: ...
 def multi_source_dijkstra(
     g: Graph, sources: Any, weight: str = "weight"
@@ -1064,6 +1068,7 @@ def astar_path(
     target: Any,
     heuristic: Optional[Any] = None,
     weight: str = "weight",
+    check_rows: bool = False,
 ) -> list[Any]: ...
 def astar_path_length(
     g: Graph,
@@ -1263,19 +1268,35 @@ def dominance_frontiers(g: DiGraph, start: Any) -> dict[Any, set[Any]]: ...
 # ---------------------------------------------------------------------------
 
 def dijkstra_path_length(
-    g: Union[Graph, DiGraph], source: Any, target: Any, weight: str = "weight"
+    g: Union[Graph, DiGraph],
+    source: Any,
+    target: Any,
+    weight: str = "weight",
+    check_rows: bool = False,
 ) -> float: ...
 def bellman_ford_path_length(
-    g: Union[Graph, DiGraph], source: Any, target: Any, weight: str = "weight"
+    g: Union[Graph, DiGraph],
+    source: Any,
+    target: Any,
+    weight: str = "weight",
+    check_rows: bool = False,
 ) -> tuple[float, bool]: ...
 def single_source_dijkstra(
-    g: Graph, source: Any, weight: str = "weight", cutoff: Optional[float] = None
+    g: Graph,
+    source: Any,
+    weight: str = "weight",
+    cutoff: Optional[float] = None,
+    check_rows: bool = False,
 ) -> tuple[dict[Any, float], dict[Any, list[Any]]]: ...
 def single_source_dijkstra_path(
     g: Graph, source: Any, weight: str = "weight"
 ) -> dict[Any, list[Any]]: ...
 def single_source_dijkstra_path_length(
-    g: Graph, source: Any, weight: str = "weight"
+    g: Graph,
+    source: Any,
+    weight: str = "weight",
+    cutoff: Optional[float] = None,
+    check_rows: bool = False,
 ) -> dict[Any, float]: ...
 def single_source_bellman_ford(
     g: Graph, source: Any, weight: str = "weight"

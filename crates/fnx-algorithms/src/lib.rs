@@ -2171,6 +2171,9 @@ pub fn bidirectional_dijkstra_undirected(
         }
 
         let v_name = ordered(v);
+        if !note_expanded_row(v) {
+            return BidirectionalDijkstraOutcome::NoPath;
+        }
         if let Some(neighbors) = graph.neighbors_indices(v) {
             for &w in neighbors {
                 let w_name = ordered(w);
@@ -2305,6 +2308,9 @@ pub fn bidirectional_dijkstra_directed(
         }
 
         // Forward expands out-edges (v -> w); backward expands in-edges (w -> v).
+        if !note_expanded_row(v) {
+            return BidirectionalDijkstraOutcome::NoPath;
+        }
         let neighbors = if direction == 0 {
             graph.successors_indices(v)
         } else {
@@ -10495,11 +10501,17 @@ fn bellman_ford_spfa_lazy<'g>(
             continue;
         }
         let base = dist.get(u_usize);
-        let row = rows.entry(u_usize).or_insert_with(|| {
-            let mut row = Vec::new();
-            expand(u_usize, &mut row);
-            row
-        });
+        let row = match rows.entry(u_usize) {
+            std::collections::hash_map::Entry::Occupied(known) => known.into_mut(),
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                if !note_expanded_row(u_usize) {
+                    break 'outer;
+                }
+                let mut row = Vec::new();
+                expand(u_usize, &mut row);
+                slot.insert(row)
+            }
+        };
         for &(v, weight) in row.iter() {
             *edges_scanned += 1;
             let candidate = base + weight;
@@ -32158,6 +32170,9 @@ pub fn astar_path<G: GraphView + ?Sized, E>(
         // GraphView::neighbors_indices yields successors for DiGraph and
         // neighbors for Graph, in adjacency insertion order (nx's
         // ``G._adj[curnode].items()`` order).
+        if !note_expanded_row(curnode) {
+            return Ok(None);
+        }
         if let Some(nbrs) = graph.neighbors_indices(curnode) {
             for &neighbor in nbrs {
                 let cost = graph.edge_weight_by_indices(curnode, neighbor, Some(weight_attr));
@@ -36160,6 +36175,9 @@ pub fn dijkstra_path_to_target(
                 return Some(result);
             }
         }
+        if !note_expanded_row(u) {
+            return None;
+        }
         if let Some(neighbors) = graph.neighbors_indices(u) {
             for &v in neighbors {
                 let (w, _) = graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
@@ -36312,6 +36330,9 @@ pub fn dijkstra_path_to_target_directed(
                 );
                 return Some((d, path, all_int));
             }
+        }
+        if !note_expanded_row(u) {
+            return None;
         }
         for &v in digraph.successors_indices(u).unwrap_or(&[]) {
             let (w, _) = digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
@@ -36622,6 +36643,9 @@ where
         }
 
         let u_all_int = all_int_paths.get(u_usize);
+        if !note_expanded_row(u_usize) {
+            break;
+        }
         expand(u_usize, &mut row);
         for &(v, weight, is_int) in &row {
             let next_dist = d + weight;
@@ -36649,6 +36673,66 @@ where
             (idx, distances.get(at), all_int_paths.get(at), predecessors.get(at))
         })
         .collect()
+}
+
+struct ExpandedRows {
+    rows: Vec<usize>,
+    limit: usize,
+}
+
+thread_local! {
+    static EXPANDED_ROWS: std::cell::RefCell<Option<ExpandedRows>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// br-r37-c1-svsam: run `search` and return, beside its result, the position
+/// of every node whose weighted adjacency row it expanded (repeats included),
+/// or `None` when it wanted more than `limit` rows - the search is then cut
+/// off at that point and its result is meaningless.
+///
+/// networkx reads a weight only when its search expands that edge's row, so
+/// these rows are exactly the weights a search can have been affected by. The
+/// PyO3 layer checks them - after a graph write, instead of re-scanning all E
+/// weights to decide whether a bounded query may run natively at all. The
+/// search runs BEFORE that check, on weights the gate may yet reject, and a
+/// negative weight can keep a Dijkstra-family search relaxing forever (an
+/// undirected negative edge is a negative cycle); the limit is what ends it.
+/// Only the weighted searches the bindings run this way record; anything else
+/// run inside `search` records nothing.
+pub fn recording_expanded_rows<R>(limit: usize, search: impl FnOnce() -> R) -> (R, Option<Vec<usize>>) {
+    struct Restore(Option<ExpandedRows>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let outer = self.0.take();
+            EXPANDED_ROWS.with(|cell| *cell.borrow_mut() = outer);
+        }
+    }
+    let fresh = ExpandedRows {
+        rows: Vec::new(),
+        limit,
+    };
+    let restore = Restore(EXPANDED_ROWS.with(|cell| cell.replace(Some(fresh))));
+    let result = search();
+    let rows = EXPANDED_ROWS
+        .with(|cell| cell.borrow_mut().take())
+        .map(|recorded| recorded.rows)
+        .filter(|rows| rows.len() <= limit);
+    drop(restore);
+    (result, rows)
+}
+
+/// Record that the running search expands `node`'s row. False once a
+/// recording search has expanded more rows than its limit: the caller must
+/// stop searching (its result is discarded).
+#[inline]
+#[must_use]
+fn note_expanded_row(node: usize) -> bool {
+    EXPANDED_ROWS.with(|cell| {
+        cell.borrow_mut().as_mut().is_none_or(|recorded| {
+            recorded.rows.push(node);
+            recorded.rows.len() <= recorded.limit
+        })
+    })
 }
 
 /// br-r37-c1-qnj0n: per-node search state that costs what the search REACHES.
@@ -36823,6 +36907,9 @@ where
             return Some((d, u_all_int));
         }
 
+        if !note_expanded_row(u_usize) {
+            return None;
+        }
         expand(u_usize, &mut row);
         for &(v, weight, is_int) in &row {
             let next_dist = d + weight;
@@ -36901,6 +36988,9 @@ where
         let v_all_int = all_int_paths.get(v_usize);
         settled.push((v, known, v_all_int));
 
+        if !note_expanded_row(v_usize) {
+            break;
+        }
         expand(v_usize, &mut row);
         for &(u_usize, weight, is_int) in &row {
             let vu_dist = dist_v + weight;
