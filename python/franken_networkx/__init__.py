@@ -15830,6 +15830,7 @@ from franken_networkx._fnx import (
     transitivity as _raw_transitivity,
     triangles as _raw_triangles,
     triangles_and_degrees_for as _native_triangles_and_degrees_for,
+    directed_triangles_and_degrees_for as _native_directed_triangles_and_degrees_for,
 )
 
 try:
@@ -58568,7 +58569,20 @@ def clustering(G, nodes=None, weight=None):
                 G, selected_nodes, weight
             )
         else:
-            triangle_data = _directed_triangles_and_degree_iter_local(G, selected_nodes)
+            # br-r37-c1-0g2tj follow-up: networkx's exact integers counted
+            # natively, as the undirected branch below does (mub4s); the
+            # Python snapshot ran 0.70-0.85x networkx for a few nodes.
+            node_list = list(G) if selected_nodes is None else selected_nodes
+            counts = _native_directed_triangles_and_degrees_for(G, node_list)
+            if counts is None:
+                triangle_data = _directed_triangles_and_degree_iter_local(G, selected_nodes)
+            else:
+                triangle_data = (
+                    (node, total_degree, reciprocal_degree, triangle_count)
+                    for node, (total_degree, reciprocal_degree, triangle_count) in zip(
+                        node_list, counts
+                    )
+                )
         clustering_coefficients = {
             node: 0 if triangle_count == 0 else triangle_count / ((total_degree * (total_degree - 1) - 2 * reciprocal_degree) * 2)
             for node, total_degree, reciprocal_degree, triangle_count in triangle_data

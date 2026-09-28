@@ -16906,6 +16906,65 @@ pub fn triangles_and_degrees_for(graph: &Graph, nodes: &[usize]) -> Vec<(usize, 
         .collect()
 }
 
+/// networkx's `_directed_triangles_and_degree_iter(G, nodes)` for the node
+/// positions `nodes`, in that order: with `ipreds = set(G._pred[v]) - {v}`
+/// and `isuccs = set(G._succ[v]) - {v}`, the total degree
+/// `len(ipreds) + len(isuccs)`, the reciprocal degree `len(ipreds & isuccs)`,
+/// and the directed triangle count - over `j` in `chain(ipreds, isuccs)` (a
+/// reciprocal neighbour twice), the four intersections of `ipreds` / `isuccs`
+/// with `j`'s own predecessors and successors less `j`. All three are exact
+/// integers, so `clustering`'s division follows bit for bit, and each node
+/// costs O(its neighbours' degrees) (br-r37-c1-0g2tj follow-up: the Python
+/// snapshot this replaces ran 0.70-0.85x networkx for a few nodes).
+#[must_use]
+pub fn directed_triangles_and_degrees_for(
+    digraph: &DiGraph,
+    nodes: &[usize],
+) -> Vec<(usize, usize, usize)> {
+    let mut preds: HashSet<usize> = HashSet::new();
+    let mut succs: HashSet<usize> = HashSet::new();
+    nodes
+        .iter()
+        .map(|&v| {
+            preds.clear();
+            preds.extend(
+                digraph
+                    .predecessors_indices(v)
+                    .unwrap_or(&[])
+                    .iter()
+                    .copied()
+                    .filter(|&w| w != v),
+            );
+            succs.clear();
+            succs.extend(
+                digraph
+                    .successors_indices(v)
+                    .unwrap_or(&[])
+                    .iter()
+                    .copied()
+                    .filter(|&w| w != v),
+            );
+            let in_either = |k: usize| usize::from(preds.contains(&k)) + usize::from(succs.contains(&k));
+            let triangles: usize = preds
+                .iter()
+                .chain(succs.iter())
+                .map(|&j| {
+                    let j_preds = digraph.predecessors_indices(j).unwrap_or(&[]);
+                    let j_succs = digraph.successors_indices(j).unwrap_or(&[]);
+                    j_preds
+                        .iter()
+                        .chain(j_succs)
+                        .filter(|&&k| k != j)
+                        .map(|&k| in_either(k))
+                        .sum::<usize>()
+                })
+                .sum();
+            let reciprocal = preds.iter().filter(|w| succs.contains(w)).count();
+            (preds.len() + succs.len(), reciprocal, triangles)
+        })
+        .collect()
+}
+
 /// Counts the number of triangles each node participates in.
 ///
 /// A triangle is a 3-clique. Each triangle is counted once per participating node.

@@ -308,3 +308,29 @@ def test_weighted_single_node_clustering_costs_one_max_weight_scan(directed):
     )
     call = _directed_best_of(lambda: fnx.clustering(g, 1, weight="weight"), reps=5)
     assert call < 2.0 * scan, (call, scan)
+
+
+# br-r37-c1-0g2tj follow-up: directed clustering counts networkx's integers
+# natively (total degree, reciprocal degree, directed triangles - a
+# reciprocal neighbour counted twice, self-loops dropped), for every node and
+# for nbunch calls alike.
+
+
+@needs_nx
+def test_directed_clustering_all_nodes_equals_networkx_exactly():
+    G, GX = _directed_loopy_twins()
+    f, n = fnx.clustering(G), nx.clustering(GX)
+    assert list(f.items()) == list(n.items())
+    assert [type(v) for v in f.values()] == [type(v) for v in n.values()]
+    assert fnx.average_clustering(G) == nx.average_clustering(GX)
+
+
+@needs_nx
+def test_directed_clustering_on_views_equals_networkx():
+    G, GX = _directed_loopy_twins()
+    for view_f, view_n in (
+        (G.reverse(copy=False), GX.reverse(copy=False)),
+        (G.subgraph(range(0, 50, 2)), GX.subgraph(range(0, 50, 2))),
+    ):
+        assert list(fnx.clustering(view_f).items()) == list(nx.clustering(view_n).items())
+        assert fnx.clustering(view_f, nodes=_NBUNCH) == nx.clustering(view_n, nodes=_NBUNCH)
