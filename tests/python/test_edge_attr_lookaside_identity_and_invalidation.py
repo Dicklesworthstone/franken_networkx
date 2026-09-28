@@ -187,3 +187,122 @@ def test_lookaside_survives_many_distinct_long_keys(class_name):
         assert graph.edges[u, v]["weight"] == i, (
             f"pair {i} returned the wrong dict after a removal renumbered indices"
         )
+
+
+# br-r37-c1-p1tyz: an nbunch past the Python walk goes to the native kernel,
+# which built a FRESH dict per call for an edge whose live dict had not been
+# materialized - every edge of a bulk-built graph, and of one built by
+# add_edge(u, v, weight=w) - so a write through it was lost, where networkx
+# yields the graph's own dict. Its data='attr' form built those dicts only to
+# read one key.
+
+NBUNCH = list(range(0, 200, 2)) + [1, 3, 5]
+
+
+def _ring(lib, class_name, bulk):
+    graph = getattr(lib, class_name)()
+    edges = [(i, (i + 1) % 200, i % 7 + 1) for i in range(200)]
+    edges += [(i, (i * 7 + 3) % 200, i % 5 + 1) for i in range(0, 200, 3)]
+    if bulk:
+        graph.add_weighted_edges_from(edges)
+    else:
+        for u, v, w in edges:
+            graph.add_edge(u, v, weight=w)
+    return graph
+
+
+@pytest.mark.parametrize("bulk", [True, False], ids=["bulk", "add_edge"])
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("nbunch", [NBUNCH, set(NBUNCH)], ids=["list", "set"])
+def test_nbunch_edge_dicts_are_the_graphs_own(class_name, bulk, nbunch):
+    written = []
+    for lib in (fnx, nx):
+        graph = _ring(lib, class_name, bulk)
+        list(graph.edges(nbunch, data=True))  # a first read (the memo's miss)
+        for u, v, attrs in graph.edges(nbunch, data=True):
+            assert attrs is graph[u][v]
+            attrs["seen"] = (u, v)
+        written.append(sorted((u, v) for u, v, d in graph.edges(data=True) if "seen" in d))
+    assert written[0] == written[1]
+    assert written[0]
+
+
+def _write_every_way(graph):
+    graph[0][1]["weight"] = 50  # through the row
+    held = graph.edges[2, 3]
+    held["weight"] = 60  # through a held dict
+    dict.__setitem__(graph[4][5], "weight", 70)  # past any write hook
+    graph.edges[6, 7].update(weight=80)
+    del graph[8][9]["weight"]  # the default answers
+
+
+@pytest.mark.parametrize("bulk", [True, False], ids=["bulk", "add_edge"])
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_nbunch_attr_values_follow_writes(class_name, bulk):
+    rows = []
+    for lib in (fnx, nx):
+        graph = _ring(lib, class_name, bulk)
+        before = list(graph.edges(NBUNCH, data="weight", default=-1))
+        _write_every_way(graph)
+        after = list(graph.edges(NBUNCH, data="weight", default=-1))
+        missing = list(graph.edges(NBUNCH, data="absent", default="d"))
+        rows.append((before, after, missing))
+    assert rows[0] == rows[1]
+    assert rows[0][0] != rows[0][1]
+
+
+VALUE_VIEWS = {
+    "edges": lambda G, nb: G.edges(nb, data="weight"),
+    "out_edges": lambda G, nb: G.out_edges(nb, data="weight") if G.is_directed() else G.edges(nb, data="weight"),
+    "in_edges": lambda G, nb: G.in_edges(nb, data="weight") if G.is_directed() else G.edges(nb, data="weight"),
+    "keys": lambda G, nb: G.edges(nb, data="weight", keys=True) if G.is_multigraph() else G.edges(nb, data="weight"),
+    "data()": lambda G, nb: G.edges.data("weight", nbunch=nb),
+    "positional": lambda G, nb: G.edges(nb, "weight"),
+}
+
+
+def _edge_dict(G, u, v):
+    return G[u][v][0] if G.is_multigraph() else G[u][v]
+
+
+@pytest.mark.parametrize("held", [False, True], ids=["called again", "held view"])
+@pytest.mark.parametrize("size", [3, 30])
+@pytest.mark.parametrize("spelling", list(VALUE_VIEWS))
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_value_views_answer_the_written_weight(class_name, spelling, size, held):
+    """br-r37-c1-p1tyz: data=<key> rows were memoized, snapshotted or handed
+    off under a revision token that an attribute write does not move, so every
+    one of these answered the old weight (41 cells)."""
+    answers = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, class_name)()
+        graph.add_weighted_edges_from([(i, i + 1, 1) for i in range(40)])
+        nbunch = list(range(size))
+        view = VALUE_VIEWS[spelling](graph, nbunch)
+        first = list(view)
+        _edge_dict(graph, 0, 1)["weight"] = 50
+        dict.__setitem__(_edge_dict(graph, 1, 2), "weight", 70)
+        again = list(view) if held else list(VALUE_VIEWS[spelling](graph, nbunch))
+        answers.append((first, again))
+    assert answers[0] == answers[1]
+    assert answers[0][0] != answers[0][1]
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_a_dict_handed_out_by_nbunch_is_watched_by_weighted_reads(class_name):
+    # Written past the dict's write hook, on the edges of the unwritten shortest
+    # path, so only a weighted read that knows the dict escaped sees the change.
+    reference = _ring(nx, class_name, bulk=True)
+    path = nx.shortest_path(reference, 0, 12, weight="weight")
+    on_path = set(zip(path, path[1:]))
+    if class_name == "Graph":
+        on_path |= {(v, u) for u, v in on_path}
+    lengths = []
+    for lib in (fnx, nx):
+        graph = _ring(lib, class_name, bulk=True)
+        for u, v, attrs in graph.edges(NBUNCH, data=True):
+            if (u, v) in on_path:
+                dict.__setitem__(attrs, "weight", 1000)
+        lengths.append(lib.shortest_path_length(graph, 0, 12, weight="weight"))
+    unwritten = nx.shortest_path_length(reference, 0, 12, weight="weight")
+    assert lengths[0] == lengths[1] != unwritten

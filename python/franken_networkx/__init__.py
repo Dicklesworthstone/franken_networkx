@@ -293,9 +293,9 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
         native = getattr(self, "_native_out_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = _nbunch_data_cache(
-                        self, "_fnx_out_edges_nb_key_cache", nbunch, native, data, default
-                    )
+                # br-r37-c1-p1tyz: VALUES are not memoized - an attribute
+                # write moves neither seq, so a remembered value goes stale.
+                result = native(nbunch, data, default)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -349,10 +349,8 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
                         self, "_fnx_in_edges_nb_nodata_cache", nbunch, native
                     )
                 else:
-                    result = _nbunch_data_cache(
-                        self, "_fnx_in_edges_nb_key_cache",
-                        nbunch, native, data, default,
-                    )
+                    # br-r37-c1-p1tyz: values are not memoized (they go stale).
+                    result = native(nbunch, data, default)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -420,9 +418,8 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
         native = getattr(self, "_native_mdg_out_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = _nbunch_data_cache(
-                        self, "_fnx_mdg_out_edges_nb_key_cache", nbunch, native, data, default, keys
-                    )
+                # br-r37-c1-p1tyz: values are not memoized (they go stale).
+                result = native(nbunch, data, default, keys)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -486,10 +483,8 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
                         self, "_fnx_mdg_in_edges_nb_nodata_cache", nbunch, native, keys
                     )
                 else:
-                    result = _nbunch_data_cache(
-                        self, "_fnx_mdg_in_edges_nb_key_cache",
-                        nbunch, native, data, default, keys,
-                    )
+                    # br-r37-c1-p1tyz: values are not memoized (they go stale).
+                    result = native(nbunch, data, default, keys)
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -1380,15 +1375,15 @@ def _nbunch_data_cache(graph, slot, nbunch, native, *native_args):
     """Slot-parameterised form of the two helpers below (br-r37-c1-mgednb).
 
     The directed pair each own one hard-coded attribute because each class has
-    exactly one nbunch edge-view. ``MultiGraph.edges`` has TWO native nbunch call
-    sites on the same object - ``data=True`` and ``data=<key>`` - so they are
-    given separate slots. Sharing one slot would still be CORRECT, because the
-    key carries ``native_args``, but the two spellings would evict each other on
-    every alternation and the memo would never hit.
+    exactly one nbunch edge-view; other views get their own slot, so two
+    spellings on one graph do not evict each other on every alternation.
 
     The cached tuple holds the SAME live attr-dict objects the native returned,
     and a fresh ``list`` is handed out per call, so nx's live-view semantics are
-    preserved and no caller can mutate another caller's result.
+    preserved and no caller can mutate another caller's result. Only rows of
+    live dicts or no data may be memoized here: a ``data=<key>`` row holds a
+    VALUE, and an attribute write moves neither seq, so a remembered value goes
+    stale (br-r37-c1-p1tyz - every data=<key> view here answered the old weight).
     """
     key = _primitive_nbunch_cache_key(graph, nbunch)
     if key is not None and native_args:
@@ -1863,7 +1858,15 @@ class EdgeDataView:
         # walks only the requested rows, so it BEATS nx (the earlier
         # to_dict_of_dicts routing overbuilt the whole graph for a partial
         # nbunch). data=False / data=None skip the dict attach entirely.
-        if type(graph) is Graph and self._nbunch_list is not None:
+        if type(graph) is Graph and self._nbunch_list is not None and type(data) is str:
+            # br-r37-c1-p1tyz: an attribute's VALUES, read natively from each
+            # edge's live dict or the store - no dict built per edge. Not
+            # memoized: writing an attribute does not move edges_seq, so a
+            # remembered value could be stale.
+            rows = _fnx.edges_nbunch_data(graph, self._nbunch_list, data, default)
+            if rows is not None:
+                return rows
+        elif type(graph) is Graph and self._nbunch_list is not None:
             # br-r37-c1-gnbmemo: the last member of the nbunch edge-view family
             # to get the memo. `with_data` rides in native_args, so the
             # attrs/no-attrs shapes cannot answer for each other.
@@ -1880,7 +1883,7 @@ class EdgeDataView:
                 "_fnx_simple_edges_nb_cache",
                 self._nbunch_list,
                 lambda nb, flag: _fnx.edges_nbunch_data(graph, nb, flag),
-                data is True or isinstance(data, str),
+                data is True,
             )
             if rows is not None:
                 if data is False:
@@ -1896,8 +1899,6 @@ class EdgeDataView:
                     return rows
                 if data_is_none:
                     return [(u, v, default) for u, v, _d in rows]
-                # data is a string attr name
-                return [(u, v, d.get(data, default)) for u, v, d in rows]
         # Fallback for views / subclasses the native kernel declines: per-node
         # AtlasView walk (br-r37-c1-6yimw: add node to ``seen`` AFTER its inner
         # loop so self-loop edges where nbr == node are still emitted).
@@ -2048,9 +2049,15 @@ class EdgeDataView:
             # user code can run between CPython's length-hint call and the
             # __iter__ of the same list(): the cache is consumed once and
             # dropped, so it can never serve a later read across a mutation.
-            if len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX or len(
-                self._nbunch_list
-            ) <= _edges_nbunch_py_walk_limit(self._graph):
+            # br-r37-c1-p1tyz: rows of attribute VALUES are never handed off.
+            # CPython's list() takes the iterator BEFORE the length hint, so the
+            # handoff outlives the list() that made it and serves the NEXT
+            # iteration; its token moves on structure only, so a value read
+            # there after an attribute write was the old one.
+            if (self._data is True or self._data is False) and (
+                len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
+                or len(self._nbunch_list) <= _edges_nbunch_py_walk_limit(self._graph)
+            ):
                 rows = self._materialize()
                 # Stamped with the graph revision: `len(v)` and the `list(v)`
                 # that follows it are adjacent in CPython, but a CALLER can do
@@ -4753,10 +4760,8 @@ class _DiGraphEdgeView:
             native = getattr(self._graph, "_native_out_edges_nbunch_data_key", None)
             if native is not None:
                 try:
-                    native_result = _nbunch_data_cache(
-                        self._graph, "_fnx_out_edges_nb_key_cache",
-                        nbunch, native, data, default,
-                    )
+                    # br-r37-c1-p1tyz: values are not memoized (they go stale).
+                    native_result = native(nbunch, data, default)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_result is not None:
@@ -5387,10 +5392,8 @@ class _MultiGraphEdgeView:
             native = getattr(self._graph, "_native_mg_edges_nbunch_data_key", None)
             if native is not None:
                 try:
-                    native_res = _nbunch_data_cache(
-                        self._graph, "_fnx_mg_edges_nbunch_key_cache",
-                        nbunch, native, data, default, keys,
-                    )
+                    # br-r37-c1-p1tyz: values are not memoized (they go stale).
+                    native_res = native(nbunch, data, default, keys)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
@@ -5583,6 +5586,10 @@ class _EdgeListWithSetAlgebra(list):
     _fnx_frozen_nbunch = None
     _fnx_contains_call = None
     _fnx_contains_spec = None
+    # br-r37-c1-p1tyz: True for a data=<key> view, whose rows hold attribute
+    # VALUES - an attribute write moves no revision token, so such a view is
+    # re-read on every access instead of only when the structure changed.
+    _fnx_holds_values = False
 
     def _fnx_membership_spec(self):
         """br-r37-c1-ex1s6: the _called_edge_view_spec of the call that made
@@ -5651,7 +5658,7 @@ class _EdgeListWithSetAlgebra(list):
 
         return _walk()
 
-    def _fnx_refresh(self):
+    def _fnx_refresh(self, values=True):
         """Re-materialise if the graph has changed since this was built.
 
         Costs one attribute read and a tuple compare when nothing has changed,
@@ -5672,14 +5679,15 @@ class _EdgeListWithSetAlgebra(list):
         if graph is None:
             return
         token = _edge_list_freshness_token(graph)
-        if token is None or token == self._fnx_token:
+        moved = token is not None and token != self._fnx_token
+        if not moved and not (values and self._fnx_holds_values):
             return
         # br-r37-c1-2pia7: the graph moved — if it moved by removing one of the
         # nodes this view's nbunch was resolved to, nx raises rather than
         # answering with the survivors. Checked only on a token change, so an
         # unchanged graph pays nothing.
         frozen = self._fnx_frozen_nbunch
-        if frozen is not None:
+        if moved and frozen is not None:
             for node in frozen:
                 if node not in graph:
                     raise KeyError(node)
@@ -5808,7 +5816,8 @@ class _EdgeListWithSetAlgebra(list):
     # slots directly, so they would otherwise answer from the stale buffer —
     # ``len(view)`` in particular, which is how most callers size a view.
     def __len__(self):
-        self._fnx_refresh()
+        # A count does not read values, so only a structural move rebuilds here.
+        self._fnx_refresh(values=False)
         if self._fnx_lazy_rows is not None:
             graph = self._fnx_live_graph
             if graph is not None:
@@ -6114,10 +6123,8 @@ class _MultiDiGraphEdgeView:
             if native is not None:
                 try:
                     # br-r37-c1-outedgesnbattr (cc): native now takes a keys arg (False here).
-                    native_res = _nbunch_data_cache(
-                        self._graph, "_fnx_mdg_out_edges_nb_key_cache",
-                        nbunch, native, data, default, keys,
-                    )
+                    # br-r37-c1-p1tyz: values are not memoized (they go stale).
+                    native_res = native(nbunch, data, default, keys)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
@@ -10427,6 +10434,11 @@ def _live_called_edge_view(original_call):
                 if result._fnx_token is None:
                     result._fnx_token = _edge_list_freshness_token(graph)
                 result._fnx_rebuild = lambda: original_call(self, *args, **kwargs)
+                # br-r37-c1-p1tyz: `data` is the second parameter of every
+                # edge-view call; anything but True / False / None is a key.
+                data = kwargs["data"] if "data" in kwargs else (args[1] if len(args) > 1 else False)
+                if data is not True and data is not False and data is not None:
+                    result._fnx_holds_values = True
                 # br-r37-c1-ex1s6: what membership needs, resolved on the first
                 # `in` (building it here cost 0.5-0.8 us on every call).
                 result._fnx_contains_call = (self, graph, args, kwargs)

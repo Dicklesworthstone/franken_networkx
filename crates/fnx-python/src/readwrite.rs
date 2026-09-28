@@ -1820,19 +1820,31 @@ pub fn to_dict_of_dicts_undirected(
 /// order: iterate nbunch in user order, for each node emit (u, v) in adjacency
 /// order skipping neighbours already processed as a source (undirected dedup),
 /// adding the source to `seen` AFTER its inner loop so self-loops survive.
-/// Returns `(py_u, py_v, edge_dict_or_None)` triples — the edge dict is the SAME
-/// LIVE object as ``G[u][v]`` (via edge_py_attrs, identical to
-/// to_dict_of_dicts_undirected), or a fresh empty dict for attr-less edges; when
-/// `with_data` is false the third slot is None and no dict work is done. Returns
-/// None for any non-simple-undirected input so the Python wrapper falls back.
+/// Returns `(py_u, py_v, third)` triples. `data` is networkx's: `False` leaves
+/// the third slot None and does no attribute work; `True` puts the graph's own
+/// live attr dict there - the SAME object as ``G[u][v]``, materialized if the
+/// edge had none yet, and recorded as exposed like every other dict handout;
+/// an attribute name puts ``G[u][v].get(name, default)`` there, read from the
+/// live dict when the edge has one and from the store otherwise, so no dict is
+/// built and nothing is exposed (br-r37-c1-p1tyz). Returns None for any
+/// non-simple-undirected input, or another `data`, so the Python wrapper falls
+/// back.
 #[pyfunction]
-#[pyo3(signature = (g, nbunch, with_data))]
+#[pyo3(signature = (g, nbunch, data, default=None))]
 pub fn edges_nbunch_data(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     nbunch: Vec<Bound<'_, PyAny>>,
-    with_data: bool,
+    data: &Bound<'_, PyAny>,
+    default: Option<PyObject>,
 ) -> PyResult<Option<Vec<(PyObject, PyObject, PyObject)>>> {
+    let (with_dicts, attr) = if data.is_exact_instance_of::<PyBool>() {
+        (data.is_truthy()?, None)
+    } else if data.is_exact_instance_of::<PyString>() {
+        (false, Some(data.extract::<String>()?))
+    } else {
+        return Ok(None);
+    };
     // br-r37-c1-nbidx (per-edge half): a MUTABLE borrow, so the endpoint-index
     // attribute lookaside can be POPULATED here and not merely read. The
     // previous route through `extract_graph` yields a `PyRef`, which is why the
@@ -1847,15 +1859,18 @@ pub fn edges_nbunch_data(
         return Ok(None);
     };
     let mut result: Vec<(PyObject, PyObject, PyObject)> = Vec::new();
-    // Endpoint pairs whose live attr dict came from the STRING mirror and so may
-    // be recorded under their indices. Applied after the immutable phase ends,
-    // because `node_names` borrows from `pg.inner`.
-    let mut to_remember: Vec<(usize, usize, Py<PyDict>)> = Vec::new();
+    // The endpoint positions of every emitted edge, when its live dict is to be
+    // attached after the immutable phase ends (`node_names` borrows `pg.inner`,
+    // and materializing a dict needs the graph mutably).
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    let default = default.unwrap_or_else(|| py.None());
     {
         let pg = &*pg_guard;
         let node_names = pg.inner.nodes_ordered();
         let n = node_names.len();
         let mut seen = vec![false; n];
+        // A graph whose dicts were never read has no string mirror to consult.
+        let mirrored = !pg.edge_py_attrs.is_empty();
         for nb in &nbunch {
             // br-r37-c1-nbidx: resolve through the warm exact-`str` index cache
             // rather than building a `str:{len}:{s}` canonical per item. On a miss
@@ -1877,41 +1892,30 @@ pub fn edges_nbunch_data(
                     }
                     let v_name = node_names[v_idx];
                     let py_v = pg.py_node_key(py, v_name);
-                    let data_obj = if with_data {
-                        // br-r37-c1-nbidx (per-edge half): the index lookaside first.
-                        // `edge_key` builds an owned canonical from BOTH endpoint
-                        // names, so at 2000-character keys it allocated and copied
-                        // ~4000 bytes PER EDGE and then hashed them. Two `usize`s
-                        // answer the same question once the pair is warm.
-                        if let Some(edge_dict) = pg.cached_edge_py_attrs_by_index(py, u_idx, v_idx)
+                    let data_obj = if let Some(attr) = &attr {
+                        // br-r37-c1-nbidx: the index lookaside first - two
+                        // `usize`s instead of an owned canonical of both names.
+                        let value = if let Some(edge_dict) =
+                            pg.cached_edge_py_attrs_by_index(py, u_idx, v_idx)
                         {
-                            edge_dict.into_any()
+                            edge_dict.bind(py).get_item(attr)?.map(Bound::unbind)
+                        } else if mirrored {
+                            pg.edge_attr_py_value(py, u_name, v_name, attr)?
                         } else {
-                            let ek = PyGraph::edge_key(u_name, v_name);
-                            match pg.edge_py_attrs.get(&ek) {
-                                Some(edge_dict) => {
-                                    // Only the STRING-mirror dict is recorded. The
-                                    // store-materialized branch below builds a FRESH
-                                    // dict per call; recording one would start
-                                    // aliasing a dict that was never the live mirror
-                                    // and quietly change what a caller can mutate.
-                                    to_remember.push((u_idx, v_idx, edge_dict.clone_ref(py)));
-                                    edge_dict.clone_ref(py).into_any()
-                                }
-                                // br-inedges-distorefix (bt): a bulk-built graph leaves the
-                                // Python mirror EMPTY, so a store-only edge had no edge_py_attrs
-                                // entry -> the old empty-dict made edges(nbunch, data='attr')
-                                // read the DEFAULT (None) for every edge and edges(nbunch,
-                                // data=True) drop all attrs. Materialize the dict from the
-                                // CgseValue store. (Same bulk-built store-only class as the
-                                // in_edges/dag fixes.)
-                                None => match pg.inner.edge_attrs(u_name, v_name) {
-                                    Some(attrs) => attr_map_to_pydict(py, attrs)?.into_any(),
-                                    None => PyDict::new(py).into_any().unbind(),
-                                },
+                            match pg
+                                .inner
+                                .edge_attrs(u_name, v_name)
+                                .and_then(|attrs| attrs.get(attr.as_str()))
+                            {
+                                Some(value) => Some(cgse_value_to_py(py, value)?),
+                                None => None,
                             }
-                        }
+                        };
+                        value.unwrap_or_else(|| default.clone_ref(py))
                     } else {
+                        if with_dicts {
+                            pairs.push((u_idx, v_idx));
+                        }
                         py.None()
                     };
                     result.push((py_u.clone_ref(py), py_v, data_obj));
@@ -1920,8 +1924,27 @@ pub fn edges_nbunch_data(
             seen[u_idx] = true;
         }
     }
-    for (u_idx, v_idx, attrs) in &to_remember {
-        pg_guard.remember_edge_py_attrs_by_index(py, *u_idx, *v_idx, attrs);
+    // br-r37-c1-p1tyz: networkx yields the graph's own dict, so a write through
+    // it persists. A store-only edge used to get a FRESH dict per call here -
+    // every edge of a bulk-built graph - and the write was lost.
+    for (row, &(u_idx, v_idx)) in result.iter_mut().zip(&pairs) {
+        let attrs = match pg_guard.cached_edge_py_attrs_by_index(py, u_idx, v_idx) {
+            Some(attrs) => attrs,
+            None => {
+                let (Some(u_name), Some(v_name)) = (
+                    pg_guard.inner.get_node_name(u_idx).map(str::to_owned),
+                    pg_guard.inner.get_node_name(v_idx).map(str::to_owned),
+                ) else {
+                    return Ok(None);
+                };
+                let attrs = pg_guard.materialize_edge_py_attrs(py, &u_name, &v_name);
+                pg_guard.remember_edge_py_attrs_by_index(py, u_idx, v_idx, &attrs);
+                attrs
+            }
+        };
+        // br-r37-c1-igdzi: the dict escapes, so name the edge as G[u][v] does.
+        pg_guard.mark_edge_exposed(u_idx, v_idx);
+        row.2 = attrs.into_any();
     }
     Ok(Some(result))
 }
