@@ -149,3 +149,68 @@ def test_class_preserved_on_multigraph_subclass():
     mg.add_edge(1, 2, weight=2)
     mst = fnx.minimum_spanning_tree(mg)
     assert isinstance(mst, fnx.MultiGraph)
+
+
+# br-r37-c1-w0902: networkx builds every spanning tree as ``G.__class__()`` from
+# the spanning edges. fnx's native Kruskal trees and its prim / boruvka trees
+# were plain Graphs for a Graph subclass, maximum prim / boruvka went through a
+# networkx round trip (0.26-0.28x), and the Boruvka a subclass takes walked each
+# component in graph order where networkx walks the set it builds from it - so
+# on tied weights it returned another spanning tree.
+
+
+class _FnxSub(fnx.Graph):
+    pass
+
+
+class _NxSub(nx.Graph if HAS_NX else object):
+    pass
+
+
+def _tied(lib, kind, seed):
+    cls = {"plain": lib.Graph, "subclass": _FnxSub if lib is fnx else _NxSub}.get(kind, lib.Graph)
+    G = cls()
+    G.graph["name"] = f"g{seed}"
+    G.add_nodes_from((i, {"c": i % 3}) for i in range(14))
+    G.add_weighted_edges_from(
+        (i, (i * (seed + 3) + 1) % 14, (i * seed) % 3 + 1) for i in range(14)
+    )
+    G.add_weighted_edges_from((i, (i + 1) % 14, 2) for i in range(14))
+    G.add_node("isolated")
+    if kind == "view":
+        return G.subgraph([n for n in G if n != 3])
+    return G
+
+
+def _tree_state(T):
+    kind = type(T).__name__
+    return (
+        {"_FnxSub": "subclass", "_NxSub": "subclass"}.get(kind, kind),
+        dict(T.graph),
+        list(T.nodes(data=True)),
+        list(T.edges(data=True)),
+    )
+
+
+@needs_nx
+@pytest.mark.parametrize("seed", range(4))
+@pytest.mark.parametrize("kind", ["plain", "subclass", "view"])
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("fn", ["minimum_spanning_tree", "maximum_spanning_tree"])
+def test_spanning_tree_matches_networkx_on_tied_weights(fn, algorithm, kind, seed):
+    actual = getattr(fnx, fn)(_tied(fnx, kind, seed), algorithm=algorithm)
+    expected = getattr(nx, fn)(_tied(nx, kind, seed), algorithm=algorithm)
+    assert _tree_state(actual) == _tree_state(expected)
+
+
+@needs_nx
+@pytest.mark.parametrize("algorithm", ["prim", "boruvka"])
+def test_maximum_prim_and_boruvka_do_not_round_trip_through_networkx(algorithm, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("maximum_spanning_tree converted to networkx")
+
+    monkeypatch.setattr(fnx, "_maximum_spanning_tree_via_parity", refuse)
+    T = fnx.maximum_spanning_tree(_tied(fnx, "plain", 1), algorithm=algorithm)
+    assert _tree_state(T) == _tree_state(
+        nx.maximum_spanning_tree(_tied(nx, "plain", 1), algorithm=algorithm)
+    )

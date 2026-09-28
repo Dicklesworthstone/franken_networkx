@@ -17393,20 +17393,23 @@ def _boruvka_inproc_full(G, minimum=True, weight="weight", data=True, ignore_nan
         sign = 1 if minimum else -1
         minwt = float("inf")
         boundary = None
-        cset = set(component)
-        for n in G:
-            if n in cset:
-                for nbr, d in G[n].items():
-                    if nbr not in cset:
-                        wt = d.get(weight, 1) * sign
-                        if isinstance(wt, float) and isnan(wt):
-                            if ignore_nan:
-                                continue
-                            msg = f"NaN found as an edge weight. Edge {(n, nbr, d)}"
-                            raise ValueError(msg)
-                        if wt < minwt:
-                            minwt = wt
-                            boundary = (n, nbr, d)
+        # br-r37-c1-w0902: networkx's nx.edge_boundary walks the component in
+        # the order of the set it builds from it, not the graph's node order -
+        # walking the graph broke weight ties differently (a Graph subclass,
+        # which takes this path, got another spanning tree).
+        cset = {n for n in component if n in G}
+        for n in cset:
+            for nbr, d in G[n].items():
+                if nbr not in cset:
+                    wt = d.get(weight, 1) * sign
+                    if isinstance(wt, float) and isnan(wt):
+                        if ignore_nan:
+                            continue
+                        msg = f"NaN found as an edge weight. Edge {(n, nbr, d)}"
+                        raise ValueError(msg)
+                    if wt < minwt:
+                        minwt = wt
+                        boundary = (n, nbr, d)
         return boundary
 
     best_edges = (best_edge(component) for component in forest.to_sets())
@@ -19895,23 +19898,22 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # generator instead — same construction, no conversion tax. Simple Graph +
     # str weight + ignore_nan=False only (NaN / callable-weight / multigraph still
     # delegate, exactly as ``minimum_spanning_edges`` itself falls back).
+    # br-r37-c1-w0902: networkx builds the tree as ``G.__class__()``, so a Graph
+    # subclass takes this construction for every algorithm (the native Kruskal
+    # tree is a plain Graph); fnx views report ``__class__`` Graph.
     if (
-        algorithm in ("prim", "boruvka")
+        (algorithm in ("prim", "boruvka") or G.__class__ is not Graph)
         and isinstance(weight, str)
         and not ignore_nan
         and not G.is_multigraph()
     ):
-        T = Graph()
-        if G.graph:
-            T.graph.update(dict(G.graph))
-        T.add_nodes_from(G.nodes(data=True))
-        T.add_edges_from(
+        return _spanning_tree_from_edges(
+            G,
             minimum_spanning_edges(
                 G, algorithm=algorithm, weight=weight,
                 keys=True, data=True, ignore_nan=ignore_nan,
-            )
+            ),
         )
-        return T
     if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # br-r37-c1-mstsync: previously we routed ANY graph with a weight
@@ -19987,6 +19989,17 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     return result
 
 
+def _spanning_tree_from_edges(G, edges):
+    """networkx's spanning-tree construction: ``G.__class__()``, G's graph and
+    node data, then the spanning edges in the order given."""
+    T = G.__class__()
+    if G.graph:
+        T.graph.update(dict(G.graph))
+    T.add_nodes_from(G.nodes(data=True))
+    T.add_edges_from(edges)
+    return T
+
+
 def _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
     """br-r37-c1-nhz31: private helper keeps the public
     ``minimum_spanning_tree`` classified as PY_WRAPPER in the
@@ -20046,6 +20059,23 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # minimum_spanning_tree.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    # br-r37-c1-w0902: prim / boruvka (and a Graph subclass, see
+    # minimum_spanning_tree) build the tree from maximum_spanning_edges' native
+    # Prim / in-process Boruvka as networkx does - they went through a full
+    # networkx conversion both ways at 0.26-0.28x.
+    if (
+        (algorithm in ("prim", "boruvka") or G.__class__ is not Graph)
+        and isinstance(weight, str)
+        and not ignore_nan
+        and not G.is_multigraph()
+    ):
+        return _spanning_tree_from_edges(
+            G,
+            maximum_spanning_edges(
+                G, algorithm=algorithm, weight=weight,
+                keys=True, data=True, ignore_nan=ignore_nan,
+            ),
+        )
     if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str):
         return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # MultiGraph results must keep parallel-edge / keyed-adjacency structure
