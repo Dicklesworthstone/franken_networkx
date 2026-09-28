@@ -23522,86 +23522,61 @@ fn single_source_bellman_ford_path(
     }
 }
 
-/// Return distances from a single source using Bellman-Ford.
+/// Return distances from a single source using Bellman-Ford, in SPFA
+/// first-discovery order with networkx's int / float types; a node displays as
+/// its final relaxation parent's row object (weighted sp batch 2).
+/// br-r37-c1-0g2tj: emitted from index space - the String-named result, its
+/// three String-keyed maps and the Python re-typing pass made the whole-ring
+/// call 0.61x networkx.
 #[pyfunction]
-#[pyo3(signature = (g, source, weight="weight"))]
+#[pyo3(signature = (g, source, weight="weight", check_rows=false))]
 fn single_source_bellman_ford_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     weight: &str,
+    check_rows: bool,
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    // weighted sp batch 2: predecessors give the discovery objects (a
-    // node displays as its SPFA relaxation parent's row object) without
-    // a second walk — use the predecessor-carrying kernels.
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        let bf = {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
-                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
-            })
-        };
-        if bf.negative_cycle_detected {
-            None
-        } else {
-            let preds: std::collections::HashMap<String, Option<String>> = bf
-                .predecessors
-                .iter()
-                .map(|e| (e.node.clone(), e.predecessor.clone()))
-                .collect();
-            Some((
-                bf.distances
-                    .iter()
-                    .map(|e| (e.node.clone(), e.distance))
-                    .collect::<Vec<_>>(),
-                preds,
-            ))
-        }
-    } else {
-        let bf = {
-            let weighted_projection = gr.weighted_undirected_projection(weight);
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight))
-        };
-        if bf.negative_cycle_detected {
-            None
-        } else {
-            let preds: std::collections::HashMap<String, Option<String>> = bf
-                .predecessors
-                .iter()
-                .map(|e| (e.node.clone(), e.predecessor.clone()))
-                .collect();
-            Some((
-                bf.distances
-                    .iter()
-                    .map(|e| (e.node.clone(), e.distance))
-                    .collect::<Vec<_>>(),
-                preds,
-            ))
-        }
+    let unbounded = || crate::NetworkXUnbounded::new_err("Negative cycle detected.");
+    let missing = || {
+        pyo3::exceptions::PyRuntimeError::new_err("Bellman-Ford source missing from its projection")
     };
-    match result {
-        Some((dists, preds)) => {
-            let mut disp = display_map_with_capacity(dists.len() + 1);
-            disp.insert(s.clone(), source.clone().unbind());
-            for (node, _) in &dists {
-                if let Some(Some(p)) = preds.get(node) {
-                    disp.insert(node.clone(), gr.py_row_key(py, p, node));
-                }
-            }
-            let dict = PyDict::new(py);
-            for (node, d) in &dists {
-                dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
-            }
-            Ok(dict.into_any().unbind())
+    if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        let source_idx = __wp.get_node_index(&s).ok_or_else(missing)?;
+        let (result, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::bellman_ford_indexed_directed(__wp, source_idx, weight)
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, true)?;
         }
-        None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cycle detected.",
-        )),
+        let discovered = result.ok_or_else(unbounded)?;
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        let source_key = single_source_key(py, source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_lengths(py, &gr, name, &discovered, source_key)
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
+        let __wp = weighted_projection.as_ref();
+        let source_idx = __wp.get_node_index(&s).ok_or_else(missing)?;
+        let (result, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::bellman_ford_indexed(__wp, source_idx, weight)
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, true)?;
+        }
+        let discovered = result.ok_or_else(unbounded)?;
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        let source_key = single_source_key(py, source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_lengths(py, &gr, name, &discovered, source_key)
     }
 }
 

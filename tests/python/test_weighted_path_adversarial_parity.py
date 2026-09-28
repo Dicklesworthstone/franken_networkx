@@ -500,6 +500,9 @@ _ROW_CHECKED = {
     "multi_source_dijkstra_path_length": lambda m, g: m.multi_source_dijkstra_path_length(
         g, [0, 3]
     ),
+    "single_source_bellman_ford_path_length": lambda m, g: (
+        m.single_source_bellman_ford_path_length(g, 0)
+    ),
 }
 
 
@@ -703,4 +706,74 @@ def test_multigraph_multi_source_dijkstra_keeps_networkx_results(cls):
             _exact(lib.multi_source_dijkstra(graph, [0], cutoff=2)),
             _exact(lib.multi_source_dijkstra_path_length(graph, [0, 5])),
         )
+    assert outcomes["franken_networkx"] == outcomes["networkx"]
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-0g2tj: single_source_bellman_ford_path_length types in the kernel
+# ---------------------------------------------------------------------------
+# networkx's distance is dist[u] + w of the relaxation that SET it, so a node
+# first reached through a float edge and then improved along an int path is an
+# int (and the reverse a float). The SPFA core now carries that type instead of
+# a Python pass re-deriving it from a second, paths-carrying traversal.
+
+# Float distances are kept INTEGRAL (2.0, 3.0): a fractional one prints as a
+# float whatever the kernel's type flag says, so it could not catch a kernel
+# that typed every distance int.
+_BF_TYPE_SHAPES = {
+    "float_then_int": [(0, 1, 1.5), (0, 2, 1), (2, 1, 0), (1, 3, 2)],
+    "int_then_float": [(0, 1, 3), (0, 2, 1), (2, 1, 1.0), (1, 3, 2)],
+    "negative_ints": [(0, 1, 4), (1, 2, -2), (0, 2, 3), (2, 3, 1)],
+    "bool_missing": [(0, 1, True), (1, 2, None), (2, 3, 2.0), (0, 3, 9)],
+    "all_float": [(0, 1, 1.0), (1, 2, 2.0), (0, 2, 4.0)],
+}
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("shape", sorted(_BF_TYPE_SHAPES))
+def test_single_source_bellman_ford_path_length_types_match_networkx(shape, directed):
+    if shape == "negative_ints" and not directed:
+        pytest.skip("an undirected negative edge is a negative cycle")
+    outcomes = {}
+    for lib in (fnx, nx):
+        graph = (lib.DiGraph if directed else lib.Graph)()
+        for u, v, w in _BF_TYPE_SHAPES[shape]:
+            if w is None:
+                graph.add_edge(u, v)
+            else:
+                graph.add_edge(u, v, weight=w)
+        outcomes[lib.__name__] = _exact(lib.single_source_bellman_ford_path_length(graph, 0))
+    assert outcomes["franken_networkx"] == outcomes["networkx"]
+
+
+def test_single_source_bellman_ford_path_length_fixtures_decide_the_type():
+    """The two relaxation-order fixtures must type differently in networkx
+    itself, or the parity test above could pass on graph-wide typing."""
+    types = []
+    for shape in ("float_then_int", "int_then_float"):
+        graph = nx.DiGraph()
+        graph.add_weighted_edges_from(_BF_TYPE_SHAPES[shape])
+        types.append(type(nx.single_source_bellman_ford_path_length(graph, 0)[1]))
+    assert types == [int, float]
+
+
+@pytest.mark.parametrize("shape", ["ring", "ring_float", "grid", "big_ints"])
+def test_long_path_single_source_bellman_ford_path_length_matches_networkx(shape):
+    fg, fs = _long_path_shapes(fnx)[shape]
+    ng, ns = _long_path_shapes(nx)[shape]
+    assert _typed(fnx.single_source_bellman_ford_path_length(fg, fs)) == _typed(
+        nx.single_source_bellman_ford_path_length(ng, ns)
+    )
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_single_source_bellman_ford_path_length_negative_cycle(directed):
+    outcomes = {}
+    for lib in (fnx, nx):
+        graph = (lib.DiGraph if directed else lib.Graph)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, -3), (2, 0, 1), (2, 3, 1)])
+        try:
+            outcomes[lib.__name__] = lib.single_source_bellman_ford_path_length(graph, 0)
+        except Exception as exc:  # noqa: BLE001 - exact public error parity
+            outcomes[lib.__name__] = (type(exc).__name__, str(exc))
     assert outcomes["franken_networkx"] == outcomes["networkx"]

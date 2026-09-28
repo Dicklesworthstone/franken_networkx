@@ -1317,7 +1317,7 @@ def single_source_bellman_ford_path(
     g: Graph, source: Any, weight: str = "weight"
 ) -> dict[Any, list[Any]]: ...
 def single_source_bellman_ford_path_length(
-    g: Graph, source: Any, weight: str = "weight"
+    g: Graph, source: Any, weight: str = "weight", check_rows: bool = False
 ) -> dict[Any, float]: ...
 def single_target_shortest_path(
     g: Graph, target: Any, cutoff: Optional[int] = None

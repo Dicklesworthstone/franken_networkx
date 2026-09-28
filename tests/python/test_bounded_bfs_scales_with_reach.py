@@ -1161,6 +1161,9 @@ _WEIGHTED_AFTER_A_WRITE = {
     "shortest_path_weighted": lambda m, g: m.shortest_path(g, 0, 5, weight="weight"),
     "multi_source_dijkstra_cutoff": lambda m, g: m.multi_source_dijkstra(g, [0, 1], cutoff=2),
     "multi_source_dijkstra_target": lambda m, g: m.multi_source_dijkstra(g, [0, 1], target=5),
+    "single_source_bellman_ford_path_length": lambda m, g: m.single_source_bellman_ford_path_length(
+        g, 0
+    ),
 }
 
 

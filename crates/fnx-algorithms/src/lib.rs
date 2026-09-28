@@ -2418,13 +2418,7 @@ pub fn bellman_ford_shortest_paths(
     let spfa = bellman_ford_spfa_lazy(
         source_idx,
         node_count,
-        |u, row| {
-            if let Some(neighbors) = graph.neighbors_indices(u) {
-                row.extend(neighbors.iter().map(|&v| {
-                    (v, signed_graph_edge_weight_or_default_idx(graph, u, v, weight_attr))
-                }));
-            }
-        },
+        |u, row| signed_weighted_row(graph, u, weight_attr, row),
         name,
         &mut cgse_sink,
         &mut nodes_touched,
@@ -2490,13 +2484,7 @@ pub fn bellman_ford_shortest_paths_directed(
     let spfa = bellman_ford_spfa_lazy(
         source_idx,
         node_count,
-        |u, row| {
-            if let Some(successors) = digraph.successors_indices(u) {
-                row.extend(successors.iter().map(|&v| {
-                    (v, signed_digraph_edge_weight_or_default_idx(digraph, u, v, weight_attr))
-                }));
-            }
-        },
+        |u, row| signed_successor_row(digraph, u, weight_attr, row),
         name,
         &mut cgse_sink,
         &mut nodes_touched,
@@ -2515,6 +2503,67 @@ pub fn bellman_ford_shortest_paths_directed(
             queue_peak,
         },
     )
+}
+
+/// br-r37-c1-0g2tj: single-source Bellman-Ford in index space for the
+/// bindings - `(node, distance, all_int, predecessor)` in SPFA first-discovery
+/// order (networkx's dict order; the source's predecessor is `u32::MAX`), or
+/// `None` for a negative cycle reachable from the source. Emitting from here
+/// drops the owned name per node and the String-keyed maps the public result
+/// needs, and `all_int` drops the Python pass that re-typed every distance
+/// (the whole-ring single_source_bellman_ford_path_length ran 0.61x
+/// networkx).
+#[must_use]
+pub fn bellman_ford_indexed(
+    graph: &Graph,
+    source_idx: usize,
+    weight_attr: &str,
+) -> Option<IndexedTypedPredDistances> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::BellmanFord);
+    let (mut nodes_touched, mut edges_scanned) = (1usize, 0usize);
+    let spfa = bellman_ford_spfa_lazy(
+        source_idx,
+        graph.node_count(),
+        |u, row| signed_weighted_row(graph, u, weight_attr, row),
+        |index| graph.get_node_name(index).unwrap_or_default(),
+        &mut cgse_sink,
+        &mut nodes_touched,
+        &mut edges_scanned,
+    );
+    cgse_publish(
+        CgseReferenceAlgorithm::BellmanFord,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
+    (!spfa.negative_cycle_detected).then_some(spfa.discovered)
+}
+
+/// Directed twin of [`bellman_ford_indexed`] (successor rows).
+#[must_use]
+pub fn bellman_ford_indexed_directed(
+    digraph: &DiGraph,
+    source_idx: usize,
+    weight_attr: &str,
+) -> Option<IndexedTypedPredDistances> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::BellmanFord);
+    let (mut nodes_touched, mut edges_scanned) = (1usize, 0usize);
+    let spfa = bellman_ford_spfa_lazy(
+        source_idx,
+        digraph.node_count(),
+        |u, row| signed_successor_row(digraph, u, weight_attr, row),
+        |index| digraph.get_node_name(index).unwrap_or_default(),
+        &mut cgse_sink,
+        &mut nodes_touched,
+        &mut edges_scanned,
+    );
+    cgse_publish(
+        CgseReferenceAlgorithm::BellmanFord,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+    (!spfa.negative_cycle_detected).then_some(spfa.discovered)
 }
 
 // ===========================================================================
@@ -10397,9 +10446,11 @@ fn weighted_paths_result(
 struct BellmanFordSpfaState {
     negative_cycle_detected: bool,
     queue_peak: usize,
-    /// `(node, distance, predecessor)` in first-discovery order; the
+    /// `(node, distance, all_int, predecessor)` in first-discovery order -
+    /// networkx's dict order; `all_int` is networkx's type for the distance
+    /// (int when the relaxation chain that set it summed only ints), and the
     /// predecessor is `u32::MAX` for the source.
-    discovered: Vec<(u32, f64, u32)>,
+    discovered: IndexedTypedPredDistances,
 }
 
 /// Materialize a public Bellman-Ford result from the walk's index state.
@@ -10417,7 +10468,7 @@ fn weighted_paths_result_from_spfa<'g>(
     let capacity = spfa.discovered.len();
     let mut distances = Vec::with_capacity(capacity);
     let mut predecessors = Vec::with_capacity(capacity);
-    for (index, distance, predecessor) in spfa.discovered {
+    for (index, distance, _all_int, predecessor) in spfa.discovered {
         let node = name(index as usize).to_owned();
         distances.push(WeightedDistanceEntry {
             node: node.clone(),
@@ -10466,7 +10517,7 @@ fn weighted_paths_result_from_spfa<'g>(
 fn bellman_ford_spfa_lazy<'g>(
     source_idx: usize,
     node_count: usize,
-    mut expand: impl FnMut(usize, &mut Vec<(usize, f64)>),
+    mut expand: impl FnMut(usize, &mut Vec<(usize, f64, bool)>),
     name: impl Fn(usize) -> &'g str,
     cgse_sink: &mut Option<CgseWitnessSink>,
     nodes_touched: &mut usize,
@@ -10474,15 +10525,19 @@ fn bellman_ford_spfa_lazy<'g>(
 ) -> BellmanFordSpfaState {
     let mut dist = NodeTable::new(node_count, f64::INFINITY);
     let mut pred = NodeTable::new(node_count, u32::MAX);
+    // br-r37-c1-0g2tj: networkx's type for each distance - `dist[u] + w`
+    // stays an int only while every relaxation that set it added ints.
+    let mut all_int = NodeTable::new(node_count, false);
     let mut pred_lists: FxHashMap<usize, Vec<u32>> = FxHashMap::default();
     let mut discovered: Vec<u32> = Vec::new();
     let mut in_queue = NodeTable::new(node_count, false);
     let mut enqueue_count = NodeTable::new(node_count, 0u32);
-    let mut rows: FxHashMap<usize, Vec<(usize, f64)>> = FxHashMap::default();
+    let mut rows: FxHashMap<usize, Vec<(usize, f64, bool)>> = FxHashMap::default();
     let mut queue = VecDeque::<u32>::new();
 
     let source = u32::try_from(source_idx).unwrap_or(u32::MAX);
     dist.set(source_idx, 0.0);
+    all_int.set(source_idx, true);
     discovered.push(source);
     queue.push_back(source);
     in_queue.set(source_idx, true);
@@ -10501,6 +10556,7 @@ fn bellman_ford_spfa_lazy<'g>(
             continue;
         }
         let base = dist.get(u_usize);
+        let base_all_int = all_int.get(u_usize);
         let row = match rows.entry(u_usize) {
             std::collections::hash_map::Entry::Occupied(known) => known.into_mut(),
             std::collections::hash_map::Entry::Vacant(slot) => {
@@ -10512,7 +10568,7 @@ fn bellman_ford_spfa_lazy<'g>(
                 slot.insert(row)
             }
         };
-        for &(v, weight) in row.iter() {
+        for &(v, weight, is_int) in row.iter() {
             *edges_scanned += 1;
             let candidate = base + weight;
             let existing = dist.get(v);
@@ -10534,6 +10590,7 @@ fn bellman_ford_spfa_lazy<'g>(
             }
             dist.set(v, candidate);
             pred.set(v, u);
+            all_int.set(v, base_all_int && is_int);
             let preds = pred_lists.entry(v).or_default();
             preds.clear();
             preds.push(u);
@@ -10556,7 +10613,7 @@ fn bellman_ford_spfa_lazy<'g>(
         .into_iter()
         .map(|node| {
             let at = node as usize;
-            (node, dist.get(at), pred.get(at))
+            (node, dist.get(at), all_int.get(at), pred.get(at))
         })
         .collect();
     BellmanFordSpfaState {
@@ -10828,20 +10885,54 @@ fn graph_edge_weight_or_default_idx_typed(
     )
 }
 
-/// Index twin of [`signed_edge_weight_or_default`]: the same value, read from
-/// the edge the two node positions name.
-fn signed_graph_edge_weight_or_default_idx(
-    graph: &Graph,
-    source_idx: usize,
-    target_idx: usize,
-    weight_attr: &str,
-) -> f64 {
-    graph
-        .edge_attrs_by_indices(source_idx, target_idx)
-        .and_then(|attrs| attrs.get(weight_attr))
-        .and_then(|val| val.as_f64())
+/// A Bellman-Ford weight - signed, 1 when absent or not a finite number - and
+/// whether networkx's sum keeps it an int (an int, a bool, or the default 1).
+fn signed_weight_value_or_default_typed(raw: Option<&CgseValue>) -> (f64, bool) {
+    let is_int = matches!(raw, None | Some(CgseValue::Int(_) | CgseValue::Bool(_)));
+    let value = raw
+        .and_then(CgseValue::as_f64)
         .filter(|value| value.is_finite())
-        .unwrap_or(1.0)
+        .unwrap_or(1.0);
+    (value, is_int)
+}
+
+/// `u`'s neighbour row for Bellman-Ford: `(neighbour, signed weight, is_int)`
+/// in adjacency order.
+fn signed_weighted_row(
+    graph: &Graph,
+    u: usize,
+    weight_attr: &str,
+    row: &mut Vec<(usize, f64, bool)>,
+) {
+    if let Some(neighbors) = graph.neighbors_indices(u) {
+        row.extend(neighbors.iter().map(|&v| {
+            let (weight, is_int) = signed_weight_value_or_default_typed(
+                graph
+                    .edge_attrs_by_indices(u, v)
+                    .and_then(|attrs| attrs.get(weight_attr)),
+            );
+            (v, weight, is_int)
+        }));
+    }
+}
+
+/// Directed twin of [`signed_weighted_row`]: `u`'s successors.
+fn signed_successor_row(
+    digraph: &DiGraph,
+    u: usize,
+    weight_attr: &str,
+    row: &mut Vec<(usize, f64, bool)>,
+) {
+    if let Some(successors) = digraph.successors_indices(u) {
+        row.extend(successors.iter().map(|&v| {
+            let (weight, is_int) = signed_weight_value_or_default_typed(
+                digraph
+                    .edge_attrs_by_indices(u, v)
+                    .and_then(|attrs| attrs.get(weight_attr)),
+            );
+            (v, weight, is_int)
+        }));
+    }
 }
 
 fn signed_edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &str) -> f64 {
