@@ -7711,6 +7711,22 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
             self.graph.update(attr)
         return
 
+    # br-r37-c1-gelud: Graph(DiGraph) native absorb - networkx's
+    # from_dict_of_dicts(D.adj) walk, a reciprocal pair merging into one edge
+    # whose dict the second direction updates. The Python rebuild below paid
+    # add_nodes_from + add_edges_from over the source's views (0.43x). The
+    # kernel reads the native store, so an assigned private store keeps the
+    # rebuild.
+    if (
+        type(self) is Graph
+        and type(source) is DiGraph
+        and not _has_networkx_private_storage(source)
+        and _fnx.graph_absorb_digraph(self, source)
+    ):
+        if attr:
+            self.graph.update(attr)
+        return
+
     # br-r37-c1-1o74q: MultiGraph(Graph) native absorb fast path — the per-edge
     # Python rebuild was ~2.1-2.6x slower than nx. Build the MultiGraph inner
     # directly from the simple source (node-major canonical edge order, key 0),

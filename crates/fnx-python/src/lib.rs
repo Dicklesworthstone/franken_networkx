@@ -14121,7 +14121,16 @@ impl PyMultiGraph {
                     new_graph.node_py_attrs.insert(node.to_owned(), mirror);
                 }
                 None => {
-                    new_graph.inner.add_node_with_attrs(node, AttrMap::new());
+                    // br-r37-c1-bw6si: no mirror is not no attributes - the node
+                    // batch leaves a one-key dict in the store only, and this
+                    // copied it as {}.
+                    let stored = self.inner.node_attrs(node).cloned().unwrap_or_default();
+                    if !stored.is_empty() {
+                        new_graph
+                            .node_py_attrs
+                            .insert(node.to_owned(), attr_map_to_pydict(py, &stored)?);
+                    }
+                    new_graph.inner.add_node_with_attrs(node, stored);
                 }
             }
             new_graph
@@ -14222,8 +14231,14 @@ impl PyMultiGraph {
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         for node in self.inner.nodes_ordered() {
+            // br-r37-c1-bw6si: a node without a mirror may still carry
+            // attributes in the store (the node batch's one-key dicts); a dict
+            // rebuilt from store scalars is already a deep copy.
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
-                || Ok(PyDict::new(py).unbind()),
+                || match self.inner.node_attrs(node) {
+                    Some(stored) if !stored.is_empty() => attr_map_to_pydict(py, stored),
+                    _ => Ok(PyDict::new(py).unbind()),
+                },
                 |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
             )?;
             let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
@@ -14312,7 +14327,14 @@ impl PyMultiGraph {
                 mdg.node_py_attrs.insert(node.to_owned(), py_attrs);
                 rust_attrs
             } else {
-                Default::default()
+                // br-r37-c1-bw6si: the store may hold what the absent mirror
+                // does not (the node batch's one-key dicts).
+                let stored = self.inner.node_attrs(node).cloned().unwrap_or_default();
+                if !stored.is_empty() {
+                    mdg.node_py_attrs
+                        .insert(node.to_owned(), attr_map_to_pydict(py, &stored)?);
+                }
+                stored
             };
             mdg.node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
@@ -19312,7 +19334,16 @@ impl PyGraph {
                 dg.node_py_attrs.insert(node.to_owned(), py_attrs);
                 rust_attrs
             } else {
-                Default::default()
+                // br-r37-c1-bw6si: a node without a mirror may still carry
+                // attributes in the store (the node batch's one-key dicts), and
+                // they were dropped here; a dict rebuilt from the store's
+                // scalars is already a deep copy.
+                let stored = self.inner.node_attrs(node).cloned().unwrap_or_default();
+                if !stored.is_empty() {
+                    dg.node_py_attrs
+                        .insert(node.to_owned(), attr_map_to_pydict(py, &stored)?);
+                }
+                stored
             };
             dg.node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));

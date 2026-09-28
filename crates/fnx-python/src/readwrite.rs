@@ -346,6 +346,14 @@ fn digraph_absorb_graph_bidirected(
                     return Ok(false);
                 }
             }
+        } else if let Some(core) = src.inner.node_attrs(nid)
+            && !core.is_empty()
+        {
+            // br-r37-c1-bw6si: a node whose Python dict was never materialised
+            // keeps its attrs in the core only (the node batch leaves one-key
+            // dicts there); reading the mirror alone emitted {} for it.
+            amap = core.clone();
+            mirror.update(attr_map_to_pydict(py, &amap)?.bind(py).as_mapping())?;
         }
         node_py_attrs.insert(nid.clone(), mirror.unbind());
         nodes_bulk.push((nid.clone(), amap));
@@ -353,27 +361,41 @@ fn digraph_absorb_graph_bidirected(
 
     // br-r37-c1-urjxk: the mirrors report their writes to `dst`, which takes
     // this `EdgeAttrWrites` together with the map below.
+    //
+    // br-r37-c1-gelud: an edge's dict is built only when the store cannot
+    // rebuild it exactly (attr_dict_round_trips_through_store: a value the
+    // store would change, or keys out of the store's sorted order); every
+    // other edge keeps its attrs in the store and materialises its own dict on
+    // first read, as a batch-built graph's edges do. Building one write-watched
+    // dict per DIRECTED edge - twice the source's edges - and filling it from a
+    // second dict built out of the store was 17 ms of DiGraph(G) on 4.5k edges
+    // with one weight each, 0.54x networkx; the walk is in index space too.
     let edge_attr_writes = crate::EdgeAttrWrites::default();
     let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
         rustc_hash::FxHashMap::default();
-    let mut edges_bulk: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
-    for u in &nodes {
-        let Some(nbrs) = src.inner.neighbors(u) else {
-            continue;
-        };
-        for v in nbrs {
-            let mirror = edge_attr_writes.new_dict(py)?;
+    let mut edges_bulk: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::new();
+    let mirrored = !src.edge_py_attrs.is_empty();
+    for (u_idx, u) in nodes.iter().enumerate() {
+        for &v_idx in src.inner.neighbors_indices(u_idx).unwrap_or(&[]) {
+            let v = &nodes[v_idx];
             let mut amap = fnx_classes::AttrMap::new();
-            if let Some(d) = src.edge_py_attrs.get(&PyGraph::edge_key(u, v)) {
+            if let Some(d) = mirrored
+                .then(|| src.edge_py_attrs.get(&PyGraph::edge_key(u, v)))
+                .flatten()
+            {
                 let b = d.bind(py);
                 if !b.is_empty() {
-                    mirror.update(b.as_mapping())?;
                     amap = py_dict_to_attr_map(b)?;
                     if amap.keys().any(|k| k.starts_with("__fnx_incompatible")) {
                         return Ok(false);
                     }
+                    if !crate::attr_dict_round_trips_through_store(b) {
+                        let mirror = edge_attr_writes.new_dict(py)?;
+                        mirror.update(b.as_mapping())?;
+                        edge_py_attrs.insert(PyDiGraph::edge_key(u, v), mirror.unbind());
+                    }
                 }
-            } else if let Some(core) = src.inner.edge_attrs(u, v)
+            } else if let Some(core) = src.inner.edge_attrs_by_indices(u_idx, v_idx)
                 && !core.is_empty()
             {
                 // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (sweep): the
@@ -382,10 +404,8 @@ fn digraph_absorb_graph_bidirected(
                 // attrs only in the core. Reading the mirror alone made
                 // DiGraph(karate_club_graph()) silently drop every weight.
                 amap = core.clone();
-                mirror.update(attr_map_to_pydict(py, &amap)?.bind(py).as_mapping())?;
             }
-            edge_py_attrs.insert(PyDiGraph::edge_key(u, v), mirror.unbind());
-            edges_bulk.push((u.clone(), (*v).to_owned(), amap));
+            edges_bulk.push((u_idx, v_idx, amap));
         }
     }
 
@@ -395,9 +415,172 @@ fn digraph_absorb_graph_bidirected(
     // DiGraph(hardened_graph)).
     let mut inner = RustDiGraph::new(src.inner.mode());
     let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_bulk);
-    let _ = inner.extend_edges_with_attrs_unrecorded(edges_bulk);
+    let _ = inner.extend_existing_index_edges_with_attrs_unrecorded(edges_bulk);
 
     let Ok(mut dst) = dg.extract::<PyRefMut<'_, PyDiGraph>>() else {
+        return Ok(false);
+    };
+    dst.inner = inner;
+    dst.node_key_map = node_key_map;
+    dst.node_py_attrs = node_py_attrs;
+    dst.edge_py_attrs = edge_py_attrs;
+    dst.edge_attr_writes = edge_attr_writes;
+    dst.graph_attrs = gdict.unbind();
+    dst.bump_nodes_seq();
+    dst.bump_edges_seq();
+    Ok(true)
+}
+
+/// br-r37-c1-gelud: native `Graph(DiGraph)` copy-constructor body, networkx's
+/// `from_dict_of_dicts(D.adj)` then `graph.update` and the node data:
+/// - nodes in the source's order, each with a fresh dict updated from the
+///   source node's (shallow);
+/// - edges in the successor-row walk (u-major, each row in order): the first
+///   direction of a pair creates the undirected edge and its dict, a
+///   reciprocal one UPDATES that dict - its values win, keys it adds come
+///   after the first's - and adds no row entry;
+/// - a dict is built only where the store cannot rebuild it exactly
+///   (attr_dict_round_trips_through_store, or a merge whose key order the
+///   sorted store would change); every other edge and node keeps its
+///   attributes in the store and materialises its dict on first read.
+///
+/// The Python rebuild this replaces (add_nodes_from + add_edges_from over the
+/// source's views) was 0.43x networkx. Returns false, having mutated nothing,
+/// for display-key rows, an `__fnx_incompatible` attribute, or another type.
+#[pyfunction]
+fn graph_absorb_digraph(py: Python<'_>, g: &Bound<'_, PyAny>, dg: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let Ok(src) = dg.extract::<PyRef<'_, PyDiGraph>>() else {
+        return Ok(false);
+    };
+    if !src.succ_py_keys.is_empty() || !src.pred_py_keys.is_empty() {
+        return Ok(false);
+    }
+    let incompatible = |amap: &fnx_classes::AttrMap| {
+        amap.keys().any(|k| k.starts_with("__fnx_incompatible"))
+    };
+
+    let gdict = PyDict::new(py);
+    gdict.update(src.graph_attrs.bind(py).as_mapping())?;
+
+    let nodes: Vec<String> = src
+        .inner
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(nodes.len(), rustc_hash::FxBuildHasher);
+    let mut node_py_attrs: PyNodeKeyMap<String, Py<PyDict>> =
+        PyNodeKeyMap::with_capacity_and_hasher(nodes.len(), rustc_hash::FxBuildHasher);
+    let mut nodes_bulk: Vec<(String, fnx_classes::AttrMap)> = Vec::with_capacity(nodes.len());
+    for nid in &nodes {
+        node_key_map.insert(nid.clone(), src.py_node_key(py, nid));
+        let mut amap = fnx_classes::AttrMap::new();
+        if let Some(d) = src.node_py_attrs.get(nid) {
+            let b = d.bind(py);
+            if !b.is_empty() {
+                amap = py_dict_to_attr_map(b)?;
+                if incompatible(&amap) {
+                    return Ok(false);
+                }
+                if !crate::attr_dict_round_trips_through_store(b) {
+                    let mirror = PyDict::new(py);
+                    mirror.update(b.as_mapping())?;
+                    node_py_attrs.insert(nid.clone(), mirror.unbind());
+                }
+            }
+        } else if let Some(core) = src.inner.node_attrs(nid) {
+            amap = core.clone();
+        }
+        nodes_bulk.push((nid.clone(), amap));
+    }
+
+    let edge_attr_writes = crate::EdgeAttrWrites::default();
+    let mut edge_py_attrs: rustc_hash::FxHashMap<(String, String), Py<PyDict>> =
+        rustc_hash::FxHashMap::default();
+    let mut edges_bulk: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::new();
+    // The first direction of each pair: its position in edges_bulk and its
+    // source dict, which a reciprocal merge may need to rebuild as a mirror.
+    let mut first_of: rustc_hash::FxHashMap<(usize, usize), (usize, Option<Py<PyDict>>)> =
+        rustc_hash::FxHashMap::default();
+    let mirrored = !src.edge_py_attrs.is_empty();
+    for (u_idx, u) in nodes.iter().enumerate() {
+        for &v_idx in src.inner.successors_indices(u_idx).unwrap_or(&[]) {
+            let v = &nodes[v_idx];
+            let mut amap = fnx_classes::AttrMap::new();
+            let mut source_dict: Option<Py<PyDict>> = None;
+            if let Some(d) = mirrored
+                .then(|| src.edge_py_attrs.get(&PyDiGraph::edge_key(u, v)))
+                .flatten()
+            {
+                let b = d.bind(py);
+                if !b.is_empty() {
+                    amap = py_dict_to_attr_map(b)?;
+                    if incompatible(&amap) {
+                        return Ok(false);
+                    }
+                    source_dict = Some(d.clone_ref(py));
+                }
+            } else if let Some(core) = src.inner.edge_attrs_by_indices(u_idx, v_idx) {
+                amap = core.clone();
+            }
+            let pair = if u_idx <= v_idx { (u_idx, v_idx) } else { (v_idx, u_idx) };
+            let own_key = PyGraph::edge_key(u, v);
+            match first_of.get(&pair) {
+                None => {
+                    if let Some(d) = &source_dict
+                        && !crate::attr_dict_round_trips_through_store(d.bind(py))
+                    {
+                        let mirror = edge_attr_writes.new_dict(py)?;
+                        mirror.update(d.bind(py).as_mapping())?;
+                        edge_py_attrs.insert(own_key, mirror.unbind());
+                    }
+                    first_of.insert(pair, (edges_bulk.len(), source_dict));
+                    edges_bulk.push((u_idx, v_idx, amap));
+                }
+                Some((first_pos, first_dict)) => {
+                    if amap.is_empty() {
+                        continue;
+                    }
+                    // networkx: the first direction's dict .update(this one's).
+                    let adds_keys = {
+                        let first_amap = &edges_bulk[*first_pos].2;
+                        amap.keys().any(|k| !first_amap.contains_key(k))
+                    };
+                    let this_round_trips = source_dict
+                        .as_ref()
+                        .is_none_or(|d| crate::attr_dict_round_trips_through_store(d.bind(py)));
+                    if !edge_py_attrs.contains_key(&own_key) && (adds_keys || !this_round_trips) {
+                        let mirror = edge_attr_writes.new_dict(py)?;
+                        match first_dict {
+                            Some(d) => mirror.update(d.bind(py).as_mapping())?,
+                            None => mirror.update(
+                                attr_map_to_pydict(py, &edges_bulk[*first_pos].2)?
+                                    .bind(py)
+                                    .as_mapping(),
+                            )?,
+                        }
+                        edge_py_attrs.insert(own_key.clone(), mirror.unbind());
+                    }
+                    if let Some(mirror) = edge_py_attrs.get(&own_key) {
+                        match &source_dict {
+                            Some(d) => mirror.bind(py).update(d.bind(py).as_mapping())?,
+                            None => mirror
+                                .bind(py)
+                                .update(attr_map_to_pydict(py, &amap)?.bind(py).as_mapping())?,
+                        }
+                    }
+                    edges_bulk.push((u_idx, v_idx, amap));
+                }
+            }
+        }
+    }
+
+    let mut inner = RustGraph::new(src.inner.mode());
+    let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_bulk);
+    let _ = inner.extend_existing_index_edges_with_attrs_unrecorded(edges_bulk);
+
+    let Ok(mut dst) = g.extract::<PyRefMut<'_, PyGraph>>() else {
         return Ok(false);
     };
     dst.inner = inner;
@@ -465,6 +648,14 @@ fn multigraph_absorb_graph(
                 }
                 node_py_attrs.insert(nid.clone(), mirror.unbind());
             }
+        } else if let Some(core) = src.inner.node_attrs(nid)
+            && !core.is_empty()
+        {
+            // br-r37-c1-bw6si: a node whose Python dict was never materialised
+            // keeps its attrs in the core only (the node batch leaves one-key
+            // dicts there); reading the mirror alone emitted {} for it.
+            amap = core.clone();
+            node_py_attrs.insert(nid.clone(), attr_map_to_pydict(py, &amap)?);
         }
         nodes_bulk.push((nid.clone(), amap));
     }
@@ -3968,6 +4159,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_edgelist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(parse_edgelist_simple_text, m)?)?;
     m.add_function(wrap_pyfunction!(digraph_absorb_graph_bidirected, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_absorb_digraph, m)?)?;
     m.add_function(wrap_pyfunction!(multigraph_absorb_graph, m)?)?;
     m.add_function(wrap_pyfunction!(write_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_data, m)?)?;
