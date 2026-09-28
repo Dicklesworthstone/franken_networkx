@@ -6059,6 +6059,53 @@ fn multigraph_sssp_length_with_parents_orig_string<'a>(
     out
 }
 
+/// A BFS's parent table, node index -> the index it was discovered from.
+/// br-r37-c1-lqp4u: Fx-hashed - std's SipHash on these usize keys was 35% of a
+/// single_source_shortest_path call's instructions (BA1500).
+type ParentTable = rustc_hash::FxHashMap<usize, usize>;
+
+/// Directed twin of [`graph_sssp_predecessors_index`]: networkx's level BFS
+/// over `G._adj`, which is the successor rows for a DiGraph.
+/// br-r37-c1-lqp4u: the DiGraph route built one owned String path per
+/// discovered node in the kernel and re-walked them in the emitter - 0.16x
+/// networkx on a 40x40 grid with reciprocal edges, where Graph ran 0.83x.
+fn digraph_sssp_predecessors_index(
+    digraph: &fnx_classes::digraph::DiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> (Option<usize>, Vec<usize>, ParentTable) {
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return (None, Vec::new(), ParentTable::default());
+    };
+    let n = digraph.node_count();
+    let mut seen = vec![false; n];
+    let mut predecessor = ParentTable::default();
+    let mut discovery = vec![source_idx];
+    let mut frontier = vec![source_idx];
+    let mut next = Vec::new();
+    let mut depth = 0usize;
+    seen[source_idx] = true;
+    while !frontier.is_empty() {
+        if cutoff.is_some_and(|limit| depth >= limit) {
+            break;
+        }
+        next.clear();
+        for &node_idx in &frontier {
+            for &successor_idx in digraph.successors_indices(node_idx).unwrap_or(&[]) {
+                if successor_idx < n && !seen[successor_idx] {
+                    seen[successor_idx] = true;
+                    predecessor.insert(successor_idx, node_idx);
+                    discovery.push(successor_idx);
+                    next.push(successor_idx);
+                }
+            }
+        }
+        std::mem::swap(&mut frontier, &mut next);
+        depth += 1;
+    }
+    (Some(source_idx), discovery, predecessor)
+}
+
 /// br-r37-c1-kk2xh: simple Graph single-source shortest paths stay in
 /// node-index space and emit from a predecessor table, matching the MultiGraph
 /// path emitter without allocating one full path Vec per discovered target.
@@ -6069,7 +6116,7 @@ fn graph_sssp_predecessors_index(
 ) -> (
     Option<usize>,
     Vec<usize>,
-    std::collections::HashMap<usize, usize>,
+    ParentTable,
 ) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
@@ -6078,12 +6125,12 @@ fn graph_sssp_predecessors_index(
     // Both are now paid per REACHED node; `seen` stays dense (one byte a node,
     // probed on every neighbour of every expansion).
     let Some(source_idx) = graph.get_node_index(source) else {
-        return (None, Vec::new(), std::collections::HashMap::new());
+        return (None, Vec::new(), ParentTable::default());
     };
 
     let n = graph.node_count();
     let mut seen = vec![false; n];
-    let mut predecessor: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut predecessor = ParentTable::default();
     let mut discovery = Vec::with_capacity(n);
     let mut frontier = vec![source_idx];
     let mut next = Vec::new();
@@ -6129,7 +6176,7 @@ fn multigraph_sssp_predecessors_index(
 ) -> (
     Option<usize>,
     Vec<usize>,
-    std::collections::HashMap<usize, usize>,
+    ParentTable,
 ) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
@@ -6144,12 +6191,12 @@ fn multigraph_sssp_predecessors_index(
     // MultiGraph already carries that map: get_node_index is an IndexMap lookup,
     // so a neighbour pays the same single hash without the O(V) build in front.
     let Some(source_idx) = mg.get_node_index(source) else {
-        return (None, Vec::new(), std::collections::HashMap::new());
+        return (None, Vec::new(), ParentTable::default());
     };
 
     let n = mg.node_count();
     let mut seen = vec![false; n];
-    let mut predecessor: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut predecessor = ParentTable::default();
     let mut discovery = match cutoff {
         Some(_) => Vec::new(),
         None => Vec::with_capacity(n),
@@ -6206,7 +6253,7 @@ fn multidigraph_sssp_predecessors_index(
 ) -> (
     Option<usize>,
     Vec<usize>,
-    std::collections::HashMap<usize, usize>,
+    ParentTable,
 ) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
@@ -6223,13 +6270,13 @@ fn multidigraph_sssp_predecessors_index(
     // IndexMap lookup, O(1), and indexes the SAME order nodes_ordered() yields,
     // so source_idx is unchanged.
     let Some(source_idx) = mdg.get_node_index(source) else {
-        return (None, Vec::new(), std::collections::HashMap::new());
+        return (None, Vec::new(), ParentTable::default());
     };
 
     let n = mdg.node_count();
     let csr = mdg.csr();
     let mut seen = vec![false; n];
-    let mut predecessor: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut predecessor = ParentTable::default();
     let mut discovery = match cutoff {
         Some(_) => Vec::new(),
         None => Vec::with_capacity(n),
@@ -6271,15 +6318,15 @@ fn emit_paths_dict_discovery_parent_index<'n>(
     source_idx: usize,
     source_obj: PyObject,
     discovery: &[usize],
-    predecessor: &std::collections::HashMap<usize, usize>,
+    predecessor: &ParentTable,
 ) -> PyResult<pyo3::Py<PyDict>> {
     // br-r37-c1-dkwy7: both maps are keyed by node index and hold one entry per
     // DISCOVERED node. They were Vec<Option<..>> sized to the whole graph, so a
     // cutoff-bounded walk that reached three nodes still allocated and None-filled
     // two vectors of node_count. Every index reached below is in `discovery` - a
     // parent is always discovered before its children - so nothing is lost.
-    let mut disp: std::collections::HashMap<usize, PyObject> =
-        std::collections::HashMap::with_capacity(discovery.len());
+    let mut disp: rustc_hash::FxHashMap<usize, PyObject> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(discovery.len(), Default::default());
     disp.insert(source_idx, source_obj.clone_ref(py));
     for &node_idx in discovery {
         if node_idx != source_idx {
@@ -6302,9 +6349,14 @@ fn emit_paths_dict_discovery_parent_index<'n>(
     // predecessor chain through Rust for every target.  This matters most for
     // deep graphs, where the output itself is necessarily quadratic but the
     // temporary Rust stack traversal was an additional full pass over it.
-    let mut path_cache: std::collections::HashMap<usize, Py<PyList>> =
-        std::collections::HashMap::with_capacity(discovery.len());
+    let mut path_cache: rustc_hash::FxHashMap<usize, Bound<'_, PyList>> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(discovery.len(), Default::default());
+    let tail = PyList::new(py, [py.None()])?;
     for &node_idx in discovery {
+        let key = match disp.get(&node_idx) {
+            Some(obj) => obj.clone_ref(py),
+            None => gr.py_node_key(py, name_of(node_idx).unwrap_or_default()),
+        };
         let py_path = if node_idx == source_idx {
             PyList::new(py, [source_obj.clone_ref(py)])?
         } else {
@@ -6314,25 +6366,29 @@ fn emit_paths_dict_discovery_parent_index<'n>(
                     "single_source_shortest_path parent path missing",
                 ));
             };
-            let copied = parent_path
-                .bind(py)
-                .call_method0("copy")?
-                .downcast_into::<PyList>()?;
-            let node_obj = match disp.get(&node_idx) {
-                Some(obj) => obj.clone_ref(py),
-                None => gr.py_node_key(py, name_of(node_idx).unwrap_or_default()),
-            };
-            copied.append(node_obj)?;
-            copied
-        };
-        let key = match disp.get(&node_idx) {
-            Some(obj) => obj.clone_ref(py),
-            None => gr.py_node_key(py, name_of(node_idx).unwrap_or_default()),
+            child_path(&tail, parent_path, key.clone_ref(py))?
         };
         dict.set_item(key, &py_path)?;
-        path_cache.insert(node_idx, py_path.unbind());
+        path_cache.insert(node_idx, py_path);
     }
     Ok(dict.unbind())
+}
+
+/// A child's path list: its parent's list plus the child, one C list
+/// concatenation through a reused one-element operand - networkx's
+/// `paths[v] + [w]`, without a Python method call and with no append slack
+/// (br-r37-c1-lqp4u; the Dijkstra emitter builds its paths the same way).
+fn child_path<'py>(
+    tail: &Bound<'py, PyList>,
+    parent: &Bound<'py, PyList>,
+    child: PyObject,
+) -> PyResult<Bound<'py, PyList>> {
+    tail.set_item(0, child)?;
+    Ok(parent
+        .as_sequence()
+        .concat(tail.as_sequence())?
+        .into_any()
+        .downcast_into::<PyList>()?)
 }
 
 fn emit_paths_dict_uniform_parent_index<'n>(
@@ -6342,7 +6398,7 @@ fn emit_paths_dict_uniform_parent_index<'n>(
     source_idx: usize,
     source_obj: PyObject,
     discovery: &[usize],
-    predecessor: &std::collections::HashMap<usize, usize>,
+    predecessor: &ParentTable,
 ) -> PyResult<pyo3::Py<PyDict>> {
     // br-r37-c1-dkwy7: this built a Python object for EVERY NODE IN THE GRAPH -
     // one gr.py_node_key call per node - and a path cache sized to the graph,
@@ -6352,8 +6408,8 @@ fn emit_paths_dict_uniform_parent_index<'n>(
     // keyed by node index and hold one entry per DISCOVERED node. Every index
     // this needs is in `discovery` - a node's parent is always discovered before
     // it - so nothing is resolved that the walk did not reach.
-    let mut py_nodes: std::collections::HashMap<usize, PyObject> =
-        std::collections::HashMap::with_capacity(discovery.len());
+    let mut py_nodes: rustc_hash::FxHashMap<usize, PyObject> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(discovery.len(), Default::default());
     for &node_idx in discovery {
         let key = if node_idx == source_idx {
             source_obj.clone_ref(py)
@@ -6375,11 +6431,13 @@ fn emit_paths_dict_uniform_parent_index<'n>(
     };
 
     let dict = PyDict::new(py);
-    let mut path_cache: std::collections::HashMap<usize, Py<PyList>> =
-        std::collections::HashMap::with_capacity(discovery.len());
+    let mut path_cache: rustc_hash::FxHashMap<usize, Bound<'_, PyList>> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(discovery.len(), Default::default());
+    let tail = PyList::new(py, [py.None()])?;
     for &node_idx in discovery {
+        let key = node_key(node_idx)?;
         let py_path = if node_idx == source_idx {
-            PyList::new(py, [node_key(source_idx)?])?
+            PyList::new(py, [key.clone_ref(py)])?
         } else {
             let parent_idx = predecessor.get(&node_idx).copied().unwrap_or(usize::MAX);
             let Some(parent_path) = path_cache.get(&parent_idx) else {
@@ -6387,15 +6445,10 @@ fn emit_paths_dict_uniform_parent_index<'n>(
                     "single_source_shortest_path parent path missing",
                 ));
             };
-            let copied = parent_path
-                .bind(py)
-                .call_method0("copy")?
-                .downcast_into::<PyList>()?;
-            copied.append(node_key(node_idx)?)?;
-            copied
+            child_path(&tail, parent_path, key.clone_ref(py))?
         };
-        dict.set_item(node_key(node_idx)?, &py_path)?;
-        path_cache.insert(node_idx, py_path.unbind());
+        dict.set_item(key, &py_path)?;
+        path_cache.insert(node_idx, py_path);
     }
     Ok(dict.unbind())
 }
@@ -6474,14 +6527,7 @@ fn emit_dijkstra_indexed_full<'n>(
             .and_then(|pred| position.get(&pred))
             .map(|&at| &paths[at]);
         let path = match parent_path {
-            Some(parent) => {
-                tail.set_item(0, key.clone_ref(py))?;
-                parent
-                    .as_sequence()
-                    .concat(tail.as_sequence())?
-                    .into_any()
-                    .downcast_into::<PyList>()?
-            }
+            Some(parent) => child_path(&tail, parent, key.clone_ref(py))?,
             None => PyList::new(py, [key.clone_ref(py)])?,
         };
         path_dict.set_item(key, &path)?;
@@ -15518,11 +15564,20 @@ pub fn single_source_shortest_path(
     }
     if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
-        let result = py.allow_threads(|| {
-            fnx_algorithms::single_source_shortest_path_directed(inner, &source_key, cutoff)
-        });
-        let dict =
-            emit_paths_dict_discovery(py, &gr, &result, &source_key, source.clone().unbind())?;
+        let (source_idx, discovery, predecessor) =
+            py.allow_threads(|| digraph_sssp_predecessors_index(inner, &source_key, cutoff));
+        let Some(source_idx) = source_idx else {
+            return Ok(PyDict::new(py).into_any().unbind());
+        };
+        let dict = emit_paths_dict_discovery_parent_index(
+            py,
+            &gr,
+            |i| inner.get_node_name(i),
+            source_idx,
+            source.clone().unbind(),
+            &discovery,
+            &predecessor,
+        )?;
         return Ok(dict.into_any());
     }
     // br-r37-c1-ubizp: MultiGraph builds paths via direct-adjacency BFS instead of
@@ -23055,7 +23110,7 @@ fn multidigraph_single_source_dijkstra(
         .iter()
         .map(|(node_idx, _, _, _)| *node_idx)
         .collect();
-    let predecessors: HashMap<usize, usize> = entries
+    let predecessors: ParentTable = entries
         .iter()
         .filter_map(|(node_idx, _, _, predecessor)| predecessor.map(|parent| (*node_idx, parent)))
         .collect();
