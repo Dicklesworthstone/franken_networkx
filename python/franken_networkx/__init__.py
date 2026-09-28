@@ -58249,13 +58249,31 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
         )
 
     # br-r37-c1-undtriclus: snapshot adjacency + edge weights once.
-    adj_snapshot = {u: set(G[u]) - {u} for u in G}
+    # br-r37-c1-0g2tj follow-up: only the LOCAL universe for nbunch calls - the
+    # queried nodes and their neighbours, whose rows hold every edge the loops
+    # below read (see _directed_weighted_triangles_and_degree_iter_local).
+    if nodes is None:
+        universe = G
+        node_iter = G
+    else:
+        node_iter = list(nodes)
+        universe = dict.fromkeys(node_iter)
+        for node in node_iter:
+            universe.update(dict.fromkeys(G[node]))
+        if 10 * len(universe) >= 9 * len(G):
+            # Nearly every row is needed: one bulk pass reads them cheaper
+            # than a row-by-row walk does.
+            universe = G
+    adj_snapshot = {u: set(G[u]) - {u} for u in universe}
     # Symmetric weight cache for undirected.
     weight_cache = {}
-    for u, v, attrs in G.edges(data=True):
-        w_norm = attrs.get(weight, 1) / max_weight
-        weight_cache[frozenset((u, v))] = w_norm
-    node_iter = G if nodes is None else nodes
+    if universe is G:
+        for u, v, attrs in G.edges(data=True):
+            weight_cache[frozenset((u, v))] = attrs.get(weight, 1) / max_weight
+    else:
+        for u in universe:
+            for v, attrs in G[u].items():
+                weight_cache[frozenset((u, v))] = attrs.get(weight, 1) / max_weight
 
     def normalized_weight(u, v):
         cached = weight_cache.get(frozenset((u, v)))
@@ -58335,12 +58353,39 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
         )
 
     # br-r37-c1-dirclust: snapshot pred/succ + edge-weight dict once.
-    pred_snapshot = {u: set(G.pred[u]) - {u} for u in G}
-    succ_snapshot = {u: set(G.succ[u]) - {u} for u in G}
+    # br-r37-c1-0g2tj follow-up: for nbunch / single-node calls, only the LOCAL
+    # universe (the queried nodes and their predecessors and successors), as
+    # _directed_triangles_and_degree_iter_local does since qnj0n. Every weight
+    # the loops below read is on an edge leaving a node of that universe, so
+    # its successor rows are the whole cache. Snapshotting and caching the
+    # whole graph made weighted clustering(G, node) 0.26-0.37x networkx, whose
+    # only whole-graph pass is the max-weight scan above.
+    if nodes is None:
+        universe = G
+        node_iter = G
+    else:
+        node_iter = list(nodes)
+        universe = dict.fromkeys(node_iter)
+        for node in node_iter:
+            universe.update(dict.fromkeys(G.pred[node]))
+            universe.update(dict.fromkeys(G.succ[node]))
+        if 10 * len(universe) >= 9 * len(G):
+            # Nearly every row is needed: one bulk pass reads them cheaper
+            # than a row-by-row walk does.
+            universe = G
+    pred_snapshot = {u: set(G.pred[u]) - {u} for u in universe}
+    succ_snapshot = {u: set(G.succ[u]) - {u} for u in universe}
     # Directed weight cache: (u, v) ordered tuple.
-    weight_cache = {(u, v): attrs.get(weight, 1) / max_weight
-                    for u, v, attrs in G.edges(data=True)}
-    node_iter = G if nodes is None else nodes
+    if universe is G:
+        weight_cache = {
+            (u, v): attrs.get(weight, 1) / max_weight for u, v, attrs in G.edges(data=True)
+        }
+    else:
+        weight_cache = {
+            (u, v): attrs.get(weight, 1) / max_weight
+            for u in universe
+            for v, attrs in G.succ[u].items()
+        }
 
     def normalized_weight(u, v):
         cached = weight_cache.get((u, v))

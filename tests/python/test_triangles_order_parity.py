@@ -248,3 +248,63 @@ def test_directed_single_node_clustering_does_not_grow_with_the_parent():
             times.append(_directed_best_of(lambda: lib.clustering(g, 1)))
         growth[lib.__name__] = times[1] / times[0]
     assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), growth
+
+
+# br-r37-c1-0g2tj follow-up: WEIGHTED clustering(nodes=) snapshotted every
+# node's rows and cached every edge weight before looking at the queried nodes
+# (0.26-0.37x networkx for one node), where the unweighted path had been
+# local since qnj0n. networkx's only whole-graph pass is the max-weight scan.
+
+
+def _weighted_twins(directed, seed):
+    import random
+
+    rng = random.Random(seed)
+    edges = [
+        (u, v, rng.choice([1, 2, 3, 0.5, 2.5]))
+        for u in range(40)
+        for v in range(40)
+        if u != v and rng.random() < 0.1
+    ]
+    edges += [(v, v, 2) for v in range(0, 40, 9)]
+    graphs = []
+    for lib in (fnx, nx):
+        graph = lib.DiGraph() if directed else lib.Graph()
+        graph.add_nodes_from(range(39, -1, -1))
+        graph.add_weighted_edges_from(edges)
+        graph.add_edges_from([(3, 17), (17, 3), (8, 30)])  # no weight: 1
+        graphs.append(graph)
+    return graphs
+
+
+@needs_nx
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("directed", [False, True])
+def test_weighted_clustering_nbunch_is_the_whole_graph_answer(directed, seed):
+    G, GX = _weighted_twins(directed, seed)
+    full = fnx.clustering(G, weight="weight")
+    subset = [0, 3, 17, 30, 39]
+    local = fnx.clustering(G, subset, weight="weight")
+    # Bit-identical to the whole-graph pass: same rows, same summation order.
+    assert list(local.items()) == [(node, full[node]) for node in subset]
+    for node in subset:
+        assert fnx.clustering(G, node, weight="weight") == full[node]
+    expected = nx.clustering(GX, subset, weight="weight")
+    assert list(local) == list(expected)
+    for node in subset:
+        assert local[node] == pytest.approx(expected[node], rel=1e-12, abs=1e-15)
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_weighted_single_node_clustering_costs_one_max_weight_scan(directed):
+    """Judged against fnx's own max-weight scan over the same graph, which host
+    load moves the same way; the whole-graph snapshot cost ~5x the scan."""
+    g = fnx.DiGraph() if directed else fnx.Graph()
+    g.add_edges_from([(i, i + 1, {"weight": 1 + i % 3}) for i in range(9)])
+    g.add_edges_from([(2, 0, {"weight": 2}), (5, 3, {"weight": 1})])
+    g.add_edges_from((100 + i, 100 + (i + 1) % 12800, {"weight": 1}) for i in range(12800))
+    scan = _directed_best_of(
+        lambda: max(attrs.get("weight", 1) for _, _, attrs in g.edges(data=True)), reps=5
+    )
+    call = _directed_best_of(lambda: fnx.clustering(g, 1, weight="weight"), reps=5)
+    assert call < 2.0 * scan, (call, scan)
