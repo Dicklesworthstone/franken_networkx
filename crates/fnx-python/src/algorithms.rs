@@ -6405,10 +6405,58 @@ fn emit_paths_dict_uniform_parent_index<'n>(
     Ok(dict.unbind())
 }
 
+/// br-r37-c1-0g2tj: a distance with networkx's type - an int when it is a sum
+/// of int / bool weights (the gate keeps those sums exact), else a float. An
+/// i128 PyInt is built from two PyLongs and a shift (~190 Ir a node on a 32k
+/// ring), so the i64 range, which holds every such sum, goes straight through.
+fn py_distance(py: Python<'_>, distance: f64, all_int: bool) -> PyResult<PyObject> {
+    if all_int && distance.is_finite() && distance.fract() == 0.0 {
+        if (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&distance) {
+            return Ok(PyInt::new(py, distance as i64).into_any().unbind());
+        }
+        if distance >= i128::MIN as f64 && distance <= i128::MAX as f64 {
+            return Ok(PyInt::new(py, distance as i128).into_any().unbind());
+        }
+    }
+    Ok(distance.into_pyobject(py)?.into_any().unbind())
+}
+
+/// The display object of a node a Dijkstra search settled: the source as
+/// passed, else the row object its final predecessor reached it through.
+fn dijkstra_settled_key<'n>(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    name: &impl Fn(u32) -> PyResult<&'n str>,
+    result: &fnx_algorithms::IndexedDijkstraFull,
+    source_obj: &PyObject,
+    node: u32,
+    pred: u32,
+) -> PyResult<PyObject> {
+    Ok(if node as usize == result.source_idx {
+        source_obj.clone_ref(py)
+    } else if pred == u32::MAX {
+        gr.py_node_key(py, name(node)?)
+    } else {
+        gr.py_row_key(py, name(pred)?, name(node)?)
+    })
+}
+
+fn settled_name<'n>(
+    name: impl Fn(u32) -> Option<&'n str>,
+) -> impl Fn(u32) -> PyResult<&'n str> {
+    move |idx: u32| {
+        name(idx).ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("single_source_dijkstra node index missing")
+        })
+    }
+}
+
 /// br-r37-c1-qnj0n: sized to what the search SETTLED, with names resolved per
 /// node - no whole-graph name table or V-sized display array. A node's final
-/// predecessor settles first, so its display object and path already exist:
-/// each path is its predecessor's plus the node, as networkx builds it.
+/// predecessor settles first, so its display object and path already exist.
+/// br-r37-c1-0g2tj: each path is its predecessor's list plus the node, one C
+/// list concatenation, as networkx builds it - walking the predecessor chain
+/// back per node cost 1.7x networkx on long paths (a 32k ring).
 fn emit_dijkstra_indexed_full<'n>(
     py: Python<'_>,
     gr: &GraphRef<'_>,
@@ -6416,61 +6464,61 @@ fn emit_dijkstra_indexed_full<'n>(
     result: &fnx_algorithms::IndexedDijkstraFull,
     source_obj: PyObject,
 ) -> PyResult<(PyObject, PyObject)> {
-    let name = |idx: u32| {
-        name(idx).ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err("single_source_dijkstra node index missing")
-        })
-    };
+    let name = settled_name(name);
     let settled = result.settled.len();
     let mut position: rustc_hash::FxHashMap<u32, usize> =
         rustc_hash::FxHashMap::with_capacity_and_hasher(settled, Default::default());
-    // Per settle position: the display object, and the settle position of the
-    // parent (usize::MAX for the source) - a path is walked back through these
-    // and emitted as one list of its final size.
-    let mut keys: Vec<PyObject> = Vec::with_capacity(settled);
-    let mut parent_at: Vec<usize> = Vec::with_capacity(settled);
-    let mut chain: Vec<PyObject> = Vec::new();
+    // Per settle position: the node's path list.
+    let mut paths: Vec<Bound<'_, PyList>> = Vec::with_capacity(settled);
+    // One reused [node] operand: a fresh one per node doubled the GC-tracked
+    // allocations, which cost more than the copy on short (small-world) paths.
+    let tail = PyList::new(py, [py.None()])?;
     let dist_dict = PyDict::new(py);
     let path_dict = PyDict::new(py);
     for &(node, distance, all_int, pred) in &result.settled {
-        let parent = if node as usize == result.source_idx || pred == u32::MAX {
-            None
-        } else {
-            Some(pred)
+        let key = dijkstra_settled_key(py, gr, &name, result, &source_obj, node, pred)?;
+        dist_dict.set_item(key.clone_ref(py), py_distance(py, distance, all_int)?)?;
+        let parent_path = (node as usize != result.source_idx && pred != u32::MAX)
+            .then(|| position.get(&pred))
+            .flatten()
+            .map(|&at| &paths[at]);
+        let path = match parent_path {
+            Some(parent) => {
+                tail.set_item(0, key.clone_ref(py))?;
+                parent
+                    .as_sequence()
+                    .concat(tail.as_sequence())?
+                    .into_any()
+                    .downcast_into::<PyList>()?
+            }
+            None => PyList::new(py, [key.clone_ref(py)])?,
         };
-        let key = match parent {
-            _ if node as usize == result.source_idx => source_obj.clone_ref(py),
-            Some(pred) => gr.py_row_key(py, name(pred)?, name(node)?),
-            None => gr.py_node_key(py, name(node)?),
-        };
-        if all_int
-            && distance.is_finite()
-            && distance.fract() == 0.0
-            && distance >= i128::MIN as f64
-            && distance <= i128::MAX as f64
-        {
-            dist_dict.set_item(key.clone_ref(py), PyInt::new(py, distance as i128))?;
-        } else {
-            dist_dict.set_item(key.clone_ref(py), distance)?;
-        }
-        let parent_position = parent
-            .and_then(|pred| position.get(&pred).copied())
-            .unwrap_or(usize::MAX);
-        chain.clear();
-        chain.push(key.clone_ref(py));
-        let mut at = parent_position;
-        while at != usize::MAX {
-            chain.push(keys[at].clone_ref(py));
-            at = parent_at[at];
-        }
-        chain.reverse();
-        path_dict.set_item(key.clone_ref(py), PyList::new(py, chain.drain(..))?)?;
-        position.insert(node, keys.len());
-        keys.push(key);
-        parent_at.push(parent_position);
+        path_dict.set_item(key, &path)?;
+        position.insert(node, paths.len());
+        paths.push(path);
     }
 
     Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
+}
+
+/// The distances half of [`emit_dijkstra_indexed_full`], for the length-only
+/// call: no path lists, and no String per node (br-r37-c1-0g2tj - the owned
+/// names and String-keyed display map it replaces were ~40% of a whole-ring
+/// single_source_dijkstra_path_length).
+fn emit_dijkstra_indexed_lengths<'n>(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    name: impl Fn(u32) -> Option<&'n str>,
+    result: &fnx_algorithms::IndexedDijkstraFull,
+    source_obj: PyObject,
+) -> PyResult<PyObject> {
+    let name = settled_name(name);
+    let dist_dict = PyDict::new(py);
+    for &(node, distance, all_int, pred) in &result.settled {
+        let key = dijkstra_settled_key(py, gr, &name, result, &source_obj, node, pred)?;
+        dist_dict.set_item(key, py_distance(py, distance, all_int)?)?;
+    }
+    Ok(dist_dict.into_any().unbind())
 }
 
 /// br-r37-c1-ddw4l: unweighted single-pair distance over a MultiGraph by a
@@ -22021,16 +22069,7 @@ fn dijkstra_path_length(
         check_expanded_weight_rows(py, &gr, rows, weight, false)?;
     }
     match result {
-        Some((d, all_int))
-            if all_int
-                && d.is_finite()
-                && d.fract() == 0.0
-                && d >= i128::MIN as f64
-                && d <= i128::MAX as f64 =>
-        {
-            Ok(PyInt::new(py, d as i128).into_any().unbind())
-        }
-        Some((d, _)) => Ok(d.into_pyobject(py)?.into_any().unbind()),
+        Some((d, all_int)) => py_distance(py, d, all_int),
         None => Err(NetworkXNoPath::new_err(format!(
             "No path between {} and {}.",
             s, t
@@ -22875,17 +22914,8 @@ fn multidigraph_dijkstra_path_length_target(
         }
     };
     match result {
-        MultiDiDijkstraTargetLength::Distance { distance, all_int }
-            if all_int
-                && distance.is_finite()
-                && distance.fract() == 0.0
-                && distance >= i128::MIN as f64
-                && distance <= i128::MAX as f64 =>
-        {
-            Ok(Some(PyInt::new(py, distance as i128).into_any().unbind()))
-        }
-        MultiDiDijkstraTargetLength::Distance { distance, .. } => {
-            Ok(Some(distance.into_pyobject(py)?.into_any().unbind()))
+        MultiDiDijkstraTargetLength::Distance { distance, all_int } => {
+            Ok(Some(py_distance(py, distance, all_int)?))
         }
         MultiDiDijkstraTargetLength::NoPath => Err(NetworkXNoPath::new_err(format!(
             "No path between {} and {}.",
@@ -22940,16 +22970,7 @@ fn multidigraph_single_source_dijkstra_path_length(
     for (node_idx, distance, all_int, _) in &entries {
         let node = nodes[*node_idx];
         let key = gr.disp_or_node_key(py, &disp, node);
-        if *all_int
-            && distance.is_finite()
-            && distance.fract() == 0.0
-            && *distance >= i128::MIN as f64
-            && *distance <= i128::MAX as f64
-        {
-            dict.set_item(key, PyInt::new(py, *distance as i128))?;
-        } else {
-            dict.set_item(key, distance)?;
-        }
+        dict.set_item(key, py_distance(py, *distance, *all_int)?)?;
     }
     Ok(Some(dict.into_any().unbind()))
 }
@@ -23031,16 +23052,7 @@ fn multidigraph_single_source_dijkstra(
     for (node_idx, distance, all_int, _) in &entries {
         let node = nodes[*node_idx];
         let key = gr.disp_or_node_key(py, &display, node);
-        if *all_int
-            && distance.is_finite()
-            && distance.fract() == 0.0
-            && *distance >= i128::MIN as f64
-            && *distance <= i128::MAX as f64
-        {
-            distances.set_item(key, PyInt::new(py, *distance as i128))?;
-        } else {
-            distances.set_item(key, distance)?;
-        }
+        distances.set_item(key, py_distance(py, *distance, *all_int)?)?;
     }
 
     Ok(Some((distances.into_any().unbind(), paths.into_any())))
@@ -23253,56 +23265,45 @@ fn single_source_dijkstra_path_length(
     let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    // br-r37-c1-d58s8 scoreboard fix: length-only queries no longer
-    // build full path Vecs — the with_pred kernels give the finalizing
-    // PREDECESSOR (== path[-2], the discovery-object parent) alongside
-    // finalize-ordered distances.
-    let (entries, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
-    {
+    // br-r37-c1-d58s8: length-only queries build no path lists - each settled
+    // node carries its finalizing PREDECESSOR (the discovery-object parent).
+    // br-r37-c1-0g2tj: in index space to the end, as single_source_dijkstra
+    // emits (the String-named kernel output and display map cost ~40% of a
+    // whole-ring call).
+    if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
+        let (result, rows) = py.allow_threads(|| {
             run_recording_rows(row_limit, || {
-                fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred_directed(
+                fnx_algorithms::single_source_dijkstra_indexed_full_directed(
                     __wp, &s, weight, cutoff,
                 )
             })
-        })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let Some(result) = result else {
+            return Ok(PyDict::new(py).into_any().unbind());
+        };
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        emit_dijkstra_indexed_lengths(py, &gr, name, &result, source.clone().unbind())
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
+        let (result, rows) = py.allow_threads(|| {
             run_recording_rows(row_limit, || {
-                fnx_algorithms::single_source_dijkstra_path_length_typed_with_pred(
-                    __wp, &s, weight, cutoff,
-                )
+                fnx_algorithms::single_source_dijkstra_indexed_full(__wp, &s, weight, cutoff)
             })
-        })
-    };
-    if check_rows {
-        check_expanded_weight_rows(py, &gr, rows, weight, false)?;
-    }
-    let mut disp = display_map_with_capacity(entries.len() + 1);
-    disp.insert(s.clone(), source.clone().unbind());
-    for (node, _, _, pred) in &entries {
-        if let Some(p) = pred {
-            disp.insert(node.clone(), gr.py_row_key(py, p, node));
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
         }
+        let Some(result) = result else {
+            return Ok(PyDict::new(py).into_any().unbind());
+        };
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        emit_dijkstra_indexed_lengths(py, &gr, name, &result, source.clone().unbind())
     }
-    let dict = PyDict::new(py);
-    for (node, d, all_int, _) in &entries {
-        let key = gr.disp_or_node_key(py, &disp, node);
-        if *all_int
-            && d.is_finite()
-            && d.fract() == 0.0
-            && *d >= i128::MIN as f64
-            && *d <= i128::MAX as f64
-        {
-            dict.set_item(key, PyInt::new(py, *d as i128))?;
-        } else {
-            dict.set_item(key, d)?;
-        }
-    }
-    Ok(dict.into_any().unbind())
 }
 
 /// Return weighted distances to a target in a directed graph using reverse Dijkstra.
@@ -23338,16 +23339,7 @@ fn single_target_dijkstra_path_length(
     let dict = PyDict::new(py);
     for (node, d, all_int, _) in &entries {
         let key = gr.disp_or_node_key(py, &disp, node);
-        if *all_int
-            && d.is_finite()
-            && d.fract() == 0.0
-            && *d >= i128::MIN as f64
-            && *d <= i128::MAX as f64
-        {
-            dict.set_item(key, PyInt::new(py, *d as i128))?;
-        } else {
-            dict.set_item(key, d)?;
-        }
+        dict.set_item(key, py_distance(py, *d, *all_int)?)?;
     }
     Ok(dict.into_any().unbind())
 }
@@ -23403,16 +23395,7 @@ fn dijkstra_predecessor_and_distance(
     let dist_dict = PyDict::new(py);
     for (node, distance, all_int) in &distances {
         let key = gr.disp_or_node_key(py, &disp, node);
-        if *all_int
-            && distance.is_finite()
-            && distance.fract() == 0.0
-            && *distance >= i128::MIN as f64
-            && *distance <= i128::MAX as f64
-        {
-            dist_dict.set_item(key, PyInt::new(py, *distance as i128))?;
-        } else {
-            dist_dict.set_item(key, distance)?;
-        }
+        dist_dict.set_item(key, py_distance(py, *distance, *all_int)?)?;
     }
 
     Ok((pred_dict.into_any().unbind(), dist_dict.into_any().unbind()))
@@ -23949,16 +23932,7 @@ fn all_pairs_dijkstra_path_length(
             } else {
                 gr.py_row_key(py, &nodes[predecessor as usize], &nodes[target])
             };
-            if all_int
-                && distance.is_finite()
-                && distance.fract() == 0.0
-                && distance >= i128::MIN as f64
-                && distance <= i128::MAX as f64
-            {
-                inner_dict.set_item(display_key, PyInt::new(py, distance as i128))?;
-            } else {
-                inner_dict.set_item(display_key, distance)?;
-            }
+            inner_dict.set_item(display_key, py_distance(py, distance, all_int)?)?;
         }
         outer_dict.set_item(gr.py_node_key(py, &nodes[source_idx]), inner_dict)?;
     }

@@ -555,3 +555,61 @@ def test_row_checks_per_revision_are_bounded_then_the_scan_is_cached():
     graph.add_edge(20, 21)
     assert fnx.dijkstra_path(graph, 0, 5) == [0, 1, 2, 3, 4, 5]
     assert vars(graph)["_fnx_weight_row_checks"][1] == 1
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-0g2tj: whole-graph emitters on long-path shapes
+# ---------------------------------------------------------------------------
+# On a ring or a grid every path is long and shares its prefix with its
+# predecessor's, which is where the emitters lost to networkx (0.58-0.72x on a
+# 32k ring). single_source_dijkstra builds each path as its predecessor's list
+# plus the node, and the length call emits from index space; both must keep
+# networkx's dict order, int / float types, and independent path lists.
+
+
+def _long_path_shapes(lib):
+    ring = lib.Graph()
+    ring.add_weighted_edges_from((i, (i + 1) % 300, 1 + i % 3) for i in range(300))
+    ring_float = lib.Graph()
+    ring_float.add_weighted_edges_from((i, (i + 1) % 200, 0.5 + i % 2) for i in range(200))
+    grid = lib.Graph()
+    for r in range(15):
+        for c in range(15):
+            if c < 14:
+                grid.add_edge((r, c), (r, c + 1), weight=1 + (r + c) % 3)
+            if r < 14:
+                grid.add_edge((r, c), (r + 1, c), weight=1 + (r * c) % 2)
+    # int distances up to 2**51 - native (the gate routes a graph whose int
+    # weights sum past 2**53 to networkx) and past any 32-bit shortcut.
+    chain = lib.DiGraph()
+    chain.add_weighted_edges_from((i, i + 1, 2**49) for i in range(4))
+    chain.add_edge(0, 4, weight=2**51 + 1)
+    return {"ring": (ring, 0), "ring_float": (ring_float, 7), "grid": (grid, (0, 0)), "big_ints": (chain, 0)}
+
+
+def _typed(mapping):
+    return [(k, type(v).__name__, v) for k, v in mapping.items()]
+
+
+@pytest.mark.parametrize("shape", ["ring", "ring_float", "grid", "big_ints"])
+@pytest.mark.parametrize("cutoff", [None, 5])
+def test_long_path_single_source_dijkstra_matches_networkx(shape, cutoff):
+    fg, fs = _long_path_shapes(fnx)[shape]
+    ng, ns = _long_path_shapes(nx)[shape]
+    fd, fp = fnx.single_source_dijkstra(fg, fs, cutoff=cutoff)
+    nd, np_ = nx.single_source_dijkstra(ng, ns, cutoff=cutoff)
+    assert _typed(fd) == _typed(nd)
+    assert list(fp.items()) == list(np_.items())
+    assert _typed(fnx.single_source_dijkstra_path_length(fg, fs, cutoff=cutoff)) == _typed(
+        nx.single_source_dijkstra_path_length(ng, ns, cutoff=cutoff)
+    )
+
+
+def test_single_source_dijkstra_paths_are_independent_lists():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from((i, i + 1, 1) for i in range(6))
+    _, paths = fnx.single_source_dijkstra(graph, 0)
+    assert len({id(path) for path in paths.values()}) == len(paths)
+    paths[3].append("x")
+    assert paths[4] == [0, 1, 2, 3, 4]
+    assert paths[2] == [0, 1, 2]
