@@ -465,8 +465,20 @@ def bellman_ford_path(
     g: Graph, source: Any, target: Any, weight: str = "weight", check_rows: bool = False
 ) -> list[Any]: ...
 def multi_source_dijkstra(
-    g: Graph, sources: Any, weight: str = "weight"
+    g: Graph,
+    sources: Any,
+    weight: str = "weight",
+    cutoff: Optional[float] = None,
+    target: Any = None,
+    check_rows: bool = False,
 ) -> tuple[dict[Any, float], dict[Any, list[Any]]]: ...
+def multi_source_dijkstra_path_length(
+    g: Graph,
+    sources: Any,
+    weight: str = "weight",
+    cutoff: Optional[float] = None,
+    check_rows: bool = False,
+) -> dict[Any, float]: ...
 
 # ---------------------------------------------------------------------------
 # Algorithm functions — connectivity

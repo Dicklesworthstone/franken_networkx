@@ -42128,13 +42128,56 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
         raise ValueError("sources must not be empty")
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-msd-projfix (cc): the native binding now syncs + runs on the
-    # BORROWED ORIGINAL graph (correct adjacency = nx's finalize order, even on
-    # dense graphs) instead of the rebuilt dijkstra projection, so INTEGER-weight
-    # graphs no longer need delegation — the existing non-delegated path below
-    # (raw binding + int-coerce + reorder + cutoff/target) is byte-exact and far
-    # cheaper than the O(V+E) nx conversion. Float/mixed weights still delegate
-    # (per-node int-typing); so do callable / negative / sync-gated weights.
+    # br-r37-c1-m0cj7: a simple graph runs networkx's search natively - cutoff
+    # and target inside the search, distances typed and paths built as
+    # networkx's are, weights checked on the rows it reads after a write. It
+    # used to run an UNBOUNDED whole-graph search and filter, re-type and
+    # re-sort the result in Python (87 us beside a 32k ring for cutoff=2), and
+    # sent every float-weighted graph to networkx.
+    if (
+        not G.is_multigraph()
+        and isinstance(weight, str)
+        and (
+            cutoff is None
+            or type(cutoff) is float
+            or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
+        )
+    ):
+        route = _dijkstra_weight_route(G, weight)
+        if route != "networkx" and not _binding_self_syncs_gate(G, weight):
+            for s in sources:
+                if s not in G:
+                    raise NodeNotFound(f"Node {s} not found in graph")
+            if target in sources:
+                return (0, [target])
+            try:
+                dists, paths = _raw_multi_source_dijkstra(
+                    G,
+                    sources,
+                    weight=weight,
+                    cutoff=cutoff,
+                    target=target,
+                    check_rows=route == "rows",
+                )
+            except _WeightRowsUnverified:
+                dists = None
+            if dists is None:
+                return _rerun_with_weight_scan(
+                    multi_source_dijkstra, G, sources, target=target, cutoff=cutoff, weight=weight
+                )
+            if target is None:
+                return dists, paths
+            if target not in dists:
+                raise NetworkXNoPath(f"No path to {target}.")
+            # networkx walks the predecessors back from the target object it
+            # was given.
+            path = paths[target]
+            path[-1] = target
+            return dists[target], path
+    # br-r37-c1-msd-projfix (cc): multigraphs and the rest keep the raw binding
+    # on the BORROWED ORIGINAL graph (nx's finalize order) with the Python
+    # cutoff filter and int-typing below; float/mixed, callable, negative and
+    # sync-gated weights delegate.
     if (
         callable(weight)
         or _should_delegate_dijkstra_to_networkx(G, weight)
@@ -42239,29 +42282,35 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     if not sources:
         raise ValueError("sources must not be empty")
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-msd-projfix (cc): the weighted path delegated the whole call to
-    # nx (the _mst_has_weight_edge_attr gate -> O(V+E) conversion every call,
-    # ~0.20x). The native length-only binding now runs the kernel on the BORROWED
-    # ORIGINAL graph (after syncing the mirror) rather than the rebuilt dijkstra
-    # projection — so its finalize order is byte-identical to nx's heap-pop order
-    # even on DENSE tie-heavy graphs (the rebuilt projection reordered adjacency,
-    # the old blocker). For INTEGER weights the distance VALUES, TYPES (after
-    # int-coerce) AND dict ORDER all match the delegated result. Float/mixed
-    # weights keep the delegated path (per-node int-typing needs the path); so do
-    # callable / negative / sync-gated weights, multigraphs, and cutoff.
+    # br-r37-c1-msd-projfix (cc): the native length-only binding runs on the
+    # BORROWED ORIGINAL graph (after syncing the mirror), so its settle order is
+    # networkx's heap-pop order even on dense tie-heavy graphs.
+    # br-r37-c1-m0cj7: it now types distances as networkx does (per path) and
+    # applies cutoff inside the search, so float / mixed weights and a cutoff
+    # stay native too; after a write it checks the rows it read.
     if (
-        cutoff is None
-        and isinstance(weight, str)
+        isinstance(weight, str)
         and type(G) in (Graph, DiGraph)
-        and not _should_delegate_dijkstra_to_networkx(G, weight)
-        and not _binding_self_syncs_gate(G, weight)
-        and _sp_edge_weights_all_int(G, weight)
+        and (
+            cutoff is None
+            or type(cutoff) is float
+            or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
+        )
     ):
-        for s in sources:
-            if s not in G:
-                raise NodeNotFound(f"Node {s} not found in graph")
-        dists = _fnx.multi_source_dijkstra_path_length(G, sources, weight=weight)
-        return _sp_coerce_dist_to_int(dists)
+        route = _dijkstra_weight_route(G, weight)
+        if route != "networkx" and not _binding_self_syncs_gate(G, weight):
+            for s in sources:
+                if s not in G:
+                    raise NodeNotFound(f"Node {s} not found in graph")
+            try:
+                return _fnx.multi_source_dijkstra_path_length(
+                    G, sources, weight=weight, cutoff=cutoff, check_rows=route == "rows"
+                )
+            except _WeightRowsUnverified:
+                pass
+            return _rerun_with_weight_scan(
+                multi_source_dijkstra_path_length, G, sources, cutoff=cutoff, weight=weight
+            )
     dists, _ = multi_source_dijkstra(G, sources, cutoff=cutoff, weight=weight)
     return dists
 

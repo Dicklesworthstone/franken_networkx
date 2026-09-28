@@ -1004,6 +1004,24 @@ _QNJ0N_CALLS = {
         lambda m, g: m.single_source_bellman_ford_path_length(g, 0),
     ),
     "bellman_ford_path_dir": (True, lambda m, g: m.bellman_ford_path(g, 0, 5)),
+    # br-r37-c1-m0cj7: the multi-source kernel allocated for the whole graph
+    # and ran unbounded, the cutoff applied afterwards in Python.
+    "multi_source_dijkstra_cutoff": (
+        False,
+        lambda m, g: m.multi_source_dijkstra(g, [0, 1], cutoff=2),
+    ),
+    "multi_source_dijkstra_cutoff_dir": (
+        True,
+        lambda m, g: m.multi_source_dijkstra(g, [0, 1], cutoff=2),
+    ),
+    "multi_source_dijkstra_path_length": (
+        False,
+        lambda m, g: m.multi_source_dijkstra_path_length(g, [0, 1], cutoff=2),
+    ),
+    "multi_source_dijkstra_path_length_dir": (
+        True,
+        lambda m, g: m.multi_source_dijkstra_path_length(g, [0, 1], cutoff=2),
+    ),
 }
 
 
@@ -1141,6 +1159,8 @@ _WEIGHTED_AFTER_A_WRITE = {
     "bellman_ford_path": lambda m, g: m.bellman_ford_path(g, 0, 5),
     "bellman_ford_path_length": lambda m, g: m.bellman_ford_path_length(g, 0, 5),
     "shortest_path_weighted": lambda m, g: m.shortest_path(g, 0, 5, weight="weight"),
+    "multi_source_dijkstra_cutoff": lambda m, g: m.multi_source_dijkstra(g, [0, 1], cutoff=2),
+    "multi_source_dijkstra_target": lambda m, g: m.multi_source_dijkstra(g, [0, 1], target=5),
 }
 
 

@@ -5449,161 +5449,156 @@ pub fn multi_source_nearest_source(
     Ok(out.unbind())
 }
 
+/// The positions of `sources` in the kernel's graph, in iteration order, and
+/// each source's object as PASSED, keyed by position (br-r37-c1-7hsew: networkx
+/// seeds `{source: [source] for source in sources}`, so a repeated source
+/// keeps its first object, and iterating the caller's container in-process
+/// gives networkx's exact seed order at any hash seed).
+fn multi_source_seeds(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    sources: &Bound<'_, PyAny>,
+    position_of: impl Fn(&str) -> Option<usize>,
+) -> PyResult<(Vec<usize>, rustc_hash::FxHashMap<u32, PyObject>)> {
+    let mut positions = Vec::new();
+    let mut passed: rustc_hash::FxHashMap<u32, PyObject> = rustc_hash::FxHashMap::default();
+    for item in pyo3::types::PyIterator::from_object(sources)? {
+        let item = item?;
+        let name = node_key_to_string(py, &item)?;
+        validate_node_str(gr, &name, "Source")?;
+        let Some(position) = position_of(&name) else {
+            continue;
+        };
+        passed
+            .entry(u32::try_from(position).unwrap_or(u32::MAX))
+            .or_insert_with(|| item.unbind());
+        positions.push(position);
+    }
+    Ok((positions, passed))
+}
+
+/// br-r37-c1-m0cj7: networkx's multi_source_dijkstra in index space - every
+/// source at distance 0 in iteration order, `cutoff` applied during the search
+/// (the wrapper used to filter an UNBOUNDED search's dicts in Python), the
+/// search ending once `target` settles, distances typed as networkx types them
+/// and paths built as its own are. The String-named kernel this replaces
+/// allocated for the whole graph: multi_source_dijkstra({0, 1}, cutoff=2)
+/// beside a 32k ring cost 87 us where networkx takes 4.5 us.
 #[pyfunction]
-#[pyo3(signature = (g, sources, weight="weight"))]
+#[pyo3(signature = (g, sources, weight="weight", cutoff=None, target=None, check_rows=false))]
 pub fn multi_source_dijkstra(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     sources: &Bound<'_, PyAny>,
     weight: &str,
+    cutoff: Option<f64>,
+    target: Option<&Bound<'_, PyAny>>,
+    check_rows: bool,
 ) -> PyResult<(PyObject, PyObject)> {
     // br-r37-c1-msd-projfix (cc): sync the Python edge-attr mirror to the store
-    // (for simple graphs too) and run the kernel on the BORROWED ORIGINAL graph
-    // (`weighted_*_projection`) rather than the REBUILT `dijkstra_*_projection`,
-    // whose adjacency-reordering rebuild made the finalize order diverge from nx
-    // on dense graphs (see multi_source_dijkstra_path_length resolution). The
-    // borrow also drops the per-call O(E) rebuild. Identical to how
-    // single_source_dijkstra binds.
+    // and run the kernel on the BORROWED ORIGINAL graph (`weighted_*_projection`),
+    // whose adjacency order is networkx's - the rebuilt dijkstra projection
+    // reordered rows and with them the settle order on dense graphs.
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
-    let iter = pyo3::types::PyIterator::from_object(sources)?;
-    let mut source_strs = Vec::new();
-    // br-r37-c1-7hsew: keep the PASSED source objects — nx seeds
-    // `{source: [source] for source in sources}`, so sources display AS
-    // PASSED (iterating the caller's set object in-process also gives
-    // nx's exact seed order at any hash seed).
-    let mut seed_objs = DisplayMap::default();
-    for item in iter {
-        let item = item?;
-        let s = node_key_to_string(py, &item)?;
-        validate_node_str(&gr, &s, "Source")?;
-        seed_objs.entry(s.clone()).or_insert_with(|| item.unbind());
-        source_strs.push(s);
-    }
-    let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
-
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
-                fnx_algorithms::multi_source_dijkstra_directed(__wp, &source_refs, weight)
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
+    let target = target.map(|t| node_key_to_string(py, t)).transpose()?;
+    if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        let (positions, passed) =
+            multi_source_seeds(py, &gr, sources, |name| __wp.get_node_index(name))?;
+        let stop = target.as_deref().and_then(|t| __wp.get_node_index(t));
+        let (settled, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::multi_source_dijkstra_indexed_directed(
+                    __wp, &positions, stop, weight, cutoff,
+                )
             })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
         }
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        emit_dijkstra_indexed_full(py, &gr, name, &settled, |node: u32| {
+            passed.get(&node).map(|obj| obj.clone_ref(py))
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| fnx_algorithms::multi_source_dijkstra(__wp, &source_refs, weight))
+        let __wp = weighted_projection.as_ref();
+        let (positions, passed) =
+            multi_source_seeds(py, &gr, sources, |name| __wp.get_node_index(name))?;
+        let stop = target.as_deref().and_then(|t| __wp.get_node_index(t));
+        let (settled, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::multi_source_dijkstra_indexed(
+                    __wp, &positions, stop, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
         }
-    };
-
-    let pred_map: std::collections::HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-        .collect();
-
-    // br-r37-c1-7hsew: discovery objects — seeds as passed, every other
-    // node as its finalizing predecessor's row object.
-    let mut disp: DisplayMap = seed_objs;
-    for entry in &result.distances {
-        if let Some(Some(p)) = pred_map.get(entry.node.as_str()) {
-            disp.entry(entry.node.clone())
-                .or_insert_with(|| gr.py_row_key(py, p, &entry.node));
-        }
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        emit_dijkstra_indexed_full(py, &gr, name, &settled, |node: u32| {
+            passed.get(&node).map(|obj| obj.clone_ref(py))
+        })
     }
-
-    let dist_dict = PyDict::new(py);
-    for entry in &result.distances {
-        dist_dict.set_item(gr.disp_or_node_key(py, &disp, &entry.node), entry.distance)?;
-    }
-
-    let paths_dict = PyDict::new(py);
-    for entry in &result.distances {
-        let mut path = vec![entry.node.clone()];
-        let mut current = entry.node.as_str();
-        while let Some(Some(prev)) = pred_map.get(current) {
-            path.push((*prev).to_owned());
-            current = prev;
-        }
-        path.reverse();
-        let py_path: Vec<PyObject> = path
-            .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
-            .collect();
-        paths_dict.set_item(gr.disp_or_node_key(py, &disp, &entry.node), py_path)?;
-    }
-
-    Ok((
-        dist_dict.into_any().unbind(),
-        paths_dict.into_any().unbind(),
-    ))
 }
 
-/// Length-only multi-source Dijkstra: returns just `{node: distance}` in the
-/// kernel's FINALIZE (heap-pop) order, skipping the O(V*path_len) `paths_dict`.
-///
-/// CRITICAL (br-r37-c1-msd-projfix cc): unlike `multi_source_dijkstra`, this
-/// syncs the Python edge-attr mirror to the store and runs the kernel on the
-/// BORROWED ORIGINAL graph (`weighted_*_projection`) — NOT the REBUILT
-/// `dijkstra_*_projection`, whose `dijkstra_single_weight_graph_projection`
-/// rebuild REORDERS per-node adjacency, which shifts the heap push-sequence and
-/// makes the finalize order diverge from NetworkX on DENSE tie-heavy graphs
-/// (the single_source kernel is correct precisely because it sync+borrows the
-/// original). With the original adjacency the finalize order is byte-identical
-/// to nx's `(distance, next(c))` pop order. The Python wrapper gates to integer
-/// weights (float/mixed keep the delegated path for per-node int-typing).
+/// Length-only multi-source Dijkstra: `{node: distance}` in settle (heap-pop)
+/// order, networkx's, with no path lists - see [`multi_source_dijkstra`] for
+/// the search, the typing and the borrowed-original-graph requirement.
 #[pyfunction]
-#[pyo3(signature = (g, sources, weight="weight"))]
+#[pyo3(signature = (g, sources, weight="weight", cutoff=None, check_rows=false))]
 pub fn multi_source_dijkstra_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     sources: &Bound<'_, PyAny>,
     weight: &str,
+    cutoff: Option<f64>,
+    check_rows: bool,
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
-    let iter = pyo3::types::PyIterator::from_object(sources)?;
-    let mut source_strs = Vec::new();
-    let mut seed_objs = DisplayMap::default();
-    for item in iter {
-        let item = item?;
-        let s = node_key_to_string(py, &item)?;
-        validate_node_str(&gr, &s, "Source")?;
-        seed_objs.entry(s.clone()).or_insert_with(|| item.unbind());
-        source_strs.push(s);
-    }
-    let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
-
-    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
+    if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::multi_source_dijkstra_directed(__wp, &source_refs, weight)
+        let (positions, passed) =
+            multi_source_seeds(py, &gr, sources, |name| __wp.get_node_index(name))?;
+        let (settled, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::multi_source_dijkstra_indexed_directed(
+                    __wp, &positions, None, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        emit_dijkstra_indexed_lengths(py, &gr, name, &settled, |node: u32| {
+            passed.get(&node).map(|obj| obj.clone_ref(py))
         })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::multi_source_dijkstra(__wp, &source_refs, weight))
-    };
-
-    let pred_map: std::collections::HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-        .collect();
-    let mut disp: DisplayMap = seed_objs;
-    for entry in &result.distances {
-        if let Some(Some(p)) = pred_map.get(entry.node.as_str()) {
-            disp.entry(entry.node.clone())
-                .or_insert_with(|| gr.py_row_key(py, p, &entry.node));
+        let (positions, passed) =
+            multi_source_seeds(py, &gr, sources, |name| __wp.get_node_index(name))?;
+        let (settled, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::multi_source_dijkstra_indexed(
+                    __wp, &positions, None, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
         }
+        let name = |idx: u32| __wp.get_node_name(idx as usize);
+        emit_dijkstra_indexed_lengths(py, &gr, name, &settled, |node: u32| {
+            passed.get(&node).map(|obj| obj.clone_ref(py))
+        })
     }
-
-    let dist_dict = PyDict::new(py);
-    for entry in &result.distances {
-        dist_dict.set_item(gr.disp_or_node_key(py, &disp, &entry.node), entry.distance)?;
-    }
-    Ok(dist_dict.into_any().unbind())
 }
 
 // ---------------------------------------------------------------------------
@@ -6421,23 +6416,21 @@ fn py_distance(py: Python<'_>, distance: f64, all_int: bool) -> PyResult<PyObjec
     Ok(distance.into_pyobject(py)?.into_any().unbind())
 }
 
-/// The display object of a node a Dijkstra search settled: the source as
-/// passed, else the row object its final predecessor reached it through.
+/// The display object of a node a Dijkstra search settled - a source as passed
+/// (`source_key`), else the row object its final predecessor reached it
+/// through - and that predecessor, `None` for a source.
 fn dijkstra_settled_key<'n>(
     py: Python<'_>,
     gr: &GraphRef<'_>,
     name: &impl Fn(u32) -> PyResult<&'n str>,
-    result: &fnx_algorithms::IndexedDijkstraFull,
-    source_obj: &PyObject,
+    source_key: &impl Fn(u32) -> Option<PyObject>,
     node: u32,
     pred: u32,
-) -> PyResult<PyObject> {
-    Ok(if node as usize == result.source_idx {
-        source_obj.clone_ref(py)
-    } else if pred == u32::MAX {
-        gr.py_node_key(py, name(node)?)
-    } else {
-        gr.py_row_key(py, name(pred)?, name(node)?)
+) -> PyResult<(PyObject, Option<u32>)> {
+    Ok(match source_key(node) {
+        Some(passed) => (passed, None),
+        None if pred == u32::MAX => (gr.py_node_key(py, name(node)?), None),
+        None => (gr.py_row_key(py, name(pred)?, name(node)?), Some(pred)),
     })
 }
 
@@ -6461,26 +6454,24 @@ fn emit_dijkstra_indexed_full<'n>(
     py: Python<'_>,
     gr: &GraphRef<'_>,
     name: impl Fn(u32) -> Option<&'n str>,
-    result: &fnx_algorithms::IndexedDijkstraFull,
-    source_obj: PyObject,
+    settled: &[(u32, f64, bool, u32)],
+    source_key: impl Fn(u32) -> Option<PyObject>,
 ) -> PyResult<(PyObject, PyObject)> {
     let name = settled_name(name);
-    let settled = result.settled.len();
     let mut position: rustc_hash::FxHashMap<u32, usize> =
-        rustc_hash::FxHashMap::with_capacity_and_hasher(settled, Default::default());
+        rustc_hash::FxHashMap::with_capacity_and_hasher(settled.len(), Default::default());
     // Per settle position: the node's path list.
-    let mut paths: Vec<Bound<'_, PyList>> = Vec::with_capacity(settled);
+    let mut paths: Vec<Bound<'_, PyList>> = Vec::with_capacity(settled.len());
     // One reused [node] operand: a fresh one per node doubled the GC-tracked
     // allocations, which cost more than the copy on short (small-world) paths.
     let tail = PyList::new(py, [py.None()])?;
     let dist_dict = PyDict::new(py);
     let path_dict = PyDict::new(py);
-    for &(node, distance, all_int, pred) in &result.settled {
-        let key = dijkstra_settled_key(py, gr, &name, result, &source_obj, node, pred)?;
+    for &(node, distance, all_int, pred) in settled {
+        let (key, parent) = dijkstra_settled_key(py, gr, &name, &source_key, node, pred)?;
         dist_dict.set_item(key.clone_ref(py), py_distance(py, distance, all_int)?)?;
-        let parent_path = (node as usize != result.source_idx && pred != u32::MAX)
-            .then(|| position.get(&pred))
-            .flatten()
+        let parent_path = parent
+            .and_then(|pred| position.get(&pred))
             .map(|&at| &paths[at]);
         let path = match parent_path {
             Some(parent) => {
@@ -6509,16 +6500,25 @@ fn emit_dijkstra_indexed_lengths<'n>(
     py: Python<'_>,
     gr: &GraphRef<'_>,
     name: impl Fn(u32) -> Option<&'n str>,
-    result: &fnx_algorithms::IndexedDijkstraFull,
-    source_obj: PyObject,
+    settled: &[(u32, f64, bool, u32)],
+    source_key: impl Fn(u32) -> Option<PyObject>,
 ) -> PyResult<PyObject> {
     let name = settled_name(name);
     let dist_dict = PyDict::new(py);
-    for &(node, distance, all_int, pred) in &result.settled {
-        let key = dijkstra_settled_key(py, gr, &name, result, &source_obj, node, pred)?;
+    for &(node, distance, all_int, pred) in settled {
+        let (key, _) = dijkstra_settled_key(py, gr, &name, &source_key, node, pred)?;
         dist_dict.set_item(key, py_distance(py, distance, all_int)?)?;
     }
     Ok(dist_dict.into_any().unbind())
+}
+
+/// The source-display closure for a single-source result.
+fn single_source_key(
+    py: Python<'_>,
+    source_idx: usize,
+    source_obj: PyObject,
+) -> impl Fn(u32) -> Option<PyObject> + '_ {
+    move |node: u32| (node as usize == source_idx).then(|| source_obj.clone_ref(py))
 }
 
 /// br-r37-c1-ddw4l: unweighted single-pair distance over a MultiGraph by a
@@ -23200,7 +23200,8 @@ fn single_source_dijkstra(
             ));
         };
         let name = |idx: u32| __wp.get_node_name(idx as usize);
-        emit_dijkstra_indexed_full(py, &gr, name, &result, source.clone().unbind())
+        let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_full(py, &gr, name, &result.settled, source_key)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
@@ -23219,7 +23220,8 @@ fn single_source_dijkstra(
             ));
         };
         let name = |idx: u32| __wp.get_node_name(idx as usize);
-        emit_dijkstra_indexed_full(py, &gr, name, &result, source.clone().unbind())
+        let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_full(py, &gr, name, &result.settled, source_key)
     }
 }
 
@@ -23286,7 +23288,8 @@ fn single_source_dijkstra_path_length(
             return Ok(PyDict::new(py).into_any().unbind());
         };
         let name = |idx: u32| __wp.get_node_name(idx as usize);
-        emit_dijkstra_indexed_lengths(py, &gr, name, &result, source.clone().unbind())
+        let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_lengths(py, &gr, name, &result.settled, source_key)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
@@ -23302,7 +23305,8 @@ fn single_source_dijkstra_path_length(
             return Ok(PyDict::new(py).into_any().unbind());
         };
         let name = |idx: u32| __wp.get_node_name(idx as usize);
-        emit_dijkstra_indexed_lengths(py, &gr, name, &result, source.clone().unbind())
+        let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_lengths(py, &gr, name, &result.settled, source_key)
     }
 }
 

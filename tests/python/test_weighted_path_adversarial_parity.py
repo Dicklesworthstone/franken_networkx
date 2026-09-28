@@ -492,6 +492,14 @@ _ROW_CHECKED = {
     ),
     "shortest_path_weighted": lambda m, g: m.shortest_path(g, 0, 5, weight="weight"),
     "shortest_path_length_weighted": lambda m, g: m.shortest_path_length(g, 0, 5, weight="weight"),
+    "multi_source_dijkstra_cutoff": lambda m, g: m.multi_source_dijkstra(g, [0, 3], cutoff=6),
+    "multi_source_dijkstra_target": lambda m, g: m.multi_source_dijkstra(g, [0, 3], target=5),
+    "multi_source_dijkstra_absent_target": lambda m, g: m.multi_source_dijkstra(
+        g, [0], target="absent"
+    ),
+    "multi_source_dijkstra_path_length": lambda m, g: m.multi_source_dijkstra_path_length(
+        g, [0, 3]
+    ),
 }
 
 
@@ -613,3 +621,86 @@ def test_single_source_dijkstra_paths_are_independent_lists():
     paths[3].append("x")
     assert paths[4] == [0, 1, 2, 3, 4]
     assert paths[2] == [0, 1, 2]
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-m0cj7: multi_source_dijkstra in index space
+# ---------------------------------------------------------------------------
+# Every source starts at distance 0 in iteration order and displays as the
+# object PASSED; cutoff and target act inside the search; distances keep
+# networkx's int / float types (float weights used to be sent to networkx);
+# a path to a given target ends in the target object as passed.
+
+
+def _two_components(lib, directed, floats=False):
+    graph = (lib.DiGraph if directed else lib.Graph)()
+    scale = 0.5 if floats else 1
+    graph.add_weighted_edges_from((i, i + 1, (1 + i % 3) * scale) for i in range(9))
+    graph.add_weighted_edges_from([(0, 2, 2 * scale), (2, 5, 1), (7, 3, 0)])
+    graph.add_weighted_edges_from((20 + i, 20 + (i + 1) % 6, 1) for i in range(6))
+    graph.add_edge(3, 4, weight=0)  # a zero-weight edge between two sources
+    return graph
+
+
+_MULTI_SOURCE_CALLS = {
+    "set": lambda m, g: m.multi_source_dijkstra(g, {0, 3}),
+    "list_repeats": lambda m, g: m.multi_source_dijkstra(g, [3, 0, 3, 4]),
+    "two_components": lambda m, g: m.multi_source_dijkstra(g, [21, 0]),
+    "cutoff_int": lambda m, g: m.multi_source_dijkstra(g, [0, 3], cutoff=3),
+    "cutoff_float": lambda m, g: m.multi_source_dijkstra(g, [0, 3], cutoff=2.5),
+    "cutoff_negative": lambda m, g: m.multi_source_dijkstra(g, [0, 3], cutoff=-1),
+    "cutoff_nan": lambda m, g: m.multi_source_dijkstra(g, [0], cutoff=float("nan")),
+    "cutoff_inf": lambda m, g: m.multi_source_dijkstra(g, [0], cutoff=float("inf")),
+    "cutoff_huge_int": lambda m, g: m.multi_source_dijkstra(g, [0], cutoff=2**60),
+    "cutoff_fraction": lambda m, g: m.multi_source_dijkstra(g, [0], cutoff=Fraction(5, 2)),
+    "target": lambda m, g: m.multi_source_dijkstra(g, [0, 21], target=8),
+    "target_as_float": lambda m, g: m.multi_source_dijkstra(g, [0], target=8.0),
+    "target_is_source": lambda m, g: m.multi_source_dijkstra(g, [0, 3], target=3.0),
+    "target_unreachable": lambda m, g: m.multi_source_dijkstra(g, [0], target=21),
+    "target_absent": lambda m, g: m.multi_source_dijkstra(g, [0], target="absent"),
+    "source_absent": lambda m, g: m.multi_source_dijkstra(g, [0, "absent"]),
+    "length": lambda m, g: m.multi_source_dijkstra_path_length(g, [3, 0]),
+    "length_cutoff": lambda m, g: m.multi_source_dijkstra_path_length(g, {0, 21}, cutoff=2),
+    "path": lambda m, g: m.multi_source_dijkstra_path(g, [0, 3], cutoff=4),
+}
+
+
+def _exact(value):
+    """Order, value, type and object identity class of a result."""
+    if isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], dict):
+        return (_exact(value[0]), _exact(value[1]))
+    if isinstance(value, dict):
+        return [(repr(k), type(k).__name__, _exact(v)) for k, v in value.items()]
+    if isinstance(value, list):
+        return [(repr(x), type(x).__name__) for x in value]
+    if isinstance(value, tuple):
+        return tuple(_exact(x) for x in value)
+    return (repr(value), type(value).__name__)
+
+
+@pytest.mark.parametrize("floats", [False, True])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("label", sorted(_MULTI_SOURCE_CALLS))
+def test_multi_source_dijkstra_matches_networkx_exactly(label, directed, floats):
+    outcomes = {}
+    for lib in (fnx, nx):
+        graph = _two_components(lib, directed, floats)
+        try:
+            outcomes[lib.__name__] = _exact(_MULTI_SOURCE_CALLS[label](lib, graph))
+        except Exception as exc:  # noqa: BLE001 - exact public error parity
+            outcomes[lib.__name__] = ("EXC", type(exc).__name__, str(exc))
+    assert outcomes["franken_networkx"] == outcomes["networkx"]
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+def test_multigraph_multi_source_dijkstra_keeps_networkx_results(cls):
+    outcomes = {}
+    for lib in (fnx, nx):
+        graph = getattr(lib, cls)()
+        graph.add_weighted_edges_from([(0, 1, 3), (0, 1, 1), (1, 2, 2), (2, 3, 1), (5, 6, 1)])
+        outcomes[lib.__name__] = (
+            _exact(lib.multi_source_dijkstra(graph, [0, 5])),
+            _exact(lib.multi_source_dijkstra(graph, [0], cutoff=2)),
+            _exact(lib.multi_source_dijkstra_path_length(graph, [0, 5])),
+        )
+    assert outcomes["franken_networkx"] == outcomes["networkx"]
