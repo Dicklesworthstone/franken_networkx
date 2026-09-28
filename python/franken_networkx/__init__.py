@@ -65426,11 +65426,9 @@ def goldberg_radzik(G, source, weight="weight"):
     # internal bellman-ford call otherwise surfaces ``Source x not in G``.
     if source not in G:
         raise NodeNotFound(f"Node {source} is not found in the graph")
-    if callable(weight):
+    if callable(weight) or G.is_multigraph():
         return _goldberg_radzik_inproc(G, source, weight=weight)
-    if G.is_directed() and not G.is_multigraph():
-        return _goldberg_radzik_directed_inprocess(G, source, weight)
-    return _goldberg_radzik_inproc(G, source, weight=weight)
+    return _goldberg_radzik_simple_inprocess(G, source, weight)
 
 
 def _goldberg_radzik_inproc(G, source, weight="weight"):
@@ -65512,14 +65510,17 @@ def _goldberg_radzik_inproc(G, source, weight="weight"):
     return pred, d
 
 
-def _goldberg_radzik_directed_inprocess(G, source, weight):
+def _goldberg_radzik_simple_inprocess(G, source, weight):
     """br-grport: faithful in-process port of networkx's Goldberg-Radzik scan
-    algorithm for a directed fnx graph. Replaces the previous naive O(V*E)
+    algorithm for a simple fnx graph, directed or not. Replaces the previous naive O(V*E)
     Bellman-Ford (which re-walked the EdgeView every pass AND picked different
     predecessors than nx on ties). Operates on a one-time plain-dict adjacency
     snapshot with weights resolved, so it avoids both the fnx->nx conversion and
     the per-access view tax, and reproduces nx's exact (pred, dist) — including
-    the predecessor tie-breaks — for the same adjacency order."""
+    the predecessor tie-breaks — for the same adjacency order. A simple graph's
+    weight function is ``data.get(weight, 1)``, which is what the snapshot
+    resolves; an undirected Graph walked its adjacency views calling it per edge
+    at 0.46-0.52x networkx (br-r37-c1-ad5r8)."""
     # Adjacency snapshot {u: {v: w}} in fnx adjacency order (== what nx iterates).
     # Use the native to_dict_of_dicts bulk reader (kernel, ~22x cheaper than walking
     # G.adj[u] per node, which otherwise dominates and leaves us 3x slower than nx).

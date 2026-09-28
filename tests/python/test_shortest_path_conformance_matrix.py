@@ -209,6 +209,93 @@ def test_goldberg_radzik_matches_networkx_on_simple_digraph():
     assert dict(f_dist) == dict(n_dist)
 
 
+def _goldberg_radzik_graph(lib, kind, shape):
+    graph = {
+        "Graph": lib.Graph,
+        "DiGraph": lib.DiGraph,
+        "MultiGraph": lib.MultiGraph,
+        "MultiDiGraph": lib.MultiDiGraph,
+    }[kind.removesuffix("-view")]()
+    if shape == "grid-ties":
+        # Equal weights on a grid: many equal-length paths, so the predecessor
+        # each node keeps is decided by the scan order alone.
+        for r in range(6):
+            for c in range(6):
+                if c < 5:
+                    graph.add_edge((r, c), (r, c + 1), weight=1)
+                if r < 5:
+                    graph.add_edge((r, c), (r + 1, c), weight=1)
+    elif shape == "mixed":
+        # Missing weights (default 1), floats, zero-weight ties, a second
+        # attribute, str nodes.
+        graph.add_edge("s", "a", weight=2.5)
+        graph.add_edge("s", "b")
+        graph.add_edge("a", "c", weight=0)
+        graph.add_edge("b", "c", weight=1.5, cost=9)
+        graph.add_edge("c", "d", weight=1)
+        graph.add_edge("b", "d", weight=2.5)
+        graph.add_node("isolated")
+    else:
+        rng = __import__("random").Random(7)
+        for u in range(40):
+            for v in rng.sample(range(40), 3):
+                if u != v:
+                    graph.add_edge(u, v, weight=rng.randint(1, 5))
+    if kind.endswith("-view"):
+        return graph.subgraph(list(graph)[:-3])
+    return graph
+
+
+@pytest.mark.parametrize("shape", ["grid-ties", "mixed", "random"])
+@pytest.mark.parametrize(
+    "kind",
+    ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph", "Graph-view", "DiGraph-view"],
+)
+def test_goldberg_radzik_matches_networkx_exactly(kind, shape):
+    """pred and dist equal networkx's, key order and value types included, on
+    every class (br-r37-c1-ad5r8: a simple undirected Graph takes the
+    weight-snapshot port the directed graph already took)."""
+    fg = _goldberg_radzik_graph(fnx, kind, shape)
+    ng = _goldberg_radzik_graph(nx, kind, shape)
+    source = next(iter(ng))
+    f_pred, f_dist = fnx.goldberg_radzik(fg, source)
+    n_pred, n_dist = nx.goldberg_radzik(ng, source)
+    assert list(f_pred.items()) == list(n_pred.items())
+    assert [(k, v, type(v)) for k, v in f_dist.items()] == [
+        (k, v, type(v)) for k, v in n_dist.items()
+    ]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "edges",
+    [[(0, 1, 2), (1, 2, -1)], [(0, 1, 1), (1, 1, -1)], [(0, 1, 1), (1, 2, None)]],
+    ids=["negative-edge", "negative-self-loop", "none-weight"],
+)
+def test_goldberg_radzik_negative_and_missing_weights_like_networkx(kind, edges):
+    # An undirected negative edge is a negative cycle; a directed one is not.
+    def outcome(lib):
+        graph = getattr(lib, kind)()
+        graph.add_weighted_edges_from(edges)
+        try:
+            pred, dist = lib.goldberg_radzik(graph, 0)
+        except Exception as exc:  # noqa: BLE001 - the exception IS the answer
+            return type(exc).__name__, str(exc)
+        return list(pred.items()), list(dist.items())
+
+    assert outcome(fnx) == outcome(nx)
+
+
+def test_undirected_goldberg_radzik_takes_the_weight_snapshot(monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("walked the adjacency views")
+
+    monkeypatch.setattr(fnx, "_goldberg_radzik_inproc", refuse)
+    graph = _goldberg_radzik_graph(fnx, "Graph", "random")
+    expected = nx.goldberg_radzik(_goldberg_radzik_graph(nx, "Graph", "random"), 0)
+    assert fnx.goldberg_radzik(graph, 0) == expected
+
+
 # ---------------------------------------------------------------------------
 # Error contracts
 # ---------------------------------------------------------------------------
