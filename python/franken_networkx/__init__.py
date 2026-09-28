@@ -56777,6 +56777,17 @@ def _directed_to_undirected_with_view(to_undirected_impl):
             )
             return result
 
+        # br-r37-c1-fiitj: the exact classes take the native deep copy with the
+        # reciprocal filter, as reciprocal=False already does; the Python
+        # rebuild below ran 0.56-0.59x networkx.
+        if (
+            (type(self) is DiGraph and self.to_undirected_class() is Graph)
+            or (type(self) is MultiDiGraph and self.to_undirected_class() is MultiGraph)
+        ) and not _has_networkx_private_storage(self):
+            native = getattr(self, "_native_to_undirected_deepcopy", None)
+            if native is not None:
+                return native(reciprocal=True)
+
         result = self.to_undirected_class()()
         result.graph.update(_deepcopy(self.graph))
         result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))

@@ -72,6 +72,97 @@ def test_to_undirected_reciprocal_keeps_only_bidirectional_edges(fnx_ctor, nx_ct
     assert frozenset((2, 3)) not in fu_edges
 
 
+# br-r37-c1-fiitj: reciprocal=True takes the native deep copy the plain form
+# already used (it rebuilt in Python at 0.56-0.59x networkx). The result must be
+# networkx's exactly: which arcs survive, how a pair's two dicts merge (the
+# second direction's values win, its new keys go after the first's), node,
+# row and edge order, keys of a multigraph, and a deep copy of every dict.
+
+def _reciprocal_source(lib, cls, shape):
+    G = getattr(lib, cls)()
+    G.graph["tags"] = ["a", "b"]
+    multi = cls == "MultiDiGraph"
+    if shape == "mixed":
+        G.add_node(9, z=1, a=2)
+        G.add_edge(0, 1, weight=1, color="red")
+        G.add_edge(2, 3, weight=5)  # one way
+        G.add_edge(1, 0, cap=2.5, weight=4)  # the pair merges
+        G.add_edge(4, 4, weight=7)  # a self-loop is its own reverse
+        G.add_edge(3, 5)
+        G.add_edge(5, 3, pos=(1, 2))  # a value the store cannot hold
+        G.add_edge(6, 7, weight=1)
+        G.add_edge(7, 6)
+    elif shape == "str_nodes":
+        G.add_edges_from([("b", "a", {"w": 1}), ("a", "b", {"w": 2, "k": 0}), ("a", "c", {})])
+        G.add_edges_from([("c", "d", {"w": 3}), ("d", "c", {"w": 4})])
+    elif shape == "keys" and multi:
+        G.add_edge(0, 1, key="x", weight=1)
+        G.add_edge(1, 0, key="x", weight=2)  # same key back: kept
+        G.add_edge(0, 1, key="y")  # no 'y' back: dropped
+        G.add_edge(1, 0, key="z")
+        G.add_edge(2, 3, key=1, w=1)
+        G.add_edge(3, 2, key=True, w=2)  # 1 == True as a dict key
+        G.add_edge(2, 3, key=2.0)
+        G.add_edge(3, 2, key=2)
+        G.add_edge(0, 1)  # auto keys
+        G.add_edge(0, 1)
+        G.add_edge(1, 0)
+    elif shape == "keys":
+        return None
+    else:  # bulk
+        edges = [(u, (u * 7 + 3) % 40, {"weight": u % 5}) for u in range(40)]
+        G.add_edges_from(edges)
+        G.add_edges_from([(v, u, {"weight": d["weight"] + 1}) for u, v, d in edges[::3]])
+    return G
+
+
+def _undirected_shape(G):
+    if G.is_multigraph():
+        edges = [(repr(u), repr(v), repr(k), list(d.items())) for u, v, k, d in G.edges(keys=True, data=True)]
+    else:
+        edges = [(repr(u), repr(v), list(d.items())) for u, v, d in G.edges(data=True)]
+    return (
+        type(G).__name__,
+        G.graph,
+        [(repr(n), list(d.items())) for n, d in G.nodes(data=True)],
+        [(repr(n), [repr(m) for m in G[n]]) for n in G],
+        edges,
+    )
+
+
+@pytest.mark.parametrize("shape", ["mixed", "str_nodes", "keys", "bulk"])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_to_undirected_reciprocal_matches_networkx_exactly(cls, shape):
+    fsrc = _reciprocal_source(fnx, cls, shape)
+    if fsrc is None:
+        pytest.skip("parallel keys need a multigraph")
+    nsrc = _reciprocal_source(nx, cls, shape)
+    fu = fsrc.to_undirected(reciprocal=True)
+    nu = nsrc.to_undirected(reciprocal=True)
+    assert _undirected_shape(fu) == _undirected_shape(nu)
+    # A deep copy: writing the result leaves the source alone.
+    fu.graph["tags"].append("c")
+    for _, _, d in fu.edges(data=True):
+        d["weight"] = -1
+    assert fsrc.graph["tags"] == ["a", "b"]
+    assert _undirected_shape(fsrc.to_undirected(reciprocal=True)) == _undirected_shape(nu)
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_to_undirected_reciprocal_takes_the_native_copy(cls, monkeypatch):
+    klass = getattr(fnx, cls)
+    native = klass._native_to_undirected_deepcopy
+    calls = []
+
+    def counting(self, *args, **kwargs):
+        calls.append(kwargs)
+        return native(self, *args, **kwargs)
+
+    monkeypatch.setattr(klass, "_native_to_undirected_deepcopy", counting)
+    _reciprocal_source(fnx, cls, "mixed").to_undirected(reciprocal=True)
+    assert calls == [{"reciprocal": True}]
+
+
 @pytest.mark.parametrize(
     ("direction", "fnx_ctor", "nx_ctor"),
     [

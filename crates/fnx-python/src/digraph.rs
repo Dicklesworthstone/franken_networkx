@@ -9108,7 +9108,15 @@ impl PyMultiDiGraph {
         Ok(new_graph)
     }
 
-    fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<crate::PyMultiGraph> {
+    /// `reciprocal`: networkx's `to_undirected(reciprocal=True)` - only an arc
+    /// whose reverse arc has the same key (`key in self._pred[u][v]`, by the
+    /// PUBLIC key's dict equality) goes in (br-r37-c1-fiitj).
+    #[pyo3(signature = (reciprocal=false))]
+    fn _native_to_undirected_deepcopy(
+        &self,
+        py: Python<'_>,
+        reciprocal: bool,
+    ) -> PyResult<crate::PyMultiGraph> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         // br-r37-c1-l5ve7: fresh ledger + lazy attr mirrors (see the
         // PyMultiGraph::_native_to_directed_deepcopy sibling).
@@ -9202,6 +9210,15 @@ impl PyMultiDiGraph {
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
                 for key in self.inner.edge_keys(source, target).unwrap_or_default() {
+                    if reciprocal {
+                        let public = self.py_edge_key(py, source, target, key);
+                        if self
+                            .resolve_internal_edge_key(py, target, source, public.bind(py))?
+                            .is_none()
+                        {
+                            continue;
+                        }
+                    }
                     let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
                     let rust_attrs;
                     let mirror = match attrs_entry {
@@ -15190,7 +15207,16 @@ impl PyDiGraph {
     /// FIRST-TOUCH objects (forward cell = the succ-row object, reverse
     /// cell = the u iteration object). Construction-tax recipe: fresh
     /// ledger + bulk unrecorded inserts + lazy attr mirrors.
-    fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<Py<crate::PyGraph>> {
+    ///
+    /// `reciprocal`: networkx's `to_undirected(reciprocal=True)` - only an arc
+    /// whose reverse arc exists (`v in self._pred[u]`) goes in, both arcs of
+    /// the pair, so they merge as above (br-r37-c1-fiitj).
+    #[pyo3(signature = (reciprocal=false))]
+    fn _native_to_undirected_deepcopy(
+        &self,
+        py: Python<'_>,
+        reciprocal: bool,
+    ) -> PyResult<Py<crate::PyGraph>> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         let mut g = crate::PyGraph::new_empty_with_policy(
             py,
@@ -15231,6 +15257,9 @@ impl PyDiGraph {
         let store_edges_bare = !self.inner.any_edge_has_attrs();
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
+                if reciprocal && !self.inner.has_edge(target, source) {
+                    continue;
+                }
                 let unordered = if source <= target {
                     (source.to_owned(), target.to_owned())
                 } else {
