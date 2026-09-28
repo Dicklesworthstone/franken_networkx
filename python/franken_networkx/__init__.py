@@ -6460,6 +6460,38 @@ def _make_add_nodes_from(
                 return
             except OverflowError:
                 pass
+        # br-r37-c1-ow0ie: every native path below takes a concrete container, so
+        # a graph, a node view or a generator argument - ``H.add_nodes_from(G)``,
+        # ``H.add_nodes_from(G.nodes(data=True))``, the way networkx's own
+        # builders copy a node set - fell to the per-node loop at 0.66-0.88x
+        # networkx while the same nodes as a list ran 1.6-2.5x. Buffer it and
+        # take the list paths - unless it can read the graph while it is
+        # consumed (networkx adds each node before pulling the next): through
+        # its iterator, or as a view of this graph, whose edges or degree pairs
+        # would be new nodes that networkx's live iteration raises on. One that
+        # says it is shorter than a batch goes node by node; a one-shot iterator
+        # does not know its length, so its first batch-minimum go node by node -
+        # exact, and all a short one needs - before the rest is weighed.
+        if (
+            not attr
+            and type(nodes_for_adding) not in (list, tuple, set, range)
+            and type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+        ):
+            bound_add_node = add_node.__get__(self, type(self))
+            nodes_iter = iter(nodes_for_adding)
+            if nodes_iter is nodes_for_adding:
+                head = _itertools.islice(nodes_iter, _NODE_BATCH_MIN)
+                if _add_nodes_one_by_one(self, bound_add_node, head, attr) < _NODE_BATCH_MIN:
+                    return
+            elif _length_hint(nodes_for_adding, _NODE_BATCH_MIN) < _NODE_BATCH_MIN or (
+                len(self) and _view_holds_graph(nodes_for_adding, self)
+            ):
+                _add_nodes_one_by_one(self, bound_add_node, nodes_iter, attr)
+                return
+            if not _ebunch_reads_graph(nodes_iter, self):
+                _add_nodes_buffered(self, bound_add_node, nodes_iter)
+                return
+            nodes_for_adding = nodes_iter
         # br-r37-c1-u2jod: bulk native fast path for a concrete list/tuple/set of
         # plain ints (the common ``add_nodes_from(list(range(n)))`` /
         # ``add_nodes_from(other_int_graph)`` shape, plus br-r37-c1-zvwgo's
@@ -6473,7 +6505,7 @@ def _make_add_nodes_from(
             not attr
             and fast_add_int_nodes is not None
             and type(self) is Graph
-            and type(nodes_for_adding) in (list, tuple, set)
+            and type(nodes_for_adding) in (list, tuple, set, range)
         ):
             try:
                 fast_add_int_nodes(self, nodes_for_adding)
@@ -6512,18 +6544,134 @@ def _make_add_nodes_from(
                     return
             except Exception:
                 pass
-        bound_add_node = add_node.__get__(self, type(self))
-        for n in nodes_for_adding:
-            try:
-                _HASH_PROBE.get(n)
-                bound_add_node(n, **attr)
-            except TypeError:
-                node, ndict = n
-                merged = dict(attr)
-                merged.update(ndict)
-                bound_add_node(node, **merged)
+        _add_nodes_one_by_one(self, add_node.__get__(self, type(self)), nodes_for_adding, attr)
 
     return add_nodes_from
+
+
+# The names add_node binds itself: an attribute spelled like one cannot travel
+# as a keyword.
+_ADD_NODE_PARAMETER_NAMES = frozenset(("self", "node_for_adding"))
+# The smallest node list the native batches take; add_nodes_from buffers a lazy
+# argument to reach them only when it may hold this many.
+_NODE_BATCH_MIN = 8
+
+
+def _add_nodes_one_by_one(graph, add_node, nodes, attr):
+    """networkx's add_nodes_from loop over ``add_node`` (bound to ``graph``).
+
+    An element that hashes is a node; one that does not is unpacked as
+    ``(node, attr_dict)``. A 2-tuple holding a dict never hashes, so it is
+    unpacked without asking. networkx updates the node's dict, so a non-string
+    key or one of add_node's parameter names is a plain attribute there: such a
+    dict goes in through ``graph.nodes[node]`` instead of keywords. Returns how
+    many elements it took.
+    """
+    attr_as_keywords = attr.keys().isdisjoint(_ADD_NODE_PARAMETER_NAMES)
+    probe = _HASH_PROBE.get
+    count = 0
+    for n in nodes:
+        count += 1
+        if type(n) is not tuple or len(n) != 2 or type(n[1]) is not dict:
+            try:
+                probe(n)
+            except TypeError:
+                pass
+            else:
+                if attr_as_keywords:
+                    add_node(n, **attr)
+                else:
+                    add_node(n)
+                    graph.nodes[n].update(attr)
+                continue
+        node, ndict = n
+        if attr or type(ndict) is not dict:
+            merged = dict(attr)
+            merged.update(ndict)
+        else:
+            merged = ndict
+        if all(type(key) is str for key in merged) and merged.keys().isdisjoint(
+            _ADD_NODE_PARAMETER_NAMES
+        ):
+            add_node(node, **merged)
+        else:
+            add_node(node)
+            graph.nodes[node].update(merged)
+    return count
+
+
+def _view_holds_graph(source, graph):
+    """True when ``source`` is ``graph`` or a view holding it (br-r37-c1-ow0ie).
+
+    A view's iterator can be a snapshot that never mentions the graph, while
+    networkx iterates the view live - so ``G.add_nodes_from(G.edges)`` raises
+    there once the first edge becomes a node. A view holds its graph directly
+    (NodeView, EdgeView) or through a NodeView (NodeDataView, ItemsView), so
+    two levels of referents decide; code, containers and other graphs are not
+    entered - a graph view's nodes are nodes of its base already.
+    """
+    frontier = [source]
+    graph_types = (Graph, DiGraph, MultiGraph, MultiDiGraph)
+    for depth in range(3):
+        following = []
+        for held in frontier:
+            if held is graph:
+                return True
+            if depth == 2 or type(held) in _VIEW_WALK_OPAQUE or isinstance(held, (type, graph_types)):
+                continue
+            referents = _gc.get_referents(held)
+            following.extend(referents)
+            if dict in map(type, referents):
+                # Below 3.13 an instance's attributes sit in its __dict__, a
+                # container the walk does not enter.
+                try:
+                    following.extend(vars(held).values())
+                except TypeError:
+                    pass
+        frontier = following
+    return False
+
+
+def _add_nodes_buffered(graph, add_node, nodes_iter):
+    """Add a lazy node iterable through add_nodes_from's list paths (br-r37-c1-ow0ie).
+
+    networkx pulls one element, adds it, then pulls the next, so an element it
+    rejects - ``None``, or unhashable and not a ``(node, dict)`` pair - is the
+    last one it consumes, and an iterable that raises leaves every node before
+    that in the graph. The buffer stops pulling at an element networkx could
+    reject and adds what it holds before going on, so the graph, the exception
+    and what is left in the iterator all match.
+    """
+    probe = _HASH_PROBE.get
+    while True:
+        buffered = []
+        append = buffered.append
+        stopped = False
+        try:
+            for n in nodes_iter:
+                append(n)
+                node = n[0] if type(n) is tuple and len(n) == 2 and type(n[1]) is dict else n
+                if node is None:
+                    stopped = True
+                    break
+                try:
+                    probe(node)
+                except TypeError:
+                    stopped = True
+                    break
+        except BaseException:
+            _flush_node_buffer(graph, add_node, buffered)
+            raise
+        _flush_node_buffer(graph, add_node, buffered)
+        if not stopped:
+            return
+
+
+def _flush_node_buffer(graph, add_node, buffered):
+    if len(buffered) >= _NODE_BATCH_MIN:
+        graph.add_nodes_from(buffered)
+    elif buffered:
+        _add_nodes_one_by_one(graph, add_node, buffered, {})
 
 
 # br-r37-c1-2gcnp: the lazy range path is safe only because GraphRef result
@@ -6603,6 +6751,9 @@ _EBUNCH_WALK_LEAVES = frozenset(
     (str, bytes, int, float, complex, bool, type(None), type, _types.CodeType)
 )
 _EBUNCH_WALK_CONTAINERS = frozenset((list, tuple, set, frozenset, dict))
+_VIEW_WALK_OPAQUE = (
+    _EBUNCH_WALK_LEAVES | _EBUNCH_WALK_CONTAINERS | {_types.ModuleType, _types.FunctionType}
+)
 _ADD_EDGE_PARAMETER_NAMES = frozenset(
     ("u_of_edge", "v_of_edge", "u_for_edge", "v_for_edge", "key")
 )

@@ -247,3 +247,214 @@ def test_container_and_view_ebunches_are_not_walked():
     G = fnx.Graph([(1, 2)])
     assert fnx._ebunch_reads_graph(G.edges, G) is False
     assert fnx._ebunch_reads_graph({(1, 2)}, G) is False
+
+
+# br-r37-c1-ow0ie - add_nodes_from buffers a graph, a view or a generator to reach
+# the native node batches (they take a concrete list), under the same rule: an
+# argument that can read the graph it fills goes node by node, and so does a
+# view of that graph - its edges as nodes raise in networkx's live iteration.
+# The batches now take new nodes into a graph that has some; a node the graph
+# already has goes node by node, since its dict may be held.
+
+
+def _node_source(m, cls):
+    H = getattr(m, cls)()
+    H.add_edges_from([(10, 11), (11, 12), ("a", 12)])
+    H.nodes[11]["w"] = 3
+    for i in range(20, 32):
+        H.add_node(i, k=i)
+    return H
+
+
+def _raise_at(items, at):
+    for i, item in enumerate(items):
+        if i == at:
+            raise KeyError("boom")
+        yield item
+
+
+NODE_ARGUMENTS = {
+    "another graph": lambda G, H: H,
+    "its nodes": lambda G, H: H.nodes,
+    "its nodes(data=True)": lambda G, H: H.nodes(data=True),
+    "its nodes.items()": lambda G, H: H.nodes.items(),
+    "its nodes(data='w')": lambda G, H: H.nodes(data="w"),
+    "pairs genexpr": lambda G, H: ((n, d) for n, d in H.nodes(data=True)),
+    "map to str": lambda G, H: map(str, range(12)),
+    "range not from 0": lambda G, H: range(5, 40),
+    "set of str": lambda G, H: {f"s{i}" for i in range(12)},
+    "dict": lambda G, H: {f"d{i}": i for i in range(12)},
+    "str": lambda G, H: "abcdefghijk",
+    "this graph": lambda G, H: G,
+    "this graph's nodes(data=True)": lambda G, H: G.nodes(data=True),
+    "this graph's edges": lambda G, H: G.edges,
+    "reads len while adding": lambda G, H: (len(G) + i for i in range(12)),
+    "reads membership while adding": lambda G, H: (
+        i % 4 + 100 for i in range(12) if i % 4 + 100 not in G
+    ),
+    "raises after nine": lambda G, H: _raise_at(list(range(100, 130)), 9),
+    "raises after nine pairs": lambda G, H: _raise_at([(i, {"z": i}) for i in range(100, 130)], 9),
+    "bad 3-tuple": lambda G, H: iter([(i, {"q": 1}) for i in range(100, 110)] + [(1, 2, {}), 200]),
+    "unhashable": lambda G, H: iter([*range(100, 110), [1], 200]),
+    "None": lambda G, H: iter([*range(100, 110), None, 200]),
+    "non-str attribute keys": lambda G, H: iter([(i, {2: "x", "y": 1}) for i in range(10)]),
+    "add_node parameter names": lambda G, H: iter(
+        [(i, {"node_for_adding": i, "self": 0}) for i in range(10)]
+    ),
+    "not iterable": lambda G, H: 5,
+    "list of new nodes": lambda G, H: [(f"new{i}", {"i": i}) for i in range(10)] + ["plain"],
+    "list with a node the graph has": lambda G, H: [(i, {"i": i}) for i in range(8)] + [(1, {"c": 9})],
+    "generator of new nodes": lambda G, H: ((f"new{i}", {"i": i, "j": 0}) for i in range(30)),
+    "generator repeating a node": lambda G, H: (
+        (i % 11, {"round": i // 11}) for i in range(30)
+    ),
+}
+
+
+def _nodes_state(G):
+    return sorted(map(repr, G.nodes(data=True))), list(map(repr, G))
+
+
+def _add_nodes_outcome(m, cls, label, fresh):
+    G = getattr(m, cls)()
+    if not fresh:
+        G.add_edges_from([(0, 1), (1, 2)])
+        G.nodes[1]["c"] = 5
+    try:
+        G.add_nodes_from(NODE_ARGUMENTS[label](G, _node_source(m, cls)))
+    except Exception as exc:  # noqa: BLE001 - the exception is part of the compared state
+        return _nodes_state(G), (type(exc).__name__, exc.args)
+    return _nodes_state(G), None
+
+
+@pytest.mark.parametrize("fresh", [True, False], ids=["empty", "non-empty"])
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("label", list(NODE_ARGUMENTS))
+def test_add_nodes_from_argument_matches_networkx(label, cls, fresh):
+    assert _add_nodes_outcome(fnx, cls, label, fresh) == _add_nodes_outcome(nx, cls, label, fresh)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_add_nodes_from_stops_pulling_at_the_element_networkx_rejects(cls):
+    left = {}
+    for m in (fnx, nx):
+        G = getattr(m, cls)()
+        items = iter([(i, {"q": 1}) for i in range(100, 110)] + [(1, 2, {}), 200, 201])
+        with pytest.raises(ValueError):
+            G.add_nodes_from(items)
+        left[m] = (list(items), sorted(G))
+    assert left[fnx] == left[nx]
+    assert left[fnx][0] == [200, 201]
+
+
+def _add_node_calls(G, argument):
+    calls = 0
+
+    def count(frame, event, arg):
+        nonlocal calls
+        if event == "call" and frame.f_code.co_name == "add_node" and frame.f_code.co_filename == fnx.__file__:
+            calls += 1
+
+    import sys
+
+    sys.setprofile(count)
+    try:
+        G.add_nodes_from(argument)
+    finally:
+        sys.setprofile(None)
+    return calls
+
+
+def _seeded(m, cls, fresh):
+    G = getattr(m, cls)()
+    if not fresh:
+        G.add_edges_from([("x", "y"), ("y", "z")])
+        G.nodes["x"]["c"] = 1
+    return G
+
+
+@pytest.mark.parametrize("fresh", [True, False], ids=["empty", "non-empty"])
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize(
+    "shape",
+    ["list", "graph", "nodes", "nodes(data=True)", "pairs genexpr", "str genexpr"],
+)
+def test_new_nodes_take_the_batch(cls, shape, fresh):
+    H = getattr(fnx, cls)()
+    for i in range(40):
+        H.add_node(f"n{i}", k=i)
+        H.add_node(i)
+    make = {
+        "list": lambda: list(H.nodes(data=True)),
+        "graph": lambda: H,
+        "nodes": lambda: H.nodes,
+        "nodes(data=True)": lambda: H.nodes(data=True),
+        "pairs genexpr": lambda: ((n, d) for n, d in H.nodes(data=True)),
+        "str genexpr": lambda: (f"s{i}" for i in range(40)),
+    }[shape]
+    G = _seeded(fnx, cls, fresh)
+    # A one-shot iterator's first batch-minimum go node by node; the rest is one batch.
+    head = fnx._NODE_BATCH_MIN if shape.endswith("genexpr") else 0
+    assert _add_node_calls(G, make()) == head
+    expected = _seeded(nx, cls, fresh)
+    expected.add_nodes_from(list(make()))
+    assert _nodes_state(G) == _nodes_state(expected)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_a_node_the_graph_has_merges_into_the_held_dict(cls):
+    for m in (fnx, nx):
+        G = _seeded(m, cls, fresh=False)
+        held = G.nodes["x"]
+        G.add_nodes_from([(f"new{i}", {"i": i}) for i in range(10)] + [("x", {"late": 2})])
+        assert held == {"c": 1, "late": 2}
+        assert G.nodes["x"] is held
+        assert list(G) == ["x", "y", "z", *(f"new{i}" for i in range(10))]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("start", [20, 15], ids=["new", "overlapping"])
+def test_nodes_after_a_range_match_networkx(cls, start):
+    states = []
+    for m in (fnx, nx):
+        G = getattr(m, cls)()
+        G.add_nodes_from(range(20))
+        G.add_edge(3, 4)
+        G.add_nodes_from([(i, {"a": i}) for i in range(start, 40)] + ["s", 2.5])
+        G.add_nodes_from((f"g{i}", {"b": i}) for i in range(12))
+        states.append((_nodes_state(G), [type(n).__name__ for n in G]))
+    assert states[0] == states[1]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_new_nodes_invalidate_an_open_edge_iterator(cls):
+    outcome = {}
+    for m in (fnx, nx):
+        G = _seeded(m, cls, fresh=False)
+        edges = iter(G.edges(data=True))
+        next(edges)
+        G.add_nodes_from([f"new{i}" for i in range(10)])
+        try:
+            next(edges)
+        except RuntimeError as exc:
+            outcome[m] = ("RuntimeError", str(exc))
+        else:
+            outcome[m] = None
+    assert outcome[fnx] == outcome[nx]
+
+
+def test_graph_reading_node_argument_goes_node_by_node():
+    G, expected = fnx.Graph(), nx.Graph()
+    assert _add_node_calls(G, (len(G) + i for i in range(12))) == 12
+    expected.add_nodes_from(len(expected) + i for i in range(12))
+    assert list(G) == list(expected) == list(range(0, 24, 2))
+    G = fnx.Graph([(f"a{i}", f"b{i}") for i in range(10)])
+    assert _add_node_calls(G, G.nodes(data=True)) == 20
+    assert fnx._view_holds_graph(G.edges, G) is True
+    assert fnx._view_holds_graph(G.nodes(data=True), G) is True
+    assert fnx._view_holds_graph(G.nodes.items(), G) is True
+    assert fnx._view_holds_graph(G.degree, G) is True
+    H = fnx.Graph([(0, 1)])
+    assert fnx._view_holds_graph(H.nodes(data=True), G) is False
+    assert fnx._view_holds_graph(H.edges, G) is False
+    assert fnx._view_holds_graph(H, G) is False

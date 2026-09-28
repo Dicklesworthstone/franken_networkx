@@ -6663,6 +6663,10 @@ impl PyGraph {
             let Ok(canonical) = node_key_to_string(py, &node) else {
                 return Ok(None);
             };
+            if self.inner.has_node(&canonical) {
+                // br-r37-c1-ow0ie: an existing node merges into a dict a caller may hold.
+                return Ok(None);
+            }
             if self.plain_batch_display_conflict(py, &canonical, &node, &mut batch_first) {
                 return Ok(None);
             }
@@ -6685,7 +6689,9 @@ impl PyGraph {
     /// dicts materialize — `entry().update` merges duplicate-node attrs
     /// exactly like the per-node `add_node`), then ONE
     /// `extend_nodes_with_attrs_unrecorded` (insert-or-merge, no per-node
-    /// ledger), then the same `nodes_seq` bump the per-node path performs.
+    /// ledger), then the `nodes_seq` bumps the per-node path performs - through
+    /// `bump_nodes_seq`, so a graph with edges gets add_node's cache and
+    /// escape-scope resets too (br-r37-c1-ow0ie).
     fn add_attr_node_batch(
         &mut self,
         py: Python<'_>,
@@ -6720,7 +6726,10 @@ impl PyGraph {
         let _inserted = self
             .inner
             .extend_nodes_with_attrs_unrecorded(nodes.into_iter().map(|(c, a, _)| (c, a)));
-        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        if node_bumps > 0 {
+            self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps - 1);
+            self.bump_nodes_seq();
+        }
         Ok(())
     }
 }
@@ -8684,6 +8693,10 @@ impl PyMultiGraph {
             let Ok(canonical) = node_key_to_string(py, &node) else {
                 return Ok(None);
             };
+            if self.inner.has_node(&canonical) {
+                // br-r37-c1-ow0ie: an existing node merges into a dict a caller may hold.
+                return Ok(None);
+            }
             if self.batch_display_conflict(py, &canonical, &node, &mut batch_first) {
                 return Ok(None);
             }
@@ -10707,12 +10720,7 @@ impl PyMultiGraph {
         nodes_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const NODE_BATCH_MIN: usize = 8;
-        if self.inner.node_count() != 0
-            || self.inner.edge_count() != 0
-            || !self.adj_py_keys.is_empty()
-        {
-            return Ok(false);
-        }
+        // br-r37-c1-ow0ie: new nodes only (see PyGraph), whatever the graph holds.
         if let Ok(list) = nodes_to_add.downcast::<PyList>() {
             if list.len() < NODE_BATCH_MIN {
                 return Ok(false);
@@ -16711,26 +16719,26 @@ impl PyGraph {
     }
 
     /// br-r37-c1-nodebatch: native attributed-node batch for
-    /// `add_nodes_from([(n, dict), ...])` (mixed with plain `n`) on a FRESH
-    /// simple Graph. The per-node Python loop pays ~3.4x nx on attributed
+    /// `add_nodes_from([(n, dict), ...])` (mixed with plain `n`) on a simple
+    /// Graph. The per-node Python loop pays ~3.4x nx on attributed
     /// bulk construction (PyO3 `add_node` + per-key `set_item` per node);
     /// every construction path that rebuilds attributed nodes (relabel /
     /// union / convert / subgraph copy) inherits that tax. One bulk
     /// `extend_nodes_with_attrs_unrecorded` (one ledger record) replaces it.
     /// Returns `false` (NO mutation) for anything outside this shape so the
     /// per-node loop owns every error and partial-prefix contract.
+    ///
+    /// br-r37-c1-ow0ie: every node must be new, not the graph empty. A node the
+    /// graph already has merges into its attribute dict, which a caller may
+    /// hold, so it goes node by node; a new isolated node touches no adjacency
+    /// row, so appending one is what `add_node` does whatever the graph holds.
+    /// Appends to a graph with nodes ran node by node at 0.73x networkx.
     fn _try_add_nodes_from_batch(
         &mut self,
         py: Python<'_>,
         nodes_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const NODE_BATCH_MIN: usize = 8;
-        // FRESH gate: no existing nodes/edges/mirror state, so a batch never
-        // has to merge into pre-existing storage (appends to a non-empty graph
-        // fall through to the per-node loop).
-        if self.inner.node_count() != 0 || self.inner.edge_count() != 0 || self.py_adj_rows_live() {
-            return Ok(false);
-        }
         if let Ok(list) = nodes_to_add.downcast::<PyList>() {
             if list.len() < NODE_BATCH_MIN {
                 return Ok(false);

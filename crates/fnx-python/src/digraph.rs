@@ -3584,6 +3584,10 @@ impl PyMultiDiGraph {
             let Ok(canonical) = node_key_to_string(py, &node) else {
                 return Ok(None);
             };
+            if self.inner.has_node(&canonical) {
+                // br-r37-c1-ow0ie: an existing node merges into a dict a caller may hold.
+                return Ok(None);
+            }
             if self.batch_display_conflict(py, &canonical, &node, &mut batch_first) {
                 return Ok(None);
             }
@@ -5608,13 +5612,7 @@ impl PyMultiDiGraph {
         nodes_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const NODE_BATCH_MIN: usize = 8;
-        if self.inner.node_count() != 0
-            || self.inner.edge_count() != 0
-            || !self.succ_py_keys.is_empty()
-            || !self.pred_py_keys.is_empty()
-        {
-            return Ok(false);
-        }
+        // br-r37-c1-ow0ie: new nodes only (see PyGraph), whatever the graph holds.
         if let Ok(list) = nodes_to_add.downcast::<PyList>() {
             if list.len() < NODE_BATCH_MIN {
                 return Ok(false);
@@ -12762,6 +12760,10 @@ impl PyDiGraph {
             let Ok(canonical) = node_key_to_string(py, &node) else {
                 return Ok(None);
             };
+            if self.inner.has_node(&canonical) {
+                // br-r37-c1-ow0ie: an existing node merges into a dict a caller may hold.
+                return Ok(None);
+            }
             if self.batch_display_conflict(py, &canonical, &node, &mut batch_first) {
                 return Ok(None);
             }
@@ -14417,15 +14419,7 @@ impl PyDiGraph {
         nodes_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const NODE_BATCH_MIN: usize = 8;
-        // FRESH gate: no existing nodes/edges/row-display mirrors, so a batch
-        // never has to merge into pre-existing storage (appends fall through).
-        if self.inner.node_count() != 0
-            || self.inner.edge_count() != 0
-            || !self.succ_row_py.is_empty()
-            || !self.pred_row_py.is_empty()
-        {
-            return Ok(false);
-        }
+        // br-r37-c1-ow0ie: new nodes only (see PyGraph), whatever the graph holds.
         if let Ok(list) = nodes_to_add.downcast::<PyList>() {
             if list.len() < NODE_BATCH_MIN {
                 return Ok(false);
