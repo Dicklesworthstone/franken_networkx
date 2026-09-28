@@ -150,6 +150,23 @@ impl WeightedDiGraphProjection<'_> {
     }
 }
 
+/// An item's attributes as a dict: its own dict when it has one (the same
+/// object), else a dict built from its stored attributes; `None` when it has
+/// neither (br-r37-c1-18jjo).
+fn attr_dict_or_stored(
+    py: Python<'_>,
+    dict: Option<&Py<PyDict>>,
+    stored: Option<&fnx_classes::AttrMap>,
+) -> PyResult<Option<Py<PyDict>>> {
+    if let Some(dict) = dict {
+        return Ok(Some(dict.clone_ref(py)));
+    }
+    match stored {
+        Some(attrs) if !attrs.is_empty() => Ok(Some(crate::attr_map_to_pydict(py, attrs)?)),
+        _ => Ok(None),
+    }
+}
+
 impl<'py> GraphRef<'py> {
     /// Get a reference to the undirected graph (for algorithm dispatch).
     pub(crate) fn undirected(&self) -> &fnx_classes::Graph {
@@ -438,13 +455,23 @@ impl<'py> GraphRef<'py> {
         }
     }
 
-    fn node_attrs_for(&self, canonical: &str) -> Option<&Py<PyDict>> {
-        match self {
-            GraphRef::Undirected(pg) => pg.node_py_attrs.get(canonical),
-            GraphRef::Directed { dg, .. } => dg.node_py_attrs.get(canonical),
-            GraphRef::MultiUndirected { mg, .. } => mg.node_py_attrs.get(canonical),
-            GraphRef::MultiDirected { mdg, .. } => mdg.node_py_attrs.get(canonical),
-        }
+    /// A node's attributes as a dict: its own dict where it has one, else one
+    /// built from the store - a batch-built node keeps them only there
+    /// (br-r37-c1-18jjo). `None`: the node has no attributes.
+    fn node_attrs_for(&self, py: Python<'_>, canonical: &str) -> PyResult<Option<Py<PyDict>>> {
+        let (dict, stored) = match self {
+            GraphRef::Undirected(pg) => (pg.node_py_attrs.get(canonical), pg.inner.node_attrs(canonical)),
+            GraphRef::Directed { dg, .. } => {
+                (dg.node_py_attrs.get(canonical), dg.inner.node_attrs(canonical))
+            }
+            GraphRef::MultiUndirected { mg, .. } => {
+                (mg.node_py_attrs.get(canonical), mg.inner.node_attrs(canonical))
+            }
+            GraphRef::MultiDirected { mdg, .. } => {
+                (mdg.node_py_attrs.get(canonical), mdg.inner.node_attrs(canonical))
+            }
+        };
+        attr_dict_or_stored(py, dict, stored)
     }
 
     fn graph_attrs(&self) -> &Py<PyDict> {
@@ -465,66 +492,90 @@ impl<'py> GraphRef<'py> {
         }
     }
 
-    /// Look up edge attributes from the original graph for an undirected edge.
-    /// For DiGraph, tries both directions.
-    /// For multigraphs, returns first matching parallel edge's attributes.
-    fn edge_attrs_for_undirected(&self, left: &str, right: &str) -> Option<&Py<PyDict>> {
+    /// Edge attributes from the original graph for an undirected edge, as a
+    /// dict: the edge's own dict where it has one, else one built from the
+    /// store (br-r37-c1-18jjo: a batch-built or single-key edge keeps them only
+    /// there, and reading the dicts alone gave `{}`). For a DiGraph, the arc
+    /// `left -> right` when it exists, else `right -> left`; for multigraphs,
+    /// the first parallel edge. `None`: no such edge, or no attributes.
+    fn edge_attrs_for_undirected(
+        &self,
+        py: Python<'_>,
+        left: &str,
+        right: &str,
+    ) -> PyResult<Option<Py<PyDict>>> {
         match self {
-            GraphRef::Undirected(pg) => {
-                let ek = PyGraph::edge_key(left, right);
-                pg.edge_py_attrs.get(&ek)
-            }
-            GraphRef::Directed { dg, .. } => {
-                let ek1 = (left.to_owned(), right.to_owned());
-                if let Some(attrs) = dg.edge_py_attrs.get(&ek1) {
-                    return Some(attrs);
+            GraphRef::Undirected(pg) => attr_dict_or_stored(
+                py,
+                pg.edge_py_attrs.get(&PyGraph::edge_key(left, right)),
+                pg.inner.edge_attrs(left, right),
+            ),
+            GraphRef::Directed { .. } | GraphRef::MultiDirected { .. } => {
+                if self.digraph_has_arc(left, right) {
+                    self.edge_attrs_for_directed(py, left, right)
+                } else {
+                    self.edge_attrs_for_directed(py, right, left)
                 }
-                let ek2 = (right.to_owned(), left.to_owned());
-                dg.edge_py_attrs.get(&ek2)
             }
             GraphRef::MultiUndirected { mg, .. } => {
-                let keys = mg.inner.edge_keys(left, right)?;
-                let key = keys.first()?;
-                let ek = PyMultiGraph::edge_key(left, right, *key);
-                mg.edge_py_attrs.get(&ek)
-            }
-            GraphRef::MultiDirected { mdg, .. } => {
-                if let Some(keys) = mdg.inner.edge_keys(left, right)
-                    && let Some(key) = keys.first()
-                {
-                    let ek = (left.to_owned(), right.to_owned(), *key);
-                    if let Some(attrs) = mdg.edge_py_attrs.get(&ek) {
-                        return Some(attrs);
-                    }
-                }
-                if let Some(keys) = mdg.inner.edge_keys(right, left)
-                    && let Some(key) = keys.first()
-                {
-                    let ek = (right.to_owned(), left.to_owned(), *key);
-                    if let Some(attrs) = mdg.edge_py_attrs.get(&ek) {
-                        return Some(attrs);
-                    }
-                }
-                None
+                let Some(key) = mg
+                    .inner
+                    .edge_keys(left, right)
+                    .and_then(|keys| keys.first().copied())
+                else {
+                    return Ok(None);
+                };
+                attr_dict_or_stored(
+                    py,
+                    mg.edge_py_attrs.get(&PyMultiGraph::edge_key(left, right, key)),
+                    mg.inner.edge_attrs(left, right, key),
+                )
             }
         }
     }
 
-    /// Look up edge attributes from the original graph for a directed edge.
-    #[allow(dead_code)]
-    fn edge_attrs_for_directed(&self, source: &str, target: &str) -> Option<&Py<PyDict>> {
+    fn digraph_has_arc(&self, source: &str, target: &str) -> bool {
         match self {
-            GraphRef::Directed { dg, .. } => {
-                let ek = (source.to_owned(), target.to_owned());
-                dg.edge_py_attrs.get(&ek)
-            }
+            GraphRef::Directed { dg, .. } => dg.inner.has_edge(source, target),
+            GraphRef::MultiDirected { mdg, .. } => mdg
+                .inner
+                .edge_keys(source, target)
+                .is_some_and(|keys| !keys.is_empty()),
+            _ => false,
+        }
+    }
+
+    /// Edge attributes from the original graph for the arc `source ->
+    /// target` (a multigraph's first parallel arc), as a dict - its own dict,
+    /// else one built from the store (br-r37-c1-18jjo). Undirected graphs
+    /// answer as `edge_attrs_for_undirected`.
+    fn edge_attrs_for_directed(
+        &self,
+        py: Python<'_>,
+        source: &str,
+        target: &str,
+    ) -> PyResult<Option<Py<PyDict>>> {
+        match self {
+            GraphRef::Directed { dg, .. } => attr_dict_or_stored(
+                py,
+                dg.edge_py_attrs.get(&(source.to_owned(), target.to_owned())),
+                dg.inner.edge_attrs(source, target),
+            ),
             GraphRef::MultiDirected { mdg, .. } => {
-                let key = mdg.inner.edge_keys(source, target)?.first().copied()?;
-                let key = &key;
-                let ek = (source.to_owned(), target.to_owned(), *key);
-                mdg.edge_py_attrs.get(&ek)
+                let Some(key) = mdg
+                    .inner
+                    .edge_keys(source, target)
+                    .and_then(|keys| keys.first().copied())
+                else {
+                    return Ok(None);
+                };
+                attr_dict_or_stored(
+                    py,
+                    mdg.edge_py_attrs.get(&(source.to_owned(), target.to_owned(), key)),
+                    mdg.inner.edge_attrs(source, target, key),
+                )
             }
-            _ => self.edge_attrs_for_undirected(source, target),
+            _ => self.edge_attrs_for_undirected(py, source, target),
         }
     }
 
@@ -2527,7 +2578,7 @@ fn spanning_input_graph(
 
             let py_u = gr.py_node_key(py, left);
             let py_v = gr.py_node_key(py, right);
-            let edge_attrs = match gr.edge_attrs_for_undirected(left, right) {
+            let edge_attrs = match gr.edge_attrs_for_undirected(py, left, right)? {
                 Some(attrs) => attrs.bind(py).copy()?,
                 None => PyDict::new(py),
             };
@@ -2573,7 +2624,7 @@ fn validate_spanning_no_nan(py: Python<'_>, gr: &GraphRef<'_>, weight: &str) -> 
         if has_nan_weight {
             let py_u = gr.py_node_key(py, left);
             let py_v = gr.py_node_key(py, right);
-            let edge_attrs = match gr.edge_attrs_for_undirected(left, right) {
+            let edge_attrs = match gr.edge_attrs_for_undirected(py, left, right)? {
                 Some(attrs) => attrs.bind(py).copy()?,
                 None => PyDict::new(py),
             };
@@ -2603,18 +2654,10 @@ fn mst_edges_to_python(
                 // An edge without a Python mirror keeps its attributes only in
                 // the native store; reading the mirror alone emitted `{}` for
                 // every such edge whenever any other edge had been read
-                // (materialised) first.
-                let attrs = match gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+                // (materialised) first. The accessor reads both.
+                let attrs = match gr.edge_attrs_for_undirected(py, &edge.left, &edge.right)? {
                     Some(dict) => dict.bind(py).copy()?.into_any().unbind(),
-                    None => match gr {
-                        GraphRef::Undirected(pg) => {
-                            match pg.inner.edge_attrs(&edge.left, &edge.right) {
-                                Some(stored) => crate::attr_map_to_pydict(py, stored)?.into_any(),
-                                None => PyDict::new(py).into_any().unbind(),
-                            }
-                        }
-                        _ => PyDict::new(py).into_any().unbind(),
-                    },
+                    None => PyDict::new(py).into_any().unbind(),
                 };
                 tuple_object(py, &[u, v, attrs])
             } else {
@@ -4263,13 +4306,11 @@ pub fn fnx_to_nx_adjacency(
                         // an empty dict here -> boruvka MST (and every other
                         // fnx_to_nx_adjacency consumer) saw weight=default-1 and
                         // computed a WRONG tree with the attrs dropped. Same lazy-
-                        // mirror fix graph_has_edge_attr already carries.
-                        let attrs = match gr.edge_attrs_for_undirected(node, nbr) {
-                            Some(d) => d.clone_ref(py).into_any(),
-                            None => match pg.inner.edge_attrs(node, nbr) {
-                                Some(a) => crate::attr_map_to_pydict(py, a)?.into_any(),
-                                None => empty.clone_ref(py),
-                            },
+                        // mirror fix graph_has_edge_attr already carries - now
+                        // inside the accessor (br-r37-c1-18jjo).
+                        let attrs = match gr.edge_attrs_for_undirected(py, node, nbr)? {
+                            Some(d) => d.into_any(),
+                            None => empty.clone_ref(py),
                         };
                         nbrs.push((gr.py_node_key(py, nbr), attrs));
                     }
@@ -4288,12 +4329,9 @@ pub fn fnx_to_nx_adjacency(
                 if let Some(it) = inner.successors_iter(node) {
                     for nbr in it {
                         // br-cc-mst-storemiss: mirror-then-STORE (see undirected arm).
-                        let attrs = match gr.edge_attrs_for_directed(node, nbr) {
-                            Some(d) => d.clone_ref(py).into_any(),
-                            None => match dg.inner.edge_attrs(node, nbr) {
-                                Some(a) => crate::attr_map_to_pydict(py, a)?.into_any(),
-                                None => empty.clone_ref(py),
-                            },
+                        let attrs = match gr.edge_attrs_for_directed(py, node, nbr)? {
+                            Some(d) => d.into_any(),
+                            None => empty.clone_ref(py),
                         };
                         nbrs.push((gr.py_node_key(py, nbr), attrs));
                     }
@@ -10801,10 +10839,19 @@ pub fn minimum_spanning_tree(
                 _ => {}
             }
         }
+        // The edge's dict (its own, or built from the source's store -
+        // br-r37-c1-18jjo) goes in beside the store copy of its attributes,
+        // as every other builder keeps them; a bare store edge under a dict
+        // left native readers of the result without the weights.
+        let attrs = gr.edge_attrs_for_undirected(py, &edge.left, &edge.right)?;
+        let stored = match &attrs {
+            Some(dict) => crate::py_dict_to_attr_map(dict.bind(py))?,
+            None => AttrMap::new(),
+        };
         let _ = new_graph
             .inner
-            .add_edge(edge.left.clone(), edge.right.clone());
-        if let Some(attrs) = gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+            .add_edge_with_attrs(edge.left.clone(), edge.right.clone(), stored);
+        if let Some(attrs) = attrs {
             let copied = new_graph.edge_attr_writes.adopt(py, attrs.bind(py))?;
             new_graph.edge_py_attrs.insert(ek, copied);
         }
@@ -11154,10 +11201,19 @@ pub fn maximum_spanning_tree(
                 _ => {}
             }
         }
+        // The edge's dict (its own, or built from the source's store -
+        // br-r37-c1-18jjo) goes in beside the store copy of its attributes,
+        // as every other builder keeps them; a bare store edge under a dict
+        // left native readers of the result without the weights.
+        let attrs = gr.edge_attrs_for_undirected(py, &edge.left, &edge.right)?;
+        let stored = match &attrs {
+            Some(dict) => crate::py_dict_to_attr_map(dict.bind(py))?,
+            None => AttrMap::new(),
+        };
         let _ = new_graph
             .inner
-            .add_edge(edge.left.clone(), edge.right.clone());
-        if let Some(attrs) = gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+            .add_edge_with_attrs(edge.left.clone(), edge.right.clone(), stored);
+        if let Some(attrs) = attrs {
             let copied = new_graph.edge_attr_writes.adopt(py, attrs.bind(py))?;
             new_graph.edge_py_attrs.insert(ek, copied);
         }
@@ -17484,20 +17540,29 @@ fn rust_graph_to_py_subgraph(
         py_graph
             .node_key_map
             .insert(node.to_owned(), source_gr.py_node_key(py, node));
-        let attrs = match source_gr.node_attrs_for(node) {
-            Some(d) => d.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+        // br-r37-c1-18jjo: the source node's attributes wherever they live - a
+        // batch-built node keeps them only in the store, and a mirror-only read
+        // gave the copy {}. Store and dict both hold them, as a batch leaves.
+        let attrs = match source_gr.node_attrs_for(py, node)? {
+            Some(d) => d.bind(py).copy()?,
+            None => PyDict::new(py),
         };
-        py_graph.node_py_attrs.insert(node.to_owned(), attrs);
-        py_graph.inner.add_node(node);
+        let _ = py_graph
+            .inner
+            .add_node_with_attrs(node, crate::py_dict_to_attr_map(&attrs)?);
+        py_graph.node_py_attrs.insert(node.to_owned(), attrs.unbind());
     }
     for (left, right, _) in result.edges_ordered_borrowed() {
-        let _ = py_graph.inner.add_edge(left, right);
         let ek = PyGraph::edge_key(left, right);
-        let attrs = match source_gr.edge_attrs_for_undirected(left, right) {
+        let attrs = match source_gr.edge_attrs_for_undirected(py, left, right)? {
             Some(d) => py_graph.edge_attr_writes.adopt(py, d.bind(py))?,
             None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
+        let _ = py_graph.inner.add_edge_with_attrs(
+            left,
+            right,
+            crate::py_dict_to_attr_map(attrs.bind(py))?,
+        );
         py_graph.edge_py_attrs.insert(ek, attrs);
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
@@ -17521,19 +17586,26 @@ fn rust_digraph_to_py_subgraph(
         py_graph
             .node_key_map
             .insert(node.to_owned(), source_gr.py_node_key(py, node));
-        let attrs = match source_gr.node_attrs_for(node) {
-            Some(d) => d.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+        // br-r37-c1-18jjo: see rust_graph_to_py_subgraph.
+        let attrs = match source_gr.node_attrs_for(py, node)? {
+            Some(d) => d.bind(py).copy()?,
+            None => PyDict::new(py),
         };
-        py_graph.node_py_attrs.insert(node.to_owned(), attrs);
-        py_graph.inner.add_node(node);
+        let _ = py_graph
+            .inner
+            .add_node_with_attrs(node, crate::py_dict_to_attr_map(&attrs)?);
+        py_graph.node_py_attrs.insert(node.to_owned(), attrs.unbind());
     }
     for (left, right, _) in result.edges_ordered_borrowed() {
-        let _ = py_graph.inner.add_edge(left, right);
-        let attrs = match source_gr.edge_attrs_for_directed(left, right) {
+        let attrs = match source_gr.edge_attrs_for_directed(py, left, right)? {
             Some(d) => py_graph.edge_attr_writes.adopt(py, d.bind(py))?,
             None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
+        let _ = py_graph.inner.add_edge_with_attrs(
+            left,
+            right,
+            crate::py_dict_to_attr_map(attrs.bind(py))?,
+        );
         py_graph
             .edge_py_attrs
             .insert((left.to_owned(), right.to_owned()), attrs);
@@ -27974,7 +28046,8 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         PyGraph::new_empty_with_policy(py, gr.undirected().runtime_policy().clone())?;
     let mut edge_attr_map: HashMap<(String, String), Py<PyDict>> = HashMap::new();
     for (left, right, _) in dg.edges_ordered_borrowed() {
-        let attrs = match gr.edge_attrs_for_directed(left, right) {
+        // br-r37-c1-18jjo: the arc's attributes wherever they live.
+        let attrs = match gr.edge_attrs_for_directed(py, left, right)? {
             Some(d) => py_graph.edge_attr_writes.adopt(py, d.bind(py))?,
             None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
@@ -27986,20 +28059,26 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         py_graph
             .node_key_map
             .insert(node.to_owned(), gr.py_node_key(py, node));
-        let attrs = match gr.node_attrs_for(node) {
-            Some(d) => d.bind(py).copy()?.unbind(),
-            None => PyDict::new(py).unbind(),
+        let attrs = match gr.node_attrs_for(py, node)? {
+            Some(d) => d.bind(py).copy()?,
+            None => PyDict::new(py),
         };
-        py_graph.node_py_attrs.insert(node.to_owned(), attrs);
-        py_graph.inner.add_node(node);
+        let _ = py_graph
+            .inner
+            .add_node_with_attrs(node, crate::py_dict_to_attr_map(&attrs)?);
+        py_graph.node_py_attrs.insert(node.to_owned(), attrs.unbind());
     }
     for (left, right, _) in result.edges_ordered_borrowed() {
-        let _ = py_graph.inner.add_edge(left, right);
         let ek = PyGraph::edge_key(left, right);
         let attrs = match edge_attr_map.remove(&ek) {
             Some(d) => d,
             None => py_graph.edge_attr_writes.new_dict(py)?.unbind(),
         };
+        let _ = py_graph.inner.add_edge_with_attrs(
+            left,
+            right,
+            crate::py_dict_to_attr_map(attrs.bind(py))?,
+        );
         py_graph.edge_py_attrs.insert(ek, attrs);
     }
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())

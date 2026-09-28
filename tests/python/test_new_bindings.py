@@ -536,6 +536,61 @@ class TestBranchingConstructors:
             next(iterator)
 
 
+# br-r37-c1-18jjo: the trees copied node and edge attributes from the source's
+# Python dicts alone, so an item whose attributes live only in the store (every
+# batch-built item, a single-key add_edge edge) came out with {}.
+
+def _store_only_source(lib, directed, how, keys):
+    G = (lib.DiGraph if directed else lib.Graph)()
+
+    def attrs(i):
+        d = {"weight": (i * 7) % 5 + 1}
+        if keys == 2:
+            d["tag"] = f"t{i}"
+        return d
+
+    if directed:
+        edges = [(0, i, attrs(i)) for i in range(1, 9)] + [(i, i + 1, attrs(i + 20)) for i in range(1, 8)]
+    else:
+        edges = [(i, (i * 3 + 1) % 9, attrs(i)) for i in range(9)] + [(0, 5, attrs(40))]
+    nodes = [(i, {"c": i % 2} if keys == 1 else {"c": i % 2, "a": i}) for i in range(9)]
+    if how == "batch":
+        G.add_nodes_from(nodes)
+        G.add_edges_from(edges)
+    else:
+        for n, d in nodes:
+            G.add_node(n, **d)
+        for u, v, d in edges:
+            G.add_edge(u, v, **d)
+    return G
+
+
+def _tree_data(T):
+    return sorted(map(repr, T.nodes(data=True))), sorted(map(repr, T.edges(data=True)))
+
+
+@pytest.mark.parametrize("keys", [1, 2])
+@pytest.mark.parametrize("how", ["batch", "per_item"])
+def test_spanning_tree_iterator_trees_keep_store_only_attributes(how, keys):
+    got = [_tree_data(T) for T in fnx.SpanningTreeIterator(_store_only_source(fnx, False, how, keys))]
+    want = [_tree_data(T) for T in nx.SpanningTreeIterator(_store_only_source(nx, False, how, keys))]
+    assert got[:5] == want[:5]
+
+
+@pytest.mark.parametrize("keys", [1, 2])
+@pytest.mark.parametrize("how", ["batch", "per_item"])
+@pytest.mark.parametrize("directed", [False, True], ids=["tree", "arborescence"])
+def test_raw_tree_iterators_keep_store_only_attributes(directed, how, keys):
+    graph = _store_only_source(fnx, directed, how, keys)
+    raw = _fnx.arborescence_iterator_rust if directed else _fnx.spanning_tree_iterator_rust
+    tree = next(raw(graph))
+    for node, data in tree.nodes(data=True):
+        assert data == dict(graph.nodes[node])
+    for u, v, data in tree.edges(data=True):
+        assert data == dict(graph[u][v])
+        assert tree[u][v]["weight"] == graph[u][v]["weight"]
+
+
 # ---------------------------------------------------------------------------
 # is_isolate, isolates, number_of_isolates
 # ---------------------------------------------------------------------------
