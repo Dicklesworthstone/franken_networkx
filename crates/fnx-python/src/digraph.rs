@@ -11964,6 +11964,130 @@ impl PyDiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-ey5n2: plain `(u, v)` exact-int pairs onto a DiGraph that
+    /// already has nodes, resolved by index: the fresh-graph collector's
+    /// sibling. Each distinct
+    /// int is looked up once (its decimal is its canonical key); a node the
+    /// graph does not have yet is numbered after the existing ones in
+    /// first-appearance order - networkx's add_edge order - and the edges are
+    /// appended by index, an existing or repeated pair adding nothing, as
+    /// networkx's add_edge of an attr-less edge does not. Declines when an
+    /// endpoint names an existing node whose key object is not an exact int
+    /// (networkx keeps the caller's object in the pred row, which only the
+    /// general collector records) or when a row carries its own display keys.
+    fn collect_existing_exact_int_plain_edge_batch<'py, I>(
+        &self,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<ExistingExactIntPlainBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let existing = self.inner.node_count();
+        let mut positions: rustc_hash::FxHashMap<i64, usize> = rustc_hash::FxHashMap::default();
+        let mut new_labels: Vec<String> = Vec::new();
+        let mut new_objects: Vec<PyObject> = Vec::new();
+        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(len);
+        let mut node_bumps = 0_u64;
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 2 {
+                return Ok(None);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
+                return Ok(None);
+            }
+            let (Ok(u_value), Ok(v_value)) = (u.extract::<i64>(), v.extract::<i64>()) else {
+                return Ok(None);
+            };
+            let mut edge_added_node = false;
+            let mut position_of = |value: i64, object: &Bound<'py, PyAny>| -> Option<usize> {
+                if let Some(&position) = positions.get(&value) {
+                    return Some(position);
+                }
+                let label = value.to_string();
+                let position = if let Some(position) = self.inner.get_node_index(&label) {
+                    let plain_int = self
+                        .node_key_map
+                        .get(&label)
+                        .is_none_or(|key| key.bind(object.py()).is_exact_instance_of::<PyInt>());
+                    if !plain_int {
+                        return None;
+                    }
+                    position
+                } else {
+                    new_labels.push(label);
+                    new_objects.push(object.clone().unbind());
+                    edge_added_node = true;
+                    existing + new_labels.len() - 1
+                };
+                positions.insert(value, position);
+                Some(position)
+            };
+            let Some(u_position) = position_of(u_value, &u) else {
+                return Ok(None);
+            };
+            let Some(v_position) = position_of(v_value, &v) else {
+                return Ok(None);
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            edges.push((u_position, v_position));
+        }
+        Ok(Some((new_labels, new_objects, edges, node_bumps)))
+    }
+
+    fn try_add_existing_exact_int_plain_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() == 0
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_exact_int_plain_edge_batch(list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_existing_exact_int_plain_edge_batch(tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+        let Some((new_labels, new_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        let edge_bumps = u64::try_from(edges.len())
+            .unwrap_or(u64::MAX)
+            .wrapping_add(u64::from(final_edge_bump));
+        let mirror_active = self.node_iter_mirror_active();
+        for (label, node) in new_labels.iter().zip(new_objects) {
+            self.node_key_map.entry(label.clone()).or_insert(node);
+            if mirror_active {
+                let _ = self.node_iter_mirror_insert(py, label);
+            }
+        }
+        let _ = self.inner.extend_nodes_unrecorded(new_labels);
+        let _ = self.inner.extend_existing_index_edges_unrecorded(edges);
+        self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
+        self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
+        Ok(true)
+    }
+
     fn try_add_plain_edge_batch(
         &mut self,
         py: Python<'_>,
@@ -11974,7 +12098,13 @@ impl PyDiGraph {
         if !self.succ_row_py.is_empty() || !self.pred_row_py.is_empty() {
             return Ok(false);
         }
-        if self.try_add_fresh_exact_int_plain_edge_batch(py, ebunch_to_add, final_edge_bump)? {
+        if self.try_add_fresh_exact_int_plain_edge_batch(py, ebunch_to_add, final_edge_bump)?
+            || self.try_add_existing_exact_int_plain_edge_batch(
+                py,
+                ebunch_to_add,
+                final_edge_bump,
+            )?
+        {
             return Ok(true);
         }
         if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
@@ -13580,6 +13710,9 @@ type DiIndexedAttrEdgeBatch = (
     Vec<(usize, usize, AttrMap)>,
     u64,
 );
+/// New node labels and objects (numbered after the existing nodes), edges by
+/// node position, and the node revision bumps (br-r37-c1-ey5n2).
+type ExistingExactIntPlainBatch = (Vec<String>, Vec<PyObject>, Vec<(usize, usize)>, u64);
 /// One collected edge: (source index, target index, key, attrs, the dict
 /// that reports its writes to the graph - `None` for an edge without attrs,
 /// whose dict is made when first handed out).

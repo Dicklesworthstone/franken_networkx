@@ -570,3 +570,91 @@ def test_digraph_plain_batch_other_shapes_match_networkx(shape):
         return _canon_digraph_plain(g)
 
     assert outcome(fnx) == outcome(nx)
+
+
+def _canon_full(g):
+    state = [
+        [(repr(n), type(n).__name__) for n in g.nodes],
+        repr(list(g.edges(data=True))),
+        {repr(n): [repr(m) for m in g.adj[n]] for n in g},
+    ]
+    if g.is_directed():
+        state.append({repr(n): [repr(m) for m in g.pred[n]] for n in g})
+    return state
+
+
+# br-r37-c1-ey5n2: plain pairs appended to a graph that already has nodes and
+# edges - the Graph batch without the Python pass over existing edges, and the
+# DiGraph exact-int append collector.
+_APPEND_EXTRA_NODES = {
+    "ints only": [],
+    "a float node": [3.0],
+    "str nodes": ["5", "x"],
+    "bool nodes": [True, False],
+}
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("extra", sorted(_APPEND_EXTRA_NODES))
+@pytest.mark.parametrize("seed", range(6))
+def test_plain_pairs_appended_to_a_populated_graph_match_networkx(cls, extra, seed):
+    rng = random.Random(seed)
+    n = rng.randint(4, 30)
+    base = [
+        (rng.randrange(n), rng.randrange(n), {"w": rng.randint(1, 9)} if rng.random() < 0.5 else {})
+        for _ in range(rng.randint(1, 3 * n))
+    ]
+    removed = [rng.randrange(n) for _ in range(2)] if seed % 2 else []
+    bunch = [
+        (rng.randrange(n + 12) + (10**6 if rng.random() < 0.1 else 0), rng.randrange(n + 12))
+        for _ in range(rng.randint(8, 5 * n))
+    ] + [(u, v) for u, v, _ in base[:4]] + [(v, u) for u, v, _ in base[:2]]
+
+    def outcome(lib):
+        g = getattr(lib, cls)()
+        g.add_edges_from(base)
+        g.add_nodes_from(_APPEND_EXTRA_NODES[extra])
+        for node in removed:
+            if node in g:
+                g.remove_node(node)
+        g.add_edges_from(bunch if seed % 3 else tuple(bunch))
+        before_edit = _canon_full(g)
+        g.add_edge(0, 999)
+        g.remove_edge(0, 999)
+        return before_edit, _canon_full(g)
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_re_added_pairs_keep_their_edge_attributes(cls):
+    """Without attrs, networkx's add_edge of an existing edge changes nothing:
+    the edge keeps its dict, its data and its place in the row."""
+    base = [(i, (i + 1) % 12, {"w": i, "tag": f"e{i}"}) for i in range(12)]
+    bunch = [(i, (i + 1) % 12) for i in range(12)] + [((i + 1) % 12, i) for i in range(12)]
+
+    def outcome(lib):
+        g = getattr(lib, cls)(base)
+        # Held through get_edge_data, not g[3][4]: reading a row leaves a live
+        # row mirror, and a graph with one declines the native batches.
+        held = g.get_edge_data(3, 4)
+        g.add_edges_from(bunch)
+        return _canon_full(g), held is g.get_edge_data(3, 4)
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_transitive_closure_dag_matches_networkx(seed):
+    """Its closure edges are appended to a copy in one add_edges_from, after a
+    successor snapshot that must not leave row mirrors behind."""
+    rng = random.Random(seed)
+    n = rng.randint(2, 80)
+    edges = [
+        (u, v, {"w": rng.random()})
+        for u in range(n)
+        for v in rng.sample(range(u + 1, n + 1), min(rng.randint(0, 4), n - u))
+    ]
+    got = fnx.transitive_closure_dag(fnx.DiGraph(edges))
+    want = nx.transitive_closure_dag(nx.DiGraph(edges))
+    assert _canon_full(got) == _canon_full(want)

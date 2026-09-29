@@ -7041,7 +7041,9 @@ def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
     # True only for a bunch of PLAIN (u, v) pairs of which one already exists:
     # the caller then replays it as ``for u, v in edges``. A hit on an early
     # pair must still check the rest - a mixed bunch with a 3-tuple after the
-    # hit made that replay raise "too many values to unpack".
+    # hit made that replay raise "too many values to unpack". Asked only on the
+    # path that carries broadcast attrs, where a re-added edge merges them
+    # (br-r37-c1-ey5n2: the attr-less native batches skip an existing pair).
     if type(graph) not in (Graph, DiGraph):
         return False
     # br-r37-c1-emptyaef (cc): an empty graph has no edge that could pre-exist, so the
@@ -7162,13 +7164,13 @@ def _add_edges_from_materialized(raw, raw_add_edge):
             else:
                 _add_plain_pairs(self, raw_add_edge, ebunch_to_add, attr)
                 return None
-        if (
-            not attr
-            and isinstance(ebunch_to_add, (list, tuple))
-            and not _simple_add_edges_from_touches_existing_plain_edge(
-                self, ebunch_to_add
-            )
-        ):
+        # br-r37-c1-ey5n2: no pass over the pairs for ones already in the graph.
+        # Without attrs, re-adding an edge is networkx's no-op (its row keeps
+        # the key and the dict), and the native batches skip an existing pair;
+        # the pass was the guard from when a native re-add reset the edge's
+        # attributes, and it cost a Python walk of every pair against a
+        # snapshot of every edge - most of an append onto a non-empty graph.
+        if not attr and isinstance(ebunch_to_add, (list, tuple)):
             native_batch = getattr(self, "_try_add_edges_from_batch", None)
             if native_batch is not None and native_batch(ebunch_to_add):
                 return None
@@ -7221,13 +7223,7 @@ def _add_edges_from_materialized(raw, raw_add_edge):
             # non-plain-2-tuple bunch falls through to the exact per-edge
             # parity path below — byte-identical to passing the same list
             # directly (the list gate above already trusts it).
-            if (
-                iteration_exc is None
-                and not attr
-                and not _simple_add_edges_from_touches_existing_plain_edge(
-                    self, materialized
-                )
-            ):
+            if iteration_exc is None and not attr:
                 native_batch = getattr(self, "_try_add_edges_from_batch", None)
                 if native_batch is not None and native_batch(materialized):
                     return None
@@ -42234,8 +42230,13 @@ def _transitive_closure_dag_inproc(G, topo_order):
     if topo_order is None:
         topo_order = list(topological_sort(G))
     TC = G.copy()
-    succ = _raw_neighbors_dispatch(TC)
-    if succ is None:
+    # br-r37-c1-ey5n2: the successor snapshot comes from one native call. Read
+    # row by row through the raw neighbors accessor, every row got a live row
+    # mirror, and a graph with row mirrors turns the final add_edges_from away
+    # from the native append batch - most of this function's time.
+    adj = _fnx.to_dict_of_lists_undirected(TC)
+    succ = _raw_neighbors_dispatch(TC) if adj is None else None
+    if adj is None and succ is None:
         return None
     # br-cc-tcdsnap: the distance-2 BFS below previously called ``succ(TC, node)``
     # (a PyO3 successor lookup) per node on the MUTATING TC — O(closure-edges)
@@ -42247,7 +42248,8 @@ def _transitive_closure_dag_inproc(G, topo_order):
     # transitive edges are committed in ONE final ``add_edges_from`` instead of
     # per-v: identical per-v / set-order append, so the result graph's adj
     # iteration is byte-identical to nx.
-    adj = {node: list(succ(TC, node)) for node in TC}
+    if adj is None:
+        adj = {node: list(succ(TC, node)) for node in TC}
     new_edges = []
     for v in reversed(topo_order):
         # descendants_at_distance(TC, v, 2) == set(bfs_layers(TC, v)[2]).
