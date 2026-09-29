@@ -64843,13 +64843,25 @@ def common_neighbors(G, u, v):
             raise NetworkXError("u is not in the graph.")
         if v not in G:
             raise NetworkXError("v is not in the graph.")
-        common = (
-            G._native_adjacency_row_dict(u).keys()
-            & G._native_adjacency_row_dict(v).keys()
+        # br-r37-c1-ceqev: networkx's expression over the same row dicts, so the
+        # set iterates in its order too.
+        return G._native_adjacency_row_dict(u).keys() & (
+            G._native_adjacency_row_dict(v).keys() - {u, v}
         )
-        common.discard(u)
-        common.discard(v)
-        return common
+    # br-r37-c1-ceqev: networkx's expression over rows of the type networkx
+    # has, so the set iterates in its order too. That type is a view's, not
+    # the concrete graph's a view materialises to, whose rows are the same
+    # in the same order. A networkx graph or view handed in is its own
+    # answer: its rows as they are, no copy.
+    if _is_networkx_graph(G):
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if u not in G:
+            raise NetworkXError("u is not in the graph.")
+        if v not in G:
+            raise NetworkXError("v is not in the graph.")
+        return G._adj[u].keys() & G._adj[v].keys() - {u, v}
+    rows_are_dicts = _nx_rows_are_dicts(G)
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
@@ -64864,8 +64876,46 @@ def common_neighbors(G, u, v):
     # the family.
     _raw_nbrs = _raw_neighbors_dispatch(G)
     if _raw_nbrs is not None:
-        return set(_raw_nbrs(G, u)) & set(_raw_nbrs(G, v)) - {u, v}
-    return set(G.adj[u]) & set(G.adj[v]) - {u, v}
+        u_row, v_row = _raw_nbrs(G, u), _raw_nbrs(G, v)
+    else:
+        u_row, v_row = G.adj[u], G.adj[v]
+    if rows_are_dicts:
+        return dict.fromkeys(u_row).keys() & (dict.fromkeys(v_row).keys() - {u, v})
+    # KeysView's - and & : each side a set grown one add at a time, the &
+    # walking the rest.
+    uv = {u, v}
+    rest = {w for w in v_row if w not in uv}
+    u_keys = dict.fromkeys(u_row)
+    return {w for w in rest if w in u_keys}
+
+
+def _is_networkx_graph(G):
+    """Whether ``G`` is a networkx graph or view handed to an fnx function -
+    networkx is not imported for the question."""
+    nx_module = _sys.modules.get("networkx")
+    return nx_module is not None and isinstance(G, nx_module.Graph)
+
+
+def _nx_rows_are_dicts(G):
+    """Whether networkx's ``G._adj[u]`` is a dict for this undirected graph - a
+    graph's own row, which ``copy(as_view=True)`` and an undirected graph's
+    ``to_undirected(as_view=True)`` share - rather than a coreview Mapping: a
+    filtered view's FilterAtlas, or the UnionAtlas of a digraph's undirected
+    view (br-r37-c1-ceqev)."""
+    while True:
+        if isinstance(G, _FilteredGraphView):
+            # copy(as_view=True) is the one view built with no filter at all;
+            # subgraph_view passes its no_filter default explicitly.
+            if not (G._filter_node_is_default and G._filter_edge_is_default) or (
+                _subgraph_view_no_filter_default in (G._filter_node, G._filter_edge)
+            ):
+                return False
+        elif isinstance(G, _ConversionGraphViewBase):
+            if G._graph.is_directed():
+                return False
+        else:
+            return True
+        G = G._graph
 
 
 def neighbors(G, n):

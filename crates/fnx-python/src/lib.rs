@@ -738,6 +738,59 @@ impl PyMultiGraph {
     }
 }
 
+/// br-r37-c1-ceqev: the mask of a CPython set grown from empty by `count` adds.
+/// From an 8-slot table, `set_add_entry` resizes once `fill * 5 >= mask * 3`
+/// to the smallest power of two above `used * 4` (`used * 2` past 50,000); a
+/// set grown only by adds has `fill == used`.
+fn grown_set_mask(count: usize) -> usize {
+    let mut mask = 7_usize;
+    for used in 1..=count {
+        if used * 5 >= mask * 3 {
+            let min_used = if used > 50_000 { used * 2 } else { used * 4 };
+            let mut size = 8_usize;
+            while size <= min_used {
+                size <<= 1;
+            }
+            mask = size - 1;
+        }
+    }
+    mask
+}
+
+/// br-r37-c1-ceqev: the slot each key lands in when `set(d)` is built from an
+/// exact dict `d` whose keys have `hashes`, in `d`'s order. `set_update_dict`
+/// sizes the empty table once, from five keys up to the smallest power of two
+/// above `2n` (8 slots below that), and `set_add_entry` takes the first free
+/// slot from the home slot through the nine after it while those stay inside
+/// the table, then perturbs. The set iterates in slot order. Checked against
+/// the real set on CPython 3.10-3.14.
+fn presized_set_slots(hashes: &[isize]) -> Vec<usize> {
+    let mut size = 8_usize;
+    if hashes.len() * 5 >= 21 {
+        while size <= hashes.len() * 2 {
+            size <<= 1;
+        }
+    }
+    let mask = size - 1;
+    let mut taken = vec![false; size];
+    hashes
+        .iter()
+        .map(|&hash| {
+            let mut perturb = hash as usize;
+            let mut i = perturb & mask;
+            loop {
+                let probes = if i + 9 <= mask { 9 } else { 0 };
+                if let Some(slot) = (i..=i + probes).find(|&slot| !taken[slot]) {
+                    taken[slot] = true;
+                    return slot;
+                }
+                perturb >>= 5;
+                i = i.wrapping_mul(5).wrapping_add(1).wrapping_add(perturb) & mask;
+            }
+        })
+        .collect()
+}
+
 fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`
@@ -4208,13 +4261,23 @@ impl PyGraph {
     /// (`set(G)` / `for n in G`), which keeps its per-next nodes_seq guard.
     #[allow(dead_code)]
     pub(crate) fn cached_node_key_vec(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.cached_node_key_tuple(py)
+            .bind(py)
+            .iter()
+            .map(|o| o.unbind())
+            .collect()
+    }
+
+    /// The node display objects in node order as the cached tuple itself -
+    /// O(1) on a hit, where `cached_node_key_vec` clones every element.
+    pub(crate) fn cached_node_key_tuple(&self, py: Python<'_>) -> Py<PyTuple> {
         let seq = self.nodes_seq;
         {
             let guard = self.node_keys_cache.lock().unwrap();
             if let Some((cached_seq, tup)) = guard.as_ref()
                 && *cached_seq == seq
             {
-                return tup.bind(py).iter().map(|o| o.unbind()).collect();
+                return tup.clone_ref(py);
             }
         }
         let keys: Vec<PyObject> = self
@@ -4227,7 +4290,7 @@ impl PyGraph {
             .expect("node-keys tuple")
             .unbind();
         *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py)));
-        keys
+        tup
     }
 
     pub(crate) fn node_iter_mirror_or_init(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
@@ -17318,12 +17381,13 @@ impl PyGraph {
     /// (materialising every neighbour's attr map) just to intersect their KEYS, plus
     /// two Python-level `u in G`/`v in G` membership checks (each a `node_key_to_string`
     /// + `has_node` PyO3 round-trip) — ~0.76x nx. This intersects the two integer
-    /// adjacency index rows directly in Rust (probe the smaller into a set, walk the
-    /// larger), excluding `u`/`v`, and materialises ONLY the common neighbours' node
-    /// objects — no attr dicts, one FFI call. Returns `None` (-> the Python path) when
-    /// `adj_py_keys` is non-empty (hash-mixed keys need the z6uka row-display object,
-    /// which `py_node_key` does not carry). Missing `u`/`v` raise the exact nx
-    /// `NetworkXError` in u-before-v order. Result is a set == nx's `set(G[u]) & set(G[v]) - {u, v}`.
+    /// adjacency index rows directly in Rust, excluding `u`/`v`, and materialises
+    /// ONLY the common neighbours' node objects — no attr dicts, one FFI call.
+    /// Returns `None` (-> the Python path) when `adj_py_keys` is non-empty
+    /// (hash-mixed keys need the z6uka row-display object, which `py_node_key`
+    /// does not carry). Missing `u`/`v` raise the exact nx `NetworkXError` in
+    /// u-before-v order. The result is nx's `G._adj[u].keys() & G._adj[v].keys()
+    /// - {u, v}`, iteration order included.
     fn _native_common_neighbors(
         &self,
         py: Python<'_>,
@@ -17341,25 +17405,62 @@ impl PyGraph {
         let Some(vi) = self.inner.get_node_index(&v_canon) else {
             return Err(NetworkXError::new_err("v is not in the graph."));
         };
+        // br-r37-c1-ceqev: networkx returns `G._adj[u].keys() & G._adj[v].keys()
+        // - {u, v}`, which by precedence is u_keys & (v_keys - {u, v}), and a
+        // set iterates in an order its insertion history and table size decide
+        // wherever hashes collide - walking the larger row into a growing set
+        // came out in another order for ~2.6% of pairs. The result set is grown
+        // from empty either way, so only its insertion order matters, and the
+        // dict view picks it: with u's row no longer than rest = v_keys - {u, v},
+        // set.intersection walks u's keys in row order; otherwise it walks rest
+        // in rest's own table order, which only the real set(dict) - one resize
+        // up front - reproduces.
+        let keys = self.cached_node_key_tuple(py);
+        let keys = keys.bind(py);
         let u_nbrs = self.inner.neighbors_indices(ui).unwrap_or(&[]);
         let v_nbrs = self.inner.neighbors_indices(vi).unwrap_or(&[]);
-        let (small, large) = if u_nbrs.len() <= v_nbrs.len() {
-            (u_nbrs, v_nbrs)
-        } else {
-            (v_nbrs, u_nbrs)
-        };
-        let small_set: std::collections::HashSet<usize> = small.iter().copied().collect();
-        let result = pyo3::types::PySet::empty(py)?;
-        for &j in large {
-            if j != ui
-                && j != vi
-                && small_set.contains(&j)
-                && let Some(name) = self.inner.get_node_name(j)
-            {
-                result.add(self.py_node_key(py, name))?;
+        let rest_len = v_nbrs.len()
+            - usize::from(self.inner.has_edge_by_indices(vi, ui))
+            - usize::from(vi != ui && self.inner.has_edge_by_indices(vi, vi));
+        let common = PySet::empty(py)?;
+        if u_nbrs.len() <= rest_len {
+            for &j in u_nbrs {
+                if j != ui && j != vi && self.inner.has_edge_by_indices(vi, j) {
+                    common.add(keys.get_borrowed_item(j)?)?;
+                }
             }
+            return Ok(Some(common.unbind()));
         }
-        Ok(Some(result.unbind()))
+        // The common keys as positions in v's row, which is rest's dict order.
+        let mut shared = (0..v_nbrs.len())
+            .filter(|&p| {
+                let j = v_nbrs[p];
+                j != ui && j != vi && self.inner.has_edge_by_indices(ui, j)
+            })
+            .collect::<Vec<_>>();
+        // Only the order among the common keys is at stake: where no two of
+        // them share a slot of the table their set grows to, any insertion
+        // order lays them out the same, and only a collision needs rest's.
+        let mask = grown_set_mask(shared.len());
+        let mut homes = shared
+            .iter()
+            .map(|&p| Ok((keys.get_borrowed_item(v_nbrs[p])?.hash()? as usize) & mask))
+            .collect::<PyResult<Vec<_>>>()?;
+        homes.sort_unstable();
+        if homes.windows(2).any(|pair| pair[0] == pair[1]) {
+            // rest = set(v's row dict) minus u and v, whose discards leave
+            // every other key where the build put it.
+            let hashes = v_nbrs
+                .iter()
+                .map(|&j| keys.get_borrowed_item(j)?.hash())
+                .collect::<PyResult<Vec<_>>>()?;
+            let slots = presized_set_slots(&hashes);
+            shared.sort_unstable_by_key(|&p| slots[p]);
+        }
+        for p in shared {
+            common.add(keys.get_borrowed_item(v_nbrs[p])?)?;
+        }
+        Ok(Some(common.unbind()))
     }
 
     /// br-r37-c1-snabulk: bulk set_node_attributes(values, name) — one
