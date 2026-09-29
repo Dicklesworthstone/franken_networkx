@@ -155,6 +155,48 @@ def test_unweighted_load_centrality_is_bit_exact(normalized):
         assert not differ, (name, len(differ), differ[:3])
 
 
+def _load_outcome(call):
+    try:
+        value = call()
+    except Exception as exc:  # noqa: BLE001 - the exception IS the parity subject
+        return (type(exc).__name__, str(exc))
+    return ("ok", repr(value), type(value).__name__)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("normalized", [True, False], ids=["normalized", "unnormalized"])
+def test_single_node_load_centrality_is_networkx_to_the_last_bit(cls, weight, normalized):
+    """br-r37-c1-96x14: v= answers from the whole-graph kernel. networkx's
+    single-node path sums v's per-source load in node order and scales it as
+    its whole-graph path does that node, so the value must be identical - and
+    a v that is not a node (networkx: 0.0) or is unhashable (TypeError) must
+    keep networkx's answer too."""
+    import random
+
+    for seed in range(6):
+        rng = random.Random(seed)
+        n = rng.choice([1, 2, 3, 9, 40, 90])
+        edges = [
+            (rng.randrange(n), rng.randrange(n), rng.choice([1, 2, 0.5, 1.5, 3]))
+            for _ in range(rng.randint(0, 3 * n))
+        ]
+        twins = []
+        for lib in (fnx, nx):
+            graph = getattr(lib, cls)()
+            graph.add_nodes_from(range(n))
+            graph.add_weighted_edges_from(edges)
+            twins.append(graph)
+        for v in [*range(min(n, 5)), n + 5, "absent", [1]]:
+            got = _load_outcome(
+                lambda: fnx.load_centrality(twins[0], v=v, weight=weight, normalized=normalized)
+            )
+            want = _load_outcome(
+                lambda: nx.load_centrality(twins[1], v=v, weight=weight, normalized=normalized)
+            )
+            assert got == want, (seed, n, v)
+
+
 def test_load_centrality_ties_follow_node_values_not_insertion():
     """str nodes inserted out of lexicographic order, tuple nodes, and a
     MultiGraph (whose load is its simple projection's)."""
@@ -167,7 +209,8 @@ def test_load_centrality_ties_follow_node_values_not_insertion():
         expected = nx.load_centrality(nx_twin)
         actual = fnx.load_centrality(fnx_twin)
         assert not [n for n in expected if actual[n] != expected[n]], name
-        # cutoff= and v= run the Python port, which sorts the same pairs.
+        # cutoff= runs the Python port, which sorts the same pairs; v= reads
+        # the kernel's value for the node (br-r37-c1-96x14).
         expected = nx.load_centrality(nx_twin, cutoff=4)
         actual = fnx.load_centrality(fnx_twin, cutoff=4)
         assert not [n for n in expected if actual[n] != expected[n]], (name, "cutoff")

@@ -39797,17 +39797,27 @@ def load_centrality(
     # br-r37-c1-mgisol (cc): a MULTIgraph's load is its simple projection's -
     # parallel edges do not change node-sequence shortest paths, and with the
     # value order fixed the projection's row order cannot change the sums.
-    if v is None and cutoff is None and weight is None:
+    # br-r37-c1-96x14: networkx's v= path sums v's per-source load in node
+    # order and scales it exactly as its whole-graph path does that node, so
+    # the whole-graph kernel's value for v IS its answer - where the Python
+    # loop below redid all V sources' work in Python. A v that is not a node
+    # (networkx: 0.0) or is unhashable (TypeError) keeps that loop.
+    single = v is not None and v in G
+    if (v is None or single) and cutoff is None and weight is None:
         value_rank = _load_value_rank(G)
         if value_rank is not None:
             if G.is_multigraph():
                 _proj = (DiGraph if G.is_directed() else Graph)()
                 _proj.add_nodes_from(G.nodes())
                 _proj.add_edges_from(G.edges())
-                return _raw_load_centrality(
+                loads = _raw_load_centrality(
                     _proj, normalized=normalized, value_rank=value_rank
                 )
-            return _raw_load_centrality(G, normalized=normalized, value_rank=value_rank)
+            else:
+                loads = _raw_load_centrality(
+                    G, normalized=normalized, value_rank=value_rank
+                )
+            return loads[v] if single else loads
 
     # br-r37-c1-loadw: weighted load centrality (a string `weight` key,
     # whole-graph, no cutoff) ran a pure-Python per-source Newman loop
@@ -39819,7 +39829,7 @@ def load_centrality(
     # multigraph, cutoff, negative/+inf/non-numeric weight, or nodes that are
     # not mutually sortable all fall through to the parity path / nx.
     if (
-        v is None
+        (v is None or single)
         and cutoff is None
         and isinstance(weight, str)
         and not G.is_multigraph()
@@ -39832,9 +39842,10 @@ def load_centrality(
         ):
             value_rank = _load_value_rank(G)
             if value_rank is not None:
-                return _raw_load_centrality_weighted(
+                loads = _raw_load_centrality_weighted(
                     G, weight, value_rank, normalized
                 )
+                return loads[v] if single else loads
 
     # br-r37-c1-u84bo: nx's load centrality uses dijkstra, which raises
     # ValueError(('Contradictory paths found:', 'negative weights?')) on a
