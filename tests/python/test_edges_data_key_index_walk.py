@@ -186,3 +186,207 @@ def test_view_tracks_mutation(cls):
     assert [tuple(map(str, e)) for e in got.edges(data="weight", default=1)] == [
         tuple(map(str, e)) for e in want.edges(data="weight", default=1)
     ]
+
+
+# br-r37-c1-h79gt: a value the attribute store cannot hold lives only in the
+# edge's dict - the store keeps '(1, 2)' for a tuple, 'None' for None, a float
+# for 2**70 - so a data=<key> read must take the edge's dict first. The nbunch
+# DiGraph readers and every MultiDiGraph reader after add_edge read the store.
+_UNSTORABLE = [(1, 2), None, [1, 2], 2**70, 10**20, b"b", frozenset({1}), 1.5]
+
+_BUILDS = {
+    "add_edge": lambda g, value: [g.add_edge(i, (i + 1) % 8, w=value) for i in range(8)],
+    "dicts_one_key": lambda g, value: g.add_edges_from(
+        [(i, (i + 1) % 8, {"w": value}) for i in range(8)]
+        + [(i, (i + 3) % 8, {"w": value}) for i in range(8)]
+    ),
+    "dicts_two_keys": lambda g, value: g.add_edges_from(
+        [(i, (i + 1) % 8, {"w": value, "k": i}) for i in range(8)]
+        + [(i, (i + 3) % 8, {"k": i, "w": value}) for i in range(8)]
+    ),
+    "weighted": lambda g, value: g.add_weighted_edges_from(
+        [(i, (i + 1) % 8, value) for i in range(16)], weight="w"
+    ),
+}
+
+
+def _value_reads(graph):
+    reads = {
+        "edges": lambda g: list(g.edges(data="w")),
+        "edges default": lambda g: list(g.edges(data="w", default=0)),
+        "edges nbunch": lambda g: list(g.edges([0, 2, 4, 6], data="w")),
+        "edges one node": lambda g: list(g.edges([2], data="w")),
+        "for edges nbunch": lambda g: [e for e in g.edges([6, 0, 6], data="w")],
+    }
+    if graph.is_directed():
+        reads["in_edges"] = lambda g: list(g.in_edges(data="w"))
+        reads["in_edges nbunch"] = lambda g: list(g.in_edges([1, 3, 5], data="w"))
+        reads["out_edges nbunch"] = lambda g: list(g.out_edges([0, 2, 4, 6], data="w"))
+    if graph.is_multigraph():
+        reads["edges keys nbunch"] = lambda g: list(g.edges([0, 2], keys=True, data="w"))
+    return reads
+
+
+def _typed(rows):
+    return [(repr(row), type(row[-1]).__name__) for row in rows]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("build", sorted(_BUILDS))
+def test_values_the_store_cannot_hold_come_from_the_edge_dict(cls, build):
+    for value in _UNSTORABLE:
+        for label, read in _value_reads(getattr(nx, cls)()).items():
+            got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+            for g in (got, want):
+                _BUILDS[build](g, value)
+            assert _typed(read(got)) == _typed(read(want)), (cls, build, value, label)
+
+
+def _write_routes(lib):
+    def set_attrs(g, u, v):
+        key = (u, v, 0) if g.is_multigraph() else (u, v)
+        lib.set_edge_attributes(g, {key: 99.0}, "w")
+
+    def through_data_true(g, u, v):
+        for edge in g.edges(data=True):
+            if edge[:2] == (u, v):
+                edge[-1]["w"] = 99.0
+
+    def item(g, u, v):
+        return g[u][v][0] if g.is_multigraph() else g[u][v]
+
+    def synced(g, u, v):
+        # Every weighted native algorithm first folds written dicts back into
+        # the store, which can leave the graph CLEAN again with the new value.
+        item(g, u, v)["w"] = 99.0
+        sync = getattr(g, "_fnx_sync_edge_attrs_to_inner", None)
+        if sync is not None:
+            sync()
+
+    return {
+        "add_edge": lambda g, u, v: g.add_edge(u, v, w=99.0),
+        "subscript": lambda g, u, v: item(g, u, v).__setitem__("w", 99.0),
+        "update": lambda g, u, v: item(g, u, v).update(w=99.0),
+        "delete": lambda g, u, v: item(g, u, v).__delitem__("w"),
+        "dict.__setitem__": lambda g, u, v: dict.__setitem__(item(g, u, v), "w", 99.0),
+        "pred row": lambda g, u, v: (
+            g.pred[v][u][0] if g.is_multigraph() else g.pred[v][u]
+        ).__setitem__("w", 99.0),
+        "set_edge_attributes": set_attrs,
+        "weighted_from": lambda g, u, v: g.add_weighted_edges_from([(u, v, 99.0)], weight="w"),
+        "through data=True": through_data_true,
+        "synced": synced,
+    }
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", sorted(_write_routes(nx)))
+def test_value_reads_see_an_attribute_written_after_a_warm_read(cls, route):
+    """br-r37-c1-7ye53: the value rows a read keeps must not outlive a write."""
+    for label, read in _value_reads(getattr(nx, cls)()).items():
+        results = []
+        for lib in (fnx, nx):
+            g = getattr(lib, cls)()
+            g.add_weighted_edges_from([(i, (i + 1) % 8, float(i)) for i in range(8)], weight="w")
+            g.add_weighted_edges_from([(i, (i + 3) % 8, i + 0.5) for i in range(8)], weight="w")
+            read(g)
+            read(g)
+            _write_routes(lib)[route](g, 2, 3)
+            results.append(_typed(read(g)))
+        assert results[0] == results[1], (cls, route, label)
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_nbunch_row_is_keyed_by_the_callers_node_object(cls):
+    """networkx's row node is the nbunch element itself: 1.0 or True naming
+    node 1 comes back as given, whether or not the row was read before."""
+    for warm in (False, True):
+        results = []
+        for lib in (fnx, nx):
+            g = getattr(lib, cls)()
+            g.add_weighted_edges_from([(1, 2, 0.5), (2, 1, 1.5), (1, 3, 2.5)], weight="w")
+            if warm:
+                list(g.edges(data="w"))
+                list(g.in_edges(data="w"))
+            results.append(
+                [
+                    _typed(g.edges([1.0], data="w")),
+                    _typed(g.edges([True, 2], data="w")),
+                    _typed(g.in_edges([1.0], data="w")),
+                    _typed(g.out_edges([2.0], data="w")),
+                ]
+            )
+        assert results[0] == results[1], (cls, warm)
+
+
+_DEFAULT_STATES = {
+    "batch": lambda g: g.add_edges_from([(0, 1, {"w": 1.0}), (1, 2, {}), (2, 0, {})]),
+    # A tuple value keeps the edge's dict beside the store and leaves the graph
+    # clean - the state in which the multigraph snapshots answer.
+    "kept dict": lambda g: [g.add_edge(0, 1, w=(1, 2)), g.add_edge(1, 2), g.add_edge(2, 0, w=5)],
+}
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("state", sorted(_DEFAULT_STATES))
+def test_default_is_the_object_given(cls, state):
+    """A remembered row must not answer for an equal default of another type
+    or another object: networkx yields the default it was handed."""
+    forms = [lambda g, **kw: g.edges(data="w", **kw)]
+    if cls.startswith("Multi"):
+        forms.append(lambda g, **kw: g.edges(keys=True, data="w", **kw))
+    if cls in ("DiGraph", "MultiDiGraph"):
+        forms.append(lambda g, **kw: g.in_edges(data="w", **kw))
+    for index, form in enumerate(forms):
+        got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+        for g in (got, want):
+            _DEFAULT_STATES[state](g)
+            list(form(g, default=0))
+            list(form(g, default=0))
+        assert _typed(form(got, default=0.0)) == _typed(form(want, default=0.0)), index
+        marker = []
+        assert [row[-1] is marker for row in form(got, default=marker)] == [
+            row[-1] is marker for row in form(want, default=marker)
+        ], index
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_rows_read_by_nbunch_then_whole_graph_then_after_mutation(cls):
+    reads = [
+        lambda g: list(g.edges([5, 1, 5], data="w")),
+        lambda g: list(g.in_edges([2, 0], data="w", default=-1)),
+        lambda g: list(g.edges(data="w")),
+        lambda g: list(g.in_edges(data="w")),
+        lambda g: list(g.out_edges([3, 8, 0], data="w")),
+        lambda g: list(g.in_edges([8, 2], data="w")),
+        lambda g: list(g.edges(data="w")),
+        lambda g: list(g.in_edges(data="w")),
+    ]
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    for g in (got, want):
+        g.add_weighted_edges_from([(i, (i * 5 + 1) % 9, i / 2) for i in range(18)], weight="w")
+    for step in range(3):
+        for index, read in enumerate(reads):
+            assert _typed(read(got)) == _typed(read(want)), (cls, step, index)
+        for g in (got, want):
+            if step == 0:
+                g.add_edge(5, 7, w=70.0)
+                g.add_edge(1, 5)
+            elif step == 1:
+                g.remove_node(2)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_a_dict_value_is_the_edge_dicts_own(cls):
+    """A nested dict is live: every value view must hand out the object the
+    edge's dict holds, as networkx's `dd[key]` does."""
+    graph = getattr(fnx, cls)()
+    graph.add_edges_from([(0, 1, {"d": {"x": 1}}), (1, 2, {"d": {"x": 2}})])
+    forms = [lambda g: g.edges(data="d"), lambda g: g.edges([0, 1], data="d")]
+    if graph.is_directed():
+        forms += [lambda g: g.in_edges(data="d"), lambda g: g.in_edges([1, 2], data="d")]
+    for form in forms:
+        for row in form(graph):
+            u, v = row[0], row[1]
+            held = graph[u][v][0]["d"] if graph.is_multigraph() else graph[u][v]["d"]
+            assert row[-1] is held, (cls, row)

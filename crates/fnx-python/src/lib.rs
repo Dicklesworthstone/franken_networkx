@@ -13389,7 +13389,9 @@ impl PyMultiGraph {
                 && *es == self.edges_seq
                 && *kf == keys
                 && cattr == attr_name
-                && cdef.bind(py).eq(default.bind(py))?
+                // The default networkx yields is the object given: an equal
+                // one of another type (0 for 0.0) must not answer for it.
+                && cdef.bind(py).is(default.bind(py))
             {
                 return Ok(ctuples.iter().map(|t| t.clone_ref(py)).collect());
             }

@@ -89,6 +89,129 @@ fn single_weight_float_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<Option<At
     Ok(Some(rust_attrs))
 }
 
+/// A clean DiGraph's `(u, v, value)` tuples for `edges(data=attr)` or
+/// `in_edges(data=attr)`, filled one node row at a time (br-r37-c1-7ye53).
+///
+/// A row is a node's successors for the out views and its predecessors for the
+/// in view, in the graph's own row order, so a whole-graph read is every row in
+/// node order and an nbunch read is the rows it names. A row is filled the
+/// first time it is asked for: an nbunch read costs its own rows, never the
+/// whole graph, and a later read of any view over the same rows clones them.
+///
+/// The tuples hold attribute VALUES, which an attribute write changes without
+/// moving either revision, so a snapshot is kept only while the graph is clean
+/// and `mark_edges_dirty` drops it; the revisions retire it on a structural
+/// change. `default` is matched by identity: networkx hands back the object it
+/// was given, and an equal one of another type (`0` for `0.0`) is not it.
+pub(crate) struct DiValueRows {
+    nodes_seq: u64,
+    edges_seq: u64,
+    attr: String,
+    default: PyObject,
+    tuples: Vec<PyObject>,
+    /// Node position -> its row's range in `tuples`, once filled.
+    rows: rustc_hash::FxHashMap<usize, (usize, usize)>,
+    /// Every row is filled and `tuples` holds them in node order, which is the
+    /// whole-graph answer as it stands (a whole-graph read lays them out so).
+    whole: bool,
+}
+
+impl DiValueRows {
+    fn new(py: Python<'_>, nodes_seq: u64, edges_seq: u64, attr: &str, default: &PyObject) -> Self {
+        Self {
+            nodes_seq,
+            edges_seq,
+            attr: attr.to_owned(),
+            default: default.clone_ref(py),
+            tuples: Vec::new(),
+            rows: rustc_hash::FxHashMap::default(),
+            whole: false,
+        }
+    }
+
+    fn serves(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        edges_seq: u64,
+        attr: &str,
+        default: &PyObject,
+    ) -> bool {
+        self.nodes_seq == nodes_seq
+            && self.edges_seq == edges_seq
+            && self.attr == attr
+            && self.default.bind(py).is(default.bind(py))
+    }
+
+    fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.default)?;
+        for tuple in &self.tuples {
+            visit.call(tuple)?;
+        }
+        Ok(())
+    }
+}
+
+/// The value networkx's `dd[attr] if attr in dd else default` reads for the
+/// edge at node positions `(source, target)` (br-r37-c1-h79gt): the edge's
+/// mirror dict when it has one, because the store keeps only a stand-in for a
+/// value it cannot hold - `'(1, 2)'` for a tuple, `'None'` for None, a float for
+/// `2**70` - and otherwise the store, whose items are then exact. `probe` is a
+/// reused key buffer, so a mirror lookup allocates nothing.
+#[allow(clippy::too_many_arguments)]
+fn di_edge_attr_value(
+    py: Python<'_>,
+    inner: &DiGraph,
+    edge_attr_writes: &crate::EdgeAttrWrites,
+    edge_py_attrs: &mut rustc_hash::FxHashMap<(String, String), Py<PyDict>>,
+    probe: &mut (String, String),
+    source: usize,
+    target: usize,
+    attr: &str,
+    data: &Bound<'_, PyAny>,
+    default: &PyObject,
+) -> PyResult<PyObject> {
+    let (Some(source_name), Some(target_name)) =
+        (inner.get_node_name(source), inner.get_node_name(target))
+    else {
+        return Ok(default.clone_ref(py));
+    };
+    if !edge_py_attrs.is_empty() {
+        probe.0.clear();
+        probe.0.push_str(source_name);
+        probe.1.clear();
+        probe.1.push_str(target_name);
+        if let Some(dict) = edge_py_attrs.get(&*probe) {
+            return Ok(dict
+                .bind(py)
+                .get_item(data)?
+                .map_or_else(|| default.clone_ref(py), Bound::unbind));
+        }
+    }
+    match inner
+        .edge_attrs_by_indices(source, target)
+        .and_then(|attrs| attrs.get(attr))
+    {
+        None => Ok(default.clone_ref(py)),
+        Some(value) if !matches!(value, CgseValue::Map(_)) => crate::cgse_value_to_py(py, value),
+        // A nested dict is a live object networkx hands out by identity, so it
+        // is read out of the edge's mirror, built once here.
+        Some(_) => {
+            let dict = edge_py_attrs
+                .entry((source_name.to_owned(), target_name.to_owned()))
+                .or_insert_with(|| {
+                    edge_attr_writes
+                        .dict_from_attr_map(py, inner.edge_attrs_by_indices(source, target))
+                        .expect("stored directed edge attrs must convert to Python")
+                });
+            Ok(dict
+                .bind(py)
+                .get_item(data)?
+                .map_or_else(|| default.clone_ref(py), Bound::unbind))
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PyDiGraph
 // ---------------------------------------------------------------------------
@@ -204,16 +327,14 @@ pub struct PyDiGraph {
     /// (source, target, live_attr) tuples. out_edges(data=True) was 12x faster
     /// than in_edges purely because in_edges rebuilt every call; this caches it.
     pub(crate) in_edges_with_data_cache: Option<(u64, u64, Vec<PyObject>)>,
-    /// br-inedges-diattrcache (bt): scalar SNAPSHOT cache for in_edges(data=<attr>)
-    /// — the PyMultiDiGraph analog (in_edges_data_attr_cache). nx rebuilds the
-    /// InEdgeDataView every call, so in_edges(data=<attr>) was 0.70x while
-    /// out_edges(data=<attr>) (which has the bulk integer-indexed fast path) was
-    /// 1.23x. Keyed (nodes_seq, edges_seq, attr, default); holds frozen
-    /// (source, target, value) tuples. Caches VALUES not live dicts, so it is
-    /// served ONLY while !edges_dirty and DROPPED in mark_edges_dirty (attr edits
-    /// don't bump edges_seq). Mutex so the &self read path can populate it.
-    pub(crate) in_edges_data_attr_cache:
-        std::sync::Mutex<Option<(u64, u64, String, PyObject, Vec<PyObject>)>>,
+    /// br-inedges-diattrcache (bt): in_edges(data=<attr>) value tuples, by
+    /// predecessor row - the PyMultiDiGraph analog (in_edges_data_attr_cache).
+    /// nx rebuilds the InEdgeDataView every call; this is read by both the
+    /// whole-graph and the nbunch in_edges (see DiValueRows).
+    pub(crate) in_edges_data_attr_cache: std::sync::Mutex<Option<DiValueRows>>,
+    /// br-r37-c1-7ye53: the out-major sibling, by successor row, for
+    /// edges(data=<attr>) / out_edges(data=<attr>) with or without an nbunch.
+    pub(crate) edges_data_attr_cache: std::sync::Mutex<Option<DiValueRows>>,
     /// (nodes_seq, edges_seq)-keyed live attr-dict handles in edge iteration
     /// order for `edges(data=<key>)`. This caches dict lookup by edge, not
     /// attr values, so edge-attr mutations remain visible.
@@ -440,13 +561,9 @@ impl PyDiGraph {
                 visit.call(tuple)?;
             }
         }
-        {
-            let cache = self.in_edges_data_attr_cache.lock().unwrap();
-            if let Some((_, _, _, default, tuples)) = cache.as_ref() {
-                visit.call(default)?;
-                for tuple in tuples {
-                    visit.call(tuple)?;
-                }
+        for cache in [&self.in_edges_data_attr_cache, &self.edges_data_attr_cache] {
+            if let Some(rows) = cache.lock().unwrap().as_ref() {
+                rows.traverse(visit)?;
             }
         }
         if let Some((_, _, dicts)) = &self.edges_attr_dicts_cache {
@@ -482,6 +599,7 @@ impl PyDiGraph {
         self.edges_with_data_cache = None;
         self.in_edges_with_data_cache = None;
         *self.in_edges_data_attr_cache.get_mut().unwrap() = None;
+        *self.edges_data_attr_cache.get_mut().unwrap() = None;
         self.edges_attr_dicts_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
     }
@@ -1049,7 +1167,9 @@ impl PyMultiDiGraph {
                 && *es == self.edges_seq
                 && *kf == keys
                 && cattr == attr_name
-                && cdef.bind(py).eq(default.bind(py))?
+                // The default networkx yields is the object given: an equal
+                // one of another type (0 for 0.0) must not answer for it.
+                && cdef.bind(py).is(default.bind(py))
             {
                 return Ok(ctuples.iter().map(|t| t.clone_ref(py)).collect());
             }
@@ -1061,6 +1181,7 @@ impl PyMultiDiGraph {
             .map(|(source, target, key, _attrs)| (source.to_owned(), target.to_owned(), key))
             .collect();
         let mut result: Vec<PyObject> = Vec::with_capacity(edges.len());
+        let mut probe = (String::new(), String::new(), 0);
         for (source, target, key) in &edges {
             let py_u = self.py_node_key(py, source);
             let py_v = self.py_succ_key(py, source, target);
@@ -1073,15 +1194,14 @@ impl PyMultiDiGraph {
                 tuple_object(py, &[py_u, py_v, py_key, attrs])?
             } else if want_value {
                 // br-r37-c1-edgeattrstore (cc): route scalar data=<attr> through
-                // edge_data_value_or_default, which reads the value straight from the
-                // CgseValue store when no mirror mutations are pending (!edges_dirty),
-                // skipping the per-edge ensure_edge_py_attrs mirror materialization +
-                // get_item that dominated this whole-graph edges(data=<attr>) path
-                // (~0.43x at n700/e12662). Falls back to the mirror (dict identity /
-                // dirty / Map) so values stay byte-exact — the SAME store fast path the
-                // nbunch out/in_edges data=<key> views already use.
-                let val =
-                    self.edge_data_value_or_default(py, source, target, *key, data, &default)?;
+                // edge_data_value_or_default, which reads a mirror-less edge's
+                // value straight from the CgseValue store, skipping the per-edge
+                // ensure_edge_py_attrs mirror materialization + get_item that
+                // dominated this whole-graph edges(data=<attr>) path (~0.43x at
+                // n700/e12662).
+                let val = self.edge_data_value_or_default(
+                    py, source, target, *key, data, &default, &mut probe,
+                )?;
                 if keys {
                     tuple_object(py, &[py_u, py_v, py_key, val])?
                 } else {
@@ -1747,6 +1867,13 @@ impl PyMultiDiGraph {
             .expect("edge attr entry inserted above")
     }
 
+    /// `data`'s value on edge `(u, v, key)`, as networkx's `dd[data] if data in
+    /// dd else default` reads it: the edge's mirror dict when it has one, then
+    /// the store. The mirror comes first whatever `edges_dirty` says
+    /// (br-r37-c1-h79gt): it is where a value the store cannot hold lives - the
+    /// store keeps `'(1, 2)'` for a tuple, `'None'` for None, a float for
+    /// `2**70` - and an `add_edge` of one leaves the graph clean. `probe` is the
+    /// caller's reused key buffer, so the mirror lookup allocates nothing.
     fn edge_data_value_or_default(
         &mut self,
         py: Python<'_>,
@@ -1755,52 +1882,37 @@ impl PyMultiDiGraph {
         key: usize,
         data: &Bound<'_, PyAny>,
         default_obj: &PyObject,
+        probe: &mut (String, String, usize),
     ) -> PyResult<PyObject> {
-        // br-mdg-datakey-storeread (cc): when no edge-attr mirror mutations are
-        // pending (`!edges_dirty`), the native CgseValue store is authoritative, so a
-        // scalar attr value can be read straight from it — skipping the per-edge
-        // `edge_key` String build + mirror probe that dominates the non-pristine
-        // data=<key> view paths (out_edges/in_edges (keys,)data=<attr> after a prior
-        // data=True call materialized the mirror without dirtying it). Map values and
-        // the dirty case fall through to the mirror path below (dict identity /
-        // pending mutations). Mirrors the !edges_dirty weighted-degree fast path.
-        Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
-        if !self.edges_dirty.load(Ordering::Relaxed)
-            && let Ok(attr_name) = data.downcast::<PyString>()
-        {
+        if !self.edge_py_attrs.is_empty() {
+            probe.0.clear();
+            probe.0.push_str(u);
+            probe.1.clear();
+            probe.1.push_str(v);
+            probe.2 = key;
+            if let Some(attrs) = self.edge_py_attrs.get(&*probe) {
+                return Ok(attrs
+                    .bind(py)
+                    .get_item(data)
+                    .ok()
+                    .flatten()
+                    .map_or_else(|| default_obj.clone_ref(py), |value| value.unbind()));
+            }
+        }
+
+        if let Ok(attr_name) = data.downcast::<PyString>() {
             let attr_name = attr_name.to_str()?;
             match self
                 .inner
                 .edge_attrs(u, v, key)
                 .and_then(|attrs| attrs.get(attr_name))
             {
+                None => {}
                 Some(value) if !matches!(value, CgseValue::Map(_)) => {
                     return crate::cgse_value_to_py(py, value);
                 }
-                Some(_) => {} // Map value: fall through to mirror path for dict identity
-                None => return Ok(default_obj.clone_ref(py)),
-            }
-        }
-
-        let ek = Self::edge_key(u, v, key);
-        if let Some(attrs) = self.edge_py_attrs.get(&ek) {
-            return Ok(attrs
-                .bind(py)
-                .get_item(data)
-                .ok()
-                .flatten()
-                .map_or_else(|| default_obj.clone_ref(py), |value| value.unbind()));
-        }
-
-        if let Ok(attr_name) = data.downcast::<PyString>() {
-            let attr_name = attr_name.to_str()?;
-            if let Some(value) = self
-                .inner
-                .edge_attrs(u, v, key)
-                .and_then(|attrs| attrs.get(attr_name))
-                .cloned()
-            {
-                if matches!(value, CgseValue::Map(_)) {
+                // A nested dict is handed out by identity: read it from the mirror.
+                Some(_) => {
                     let attrs = self.ensure_edge_py_attrs(py, u, v, key);
                     return Ok(attrs
                         .bind(py)
@@ -1809,7 +1921,6 @@ impl PyMultiDiGraph {
                         .flatten()
                         .map_or_else(|| default_obj.clone_ref(py), |value| value.unbind()));
                 }
-                return crate::cgse_value_to_py(py, &value);
             }
         }
 
@@ -8099,7 +8210,9 @@ impl PyMultiDiGraph {
                     && *es == self.edges_seq
                     && *kf == keys
                     && cattr.as_str() == attr_name
-                    && cdef.bind(py).eq(default.bind(py))?
+                    // The default networkx yields is the object given, not an
+                    // equal one of another type (0 for 0.0).
+                    && cdef.bind(py).is(default.bind(py))
                 {
                     let fresh: Vec<PyObject> = ctuples.iter().map(|t| t.clone_ref(py)).collect();
                     return Ok(Some(fresh.into_pyobject(py)?.into_any().unbind()));
@@ -8109,22 +8222,41 @@ impl PyMultiDiGraph {
             let default_int_keys = self.edge_py_keys.is_empty();
             let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
             let mut scalar_only = true;
+            let mut probe = (String::new(), String::new(), 0);
             'targets: for target in self.inner.nodes_ordered() {
                 if let Some(preds) = self.inner.predecessors_iter(target) {
                     for source in preds {
                         if let Some(edge_keys) = self.inner.edge_keys_iter(source, target) {
                             for key in edge_keys {
-                                let value = match self
-                                    .inner
-                                    .edge_attrs(source, target, *key)
-                                    .and_then(|attrs| attrs.get(attr_name))
-                                {
-                                    Some(CgseValue::Map(_)) => {
-                                        scalar_only = false;
-                                        break 'targets;
-                                    }
-                                    Some(value) => crate::cgse_value_to_py(py, value)?,
-                                    None => default.clone_ref(py),
+                                // br-r37-c1-h79gt: the edge's dict first - the store
+                                // holds only a stand-in for a value it cannot hold.
+                                probe.0.clear();
+                                probe.0.push_str(source);
+                                probe.1.clear();
+                                probe.1.push_str(target);
+                                probe.2 = *key;
+                                let mirrored = self.edge_py_attrs.get(&probe).map(|attrs| {
+                                    attrs
+                                        .bind(py)
+                                        .get_item(data)
+                                        .ok()
+                                        .flatten()
+                                        .map_or_else(|| default.clone_ref(py), Bound::unbind)
+                                });
+                                let value = match mirrored {
+                                    Some(value) => value,
+                                    None => match self
+                                        .inner
+                                        .edge_attrs(source, target, *key)
+                                        .and_then(|attrs| attrs.get(attr_name))
+                                    {
+                                        Some(CgseValue::Map(_)) => {
+                                            scalar_only = false;
+                                            break 'targets;
+                                        }
+                                        Some(value) => crate::cgse_value_to_py(py, value)?,
+                                        None => default.clone_ref(py),
+                                    },
                                 };
                                 let src_obj = self.py_node_key(py, source);
                                 let tgt_obj = self.py_node_key(py, target);
@@ -8178,11 +8310,13 @@ impl PyMultiDiGraph {
             v
         };
         let mut out: Vec<PyObject> = Vec::with_capacity(triples.len());
+        let mut probe = (String::new(), String::new(), 0);
         for (source, target, key) in triples {
             let src_obj = self.py_node_key(py, &source);
             let tgt_obj = self.py_node_key(py, &target);
-            let value =
-                self.edge_data_value_or_default(py, &source, &target, key, data, &default)?;
+            let value = self.edge_data_value_or_default(
+                py, &source, &target, key, data, &default, &mut probe,
+            )?;
             if keys {
                 let key_obj = self.py_edge_key(py, &source, &target, key);
                 out.push(tuple_object(py, &[src_obj, tgt_obj, key_obj, value])?);
@@ -8315,13 +8449,14 @@ impl PyMultiDiGraph {
         }
         // br-r37-c1-inedgesnbattr (cc): pristine store-read fast path (sibling of the
         // out_edges nbunch data_key win) -- read the attr straight from the store
-        // instead of edge_data_value_or_default's edge_key build + mirror probe.
+        // instead of edge_data_value_or_default's mirror probe.
         let pristine = self.edge_py_attrs.is_empty();
         let attr_name: Option<String> = if pristine {
             data.extract::<String>().ok()
         } else {
             None
         };
+        let mut probe = (String::new(), String::new(), 0);
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
@@ -8356,7 +8491,9 @@ impl PyMultiDiGraph {
                             None => default.clone_ref(py),
                         }
                     } else {
-                        self.edge_data_value_or_default(py, src, &canonical, key, data, &default)?
+                        self.edge_data_value_or_default(
+                            py, src, &canonical, key, data, &default, &mut probe,
+                        )?
                     };
                     if keys {
                         let key_obj = self.py_edge_key(py, src, &canonical, key);
@@ -8399,6 +8536,7 @@ impl PyMultiDiGraph {
         } else {
             None
         };
+        let mut probe = (String::new(), String::new(), 0);
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
@@ -8435,7 +8573,9 @@ impl PyMultiDiGraph {
                             None => default.clone_ref(py),
                         }
                     } else {
-                        self.edge_data_value_or_default(py, &canonical, nbr, key, data, &default)?
+                        self.edge_data_value_or_default(
+                            py, &canonical, nbr, key, data, &default, &mut probe,
+                        )?
                     };
                     if keys {
                         let key_obj = self.py_edge_key(py, &canonical, nbr, key);
@@ -8492,6 +8632,7 @@ impl PyMultiDiGraph {
             .map(|node| (*node).to_owned())
             .collect();
         let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.number_of_selfloops());
+        let mut probe = (String::new(), String::new(), 0);
         for node in &nodes {
             let edge_keys = self.inner.edge_keys(node, node).unwrap_or_default();
             let py_node = self.py_node_key(py, node);
@@ -8518,8 +8659,15 @@ impl PyMultiDiGraph {
                         out.push(tuple_object(py, &[py_source, py_target, attrs])?);
                     }
                 } else if want_value {
-                    let val =
-                        self.edge_data_value_or_default(py, node, node, key, data, &default_obj)?;
+                    let val = self.edge_data_value_or_default(
+                        py,
+                        node,
+                        node,
+                        key,
+                        data,
+                        &default_obj,
+                        &mut probe,
+                    )?;
                     if let Some(key_obj) = key_obj {
                         out.push(tuple_object(py, &[py_source, py_target, key_obj, val])?);
                     } else {
@@ -12878,6 +13026,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -12991,6 +13140,7 @@ impl PyDiGraph {
         // br-inedges-diattrcache (bt): a pending attr mutation invalidates the
         // frozen scalar snapshots (edges_seq is NOT bumped on attr edits).
         *self.in_edges_data_attr_cache.lock().unwrap() = None;
+        *self.edges_data_attr_cache.lock().unwrap() = None;
     }
 
     /// br-r37-c1-urjxk: raise `edges_dirty` when an escaped attr dict was
@@ -13065,6 +13215,194 @@ impl PyDiGraph {
             Some(value) => Ok(Some(crate::cgse_value_to_py(py, value)?)),
             None => Ok(None),
         }
+    }
+
+    /// The node positions an nbunch names, in its order and once each, with the
+    /// element that named each - networkx's `dict.fromkeys(G.nbunch_iter(nbunch))`.
+    /// An element that is not a node is skipped; an unhashable one raises.
+    fn nbunch_positions<'py>(
+        &self,
+        py: Python<'py>,
+        nbunch: &Bound<'py, PyAny>,
+    ) -> PyResult<Vec<(usize, Option<Bound<'py, PyAny>>)>> {
+        let mut seen: rustc_hash::FxHashSet<usize> = rustc_hash::FxHashSet::default();
+        let mut positions = Vec::new();
+        for item in nbunch.try_iter()? {
+            let node = item?;
+            if node.hash().is_err() {
+                let label = node
+                    .str()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "?".to_owned());
+                return Err(PyTypeError::new_err(format!(
+                    "Node {label} in sequence nbunch is not a valid node."
+                )));
+            }
+            let canonical = node_key_to_string(py, &node)?;
+            let Some(position) = self.inner.get_node_index(&canonical) else {
+                continue;
+            };
+            if seen.insert(position) {
+                positions.push((position, Some(node)));
+            }
+        }
+        Ok(positions)
+    }
+
+    /// br-r37-c1-7ye53: `(u, v, value)` tuples for `edges(data=attr)` (`out`)
+    /// or `in_edges(data=attr)`: the successor (or predecessor) row of each node
+    /// position in `rows` - every node's, in node order, for `None` - each in
+    /// the graph's row order. Only for a graph whose rows show their node's own
+    /// key object (`succ_py_keys` / `pred_py_keys` empty for the direction read).
+    ///
+    /// A clean graph serves the rows from its snapshot and fills the ones not
+    /// read yet (see DiValueRows); a dirty one reads them fresh. A row named by
+    /// an nbunch element is keyed by that element, as networkx's `n` is the
+    /// caller's object: a snapshot tuple is reused when the element is the
+    /// graph's key or an exact int or str equal to it, and rebuilt around the
+    /// element otherwise (`1.0` naming node `1`).
+    fn value_row_tuples(
+        &mut self,
+        py: Python<'_>,
+        out: bool,
+        rows: Option<&[(usize, Option<Bound<'_, PyAny>>)]>,
+        attr: &str,
+        data: &Bound<'_, PyAny>,
+        default: &PyObject,
+    ) -> PyResult<Vec<PyObject>> {
+        debug_assert!(if out {
+            self.succ_py_keys.is_empty()
+        } else {
+            self.pred_py_keys.is_empty()
+        });
+        self.refresh_edges_dirty(py);
+        let clean = !self.edges_dirty.load(Ordering::Relaxed);
+        let keys = self.cached_node_key_tuple(py);
+        let keys = keys.bind(py);
+        let (nodes_seq, edges_seq) = (self.nodes_seq, self.edges_seq);
+        let cache = if out {
+            &mut self.edges_data_attr_cache
+        } else {
+            &mut self.in_edges_data_attr_cache
+        }
+        .get_mut()
+        .unwrap();
+        let mut snapshot = match cache.take() {
+            Some(snapshot) if clean && snapshot.serves(py, nodes_seq, edges_seq, attr, default) => {
+                snapshot
+            }
+            _ => DiValueRows::new(py, nodes_seq, edges_seq, attr, default),
+        };
+        if rows.is_none() && snapshot.whole {
+            let result = snapshot
+                .tuples
+                .iter()
+                .map(|tuple| tuple.clone_ref(py))
+                .collect();
+            *cache = Some(snapshot);
+            return Ok(result);
+        }
+        let inner = &self.inner;
+        let all_rows: Vec<(usize, Option<Bound<'_, PyAny>>)>;
+        let (rows, whole) = match rows {
+            Some(rows) => (rows, false),
+            None => {
+                all_rows = (0..inner.node_count())
+                    .map(|position| (position, None))
+                    .collect();
+                (all_rows.as_slice(), true)
+            }
+        };
+        let edge_attr_writes = &self.edge_attr_writes;
+        let edge_py_attrs = &mut self.edge_py_attrs;
+        let mut probe = (String::new(), String::new());
+        let mut result = Vec::new();
+        for (position, node) in rows {
+            let position = *position;
+            let row_key = keys.get_item(position)?;
+            let (start, end) = if let Some(&range) = snapshot.rows.get(&position) {
+                range
+            } else {
+                let start = snapshot.tuples.len();
+                let others = if out {
+                    inner.successors_indices(position)
+                } else {
+                    inner.predecessors_indices(position)
+                };
+                for &other in others.unwrap_or(&[]) {
+                    let (source, target) = if out {
+                        (position, other)
+                    } else {
+                        (other, position)
+                    };
+                    let value = di_edge_attr_value(
+                        py,
+                        inner,
+                        edge_attr_writes,
+                        edge_py_attrs,
+                        &mut probe,
+                        source,
+                        target,
+                        attr,
+                        data,
+                        default,
+                    )?;
+                    let other_key = keys.get_item(other)?.unbind();
+                    let row_key = row_key.clone().unbind();
+                    let (u, v) = if out {
+                        (row_key, other_key)
+                    } else {
+                        (other_key, row_key)
+                    };
+                    snapshot.tuples.push(tuple_object(py, &[u, v, value])?);
+                }
+                snapshot
+                    .rows
+                    .insert(position, (start, snapshot.tuples.len()));
+                (start, snapshot.tuples.len())
+            };
+            let row = &snapshot.tuples[start..end];
+            match node {
+                Some(node)
+                    if !node.is(&row_key)
+                        && !(node.is_exact_instance_of::<PyInt>()
+                            && row_key.is_exact_instance_of::<PyInt>())
+                        && !(node.is_exact_instance_of::<PyString>()
+                            && row_key.is_exact_instance_of::<PyString>()) =>
+                {
+                    let slot = usize::from(!out);
+                    for tuple in row {
+                        let tuple = tuple.bind(py).downcast::<PyTuple>()?;
+                        let mut items = [
+                            tuple.get_item(0)?.unbind(),
+                            tuple.get_item(1)?.unbind(),
+                            tuple.get_item(2)?.unbind(),
+                        ];
+                        items[slot] = node.clone().unbind();
+                        result.push(tuple_object(py, &items)?);
+                    }
+                }
+                _ => result.extend(row.iter().map(|tuple| tuple.clone_ref(py))),
+            }
+        }
+        if clean {
+            if whole {
+                // `result` is every row in node order: keep it laid out so, and
+                // the next whole-graph read is a single clone.
+                let mut laid = rustc_hash::FxHashMap::default();
+                let mut start = 0;
+                for (position, _) in rows {
+                    let (from, to) = snapshot.rows[position];
+                    laid.insert(*position, (start, start + to - from));
+                    start += to - from;
+                }
+                snapshot.tuples = result.iter().map(|tuple| tuple.clone_ref(py)).collect();
+                snapshot.rows = laid;
+                snapshot.whole = true;
+            }
+            *cache = Some(snapshot);
+        }
+        Ok(result)
     }
 
     fn edge_attr_value_or_default(
@@ -15166,6 +15504,7 @@ impl PyDiGraph {
                 edges_with_data_cache: None,
                 in_edges_with_data_cache: None,
                 in_edges_data_attr_cache: std::sync::Mutex::new(None),
+                edges_data_attr_cache: std::sync::Mutex::new(None),
                 edges_attr_dicts_cache: None,
                 has_edge_node_index_cache: NodeIndexLookupCache::new(py),
                 node_iter_mirror: std::sync::Mutex::new(None),
@@ -15200,6 +15539,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -15519,6 +15859,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -15718,6 +16059,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -15759,6 +16101,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -15868,6 +16211,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -16023,6 +16367,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -16445,6 +16790,20 @@ impl PyDiGraph {
         key: &Bound<'_, PyAny>,
         default: PyObject,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-7ye53: on a clean graph a str attribute is read row by row
+        // out of the store (the mirror first where an edge has one) and kept -
+        // not by building every edge's dict to read one value from it. A dirty
+        // graph has handed its dicts out, so the cached, edge-ordered list of
+        // them below is the cheaper read (a mirror probe per edge measured
+        // 15-20% slower there).
+        self.refresh_edges_dirty(py);
+        if self.succ_py_keys.is_empty()
+            && !self.edges_dirty.load(Ordering::Relaxed)
+            && let Ok(attr) = key.downcast::<PyString>()
+        {
+            let items = self.value_row_tuples(py, true, None, attr.to_str()?, key, &default)?;
+            return Ok(items.into_pyobject(py)?.into_any().unbind());
+        }
         if self.succ_py_keys.is_empty() {
             let keys = self.cached_node_key_vec(py);
             let mut items = Vec::with_capacity(self.inner.edge_count());
@@ -16690,38 +17049,21 @@ impl PyDiGraph {
     /// br-r37-c1-inedges: in_edges(data=<key>). Yields ``attrs.get(key,
     /// default)`` per edge (a value, read-only — no dirty-mark).
     fn _native_in_edges_data_key(
-        &self,
+        &mut self,
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
         default: PyObject,
     ) -> PyResult<PyObject> {
-        // br-inedges-diattrcache (bt): a clean graph with a string attr serves
-        // the frozen (source, target, value) snapshot — nx rebuilds the
-        // InEdgeDataView every call, so warm repeats clone refs instead of
-        // re-walking predecessors x edge_py_attrs.get. Values are frozen, so the
-        // cache is gated !edges_dirty and dropped on the next mark_edges_dirty.
-        // A string attr can live in the CgseValue store (bulk-built graphs leave
-        // edge_py_attrs empty), so resolve it once here and read mirror-then-store
-        // per edge via edge_attr_py_value below.
-        let attr_str: Option<String> = key.extract::<String>().ok();
-        Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
-        let cacheable_attr: Option<String> = if self.edges_dirty.load(Ordering::Relaxed) {
-            None
-        } else {
-            attr_str.clone()
-        };
-        if let Some(attr_name) = &cacheable_attr {
-            let cache = self.in_edges_data_attr_cache.lock().unwrap();
-            if let Some((ns, es, cattr, cdef, ctuples)) = cache.as_ref()
-                && *ns == self.nodes_seq
-                && *es == self.edges_seq
-                && cattr == attr_name
-                && cdef.bind(py).eq(default.bind(py))?
-            {
-                let fresh: Vec<PyObject> = ctuples.iter().map(|t| t.clone_ref(py)).collect();
-                return Ok(fresh.into_pyobject(py)?.into_any().unbind());
-            }
+        // br-inedges-diattrcache (bt): a str attribute is served from the clean
+        // graph's predecessor rows (DiValueRows), which the nbunch in_edges
+        // reads too - nx rebuilds the InEdgeDataView every call.
+        if self.pred_py_keys.is_empty()
+            && let Ok(attr) = key.downcast::<PyString>()
+        {
+            let items = self.value_row_tuples(py, false, None, attr.to_str()?, key, &default)?;
+            return Ok(items.into_pyobject(py)?.into_any().unbind());
         }
+        let attr_str: Option<String> = key.extract::<String>().ok();
         let mut items = Vec::with_capacity(self.inner.edge_count());
         for target in self.inner.nodes_ordered() {
             let py_t = self.py_node_key(py, target);
@@ -16751,15 +17093,6 @@ impl PyDiGraph {
                 };
                 items.push(tuple_object(py, &[py_s, py_t.clone_ref(py), value])?);
             }
-        }
-        if let Some(attr_name) = cacheable_attr {
-            *self.in_edges_data_attr_cache.lock().unwrap() = Some((
-                self.nodes_seq,
-                self.edges_seq,
-                attr_name,
-                default.clone_ref(py),
-                items.iter().map(|t| t.clone_ref(py)).collect(),
-            ));
         }
         Ok(items.into_pyobject(py)?.into_any().unbind())
     }
@@ -17716,9 +18049,9 @@ impl PyDiGraph {
 
     /// br-r37-c1-inedgesnbdatakey (cc): in_edges(nbunch, data=<attr>) — pred-major
     /// sibling of _native_out_edges_nbunch_data_key. Previously had NO native (the
-    /// wrapper's data=key in_edges fell to the Python pred-walk, 0.32x). Index-native
-    /// store read via edge_attrs_by_indices (no String edge_key) when edges are clean
-    /// + data is a plain str; Map values + dirty/non-str fall to the mirror path.
+    /// wrapper's data=key in_edges fell to the Python pred-walk, 0.32x). A str
+    /// attr reads the predecessor rows the whole-graph in_edges keeps
+    /// (value_row_tuples); a non-str key can only live in a mirror.
     fn _native_in_edges_nbunch_data_key(
         &mut self,
         py: Python<'_>,
@@ -17729,6 +18062,17 @@ impl PyDiGraph {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
+        if let Ok(attr) = data.downcast::<PyString>() {
+            let rows = self.nbunch_positions(py, nbunch)?;
+            return Ok(Some(self.value_row_tuples(
+                py,
+                false,
+                Some(&rows),
+                attr.to_str()?,
+                data,
+                &default,
+            )?));
+        }
         // br-r37-c1-y603y: bind the CACHED node-key tuple and index it, instead of
         // `cached_node_key_vec`, which rebuilt a fresh Vec<PyObject> of EVERY node
         // (increfing each) on every call. That is what made a one-node nbunch
@@ -17736,83 +18080,6 @@ impl PyDiGraph {
         // n=8000 while networkx stayed flat at 2.1us.
         let py_nodes_keys = self.cached_node_key_tuple(py);
         let py_nodes = py_nodes_keys.bind(py);
-        self.refresh_edges_dirty(py); // br-r37-c1-urjxk
-        let clean_string_attr = (!self.edges_dirty.load(Ordering::Relaxed))
-            .then(|| data.downcast::<PyString>().ok())
-            .flatten()
-            .map(|s| s.to_str())
-            .transpose()?;
-        if let Some(attr_name) = clean_string_attr {
-            let inner = &self.inner;
-            let edge_attr_writes = &self.edge_attr_writes; // br-r37-c1-urjxk
-            let edge_py_attrs = &mut self.edge_py_attrs;
-            let mut out: Vec<PyObject> = Vec::new();
-            // br-r37-c1-y603y: dedup by HashSet, not a whole-graph bitmap. A one-node
-            // request used to allocate and zero one byte per NODE, so the
-            // kernel scaled with the graph rather than with the nbunch —
-            // 3.0us at n=250 rising to 61.4us at n=8000 for the same single
-            // row. The undirected sibling has always used a HashSet.
-            let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
-            for item in nbunch.try_iter()? {
-                let node = item?;
-                if node.hash().is_err() {
-                    let label = node
-                        .str()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|_| "?".to_owned());
-                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
-                        "Node {label} in sequence nbunch is not a valid node."
-                    )));
-                }
-                let canonical = node_key_to_string(py, &node)?;
-                let Some(idx) = inner.get_node_index(&canonical) else {
-                    continue;
-                };
-                if !seen_nodes.insert(idx) {
-                    continue;
-                }
-                let target_obj = node.clone().unbind();
-                let Some(target_name) = inner.get_node_name(idx) else {
-                    continue;
-                };
-                for &src_idx in inner.predecessors_indices(idx).unwrap_or(&[]) {
-                    let source_obj = py_nodes.get_item(src_idx)?.unbind();
-                    let value = match inner
-                        .edge_attrs_by_indices(src_idx, idx)
-                        .and_then(|attrs| attrs.get(attr_name))
-                    {
-                        Some(value) if !matches!(value, CgseValue::Map(_)) => {
-                            crate::cgse_value_to_py(py, value)?
-                        }
-                        Some(_) => {
-                            let source_name = inner
-                                .get_node_name(src_idx)
-                                .expect("predecessor index should resolve during in_edges");
-                            let attrs = edge_py_attrs
-                                .entry(Self::edge_key(source_name, target_name))
-                                .or_insert_with(|| {
-                                    edge_attr_writes
-                                        .dict_from_attr_map(
-                                            py,
-                                            inner.edge_attrs_by_indices(src_idx, idx),
-                                        )
-                                        .expect("stored directed edge attrs must convert to Python")
-                                });
-                            attrs
-                                .bind(py)
-                                .get_item(data)?
-                                .map_or_else(|| default.clone_ref(py), |value| value.unbind())
-                        }
-                        None => default.clone_ref(py),
-                    };
-                    out.push(tuple_object(
-                        py,
-                        &[source_obj, target_obj.clone_ref(py), value],
-                    )?);
-                }
-            }
-            return Ok(Some(out));
-        }
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
@@ -17936,8 +18203,9 @@ impl PyDiGraph {
     }
 
     /// br-r37-c1-04z53 cod-b: out_edges(nbunch, data=<key>) without first
-    /// materializing live attr dicts for every edge. Keeps the existing native
-    /// nbunch dedup/order contract and returns final scalar projection tuples.
+    /// materializing live attr dicts for every edge. A str attr reads the
+    /// successor rows the whole-graph edges(data=<attr>) keeps
+    /// (value_row_tuples); a non-str key can only live in a mirror.
     fn _native_out_edges_nbunch_data_key(
         &mut self,
         py: Python<'_>,
@@ -17948,6 +18216,17 @@ impl PyDiGraph {
         if !self.succ_py_keys.is_empty() {
             return Ok(None);
         }
+        if let Ok(attr) = data.downcast::<PyString>() {
+            let rows = self.nbunch_positions(py, nbunch)?;
+            return Ok(Some(self.value_row_tuples(
+                py,
+                true,
+                Some(&rows),
+                attr.to_str()?,
+                data,
+                &default,
+            )?));
+        }
         // br-r37-c1-y603y: bind the CACHED node-key tuple and index it, instead of
         // `cached_node_key_vec`, which rebuilt a fresh Vec<PyObject> of EVERY node
         // (increfing each) on every call. That is what made a one-node nbunch
@@ -17955,83 +18234,6 @@ impl PyDiGraph {
         // n=8000 while networkx stayed flat at 2.1us.
         let py_nodes_keys = self.cached_node_key_tuple(py);
         let py_nodes = py_nodes_keys.bind(py);
-        self.refresh_edges_dirty(py); // br-r37-c1-urjxk
-        let clean_string_attr = (!self.edges_dirty.load(Ordering::Relaxed))
-            .then(|| data.downcast::<PyString>().ok())
-            .flatten()
-            .map(|s| s.to_str())
-            .transpose()?;
-        if let Some(attr_name) = clean_string_attr {
-            let inner = &self.inner;
-            let edge_attr_writes = &self.edge_attr_writes; // br-r37-c1-urjxk
-            let edge_py_attrs = &mut self.edge_py_attrs;
-            let mut out: Vec<PyObject> = Vec::new();
-            // br-r37-c1-y603y: dedup by HashSet, not a whole-graph bitmap. A one-node
-            // request used to allocate and zero one byte per NODE, so the
-            // kernel scaled with the graph rather than with the nbunch —
-            // 3.0us at n=250 rising to 61.4us at n=8000 for the same single
-            // row. The undirected sibling has always used a HashSet.
-            let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
-            for item in nbunch.try_iter()? {
-                let node = item?;
-                if node.hash().is_err() {
-                    let label = node
-                        .str()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_else(|_| "?".to_owned());
-                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
-                        "Node {label} in sequence nbunch is not a valid node."
-                    )));
-                }
-                let canonical = node_key_to_string(py, &node)?;
-                let Some(idx) = inner.get_node_index(&canonical) else {
-                    continue;
-                };
-                if !seen_nodes.insert(idx) {
-                    continue;
-                }
-                let source_obj = node.clone().unbind();
-                let Some(source_name) = inner.get_node_name(idx) else {
-                    continue;
-                };
-                for &nbr_idx in inner.successors_indices(idx).unwrap_or(&[]) {
-                    let nbr_obj = py_nodes.get_item(nbr_idx)?.unbind();
-                    let value = match inner
-                        .edge_attrs_by_indices(idx, nbr_idx)
-                        .and_then(|attrs| attrs.get(attr_name))
-                    {
-                        Some(value) if !matches!(value, CgseValue::Map(_)) => {
-                            crate::cgse_value_to_py(py, value)?
-                        }
-                        Some(_) => {
-                            let target_name = inner
-                                .get_node_name(nbr_idx)
-                                .expect("successor index should resolve during out_edges");
-                            let attrs = edge_py_attrs
-                                .entry(Self::edge_key(source_name, target_name))
-                                .or_insert_with(|| {
-                                    edge_attr_writes
-                                        .dict_from_attr_map(
-                                            py,
-                                            inner.edge_attrs_by_indices(idx, nbr_idx),
-                                        )
-                                        .expect("stored directed edge attrs must convert to Python")
-                                });
-                            attrs
-                                .bind(py)
-                                .get_item(data)?
-                                .map_or_else(|| default.clone_ref(py), |value| value.unbind())
-                        }
-                        None => default.clone_ref(py),
-                    };
-                    out.push(tuple_object(
-                        py,
-                        &[source_obj.clone_ref(py), nbr_obj, value],
-                    )?);
-                }
-            }
-            return Ok(Some(out));
-        }
         let mut out: Vec<PyObject> = Vec::new();
         let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
@@ -18516,6 +18718,7 @@ impl PyDiGraph {
             edges_with_data_cache: None,
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
