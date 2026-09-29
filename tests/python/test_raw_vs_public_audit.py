@@ -397,15 +397,20 @@ def test_directed_input_rejected_on_iteration(fnname):
 # ---------------------------------------------------------------------------
 
 
-def test_audit_script_runs_to_completion():
-    """The audit script imports cleanly and produces both report files."""
+def test_audit_script_runs_to_completion(tmp_path):
+    """The audit script imports cleanly and produces both report files.
+
+    Into a temporary directory: written into the checkout's docs/, every test
+    run rewrote the committed report to whatever the build under test said, an
+    uncommitted diff that rode along into unrelated work.
+    """
     import subprocess
     import sys
     from pathlib import Path
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     script = repo_root / "scripts" / "raw_vs_public_audit.py"
-    out_dir = repo_root / "docs"
+    out_dir = tmp_path
 
     # Use --quiet so this test does not produce stdout chatter.
     result = subprocess.run(
