@@ -12096,7 +12096,7 @@ impl PyDiGraph {
     ) -> PyResult<bool> {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
         if !self.succ_row_py.is_empty() || !self.pred_row_py.is_empty() {
-            return Ok(false);
+            return self.add_plain_edge_batch_keeping_rows(py, ebunch_to_add, final_edge_bump);
         }
         if self.try_add_fresh_exact_int_plain_edge_batch(py, ebunch_to_add, final_edge_bump)?
             || self.try_add_existing_exact_int_plain_edge_batch(
@@ -12126,6 +12126,72 @@ impl PyDiGraph {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// br-r37-c1-dnqsr: the plain batch on a DiGraph with live row mirrors -
+    /// PyGraph's `add_plain_edge_batch_keeping_rows`, per direction. A pair
+    /// lands in its source's successor row and its target's predecessor row;
+    /// those that add an edge are noted before the batch commits, the batch
+    /// runs with the rows set aside, and each noted edge is then written into
+    /// whichever of its two rows is live, in bunch order, as the per-edge
+    /// path's `cached_succ_set_edge` / `cached_pred_set_edge` would.
+    fn add_plain_edge_batch_keeping_rows(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        let owners = PySet::empty(py)?;
+        for canonical in self.succ_row_py.keys().chain(self.pred_row_py.keys()) {
+            owners.add(self.py_node_key(py, canonical))?;
+        }
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            list.iter().collect()
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            tuple.iter().collect()
+        } else {
+            return Ok(false);
+        };
+        let mut landing: Vec<(String, String)> = Vec::new();
+        let mut noted: HashSet<(String, String)> = HashSet::new();
+        for item in &items {
+            let Ok(pair) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if pair.len() != 2 {
+                return Ok(false);
+            }
+            let (u, v) = (pair.get_item(0)?, pair.get_item(1)?);
+            let (Ok(u_owns), Ok(v_owns)) = (owners.contains(&u), owners.contains(&v)) else {
+                return Ok(false);
+            };
+            if !u_owns && !v_owns {
+                continue;
+            }
+            let (Ok(u_canonical), Ok(v_canonical)) =
+                (node_key_to_string(py, &u), node_key_to_string(py, &v))
+            else {
+                return Ok(false);
+            };
+            if !self.inner.has_edge(&u_canonical, &v_canonical)
+                && noted.insert((u_canonical.clone(), v_canonical.clone()))
+            {
+                landing.push((u_canonical, v_canonical));
+            }
+        }
+        let succ_rows = std::mem::take(&mut self.succ_row_py);
+        let pred_rows = std::mem::take(&mut self.pred_row_py);
+        let added = self.try_add_plain_edge_batch(py, ebunch_to_add, final_edge_bump);
+        self.succ_row_py = succ_rows;
+        self.pred_row_py = pred_rows;
+        if !added? {
+            return Ok(false);
+        }
+        for (u, v) in landing {
+            self.cached_succ_set_edge(py, &u, &v)?;
+            self.cached_pred_set_edge(py, &v, &u)?;
+        }
+        Ok(true)
     }
 
     fn collect_attr_edge_batch<'py, I>(

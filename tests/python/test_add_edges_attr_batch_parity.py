@@ -644,6 +644,40 @@ def test_re_added_pairs_keep_their_edge_attributes(cls):
     assert outcome(fnx) == outcome(nx)
 
 
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("seed", range(8))
+def test_rows_read_before_an_append_show_its_edges(cls, seed):
+    """br-r37-c1-dnqsr: a row read (dict(G[u]), G.pred[v], neighbors) leaves a
+    live row mirror; the batch now runs anyway and must write the new edges
+    into every live row, in networkx's order, with each cell the edge's own
+    dict."""
+    rng = random.Random(seed)
+    n = rng.randint(4, 25)
+    base = [(rng.randrange(n), rng.randrange(n)) for _ in range(rng.randint(1, 3 * n))]
+    readers = rng.sample(range(n), min(n, 3))
+    bunch = [(rng.randrange(n + 6), rng.randrange(n + 6)) for _ in range(rng.randint(8, 4 * n))]
+    bunch += [(r, n + 1) for r in readers] + [(n + 2, r) for r in readers] + [(readers[0], readers[0])]
+    bunch += [(v, u) for u, v in base[:3]]
+
+    def outcome(lib):
+        g = getattr(lib, cls)(base)
+        g.add_nodes_from(range(n))
+        held = []
+        for r in readers:
+            held.append(g[r])
+            dict(g[r])
+            if g.is_directed():
+                held.append(g.pred[r])
+                dict(g.pred[r])
+            list(g.neighbors(r))
+        g.add_edges_from(bunch)
+        rows = [list(row.items()) for row in held]
+        own = all(row[x] is g.get_edge_data(r, x) for r, row in zip(readers, held[:: 2 if g.is_directed() else 1]) for x in row)
+        return _canon_full(g), repr(rows), [list(g.neighbors(r)) for r in readers], own
+
+    assert outcome(fnx) == outcome(nx)
+
+
 @pytest.mark.parametrize("seed", range(8))
 def test_transitive_closure_dag_matches_networkx(seed):
     """Its closure edges are appended to a copy in one add_edges_from, after a

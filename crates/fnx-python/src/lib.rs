@@ -5633,7 +5633,7 @@ impl PyGraph {
     ) -> PyResult<bool> {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
         if self.py_adj_rows_live() {
-            return Ok(false);
+            return self.add_plain_edge_batch_keeping_rows(py, ebunch_to_add);
         }
         if self.try_add_fresh_exact_int_prefix_edge_batch(py, ebunch_to_add)? {
             return Ok(true);
@@ -5660,6 +5660,81 @@ impl PyGraph {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// br-r37-c1-dnqsr: the plain batch on a graph with live row mirrors.
+    /// One `dict(G[u])` or `for v in G[u]` used to turn the whole bunch away to
+    /// the per-edge path - 0.53x networkx on a 36k-pair append that runs 4.8x
+    /// without it. The batch collectors know nothing of the rows, so they run
+    /// with the rows set aside; the pairs that land in a live row and add an
+    /// edge are noted first, while the graph still shows which edges exist, and
+    /// each of those rows gets its new neighbours afterwards in bunch order -
+    /// what the per-edge path's `cached_adj_set_edge` would have written. A
+    /// declined batch changed nothing, so the rows go back as they were.
+    fn add_plain_edge_batch_keeping_rows(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        let owners = PySet::empty(py)?;
+        for canonical in self.adj_row_py.keys().chain(self.neighbor_key_rows.keys()) {
+            owners.add(self.py_node_key(py, canonical))?;
+        }
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            list.iter().collect()
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            tuple.iter().collect()
+        } else {
+            return Ok(false);
+        };
+        let mut landing: Vec<(String, String)> = Vec::new();
+        let mut noted: HashSet<(String, String)> = HashSet::new();
+        for item in &items {
+            let Ok(pair) = item.downcast::<PyTuple>() else {
+                return Ok(false);
+            };
+            if pair.len() != 2 {
+                return Ok(false);
+            }
+            let (u, v) = (pair.get_item(0)?, pair.get_item(1)?);
+            let (Ok(u_owns), Ok(v_owns)) = (owners.contains(&u), owners.contains(&v)) else {
+                return Ok(false);
+            };
+            if !u_owns && !v_owns {
+                continue;
+            }
+            let (Ok(u_canonical), Ok(v_canonical)) =
+                (node_key_to_string(py, &u), node_key_to_string(py, &v))
+            else {
+                return Ok(false);
+            };
+            if self.inner.has_edge(&u_canonical, &v_canonical) {
+                continue;
+            }
+            let edge = if u_canonical <= v_canonical {
+                (u_canonical.clone(), v_canonical.clone())
+            } else {
+                (v_canonical.clone(), u_canonical.clone())
+            };
+            if noted.insert(edge) {
+                landing.push((u_canonical, v_canonical));
+            }
+        }
+        let adj_rows = std::mem::take(&mut self.adj_row_py);
+        let key_rows = std::mem::take(&mut self.neighbor_key_rows);
+        let added = self.try_add_plain_edge_batch(py, ebunch_to_add);
+        self.adj_row_py = adj_rows;
+        self.neighbor_key_rows = key_rows;
+        if !added? {
+            return Ok(false);
+        }
+        for (u, v) in landing {
+            self.cached_adj_set_edge(py, &u, &v)?;
+            if u != v {
+                self.cached_adj_set_edge(py, &v, &u)?;
+            }
+        }
+        Ok(true)
     }
 
     /// br-r37-c1-pr8q6: collect a batch of attributed edges — a mix of
