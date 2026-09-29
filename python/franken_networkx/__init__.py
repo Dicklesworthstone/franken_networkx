@@ -21236,16 +21236,28 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
         raise ZeroDivisionError("division by zero")
     # br-r37-c1-moddir: the Rust ``_raw_modularity`` computes the *undirected*
     # modularity (k_i*k_j / 2m) even for DiGraph/MultiDiGraph; nx uses the
-    # directed Leicht-Newman formula (k_i^in * k_j^out / m). Delegate directed
-    # graphs to nx so the result matches (the weighted path already delegates).
+    # directed Leicht-Newman formula (k_i^in * k_j^out / m).
+    # br-r37-c1-q9uy6: evaluated here on the fnx graph itself, as networkx
+    # writes it - the same degree dicts, the same `G.edges(comm, data=weight,
+    # default=1)` walk in the same order and the same sums, so the float is
+    # networkx's to the last bit - instead of converting the whole graph to a
+    # networkx graph on every call (0.16-0.17x networkx).
     if G.is_directed():
-        return _nx.community.modularity(
-            _networkx_graph_for_parity(G),
-            community_list,
-            weight=weight,
-            resolution=resolution,
-            backend="networkx",
-        )
+        out_degree = dict(G.out_degree(weight=weight))
+        in_degree = dict(G.in_degree(weight=weight))
+        m = sum(out_degree.values())
+        norm = 1 / m**2
+
+        def _directed_contribution(community):
+            comm = set(community)
+            l_c = sum(
+                wt for u, v, wt in G.edges(comm, data=weight, default=1) if v in comm
+            )
+            out_degree_sum = sum(out_degree[u] for u in comm)
+            in_degree_sum = sum(in_degree[u] for u in comm)
+            return l_c / m - resolution * out_degree_sum * in_degree_sum * norm
+
+        return sum(map(_directed_contribution, community_list))
     # br-r37-c1-nim1v / br-r37-c1-modsnapshot: weighted inputs must delegate to
     # nx's reference implementation (the snapshot/Rust paths are unweighted).
     # The old guard called _graph_has_nonunit_weight, which is a HISTORICAL
