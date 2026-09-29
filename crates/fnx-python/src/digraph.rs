@@ -11714,6 +11714,108 @@ impl PyDiGraph {
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
     }
 
+    /// br-r37-c1-osmyn: plain `(u, v)` exact-int pairs onto a FRESH DiGraph, collected by index:
+    /// the general plain collector formats and SipHashes two owned canonical
+    /// Strings per edge and commits them name by name - DiGraph(edges) of 36k
+    /// int edges took 3.4x Graph's fresh-int batch. A repeated pair adds
+    /// nothing, as networkx's second `add_edge` of an attr-less edge does not;
+    /// any other shape declines to the general collector.
+    fn collect_fresh_exact_int_plain_edge_batch<'py, I>(
+        &self,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<DiIndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let mut node_indices: rustc_hash::FxHashMap<i64, usize> =
+            rustc_hash::FxHashMap::with_capacity_and_hasher(len, rustc_hash::FxBuildHasher);
+        let mut node_labels: Vec<String> = Vec::new();
+        let mut node_objects: Vec<PyObject> = Vec::new();
+        let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(len);
+        let mut node_bumps = 0_u64;
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 2 {
+                return Ok(None);
+            }
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            if !u.is_exact_instance_of::<PyInt>() || !v.is_exact_instance_of::<PyInt>() {
+                return Ok(None);
+            }
+            let (Ok(u_value), Ok(v_value)) = (u.extract::<i64>(), v.extract::<i64>()) else {
+                return Ok(None);
+            };
+            let mut edge_added_node = false;
+            let mut index_of =
+                |value: i64, object: &Bound<'py, PyAny>| match node_indices.get(&value) {
+                    Some(&index) => index,
+                    None => {
+                        let index = node_labels.len();
+                        node_indices.insert(value, index);
+                        node_labels.push(value.to_string());
+                        node_objects.push(object.clone().unbind());
+                        edge_added_node = true;
+                        index
+                    }
+                };
+            let u_index = index_of(u_value, &u);
+            let v_index = index_of(v_value, &v);
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            edges.push((u_index, v_index, AttrMap::new()));
+        }
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn try_add_fresh_exact_int_plain_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_int_plain_edge_batch(list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < PLAIN_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_int_plain_edge_batch(tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_attr_edge_batch(
+            py,
+            node_labels,
+            node_objects,
+            edges,
+            node_bumps,
+            final_edge_bump,
+        )?;
+        Ok(true)
+    }
+
     fn try_add_plain_edge_batch(
         &mut self,
         py: Python<'_>,
@@ -11723,6 +11825,9 @@ impl PyDiGraph {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
         if !self.succ_row_py.is_empty() || !self.pred_row_py.is_empty() {
             return Ok(false);
+        }
+        if self.try_add_fresh_exact_int_plain_edge_batch(py, ebunch_to_add, final_edge_bump)? {
+            return Ok(true);
         }
         if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {

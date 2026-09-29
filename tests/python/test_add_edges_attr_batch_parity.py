@@ -504,3 +504,69 @@ def test_digraph_batch_probe_preserves_partial_error_prefix():
 
         a, b = _both(build)
         assert a == b
+
+
+# Plain exact-int pairs onto a FRESH DiGraph are collected by index. Node,
+# successor, predecessor and edge order must be networkx's, a repeated pair adds
+# nothing, and every shape outside exact ints goes to the general path with
+# networkx's outcome.
+
+def _canon_digraph_plain(g):
+    return (
+        [repr(n) for n in g.nodes],
+        [(repr(u), repr(v)) for u, v in g.edges],
+        {repr(n): [repr(m) for m in g.succ[n]] for n in g},
+        {repr(n): [repr(m) for m in g.pred[n]] for n in g},
+        [(repr(n), dict(d)) for n, d in g.nodes(data=True)],
+    )
+
+
+@pytest.mark.parametrize("how", ["add_edges_from", "constructor", "tuple"])
+@pytest.mark.parametrize("seed", range(10))
+def test_digraph_plain_int_batch_matches_networkx(seed, how):
+    rng = random.Random(seed)
+    # Small id range: repeated pairs, reversed pairs and self-loops occur.
+    edges = [(rng.randrange(20), rng.randrange(20)) for _ in range(rng.randrange(8, 160))]
+
+    def build(mod):
+        if how == "constructor":
+            return mod.DiGraph(edges)
+        g = mod.DiGraph()
+        g.add_edges_from(tuple(edges) if how == "tuple" else edges)
+        return g
+
+    fnx_graph = build(fnx)
+    nx_graph = build(nx)
+    assert _canon_digraph_plain(fnx_graph) == _canon_digraph_plain(nx_graph)
+    # The batch-built graph keeps working as a graph: a later edit and a read.
+    for g in (fnx_graph, nx_graph):
+        g.add_edge(0, 99, weight=3)
+        g.remove_edge(*edges[0]) if g.has_edge(*edges[0]) else None
+    assert _canon_digraph_plain(fnx_graph) == _canon_digraph_plain(nx_graph)
+    assert sorted(fnx_graph.in_degree()) == sorted(nx_graph.in_degree())
+
+
+_PLAIN_BATCH_DECLINES = {
+    "bool_node": [(True, 1)] + [(i, i + 1) for i in range(10)],
+    "big_int": [(2**70, 1)] + [(i, i + 1) for i in range(10)],
+    "str_node": [("a", 1)] + [(i, i + 1) for i in range(10)],
+    "float_node": [(1.0, 2)] + [(i, i + 1) for i in range(10)],
+    "attr_pair": [(0, 1, {"w": 1})] + [(i, i + 1) for i in range(10)],
+    "long_tuple": [(i, i + 1) for i in range(10)] + [(0, 1, 2, 3)],
+    "none_node": [(i, i + 1) for i in range(10)] + [(None, 1)],
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_PLAIN_BATCH_DECLINES))
+def test_digraph_plain_batch_other_shapes_match_networkx(shape):
+    edges = _PLAIN_BATCH_DECLINES[shape]
+
+    def outcome(mod):
+        g = mod.DiGraph()
+        try:
+            g.add_edges_from(edges)
+        except Exception as exc:  # noqa: BLE001 - the error IS the parity subject
+            return type(exc).__name__, str(exc), _canon_digraph_plain(g)
+        return _canon_digraph_plain(g)
+
+    assert outcome(fnx) == outcome(nx)
