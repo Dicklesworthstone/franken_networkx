@@ -22669,6 +22669,57 @@ impl NodeIteratorGuard {
             Self::MultiDiGraph(graph) => graph.borrow(py).nodes_seq,
         }
     }
+
+    /// Both revision counters in one borrow.
+    fn seqs(&self, py: Python<'_>) -> (u64, u64) {
+        match self {
+            Self::Graph(graph) => {
+                let graph = graph.borrow(py);
+                (graph.nodes_seq, graph.edges_seq)
+            }
+            Self::MultiGraph(graph) => {
+                let graph = graph.borrow(py);
+                (graph.nodes_seq, graph.edges_seq)
+            }
+            Self::DiGraph(graph) => {
+                let graph = graph.borrow(py);
+                (graph.nodes_seq, graph.edges_seq)
+            }
+            Self::MultiDiGraph(graph) => {
+                let graph = graph.borrow(py);
+                (graph.nodes_seq, graph.edges_seq)
+            }
+        }
+    }
+
+    /// The graph when it is exactly one of the four classes. A subclass can
+    /// answer `nodes_seq` / `edges_seq` from Python (a conversion view reads
+    /// the graph it wraps), which the struct fields read here would not see.
+    fn exact(graph: &Bound<'_, PyAny>) -> Option<Self> {
+        if graph.is_exact_instance_of::<PyGraph>() {
+            graph
+                .downcast::<PyGraph>()
+                .ok()
+                .map(|g| Self::Graph(g.clone().unbind()))
+        } else if graph.is_exact_instance_of::<digraph::PyDiGraph>() {
+            graph
+                .downcast::<digraph::PyDiGraph>()
+                .ok()
+                .map(|g| Self::DiGraph(g.clone().unbind()))
+        } else if graph.is_exact_instance_of::<PyMultiGraph>() {
+            graph
+                .downcast::<PyMultiGraph>()
+                .ok()
+                .map(|g| Self::MultiGraph(g.clone().unbind()))
+        } else if graph.is_exact_instance_of::<digraph::PyMultiDiGraph>() {
+            graph
+                .downcast::<digraph::PyMultiDiGraph>()
+                .ok()
+                .map(|g| Self::MultiDiGraph(g.clone().unbind()))
+        } else {
+            None
+        }
+    }
 }
 
 impl NodeIterator {
@@ -22731,6 +22782,150 @@ impl NodeIterator {
         }
         Ok(Some(item))
     }
+}
+
+/// br-r37-c1-ounhu: the fail-fast guard of a materialised edge view, read
+/// natively (`_FailFastEdgeIterator` for an exact graph class).
+///
+/// Items come out of `source` while the graph's revisions stand still; the
+/// Python generator it stands in for read both through PyO3 getters on every
+/// item, most of an nbunch `list(G.edges(nb, data=...))`. When they move:
+/// without `on_move` it is networkx's "dictionary changed size during
+/// iteration"; with one - an nbunch view's row rule - `on_move(previous,
+/// emitted, at_end)` decides, raising, returning None to carry on, or
+/// returning the rows still owed after the `emitted` already handed out, which
+/// replace the rest of `source` (the item in hand included). The source's end
+/// is checked too in that mode, as a mutation after the last item can still
+/// change what networkx reads next.
+#[pyclass]
+pub(crate) struct GuardedEdgeIter {
+    graph: NodeIteratorGuard,
+    source: Py<PyIterator>,
+    expected_nodes_seq: u64,
+    /// None when only the node revision is watched.
+    expected_edges_seq: Option<u64>,
+    on_move: Option<PyObject>,
+    previous: Option<PyObject>,
+    emitted: usize,
+    finished: bool,
+}
+
+impl GuardedEdgeIter {
+    /// Records the revisions it now expects; true when they had moved.
+    fn moved(&mut self, py: Python<'_>) -> bool {
+        let (nodes_seq, edges_seq) = self.graph.seqs(py);
+        let moved = nodes_seq != self.expected_nodes_seq
+            || self
+                .expected_edges_seq
+                .is_some_and(|expected| expected != edges_seq);
+        if moved {
+            self.expected_nodes_seq = nodes_seq;
+            if self.expected_edges_seq.is_some() {
+                self.expected_edges_seq = Some(edges_seq);
+            }
+        }
+        moved
+    }
+}
+
+#[pymethods]
+impl GuardedEdgeIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        let py = slf.py();
+        let next = slf.advance(py);
+        // A generator that raised is closed: its next `next()` stops.
+        if next.is_err() {
+            slf.finished = true;
+        }
+        next
+    }
+}
+
+impl GuardedEdgeIter {
+    fn advance(&mut self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        loop {
+            if self.finished {
+                return Ok(None);
+            }
+            let Some(item) = self.source.bind(py).clone().next() else {
+                if self.on_move.is_some()
+                    && self.moved(py)
+                    && let Some(tail) = self.call_on_move(py, true)?
+                {
+                    self.source = tail;
+                    continue;
+                }
+                self.finished = true;
+                return Ok(None);
+            };
+            let item = item?.unbind();
+            if self.moved(py) {
+                if self.on_move.is_none() {
+                    return Err(PyRuntimeError::new_err(
+                        "dictionary changed size during iteration",
+                    ));
+                }
+                if let Some(tail) = self.call_on_move(py, false)? {
+                    self.source = tail;
+                    continue;
+                }
+            }
+            self.previous = Some(item.clone_ref(py));
+            self.emitted += 1;
+            return Ok(Some(item));
+        }
+    }
+
+    fn call_on_move(&self, py: Python<'_>, at_end: bool) -> PyResult<Option<Py<PyIterator>>> {
+        let Some(on_move) = &self.on_move else {
+            return Ok(None);
+        };
+        let previous = self
+            .previous
+            .as_ref()
+            .map_or_else(|| py.None(), |item| item.clone_ref(py));
+        let tail = on_move.call1(py, (previous, self.emitted, at_end))?;
+        if tail.is_none(py) {
+            return Ok(None);
+        }
+        Ok(Some(tail.bind(py).try_iter()?.unbind()))
+    }
+}
+
+/// A `GuardedEdgeIter` over `items` for `graph`, or None when the graph is not
+/// exactly one of the four classes (the caller keeps its Python guard).
+/// `expected_edges_seq` None watches the node revision only.
+#[pyfunction]
+#[pyo3(signature = (graph, items, expected_nodes_seq, expected_edges_seq, on_move=None))]
+fn _guarded_edge_iter(
+    py: Python<'_>,
+    graph: &Bound<'_, PyAny>,
+    items: &Bound<'_, PyAny>,
+    expected_nodes_seq: u64,
+    expected_edges_seq: Option<u64>,
+    on_move: Option<PyObject>,
+) -> PyResult<Option<Py<GuardedEdgeIter>>> {
+    let Some(guard) = NodeIteratorGuard::exact(graph) else {
+        return Ok(None);
+    };
+    Py::new(
+        py,
+        GuardedEdgeIter {
+            graph: guard,
+            source: items.try_iter()?.unbind(),
+            expected_nodes_seq,
+            expected_edges_seq,
+            on_move,
+            previous: None,
+            emitted: 0,
+            finished: false,
+        },
+    )
+    .map(Some)
 }
 
 /// br-r37-c1-g6wla: native integer-CSR per-node overlap counts for the bipartite
@@ -22835,6 +23030,8 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_set_edge_attr_dict_class, m)?)?;
     m.add_class::<EdgeAttrWatch>()?;
     m.add_class::<NodeIterator>()?;
+    m.add_class::<GuardedEdgeIter>()?;
+    m.add_function(wrap_pyfunction!(_guarded_edge_iter, m)?)?;
 
     // DiGraph class + views
     digraph::register_digraph_classes(m)?;

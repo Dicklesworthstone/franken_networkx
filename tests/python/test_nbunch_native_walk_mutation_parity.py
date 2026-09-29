@@ -295,3 +295,52 @@ def test_the_row_rule_snapshot_reuses_exact_key_indices():
         "the row-rule snapshot rebuilt canonical long-string keys instead of "
         f"reusing exact-key indices (short={short}ns long={long}ns)"
     )
+
+
+_SPENT_CELLS = [
+    pytest.param(
+        "Graph",
+        None,
+        False,
+        marks=pytest.mark.xfail(
+            strict=True,
+            reason="br-r37-c1-hrejw: Graph edges() hands out a NodeViewIterator, "
+            "which raises again after raising",
+        ),
+    )
+] + [
+    (class_name, nbunch, data)
+    for class_name in CLASSES
+    for nbunch in (None, ["n0", "n1", "n2"])
+    for data in (False, True, "w")
+    if (class_name, nbunch, data) != ("Graph", None, False)
+]
+
+
+@pytest.mark.parametrize(("class_name", "nbunch", "data"), _SPENT_CELLS)
+def test_a_guard_that_raised_is_spent(class_name, nbunch, data):
+    """br-r37-c1-ounhu: networkx's edge views iterate through generators, and
+    a generator that raised is closed - its next `next()` stops. The native
+    guard records the new revisions before raising, so without closing itself
+    it would carry on from where it raised; the native edge-list and
+    edge-stream iterators beside it raised again instead."""
+
+    def outcome(lib):
+        graph = getattr(lib, class_name)()
+        graph.add_edges_from(
+            [(f"n{i}", f"n{(i + 1) % 50}", {"w": i}) for i in range(50)]
+        )
+        it = iter(graph.edges(nbunch, data=data))
+        first = next(it)
+        graph.add_edge(first[0], "brand")  # resizes the row being walked
+        try:
+            for _edge in it:
+                pass
+        except RuntimeError:
+            try:
+                return ("raised", list(it))
+            except RuntimeError:
+                return ("raised", "raised again")
+        return ("completed",)
+
+    assert outcome(fnx) == outcome(nx)

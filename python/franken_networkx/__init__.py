@@ -1010,6 +1010,75 @@ def _FailFastEdgeIterator(
             base_nodes = graph.nodes_seq
             base_edges = graph.edges_seq if guard_edge_count else None
 
+            def _row_move(previous, emitted, at_end):
+                """What networkx does once the graph has moved mid-walk.
+
+                ``previous`` is the item handed out last, whose row networkx
+                is standing in; ``emitted`` counts the items handed out, or is
+                None when the splice point is unknown. Raises where networkx's
+                row dict reports a resize; otherwise returns the rows still
+                owed after ``emitted``, rebuilt from the graph as it now is,
+                or None to carry on with the list as built.
+                """
+                try:
+                    owner = previous[0]
+                except (TypeError, IndexError, KeyError):
+                    owner = None
+                if owner in row_sizes:
+                    # MultiEdgeDataView holds the source row it already
+                    # entered.  Removing that source (including clear())
+                    # detaches the native row but does not resize the captured
+                    # dict in NetworkX, so the remaining materialised rows must
+                    # still drain.  A present owner keeps the normal live-row
+                    # size check.
+                    if not (ignore_removed_nbunch_row and owner not in graph):
+                        if degree_of(owner) != row_sizes[owner]:
+                            raise RuntimeError(_err)
+                # br-r37-c1-u5tyh: NO RAISE MEANS NETWORKX CARRIES ON — and it
+                # carries on out of the row dicts it captured, which are the
+                # graph's OWN dicts, so everything it has not reached yet
+                # reflects the mutation. fnx answered from a list built before
+                # it and reported the pre-mutation graph: a later row grown,
+                # shrunk, given a parallel edge or a self-loop was simply
+                # invisible.
+                #
+                # Re-materialising here is the cheapest thing that is not
+                # wrong. It costs NOTHING until a mutation actually lands. The
+                # alternative — walking the live rows lazily, as the simple
+                # classes do — was built and measured at 9.5x-18x, because a
+                # multigraph row has no live PyDict mirror and every cell read
+                # is a fresh materialisation; see the bead.
+                #
+                # The tail is taken from the count emitted so far, which is the
+                # right splice exactly when the already-yielded prefix has not
+                # moved. A mutation to a row the walk has PASSED breaks that
+                # assumption — and is also the case networkx cannot see, having
+                # already walked it out of the same dicts.
+                #
+                # NOT when the row has DETACHED. `G.clear()` empties the outer
+                # adjacency dict and `remove_node` deletes one entry; neither
+                # touches the row dicts, and networkx is holding those objects
+                # — so it keeps walking their pre-mutation contents, which is
+                # what the un-refreshed list already contains. Rebuilding there
+                # would replace a right answer with an empty one, and did: 112
+                # cells of the first version of this, every one of them a
+                # `clear()`.
+                if emitted is None or refresh_rows is None:
+                    return None
+                if not (owner is None or owner in graph):
+                    return None
+                fresh = refresh_rows()
+                if fresh is None or (at_end and emitted >= len(fresh)):
+                    return None
+                return fresh[emitted:]
+
+            # br-r37-c1-ounhu: an exact graph class reads its revisions
+            # natively; its per-item check is two integer compares instead of
+            # two PyO3 getters.
+            native = _fnx._guarded_edge_iter(graph, it, base_nodes, base_edges, _row_move)
+            if native is not None:
+                return native
+
             def _gen_rows():
                 exp_nodes = base_nodes
                 exp_edges = base_edges
@@ -1046,107 +1115,35 @@ def _FailFastEdgeIterator(
                             # loop - the guard runs once per edge, so the
                             # untriggered path must stay two integer compares and
                             # one store.
-                            try:
-                                owner = previous[0]
-                            except (TypeError, IndexError, KeyError):
-                                owner = None
-                            if owner in row_sizes:
-                                # MultiEdgeDataView holds the source row it
-                                # already entered.  Removing that source
-                                # (including clear()) detaches the native row but
-                                # does not resize the captured dict in NetworkX,
-                                # so the remaining materialised rows must still
-                                # drain.  A present owner keeps the normal
-                                # live-row size check.
-                                if not (
-                                    ignore_removed_nbunch_row and owner not in graph
-                                ):
-                                    if degree_of(owner) != row_sizes[owner]:
-                                        raise RuntimeError(_err)
                             exp_nodes = graph.nodes_seq
                             if exp_edges is not None:
                                 exp_edges = graph.edges_seq
-                            # br-r37-c1-u5tyh: NO RAISE MEANS NETWORKX CARRIES
-                            # ON — and it carries on out of the row dicts it
-                            # captured, which are the graph's OWN dicts, so
-                            # everything it has not reached yet reflects the
-                            # mutation. fnx answered from a list built before it
-                            # and reported the pre-mutation graph: a later row
-                            # grown, shrunk, given a parallel edge or a self-loop
-                            # was simply invisible.
-                            #
-                            # Re-materialising here is the cheapest thing that is
-                            # not wrong. It costs NOTHING until a mutation
-                            # actually lands, because it hangs off the trigger
-                            # the guard was already paying for. The alternative —
-                            # walking the live rows lazily, as the simple classes
-                            # do — was built and measured at 9.5x-18x, because a
-                            # multigraph row has no live PyDict mirror and every
-                            # cell read is a fresh materialisation; see the bead.
-                            #
-                            # The tail is taken from the count emitted so far,
-                            # which is the right splice exactly when the
-                            # already-yielded prefix has not moved. A mutation to
-                            # a row the walk has PASSED breaks that assumption —
-                            # and is also the case networkx cannot see, having
-                            # already walked it out of the same dicts.
-                            #
-                            # NOT when the row has DETACHED. `G.clear()` empties
-                            # the outer adjacency dict and `remove_node` deletes
-                            # one entry; neither touches the row dicts, and
-                            # networkx is holding those objects — so it keeps
-                            # walking their pre-mutation contents, which is what
-                            # the un-refreshed list already contains. Rebuilding
-                            # there would replace a right answer with an empty
-                            # one, and did: 112 cells of the first version of
-                            # this, every one of them a `clear()`.
-                            if (
-                                refresh_rows is not None
-                                and source_len >= 0
-                                and (owner is None or owner in graph)
-                            ):
-                                fresh = refresh_rows()
-                                if fresh is not None:
-                                    # `item` has been taken from `source` and
-                                    # NOT yet yielded, so the hint counts one
-                                    # fewer than the items still owed.
-                                    left = _length_hint(source, -1)
-                                    if left >= 0:
-                                        emitted = offset + source_len - left - 1
-                                        restart = iter(fresh[emitted:])
-                                        source_len = _length_hint(restart, -1)
-                                        offset = emitted
-                                        break
+                            # `item` has been taken from `source` and NOT yet
+                            # yielded, so the hint counts one fewer than the
+                            # items still owed.
+                            left = _length_hint(source, -1) if source_len >= 0 else -1
+                            emitted = offset + source_len - left - 1 if left >= 0 else None
+                            tail = _row_move(previous, emitted, False)
+                            if tail is not None:
+                                restart = iter(tail)
+                                source_len = len(tail)
+                                offset = emitted
+                                break
                         previous = item
                         yield item
                     if restart is None and (
                         graph.nodes_seq != exp_nodes
                         or (exp_edges is not None and graph.edges_seq != exp_edges)
                     ):
-                        try:
-                            owner = previous[0] if previous is not None else None
-                        except (TypeError, IndexError, KeyError):
-                            owner = None
-                        if owner in row_sizes:
-                            if not (
-                                ignore_removed_nbunch_row and owner not in graph
-                            ):
-                                if degree_of(owner) != row_sizes[owner]:
-                                    raise RuntimeError(_err)
                         exp_nodes = graph.nodes_seq
                         if exp_edges is not None:
                             exp_edges = graph.edges_seq
-                        if (
-                            refresh_rows is not None
-                            and (owner is None or owner in graph)
-                        ):
-                            fresh = refresh_rows()
-                            if fresh is not None:
-                                emitted = offset + (source_len if source_len >= 0 else 0)
-                                if emitted < len(fresh):
-                                    restart = iter(fresh[emitted:])
-                                    source_len = len(fresh) - emitted
-                                    offset = emitted
+                        emitted = offset + (source_len if source_len >= 0 else 0)
+                        tail = _row_move(previous, emitted, True)
+                        if tail is not None:
+                            restart = iter(tail)
+                            source_len = len(tail)
+                            offset = emitted
                     source = restart
 
             return _gen_rows()
@@ -1154,6 +1151,9 @@ def _FailFastEdgeIterator(
     if use_seq_guard:
         exp_nodes_seq = graph.nodes_seq
         exp_edges_seq = graph.edges_seq if guard_edge_count else None
+        native = _fnx._guarded_edge_iter(graph, it, exp_nodes_seq, exp_edges_seq)
+        if native is not None:
+            return native
 
         def _gen():
             if exp_edges_seq is None:

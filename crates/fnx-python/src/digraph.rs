@@ -20102,15 +20102,16 @@ impl DiGraphGuardedEdgeListIter {
             return Ok(None);
         }
         let py = slf.py();
-        {
+        let moved = {
             let graph = slf.graph.borrow(py);
-            if graph.nodes_seq != slf.expected_nodes_seq
-                || graph.edges_seq != slf.expected_edges_seq
-            {
-                return Err(PyRuntimeError::new_err(
-                    "dictionary changed size during iteration",
-                ));
-            }
+            graph.nodes_seq != slf.expected_nodes_seq || graph.edges_seq != slf.expected_edges_seq
+        };
+        if moved {
+            // br-r37-c1-ounhu: spent, as networkx's generator is once it raised.
+            slf.index = slf.len;
+            return Err(PyRuntimeError::new_err(
+                "dictionary changed size during iteration",
+            ));
         }
         let item = slf.items.bind(py).get_item(slf.index)?.unbind();
         slf.index += 1;
@@ -20139,15 +20140,16 @@ impl MultiDiGraphGuardedEdgeListIter {
             return Ok(None);
         }
         let py = slf.py();
-        {
+        let moved = {
             let graph = slf.graph.borrow(py);
-            if graph.nodes_seq != slf.expected_nodes_seq
-                || graph.edges_seq != slf.expected_edges_seq
-            {
-                return Err(PyRuntimeError::new_err(
-                    "dictionary changed size during iteration",
-                ));
-            }
+            graph.nodes_seq != slf.expected_nodes_seq || graph.edges_seq != slf.expected_edges_seq
+        };
+        if moved {
+            // br-r37-c1-ounhu: spent, as networkx's generator is once it raised.
+            slf.index = slf.len;
+            return Err(PyRuntimeError::new_err(
+                "dictionary changed size during iteration",
+            ));
         }
         let item = slf.items.bind(py).get_item(slf.index)?.unbind();
         slf.index += 1;
@@ -20187,6 +20189,8 @@ impl DiGraphGuardedEdgeStreamIter {
             if graph.nodes_seq != slf.expected_nodes_seq
                 || graph.edges_seq != slf.expected_edges_seq
             {
+                // br-r37-c1-ounhu: spent, as networkx's generator is once it raised.
+                slf.node_idx = node_count;
                 return Err(PyRuntimeError::new_err(
                     "dictionary changed size during iteration",
                 ));
