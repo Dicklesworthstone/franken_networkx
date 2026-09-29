@@ -653,12 +653,23 @@ fn edge_alldata_items(
     let inner = &g.inner;
     let edge_py_attrs = &mut g.edge_py_attrs;
     let edge_py_attrs_by_index = &mut g.edge_py_attrs_by_index;
-    let edge_py_attrs_by_endpoint = &mut g.edge_py_attrs_by_endpoint;
     let edge_attr_writes = &g.edge_attr_writes; // br-r37-c1-urjxk
     let node_key_map = &g.node_key_map;
     let adj_py_keys = &g.adj_py_keys; // br-r37-c1-z6uka
     let lazy_stop = g.lazy_int_node_stop;
     let mut items = Vec::with_capacity(inner.edge_count());
+    // br-r37-c1-1rouu: a first read makes a dict for every edge that lives only
+    // in the store (~1.2 us each). The maps are sized for the whole walk up
+    // front instead of rehashing as they grow, the dicts share one key `str`
+    // per attribute name, and the endpoint lookaside (`G[u][v]`'s allocation-
+    // free probe) is left to fill on the lookups that use it - it cost two more
+    // owned Strings and a SipHash per edge here.
+    if node_filter.is_none() {
+        edge_py_attrs.reserve(inner.edge_count().saturating_sub(edge_py_attrs.len()));
+        edge_py_attrs_by_index
+            .reserve(inner.edge_count().saturating_sub(edge_py_attrs_by_index.len()));
+    }
+    let mut keys = crate::AttrKeyStrings::default();
     // br-r37-c1-2a00r: index fast path — build the node-index -> Python key
     // object Vec ONCE (a node of degree d was hashed via edgeview_py_node_key
     // ~d times across its incident edges) and walk edges by index, so each
@@ -709,23 +720,20 @@ fn edge_alldata_items(
             let dict = match edge_py_attrs_by_index.get(&index_key) {
                 Some((seq, cached)) if *seq == nodes_seq => cached.clone_ref(py),
                 _ => {
-                    let live = edge_py_attrs
-                        .entry(PyGraph::edge_key(left, right))
-                        .or_insert_with(|| {
-                            edge_attr_writes
-                                .dict_from_attr_map(py, inner.edge_attrs_by_indices(u, v))
-                                .expect("stored string-keyed edge attrs must convert to Python")
-                        })
-                        .clone_ref(py);
+                    let live = match edge_py_attrs.entry(PyGraph::edge_key(left, right)) {
+                        std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone_ref(py),
+                        std::collections::hash_map::Entry::Vacant(entry) => entry
+                            .insert(edge_attr_writes.dict_from_attr_map_with_keys(
+                                py,
+                                inner.edge_attrs_by_indices(u, v),
+                                &mut keys,
+                            )?)
+                            .clone_ref(py),
+                    };
                     edge_py_attrs_by_index.insert(index_key, (nodes_seq, live.clone_ref(py)));
                     live
                 }
             };
-            let (endpoint_left, endpoint_right) = PyGraph::edge_key(left, right);
-            edge_py_attrs_by_endpoint
-                .entry(endpoint_left)
-                .or_default()
-                .insert(endpoint_right, dict.clone_ref(py));
             items.push(tuple_object(
                 py,
                 &[
@@ -753,19 +761,12 @@ fn edge_alldata_items(
         } else {
             edgeview_py_node_key(py, node_key_map, lazy_stop, right)
         };
-        let dict = edge_py_attrs
-            .entry(PyGraph::edge_key(left, right))
-            .or_insert_with(|| {
-                edge_attr_writes
-                    .dict_from_attr_map(py, Some(attrs))
-                    .expect("stored string-keyed edge attrs must convert to Python")
-            })
-            .clone_ref(py);
-        let (endpoint_left, endpoint_right) = PyGraph::edge_key(left, right);
-        edge_py_attrs_by_endpoint
-            .entry(endpoint_left)
-            .or_default()
-            .insert(endpoint_right, dict.clone_ref(py));
+        let dict = match edge_py_attrs.entry(PyGraph::edge_key(left, right)) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone_ref(py),
+            std::collections::hash_map::Entry::Vacant(entry) => entry
+                .insert(edge_attr_writes.dict_from_attr_map_with_keys(py, Some(attrs), &mut keys)?)
+                .clone_ref(py),
+        };
         items.push(tuple_object(py, &[py_u, py_v, dict.into_any()])?);
     }
     Ok(items)

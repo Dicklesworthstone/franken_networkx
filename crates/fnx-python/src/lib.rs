@@ -3412,6 +3412,28 @@ impl EdgeAttrWatch {
     }
 }
 
+/// The Python `str` for each attribute key a walk has met, so the dicts it
+/// makes share one key object per name - as networkx's dicts share the
+/// caller's - instead of a new `str` per key per edge (br-r37-c1-1rouu). A
+/// walk meets a handful of names; past `MAX` a name is made fresh each time.
+#[derive(Default)]
+pub(crate) struct AttrKeyStrings(Vec<(String, Py<PyString>)>);
+
+impl AttrKeyStrings {
+    const MAX: usize = 64;
+
+    fn get<'py>(&mut self, py: Python<'py>, key: &str) -> Bound<'py, PyString> {
+        if let Some((_, name)) = self.0.iter().find(|(k, _)| k == key) {
+            return name.bind(py).clone();
+        }
+        let name = PyString::new(py, key);
+        if self.0.len() < Self::MAX {
+            self.0.push((key.to_owned(), name.clone().unbind()));
+        }
+        name
+    }
+}
+
 /// br-r37-c1-urjxk: how a graph learns that an escaped edge attr dict was
 /// written.
 ///
@@ -3541,6 +3563,24 @@ impl EdgeAttrWrites {
         if let Some(attrs) = attrs {
             for (key, value) in attrs {
                 dict.set_item(key, cgse_value_to_py(py, value)?)?;
+            }
+        }
+        Ok(dict.unbind())
+    }
+
+    /// `dict_from_attr_map` for a walk that makes many dicts: each key's
+    /// `str` comes from `keys`, so the dicts share one object per name
+    /// (br-r37-c1-1rouu).
+    pub(crate) fn dict_from_attr_map_with_keys(
+        &self,
+        py: Python<'_>,
+        attrs: Option<&AttrMap>,
+        keys: &mut AttrKeyStrings,
+    ) -> PyResult<Py<PyDict>> {
+        let dict = self.new_dict(py)?;
+        if let Some(attrs) = attrs {
+            for (key, value) in attrs {
+                dict.set_item(keys.get(py, key), cgse_value_to_py(py, value)?)?;
             }
         }
         Ok(dict.unbind())
@@ -4800,9 +4840,22 @@ impl PyGraph {
         j: usize,
         weight: &str,
     ) -> Option<Option<Bound<'py, PyAny>>> {
+        // br-r37-c1-1rouu: an escaped edge's dict is in the index lookaside
+        // when a bulk walk handed it out (the walk no longer fills the endpoint
+        // one), else in the endpoint lookaside or the authoritative map - a
+        // miss in the lookasides is not "no dict".
+        let index_key = if i <= j { (i, j) } else { (j, i) };
+        if let Some((seq, dict)) = self.edge_py_attrs_by_index.get(&index_key)
+            && *seq == self.nodes_seq
+        {
+            return dict.bind(py).get_item(weight).ok();
+        }
         let u = self.inner.get_node_name(i)?;
         let v = self.inner.get_node_name(j)?;
-        let attrs = self.cached_edge_py_attrs(py, u, v)?;
+        let attrs = match self.cached_edge_py_attrs(py, u, v) {
+            Some(attrs) => attrs,
+            None => self.edge_py_attrs.get(&Self::edge_key(u, v))?.clone_ref(py),
+        };
         attrs.bind(py).get_item(weight).ok()
     }
 

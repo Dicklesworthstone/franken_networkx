@@ -12919,6 +12919,28 @@ impl PyDiGraph {
             .clone_ref(py)
     }
 
+    /// `materialize_edge_py_attrs` for a walk over many edges: a dict it makes
+    /// takes its key strs from `keys`, shared across the walk
+    /// (br-r37-c1-1rouu).
+    fn materialize_edge_py_attrs_with_keys(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        keys: &mut crate::AttrKeyStrings,
+    ) -> PyResult<Py<PyDict>> {
+        Ok(match self.edge_py_attrs.entry(Self::edge_key(u, v)) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone_ref(py),
+            std::collections::hash_map::Entry::Vacant(entry) => entry
+                .insert(self.edge_attr_writes.dict_from_attr_map_with_keys(
+                    py,
+                    self.inner.edge_attrs(u, v),
+                    keys,
+                )?)
+                .clone_ref(py),
+        })
+    }
+
     pub(crate) fn edge_attr_py_value(
         &self,
         py: Python<'_>,
@@ -16260,10 +16282,14 @@ impl PyDiGraph {
                 .into_iter()
                 .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
                 .collect();
+            // br-r37-c1-1rouu: sized for the walk, one key str per name.
+            self.edge_py_attrs
+                .reserve(edges.len().saturating_sub(self.edge_py_attrs.len()));
+            let mut keys = crate::AttrKeyStrings::default();
             for (u, v) in edges {
                 let py_u = self.py_node_key(py, &u);
                 let py_v = self.py_succ_key(py, &u, &v) /* br-r37-c1-z6uka */;
-                let attrs = self.materialize_edge_py_attrs(py, &u, &v);
+                let attrs = self.materialize_edge_py_attrs_with_keys(py, &u, &v, &mut keys)?;
                 items.push(tuple_object(py, &[py_u, py_v, attrs.into_any()])?);
             }
             self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, items));
@@ -16286,9 +16312,12 @@ impl PyDiGraph {
                 .into_iter()
                 .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
                 .collect();
+            self.edge_py_attrs
+                .reserve(edges.len().saturating_sub(self.edge_py_attrs.len()));
+            let mut keys = crate::AttrKeyStrings::default();
             for (u, v) in edges {
-                let attrs = self.materialize_edge_py_attrs(py, &u, &v);
-                dicts.push(attrs.clone_ref(py));
+                let attrs = self.materialize_edge_py_attrs_with_keys(py, &u, &v, &mut keys).ok()?;
+                dicts.push(attrs);
             }
             self.edges_attr_dicts_cache = Some((self.nodes_seq, self.edges_seq, dicts));
         }

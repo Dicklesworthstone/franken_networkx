@@ -137,3 +137,35 @@ def test_values_match_networkx(cls_name):
     assert sorted(
         (u, v, tuple(sorted(d.items()))) for u, v, d in got.edges(data=True)
     ) == sorted((u, v, tuple(sorted(d.items()))) for u, v, d in want.edges(data=True))
+
+
+# br-r37-c1-1rouu: a batch-built graph keeps its edge attributes only in the
+# store, and the first edges(data=True) makes every dict. Those dicts share one
+# key str per attribute name - as networkx's share the caller's - and each is
+# the one G[u][v] serves in either direction afterwards (the lookaside G[u][v]
+# probes is filled on use now, not by the walk).
+
+def _batch_graph(lib, directed):
+    graph = (lib.DiGraph if directed else lib.Graph)()
+    graph.add_edges_from((i, (i * 5 + 2) % 30, {"weight": i % 7, "kind": "k"}) for i in range(30))
+    return graph
+
+
+@pytest.mark.parametrize("directed", [False, True], ids=["Graph", "DiGraph"])
+def test_first_walk_dicts_share_key_objects_as_networkx(directed):
+    for lib in (nx, fnx):
+        dicts = [d for _, _, d in _batch_graph(lib, directed).edges(data=True)]
+        firsts = [next(iter(d)) for d in dicts]
+        assert all(key is firsts[0] for key in firsts), lib.__name__
+
+
+@pytest.mark.parametrize("directed", [False, True], ids=["Graph", "DiGraph"])
+def test_first_walk_dicts_are_the_graphs_in_both_directions(directed):
+    graph = _batch_graph(fnx, directed)
+    walked = list(graph.edges(data=True))
+    for u, v, d in walked:
+        assert graph[u][v] is d
+        if not directed:
+            assert graph[v][u] is d
+        d["weight"] = -1
+    assert all(w == -1 for _, _, w in graph.edges(data="weight"))
