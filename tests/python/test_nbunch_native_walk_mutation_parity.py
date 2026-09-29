@@ -297,33 +297,16 @@ def test_the_row_rule_snapshot_reuses_exact_key_indices():
     )
 
 
-_SPENT_CELLS = [
-    pytest.param(
-        "Graph",
-        None,
-        False,
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason="br-r37-c1-hrejw: Graph edges() hands out a NodeViewIterator, "
-            "which raises again after raising",
-        ),
-    )
-] + [
-    (class_name, nbunch, data)
-    for class_name in CLASSES
-    for nbunch in (None, ["n0", "n1", "n2"])
-    for data in (False, True, "w")
-    if (class_name, nbunch, data) != ("Graph", None, False)
-]
-
-
-@pytest.mark.parametrize(("class_name", "nbunch", "data"), _SPENT_CELLS)
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("nbunch", [None, ["n0", "n1", "n2"]])
+@pytest.mark.parametrize("data", [False, True, "w"])
 def test_a_guard_that_raised_is_spent(class_name, nbunch, data):
     """br-r37-c1-ounhu: networkx's edge views iterate through generators, and
     a generator that raised is closed - its next `next()` stops. The native
     guard records the new revisions before raising, so without closing itself
     it would carry on from where it raised; the native edge-list and
-    edge-stream iterators beside it raised again instead."""
+    edge-stream iterators beside it raised again instead, and so did the
+    iterator Graph's edges() hands out (br-r37-c1-hrejw)."""
 
     def outcome(lib):
         graph = getattr(lib, class_name)()

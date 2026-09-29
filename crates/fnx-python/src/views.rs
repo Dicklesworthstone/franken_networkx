@@ -312,6 +312,7 @@ impl NodeView {
                 graph: Some(self.graph.clone_ref(py)),
                 expected_count: Some(nodes.len()),
                 expected_seq: Some(expected_seq),
+                closes_on_raise: false,
             },
         )?
         .into_any())
@@ -1120,6 +1121,7 @@ impl EdgeView {
                         graph: Some(self.graph.clone_ref(py)),
                         expected_count: Some(node_count),
                         expected_seq: Some(nodes_seq),
+                        closes_on_raise: true,
                     },
                 )
                 .map(|iterator| iterator.into_any());
@@ -1270,6 +1272,7 @@ impl EdgeView {
                 graph: Some(self.graph.clone_ref(py)),
                 expected_count: Some(node_count),
                 expected_seq: Some(nodes_seq),
+                closes_on_raise: true,
             },
         )
         .map(|iterator| iterator.into_any())
@@ -1777,6 +1780,7 @@ impl DegreeView {
                 graph: None,
                 expected_count: None,
                 expected_seq: None,
+                closes_on_raise: false,
             },
         )
     }
@@ -2598,6 +2602,10 @@ pub struct NodeViewIterator {
     // do an O(1) comparison per next, mirroring NodeIterator (br-r37-c1-39d82).
     expected_count: Option<usize>,
     expected_seq: Option<u64>,
+    /// br-r37-c1-hrejw: spent once it has raised - networkx's edge views
+    /// iterate through generators, which close on an exception. A node view's
+    /// networkx twin is a dict iterator, which raises again on every next().
+    closes_on_raise: bool,
 }
 
 #[pymethods]
@@ -2609,6 +2617,7 @@ impl NodeViewIterator {
         let Some(item) = slf.inner.next() else {
             return Ok(None);
         };
+        let mut moved = None;
         if let (Some(graph), Some(expected_count), Some(expected_seq)) =
             (&slf.graph, slf.expected_count, slf.expected_seq)
         {
@@ -2621,15 +2630,18 @@ impl NodeViewIterator {
             let py = slf.py();
             let g = graph.borrow(py);
             if g.nodes_seq != expected_seq {
-                if g.inner.node_count() != expected_count {
-                    return Err(PyRuntimeError::new_err(
-                        "dictionary changed size during iteration",
-                    ));
-                }
-                return Err(PyRuntimeError::new_err(
-                    "dictionary keys changed during iteration",
-                ));
+                moved = Some(if g.inner.node_count() != expected_count {
+                    "dictionary changed size during iteration"
+                } else {
+                    "dictionary keys changed during iteration"
+                });
             }
+        }
+        if let Some(message) = moved {
+            if slf.closes_on_raise {
+                slf.inner = Vec::new().into_iter();
+            }
+            return Err(PyRuntimeError::new_err(message));
         }
         Ok(Some(item))
     }
