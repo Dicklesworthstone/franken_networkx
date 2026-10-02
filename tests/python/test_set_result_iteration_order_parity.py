@@ -144,3 +144,96 @@ def test_node_boundary_takes_what_networkx_takes(nbunch1):
     # nodes not in G are skipped, and any iterable is walked once, in order.
     fg, ng, r = _twins("Graph", 1024, 7)
     assert list(fnx.node_boundary(fg, nbunch1())) == list(nx.node_boundary(ng, nbunch1()))
+
+
+# br-r37-c1-ygt3z: community sets. k_clique_communities yields
+# frozenset.union(*component) of the percolation graph's BFS set, and
+# louvain_communities the sets networkx's moves left behind; fnx built the
+# same members another way (a union-find over sorted (k-1)-subsets, sorted
+# native lists), so their order differed for most graphs below.
+
+
+def _dense_twins(scale, seed):
+    r = random.Random(seed)
+    edges = [(scale * u, scale * v) for u, v in nx.gnp_random_graph(60, 0.25, seed=seed).edges()]
+    r.shuffle(edges)
+    return fnx.Graph(edges), nx.Graph(edges)
+
+
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("scale", [1, 37, 1024])
+@pytest.mark.parametrize("k", [2, 3, 4])
+def test_k_clique_communities_iterate_in_networkx_order(k, scale, seed):
+    for fg, ng in (_twins("Graph", scale, seed)[:2], _dense_twins(scale, seed)):
+        want = _ordered(nx.community.k_clique_communities(ng, k))
+        assert _ordered(fnx.community.k_clique_communities(fg, k)) == want, (k, scale, seed)
+
+
+def test_k_clique_communities_takes_what_networkx_takes():
+    # Unorderable labels (the subsets it replaced were sorted), given cliques
+    # with a repeat, and k < 2 raised at the first next(), as networkx does.
+    edges = [("a", 1), (1, "b"), ("b", "a"), ("b", 2.5), (2.5, "a")]
+    fg, ng = fnx.Graph(edges), nx.Graph(edges)
+    assert _ordered(fnx.community.k_clique_communities(fg, 3)) == _ordered(
+        nx.community.k_clique_communities(ng, 3)
+    )
+    cliques = [[1, 2, 3], [2, 3, 4], [1, 2, 3], [7, 8]]
+    assert _ordered(fnx.community.k_clique_communities(fg, 2, cliques=cliques)) == _ordered(
+        nx.community.k_clique_communities(ng, 2, cliques=cliques)
+    )
+    communities = fnx.community.k_clique_communities(fg, 1)
+    with pytest.raises(nx.NetworkXError, match="k=1, k must be greater than 1."):
+        next(communities)
+
+
+def test_k_clique_communities_is_not_combinatorial_in_clique_size():
+    # One 28-clique, k=14: networkx tests one clique; the (k-1)-subset
+    # union-find walked C(28, 13) = 37 million subsets (16 s here).
+    import time
+
+    start = time.perf_counter()
+    got = list(fnx.community.k_clique_communities(fnx.complete_graph(28), 14))
+    assert time.perf_counter() - start < 2.0
+    assert got == list(nx.community.k_clique_communities(nx.complete_graph(28), 14))
+
+
+def _weighted_twins(cls_name, scale, seed):
+    fg, ng, r = _twins(cls_name, scale, seed)
+    weights = {}
+    for g in (ng, fg):
+        for u, v, d in g.edges(data=True):
+            d["weight"] = weights.setdefault((u, v), r.randint(1, 5))
+    return fg, ng
+
+
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("scale", [1, 37, 1024])
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_louvain_communities_iterate_in_networkx_order(cls, scale, seed):
+    fg, ng, r = _twins(cls, scale, seed)
+    for kwargs in ({"seed": seed}, {"seed": seed, "max_level": 1}, {"seed": seed, "resolution": 0.5}):
+        want = _ordered(nx.community.louvain_communities(ng, **kwargs))
+        assert _ordered(fnx.community.louvain_communities(fg, **kwargs)) == want, kwargs
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_louvain_weighted_and_every_level_iterate_in_networkx_order(cls):
+    fg, ng = _weighted_twins(cls, 1024, 4)
+    assert _ordered(fnx.community.louvain_communities(fg, seed=9)) == _ordered(
+        nx.community.louvain_communities(ng, seed=9)
+    )
+    assert _ordered(fnx.community.louvain_partitions(fg, seed=9)) == _ordered(
+        nx.community.louvain_partitions(ng, seed=9)
+    )
+
+
+def test_louvain_edgeless_graph_yields_networkx_singletons():
+    fg, ng = fnx.Graph(), nx.Graph()
+    for g in (fg, ng):
+        g.add_nodes_from([1024 * i for i in (5, 0, 9, 3)])
+    assert _ordered(fnx.community.louvain_communities(fg, seed=1)) == _ordered(
+        nx.community.louvain_communities(ng, seed=1)
+    )
+    assert _ordered(fnx.community.louvain_partitions(fg, seed=1)) == _ordered(
+        nx.community.louvain_partitions(ng, seed=1)
+    )

@@ -10,6 +10,7 @@ pin it bit-identical to nx across the parameter matrix.
 import random
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -100,3 +101,41 @@ def test_weighted_tie_break_matches_nx():
         nx.voronoi_cells(Gx, {0, 2}, weight="weight"),
         fnx.voronoi_cells(Gf, {0, 2}, weight="weight"),
     )
+
+
+def _collision_twins(cls_name, scale, seed, weighted):
+    # Three BA pieces, scattered edges and isolated nodes, labels scaled so
+    # hashes collide (x1024 lands every label in slot 0 of any table under 1024).
+    r = random.Random(seed)
+    edges, off = [], 0
+    for size in (50, 30, 20):
+        for a, b in nx.barabasi_albert_graph(size, 2, seed=seed + size).edges():
+            edges.append((scale * (a + off), scale * (b + off)))
+        off += size
+    edges += [(scale * r.randrange(120), scale * r.randrange(120)) for _ in range(10)]
+    r.shuffle(edges)
+    nodes = [scale * x for x in r.sample(range(130), 130)]
+    Gx, Gf = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    for g in (Gx, Gf):
+        g.add_nodes_from(nodes)
+        for u, v in edges:
+            if weighted:
+                g.add_edge(u, v, weight=(u + 3 * v) % 5 + 1)
+            else:
+                g.add_edge(u, v)
+    return Gx, Gf
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph"])
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("scale", [1, 37, 1024])
+@pytest.mark.parametrize("seed", range(3))
+def test_each_cell_iterates_in_networkx_order(cls_name, weighted, scale, seed):
+    # br-r37-c1-ygt3z: each cell is a set networkx grows in its paths dict's
+    # (settle) order; list() of it is observable, and a kernel settling equal
+    # distances in another order put 12 of 36 graphs' cells in another order.
+    Gx, Gf = _collision_twins(cls_name, scale, seed, weighted)
+    centers = list(Gx)[:4]
+    want = nx.voronoi_cells(Gx, centers, weight="weight")
+    got = fnx.voronoi_cells(Gf, centers, weight="weight")
+    assert [(k, list(v)) for k, v in got.items()] == [(k, list(v)) for k, v in want.items()]
