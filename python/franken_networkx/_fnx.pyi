@@ -471,7 +471,10 @@ def multi_source_dijkstra(
     cutoff: Optional[float] = None,
     target: Any = None,
     check_rows: bool = False,
-) -> tuple[dict[Any, float], dict[Any, list[Any]]]: ...
+    nearest_sources: bool = False,
+) -> Union[
+    tuple[dict[Any, float], dict[Any, list[Any]]], tuple[list[tuple[Any, Any]], None]
+]: ...
 def multi_source_dijkstra_path_length(
     g: Graph,
     sources: Any,
@@ -1138,10 +1141,11 @@ def louvain_communities(
     threshold: float = 1.0e-7,
     max_level: Optional[int] = None,
     seed: Optional[Any] = None,
-) -> Optional[list[list[Any]]]: ...
+) -> Optional[tuple[list[Any], list[list[tuple[int, int, int]]]]]: ...
 
 class LouvainPartitionStepper:
-    def step(self, seed: Any) -> Optional[list[list[Any]]]: ...
+    def node_keys(self) -> list[Any]: ...
+    def step(self, seed: Any) -> Optional[list[tuple[int, int, int]]]: ...
 
 def louvain_partitions_start(
     g: Graph,

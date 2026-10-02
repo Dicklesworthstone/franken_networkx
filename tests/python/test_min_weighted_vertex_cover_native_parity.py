@@ -116,3 +116,23 @@ def test_result_is_a_valid_cover():
 
 def test_empty_graph():
     assert fnx.approximation.min_weighted_vertex_cover(fnx.Graph()) == set()
+
+
+@pytest.mark.parametrize("scale", [1, 37, 1024])
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("seed", range(4))
+def test_cover_iterates_in_networkx_order(scale, weighted, seed):
+    # br-r37-c1-ygt3z: networkx grows the cover with cover.add as its edge loop
+    # picks each node, and list() of the set follows that order wherever hashes
+    # collide (x1024 labels all collide in small tables); the kernel's hash map
+    # gave 12 of 36 graphs another order.
+    rnd = random.Random(seed)
+    G = nx.relabel_nodes(nx.gnp_random_graph(70, 0.08, seed=seed), lambda x: scale * x)
+    if weighted:
+        for nd in G.nodes():
+            G.nodes[nd]["weight"] = rnd.randint(1, 9)
+    F = _cp(G)
+    wk = "weight" if weighted else None
+    assert list(fnx.approximation.min_weighted_vertex_cover(F, weight=wk)) == list(
+        nx.approximation.min_weighted_vertex_cover(G, weight=wk)
+    )

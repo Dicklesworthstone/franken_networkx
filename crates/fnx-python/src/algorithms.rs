@@ -5476,41 +5476,6 @@ pub fn bellman_ford_path(
 // multi_source_dijkstra
 // ---------------------------------------------------------------------------
 
-#[pyfunction]
-#[pyo3(signature = (g, sources, weight="weight"))]
-/// br-r37-c1-2z0mw (cc): for each reachable node, the nearest SOURCE (center) on its
-/// shortest path — what ``voronoi_cells`` consumes (``path[0]`` of multi_source) — without
-/// building any paths. Returns a list of ``(node, source)`` in finalize (distance) order,
-/// byte-identical to ``{v: paths[v][0]}``. Undirected only; the wrapper falls back for
-/// directed / callable weight.
-pub fn multi_source_nearest_source(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    sources: &Bound<'_, PyAny>,
-    weight: &str,
-) -> PyResult<Py<pyo3::types::PyList>> {
-    let gr = extract_graph(g)?;
-    let iter = pyo3::types::PyIterator::from_object(sources)?;
-    let mut source_strs: Vec<String> = Vec::new();
-    for item in iter {
-        let item = item?;
-        source_strs.push(node_key_to_string(py, &item)?);
-    }
-    let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
-    let weighted_projection = gr.dijkstra_weighted_undirected_projection(py, weight)?;
-    let result = {
-        let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::multi_source_dijkstra_nearest_source(__wp, &source_refs, weight)
-        })
-    };
-    let out = pyo3::types::PyList::empty(py);
-    for (node, source) in &result {
-        out.append((gr.py_node_key(py, node), gr.py_node_key(py, source)))?;
-    }
-    Ok(out.unbind())
-}
-
 /// The positions of `sources` in the kernel's graph, in iteration order, and
 /// each source's object as PASSED, keyed by position (br-r37-c1-7hsew: networkx
 /// seeds `{source: [source] for source in sources}`, so a repeated source
@@ -5546,8 +5511,10 @@ fn multi_source_seeds(
 /// and paths built as its own are. The String-named kernel this replaces
 /// allocated for the whole graph: multi_source_dijkstra({0, 1}, cutoff=2)
 /// beside a 32k ring cost 87 us where networkx takes 4.5 us.
+/// br-r37-c1-ygt3z: with `nearest_sources`, `(pairs, None)` instead - see
+/// [`emit_nearest_sources`].
 #[pyfunction]
-#[pyo3(signature = (g, sources, weight="weight", cutoff=None, target=None, check_rows=false))]
+#[pyo3(signature = (g, sources, weight="weight", cutoff=None, target=None, check_rows=false, nearest_sources=false))]
 pub fn multi_source_dijkstra(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
@@ -5556,6 +5523,7 @@ pub fn multi_source_dijkstra(
     cutoff: Option<f64>,
     target: Option<&Bound<'_, PyAny>>,
     check_rows: bool,
+    nearest_sources: bool,
 ) -> PyResult<(PyObject, PyObject)> {
     // br-r37-c1-msd-projfix (cc): sync the Python edge-attr mirror to the store
     // and run the kernel on the BORROWED ORIGINAL graph (`weighted_*_projection`),
@@ -5581,6 +5549,9 @@ pub fn multi_source_dijkstra(
             check_expanded_weight_rows(py, &gr, rows, weight, false)?;
         }
         let name = |idx: u32| __wp.get_node_name(idx as usize);
+        if nearest_sources {
+            return emit_nearest_sources(py, &gr, name, &settled, &passed);
+        }
         emit_dijkstra_indexed_full(py, &gr, name, &settled, |node: u32| {
             passed.get(&node).map(|obj| obj.clone_ref(py))
         })
@@ -5601,10 +5572,44 @@ pub fn multi_source_dijkstra(
             check_expanded_weight_rows(py, &gr, rows, weight, false)?;
         }
         let name = |idx: u32| __wp.get_node_name(idx as usize);
+        if nearest_sources {
+            return emit_nearest_sources(py, &gr, name, &settled, &passed);
+        }
         emit_dijkstra_indexed_full(py, &gr, name, &settled, |node: u32| {
             passed.get(&node).map(|obj| obj.clone_ref(py))
         })
     }
+}
+
+/// br-r37-c1-ygt3z: `path[0]` of every path [`emit_dijkstra_indexed_full`]
+/// would build - the source each node's shortest path starts from, as that
+/// source was passed - as `[(node, source)]` in the same settle order, the
+/// paths themselves never built: what voronoi_cells reads as networkx's
+/// `nearest = {v: p[0] for v, p in paths.items()}`. Paired with `None` for
+/// the tuple [`multi_source_dijkstra`] returns.
+fn emit_nearest_sources<'n>(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    name: impl Fn(u32) -> Option<&'n str>,
+    settled: &[(u32, f64, bool, u32)],
+    passed: &rustc_hash::FxHashMap<u32, PyObject>,
+) -> PyResult<(PyObject, PyObject)> {
+    let name = settled_name(name);
+    let source_key = |node: u32| passed.get(&node).map(|obj| obj.clone_ref(py));
+    // A node's final predecessor settles before it does, so its source is known.
+    let mut source_of: rustc_hash::FxHashMap<u32, PyObject> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(settled.len(), Default::default());
+    let pairs = PyList::empty(py);
+    for &(node, _, _, pred) in settled {
+        let (key, parent) = dijkstra_settled_key(py, gr, &name, &source_key, node, pred)?;
+        let source = match parent.and_then(|pred| source_of.get(&pred)) {
+            Some(source) => source.clone_ref(py),
+            None => key.clone_ref(py),
+        };
+        pairs.append((key, source.clone_ref(py)))?;
+        source_of.insert(node, source);
+    }
+    Ok((pairs.into_any().unbind(), py.None()))
 }
 
 /// Length-only multi-source Dijkstra: `{node: distance}` in settle (heap-pop)
@@ -19655,16 +19660,24 @@ pub struct LouvainPartitionStepper {
 
 #[pymethods]
 impl LouvainPartitionStepper {
-    /// One generator resume: the next partition as lists of nodes, or `None`
-    /// once networkx's generator is exhausted. `seed` is what the generator
-    /// was created with: an int, or a `random.Random` read and advanced at
-    /// this resume, so draws the caller makes between resumes interleave as
-    /// they do with networkx.
+    /// The graph's node objects in position order - the nodes the first
+    /// level's moves name by position.
+    fn node_keys(&self, py: Python<'_>) -> Vec<PyObject> {
+        self.node_keys.iter().map(|key| key.clone_ref(py)).collect()
+    }
+
+    /// One generator resume: the moves of the next level networkx yields
+    /// ([`fnx_algorithms::LouvainLevels::moves`]: `(node, from, to)` level
+    /// positions, replayed on real sets by the caller - br-r37-c1-ygt3z), or
+    /// `None` once networkx's generator is exhausted. `seed` is what the
+    /// generator was created with: an int, or a `random.Random` read and
+    /// advanced at this resume, so draws the caller makes between resumes
+    /// interleave as they do with networkx.
     fn step(
         &mut self,
         py: Python<'_>,
         seed: &Bound<'_, PyAny>,
-    ) -> PyResult<Option<Vec<Vec<PyObject>>>> {
+    ) -> PyResult<Option<Vec<fnx_algorithms::LouvainMove>>> {
         let levels = &mut self.levels;
         let advanced = if seed.is_instance_of::<PyInt>() {
             let rng = match &mut self.seeded {
@@ -19679,21 +19692,7 @@ impl LouvainPartitionStepper {
                 Ok(py.allow_threads(|| levels.advance(Some(rng))))
             })?
         };
-        if !advanced {
-            return Ok(None);
-        }
-        Ok(Some(
-            self.levels
-                .partition()
-                .iter()
-                .map(|community| {
-                    community
-                        .iter()
-                        .map(|&node| self.node_keys[node].clone_ref(py))
-                        .collect()
-                })
-                .collect(),
-        ))
+        Ok(advanced.then(|| self.levels.moves().to_vec()))
     }
 }
 
@@ -19736,9 +19735,12 @@ fn louvain_partitions_start(
 /// (br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.5): `seed` is an int
 /// (`random.Random(seed)`) or a `random.Random` whose state the kernel
 /// shuffles with and hands back advanced, as networkx advances it; with no
-/// seed the nodes are visited unshuffled. `None` where networkx must run
-/// instead: a weight the kernel cannot add as networkx does, or an input
-/// networkx raises on (`fnx_algorithms::louvain_run`).
+/// seed the nodes are visited unshuffled. Returns the graph's node objects in
+/// position order and the moves of every level networkx yields
+/// (`fnx_algorithms::louvain_level_moves`), which the caller replays on real
+/// sets for networkx's iteration order (br-r37-c1-ygt3z). `None` where
+/// networkx must run instead: a weight the kernel cannot add as networkx
+/// does, or an input networkx raises on.
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight", resolution=1.0, threshold=1.0e-7, max_level=None, seed=None))]
 fn louvain_communities(
@@ -19749,7 +19751,7 @@ fn louvain_communities(
     threshold: f64,
     max_level: Option<isize>,
     seed: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Option<Vec<Vec<PyObject>>>> {
+) -> PyResult<Option<(Vec<PyObject>, Vec<Vec<fnx_algorithms::LouvainMove>>)>> {
     let max_level = match max_level {
         Some(level) if level <= 0 => {
             return Err(PyValueError::new_err(
@@ -19768,24 +19770,31 @@ fn louvain_communities(
     let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
     let result = match seed {
         None => py.allow_threads(|| {
-            fnx_algorithms::louvain_communities(
+            fnx_algorithms::louvain_level_moves(
                 inner, resolution, weight, threshold, max_level, None, sum,
             )
         }),
         Some(seed) => crate::generators::with_python_random(seed, |rng| {
             let rng = rng.mt19937_mut();
             Ok(py.allow_threads(|| {
-                fnx_algorithms::louvain_communities_with_rng(
-                    inner, resolution, weight, threshold, max_level, rng, sum,
+                fnx_algorithms::louvain_level_moves(
+                    inner,
+                    resolution,
+                    weight,
+                    threshold,
+                    max_level,
+                    Some(rng),
+                    sum,
                 )
             }))
         })?,
     };
-    Ok(result.map(|communities| {
-        communities
-            .into_iter()
-            .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
-            .collect()
+    Ok(result.map(|(node_names, levels)| {
+        let node_keys = node_names
+            .iter()
+            .map(|name| gr.py_node_key(py, name))
+            .collect();
+        (node_keys, levels)
     }))
 }
 
@@ -20732,7 +20741,9 @@ fn min_weighted_vertex_cover(
     let inner = gr.undirected();
     // `weight = None` -> every node weight 1 (networkx ignores node attrs then).
     let result = py.allow_threads(|| fnx_algorithms::min_weighted_vertex_cover(inner, weight));
-    // NetworkX returns a set of nodes (ignoring weights).
+    // NetworkX returns a set of nodes (ignoring weights), grown by `cover.add`
+    // as its edge loop picks them - the kernel's order, which the set's
+    // iteration order follows wherever hashes collide (br-r37-c1-ygt3z).
     let pyset = pyo3::types::PySet::new(
         py,
         result
@@ -29438,7 +29449,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra, m)?)?;
     m.add_function(wrap_pyfunction!(multi_source_dijkstra_path_length, m)?)?;
-    m.add_function(wrap_pyfunction!(multi_source_nearest_source, m)?)?;
     m.add_function(wrap_pyfunction!(bidirectional_dijkstra, m)?)?;
     #[cfg(feature = "bench-internals")]
     m.add_function(wrap_pyfunction!(bench_bidirectional_dijkstra_orig, m)?)?;

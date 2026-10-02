@@ -270,11 +270,13 @@ def louvain_communities(
     if native is not None and (
         max_level is None or (type(max_level) is int and max_level > 0)
     ):
-        communities = _fnx._raw_louvain_communities(
-            G, weight, *native, max_level, kernel_seed
-        )
-        if communities is not None:
-            return [set(community) for community in communities]
+        run = _fnx._raw_louvain_communities(G, weight, *native, max_level, kernel_seed)
+        if run is not None:
+            nodes, levels = run
+            sets = _LouvainLevelSets(nodes)
+            for moves in levels:
+                partition = sets.level(moves)
+            return partition
 
     # br-r37-c1-egjfn: ``backend="networkx"`` is load-bearing, not decoration.
     # ``louvain_communities`` is a registered entry of
@@ -364,8 +366,57 @@ def _louvain_partition_levels(G, weight, resolution, threshold, seed, kernel_see
             backend="networkx",
         )
         return
-    while (partition := stepper.step(kernel_seed)) is not None:
-        yield [set(community) for community in partition]
+    sets = _LouvainLevelSets(stepper.node_keys())
+    while (moves := stepper.step(kernel_seed)) is not None:
+        yield sets.level(moves)
+
+
+class _LouvainLevelSets:
+    """networkx's ``louvain_partitions`` bookkeeping, replaying the native
+    kernel's moves (br-r37-c1-ygt3z).
+
+    networkx moves a node by ``partition[a].difference_update(com)`` /
+    ``partition[b].update(com)`` - ``com`` the node's set of original nodes -
+    on sets it keeps across levels, and yields copies of them; between levels
+    ``_gen_graph`` builds each new node's ``com`` by updating a fresh set from
+    each member of an ``inner_partition`` set. Wherever hashes collide, a
+    set's iteration order follows that history, so the kernel returns the
+    moves it made - networkx's, in networkx's order - and they are replayed
+    here on real sets. ``level`` takes one level's ``(node, from, to)`` level
+    positions and returns what networkx yields for it.
+    """
+
+    __slots__ = ("partition", "nodes", "coms", "inner")
+
+    def __init__(self, nodes):
+        self.partition = [{u} for u in nodes]
+        self.nodes = nodes
+        self.coms = None  # the first level's nodes are the graph's own
+        self.inner = None
+
+    def level(self, moves):
+        if self.inner is not None:
+            # _gen_graph of the level before: node i stands for inner[i].
+            coms = self.coms
+            self.coms = new_coms = []
+            for part in self.inner:
+                members = set()
+                for node in part:
+                    members.update({node} if coms is None else coms[node])
+                new_coms.append(members)
+            self.nodes = range(len(new_coms))
+        partition, nodes, coms = self.partition, self.nodes, self.coms
+        inner = [{u} for u in nodes]
+        for u, a, b in moves:
+            node = nodes[u]
+            com = {node} if coms is None else coms[u]
+            partition[a].difference_update(com)
+            inner[a].remove(node)
+            partition[b].update(com)
+            inner[b].add(node)
+        self.partition = partition = list(filter(len, partition))
+        self.inner = list(filter(len, inner))
+        return [s.copy() for s in partition]
 
 
 def _as_exact_float(value):
@@ -739,21 +790,22 @@ def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
     nx (``_fnx_to_nx``, attrs and all) on every call (~78% of runtime in
     cProfile, ~2x nx). Two levers:
 
-    1. The algorithm only needs ``G``'s maximal cliques; everything after is
-       graph-free. Compute them with fnx's native ``find_cliques`` (already
-       nx-order) — no whole-graph conversion.
-    2. Replace nx's percolation graph + ``connected_components`` (which adds an
-       ``nx.Graph`` node per clique and an edge per adjacent pair, then
-       BFS — O(#cliques^2) on dense inputs) with a **union-find over the
-       (k-1)-node subsets**: two maximal cliques of size >= k percolate iff
-       they share >= k-1 nodes iff they share a common (k-1)-subset, so
-       unioning all cliques that map to the same (k-1)-subset gives the exact
-       same components in near-linear time (20-130x faster on dense graphs).
+    The algorithm only needs ``G``'s maximal cliques; everything after is
+    graph-free. Compute them with fnx's native ``find_cliques`` (already
+    nx-order) — no whole-graph conversion.
 
-    Byte-identical to nx: components are emitted in first-clique-index order
-    (matching ``connected_components``, which starts each component at the
-    lowest-index unvisited clique in percolation-graph node order = clique
-    order), and each community is the ``frozenset`` union of its cliques.
+    br-r37-c1-ygt3z: each community is ``frozenset.union(*component)`` of a
+    component set that networkx's ``_plain_bfs`` grows over the percolation
+    graph, so its iteration order follows the order that BFS adds cliques in,
+    which follows the order each clique's row lists its neighbours in, which
+    follows the iteration order of the set of adjacent cliques networkx builds
+    per clique. The percolation graph is therefore built as networkx builds
+    it, as plain dict rows (an edge is appended to both rows when it is new,
+    and an existing one moves nothing - nx.Graph.add_edge), and walked as
+    ``_plain_bfs`` walks it. The union-find over every sorted (k-1)-subset of
+    each clique that this replaces lost that order, raised TypeError on
+    unorderable node labels, and enumerated C(|clique|, k-1) subsets per
+    clique: a K26 with k=12 took 3.4 s, where networkx takes 0.3 ms.
 
     Non-fnx graphs fall through to nx.
     """
@@ -766,7 +818,9 @@ def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
         return _nx_community.k_clique_communities(G, k, cliques=cliques)
 
     import networkx as _nx
-    from itertools import combinations
+    from collections import Counter, defaultdict
+    from itertools import chain, compress, filterfalse, repeat
+    from operator import le
 
     def _gen():
         if k < 2:
@@ -774,47 +828,59 @@ def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
         nonlocal cliques
         if cliques is None:
             cliques = _fnx.find_cliques(G)
-        clique_list = [frozenset(c) for c in cliques if len(c) >= k]
-        m = len(clique_list)
+        # A repeated clique is one percolation-graph node, and networkx's pass
+        # over the repeat adds no edge the first pass did not.
+        unique = list(dict.fromkeys(frozenset(c) for c in cliques if len(c) >= k))
 
-        # Union-find over clique indices, merged via shared (k-1)-subsets.
-        parent = list(range(m))
+        membership = defaultdict(list)
+        for clique in unique:
+            for node in clique:
+                membership[node].append(clique)
 
-        def _find(x):
-            root = x
-            while parent[root] != root:
-                root = parent[root]
-            while parent[x] != root:
-                parent[x], x = root, parent[x]
-            return root
-
+        rows = {clique: {} for clique in unique}
         km1 = k - 1
-        subset_first = {}
-        for i, clique in enumerate(clique_list):
-            for sub in combinations(sorted(clique), km1):
-                j = subset_first.get(sub)
-                if j is None:
-                    subset_first[sub] = i
-                else:
-                    ri, rj = _find(i), _find(j)
-                    if ri != rj:
-                        parent[ri] = rj
+        members_of = membership.__getitem__
+        done = set()
+        for clique in unique:
+            done.add(clique)
+            # An adjacent clique appears in the rows of every node it shares
+            # with this one: the count is networkx's len(intersection), in C.
+            shared = Counter(filter(clique.__ne__, chain.from_iterable(map(members_of, clique))))
+            # An edge to a clique already walked exists if it percolates, and
+            # nx.Graph.add_edge on it moves nothing: only new ones count.
+            new = set(compress(shared, map(le, repeat(km1), shared.values()))) - done
+            if not new:
+                continue
+            if len(new) > 1:
+                # They join the row in the order of networkx's
+                # _get_adjacent_cliques set, grown by adds in the same order.
+                new = list(filter(new.__contains__, set(iter(shared))))
+            rows[clique].update(dict.fromkeys(new))
+            for adj in new:
+                rows[adj][clique] = None
 
-        # Emit each component in order of its lowest clique index (==
-        # connected_components yield order over the percolation graph).
-        root_nodes = {}
-        order = []
-        for i in range(m):
-            r = _find(i)
-            bucket = root_nodes.get(r)
-            if bucket is None:
-                bucket = set()
-                root_nodes[r] = bucket
-                order.append(r)
-            bucket |= clique_list[i]
-
-        for r in order:
-            yield frozenset(root_nodes[r])
+        seen = set()
+        n = len(rows)
+        for source in rows:
+            if source in seen:
+                continue
+            reach = n - len(seen)
+            component = {source}
+            nextlevel = [source]
+            while nextlevel:
+                thislevel = nextlevel
+                nextlevel = []
+                for v in thislevel:
+                    # A row holds each clique once, so filtering it before
+                    # adding any is networkx's test-then-add, one by one.
+                    fresh = list(filterfalse(component.__contains__, rows[v]))
+                    component.update(fresh)
+                    nextlevel += fresh
+                    if len(component) == reach:
+                        nextlevel = []
+                        break
+            seen.update(component)
+            yield frozenset.union(*component)
 
     return _gen()
 

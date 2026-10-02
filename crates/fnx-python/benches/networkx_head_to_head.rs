@@ -2735,8 +2735,8 @@ import franken_networkx as fnx
 
 # Weighted undirected graph: voronoi_cells used to delegate the whole call to nx
 # (the stale _mst_has_weight_edge_attr gate -> O(V+E) conversion). The native
-# multi_source_nearest_source binding now serves it byte-exact (cells compare
-# order-insensitively, so the kernel tie-break is irrelevant).
+# multi_source_dijkstra serves it in nearest_sources mode, in networkx's settle
+# order - each cell is a set grown in that order (br-r37-c1-ygt3z).
 G = nx.connected_watts_strogatz_graph(400, 6, 0.3, seed=3)
 fg = fnx.Graph()
 fg.add_nodes_from(G.nodes())

@@ -40241,62 +40241,39 @@ def _voronoi_cells_impl(G, center_nodes, *, weight):
 
 
 def _voronoi_nearest_centers(G, sources, *, weight):
-    """Return ``{node: nearest_center}`` in nx's distance-sorted order.
+    """Return networkx's ``nearest = {v: p[0] for v, p in paths.items()}``
+    for ``paths = multi_source_dijkstra_path(G, sources)`` - keys in the
+    paths dict's (settle) order, which the Voronoi cells' sets are grown in.
 
-    br-voronoinearest: ``voronoi_cells`` only needs the SOURCE that each
-    node was reached from — i.e. ``path[0]`` of the multi-source Dijkstra
-    paths — and never touches the distances. The general
-    ``multi_source_dijkstra_path`` wrapper int-coerces the full distance
-    dict (``_sp_coerce_dist_to_int`` / ``_sp_propagate_int_types``, ~10%
-    of voronoi's runtime), rebuilds both the dist and path dicts in
-    distance order, and handles cutoff/target — all wasted here. This
-    helper runs the raw kernel once and reorders only what voronoi
-    consumes. The output dict-key order is byte-identical because the
-    full wrapper also reorders via the no-G ``_reorder_by_distance``
-    (stable sort by numeric distance), and int-vs-float of equal value
-    sort identically — so skipping the int-coercion cannot change order.
-    Weighted / callable-weight inputs fall back to the exact wrapper.
+    br-voronoinearest / br-r37-c1-2z0mw: voronoi_cells needs only the source
+    each node's path starts from, so the paths are never built. br-r37-c1-ygt3z:
+    the search is multi_source_dijkstra's own, on the rows networkx walks, in
+    its nearest_sources mode, taking the route multi_source_dijkstra takes. The
+    source-propagating kernel it replaces searched a rebuilt projection whose
+    reordered rows changed the settle order among equal distances - and with it
+    each cell set's iteration order (cells were thought order-insensitive).
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-2z0mw (cc): native source-propagating multi_source — returns
-    # {node: source} directly in finalize (distance) order, skipping the
-    # all-paths String construction (~the bulk of _raw_multi_source_dijkstra's
-    # cost) that voronoi throws away. The binding self-syncs via the weighted
-    # projection, so WEIGHTED undirected graphs are served byte-exact here too —
-    # voronoi compares cells ORDER-INSENSITIVELY (dicts of sets), so the kernel
-    # finalize-order tie-break (which blocks the ordered
-    # multi_source_dijkstra_path_length de-delegation, br-r37-c1-86xx9) is
-    # irrelevant for cell membership. This bypasses the _mst_has_weight_edge_attr
-    # blanket weighted delegation + its O(V+E) fnx->nx conversion (verified
-    # byte-exact vs nx across 500 weighted graphs incl. disconnected/unreachable,
-    # single + multi center). Directed / callable / negative-weight /
-    # self-sync-gated inputs keep the delegation + path-kernel fallbacks below.
-    _mns = getattr(_fnx, "multi_source_nearest_source", None)
-    if (
-        _mns is not None
-        and isinstance(weight, str)
-        and not G.is_directed()
-        and not _should_delegate_dijkstra_to_networkx(G, weight)
-        and not _binding_self_syncs_gate(G, weight)
-    ):
-        for s in sources:
-            if s not in G:
-                raise NodeNotFound(f"Node {s} not found in graph")
-        return dict(_mns(G, sources, weight))
-    if (
-        callable(weight)
-        or _should_delegate_dijkstra_to_networkx(G, weight)
-        or _mst_has_weight_edge_attr(G, weight)
-        or _binding_self_syncs_gate(G, weight)
-    ):
-        paths = multi_source_dijkstra_path(G, sources, weight=weight)
-        return {v: p[0] for v, p in paths.items()}
-    for s in sources:
-        if s not in G:
-            raise NodeNotFound(f"Node {s} not found in graph")
-    dists, paths = _raw_multi_source_dijkstra(G, sources, weight=weight)
-    order = _reorder_by_distance(dists)
-    return {node: paths[node][0] for node in order if node in paths}
+    if not G.is_multigraph() and isinstance(weight, str):
+        route = _dijkstra_weight_route(G, weight)
+        if route != "networkx" and not _binding_self_syncs_gate(G, weight):
+            for s in sources:
+                if s not in G:
+                    raise NodeNotFound(f"Node {s} not found in graph")
+            try:
+                pairs, _ = _raw_multi_source_dijkstra(
+                    G,
+                    sources,
+                    weight=weight,
+                    check_rows=route == "rows",
+                    nearest_sources=True,
+                )
+            except _WeightRowsUnverified:
+                pairs = None
+            if pairs is not None:
+                return dict(pairs)
+    paths = multi_source_dijkstra_path(G, sources, weight=weight)
+    return {v: p[0] for v, p in paths.items()}
 
 
 def _default_binary_heap():

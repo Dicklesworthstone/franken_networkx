@@ -29541,14 +29541,21 @@ impl LouvainOrderedSums {
     }
 }
 
+/// One move networkx's `_one_level` makes: `(node, from, to)` - the level
+/// graph's node position and the community indices it leaves and joins, which
+/// are positions in the level's node order too (networkx's `node2com` starts
+/// each node in its own community).
+pub type LouvainMove = (usize, usize, usize);
+
 /// networkx's `_one_level`: `m` is the FIRST level's `size()`, which networkx
-/// passes to every level.
+/// passes to every level. Returns the partitions and the moves in the order
+/// networkx makes them - improvement is any move.
 fn louvain_one_level(
     level: &LouvainLevelGraph,
     m: f64,
     resolution: f64,
     rng: Option<&mut MT19937>,
-) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, bool) {
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, Vec<LouvainMove>) {
     let node_count = level.members.len();
     let directed = level.directed;
     // Undirected: the degrees, and `Stot`; directed: the out- and in-degrees,
@@ -29601,7 +29608,7 @@ fn louvain_one_level(
         louvain_shuffle(&mut node_order, rng);
     }
 
-    let mut improvement = false;
+    let mut moves: Vec<LouvainMove> = Vec::new();
     let mut moved = 1;
     // networkx has no such guard: a repeated state is a sweep that would never
     // end there either, so leaving it changes no answer networkx gives.
@@ -29649,14 +29656,14 @@ fn louvain_one_level(
             }
             if best_community != current_community {
                 node_to_community[node] = best_community;
-                improvement = true;
+                moves.push((node, current_community, best_community));
                 moved += 1;
             }
         }
     }
 
     let (partition, inner_partition) = louvain_collect_partitions(level, &node_to_community);
-    (partition, inner_partition, improvement)
+    (partition, inner_partition, moves)
 }
 
 /// networkx's `_gen_graph`: node `i` stands for `communities[i]`, and the
@@ -29736,6 +29743,7 @@ pub struct LouvainLevels {
     modularity: f64,
     partition: Vec<Vec<usize>>,
     inner_partition: Vec<Vec<usize>>,
+    moves: Vec<LouvainMove>,
     stage: LouvainStage,
 }
 
@@ -29765,6 +29773,7 @@ impl LouvainLevels {
             threshold,
             modularity: 0.0,
             inner_partition: Vec::new(),
+            moves: Vec::new(),
             stage: LouvainStage::Singletons,
         };
         if levels.level.weights.is_empty() {
@@ -29811,10 +29820,11 @@ impl LouvainLevels {
                 true
             }
             LouvainStage::First => {
-                let (partition, inner_partition, _) =
+                let (partition, inner_partition, moves) =
                     louvain_one_level(&self.level, self.m, self.resolution, rng);
                 self.partition = partition;
                 self.inner_partition = inner_partition;
+                self.moves = moves;
                 self.stage = LouvainStage::Next;
                 true
             }
@@ -29827,14 +29837,15 @@ impl LouvainLevels {
                 }
                 self.modularity = new_modularity;
                 self.level = louvain_coarsen(&self.level, &self.inner_partition);
-                let (partition, inner_partition, improvement) =
+                let (partition, inner_partition, moves) =
                     louvain_one_level(&self.level, self.m, self.resolution, rng);
-                if !improvement {
+                if moves.is_empty() {
                     self.stage = LouvainStage::Done;
                     return false;
                 }
                 self.partition = partition;
                 self.inner_partition = inner_partition;
+                self.moves = moves;
                 true
             }
             LouvainStage::Done => false,
@@ -29846,6 +29857,16 @@ impl LouvainLevels {
     #[must_use]
     pub fn partition(&self) -> &[Vec<usize>] {
         &self.partition
+    }
+
+    /// The moves of the level the last [`Self::advance`] yielded, in the
+    /// order networkx makes them (none for the singletons of an edgeless
+    /// graph). networkx's yielded sets are its partition's after every move of
+    /// every level so far, so their iteration order is this history's: a
+    /// caller replaying it on real sets (br-r37-c1-ygt3z) gets networkx's.
+    #[must_use]
+    pub fn moves(&self) -> &[LouvainMove] {
+        &self.moves
     }
 
     /// The graph's node names, in position order.
@@ -29865,23 +29886,80 @@ fn louvain_run(
     weight_attr: &str,
     threshold: f64,
     max_level: Option<usize>,
-    mut rng: Option<&mut MT19937>,
+    rng: Option<&mut MT19937>,
     sum: PythonSum,
 ) -> Option<Vec<Vec<String>>> {
-    let mut levels = LouvainLevels::new(input, resolution, weight_attr, threshold, sum)?;
-    let mut level_count = 0usize;
-    while levels.advance(rng.as_deref_mut()) {
-        level_count += 1;
-        if max_level.is_some_and(|limit| level_count >= limit) {
-            break;
-        }
-    }
+    let levels = louvain_levels_run(
+        input,
+        resolution,
+        weight_attr,
+        threshold,
+        max_level,
+        rng,
+        sum,
+        |_| {},
+    )?;
     let LouvainLevels {
         partition,
         node_names,
         ..
     } = levels;
     Some(louvain_partition_to_node_names(partition, &node_names))
+}
+
+/// The levels `louvain_communities` yields - the `max_level`-th at most, and
+/// no generator step after it - each passed to `on_level` as it is yielded.
+#[allow(clippy::too_many_arguments)]
+fn louvain_levels_run(
+    input: LouvainInput<'_>,
+    resolution: f64,
+    weight_attr: &str,
+    threshold: f64,
+    max_level: Option<usize>,
+    mut rng: Option<&mut MT19937>,
+    sum: PythonSum,
+    mut on_level: impl FnMut(&LouvainLevels),
+) -> Option<LouvainLevels> {
+    let mut levels = LouvainLevels::new(input, resolution, weight_attr, threshold, sum)?;
+    let mut level_count = 0usize;
+    while levels.advance(rng.as_deref_mut()) {
+        on_level(&levels);
+        level_count += 1;
+        if max_level.is_some_and(|limit| level_count >= limit) {
+            break;
+        }
+    }
+    Some(levels)
+}
+
+/// `louvain_communities(G, ...)` as the moves of each level networkx yields
+/// (see [`LouvainLevels::moves`]), with the graph's node names in position
+/// order - what a caller needs to rebuild networkx's sets, iteration order
+/// included, by replaying networkx's bookkeeping (br-r37-c1-ygt3z). `rng` as
+/// for [`louvain_communities_with_rng`]; `None` where [`LouvainLevels::new`]
+/// declines.
+#[must_use]
+pub fn louvain_level_moves<'a>(
+    graph: impl Into<LouvainInput<'a>>,
+    resolution: f64,
+    weight_attr: &str,
+    threshold: f64,
+    max_level: Option<usize>,
+    rng: Option<&mut MT19937>,
+    sum: PythonSum,
+) -> Option<(Vec<String>, Vec<Vec<LouvainMove>>)> {
+    let mut log = Vec::new();
+    let levels = louvain_levels_run(
+        graph.into(),
+        resolution,
+        weight_attr,
+        threshold,
+        max_level,
+        rng,
+        sum,
+        |levels| log.push(levels.moves().to_vec()),
+    )?;
+    Some((levels.node_names, log))
 }
 
 /// networkx's `louvain_communities` with an int seed (`random.Random(seed)`),
@@ -30956,7 +31034,10 @@ pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
 /// Guarantees total weight at most twice the optimal.
 ///
 /// Matches `networkx.algorithms.approximation.vertex_cover.min_weighted_vertex_cover`.
-pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: Option<&str>) -> HashMap<String, f64> {
+pub fn min_weighted_vertex_cover(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+) -> IndexMap<String, f64> {
     // Local-ratio greedy 2-approximation, replicated to match networkx EXACTLY.
     // networkx iterates `G.edges()` (each undirected edge once, yielded from the
     // endpoint that appears first in node order, oriented smaller-index-first).
@@ -30986,8 +31067,10 @@ pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: Option<&str>) -> Ha
         None => vec![1.0; n],
     };
 
+    // br-r37-c1-ygt3z: in the order networkx's `cover.add` runs - its set
+    // iterates in that order wherever hashes collide.
     let mut covered: Vec<bool> = vec![false; n];
-    let mut cover: HashMap<String, f64> = HashMap::new();
+    let mut cover: IndexMap<String, f64> = IndexMap::new();
     for u in 0..n {
         let Some(nbrs) = graph.neighbors_indices(u) else {
             continue;
