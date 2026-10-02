@@ -17468,12 +17468,19 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         # Route the weighted *simple-graph* case here too: delegating paid a full
         # fnx->nx conversion + nx kruskal (~4-5x slower). Multigraphs (parallel-
         # edge keys), prim/boruvka and callable weights still delegate to nx.
-        if (
-            algorithm == "kruskal"
-            and isinstance(weight, str)
+        # br-r37-c1-6eaq6: the native kernels read a weight that is not a
+        # number - or an int wider than i64, which the store holds only as a
+        # stand-in - as the default 1; networkx raises TypeError on the first
+        # and computes exactly on the second, as the in-process paths below do.
+        native_weights = (
+            isinstance(weight, str)
             and not G.is_multigraph()
-        ):
+            and algorithm in ("kruskal", "prim")
+        )
+        if native_weights:
             _sync_rust_edge_attrs(G, edge_only=True)
+            native_weights = not _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        if algorithm == "kruskal" and native_weights:
             # The kernel selects on the native store and emits each edge's data
             # from its mirror, or from the store when the edge has none
             # (br-r37-c1-mselazypostcheck's re-run on an all-empty result only
@@ -17485,12 +17492,7 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         # the kernel does the heap traversal over neighbors_indices. Returns None
         # on a NaN weight with ignore_nan=False so we fall through to nx's exact
         # ValueError.
-        if (
-            algorithm == "prim"
-            and isinstance(weight, str)
-            and not G.is_multigraph()
-        ):
-            _sync_rust_edge_attrs(G, edge_only=True)
+        if algorithm == "prim" and native_weights:
             _edges = _prim_spanning_edges_native(G, weight, True, ignore_nan)
             if _edges is not None:
                 if data:
@@ -17578,23 +17580,23 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         # post-check; mirror that exactly for maximum (same _raw_mse kernel, just
         # maximum sort). Multigraph / prim / boruvka / callable-weight still fall
         # through below. -> 0.29x -> native (matches minimum's ~2.5x).
-        if (
-            algorithm == "kruskal"
-            and isinstance(weight, str)
+        # br-r37-c1-6eaq6: weights the native kernels cannot read take the
+        # in-process paths (see minimum_spanning_edges).
+        native_weights = (
+            isinstance(weight, str)
             and not G.is_multigraph()
-        ):
+            and algorithm in ("kruskal", "prim")
+        )
+        if native_weights:
             _sync_rust_edge_attrs(G, edge_only=True)
+            native_weights = not _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+        if algorithm == "kruskal" and native_weights:
             # Edge data comes from the mirror or, without one, the store (see
             # minimum_spanning_edges).
             yield from _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
             return
         # br-r37-c1-primidx: native byte-exact Prim (maximum -> minimum=False).
-        if (
-            algorithm == "prim"
-            and isinstance(weight, str)
-            and not G.is_multigraph()
-        ):
-            _sync_rust_edge_attrs(G, edge_only=True)
+        if algorithm == "prim" and native_weights:
             _edges = _prim_spanning_edges_native(G, weight, False, ignore_nan)
             if _edges is not None:
                 if data:
@@ -19937,6 +19939,11 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
                 return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     elif _has_nan_or_inf_edge_weight(G, weight):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+    # br-r37-c1-6eaq6: networkx raises TypeError on a weight that is not a
+    # number (the kernel read it as the default 1), and computes exactly on an
+    # int wider than i64 (the store holds only a stand-in for one).
+    if not G.is_multigraph() and _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
+        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # br-r37-c1-ij951: MultiGraph must return a keyed MultiGraph, not the
     # simple Graph produced by _raw_minimum_spanning_tree. The native helper
     # runs stable Kruskal directly over MultiGraph storage and returns None for
@@ -20091,6 +20098,9 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
             if _has_nan_or_inf_edge_weight(G, weight):
                 return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     elif _has_nan_or_inf_edge_weight(G, weight):
+        return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
+    # br-r37-c1-6eaq6: see minimum_spanning_tree.
+    if _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
         return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     result = _raw_maximum_spanning_tree(G, weight=weight)
     # br-r37-c1-7t11e: sibling of br-r37-c1-esr5k — for range-built graphs (lazy
@@ -28411,6 +28421,11 @@ def _multigraph_collapse_min_weight(G, weight):
     simple = DiGraph() if G.is_directed() else Graph()
     simple.add_nodes_from(G)
     best = {}
+    # br-r37-c1-6eaq6: the raw kernel adds in f64, so int weights whose
+    # magnitudes total past 2**53 delegate - the bound the simple classes'
+    # native scan applies; a sum past it came back a rounded float where
+    # networkx adds Python ints exactly.
+    int_total = 0
     for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
         # br-r37-c1-r9k2m: `_numbers.Real` is an ABSTRACT BASE CLASS, so every
         # `isinstance` against it runs `__instancecheck__` -> `_abc_subclasscheck`
@@ -28436,6 +28451,9 @@ def _multigraph_collapse_min_weight(G, weight):
         if _vt is int:
             # An int is Real and can be neither NaN nor infinite.
             if _val < 0:
+                return None, True
+            int_total += _val
+            if int_total > 2**53:
                 return None, True
         elif _vt is float:
             # br-r37-c1-kn5cu: NaN DELEGATES. It used to be waved through here,
@@ -28512,13 +28530,21 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
     simple = DiGraph() if G.is_directed() else Graph()
     simple.add_nodes_from(G)
     best = {}
+    int_total = 0  # br-r37-c1-6eaq6: see _multigraph_collapse_min_weight
     for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
         if isinstance(_attrs, dict) and weight in _attrs:
             _value = _attrs[weight]
             # br-r37-c1-r9k2m: same ABC cost as the dijkstra collapse above.
             _vt = type(_value)
             if _vt is int:
-                pass  # Real, never NaN or infinite
+                # Real, never NaN or infinite - but past 2**53 in total the
+                # kernel's f64 sums round.
+                int_total += abs(_value)
+                if int_total > 2**53:
+                    res = (None, True)
+                    if token is not None and not token[2]:
+                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    return res
             elif _vt is float:
                 if _math.isnan(_value) or _math.isinf(_value):
                     res = (None, True)
@@ -29015,9 +29041,15 @@ def _fw_weight_kind(G, weight):
     Python int arithmetic, so an all-int graph yields int distances and a
     unit/float graph yields float distances; ``"mixed"`` is delegated because
     the per-pair value type would be shortest-path-dependent.
+
+    br-r37-c1-6eaq6: ints whose magnitudes total more than 2**53 are
+    ``"mixed"`` too. The vectorised path adds them as float64, so a path sum
+    past 2**53 came back rounded - 2**62 weights summed one off - where
+    networkx adds Python ints exactly. The total bounds every path sum.
     """
     saw_int = False
     saw_float = False
+    int_total = 0
     for _u, _v, edge_data in G.edges(data=True):
         if weight in edge_data:
             value = edge_data[weight]
@@ -29025,6 +29057,9 @@ def _fw_weight_kind(G, weight):
                 return "mixed"
             if isinstance(value, int):
                 saw_int = True
+                int_total += abs(value)
+                if int_total > 2**53:
+                    return "mixed"
             elif isinstance(value, float):
                 saw_float = True
             else:
