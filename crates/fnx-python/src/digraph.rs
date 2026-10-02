@@ -14666,7 +14666,11 @@ impl PyDiGraph {
             return Ok(false);
         }
 
-        let edges = collect_index_weight_attr_edges(rows, cols, values, node_count, edge_attr)?;
+        let Some(edges) =
+            collect_index_weight_attr_edges(rows, cols, values, node_count, edge_attr)?
+        else {
+            return Ok(false);
+        };
         let edge_bumps = u64::try_from(edges.len())
             .unwrap_or(u64::MAX)
             .wrapping_add(1);

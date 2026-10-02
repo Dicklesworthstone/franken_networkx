@@ -261,6 +261,9 @@ Fixed in the release review:
 - Wide integer edge weights remain Python integers; spanning-tree paths
   reject nonnumeric weights, and affected shortest-path/vectorized paths
   fall back to exact arithmetic beyond their native integer precision.
+- Dense NumPy and sparse SciPy matrix constructors retain uint64 weights
+  beyond i64 through the Python mirror, declining native batches before
+  graph mutation instead of exposing opaque strings as numeric weights.
 - `cargo fmt` cleanliness restored across the workspace.
 - Updated the standalone fuzz harnesses for native attribute maps, Louvain's
   explicit summation/fallback contract and the seeded Python-compatible RNG API.

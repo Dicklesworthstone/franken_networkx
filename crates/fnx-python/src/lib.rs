@@ -2686,7 +2686,7 @@ pub(crate) fn collect_index_weight_attr_edges(
     values: &Bound<'_, PyAny>,
     node_count: usize,
     edge_attr: &str,
-) -> PyResult<Vec<(usize, usize, AttrMap)>> {
+) -> PyResult<Option<Vec<(usize, usize, AttrMap)>>> {
     let mut row_iter = PyIterator::from_object(rows)?;
     let mut col_iter = PyIterator::from_object(cols)?;
     let mut value_iter = PyIterator::from_object(values)?;
@@ -2706,6 +2706,12 @@ pub(crate) fn collect_index_weight_attr_edges(
                         "matrix coordinate is outside graph node range",
                     ));
                 }
+                // Matrix batches have no Python attribute mirror. Decline
+                // values the store cannot reproduce before mutating the graph;
+                // the constructor then rebuilds from its original matrix.
+                if !attr_value_is_batch_lossless(&value) {
+                    return Ok(None);
+                }
                 let mut attrs = AttrMap::new();
                 attrs.insert(edge_attr.to_owned(), py_value_to_cgse(&value)?);
                 edges.push((row, col, attrs));
@@ -2721,7 +2727,7 @@ pub(crate) fn collect_index_weight_attr_edges(
         }
     }
 
-    Ok(edges)
+    Ok(Some(edges))
 }
 
 pub(crate) fn deepcopy_py_dict(
@@ -16600,7 +16606,11 @@ impl PyGraph {
         let Ok(stop) = i64::try_from(node_count) else {
             return Ok(false);
         };
-        let edges = collect_index_weight_attr_edges(rows, cols, values, node_count, edge_attr)?;
+        let Some(edges) =
+            collect_index_weight_attr_edges(rows, cols, values, node_count, edge_attr)?
+        else {
+            return Ok(false);
+        };
         let edge_bumps = u64::try_from(edges.len())
             .unwrap_or(u64::MAX)
             .wrapping_add(1);

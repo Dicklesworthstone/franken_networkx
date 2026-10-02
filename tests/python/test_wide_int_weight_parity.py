@@ -122,3 +122,41 @@ def test_wide_int_subclass_weight_is_not_rounded():
     got = fnx.single_source_dijkstra_path_length(graphs[fnx], 0)
     assert _typed(got) == _typed(want)
     assert got[2] == 2 * 10**20 + 1
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("route", ["numpy", "scipy_coo", "scipy_csr"])
+def test_uint64_matrix_weights_preserve_python_integers(cls, route):
+    import numpy as np
+    from scipy import sparse
+
+    matrix = np.array([[0, 2**63, 0], [0, 0, 3], [0, 0, 0]], dtype=np.uint64)
+    graphs = {}
+    for lib in (fnx, nx):
+        if route == "numpy":
+            graph = lib.from_numpy_array(matrix, create_using=getattr(lib, cls))
+        else:
+            constructor = sparse.coo_array if route == "scipy_coo" else sparse.csr_array
+            graph = lib.from_scipy_sparse_array(
+                constructor(matrix), create_using=getattr(lib, cls)
+            )
+        graphs[lib] = graph
+        assert type(graph[0][1]["weight"]) is int
+        assert graph[0][1]["weight"] == 2**63
+        assert type(graph.copy()[0][1]["weight"]) is int
+    for name in ("degree_weight", "single_source_dijkstra_path_length", "floyd_warshall"):
+        assert _typed(FUNCTIONS[name](fnx, graphs[fnx])) == _typed(FUNCTIONS[name](nx, graphs[nx]))
+    if cls == "Graph":
+        assert _typed(fnx.minimum_spanning_tree(graphs[fnx])) == _typed(
+            nx.minimum_spanning_tree(graphs[nx])
+        )
+
+
+@pytest.mark.parametrize("cls", [fnx.Graph, fnx.DiGraph])
+def test_matrix_batch_declines_wide_value_without_partial_mutation(cls):
+    graph = cls()
+    assert not graph._native_fill_weighted_int_edges(
+        3, iter([0, 1]), iter([1, 2]), iter([3, 2**63]), "weight"
+    )
+    assert list(graph.nodes) == []
+    assert list(graph.edges) == []
