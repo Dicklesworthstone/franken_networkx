@@ -5940,10 +5940,7 @@ mod tests {
         serde_json::to_string_pretty(&payload)
     }
 
-    fn assert_digraph_json_payload_parity(
-        graph: &DiGraph,
-        graph_attrs: &AttrMap,
-    ) {
+    fn assert_digraph_json_payload_parity(graph: &DiGraph, graph_attrs: &AttrMap) {
         let frozen = serialize_digraph_json_graph_frozen(graph, graph_attrs)
             .map_err(|error| error.to_string());
         let borrowed = super::serialize_digraph_json_graph(graph, graph_attrs)
@@ -7268,18 +7265,10 @@ mod tests {
     fn graphml_round_trip_with_edge_attrs() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs(
-                "a",
-                "b",
-                AttrMap::from([("weight".to_owned(), "1".into())]),
-            )
+            .add_edge_with_attrs("a", "b", AttrMap::from([("weight".to_owned(), "1".into())]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs(
-                "b",
-                "c",
-                AttrMap::from([("weight".to_owned(), "3".into())]),
-            )
+            .add_edge_with_attrs("b", "c", AttrMap::from([("weight".to_owned(), "3".into())]))
             .expect("edge add should succeed");
 
         let mut engine = EdgeListEngine::strict();

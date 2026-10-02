@@ -30268,15 +30268,9 @@ def read_gml(
     _validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         return _rust_read_gml(path, label=label, destringizer=destringizer, mode=mode)
-    if label == "label" and destringizer is None:
-        try:
-            if isinstance(path, (str, bytes)) or hasattr(path, "__fspath__"):
-                with open(path, "rb") as _fh:
-                    _head = _fh.read(1024)
-                if b"multigraph 1" not in _head:
-                    return _rust_read_gml(path, label=label, destringizer=destringizer)
-        except Exception:
-            pass
+    # No native fast path for the default call: the Rust parser drops
+    # repeated-key lists, backslashes and +INF/NAN typing, and ignores the
+    # multigraph flag (see test_read_gml_default_roundtrips_like_networkx).
     return _read_gml_via_nx(path, label=label, destringizer=destringizer)
 
 

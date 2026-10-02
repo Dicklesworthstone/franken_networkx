@@ -311,7 +311,10 @@ impl<'de> Deserialize<'de> for AttrMap {
                 formatter.write_str("a map of attribute names to values")
             }
 
-            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut access: A) -> Result<AttrMap, A::Error> {
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut access: A,
+            ) -> Result<AttrMap, A::Error> {
                 let mut map = AttrMap::with_capacity(access.size_hint().unwrap_or(0));
                 while let Some((key, value)) = access.next_entry::<String, CgseValue>()? {
                     map.insert(key, value);
@@ -5747,13 +5750,19 @@ mod tests {
         assert_eq!(attr_keys(&map), ["weight", "color", "cap"]);
 
         // Updating a key keeps its place; a new key goes last.
-        assert_eq!(map.insert("weight".to_owned(), CgseValue::Int(7)), Some(CgseValue::Int(1)));
+        assert_eq!(
+            map.insert("weight".to_owned(), CgseValue::Int(7)),
+            Some(CgseValue::Int(1))
+        );
         map.insert("a".to_owned(), CgseValue::Bool(true));
         assert_eq!(attr_keys(&map), ["weight", "color", "cap", "a"]);
         assert_eq!(map["weight"], CgseValue::Int(7));
 
         // Removing leaves the rest in order; re-adding the key puts it last.
-        assert_eq!(map.remove("color"), Some(CgseValue::String("red".to_owned())));
+        assert_eq!(
+            map.remove("color"),
+            Some(CgseValue::String("red".to_owned()))
+        );
         assert_eq!(map.remove("color"), None);
         assert_eq!(attr_keys(&map), ["weight", "cap", "a"]);
         map.insert("color".to_owned(), CgseValue::Int(0));
@@ -5772,9 +5781,15 @@ mod tests {
             map.insert(format!("k{:02}", 39 - i), CgseValue::Int(i));
         }
         let expected: Vec<String> = (0..40).map(|i| format!("k{:02}", 39 - i)).collect();
-        assert_eq!(attr_keys(&map), expected.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(
+            attr_keys(&map),
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
+        );
         for i in 0..40_i64 {
-            assert_eq!(map.get(&format!("k{:02}", 39 - i)), Some(&CgseValue::Int(i)));
+            assert_eq!(
+                map.get(&format!("k{:02}", 39 - i)),
+                Some(&CgseValue::Int(i))
+            );
         }
         // Remove down through the threshold; every survivor is still found,
         // in order, and an update still lands in place.
@@ -5782,7 +5797,10 @@ mod tests {
             assert!(map.remove(&format!("k{:02}", 39 - i)).is_some());
         }
         for i in (1..40).step_by(2) {
-            assert_eq!(map.get(&format!("k{:02}", 39 - i)), Some(&CgseValue::Int(i)));
+            assert_eq!(
+                map.get(&format!("k{:02}", 39 - i)),
+                Some(&CgseValue::Int(i))
+            );
         }
         assert!(map.get("k39").is_none());
         map.insert("k00".to_owned(), CgseValue::Int(-1));
@@ -5803,7 +5821,10 @@ mod tests {
             ("weight".to_owned(), CgseValue::Int(1)),
         ]);
         assert_eq!(forward, backward);
-        assert_ne!(forward, AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]));
+        assert_ne!(
+            forward,
+            AttrMap::from([("weight".to_owned(), CgseValue::Int(1))])
+        );
 
         let json = serde_json::to_string(&forward).expect("serialize");
         assert_eq!(json, r#"{"weight":1,"color":"red"}"#);

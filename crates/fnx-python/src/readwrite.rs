@@ -450,16 +450,19 @@ fn digraph_absorb_graph_bidirected(
 /// source's views) was 0.43x networkx. Returns false, having mutated nothing,
 /// for display-key rows, an `__fnx_incompatible` attribute, or another type.
 #[pyfunction]
-fn graph_absorb_digraph(py: Python<'_>, g: &Bound<'_, PyAny>, dg: &Bound<'_, PyAny>) -> PyResult<bool> {
+fn graph_absorb_digraph(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    dg: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
     let Ok(src) = dg.extract::<PyRef<'_, PyDiGraph>>() else {
         return Ok(false);
     };
     if !src.succ_py_keys.is_empty() || !src.pred_py_keys.is_empty() {
         return Ok(false);
     }
-    let incompatible = |amap: &fnx_classes::AttrMap| {
-        amap.keys().any(|k| k.starts_with("__fnx_incompatible"))
-    };
+    let incompatible =
+        |amap: &fnx_classes::AttrMap| amap.keys().any(|k| k.starts_with("__fnx_incompatible"));
 
     let gdict = PyDict::new(py);
     gdict.update(src.graph_attrs.bind(py).as_mapping())?;
@@ -526,7 +529,11 @@ fn graph_absorb_digraph(py: Python<'_>, g: &Bound<'_, PyAny>, dg: &Bound<'_, PyA
             } else if let Some(core) = src.inner.edge_attrs_by_indices(u_idx, v_idx) {
                 amap = core.clone();
             }
-            let pair = if u_idx <= v_idx { (u_idx, v_idx) } else { (v_idx, u_idx) };
+            let pair = if u_idx <= v_idx {
+                (u_idx, v_idx)
+            } else {
+                (v_idx, u_idx)
+            };
             let own_key = PyGraph::edge_key(u, v);
             match first_of.get(&pair) {
                 None => {
@@ -958,7 +965,9 @@ fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>)
     let gr = extract_graph(g)?;
     reject_multigraph_write(&gr, "write_edgelist")?;
     let content = match &gr {
-        GraphRef::Undirected(pg) => graph_networkx_edgelist(py, &pg.inner, Some(&pg.edge_py_attrs))?,
+        GraphRef::Undirected(pg) => {
+            graph_networkx_edgelist(py, &pg.inner, Some(&pg.edge_py_attrs))?
+        }
         GraphRef::Directed { dg, .. } => {
             digraph_networkx_edgelist(py, &dg.inner, Some(&dg.edge_py_attrs))?
         }

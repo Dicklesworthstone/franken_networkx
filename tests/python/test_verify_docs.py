@@ -17,7 +17,8 @@ def _load_verify_docs_script():
     return run_path(str(script_path))
 
 
-def test_docs_verifier_prefers_checkout_python_package(tmp_path: Path) -> None:
+def test_docs_verifier_prefers_checkout_python_package(monkeypatch) -> None:
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     verify_docs = _load_verify_docs_script()
     env = verify_docs["repo_python_env"]()
     pythonpath = env["PYTHONPATH"].split(os.pathsep)
@@ -27,6 +28,22 @@ def test_docs_verifier_prefers_checkout_python_package(tmp_path: Path) -> None:
     ]
     if pythonpath[:2] != expected_prefix:
         raise AssertionError(f"unexpected PYTHONPATH prefix: {pythonpath[:2]!r}")
+
+
+def test_docs_verifier_honors_explicit_native_package(tmp_path: Path, monkeypatch) -> None:
+    import franken_networkx as fnx
+
+    package_parent = str(Path(fnx.__file__).resolve().parent.parent)
+    native_path = str(Path(fnx._fnx.__file__).resolve())
+    monkeypatch.setenv("PYTHONPATH", package_parent)
+    verify_docs = _load_verify_docs_script()
+    doc = tmp_path / "native_import.md"
+    doc.write_text(
+        "```python\nfrom pathlib import Path\nimport franken_networkx as fnx\n"
+        f"assert str(Path(fnx._fnx.__file__).resolve()) == {native_path!r}\n```\n",
+        encoding="utf-8",
+    )
+    assert verify_docs["run_markdown"](doc, sys.executable) == []
 
     doc = tmp_path / "stale_api.md"
     doc.write_text(

@@ -8,7 +8,7 @@ dynamic = ["version"]
 requires-python = ">=3.10"
 readme = "README.md"
 description = "High-performance Rust-backed graph library with standalone and NetworkX backend modes"
-dependencies = ["networkx>=3.0", "numpy>=1.24"]
+dependencies = ["networkx>=3.4", "numpy>=1.24"]
 license = { text = "MIT" }
 authors = [
     { name = "FrankenNetworkX Contributors" },
@@ -49,7 +49,7 @@ CI = "https://github.com/Dicklesworthstone/franken_networkx/actions"
 [project.optional-dependencies]
 numpy = ["numpy>=1.24"]
 scipy = ["scipy>=1.10"]
-test = ["pytest>=7", "hypothesis", "networkx>=3.0", "pytest-benchmark", "numpy>=1.24", "scipy>=1.10", "pandas>=2.0"]
+test = ["pytest>=7", "hypothesis", "networkx>=3.4", "pytest-benchmark", "numpy>=1.24", "scipy>=1.10", "pandas>=2.0"]
 all = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.entry-points."networkx.backends"]
@@ -68,14 +68,14 @@ pypi_release = "0.2.1"
 python-source = "python"
 module-name = "franken_networkx._fnx"
 manifest-path = "crates/fnx-python/Cargo.toml"
-features = ["pyo3/extension-module", "pyo3/abi3-py310"]
+features = ["pyo3/extension-module", "pyo3/abi3-py310", "pyo3/generate-import-lib"]
 # br-r37-c1-rajc2: python-source packages ONLY the franken_networkx package, so the
 # top-level fnx_backend_info shim named by the networkx.backend_info entry point was
 # absent from every wheel. Without it networkx logs ModuleNotFoundError and records
 # backend_info[franken_networkx] = {}, which empties the per-function backends set it
 # builds from backend_info[functions] - so nx dispatch to this backend was disabled
 # for all 313 advertised functions on any pip-installed copy.
-include = [{ path = "python/fnx_backend_info.py", format = "wheel" }]
+include = [{ path = "python/fnx_backend_info.py", format = ["wheel", "sdist"] }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

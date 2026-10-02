@@ -8,6 +8,7 @@ Scope window: project inception on 2026-02-13 through HEAD on 2026-08-19.
 
 | Version | Kind | Date | Summary |
 |---------|------|------|---------|
+| [`v0.2.3`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.3) | Release | 2026-10-02 | Native fast paths across views, batches and shortest paths; review fixes for store-only node attrs and `read_gml`; first PyPI-bound build since 0.2.1 |
 | [`v0.2.2`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.2) | Release | 2026-09-11 | DSR authority release; dependency updates, security advisory resolutions, giant-component mean geodesic parity tests |
 | [`v0.2.1`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.1) | Release | 2026-09-08 | First PyPI publication release; 8-way CI parity matrix, multi-OS wheels, runtime numpy dependency |
 | [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0) | Release | 2026-06-21 | First tagged GitHub Release |
@@ -223,6 +224,57 @@ MultiDiGraph `add_edge` auto-key `O(N²) → O(N)`, cached MultiGraph
   the Rust API and the Python binding run identical code and produce byte-identical numeric results.
   Determinism (block/Dantzig+Bland entering-edge search, first-minimiser leaving-edge tie-break matching
   Python's `min`) is preserved and covered by `fnx-algorithms` unit tests.
+
+---
+
+## 0.2.3 - 2026-10-02
+
+Workspace version: **0.2.3** (`Cargo.toml`); Python package `franken-networkx` **0.2.3**.
+Release and Quality Authority: DSR (Doodlestein Self-Releaser).
+`v0.2.2` shipped only a linux-amd64 wheel and the sdist to its GitHub Release and never reached PyPI,
+so for PyPI users this release follows `0.2.1`.
+
+392 commits since `v0.2.2` (125 fixes, 119 performance changes): native fast paths for node and edge
+views, `add_edges_from` / `add_nodes_from` batches (including multigraphs), the Dijkstra, Bellman-Ford,
+BFS/DFS and predecessor families, clustering and triangles, betweenness, closeness and load
+centrality, and Louvain; plus parity fixes for iteration order, view membership, attribute copies,
+`write_edgelist` and `common_neighbors`.
+
+Fixed in the release review:
+- **Node attributes stored only natively were lost on update.** A node whose attributes came from the
+  native `add_nodes_from` batch (and relabel, union and convert, which use it) kept them only in the
+  Rust store; `add_node(n, **attr)`, `set_node_attributes` (both forms) and the directed node views'
+  `get` / `[]` then created an empty Python dict that hid them (`G.nodes[0] == {'c': 1}` instead of
+  `{'a': 0, 'b': 0, 'c': 1}`). Every such site now hydrates from the store first.
+- **`read_gml(path)` delegates to NetworkX's parser again** for the default call. The native fast path
+  added after `v0.2.2` kept only the last item of list attributes, dropped backslashes, returned
+  `+INF`/`NAN` as strings and ignored the `multigraph` flag. `mode=` and hardened mode are unchanged.
+- **`keydict[k] = keydict[k]`** (and `keydict.update(keydict)`) no longer empties the edge's attributes.
+- **Undirected `MultiGraph` weight checks** no longer reuse a cached verdict after a write through a
+  held edge-attribute dict, so a negative weight written that way is rejected as in NetworkX.
+- `cargo fmt` cleanliness restored across the workspace.
+- DSR packaging preserves all six ABI3 wheel platforms, includes the backend
+  discovery shim in both wheels and source distributions, and records the
+  native extension from each wheel in the release manifest. NetworkX 3.4 is
+  now the minimum dependency, matching the imported broadcasting module.
+- Refreshed 28 compatible dependency-lock entries; PyO3 remains on the
+  qualified 0.28.3 API series.
+
+Behaviour notes:
+- **Known limitation ([#4](https://github.com/Dicklesworthstone/franken_networkx/issues/4)):**
+  native mixed integer/float weighted-degree and directed-modularity paths can differ at the last
+  bit from CPython 3.10–3.13's summation. The underlying accumulators predate `v0.2.2`; this release
+  retains that behavior while the version-aware arithmetic fix is tracked separately. The broad
+  Python parity run remains incomplete and must not be read as a clean full-suite result.
+- Edge attribute dicts (`G.edges[u, v]`, multigraph keydict entries) are now `dict` subclasses.
+  `json`, `pickle`, `copy` and `isinstance(..., dict)` behave as before; `yaml.safe_dump` needs a
+  representer registered for them.
+- As in NetworkX: `nodes_with_selfloops` returns a generator, multigraph `add_edges_from` returns the
+  keys, and `get_edge_data` returns the live dict.
+
+Crates: `fnx-classes`, `fnx-algorithms`, `fnx-runtime` 0.3.1; `fnx-views`, `fnx-dispatch`,
+`fnx-convert`, `fnx-generators`, `fnx-readwrite`, `fnx-conformance`, `fnx-cgse`, `fnx-python` 0.2.3;
+`fnx-durability` unchanged at 0.2.2.
 
 ---
 

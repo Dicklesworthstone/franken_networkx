@@ -4922,8 +4922,12 @@ impl PyMultiDiGraph {
                 .ensure_edge_py_attrs(py, source, target, internal_key)
                 .clone_ref(py);
             let bound = attrs.bind(py);
-            bound.clear();
-            bound.update(attrs_in.as_mapping())?;
+            // `kd[k] = kd[k]` hands back this same live dict: clearing it first
+            // would empty both sides, so a self-assignment keeps the attrs.
+            if !bound.is(&attrs_in) {
+                bound.clear();
+                bound.update(attrs_in.as_mapping())?;
+            }
             self.mark_edges_dirty();
             // br-r37-c1-u9a13: C-level writes, which the dict does not report.
             self.edge_attr_writes.note_native_write();
@@ -5511,10 +5515,8 @@ impl PyMultiDiGraph {
             .entry(canonical.clone())
             .or_insert_with(|| node_for_adding.clone().unbind());
         let mut rust_attrs = AttrMap::new();
-        let py_dict = self
-            .node_py_attrs
-            .entry(canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
+        // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+        let py_dict = self.materialize_node_py_attrs(py, &canonical);
         if let Some(a) = attr {
             rust_attrs = py_dict_to_attr_map(a)?;
             for (k, v) in a.iter() {
@@ -7813,10 +7815,8 @@ impl PyMultiDiGraph {
         for (k, v) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.materialize_node_py_attrs(py, &canonical);
                 dict.bind(py).set_item(name, &v)?;
             }
         }
@@ -7838,10 +7838,8 @@ impl PyMultiDiGraph {
         for (k, attrs) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.materialize_node_py_attrs(py, &canonical);
                 dict.bind(py).call_method1("update", (&attrs,))?;
             }
         }
@@ -10782,11 +10780,7 @@ impl MultiDiGraphNodeView {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
         // br-r37-c1-d58s8: materialize absent mirrors (write-through).
-        Ok(g.node_py_attrs
-            .entry(canonical)
-            .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py)
-            .into_any())
+        Ok(g.materialize_node_py_attrs(py, &canonical).into_any())
     }
 
     /// Return a list of node keys (like dict.keys()).
@@ -12638,9 +12632,8 @@ impl PyDiGraph {
             } else {
                 match self.collect_fresh_exact_int_attr_edge_batch(list.iter(), list.len())? {
                     Some(batch) => Some(batch),
-                    None => {
-                        self.collect_fresh_exact_int_attr_edge_batch_merged(list.iter(), list.len())?
-                    }
+                    None => self
+                        .collect_fresh_exact_int_attr_edge_batch_merged(list.iter(), list.len())?,
                 }
             }
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
@@ -12658,8 +12651,10 @@ impl PyDiGraph {
             } else {
                 match self.collect_fresh_exact_int_attr_edge_batch(tuple.iter(), tuple.len())? {
                     Some(batch) => Some(batch),
-                    None => self
-                        .collect_fresh_exact_int_attr_edge_batch_merged(tuple.iter(), tuple.len())?,
+                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                        tuple.iter(),
+                        tuple.len(),
+                    )?,
                 }
             }
         } else {
@@ -14540,10 +14535,8 @@ impl PyDiGraph {
             .or_insert_with(|| node_for_adding.clone().unbind());
 
         let mut rust_attrs = AttrMap::new();
-        let py_dict = self
-            .node_py_attrs
-            .entry(canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
+        // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+        let py_dict = self.materialize_node_py_attrs(py, &canonical);
         if let Some(a) = attr {
             rust_attrs = py_dict_to_attr_map(a)?;
             for (k, v) in a.iter() {
@@ -16965,7 +16958,9 @@ impl PyDiGraph {
                 .reserve(edges.len().saturating_sub(self.edge_py_attrs.len()));
             let mut keys = crate::AttrKeyStrings::default();
             for (u, v) in edges {
-                let attrs = self.materialize_edge_py_attrs_with_keys(py, &u, &v, &mut keys).ok()?;
+                let attrs = self
+                    .materialize_edge_py_attrs_with_keys(py, &u, &v, &mut keys)
+                    .ok()?;
                 dicts.push(attrs);
             }
             self.edges_attr_dicts_cache = Some((self.nodes_seq, self.edges_seq, dicts));
@@ -18010,10 +18005,8 @@ impl PyDiGraph {
         for (k, v) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.materialize_node_py_attrs(py, &canonical);
                 dict.bind(py).set_item(name, &v)?;
             }
         }
@@ -18035,10 +18028,8 @@ impl PyDiGraph {
         for (k, attrs) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.materialize_node_py_attrs(py, &canonical);
                 dict.bind(py).call_method1("update", (&attrs,))?;
             }
         }
@@ -19352,11 +19343,7 @@ impl DiNodeView {
         // br-r37-c1-d58s8: MATERIALIZE absent mirrors (lazy-mirror paths
         // produce none) — a fresh unstored dict silently loses writes.
         let public_key = g.py_node_key(py, &canonical);
-        let attrs = g
-            .node_py_attrs
-            .entry(canonical)
-            .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py);
+        let attrs = g.materialize_node_py_attrs(py, &canonical);
         drop(g);
         self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
         Ok(attrs)
@@ -19375,11 +19362,7 @@ impl DiNodeView {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
         // br-r37-c1-d58s8: materialize absent mirrors (write-through).
-        Ok(g.node_py_attrs
-            .entry(canonical)
-            .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py)
-            .into_any())
+        Ok(g.materialize_node_py_attrs(py, &canonical).into_any())
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {

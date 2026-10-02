@@ -653,14 +653,24 @@ def feature_family(reference_row: dict) -> str:
     return "package root"
 
 
+def _load_franken_networkx():
+    """Honor an installed or explicitly supplied package before checkout fallback."""
+    try:
+        return importlib.import_module("franken_networkx")
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"franken_networkx", "franken_networkx._fnx"}:
+            raise
+    sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(ROOT / "python"))
+    return importlib.import_module("franken_networkx")
+
+
 def classify_feature_universe(reference: dict | None = None) -> list[dict]:
     """Compare every pinned NetworkX path with its FrankenNetworkX peer."""
     if reference is None:
         reference = load_feature_universe_reference()
 
-    sys.path.insert(0, str(ROOT))
-    sys.path.insert(0, str(ROOT / "python"))
-    import franken_networkx as fnx  # pylint: disable=import-outside-toplevel
+    fnx = _load_franken_networkx()
 
     _materialize_callable_module_shims(fnx)
     module_cache = {"networkx": fnx}
@@ -1129,9 +1139,7 @@ def _materialize_callable_module_shims(fnx):
 
 
 def load_public_exports():
-    sys.path.insert(0, str(ROOT))
-    sys.path.insert(0, str(ROOT / "python"))
-    import franken_networkx as fnx  # pylint: disable=import-outside-toplevel
+    fnx = _load_franken_networkx()
 
     _materialize_callable_module_shims(fnx)
 

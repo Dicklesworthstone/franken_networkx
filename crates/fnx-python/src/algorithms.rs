@@ -260,12 +260,7 @@ impl<'py> GraphRef<'py> {
     }
 
     /// br-r37-c1-6hpa9: discovery object with node-map fallback.
-    fn disp_or_node_key(
-        &self,
-        py: Python<'_>,
-        disp: &DisplayMap,
-        key: &str,
-    ) -> PyObject {
+    fn disp_or_node_key(&self, py: Python<'_>, disp: &DisplayMap, key: &str) -> PyObject {
         disp.get(key)
             .map_or_else(|| self.py_node_key(py, key), |o| o.clone_ref(py))
     }
@@ -460,16 +455,22 @@ impl<'py> GraphRef<'py> {
     /// (br-r37-c1-18jjo). `None`: the node has no attributes.
     fn node_attrs_for(&self, py: Python<'_>, canonical: &str) -> PyResult<Option<Py<PyDict>>> {
         let (dict, stored) = match self {
-            GraphRef::Undirected(pg) => (pg.node_py_attrs.get(canonical), pg.inner.node_attrs(canonical)),
-            GraphRef::Directed { dg, .. } => {
-                (dg.node_py_attrs.get(canonical), dg.inner.node_attrs(canonical))
-            }
-            GraphRef::MultiUndirected { mg, .. } => {
-                (mg.node_py_attrs.get(canonical), mg.inner.node_attrs(canonical))
-            }
-            GraphRef::MultiDirected { mdg, .. } => {
-                (mdg.node_py_attrs.get(canonical), mdg.inner.node_attrs(canonical))
-            }
+            GraphRef::Undirected(pg) => (
+                pg.node_py_attrs.get(canonical),
+                pg.inner.node_attrs(canonical),
+            ),
+            GraphRef::Directed { dg, .. } => (
+                dg.node_py_attrs.get(canonical),
+                dg.inner.node_attrs(canonical),
+            ),
+            GraphRef::MultiUndirected { mg, .. } => (
+                mg.node_py_attrs.get(canonical),
+                mg.inner.node_attrs(canonical),
+            ),
+            GraphRef::MultiDirected { mdg, .. } => (
+                mdg.node_py_attrs.get(canonical),
+                mdg.inner.node_attrs(canonical),
+            ),
         };
         attr_dict_or_stored(py, dict, stored)
     }
@@ -527,7 +528,8 @@ impl<'py> GraphRef<'py> {
                 };
                 attr_dict_or_stored(
                     py,
-                    mg.edge_py_attrs.get(&PyMultiGraph::edge_key(left, right, key)),
+                    mg.edge_py_attrs
+                        .get(&PyMultiGraph::edge_key(left, right, key)),
                     mg.inner.edge_attrs(left, right, key),
                 )
             }
@@ -558,7 +560,8 @@ impl<'py> GraphRef<'py> {
         match self {
             GraphRef::Directed { dg, .. } => attr_dict_or_stored(
                 py,
-                dg.edge_py_attrs.get(&(source.to_owned(), target.to_owned())),
+                dg.edge_py_attrs
+                    .get(&(source.to_owned(), target.to_owned())),
                 dg.inner.edge_attrs(source, target),
             ),
             GraphRef::MultiDirected { mdg, .. } => {
@@ -571,7 +574,8 @@ impl<'py> GraphRef<'py> {
                 };
                 attr_dict_or_stored(
                     py,
-                    mdg.edge_py_attrs.get(&(source.to_owned(), target.to_owned(), key)),
+                    mdg.edge_py_attrs
+                        .get(&(source.to_owned(), target.to_owned(), key)),
                     mdg.inner.edge_attrs(source, target, key),
                 )
             }
@@ -5292,12 +5296,10 @@ pub fn dijkstra_weight_cache_token(
                 dg.edge_attr_writes.rewrites(),
             )))
         }
-        GraphRef::MultiUndirected { mg, .. } => Ok(Some((
-            mg.nodes_seq,
-            mg.edges_seq,
-            mg.edges_dirty.load(Ordering::Relaxed),
-            0,
-        ))),
+        // PyMultiGraph has no refresh_edges_dirty or rewrite counter, so a write
+        // through a held attr dict would come back to the same key after a sync
+        // and a cached weight verdict would outlive it. No token: callers scan.
+        GraphRef::MultiUndirected { .. } => Ok(None),
         GraphRef::MultiDirected { mdg, .. } => {
             mdg.refresh_edges_dirty(py);
             Ok(Some((
@@ -5389,8 +5391,7 @@ pub fn bellman_ford_path(
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
 
-    let (result, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
-    {
+    let (result, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| {
             run_recording_rows(row_limit, || {
@@ -6151,11 +6152,7 @@ fn graph_sssp_predecessors_index(
     graph: &fnx_classes::Graph,
     source: &str,
     cutoff: Option<usize>,
-) -> (
-    Option<usize>,
-    Vec<usize>,
-    ParentTable,
-) {
+) -> (Option<usize>, Vec<usize>, ParentTable) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -6211,11 +6208,7 @@ fn multigraph_sssp_predecessors_index(
     mg: &fnx_classes::MultiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (
-    Option<usize>,
-    Vec<usize>,
-    ParentTable,
-) {
+) -> (Option<usize>, Vec<usize>, ParentTable) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -6288,11 +6281,7 @@ fn multidigraph_sssp_predecessors_index(
     mdg: &fnx_classes::digraph::MultiDiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (
-    Option<usize>,
-    Vec<usize>,
-    ParentTable,
-) {
+) -> (Option<usize>, Vec<usize>, ParentTable) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -6525,9 +6514,7 @@ fn dijkstra_settled_key<'n>(
     })
 }
 
-fn settled_name<'n>(
-    name: impl Fn(u32) -> Option<&'n str>,
-) -> impl Fn(u32) -> PyResult<&'n str> {
+fn settled_name<'n>(name: impl Fn(u32) -> Option<&'n str>) -> impl Fn(u32) -> PyResult<&'n str> {
     move |idx: u32| {
         name(idx).ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("single_source_dijkstra node index missing")
@@ -9560,13 +9547,15 @@ pub fn triangles_and_degrees_for(
     let inner = gr.undirected();
     let positions = nodes
         .iter()
-        .map(|node| match inner.get_node_index(&node_key_to_string(py, node)?) {
-            Some(position) => Ok(position),
-            None => Err(NodeNotFound::new_err(format!(
-                "The node {} is not in the graph.",
-                node.repr()?
-            ))),
-        })
+        .map(
+            |node| match inner.get_node_index(&node_key_to_string(py, node)?) {
+                Some(position) => Ok(position),
+                None => Err(NodeNotFound::new_err(format!(
+                    "The node {} is not in the graph.",
+                    node.repr()?
+                ))),
+            },
+        )
         .collect::<PyResult<Vec<usize>>>()?;
     Ok(py.allow_threads(|| fnx_algorithms::triangles_and_degrees_for(inner, &positions)))
 }
@@ -9589,13 +9578,15 @@ pub fn directed_triangles_and_degrees_for(
     let inner = &dg.inner;
     let positions = nodes
         .iter()
-        .map(|node| match inner.get_node_index(&node_key_to_string(py, node)?) {
-            Some(position) => Ok(position),
-            None => Err(NodeNotFound::new_err(format!(
-                "The node {} is not in the graph.",
-                node.repr()?
-            ))),
-        })
+        .map(
+            |node| match inner.get_node_index(&node_key_to_string(py, node)?) {
+                Some(position) => Ok(position),
+                None => Err(NodeNotFound::new_err(format!(
+                    "The node {} is not in the graph.",
+                    node.repr()?
+                ))),
+            },
+        )
         .collect::<PyResult<Vec<usize>>>()?;
     Ok(Some(py.allow_threads(|| {
         fnx_algorithms::directed_triangles_and_degrees_for(inner, &positions)
@@ -12773,24 +12764,23 @@ pub fn bfs_layers(
     // as passed, every other node as its discovering parent's
     // adjacency-row object. The _with_parents kernels emit the parent for
     // free; seeds map canonical -> passed object.
-    let emit = |layers: Vec<Vec<(String, Option<String>)>>,
-                seeds: &DisplayMap|
-     -> Vec<Vec<PyObject>> {
-        layers
-            .into_iter()
-            .map(|layer| {
-                layer
-                    .into_iter()
-                    .map(|(n, parent)| match parent {
-                        Some(p) => gr.py_row_key(py, &p, &n),
-                        None => seeds
-                            .get(n.as_str())
-                            .map_or_else(|| gr.py_node_key(py, &n), |o| o.clone_ref(py)),
-                    })
-                    .collect()
-            })
-            .collect()
-    };
+    let emit =
+        |layers: Vec<Vec<(String, Option<String>)>>, seeds: &DisplayMap| -> Vec<Vec<PyObject>> {
+            layers
+                .into_iter()
+                .map(|layer| {
+                    layer
+                        .into_iter()
+                        .map(|(n, parent)| match parent {
+                            Some(p) => gr.py_row_key(py, &p, &n),
+                            None => seeds
+                                .get(n.as_str())
+                                .map_or_else(|| gr.py_node_key(py, &n), |o| o.clone_ref(py)),
+                        })
+                        .collect()
+                })
+                .collect()
+        };
     // sources can be a single node or iterable of nodes
     let source_key = node_key_to_string(py, sources)?;
     if gr.has_node(&source_key) {
@@ -17537,7 +17527,9 @@ fn rust_graph_to_py_subgraph(
         let _ = py_graph
             .inner
             .add_node_with_attrs(node, crate::py_dict_to_attr_map(&attrs)?);
-        py_graph.node_py_attrs.insert(node.to_owned(), attrs.unbind());
+        py_graph
+            .node_py_attrs
+            .insert(node.to_owned(), attrs.unbind());
     }
     for (left, right, _) in result.edges_ordered_borrowed() {
         let ek = PyGraph::edge_key(left, right);
@@ -17581,7 +17573,9 @@ fn rust_digraph_to_py_subgraph(
         let _ = py_graph
             .inner
             .add_node_with_attrs(node, crate::py_dict_to_attr_map(&attrs)?);
-        py_graph.node_py_attrs.insert(node.to_owned(), attrs.unbind());
+        py_graph
+            .node_py_attrs
+            .insert(node.to_owned(), attrs.unbind());
     }
     for (left, right, _) in result.edges_ordered_borrowed() {
         let attrs = match source_gr.edge_attrs_for_directed(py, left, right)? {
@@ -20067,38 +20061,37 @@ fn astar_path(
 
     // Directed graphs run the kernel against their DiGraph projection so edge
     // direction is respected; undirected graphs use the inner Graph.
-    let (result, rows) = run_recording_rows(row_limit, || match gr
-        .weighted_digraph_projection(weight)
-    {
-        Some(proj) => run_astar_path(
-            py,
-            &gr,
-            proj.as_ref(),
-            &src_key,
-            &tgt_key,
-            target,
-            heuristic,
-            weight,
-        ),
-        None => {
-            // br-r37-c1-hbhli (cc): use the WEIGHTED undirected projection, which collapses
-            // parallel multigraph edges to the MIN weight (matching nx's weight function),
-            // instead of gr.undirected() (structure-only — it kept a non-min parallel edge,
-            // giving the wrong path/length on multigraphs). Identical for simple graphs
-            // (the projection borrows the inner Graph).
-            let projection = gr.weighted_undirected_projection(weight);
-            run_astar_path(
+    let (result, rows) =
+        run_recording_rows(row_limit, || match gr.weighted_digraph_projection(weight) {
+            Some(proj) => run_astar_path(
                 py,
                 &gr,
-                projection.as_ref(),
+                proj.as_ref(),
                 &src_key,
                 &tgt_key,
                 target,
                 heuristic,
                 weight,
-            )
-        }
-    });
+            ),
+            None => {
+                // br-r37-c1-hbhli (cc): use the WEIGHTED undirected projection, which collapses
+                // parallel multigraph edges to the MIN weight (matching nx's weight function),
+                // instead of gr.undirected() (structure-only — it kept a non-min parallel edge,
+                // giving the wrong path/length on multigraphs). Identical for simple graphs
+                // (the projection borrows the inner Graph).
+                let projection = gr.weighted_undirected_projection(weight);
+                run_astar_path(
+                    py,
+                    &gr,
+                    projection.as_ref(),
+                    &src_key,
+                    &tgt_key,
+                    target,
+                    heuristic,
+                    weight,
+                )
+            }
+        });
     if check_rows {
         check_expanded_weight_rows(py, &gr, rows, weight, false)?;
     }
@@ -22192,8 +22185,7 @@ fn dijkstra_path_length(
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
-    let (result, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight)
-    {
+    let (result, rows) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| {
             run_recording_rows(row_limit, || {
@@ -28053,7 +28045,9 @@ pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObje
         let _ = py_graph
             .inner
             .add_node_with_attrs(node, crate::py_dict_to_attr_map(&attrs)?);
-        py_graph.node_py_attrs.insert(node.to_owned(), attrs.unbind());
+        py_graph
+            .node_py_attrs
+            .insert(node.to_owned(), attrs.unbind());
     }
     for (left, right, _) in result.edges_ordered_borrowed() {
         let ek = PyGraph::edge_key(left, right);
@@ -29466,7 +29460,10 @@ pub fn edge_current_flow_betweenness_centrality_nx_ordered_rust(
 
 /// Register all algorithm functions into the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("WeightRowsUnverified", m.py().get_type::<WeightRowsUnverified>())?;
+    m.add(
+        "WeightRowsUnverified",
+        m.py().get_type::<WeightRowsUnverified>(),
+    )?;
     // Shortest path
     m.add_function(wrap_pyfunction!(shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(shortest_path_length, m)?)?;

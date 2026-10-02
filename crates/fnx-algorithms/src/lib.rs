@@ -12,9 +12,9 @@ use indexmap::{IndexMap, IndexSet};
 use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use rand_core::Rng;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use rustc_hash::FxHashMap;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt;
 
@@ -16944,7 +16944,8 @@ pub fn directed_triangles_and_degrees_for(
                     .copied()
                     .filter(|&w| w != v),
             );
-            let in_either = |k: usize| usize::from(preds.contains(&k)) + usize::from(succs.contains(&k));
+            let in_either =
+                |k: usize| usize::from(preds.contains(&k)) + usize::from(succs.contains(&k));
             let triangles: usize = preds
                 .iter()
                 .chain(succs.iter())
@@ -24886,7 +24887,11 @@ pub fn bfs_layers_directed_multi_with_parents(
                 .map(|&(s, p)| {
                     (
                         name(s as usize),
-                        if p == u32::MAX { None } else { Some(name(p as usize)) },
+                        if p == u32::MAX {
+                            None
+                        } else {
+                            Some(name(p as usize))
+                        },
                     )
                 })
                 .collect(),
@@ -25868,7 +25873,13 @@ fn all_shortest_paths_index<'g>(
     let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
     while let Some(&(node, i)) = stack.last() {
         if node == source_idx {
-            paths.push(stack.iter().rev().map(|(idx, _)| name(*idx).to_owned()).collect());
+            paths.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(idx, _)| name(*idx).to_owned())
+                    .collect(),
+            );
         }
         let node_preds = preds.get(&node).unwrap_or(&no_preds);
         if node_preds.len() > i {
@@ -36883,7 +36894,12 @@ where
         .into_iter()
         .map(|idx| {
             let at = idx as usize;
-            (idx, distances.get(at), all_int_paths.get(at), predecessors.get(at))
+            (
+                idx,
+                distances.get(at),
+                all_int_paths.get(at),
+                predecessors.get(at),
+            )
         })
         .collect()
 }
@@ -36912,7 +36928,10 @@ thread_local! {
 /// undirected negative edge is a negative cycle); the limit is what ends it.
 /// Only the weighted searches the bindings run this way record; anything else
 /// run inside `search` records nothing.
-pub fn recording_expanded_rows<R>(limit: usize, search: impl FnOnce() -> R) -> (R, Option<Vec<usize>>) {
+pub fn recording_expanded_rows<R>(
+    limit: usize,
+    search: impl FnOnce() -> R,
+) -> (R, Option<Vec<usize>>) {
     struct Restore(Option<ExpandedRows>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -37628,7 +37647,12 @@ pub fn single_target_shortest_path_length_directed(
 
     order
         .into_iter()
-        .map(|(idx, dist)| (digraph.get_node_name(idx).unwrap_or_default().to_owned(), dist))
+        .map(|(idx, dist)| {
+            (
+                digraph.get_node_name(idx).unwrap_or_default().to_owned(),
+                dist,
+            )
+        })
         .collect()
 }
 
@@ -63756,7 +63780,11 @@ mod tests {
             super::triangles_and_degrees_for(&g, &nodes),
             vec![(2, 2), (3, 4), (0, 0), (2, 2), (2, 2)]
         );
-        let whole: Vec<usize> = super::triangles(&g).triangles.iter().map(|t| t.count).collect();
+        let whole: Vec<usize> = super::triangles(&g)
+            .triangles
+            .iter()
+            .map(|t| t.count)
+            .collect();
         let doubled: Vec<usize> = super::triangles_and_degrees_for(&g, &(0..5).collect::<Vec<_>>())
             .into_iter()
             .map(|(_, doubled)| doubled / 2)
@@ -77498,7 +77526,7 @@ mod tests {
                 .add_edge_with_attrs(
                     u,
                     v,
-                    AttrMap::from([("weight".to_owned(),CgseValue::Int(2))]),
+                    AttrMap::from([("weight".to_owned(), CgseValue::Int(2))]),
                 )
                 .expect("edge add should succeed");
             for _ in 0..2 {
@@ -77506,7 +77534,7 @@ mod tests {
                     .add_edge_with_attrs(
                         u,
                         v,
-                        AttrMap::from([("weight".to_owned(),CgseValue::Int(1))]),
+                        AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]),
                     )
                     .expect("edge add should succeed");
             }
@@ -77549,7 +77577,7 @@ mod tests {
     fn louvain_declines_where_networkx_raises_or_its_ints_leave_f64() {
         let weighted = |weight: CgseValue| {
             let mut g = Graph::strict();
-            g.add_edge_with_attrs("a", "b", AttrMap::from([("weight".to_owned(),weight)]))
+            g.add_edge_with_attrs("a", "b", AttrMap::from([("weight".to_owned(), weight)]))
                 .expect("edge add should succeed");
             let _ = g.add_edge("b", "c");
             g
@@ -77563,7 +77591,7 @@ mod tests {
         zero.add_edge_with_attrs(
             "a",
             "b",
-            AttrMap::from([("weight".to_owned(),CgseValue::Int(0))]),
+            AttrMap::from([("weight".to_owned(), CgseValue::Int(0))]),
         )
         .expect("edge add should succeed");
         assert!(run(&zero).is_none());

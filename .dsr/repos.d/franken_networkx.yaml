@@ -6,8 +6,10 @@ tool_name: franken_networkx
 repo: Dicklesworthstone/franken_networkx
 local_path: /data/projects/franken_networkx
 language: rust
-main_package: fnx-python
+binary_name: fnx-extension
+build_cmd: python3 scripts/dsr_release_wheels.py
 build_profile: release
+linux_glibc_floor: "2.17"
 targets:
   - linux/amd64
   - linux/arm64
@@ -20,10 +22,63 @@ act_job_map:
   darwin/arm64: null
   darwin/amd64: null
   windows/amd64: null
-host_paths:
-  trj: /data/release-work/franken_networkx_buildroot/franken_networkx
-  mmini: /Users/jemanuel/release-work/franken_networkx_buildroot/franken_networkx
-  wlap: C:/Users/jeffr/release-work/franken_networkx_buildroot/franken_networkx
+target_triples:
+  linux/amd64: x86_64-unknown-linux-gnu
+  linux/arm64: aarch64-unknown-linux-gnu
+  darwin/amd64: x86_64-apple-darwin
+  darwin/arm64: aarch64-apple-darwin
+  windows/amd64: x86_64-pc-windows-msvc
+artifact_naming: "franken-networkx-0.2.3-${os}-${arch}"
+archive_format:
+  linux: tar.gz
+  darwin: tar.gz
+  windows: zip
+workspace_additional_artifacts:
+  linux/amd64:
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl
+    - franken_networkx-0.2.3.tar.gz
+  linux/arm64:
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+  darwin/amd64:
+    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl
+  darwin/arm64:
+    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl
+  windows/amd64:
+    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl
+release_contract:
+  checksum_sidecar: sha256
+  minisign_public_key_file: minisign.pub
+  exact_primary_assets:
+    linux/amd64: franken-networkx-0.2.3-linux-amd64.tar.gz
+    linux/arm64: franken-networkx-0.2.3-linux-arm64.tar.gz
+    darwin/amd64: franken-networkx-0.2.3-darwin-amd64.tar.gz
+    darwin/arm64: franken-networkx-0.2.3-darwin-arm64.tar.gz
+    windows/amd64: franken-networkx-0.2.3-windows-amd64.zip
+  exact_additional_assets:
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.sha256
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.minisig
+    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl
+    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl.sha256
+    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl.minisig
+    - franken_networkx-0.2.3.tar.gz
+    - franken_networkx-0.2.3.tar.gz.sha256
+    - franken_networkx-0.2.3.tar.gz.minisig
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.sha256
+    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.minisig
+    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl
+    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl.sha256
+    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl.minisig
+    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl
+    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl.sha256
+    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl.minisig
+    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl
+    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl.sha256
+    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl.minisig
+    - SHA256SUMS
+    - SHA256SUMS.minisig
 sync_excludes:
   - target
   - .rch-target
@@ -31,16 +86,16 @@ sync_excludes:
 include_files:
   - README.md
   - LICENSE
+  - CHANGELOG.md
 checks:
   - cargo fmt --all -- --check
-  - CARGO_BUILD_JOBS=2 RCH_QUEUE_WHEN_BUSY=1 cargo check -j 2 --workspace --all-targets
-  - CARGO_BUILD_JOBS=2 RCH_QUEUE_WHEN_BUSY=1 cargo clippy -j 2 --workspace --all-targets -- -D warnings
-  - CARGO_BUILD_JOBS=2 RCH_QUEUE_WHEN_BUSY=1 cargo test -j 2 -p fnx-classes -p fnx-views -p fnx-dispatch -p fnx-convert -p fnx-algorithms -p fnx-generators -p fnx-readwrite -p fnx-durability -p fnx-runtime -p fnx-conformance -p fnx-cgse
-  - .venv/bin/python scripts/fuzz_corpus_replay.py --budget-seconds 10
-  - .venv/bin/python scripts/verify_docs.py
-  - ./scripts/run_pytest_guarded.sh tests/python/test_instance_dict_memory_leak.py tests/python/test_error_messages.py tests/python/test_thread_safety.py tests/python/test_coverage_gaps.py tests/python/test_delegation_ledger.py tests/python/test_raw_vs_public_audit.py tests/python/test_upstream_divergence_ledger.py tests/python/test_api_ergonomics_audit.py tests/python/test_unused_raw_exposures.py
-  - .venv/bin/python scripts/run_upstream_networkx_suite.py
-  - .venv/bin/python scripts/run_python_parity_suite.py --workers 4
+  - RCH_REQUIRE_REMOTE=1 CARGO_BUILD_JOBS=2 rch exec -- cargo check --locked -j 2 --workspace --all-targets
+  - RCH_REQUIRE_REMOTE=1 CARGO_BUILD_JOBS=2 rch exec -- cargo clippy --locked -j 2 --workspace --all-targets -- -D warnings
+  - RCH_REQUIRE_REMOTE=1 CARGO_BUILD_JOBS=2 rch exec -- cargo test --locked -j 2 --workspace --exclude fnx-python --no-fail-fast
+# Run Python qualification through scripts/rch_python_gate.py as a separate
+# RCH job against the extension produced by the preceding RCH Cargo build.
+# Broad upstream/parity qualification remains incomplete: see CHANGELOG #4.
+# The Rust checks above do not establish a clean full Python suite.
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"

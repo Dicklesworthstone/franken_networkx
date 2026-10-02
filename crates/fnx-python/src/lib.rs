@@ -6297,9 +6297,8 @@ impl PyGraph {
             } else {
                 match self.collect_fresh_exact_int_attr_edge_batch(list.iter(), list.len())? {
                     Some(batch) => Some(batch),
-                    None => {
-                        self.collect_fresh_exact_int_attr_edge_batch_merged(list.iter(), list.len())?
-                    }
+                    None => self
+                        .collect_fresh_exact_int_attr_edge_batch_merged(list.iter(), list.len())?,
                 }
             }
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
@@ -6317,8 +6316,10 @@ impl PyGraph {
             } else {
                 match self.collect_fresh_exact_int_attr_edge_batch(tuple.iter(), tuple.len())? {
                     Some(batch) => Some(batch),
-                    None => self
-                        .collect_fresh_exact_int_attr_edge_batch_merged(tuple.iter(), tuple.len())?,
+                    None => self.collect_fresh_exact_int_attr_edge_batch_merged(
+                        tuple.iter(),
+                        tuple.len(),
+                    )?,
                 }
             }
         } else {
@@ -9311,8 +9312,12 @@ impl PyMultiGraph {
                 .ensure_edge_py_attrs(py, source, target, internal_key)
                 .clone_ref(py);
             let bound = attrs.bind(py);
-            bound.clear();
-            bound.update(attrs_in.as_mapping())?;
+            // `kd[k] = kd[k]` hands back this same live dict: clearing it first
+            // would empty both sides, so a self-assignment keeps the attrs.
+            if !bound.is(&attrs_in) {
+                bound.clear();
+                bound.update(attrs_in.as_mapping())?;
+            }
             self.mark_edges_dirty();
             // br-r37-c1-u9a13: C-level writes, which the dict does not report.
             self.edge_attr_writes.note_native_write();
@@ -13136,10 +13141,8 @@ impl PyMultiGraph {
         for (k, v) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.ensure_node_py_attrs(py, &canonical);
                 dict.bind(py).set_item(name, &v)?;
             }
         }
@@ -13161,10 +13164,8 @@ impl PyMultiGraph {
         for (k, attrs) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.ensure_node_py_attrs(py, &canonical);
                 dict.bind(py).call_method1("update", (&attrs,))?;
             }
         }
@@ -16479,10 +16480,8 @@ impl PyGraph {
             && !a.is_empty()
         {
             rust_attrs = py_dict_to_attr_map(a)?;
-            let py_dict = self
-                .node_py_attrs
-                .entry(canonical.clone())
-                .or_insert_with(|| PyDict::new(py).unbind());
+            // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+            let py_dict = self.materialize_node_py_attrs(py, &canonical);
             // br-r37-c1-jc9e4: ONE C-level dict.update instead of N Rust->Python
             // set_item round-trips. This is br-r37-c1-aefbatch applied to the node
             // path: `add_edge` two screens below already copies its mirror with a
@@ -17539,10 +17538,8 @@ impl PyGraph {
         for (k, v) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.materialize_node_py_attrs(py, &canonical);
                 dict.bind(py).set_item(name, &v)?;
             }
         }
@@ -17564,10 +17561,8 @@ impl PyGraph {
         for (k, attrs) in values.iter() {
             let canonical = node_key_to_string(py, &k)?;
             if self.inner.has_node(&canonical) {
-                let dict = self
-                    .node_py_attrs
-                    .entry(canonical)
-                    .or_insert_with(|| PyDict::new(py).unbind());
+                // Hydrate store-only attrs first; a fresh empty mirror would hide them.
+                let dict = self.materialize_node_py_attrs(py, &canonical);
                 dict.bind(py).call_method1("update", (&attrs,))?;
             }
         }

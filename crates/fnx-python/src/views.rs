@@ -667,8 +667,11 @@ fn edge_alldata_items(
     // owned Strings and a SipHash per edge here.
     if node_filter.is_none() {
         edge_py_attrs.reserve(inner.edge_count().saturating_sub(edge_py_attrs.len()));
-        edge_py_attrs_by_index
-            .reserve(inner.edge_count().saturating_sub(edge_py_attrs_by_index.len()));
+        edge_py_attrs_by_index.reserve(
+            inner
+                .edge_count()
+                .saturating_sub(edge_py_attrs_by_index.len()),
+        );
     }
     let mut keys = crate::AttrKeyStrings::default();
     // br-r37-c1-2a00r: index fast path — build the node-index -> Python key
@@ -722,7 +725,9 @@ fn edge_alldata_items(
                 Some((seq, cached)) if *seq == nodes_seq => cached.clone_ref(py),
                 _ => {
                     let live = match edge_py_attrs.entry(PyGraph::edge_key(left, right)) {
-                        std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone_ref(py),
+                        std::collections::hash_map::Entry::Occupied(entry) => {
+                            entry.get().clone_ref(py)
+                        }
                         std::collections::hash_map::Entry::Vacant(entry) => entry
                             .insert(edge_attr_writes.dict_from_attr_map_with_keys(
                                 py,
@@ -765,7 +770,11 @@ fn edge_alldata_items(
         let dict = match edge_py_attrs.entry(PyGraph::edge_key(left, right)) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone_ref(py),
             std::collections::hash_map::Entry::Vacant(entry) => entry
-                .insert(edge_attr_writes.dict_from_attr_map_with_keys(py, Some(attrs), &mut keys)?)
+                .insert(edge_attr_writes.dict_from_attr_map_with_keys(
+                    py,
+                    Some(attrs),
+                    &mut keys,
+                )?)
                 .clone_ref(py),
         };
         items.push(tuple_object(py, &[py_u, py_v, dict.into_any()])?);

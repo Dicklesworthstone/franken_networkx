@@ -1309,16 +1309,8 @@ def read_gml(
 
     fnx._validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
 
-    if label == "label" and destringizer is None:
-        try:
-            if isinstance(path, (str, bytes)) or hasattr(path, "__fspath__"):
-                with open(path, "rb") as _fh:
-                    _head = _fh.read(1024)
-                if b"multigraph 1" not in _head:
-                    return fnx._fnx.read_gml(path, label=label, destringizer=destringizer)
-        except Exception:
-            pass
-
+    # Always networkx's parser: the native one loses lists, backslashes and
+    # +INF/NAN typing (see test_read_gml_default_roundtrips_like_networkx).
     return _read_gml_via_nx(path, label=label, destringizer=destringizer)
 
 

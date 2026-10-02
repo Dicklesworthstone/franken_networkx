@@ -61,8 +61,8 @@ def fuzz_targets(fuzz_dir: Path = FUZZ) -> list[str]:
     return [name for name in names if (fuzz_dir / "corpus" / name).is_dir()]
 
 
-def binary_path(fuzz_dir: Path, name: str) -> Path:
-    return fuzz_dir / "target" / TRIPLE / "release" / name
+def binary_path(fuzz_dir: Path, name: str, binary_dir: Path | None = None) -> Path:
+    return (binary_dir or fuzz_dir / "target" / TRIPLE / "release") / name
 
 
 def build_command(jobs: int, fuzz_dir: Path = FUZZ) -> tuple[list[str], dict[str, str]]:
@@ -101,12 +101,13 @@ def build(jobs: int, fuzz_dir: Path = FUZZ, attempts: int = 20, wait_seconds: in
 
 
 def replay(name: str, *, artifacts_out: Path, fuzz_dir: Path = FUZZ, budget_seconds: int = 0,
-           input_timeout: int = 60, rss_limit_mb: int = 4096) -> dict:
+           input_timeout: int = 60, rss_limit_mb: int = 4096,
+           binary_dir: Path | None = None) -> dict:
     """Run target ``name`` over its corpus and reproducers, then fuzz for ``budget_seconds``.
 
     A failing input is written under ``artifacts_out / name``, outside the tree.
     """
-    binary = binary_path(fuzz_dir, name)
+    binary = binary_path(fuzz_dir, name, binary_dir)
     if not binary.exists():
         return {"target": name, "ok": False, "summary": f"missing binary {binary}", "log": "", "cpu_seconds": 0.0}
     committed = fuzz_dir / "artifacts" / name
@@ -119,17 +120,19 @@ def replay(name: str, *, artifacts_out: Path, fuzz_dir: Path = FUZZ, budget_seco
     limits = [f"-timeout={input_timeout}", f"-rss_limit_mb={rss_limit_mb}", f"-artifact_prefix={written}/"]
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     start = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix=f"{name}-new-") as found:
-        # libFuzzer writes new inputs into the FIRST directory it is given.
-        dirs = [found, *map(str, inputs)] if budget_seconds > 0 else list(map(str, inputs))
-        try:
-            proc = subprocess.run(  # nosec B603
-                [str(binary), *dirs, *mode, *limits], cwd=fuzz_dir, capture_output=True, text=True,
-                errors="replace", timeout=budget_seconds + input_timeout + 1800, check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return {"target": name, "ok": False, "summary": "no verdict before the wall-clock limit",
-                    "log": "", "cpu_seconds": 0.0}
+    # Retain generated inputs alongside evidence; release workers may not
+    # delete scratch directories without the operator's exact command.
+    found = tempfile.mkdtemp(prefix=f"{name}-new-", dir=artifacts_out)
+    # libFuzzer writes new inputs into the FIRST directory it is given.
+    dirs = [found, *map(str, inputs)] if budget_seconds > 0 else list(map(str, inputs))
+    try:
+        proc = subprocess.run(  # nosec B603
+            [str(binary), *dirs, *mode, *limits], cwd=fuzz_dir, capture_output=True, text=True,
+            errors="replace", timeout=budget_seconds + input_timeout + 1800, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"target": name, "ok": False, "summary": "no verdict before the wall-clock limit",
+                "log": "", "cpu_seconds": 0.0}
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
     cpu = round((after.ru_utime + after.ru_stime) - (before.ru_utime + before.ru_stime), 2)
     log = (proc.stdout + proc.stderr).strip()
@@ -155,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--target", action="append", default=[], help="only these targets")
     parser.add_argument("--fuzz-dir", type=Path, default=FUZZ)
+    parser.add_argument("--binary-dir", type=Path,
+                        help="directory of separately built RCH target binaries (requires --no-build)")
     parser.add_argument("--budget-seconds", type=int, default=0, help="seconds of fuzzing per target after the replay")
     parser.add_argument("--input-timeout", type=int, default=60, help="seconds allowed per input")
     parser.add_argument("--rss-limit-mb", type=int, default=4096)
@@ -162,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="where failing inputs go (default: $DSR_QUALITY_RUN_DIR/fuzz-artifacts, "
                              "else a fresh temporary directory)")
     args = parser.parse_args(argv)
+    if args.binary_dir is not None and not args.no_build:
+        parser.error("--binary-dir requires --no-build")
 
     targets = args.target or fuzz_targets(args.fuzz_dir)
     if not targets:
@@ -180,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in targets:
         result = replay(name, artifacts_out=artifacts_out, fuzz_dir=args.fuzz_dir,
                         budget_seconds=args.budget_seconds, input_timeout=args.input_timeout,
-                        rss_limit_mb=args.rss_limit_mb)
+                        rss_limit_mb=args.rss_limit_mb, binary_dir=args.binary_dir)
         cpu_total += result["cpu_seconds"]
         print(f"{'ok  ' if result['ok'] else 'FAIL'} {name}: {result['summary']}", flush=True)
         if not result["ok"]:

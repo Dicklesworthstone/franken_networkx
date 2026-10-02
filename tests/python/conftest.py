@@ -57,6 +57,12 @@ _NATIVE_EXTENSION_CRATES = (
 def _ensure_checkout_native_extension_fresh() -> None:
     """Fail fast when pytest would load a stale in-tree `_fnx` extension."""
     extension_path = REPO_PYTHON / "franken_networkx" / "_fnx.abi3.so"
+    native_module = sys.modules.get("franken_networkx._fnx")
+    loaded_path = getattr(native_module, "__file__", None)
+    if loaded_path and Path(loaded_path).resolve() != extension_path.resolve():
+        # Installed-wheel and isolated-artifact tests do not load this checkout
+        # extension. Its timestamp cannot establish freshness of their binary.
+        return
     if not extension_path.exists():
         return
 

@@ -24,10 +24,11 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 def repo_python_env() -> dict[str, str]:
     env = os.environ.copy()
-    paths = [str(ROOT / "python"), str(ROOT)]
+    paths = []
     existing = env.get("PYTHONPATH")
     if existing:
         paths.append(existing)
+    paths.extend([str(ROOT / "python"), str(ROOT)])
     env["PYTHONPATH"] = os.pathsep.join(paths)
     return env
 

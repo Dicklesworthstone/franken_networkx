@@ -1,10 +1,10 @@
 [package]
 name = "fnx-views"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 description = "Live graph view types for FrankenNetworkX"
 license-file = "../../LICENSE"
 repository.workspace = true
 
 [dependencies]
-fnx-classes = { version = "0.3.0", path = "../fnx-classes" }
+fnx-classes = { version = "0.3.1", path = "../fnx-classes" }
