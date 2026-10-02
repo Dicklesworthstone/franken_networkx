@@ -13,7 +13,7 @@ Scope window: project inception on 2026-02-13 through HEAD on 2026-08-19.
 | [`v0.2.1`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.1) | Release | 2026-09-08 | First PyPI publication release; 8-way CI parity matrix, multi-OS wheels, runtime numpy dependency |
 | [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0) | Release | 2026-06-21 | First tagged GitHub Release |
 
-`v0.2.0` is the first tagged release **and** the only GitHub Release
+`v0.2.0` is the first tagged GitHub Release
 ([`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0),
 2026-06-21). The historical timeline below is reconstructed from the commit
 history on `main`. Pre-release reconstruction (2,729 commits, 2026-02-13 through
@@ -68,7 +68,7 @@ state with provenance kept here:
 
 Scope: after [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0)
 (2026-06-21) through HEAD [`1bb74c331e`](https://github.com/Dicklesworthstone/franken_networkx/commit/1bb74c331e8f75f751a1d855f472971423ab4a65)
-on 2026-08-19. No later tag or GitHub Release exists. This is a
+on 2026-08-19. This historical scope describes the project as of that date. This is a
 vs-NetworkX native-store and views campaign on the already-parity surface,
 still driven by the `br-r37-c1-*` bead cycle. It is not a new public API era.
 
@@ -234,7 +234,7 @@ Release and Quality Authority: DSR (Doodlestein Self-Releaser).
 `v0.2.2` shipped only a linux-amd64 wheel and the sdist to its GitHub Release and never reached PyPI,
 so for PyPI users this release follows `0.2.1`.
 
-392 commits since `v0.2.2` (125 fixes, 119 performance changes): native fast paths for node and edge
+Changes since `v0.2.2` include native fast paths for node and edge
 views, `add_edges_from` / `add_nodes_from` batches (including multigraphs), the Dijkstra, Bellman-Ford,
 BFS/DFS and predecessor families, clustering and triangles, betweenness, closeness and load
 centrality, and Louvain; plus parity fixes for iteration order, view membership, attribute copies,
