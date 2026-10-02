@@ -12,9 +12,8 @@
 
 use arbitrary::{Arbitrary, Unstructured};
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
-use fnx_classes::{Graph, MultiGraph};
+use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::CompatibilityMode;
-use std::collections::BTreeMap;
 
 /// Maximum nodes to generate (controls fuzzer memory usage).
 const MAX_NODES: usize = 64;
@@ -217,7 +216,7 @@ impl<'a> Arbitrary<'a> for ArbitraryWeightedGraph {
                         f64::from(raw_weight.unsigned_abs()) / 100.0 + 0.01
                     };
 
-                    let mut attrs = BTreeMap::new();
+                    let mut attrs = AttrMap::new();
                     attrs.insert(
                         weight_attr.clone(),
                         fnx_runtime::CgseValue::Float(weight),
@@ -275,7 +274,7 @@ impl<'a> Arbitrary<'a> for ArbitraryWeightedDiGraph {
                         f64::from(raw_weight.unsigned_abs()) / 100.0 + 0.01
                     };
 
-                    let mut attrs = BTreeMap::new();
+                    let mut attrs = AttrMap::new();
                     attrs.insert(
                         weight_attr.clone(),
                         fnx_runtime::CgseValue::Float(weight),
@@ -333,7 +332,7 @@ impl<'a> Arbitrary<'a> for ArbitraryFlowNetwork {
                 let capacity: u16 = u.arbitrary()?;
                 let capacity = f64::from(capacity.max(1));
 
-                let mut attrs = BTreeMap::new();
+                let mut attrs = AttrMap::new();
                 attrs.insert(
                     capacity_attr.clone(),
                     fnx_runtime::CgseValue::Float(capacity),
@@ -402,7 +401,7 @@ impl<'a> Arbitrary<'a> for ArbitraryFlowNetworkUndirected {
                 let capacity: u16 = u.arbitrary()?;
                 let capacity = f64::from(capacity.max(1));
 
-                let mut attrs = BTreeMap::new();
+                let mut attrs = AttrMap::new();
                 attrs.insert(
                     capacity_attr.clone(),
                     fnx_runtime::CgseValue::Float(capacity),
