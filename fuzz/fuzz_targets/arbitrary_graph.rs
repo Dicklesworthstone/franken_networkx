@@ -217,10 +217,7 @@ impl<'a> Arbitrary<'a> for ArbitraryWeightedGraph {
                     };
 
                     let mut attrs = AttrMap::new();
-                    attrs.insert(
-                        weight_attr.clone(),
-                        fnx_runtime::CgseValue::Float(weight),
-                    );
+                    attrs.insert(weight_attr.clone(), fnx_runtime::CgseValue::Float(weight));
                     let _ = graph.add_edge_with_attrs(&nodes[src_idx], &nodes[dst_idx], attrs);
                 }
             }
@@ -275,10 +272,7 @@ impl<'a> Arbitrary<'a> for ArbitraryWeightedDiGraph {
                     };
 
                     let mut attrs = AttrMap::new();
-                    attrs.insert(
-                        weight_attr.clone(),
-                        fnx_runtime::CgseValue::Float(weight),
-                    );
+                    attrs.insert(weight_attr.clone(), fnx_runtime::CgseValue::Float(weight));
                     let _ = graph.add_edge_with_attrs(&nodes[src_idx], &nodes[dst_idx], attrs);
                 }
             }
