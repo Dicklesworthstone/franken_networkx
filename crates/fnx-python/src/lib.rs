@@ -2549,7 +2549,15 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
         if let Ok(i) = v.extract::<i64>() {
             return Ok(CgseValue::Int(i));
         }
-        // Oversized int: fall through to the chain (which yields Float via f64).
+        // br-r37-c1-6eaq6: an int wider than i64 has no store value. The
+        // chain below used to store it as `extract::<f64>()`, which succeeds
+        // ROUNDED, so every native reader computed on a float networkx never
+        // sees: minimum_spanning_tree handed out 9.223372036854776e+18 for
+        // 2**63, weighted degrees summed to floats, and 10**20 + 1 and 10**20
+        // tied in betweenness. The edge keeps its own dict (the value is not
+        // batch-lossless), so the store needs only an opaque stand-in, as for
+        // a tuple or None - which every numeric reader declines on.
+        return Ok(CgseValue::String(v.str()?.to_string()));
     } else if v.is_exact_instance_of::<PyString>() {
         return Ok(CgseValue::String(v.extract::<String>()?));
     } else if v.is_none()
@@ -2588,6 +2596,9 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
         Ok(CgseValue::Bool(b))
     } else if let Ok(i) = v.extract::<i64>() {
         Ok(CgseValue::Int(i))
+    } else if v.downcast::<PyInt>().is_ok() {
+        // An int subclass wider than i64: a stand-in, as above (6eaq6).
+        Ok(CgseValue::String(v.str()?.to_string()))
     } else if let Ok(f) = v.extract::<f64>() {
         Ok(CgseValue::Float(f))
     } else {

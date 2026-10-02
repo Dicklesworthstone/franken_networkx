@@ -10889,7 +10889,10 @@ fn mst_attrs_can_remain_lazy(py: Python<'_>, attrs: &Py<PyDict>, weight: &str) -
     let Some(value) = dict.get_item(weight)? else {
         return Ok(false);
     };
-    Ok(value.is_exact_instance_of::<PyFloat>() || value.is_exact_instance_of::<PyInt>())
+    // br-r37-c1-6eaq6: an int wider than i64 is only a stand-in in the store,
+    // so the tree's edge takes the dict.
+    Ok(value.is_exact_instance_of::<PyFloat>()
+        || (value.is_exact_instance_of::<PyInt>() && value.extract::<i64>().is_ok()))
 }
 
 /// Native keyed MultiGraph minimum spanning tree.
