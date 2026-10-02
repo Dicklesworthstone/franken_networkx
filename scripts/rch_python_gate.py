@@ -98,7 +98,9 @@ def main():
              "test_error_messages.py", "test_thread_safety.py", "test_coverage_gaps.py",
              "test_delegation_ledger.py", "test_raw_vs_public_audit.py",
              "test_upstream_divergence_ledger.py", "test_api_ergonomics_audit.py",
-             "test_unused_raw_exposures.py", "test_verify_docs.py"]
+             "test_unused_raw_exposures.py", "test_verify_docs.py",
+             "test_min_weighted_vertex_cover_native_parity.py",
+             "test_voronoi_native_parity.py", "test_wide_int_weight_parity.py"]
     if (root / "tests/python/test_set_result_iteration_order_parity.py").is_file():
         tests.append("test_set_result_iteration_order_parity.py")
     def protect_test_process():

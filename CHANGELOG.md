@@ -258,6 +258,9 @@ Fixed in the release review:
 - The Rust `min_weighted_vertex_cover` API retains its published `HashMap`
   return type; the Python binding uses a separate ordered helper to preserve
   set iteration behavior without breaking explicitly typed Rust callers.
+- Wide integer edge weights remain Python integers; spanning-tree paths
+  reject nonnumeric weights, and affected shortest-path/vectorized paths
+  fall back to exact arithmetic beyond their native integer precision.
 - `cargo fmt` cleanliness restored across the workspace.
 - Updated the standalone fuzz harnesses for native attribute maps, Louvain's
   explicit summation/fallback contract and the seeded Python-compatible RNG API.
