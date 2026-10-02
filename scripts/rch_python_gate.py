@@ -9,6 +9,7 @@ The coverage ledger requires the pinned NetworkX 3.6.1 oracle; use
 """
 
 import argparse
+import configparser
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ from pathlib import Path
 import resource
 import shutil
 import subprocess
+import tomllib
 import urllib.request
 
 USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
@@ -64,6 +66,21 @@ def main():
                    env=bootstrap_env, check=True)
     shutil.copytree(root / "python", scratch / "python")
     shutil.copyfile(library, scratch / "python/franken_networkx/_fnx.abi3.so")
+    # Source qualification needs the actual declared backend entry points.
+    # Materialize only runtime metadata from pyproject, without invoking a
+    # package builder. Published-wheel installation is a separate release E2E.
+    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+    version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    dist_info = scratch / "python" / f"franken_networkx-{version}.dist-info"
+    dist_info.mkdir()
+    (dist_info / "METADATA").write_text(
+        f"Metadata-Version: 2.3\nName: {project['name']}\nVersion: {version}\n"
+    )
+    entry_points = configparser.ConfigParser()
+    entry_points.optionxform = str
+    entry_points.read_dict(project["entry-points"])
+    with (dist_info / "entry_points.txt").open("w") as handle:
+        entry_points.write(handle)
     print(f"native_library_sha256={hashlib.sha256(library.read_bytes()).hexdigest()}", flush=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(scratch / "python")
