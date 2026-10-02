@@ -144,3 +144,13 @@ def test_multigraph_negative_weight_written_after_sync_is_seen():
             lib.average_shortest_path_length(g, weight="weight")
         results.append(_outcome(lambda: lib.dijkstra_path(g, 0, 1, weight="weight")))
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_descendants_at_huge_distance_returns_empty(cls_name):
+    for lib in (fnx, nx):
+        g = getattr(lib, cls_name)([(0, 1), (1, 2)])
+        for distance in (len(g), 2**64, 10**100):
+            assert lib.descendants_at_distance(g, 0, distance) == set()
+        with pytest.raises(lib.NetworkXError):
+            lib.descendants_at_distance(g, 99, 10**100)

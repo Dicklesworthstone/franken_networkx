@@ -18803,6 +18803,10 @@ def descendants_at_distance(G, source, distance):
     # sentinel. Both degenerate to nx's empty ``set()``.
     if distance_int < 0 or distance != distance_int:
         return set()
+    # A shortest-path BFS layer cannot reach distance |V|. Bound the native
+    # usize conversion too, preserving Python's empty result for huge ints.
+    if distance_int >= len(G):
+        return set()
     # br-r37-c1-n4j4k: networkx returns set(layer) of the layer LIST, in the
     # order its loop discovers the nodes, and the set's iteration order follows
     # that wherever hashes collide. The native kernel walks the index rows
@@ -75315,4 +75319,3 @@ _importlib_leaf.import_module("franken_networkx.bridges")
 _importlib_leaf.import_module("franken_networkx.reciprocity")
 bridges = _fnx_public_bridges
 reciprocity = _fnx_public_reciprocity
-
