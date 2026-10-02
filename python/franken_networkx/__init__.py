@@ -57231,26 +57231,43 @@ _CONVERSION_EDGE_VIEW_TYPES = {
 
 
 class _UnionKeyAtlas(_Mapping):
+    """networkx's ``AtlasView(UnionAtlas(succ, pred))``: a pair's key dict in a
+    to_undirected(as_view=True) view of a MultiDiGraph - one side ``{}`` when
+    the pair runs one way only.
+
+    br-r37-c1-u7szm: networkx iterates ``set(succ.keys()) | set(pred.keys())``,
+    hash order; this walked the succ keys and then the rest of the pred keys,
+    so a pair with keys 1024 and 5 one way and 0 the other came out
+    [1024, 5, 0] where networkx gives [1024, 0, 5]. And it printed as an object
+    where networkx prints ``AtlasView(UnionAtlas({...}, {...}))``.
+    """
+
     def __init__(self, primary, secondary):
         self._primary = primary
         self._secondary = secondary
 
     def __iter__(self):
-        yielded = set()
-        for key in self._primary:
-            yielded.add(key)
-            yield key
-        for key in self._secondary:
-            if key not in yielded:
-                yield key
+        return iter(set(self._primary.keys()) | set(self._secondary.keys()))
 
     def __len__(self):
-        return sum(1 for _ in self)
+        return len(self._primary.keys() | self._secondary.keys())
 
     def __getitem__(self, key):
         if key in self._primary:
             return self._primary[key]
         return self._secondary[key]
+
+    def _union_repr(self):
+        return f"UnionAtlas({dict(self._primary)!r}, {dict(self._secondary)!r})"
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self._union_repr()})"
+
+    def __str__(self):
+        return str({key: self[key] for key in self})
+
+
+_UnionKeyAtlas.__name__ = _UnionKeyAtlas.__qualname__ = "AtlasView"
 
 
 class _ConversionNeighborMap(_Mapping):
@@ -57272,6 +57289,50 @@ class _ConversionNeighborMap(_Mapping):
         if self._reverse:
             return self._view._pred_neighbor_value(self._node, neighbor)
         return self._view._adj_neighbor_value(self._node, neighbor)
+
+    # br-r37-c1-u7szm: networkx's row is AtlasView / AdjacencyView (multigraph)
+    # over the mapping it reads - the source's row dict, or, in an undirected
+    # view of a directed graph, UnionAtlas / UnionMultiInner of the succ and
+    # pred rows - and prints as ``ClassName(<that mapping's repr>)``.
+    def _source_rows(self):
+        view, node = self._view, self._node
+        source = view._graph
+        multi = view._multigraph
+
+        def plain(row):
+            if multi:
+                return {nbr: dict(keydict) for nbr, keydict in row.items()}
+            return dict(row)
+
+        if source.is_directed() and not view._directed:
+            return plain(source.succ[node]), plain(source.pred[node])
+        if source.is_directed():
+            return plain((source.pred if self._reverse else source.succ)[node]), None
+        return plain(source.adj[node]), None
+
+    def __repr__(self):
+        rows, pred = self._source_rows()
+        if pred is None:
+            return f"{type(self).__name__}({rows!r})"
+        union = "UnionMultiInner" if self._view._multigraph else "UnionAtlas"
+        return f"{type(self).__name__}({union}({rows!r}, {pred!r}))"
+
+    def __str__(self):
+        rows, pred = self._source_rows()
+        if pred is None:
+            return str(rows)
+        if not self._view._multigraph:
+            return str({nbr: self[nbr] for nbr in self})
+        # UnionMultiInner's str shows each key dict as its bare UnionAtlas.
+        inner = ", ".join(f"{nbr!r}: {self[nbr]._union_repr()}" for nbr in self)
+        return "{" + inner + "}"
+
+
+# networkx's row class names, keyed by multigraph.
+_CONVERSION_ROW_TYPES = {
+    False: type("AtlasView", (_ConversionNeighborMap,), {}),
+    True: type("AdjacencyView", (_ConversionNeighborMap,), {}),
+}
 
 
 class _ConversionAdjacencyView(_Mapping):
@@ -57303,7 +57364,9 @@ class _ConversionAdjacencyView(_Mapping):
             # over a graph, "Key x not found" over a filtered view.
             self._view._graph.adj[node]
             raise KeyError(node)
-        return _ConversionNeighborMap(self._view, node, reverse=self._reverse)
+        return _CONVERSION_ROW_TYPES[self._view._multigraph](
+            self._view, node, reverse=self._reverse
+        )
 
 
 class _ConversionDegreeView:
@@ -58348,13 +58411,13 @@ class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
 
         outgoing = self._graph.succ[node].get(neighbor)
         incoming = self._graph.pred[node].get(neighbor)
-        if outgoing is not None and incoming is not None:
-            return _UnionKeyAtlas(outgoing, incoming)
-        if outgoing is not None:
-            return outgoing
-        if incoming is not None:
-            return incoming
-        raise KeyError(f"Key {neighbor} not found")
+        if outgoing is None and incoming is None:
+            raise KeyError(f"Key {neighbor} not found")
+        # br-r37-c1-u7szm: networkx's UnionMultiInner wraps a one-way pair too,
+        # with {} for the missing side.
+        return _UnionKeyAtlas(
+            {} if outgoing is None else outgoing, {} if incoming is None else incoming
+        )
 
     def has_edge(self, u, v, key=None):
         if not self._graph.is_directed():

@@ -315,3 +315,70 @@ def test_a_conversion_views_missing_attribute_reads_like_networkx(kind, name):
     # to the concrete copy, whose native class named itself
     # 'franken_networkx.Graph'.
     _check(kind, lambda L, G: getattr(G, name))
+
+
+def _rows(kind, view):
+    """Every row a conversion view hands out, with each multigraph row's key
+    dicts: networkx's are AtlasView / AdjacencyView over the source row, or
+    over UnionAtlas / UnionMultiInner of the succ and pred rows."""
+    accessors = ["adj", "__getitem__"]
+    if view.is_directed():
+        accessors += ["succ", "pred"]
+    for node in view:
+        for name in accessors:
+            row = view[node] if name == "__getitem__" else getattr(view, name)[node]
+            yield (node, name), row
+            if view.is_multigraph():
+                for nbr in row:
+                    yield (node, name, nbr), row[nbr]
+
+
+@pytest.mark.parametrize("kind", CONVERSION)
+def test_a_conversion_views_rows_read_and_print_like_networkx(kind):
+    # br-r37-c1-u7szm: the rows were _ConversionNeighborMap objects with
+    # object's repr, and a one-way MultiDiGraph pair's key dict was the
+    # source's own; the union key dicts walked succ keys then pred keys where
+    # networkx walks set(succ) | set(pred).
+    fnx_rows = dict(_rows(kind, _views(fnx)[kind]))
+    nx_rows = dict(_rows(kind, _views(nx)[kind]))
+    assert list(fnx_rows) == list(nx_rows)
+    for where, want in nx_rows.items():
+        got = fnx_rows[where]
+        assert type(got).__name__ == type(want).__name__, where
+        assert repr(got) == repr(want), where
+        assert str(got) == str(want), where
+        assert list(got) == list(want), where
+        assert len(got) == len(want), where
+
+
+def test_union_key_dict_iterates_in_set_order():
+    # Keys 1024 and 5 one way, 0 the other: networkx's set union iterates
+    # [1024, 0, 5]; succ-then-pred gave [1024, 5, 0].
+    views = []
+    for lib in (fnx, nx):
+        mdg = lib.MultiDiGraph()
+        mdg.add_edge(0, 1, key=1024)
+        mdg.add_edge(1, 0, key=0)
+        mdg.add_edge(0, 1, key=5)
+        views.append(mdg.to_undirected(as_view=True))
+    assert list(views[0].adj[0][1]) == list(views[1].adj[0][1]) == [1024, 0, 5]
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_union_view_edges_list_keys_in_networkx_order(seed):
+    # Each pair's keys come out of its UnionAtlas - set order - one-way pairs
+    # included; the source's key dict order differed for every graph here.
+    import random
+
+    rng = random.Random(seed)
+    edges = [
+        (rng.randrange(30), rng.randrange(30), rng.choice([5, 1024, 0, 13, 2048, 77]))
+        for _ in range(120)
+    ]
+    out = []
+    for lib in (fnx, nx):
+        mdg = lib.MultiDiGraph()
+        for u, v, key in edges:
+            mdg.add_edge(u, v, key=key)
+        out.append(list(mdg.to_undirected(as_view=True).edges(keys=True)))
+    assert out[0] == out[1]
