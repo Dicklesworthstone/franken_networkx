@@ -255,6 +255,9 @@ Fixed in the release review:
 - Set-returning traversal functions preserve NetworkX's insertion-dependent
   iteration order. Oversized descendant distances return an empty set after
   source validation, preserving Python semantics without native overflow.
+- The Rust `min_weighted_vertex_cover` API retains its published `HashMap`
+  return type; the Python binding uses a separate ordered helper to preserve
+  set iteration behavior without breaking explicitly typed Rust callers.
 - `cargo fmt` cleanliness restored across the workspace.
 - Updated the standalone fuzz harnesses for native attribute maps, Louvain's
   explicit summation/fallback contract and the seeded Python-compatible RNG API.
@@ -266,6 +269,11 @@ Fixed in the release review:
   qualified 0.28.3 API series.
 
 Behaviour notes:
+- The registry `fnx-conformance` behavioral-oracle binary still embeds a
+  repository-only Python script outside its crate package boundary. The
+  unchanged packaging limitation is tracked in [#6](https://github.com/Dicklesworthstone/franken_networkx/issues/6);
+  source-checkout tests and publication without verification do not establish
+  that this optional packaged binary compiles.
 - **Known limitation ([#4](https://github.com/Dicklesworthstone/franken_networkx/issues/4)):**
   native mixed integer/float weighted-degree and directed-modularity paths can differ at the last
   bit from CPython 3.10–3.13's summation. The underlying accumulators predate `v0.2.2`; this release

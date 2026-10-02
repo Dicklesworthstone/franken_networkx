@@ -31034,7 +31034,18 @@ pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
 /// Guarantees total weight at most twice the optimal.
 ///
 /// Matches `networkx.algorithms.approximation.vertex_cover.min_weighted_vertex_cover`.
-pub fn min_weighted_vertex_cover(
+pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: Option<&str>) -> HashMap<String, f64> {
+    min_weighted_vertex_cover_ordered(graph, weight_attr)
+        .into_iter()
+        .collect()
+}
+
+/// Minimum weighted vertex cover in the local-ratio algorithm's insertion order.
+///
+/// Bindings constructing a Python set use this order to reproduce collision
+/// behavior. The original [`min_weighted_vertex_cover`] API retains its
+/// `HashMap` return type for downstream Rust source compatibility.
+pub fn min_weighted_vertex_cover_ordered(
     graph: &Graph,
     weight_attr: Option<&str>,
 ) -> IndexMap<String, f64> {
@@ -78011,7 +78022,9 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("a", "c");
-        let cover = min_weighted_vertex_cover(&g, Some("weight"));
+        // Keep the published return type usable by explicitly typed callers.
+        let cover: std::collections::HashMap<String, f64> =
+            min_weighted_vertex_cover(&g, Some("weight"));
         // Must cover all edges
         for edge in g.edges_ordered() {
             assert!(
@@ -78021,6 +78034,21 @@ mod tests {
                 edge.right
             );
         }
+    }
+
+    #[test]
+    fn test_min_weighted_vertex_cover_ordered_preserves_selection_order() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("second", "first");
+        let _ = g.add_edge("first", "third");
+        let ordered = super::min_weighted_vertex_cover_ordered(&g, None);
+        assert_eq!(
+            ordered.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["second", "first"]
+        );
+        let compatible: std::collections::HashMap<String, f64> =
+            min_weighted_vertex_cover(&g, None);
+        assert_eq!(compatible, ordered.into_iter().collect());
     }
 
     #[test]

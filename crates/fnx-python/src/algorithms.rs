@@ -20740,7 +20740,8 @@ fn min_weighted_vertex_cover(
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     // `weight = None` -> every node weight 1 (networkx ignores node attrs then).
-    let result = py.allow_threads(|| fnx_algorithms::min_weighted_vertex_cover(inner, weight));
+    let result =
+        py.allow_threads(|| fnx_algorithms::min_weighted_vertex_cover_ordered(inner, weight));
     // NetworkX returns a set of nodes (ignoring weights), grown by `cover.add`
     // as its edge loop picks them - the kernel's order, which the set's
     // iteration order follows wherever hashes collide (br-r37-c1-ygt3z).
