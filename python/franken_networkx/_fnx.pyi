@@ -772,10 +772,10 @@ def bfs_layers(
     sources: Any,
 ) -> list[list[Any]]: ...
 def descendants_at_distance(
-    g: Union[Graph, DiGraph],
+    g: Union[Graph, DiGraph, MultiGraph, MultiDiGraph],
     source: Any,
     distance: int,
-) -> set[Any]: ...
+) -> Optional[list[Any]]: ...
 
 # ---------------------------------------------------------------------------
 # Traversal — DFS
@@ -1209,11 +1209,10 @@ def edge_boundary(
     nbunch1: list[Any],
     nbunch2: Optional[list[Any]] = None,
 ) -> list[tuple[Any, Any]]: ...
-def node_boundary(
-    g: Union[Graph, DiGraph],
-    nbunch1: list[Any],
-    nbunch2: Optional[list[Any]] = None,
-) -> list[Any]: ...
+def node_boundary_rows(
+    g: Union[Graph, DiGraph, MultiGraph, MultiDiGraph],
+    nodes: Iterable[Any],
+) -> Optional[list[Any]]: ...
 def normalized_cut_size(
     g: Union[Graph, DiGraph],
     nbunch1: list[Any],

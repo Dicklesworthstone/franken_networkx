@@ -18803,33 +18803,27 @@ def descendants_at_distance(G, source, distance):
     # sentinel. Both degenerate to nx's empty ``set()``.
     if distance_int < 0 or distance != distance_int:
         return set()
-    # br-r37-c1-dadlocal: the native kernel pays an O(V+E) node-index/adjacency
-    # setup even for a local (small-distance) query, making it 30-750x slower
-    # than networkx for distance 1-2 (the common k-hop-neighbourhood use). Run
-    # networkx's exact layer BFS directly on the fnx graph for the local case;
-    # if the frontier goes "global" (visited > 64) the Rust BFS over the whole
-    # graph wins, so bail to the native kernel. The result is a set (order-
-    # invariant), so it is byte-identical to networkx and to the native kernel.
-    # br-r37-c1-dadchain (cc): expand each BFS frontier with a single C-level
-    # set(chain(neighbors...)) - visited (G.neighbors reads the fast native row),
-    # 1.1-1.5x faster than nx's bfs_layers at every distance and graph size (n=800
-    # and n=5000 verified). The previous code dumped the common k-hop case into the
-    # native kernel via a `visited > 64` bail — but that kernel pays an O(V+E)
-    # index/adjacency setup regardless of the query radius, making distance-3
-    # neighbourhoods 3x SLOWER than nx (0.32x). The lazy chain expansion never pays
-    # that whole-graph setup, so it wins from the first hop to the whole graph.
-    current = {source}
+    # br-r37-c1-n4j4k: networkx returns set(layer) of the layer LIST, in the
+    # order its loop discovers the nodes, and the set's iteration order follows
+    # that wherever hashes collide. The native kernel walks the index rows
+    # marking only what it reaches (a local query costs its reach, where the
+    # kernel this replaced paid an O(V+E) setup - br-r37-c1-dadlocal) and
+    # returns the layer in discovery order, as each parent's row shows it.
+    if _raw_neighbors_dispatch(G) is not None:
+        return set(_raw_descendants_at_distance(G, source, distance_int))
+    # A multigraph: networkx's layer BFS over the rows. dict.fromkeys over the
+    # frontier's rows keeps each neighbour's first occurrence - the discovery
+    # order - at C level (br-r37-c1-dadchain expanded frontiers the same way).
+    layer = [source]
     visited = {source}
-    d = 0
     _chain = _itertools.chain.from_iterable
     _nbrs = G.neighbors
-    while d < distance_int:
-        current = set(_chain(_nbrs(u) for u in current)) - visited
-        visited |= current
-        d += 1
-        if not current:
-            break
-    return current
+    for _ in range(distance_int):
+        layer = [w for w in dict.fromkeys(_chain(_nbrs(u) for u in layer)) if w not in visited]
+        if not layer:
+            return set()
+        visited.update(layer)
+    return set(layer)
 
 # Algorithm functions — traversal (DFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
@@ -23786,12 +23780,12 @@ def ancestors(G, source):
     # br-r37-c1-descbfs: native kernel handles undirected (component BFS) and
     # directed (predecessor reachability) — see algorithms.rs::ancestors. The
     # previous undirected Python BFS over G[n] paid the per-neighbor PyO3 tax.
-    # Returns a plain set (order-invariant) matching nx.
+    # Returns a plain set built in networkx's order (br-r37-c1-n4j4k).
     # br-cc-descmg: undirected multigraph -> connected component minus source (the
     # native BFS is 0.03x there; ancestors == descendants on undirected). See
     # descendants().
     if not G.is_directed() and G.is_multigraph():
-        return node_connected_component(G, source) - {source}
+        return set(_raw_node_connected_component(G, source)[1:])
     return _raw_ancestors(G, source)
 
 
@@ -23817,14 +23811,16 @@ def descendants(G, source):
     # reachability) and undirected (component BFS via bfs_edges) — see
     # algorithms.rs::descendants. The previous undirected branch ran a Python
     # BFS over the lazy AtlasView (per-neighbor PyO3 tax, ~5x slower than nx);
-    # route it through the native kernel too. Returns a plain set (order-
-    # invariant) matching nx.
+    # route it through the native kernel too. Returns a plain set built in
+    # networkx's order: each child added as bfs_edges discovers it
+    # (br-r37-c1-n4j4k).
     # br-cc-descmg: on an UNDIRECTED MULTIGRAPH the native BFS re-walks the
     # parallel-edge adjacency (0.03x / 25-47x slower than nx). descendants there
     # is exactly the connected component minus source, and node_connected_component
-    # is a fnx WIN on multigraphs — route it through that.
+    # is a fnx WIN on multigraphs — route it through that: its BFS list less the
+    # source, its first entry, is bfs_edges' children in discovery order.
     if not G.is_directed() and G.is_multigraph():
-        return node_connected_component(G, source) - {source}
+        return set(_raw_node_connected_component(G, source)[1:])
     return _raw_descendants(G, source)
 
 
@@ -25138,7 +25134,7 @@ def is_isolate(G, n):
 from franken_networkx._fnx import (
     cut_size as _raw_cut_size,
     edge_boundary as _raw_edge_boundary,
-    node_boundary as _raw_node_boundary,
+    node_boundary_rows as _raw_node_boundary_rows,
     normalized_cut_size as _raw_normalized_cut_size,
 )
 
@@ -25221,8 +25217,21 @@ def node_boundary(G, nbunch1, nbunch2=None, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords("node_boundary", backend, backend_kwargs)
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    result = _raw_node_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
-    return set(result) if not isinstance(result, set) else result
+    # br-r37-c1-n4j4k: networkx's own set operations, whose result iterates in
+    # an order they decide wherever hashes collide - nset1 grown in nbunch1
+    # order, the rows chained in nset1's order into a grown set, then the set
+    # difference (and &= set(nbunch2)) - over the native rows, chained in one
+    # call where the graph has index rows.
+    nset1 = {n for n in nbunch1 if n in G}
+    rows = None
+    if _raw_neighbors_dispatch(G) is not None:
+        rows = _raw_node_boundary_rows(G, nset1)
+    if rows is None:
+        rows = _itertools.chain.from_iterable(G[v] for v in nset1)
+    bdy = set(rows) - nset1
+    if nbunch2 is not None:
+        bdy &= set(nbunch2)
+    return bdy
 
 
 def edge_boundary(
@@ -30301,17 +30310,16 @@ def attracting_components(G):
     G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    components = [set(component) for component in _raw_attracting_components(G)]
-    if len(components) > 1:
-        # br-r37-c1-64xcg: networkx yields the sink components in
-        # strongly_connected_components order (it walks the condensation's
-        # nodes); the native list came in another order.
-        position = {}
-        for index, component in enumerate(strongly_connected_components(G)):
-            for node in component:
-                position[node] = index
-        components.sort(key=lambda component: position[next(iter(component))])
-    return (component for component in components)
+    # br-r37-c1-64xcg / br-r37-c1-n4j4k: networkx yields the sink components
+    # of strongly_connected_components, in its order and as the very sets it
+    # built (it walks the condensation's nodes), so each iterates in that
+    # algorithm's order; the native kernel only says which components attract.
+    attracting = set(_itertools.chain.from_iterable(_raw_attracting_components(G)))
+    return (
+        component
+        for component in strongly_connected_components(G)
+        if next(iter(component)) in attracting
+    )
 
 
 def number_attracting_components(G):
@@ -53344,11 +53352,15 @@ def _raw_neighbors_dispatch(G):
 
 
 def _cached_native_node_key_set(G, native_keys):
+    # br-r37-c1-n4j4k: built from a dict of the nodes in node order, as
+    # networkx's set(G._adj.keys()) is - its table sized once for every node -
+    # so a copy of it (a slot-for-slot copy of a set without dummies) is laid
+    # out as networkx's and iterates in its order.
     state = G.nodes_seq
     cache = vars(G)
     if cache.get("_fnx_native_node_key_set_state") != state:
         cache["_fnx_native_node_key_set_state"] = state
-        cache["_fnx_native_node_key_set"] = set(native_keys())
+        cache["_fnx_native_node_key_set"] = set(dict.fromkeys(native_keys()))
     return cache["_fnx_native_node_key_set"]
 
 
@@ -64676,16 +64688,20 @@ def reverse_view(G):
 def non_neighbors(graph, node):
     """Returns the non-neighbors of the node in the graph."""
     _HASH_PROBE.get(node)
+    # br-r37-c1-n4j4k: networkx returns G._adj.keys() - G._adj[node].keys() -
+    # {node}. On dict rows that is a set of the node dict (its table sized once
+    # for every node), the row discarded from it, then a set difference that
+    # copies what is left into a table of its own size - a result that iterates
+    # in networkx's order only when those operations run, as here, on a set laid
+    # out as set(node dict) is.
     if type(graph) is DiGraph and not _has_networkx_private_storage(graph):
         nodes = _cached_native_node_key_set(graph, graph._native_node_keys).copy()
-        nodes.difference_update(graph._native_successor_row_dict(node).keys())
-        nodes.discard(node)
-        return nodes
+        nodes.difference_update(graph._native_successor_row_dict(node))
+        return nodes - {node}
     if type(graph) is Graph and not _has_networkx_private_storage(graph):
         nodes = _cached_native_node_key_set(graph, graph._native_node_keys).copy()
-        nodes.difference_update(graph._native_adjacency_row_dict(node).keys())
-        nodes.discard(node)
-        return nodes
+        nodes.difference_update(graph._native_adjacency_row_dict(node))
+        return nodes - {node}
     if node not in graph:
         raise KeyError(node)
     # br-r37-c1-qkq2h: bypass AdjacencyView/AtlasView via raw Rust
@@ -64695,27 +64711,28 @@ def non_neighbors(graph, node):
     # wrapper-bypass family as find_cliques (lgyq8), square_clustering
     # (7t95c), dominating_set (02djy).
     _raw_nbrs = _raw_neighbors_dispatch(graph)
-    # br-r37-c1-nodekeys: enumerate ALL node display objects in ONE native call
-    # (Graph/MultiGraph have _native_node_keys) instead of set(graph) crossing
-    # PyO3 per node, and crucially instead of set(graph.adj) which
-    # re-materialises every node's AdjacencyView row (MultiGraph was ~700x nx).
-    native_keys = getattr(graph, "_native_node_keys", None)
-    if native_keys is not None:
-        native_key_set = None
-        if type(graph) is MultiDiGraph:
-            native_key_set = getattr(graph, "_native_node_key_set", None)
-        nodes = native_key_set() if native_key_set is not None else set(native_keys())
-        if _raw_nbrs is not None:
-            nbrs = set(_raw_nbrs(graph, node))
-        else:
-            # multigraph: G[node] is the native O(deg) adjacency row;
-            # G.adj[node] would re-materialise the whole AdjacencyView
-            # (~900x slower on a 2k-node MultiGraph).
-            nbrs = set(graph[node])
-        return nodes - nbrs - {node}
     if _raw_nbrs is not None:
-        return set(graph) - set(_raw_nbrs(graph, node)) - {node}
-    return set(graph.adj) - set(graph.adj[node]) - {node}
+        row = _raw_nbrs(graph, node)
+    elif type(graph) in _CONCRETE_FNX_GRAPH_TYPES:
+        # multigraph: G[node] is the native O(deg) adjacency row;
+        # G.adj[node] would re-materialise the whole AdjacencyView
+        # (~900x slower on a 2k-node MultiGraph).
+        row = graph[node]
+    else:
+        row = graph.adj[node]
+    if not _nx_rows_are_dicts(graph):
+        # A filtered or undirected view's rows are coreview Mappings, whose
+        # KeysView difference grows its set one add at a time.
+        row = set(row)
+        return {w for w in graph if w not in row} - {node}
+    # br-r37-c1-nodekeys: enumerate ALL node display objects in ONE native call
+    # instead of crossing PyO3 per node.
+    native_keys = getattr(graph, "_native_node_keys", None)
+    if native_keys is not None and type(graph) in _CONCRETE_FNX_GRAPH_TYPES:
+        nodes = dict.fromkeys(native_keys())
+    else:
+        nodes = dict.fromkeys(graph)
+    return nodes.keys() - row - {node}
 
 
 _NON_EDGES_ROW_CACHE_MIN_NODES = 128

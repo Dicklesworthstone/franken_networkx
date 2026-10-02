@@ -28310,39 +28310,33 @@ pub fn weakly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
     // component per first-unvisited node) — matching nx's `for v in G`
     // component generation — and each node name is materialised ONCE at the
     // end. The previous version additionally `sort_unstable()`d every component
-    // AND the component list (lexicographic by node name): wasted work, since
-    // the Python wrapper wraps each component in `set(...)` (intra-component
-    // order irrelevant) and the nx contract yields components in discovery
-    // order, not sorted order.
+    // AND the component list (lexicographic by node name); the nx contract
+    // yields components in discovery order, not sorted order.
+    // br-r37-c1-n4j4k: and each component in networkx's _plain_bfs order - the
+    // first node, then each level's nodes as their successor rows and then
+    // their predecessor rows discover them - since the set the Python wrapper
+    // builds from it iterates in insertion order wherever hashes collide. `comp`
+    // is the queue too.
     let n = digraph.node_count();
     let names = digraph.nodes_ordered();
     let mut visited = vec![false; n];
     let mut components: Vec<Vec<String>> = Vec::new();
-    let mut stack: Vec<usize> = Vec::new();
 
     for start in 0..n {
         if visited[start] {
             continue;
         }
         visited[start] = true;
-        let mut comp: Vec<usize> = Vec::new();
-        stack.push(start);
-        while let Some(u) = stack.pop() {
-            comp.push(u);
-            if let Some(succ) = digraph.successors_indices(u) {
-                for &v in succ {
-                    if !visited[v] {
-                        visited[v] = true;
-                        stack.push(v);
-                    }
-                }
-            }
-            if let Some(pred) = digraph.predecessors_indices(u) {
-                for &v in pred {
-                    if !visited[v] {
-                        visited[v] = true;
-                        stack.push(v);
-                    }
+        let mut comp: Vec<usize> = vec![start];
+        let mut head = 0;
+        while let Some(&u) = comp.get(head) {
+            head += 1;
+            let succ = digraph.successors_indices(u).unwrap_or(&[]);
+            let pred = digraph.predecessors_indices(u).unwrap_or(&[]);
+            for &v in succ.iter().chain(pred) {
+                if !visited[v] {
+                    visited[v] = true;
+                    comp.push(v);
                 }
             }
         }
@@ -39479,10 +39473,9 @@ pub fn group_out_degree_centrality(digraph: &DiGraph, group: &[&str]) -> f64 {
 pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
     // br-r37-c1-nccint: integer-CSR BFS instead of a String-keyed
     // HashSet<&str> walk over neighbors_iter (per-node String hashing) plus a
-    // final sort_unstable() of the node names. The Python wrapper wraps the
-    // result in set(), so intra-component order is irrelevant and the sort was
-    // pure waste; names are materialised ONCE at the end. Same String-keyed-BFS
-    // -> integer-CSR lever that took weakly_connected_components 15x->parity.
+    // final sort_unstable() of the node names; names are materialised ONCE at
+    // the end. Same String-keyed-BFS -> integer-CSR lever that took
+    // weakly_connected_components 15x->parity.
     let Some(start) = graph.get_node_index(node) else {
         return Vec::new();
     };
@@ -39491,25 +39484,25 @@ pub fn node_connected_component(graph: &Graph, node: &str) -> Vec<String> {
     // nx's 4 us); a component that is the whole graph promotes to the dense marks.
     let n = graph.node_count();
     let mut visited = NodeTable::new(n, false);
-    let mut stack: Vec<usize> = vec![start];
     visited.set(start, true);
-    // br-connearly: accumulate at MARK time (was pop time) so we can stop the DFS
-    // the moment every node is reached — on a dense single-component graph the
-    // remaining stack's edges are pure redundant scanning (O(|E|) -> O(|V|)). The
-    // Python wrapper wraps the result in set(), so the mark-vs-pop order change is
-    // invisible. Same lever as is_connected (3ab1b0c67).
+    // br-r37-c1-n4j4k: in networkx's _plain_bfs order - the source, then each
+    // level's nodes in the order their rows discover them - since the set the
+    // Python wrapper builds from this list iterates in its insertion order
+    // wherever hashes collide. `comp` is the queue too.
+    // br-connearly: accumulate at MARK time so the walk stops the moment every
+    // node is reached — on a dense single-component graph the remaining rows are
+    // pure redundant scanning (O(|E|) -> O(|V|)), and networkx stops there too.
     let mut comp: Vec<usize> = vec![start];
-    let mut visited_count = 1usize;
-    'dfs: while let Some(u) = stack.pop() {
+    let mut head = 0;
+    'bfs: while let Some(&u) = comp.get(head) {
+        head += 1;
         if let Some(neighbors) = graph.neighbors_indices(u) {
             for &v in neighbors {
                 if !visited.get(v) {
                     visited.set(v, true);
                     comp.push(v);
-                    stack.push(v);
-                    visited_count += 1;
-                    if visited_count == n {
-                        break 'dfs;
+                    if comp.len() == n {
+                        break 'bfs;
                     }
                 }
             }
@@ -39965,31 +39958,29 @@ pub fn kosaraju_strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<Stri
     // order (every downstream SCC is already ``seen``), pruning the forward search
     // at ``seen`` yields exactly the root's SCC — output-identical to nx's
     // full-reachable-then-filter, in O(V+E) total instead of O(V*E).
+    // br-r37-c1-n4j4k: each component in networkx's insertion order - `new =
+    // {r}`, then every unseen successor marked and added as the popped node's
+    // row reaches it - since the set the Python wrapper builds from it iterates
+    // in that order wherever hashes collide.
     let mut seen = vec![false; n];
     let mut components: Vec<Vec<String>> = Vec::new();
     for &root in post.iter().rev() {
         if seen[root] {
             continue;
         }
-        let mut component: Vec<usize> = Vec::new();
+        seen[root] = true;
+        let mut component: Vec<usize> = vec![root];
         let mut stack: Vec<usize> = vec![root];
         while let Some(v) = stack.pop() {
-            if seen[v] {
-                continue;
-            }
-            seen[v] = true;
-            component.push(v);
-            if let Some(succs) = digraph.successors_indices(v) {
-                for &s in succs.iter().rev() {
-                    if !seen[s] {
-                        stack.push(s);
-                    }
+            for &s in digraph.successors_indices(v).unwrap_or(&[]) {
+                if !seen[s] {
+                    seen[s] = true;
+                    component.push(s);
+                    stack.push(s);
                 }
             }
         }
-        let mut comp_owned: Vec<String> = component.iter().map(|&i| nodes[i].to_owned()).collect();
-        comp_owned.sort_unstable();
-        components.push(comp_owned);
+        components.push(component.iter().map(|&i| nodes[i].to_owned()).collect());
     }
 
     components

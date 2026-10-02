@@ -136,9 +136,6 @@ TRIAGE = {
         "public dijkstra_path wrapper routes through shared single-source "
         "Dijkstra helpers for error wording, weight delegation, and int/float "
         "distance parity; raw kept as direct-Rust API"),
-    "_raw_descendants_at_distance": ("keep-public-api",
-        "public descendants_at_distance uses bfs_layers for nx layer-order "
-        "parity across graph families; raw kept as direct-Rust API"),
     # ---- keep-public-api: namespace-hide batches removed the public
     # top-level wrappers (the algorithm is reachable via nx through
     # fnx.community.X / fnx.approximation.X), but the Rust kernel

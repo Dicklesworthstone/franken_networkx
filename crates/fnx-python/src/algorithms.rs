@@ -21,7 +21,7 @@ use pyo3::types::{
     PyBool, PyBytes, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
 };
 use std::cell::{OnceCell, RefCell};
-use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{
     Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
@@ -257,6 +257,29 @@ impl<'py> GraphRef<'py> {
             disp.insert(v.clone(), v_obj);
         }
         disp
+    }
+
+    /// br-r37-c1-n4j4k: networkx's `{child for parent, child in bfs_edges(...)}`
+    /// adds each child in discovery order, as its parent's row shows it
+    /// (br-r37-c1-6hpa9; the predecessor row when `reverse`), and wherever
+    /// hashes collide a set iterates in an order its insertion order decides.
+    fn bfs_children_set<U: AsRef<str>, V: AsRef<str>>(
+        &self,
+        py: Python<'_>,
+        edges: &[(U, V)],
+        reverse: bool,
+    ) -> PyResult<Py<PySet>> {
+        let children = edges
+            .iter()
+            .map(|(u, v)| {
+                if reverse {
+                    self.py_pred_row_key(py, u.as_ref(), v.as_ref())
+                } else {
+                    self.py_row_key(py, u.as_ref(), v.as_ref())
+                }
+            })
+            .collect::<Vec<_>>();
+        PySet::new(py, &children).map(Bound::unbind)
     }
 
     /// br-r37-c1-6hpa9: discovery object with node-map fallback.
@@ -12842,14 +12865,48 @@ pub fn bfs_layers(
     )))
 }
 
-/// Return all nodes at a fixed distance from source in G.
+/// The (parent, node) pairs of the BFS layer `distance` hops from `start` (at
+/// least one), in the order the walk discovers them - rows walked in row
+/// order, a node taken the first time it is reached. Only reached nodes are
+/// marked, so the walk costs what it reaches.
+fn bfs_layer_pairs<'a>(
+    start: usize,
+    distance: usize,
+    rows: impl Fn(usize) -> &'a [usize],
+) -> Vec<(usize, usize)> {
+    let mut visited: rustc_hash::FxHashSet<usize> = rustc_hash::FxHashSet::default();
+    visited.insert(start);
+    let mut layer = vec![(start, start)];
+    for _ in 0..distance {
+        let mut next = Vec::new();
+        for &(_, u) in &layer {
+            for &v in rows(u) {
+                if visited.insert(v) {
+                    next.push((u, v));
+                }
+            }
+        }
+        if next.is_empty() {
+            return next;
+        }
+        layer = next;
+    }
+    layer
+}
+
+/// Return the nodes at a fixed distance from source in G.
+///
+/// br-r37-c1-n4j4k: as networkx's bfs_layers yields that layer - the source
+/// itself at distance 0, else its nodes in discovery order, each as its
+/// parent's row shows it - so the set the Python wrapper grows from this list
+/// is networkx's set(layer), iteration order included. `None` for a multigraph.
 #[pyfunction]
 pub fn descendants_at_distance(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     distance: usize,
-) -> PyResult<pyo3::Py<pyo3::types::PyFrozenSet>> {
+) -> PyResult<Option<Vec<PyObject>>> {
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
@@ -12858,46 +12915,44 @@ pub fn descendants_at_distance(
             source.str()?
         )));
     }
-
-    let nodes = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let __dg_inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::descendants_at_distance_directed(__dg_inner, &source_key, distance)
-            })
-        }
-
+    if distance == 0 {
+        return Ok(Some(vec![source.clone().unbind()]));
+    }
+    match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-
-            py.allow_threads(|| {
-                fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
-            })
+            let start = inner
+                .get_node_index(&source_key)
+                .expect("has_node checked above");
+            let pairs = bfs_layer_pairs(start, distance, |u| {
+                inner.neighbors_indices(u).unwrap_or(&[])
+            });
+            let name = |i: usize| inner.get_node_name(i).unwrap_or_default();
+            Ok(Some(
+                pairs
+                    .iter()
+                    .map(|&(u, v)| pg.py_adj_key(py, name(u), name(v)))
+                    .collect(),
+            ))
         }
-        _ => {
-            if gr.is_directed() {
-                {
-                    let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                    py.allow_threads(|| {
-                        fnx_algorithms::descendants_at_distance_directed(
-                            __gr_digraph,
-                            &source_key,
-                            distance,
-                        )
-                    })
-                }
-            } else {
-                let inner = gr.undirected();
-
-                py.allow_threads(|| {
-                    fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
-                })
-            }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let start = inner
+                .get_node_index(&source_key)
+                .expect("has_node checked above");
+            let pairs = bfs_layer_pairs(start, distance, |u| {
+                inner.successors_indices(u).unwrap_or(&[])
+            });
+            let name = |i: usize| inner.get_node_name(i).unwrap_or_default();
+            Ok(Some(
+                pairs
+                    .iter()
+                    .map(|&(u, v)| dg.py_succ_key(py, name(u), name(v)))
+                    .collect(),
+            ))
         }
-    };
-
-    let py_nodes: Vec<PyObject> = nodes.iter().map(|n| gr.py_node_key(py, n)).collect();
-    pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind())
+        _ => Ok(None),
+    }
 }
 
 // ===========================================================================
@@ -14229,84 +14284,23 @@ pub fn ancestors(
     if !gr.is_directed() {
         let inner = gr.undirected();
         let edges = py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, None));
-        // br-r37-c1-6hpa9: nx's set members carry DISCOVERY objects.
-        let disp = gr.discovery_map(
-            py,
-            &edges,
-            Some((&source_key, source.clone().unbind())),
-            false,
-        );
-        let mut result: HashSet<String> = HashSet::new();
-        for (u, v) in edges {
-            if u != source_key {
-                result.insert(u);
-            }
-            if v != source_key {
-                result.insert(v);
-            }
-        }
-        let py_nodes: Vec<PyObject> = result
-            .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
-            .collect();
-        return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
+        return gr.bfs_children_set(py, &edges, false);
     }
 
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
         // br-r37-c1-zid1b: ancestors via direct predecessor-BFS reverse tree edges.
         let inner = &mdg.inner;
         let edges = py.allow_threads(|| multidigraph_bfs_edges_reverse(inner, &source_key));
-        let disp = gr.discovery_map(
-            py,
-            &edges,
-            Some((&source_key, source.clone().unbind())),
-            true,
-        );
-        let mut result: HashSet<String> = HashSet::new();
-        for (u, v) in &edges {
-            if u != &source_key {
-                result.insert(u.clone());
-            }
-            if v != &source_key {
-                result.insert(v.clone());
-            }
-        }
-        let py_nodes: Vec<PyObject> = result
-            .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
-            .collect();
-        return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
+        return gr.bfs_children_set(py, &edges, true);
     }
 
-    {
-        // br-r37-c1-6hpa9: nx ancestors walks the REVERSE bfs — members
-        // carry pred-row discovery objects. Derive from the reverse tree
-        // stream instead of the set-returning kernel.
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        let edges = py.allow_threads(|| {
-            fnx_algorithms::bfs_edges_directed_reverse(dg_ref, &source_key, None)
-        });
-        let disp = gr.discovery_map(
-            py,
-            &edges,
-            Some((&source_key, source.clone().unbind())),
-            true,
-        );
-        let mut result: HashSet<String> = HashSet::new();
-        for (u, v) in &edges {
-            if u != &source_key {
-                result.insert(u.clone());
-            }
-            if v != &source_key {
-                result.insert(v.clone());
-            }
-        }
-        let py_nodes: Vec<PyObject> = result
-            .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
-            .collect();
-        pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind())
-    }
+    // br-r37-c1-6hpa9: nx ancestors walks the REVERSE bfs — members carry
+    // pred-row discovery objects. Derive from the reverse tree stream instead
+    // of the set-returning kernel.
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let edges =
+        py.allow_threads(|| fnx_algorithms::bfs_edges_directed_reverse(dg_ref, &source_key, None));
+    gr.bfs_children_set(py, &edges, true)
 }
 
 /// Return all descendants of node in the directed graph.
@@ -14330,66 +14324,20 @@ pub fn descendants(
     if !gr.is_directed() {
         let inner = gr.undirected();
         let edges = py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, None));
-        // br-r37-c1-6hpa9: nx's set members carry DISCOVERY objects.
-        let disp = gr.discovery_map(
-            py,
-            &edges,
-            Some((&source_key, source.clone().unbind())),
-            false,
-        );
-        let mut result: HashSet<String> = HashSet::new();
-        for (u, v) in edges {
-            if u != source_key {
-                result.insert(u);
-            }
-            if v != source_key {
-                result.insert(v);
-            }
-        }
-        let py_nodes: Vec<PyObject> = result
-            .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
-            .collect();
-        return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
+        return gr.bfs_children_set(py, &edges, false);
     }
 
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
         // br-r37-c1-zid1b: descendants via direct successor-BFS tree edges, no conversion.
         let inner = &mdg.inner;
         let edges = py.allow_threads(|| multidigraph_bfs_edges(inner, &source_key));
-        let py_nodes: Vec<PyObject> = edges
-            .iter()
-            .map(|&(parent, child)| gr.py_row_key(py, parent, child))
-            .collect();
-        return pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind());
+        return gr.bfs_children_set(py, &edges, false);
     }
 
-    {
-        // br-r37-c1-6hpa9: forward-BFS discovery objects for the members.
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        let edges =
-            py.allow_threads(|| fnx_algorithms::bfs_edges_directed(dg_ref, &source_key, None));
-        let disp = gr.discovery_map(
-            py,
-            &edges,
-            Some((&source_key, source.clone().unbind())),
-            false,
-        );
-        let mut result: HashSet<String> = HashSet::new();
-        for (u, v) in &edges {
-            if u != &source_key {
-                result.insert(u.clone());
-            }
-            if v != &source_key {
-                result.insert(v.clone());
-            }
-        }
-        let py_nodes: Vec<PyObject> = result
-            .iter()
-            .map(|n| gr.disp_or_node_key(py, &disp, n))
-            .collect();
-        pyo3::types::PySet::new(py, &py_nodes).map(|s| s.unbind())
-    }
+    // br-r37-c1-6hpa9: forward-BFS discovery objects for the members.
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let edges = py.allow_threads(|| fnx_algorithms::bfs_edges_directed(dg_ref, &source_key, None));
+    gr.bfs_children_set(py, &edges, false)
 }
 
 // ===========================================================================
@@ -21843,66 +21791,50 @@ fn edge_boundary(
         .collect())
 }
 
-/// Return the nodes at the boundary of `nbunch1`.
+/// br-r37-c1-n4j4k: the rows of `nodes` chained in order, each neighbour at
+/// its first appearance and as its row shows it; `None` for a multigraph.
+/// networkx's node_boundary is built from set(chain.from_iterable(G[v] for v
+/// in nset1)), and a set grown from this list is that set - table and
+/// iteration order included, since adding a member again changes nothing.
+/// Nodes not in the graph are skipped. O(sum of the rows walked).
 #[pyfunction]
-#[pyo3(signature = (g, nbunch1, nbunch2=None))]
-fn node_boundary(
+fn node_boundary_rows(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-    nbunch1: Vec<Bound<'_, PyAny>>,
-    nbunch2: Option<Vec<Bound<'_, PyAny>>>,
-) -> PyResult<Vec<PyObject>> {
+    nodes: &Bound<'_, PyAny>,
+) -> PyResult<Option<Vec<PyObject>>> {
     let gr = extract_graph(g)?;
-    let s1: Vec<String> = nbunch1
-        .iter()
-        .map(|n| node_key_to_string(py, n))
-        .collect::<PyResult<_>>()?;
-    let s2: Option<Vec<String>> = match nbunch2.as_ref() {
-        Some(v) => Some(
-            v.iter()
-                .map(|n| node_key_to_string(py, n))
-                .collect::<PyResult<_>>()?,
-        ),
-        None => None,
-    };
-    let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
-    let s2_refs: Option<Vec<&str>> = s2.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
-    let result = match &gr {
-        GraphRef::Undirected(pg) => {
-            let __pg_inner = &pg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::node_boundary(__pg_inner, &s1_refs, s2_refs.as_deref())
-            })
-        }
-        GraphRef::Directed { dg, .. } => {
-            let __dg_inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::node_boundary_directed(__dg_inner, &s1_refs, s2_refs.as_deref())
-            })
-        }
-        _ => {
-            if gr.is_directed() {
-                {
-                    let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                    py.allow_threads(|| {
-                        fnx_algorithms::node_boundary_directed(
-                            __gr_digraph,
-                            &s1_refs,
-                            s2_refs.as_deref(),
-                        )
-                    })
-                }
-            } else {
-                {
-                    let __gr_undirected = gr.undirected();
-                    py.allow_threads(|| {
-                        fnx_algorithms::node_boundary(__gr_undirected, &s1_refs, s2_refs.as_deref())
-                    })
+    let mut seen: rustc_hash::FxHashSet<usize> = rustc_hash::FxHashSet::default();
+    let mut rows = Vec::new();
+    for node in nodes.try_iter()? {
+        let owner = node_key_to_string(py, &node?)?;
+        match &gr {
+            GraphRef::Undirected(pg) => {
+                let Some(i) = pg.inner.get_node_index(&owner) else {
+                    continue;
+                };
+                for &j in pg.inner.neighbors_indices(i).unwrap_or(&[]) {
+                    if seen.insert(j) {
+                        let nbr = pg.inner.get_node_name(j).unwrap_or_default();
+                        rows.push(pg.py_adj_key(py, &owner, nbr));
+                    }
                 }
             }
+            GraphRef::Directed { dg, .. } => {
+                let Some(i) = dg.inner.get_node_index(&owner) else {
+                    continue;
+                };
+                for &j in dg.inner.successors_indices(i).unwrap_or(&[]) {
+                    if seen.insert(j) {
+                        let nbr = dg.inner.get_node_name(j).unwrap_or_default();
+                        rows.push(dg.py_succ_key(py, &owner, nbr));
+                    }
+                }
+            }
+            _ => return Ok(None),
         }
-    };
-    Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
+    }
+    Ok(Some(rows))
 }
 
 /// Return the size of the cut between `nbunch1` and `nbunch2`.
@@ -25170,12 +25102,18 @@ pub fn biconnected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
             })
             .collect();
     }
+    // br-r37-c1-n4j4k: the edge stream biconnected_component_edges emits -
+    // networkx's own DFS, discovery direction included - since each component's
+    // node order is where those edges first reach it.
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::biconnected_components(inner));
+    let nodes = inner.nodes_ordered();
+    let adjacency = graph_shortest_path_adjacency_indices(inner, &nodes);
+    let result = py.allow_threads(|| biconnected_components_from_adjacency(&adjacency));
     result
         .iter()
         .map(|comp| {
-            let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
+            let py_set: Vec<PyObject> =
+                comp.iter().map(|&i| gr.py_node_key(py, nodes[i])).collect();
             py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
         })
         .collect()
@@ -25293,16 +25231,23 @@ fn biconnected_component_edges_dfs(adjacency: &[Vec<usize>]) -> Vec<Vec<(usize, 
     out
 }
 
+/// br-r37-c1-n4j4k: each component's nodes where its edges first reach them -
+/// networkx yields set(chain.from_iterable(edges)), which iterates in that
+/// insertion order wherever hashes collide.
 fn biconnected_components_from_adjacency(adjacency: &[Vec<usize>]) -> Vec<Vec<usize>> {
     biconnected_component_edges_dfs(adjacency)
         .into_iter()
         .map(|edges| {
-            let mut nodes = BTreeSet::new();
+            let mut seen: HashSet<usize> = HashSet::new();
+            let mut nodes = Vec::new();
             for (u, v) in edges {
-                nodes.insert(u);
-                nodes.insert(v);
+                for node in [u, v] {
+                    if seen.insert(node) {
+                        nodes.push(node);
+                    }
+                }
             }
-            nodes.into_iter().collect()
+            nodes
         })
         .collect()
 }
@@ -29837,7 +29782,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(number_of_isolates, m)?)?;
     // Boundary
     m.add_function(wrap_pyfunction!(edge_boundary, m)?)?;
-    m.add_function(wrap_pyfunction!(node_boundary, m)?)?;
+    m.add_function(wrap_pyfunction!(node_boundary_rows, m)?)?;
     m.add_function(wrap_pyfunction!(cut_size, m)?)?;
     m.add_function(wrap_pyfunction!(normalized_cut_size, m)?)?;
     // Path validation
