@@ -256,6 +256,8 @@ Fixed in the release review:
   iteration order. Oversized descendant distances return an empty set after
   source validation, preserving Python semantics without native overflow.
 - `cargo fmt` cleanliness restored across the workspace.
+- Updated the standalone fuzz harnesses for native attribute maps, Louvain's
+  explicit summation/fallback contract and the seeded Python-compatible RNG API.
 - DSR packaging preserves all six ABI3 wheel platforms, includes the backend
   discovery shim in both wheels and source distributions, and records the
   native extension from each wheel in the release manifest. NetworkX 3.4 is

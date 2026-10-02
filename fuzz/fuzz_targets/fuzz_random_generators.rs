@@ -10,7 +10,7 @@ use arbitrary::Arbitrary;
 use fnx_classes::Graph;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_generators::{
-    DiGenerationReport, GenerationReport, GraphGenerator, MultiDiGenerationReport,
+    DiGenerationReport, GenerationReport, GraphGenerator, MultiDiGenerationReport, PythonRandom,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -179,14 +179,19 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 assert_valid_graph(&report.graph);
                 // empty_graph(n) has exactly n nodes and 0 edges.
                 assert_eq!(
-                    report.graph.node_count(), n,
+                    report.graph.node_count(),
+                    n,
                     "empty_graph({}) reports {} nodes, expected {}",
-                    n, report.graph.node_count(), n
+                    n,
+                    report.graph.node_count(),
+                    n
                 );
                 assert_eq!(
-                    report.graph.edge_count(), 0,
+                    report.graph.edge_count(),
+                    0,
                     "empty_graph({}) has {} edges, expected 0",
-                    n, report.graph.edge_count()
+                    n,
+                    report.graph.edge_count()
                 );
             }
         }
@@ -196,15 +201,21 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 assert_valid_graph(&report.graph);
                 // path_graph(n) has n nodes and max(0, n-1) edges.
                 assert_eq!(
-                    report.graph.node_count(), n,
+                    report.graph.node_count(),
+                    n,
                     "path_graph({}) reports {} nodes, expected {}",
-                    n, report.graph.node_count(), n
+                    n,
+                    report.graph.node_count(),
+                    n
                 );
                 let expected_edges = n.saturating_sub(1);
                 assert_eq!(
-                    report.graph.edge_count(), expected_edges,
+                    report.graph.edge_count(),
+                    expected_edges,
                     "path_graph({}) has {} edges, expected {}",
-                    n, report.graph.edge_count(), expected_edges
+                    n,
+                    report.graph.edge_count(),
+                    expected_edges
                 );
             }
         }
@@ -217,14 +228,20 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 // to the center).
                 let expected_nodes = spokes.saturating_add(1);
                 assert_eq!(
-                    report.graph.node_count(), expected_nodes,
+                    report.graph.node_count(),
+                    expected_nodes,
                     "star_graph({}) reports {} nodes, expected {}",
-                    spokes, report.graph.node_count(), expected_nodes
+                    spokes,
+                    report.graph.node_count(),
+                    expected_nodes
                 );
                 assert_eq!(
-                    report.graph.edge_count(), spokes,
+                    report.graph.edge_count(),
+                    spokes,
                     "star_graph({}) has {} edges, expected {}",
-                    spokes, report.graph.edge_count(), spokes
+                    spokes,
+                    report.graph.edge_count(),
+                    spokes
                 );
             }
         }
@@ -235,15 +252,21 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 // cycle_graph(n): n nodes; n edges for n ≥ 3, n-1 for
                 // n=2 (single edge), 0 for n ≤ 1.
                 assert_eq!(
-                    report.graph.node_count(), n,
+                    report.graph.node_count(),
+                    n,
                     "cycle_graph({}) reports {} nodes, expected {}",
-                    n, report.graph.node_count(), n
+                    n,
+                    report.graph.node_count(),
+                    n
                 );
                 let expected_edges = if n >= 3 { n } else { n.saturating_sub(1) };
                 assert_eq!(
-                    report.graph.edge_count(), expected_edges,
+                    report.graph.edge_count(),
+                    expected_edges,
                     "cycle_graph({}) has {} edges, expected {}",
-                    n, report.graph.edge_count(), expected_edges
+                    n,
+                    report.graph.edge_count(),
+                    expected_edges
                 );
             }
         }
@@ -253,26 +276,36 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 assert_valid_graph(&report.graph);
                 // complete_graph(n) has n nodes and n*(n-1)/2 edges.
                 assert_eq!(
-                    report.graph.node_count(), n,
+                    report.graph.node_count(),
+                    n,
                     "complete_graph({}) reports {} nodes, expected {}",
-                    n, report.graph.node_count(), n
+                    n,
+                    report.graph.node_count(),
+                    n
                 );
                 let expected_edges = n.saturating_mul(n.saturating_sub(1)) / 2;
                 assert_eq!(
-                    report.graph.edge_count(), expected_edges,
+                    report.graph.edge_count(),
+                    expected_edges,
                     "complete_graph({}) has {} edges, expected {}",
-                    n, report.graph.edge_count(), expected_edges
+                    n,
+                    report.graph.edge_count(),
+                    expected_edges
                 );
             }
         }
         GeneratorInput::Gnp { n, p, seed } => {
-            check_graph_report(generator.gnp_random_graph(usize::from(n), p.to_f64(), seed));
+            check_graph_report(generator.gnp_random_graph(
+                usize::from(n),
+                p.to_f64(),
+                &mut PythonRandom::new(seed),
+            ));
         }
         GeneratorInput::FastGnp { n, p, seed } => {
             check_graph_report(generator.fast_gnp_random_graph(
                 usize::from(n),
                 p.to_f64(),
-                seed,
+                &mut PythonRandom::new(seed),
                 false,
             ));
         }
@@ -281,7 +314,7 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 usize::from(n),
                 usize::from(k),
                 p.to_f64(),
-                seed,
+                &mut PythonRandom::new(seed),
             ));
         }
         GeneratorInput::NewmanWattsStrogatz { n, k, p, seed } => {
@@ -289,7 +322,7 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 usize::from(n),
                 usize::from(k),
                 p.to_f64(),
-                seed,
+                &mut PythonRandom::new(seed),
             ));
         }
         GeneratorInput::ConnectedWattsStrogatz {
@@ -304,21 +337,21 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 usize::from(k),
                 p.to_f64(),
                 usize::from(tries % 8),
-                seed,
+                &mut PythonRandom::new(seed),
             ));
         }
         GeneratorInput::BarabasiAlbert { n, m, seed } => {
             check_graph_report(generator.barabasi_albert_graph(
                 usize::from(n),
                 usize::from(m),
-                seed,
+                &mut PythonRandom::new(seed),
             ));
         }
         GeneratorInput::RandomRegular { n, d, seed } => {
             check_graph_report(generator.random_regular_graph(
                 usize::from(n),
                 usize::from(d),
-                seed,
+                &mut PythonRandom::new(seed),
             ));
         }
         GeneratorInput::PowerlawCluster { n, m, p, seed } => {
@@ -326,17 +359,21 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 usize::from(n),
                 usize::from(m),
                 p.to_f64(),
-                seed,
+                &mut PythonRandom::new(seed),
             ));
         }
         GeneratorInput::Gn { n, seed } => {
-            check_digraph_report(generator.gn_graph(usize::from(n), seed));
+            check_digraph_report(generator.gn_graph(usize::from(n), &mut PythonRandom::new(seed)));
         }
         GeneratorInput::Gnr { n, p, seed } => {
-            check_digraph_report(generator.gnr_graph(usize::from(n), p.to_f64(), seed));
+            check_digraph_report(generator.gnr_graph(
+                usize::from(n),
+                p.to_f64(),
+                &mut PythonRandom::new(seed),
+            ));
         }
         GeneratorInput::Gnc { n, seed } => {
-            check_digraph_report(generator.gnc_graph(usize::from(n), seed));
+            check_digraph_report(generator.gnc_graph(usize::from(n), &mut PythonRandom::new(seed)));
         }
         GeneratorInput::ScaleFree {
             n,
@@ -355,7 +392,7 @@ fn exercise(mut generator: GraphGenerator, input: &GeneratorInput) {
                 f64::from(delta_in % 4),
                 f64::from(delta_out % 4),
                 None,
-                seed,
+                &mut PythonRandom::new(seed),
             ));
         }
     }

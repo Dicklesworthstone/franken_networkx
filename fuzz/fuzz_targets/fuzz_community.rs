@@ -20,13 +20,8 @@ use std::collections::HashSet;
 /// A community detection result must be a valid partition of G:
 /// every node in G appears in exactly one community, and every
 /// reported node belongs to G.
-fn assert_valid_community_partition(
-    graph: &Graph,
-    communities: &[Vec<String>],
-    label: &str,
-) {
-    let expected: HashSet<&str> =
-        graph.nodes_ordered().into_iter().collect();
+fn assert_valid_community_partition(graph: &Graph, communities: &[Vec<String>], label: &str) {
+    let expected: HashSet<&str> = graph.nodes_ordered().into_iter().collect();
     let mut seen: HashSet<&str> = HashSet::new();
     for comm in communities {
         for node in comm {
@@ -171,19 +166,19 @@ fuzz_target!(|input: CommunityInput| {
             // still exercising small-but-realistic threshold values.
             let resolution = finite_clamp(resolution, 1e-3, 8.0);
             let threshold = finite_clamp(threshold, 1e-6, 1.0);
-            let communities = fnx_algorithms::louvain_communities(
+            let Some(communities) = fnx_algorithms::louvain_communities(
                 &ag.graph,
                 resolution,
                 "weight",
                 threshold,
                 None,
                 seed,
-            );
-            assert_valid_community_partition(
-                &ag.graph,
-                &communities,
-                "louvain_communities",
-            );
+                fnx_algorithms::PythonSum::CompensatedFloats,
+            ) else {
+                // The native API declines inputs that require the Python fallback.
+                return;
+            };
+            assert_valid_community_partition(&ag.graph, &communities, "louvain_communities");
             // Cross-check: the fnx public ``community_partition_is_valid``
             // predicate must accept the constructor's own output.
             assert!(
@@ -214,13 +209,8 @@ fuzz_target!(|input: CommunityInput| {
             // modularity may return Err on an invalid partition or a
             // disconnected graph; if it returns Ok, the value must be
             // finite.
-            if let Ok(q) = fnx_algorithms::modularity(&ag.graph, &partition, resolution, "weight")
-            {
-                assert!(
-                    q.is_finite(),
-                    "modularity returned non-finite value {}",
-                    q
-                );
+            if let Ok(q) = fnx_algorithms::modularity(&ag.graph, &partition, resolution, "weight") {
+                assert!(q.is_finite(), "modularity returned non-finite value {}", q);
             }
         }
         CommunityInput::LouvainLarge(ag) => {
@@ -229,9 +219,18 @@ fuzz_target!(|input: CommunityInput| {
             // hundreds of tiny-modularity-delta iterations and the
             // libFuzzer 5s timeout.  1e-6 is still tight enough to
             // exercise convergence behaviour.
-            let communities = fnx_algorithms::louvain_communities(
-                &ag.graph, 1.0, "weight", 1e-6, None, Some(42),
-            );
+            let Some(communities) = fnx_algorithms::louvain_communities(
+                &ag.graph,
+                1.0,
+                "weight",
+                1e-6,
+                None,
+                Some(42),
+                fnx_algorithms::PythonSum::CompensatedFloats,
+            ) else {
+                // A declined graph has no native partition to validate.
+                return;
+            };
             assert_valid_community_partition(
                 &ag.graph,
                 &communities,
