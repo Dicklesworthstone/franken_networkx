@@ -252,6 +252,9 @@ Fixed in the release review:
 - **`keydict[k] = keydict[k]`** (and `keydict.update(keydict)`) no longer empties the edge's attributes.
 - **Undirected `MultiGraph` weight checks** no longer reuse a cached verdict after a write through a
   held edge-attribute dict, so a negative weight written that way is rejected as in NetworkX.
+- Set-returning traversal functions preserve NetworkX's insertion-dependent
+  iteration order. Oversized descendant distances return an empty set after
+  source validation, preserving Python semantics without native overflow.
 - `cargo fmt` cleanliness restored across the workspace.
 - DSR packaging preserves all six ABI3 wheel platforms, includes the backend
   discovery shim in both wheels and source distributions, and records the
@@ -266,6 +269,9 @@ Behaviour notes:
   bit from CPython 3.10–3.13's summation. The underlying accumulators predate `v0.2.2`; this release
   retains that behavior while the version-aware arithmetic fix is tracked separately. The broad
   Python parity run remains incomplete and must not be read as a clean full-suite result.
+- The recorded coverage oracle is NetworkX 3.6.1. NetworkX 3.7's changed
+  null-graph eccentricity behavior and removed `describe` surface are not
+  fully qualified ([#5](https://github.com/Dicklesworthstone/franken_networkx/issues/5)).
 - Edge attribute dicts (`G.edges[u, v]`, multigraph keydict entries) are now `dict` subclasses.
   `json`, `pickle`, `copy` and `isinstance(..., dict)` behave as before; `yaml.safe_dump` needs a
   representer registered for them.

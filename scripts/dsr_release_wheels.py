@@ -6,6 +6,8 @@ payload and collects the wheel files themselves as additional release assets.
 Every build uses DSR's isolated Cargo home and target directory.
 """
 
+import configparser
+import email
 import os
 from pathlib import Path
 import shutil
@@ -79,6 +81,20 @@ def main():
             tags = {f"Tag: cp310-abi3-{platform}" for platform in platforms[triple].split(".")}
             if len(wheel_metadata) != 1 or not tags.issubset(set(archive.read(wheel_metadata[0]).decode().splitlines())):
                 raise SystemExit(f"wheel tag does not match its contracted filename: {wheel.name}")
+            metadata_paths = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+            entry_paths = [name for name in archive.namelist() if name.endswith(".dist-info/entry_points.txt")]
+            if len(metadata_paths) != 1 or len(entry_paths) != 1:
+                raise SystemExit(f"package metadata or entry points missing from {wheel.name}")
+            metadata = email.message_from_bytes(archive.read(metadata_paths[0]))
+            if metadata["Name"].replace("_", "-") != "franken-networkx" or metadata["Version"] != version:
+                raise SystemExit(f"package name/version does not match {wheel.name}")
+            entry_points = configparser.ConfigParser()
+            entry_points.optionxform = str
+            entry_points.read_string(archive.read(entry_paths[0]).decode())
+            expected = tomllib.loads((root / "pyproject.toml").read_text())["project"]["entry-points"]
+            actual = {group: dict(entry_points[group]) for group in entry_points.sections()}
+            if actual != expected:
+                raise SystemExit(f"backend entry points do not match pyproject in {wheel.name}")
         return wheel, native
 
     wheel, native = build(target)
