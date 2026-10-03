@@ -1848,7 +1848,7 @@ If still slow, check:
 
 ```python
 import franken_networkx
-print(franken_networkx.__version__)        # PyPI's current release is 0.2.1
+print(franken_networkx.__version__)        # PyPI's current release is 0.2.3
 
 import networkx as nx
 print(nx.config.backend_priority)          # should contain "franken_networkx"
@@ -2109,15 +2109,15 @@ A practical checklist for shipping fnx in production.
 
 ```toml
 # requirements.txt or pyproject.toml [tool.poetry.dependencies]
-franken-networkx = "==0.2.1"
-networkx = ">=3.0,<4.0"
+franken-networkx = "==0.2.3"
+networkx = "==3.6.1" # qualified oracle; package minimum is 3.4
 ```
 
 Pin fnx exactly during early development (0.x). The fnx parity guarantee includes "we won't change observable behavior of a supported algorithm without a version bump", and pinning gives you that guarantee in your dependency graph.
 
 ### Wheel selection
 
-PyPI (release 0.2.1) ships pre-built ABI3 wheels for:
+PyPI (release 0.2.3) ships pre-built ABI3 wheels for:
 
 - Linux x86_64 (manylinux_2_17 / manylinux2014)
 - Linux aarch64 (manylinux_2_17 / manylinux2014)
@@ -2126,7 +2126,10 @@ PyPI (release 0.2.1) ships pre-built ABI3 wheels for:
 - macOS arm64 (11.0+)
 - Windows x86_64
 
-PyPI has no sdist yet. On other platforms (FreeBSD, embedded Linux variants), build from a source checkout; the build is cargo-driven, so it works anywhere Rust nightly works.
+PyPI rejected the 0.2.3 source archive because it omits the declared root license
+file ([#7](https://github.com/Dicklesworthstone/franken_networkx/issues/7)).
+Use a source checkout for source builds, including on platforms without wheels.
+The GitHub source archive retains this packaging limitation.
 
 ### Memory considerations
 
@@ -2350,7 +2353,7 @@ FrankenNetworkX is honest about what it does not do today:
 - **Drawing is delegated.** `draw`, `draw_*`, and the matplotlib-backed layout functions delegate to NetworkX/matplotlib. Layout *math* (`spring_layout`, `kamada_kawai_layout`, etc.) is also delegated. We do not own matplotlib rendering.
 - **`check_planarity` certificates are native.** Both the boolean `is_planar` and `check_planarity` certificates (`PlanarEmbedding` rotation orders for planar graphs and Kuratowski subgraph counterexamples for non-planar graphs) are computed natively in Rust; the Python PlanarEmbedding container preserves NetworkX structure checks.
 - **Some functions still run NetworkX code.** Seven always do on their default path (matching, branchings, weighted Louvain, greedy modularity, `simple_cycles`, `k_components`); others do for specific argument shapes (user callables, custom `flow_func`, exotic format variants). See "Parity coverage today".
-- **Release status.** PyPI's current release is `0.2.1` (2026-09-09): ABI3 wheels for Linux (`x86_64`, `aarch64`, `musllinux x86_64`), macOS (`x86_64`, `arm64`) and Windows (`x86_64`), Python 3.10+. The `v0.2.2` GitHub release carries only a Linux x86_64 wheel and an sdist, and `main` has moved well past both; the next PyPI release is tracked in `br-r37-c1-rc0923-ship-head-pypi-all-platforms-euaqe`.
+- **Release status.** PyPI's current release is `0.2.3`: ABI3 wheels for Linux (`x86_64`, `aarch64`, `musllinux x86_64`), macOS (`x86_64`, `arm64`) and Windows (`x86_64`), Python 3.10+. The signed [v0.2.3 GitHub release](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.3) also contains native archives and the source archive. PyPI rejected that source archive because its root license file is missing ([#7](https://github.com/Dicklesworthstone/franken_networkx/issues/7)); use a checkout for source builds. The broad Python parity run remains incomplete, and the known arithmetic and NetworkX 3.7 limitations are recorded in the CHANGELOG.
 - **Performance gates run on Linux only.** Cross-platform correctness comes from the release builds, not from a performance gate.
 - **No 3rd-party graph DB integration.** This is a graph *algorithms* library; it does not connect to Neo4j, JanusGraph, etc. Use it on in-memory graphs.
 
@@ -2657,7 +2660,7 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining NetworkX-bound exports.** On the default path, 35 of 41 commonly used functions executed no NetworkX code in the 2026-09-23 census; since then `maximum_branching` and its family, `max_weight_matching`, `min_weight_matching` and `greedy_modularity_communities` run natively too. The always-NetworkX ones today are weighted/self-loop Louvain, `simple_cycles` and `k_components`, and several functions still reach NetworkX for specific argument shapes. Move them to native kernels while preserving the parity contract.
-6. **Release cadence.** Ship `main` to PyPI (current release: `0.2.1`); subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
+6. **Release cadence.** PyPI now ships `0.2.3` on all six wheel platforms. Close the documented source packaging, parity, conformance and SLO evidence gaps before claiming the complete release gate is green.
 
 ---
 

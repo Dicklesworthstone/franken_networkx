@@ -233,6 +233,9 @@ Workspace version: **0.2.3** (`Cargo.toml`); Python package `franken-networkx` *
 Release and Quality Authority: DSR (Doodlestein Self-Releaser).
 `v0.2.2` shipped only a linux-amd64 wheel and the sdist to its GitHub Release and never reached PyPI,
 so for PyPI users this release follows `0.2.1`.
+The published PyPI release contains all six platform wheels. Eleven changed Rust
+crates are published on crates.io; the signed GitHub release contains all native
+archives, wheels and the source archive.
 
 Changes since `v0.2.2` include native fast paths for node and edge
 views, `add_edges_from` / `add_nodes_from` batches (including multigraphs), the Dijkstra, Bellman-Ford,
@@ -275,6 +278,12 @@ Fixed in the release review:
   qualified 0.28.3 API series.
 
 Behaviour notes:
+- **Source archive packaging ([#7](https://github.com/Dicklesworthstone/franken_networkx/issues/7)):**
+  PyPI rejected the `0.2.3` source archive because its `License-File: LICENSE`
+  declaration refers to a missing archive-root file. All six published wheels
+  include their declared license files. Source builds should use a checkout;
+  the source archive on GitHub retains this limitation. A corrected source
+  distribution requires a future version.
 - The registry `fnx-conformance` behavioral-oracle binary still embeds a
   repository-only Python script outside its crate package boundary. The
   unchanged packaging limitation is tracked in [#6](https://github.com/Dicklesworthstone/franken_networkx/issues/6);

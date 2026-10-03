@@ -62,7 +62,7 @@ franken_networkx = "fnx_backend_info:get_backend_info"
 # The latest version actually published on PyPI (project.version above is the
 # NEXT release). Update it when a DSR release lands; scripts/verify_docs.py
 # checks every README install pin / "current release" statement against it.
-pypi_release = "0.2.1"
+pypi_release = "0.2.3"
 
 [tool.maturin]
 python-source = "python"
