@@ -1812,6 +1812,22 @@ Cold build time on a modern laptop (16-core, 32 GB): about 4 minutes for a relea
 
 Release wheels are built by DSR (`dsr build franken_networkx`) on its Linux, macOS and Windows build hosts. For local cross-compilation, `maturin build --release --target=...` works if you have the corresponding Rust target installed (`rustup target add ...`). The cdylib doesn't have any platform-specific code paths today.
 
+To verify an existing publication without compiling or installing anything,
+use the retained-artifact verifier with the expected release source commit:
+
+```bash
+python3 scripts/verify_published_release.py --version 0.2.3 \
+  --source-commit cec922aeb1ed8b67762aa1d1f9b58a99a8343b71 \
+  --evidence-dir /path/to/new/fnx-publication-evidence
+```
+
+It checks the public tag, exact DSR asset inventory, Minisign-signed checksum
+manifest, and the actual bytes of all six PyPI wheels. The evidence directory
+must be new; downloads and receipts remain there. `--python /path/to/venv/bin/python`
+also probes an already-installed consumer's weighted algorithms, wide unsigned
+matrix conversion, and NetworkX backend discovery/dispatch. This optional probe
+does not install or upgrade a package, and the receipt reports when it was not run.
+
 ### Editor / IDE setup
 
 The project ships a `rust-toolchain.toml` so `rust-analyzer` and `rustfmt` honor the pinned nightly. For VS Code, install:
