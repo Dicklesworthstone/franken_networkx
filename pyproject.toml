@@ -75,7 +75,12 @@ features = ["pyo3/extension-module", "pyo3/abi3-py310", "pyo3/generate-import-li
 # backend_info[franken_networkx] = {}, which empties the per-function backends set it
 # builds from backend_info[functions] - so nx dispatch to this backend was disabled
 # for all 313 advertised functions on any pip-installed copy.
-include = [{ path = "python/fnx_backend_info.py", format = ["wheel", "sdist"] }]
+include = [
+    { path = "python/fnx_backend_info.py", format = ["wheel", "sdist"] },
+    # The binding manifest lives below the workspace root. Cargo's crate file
+    # list does not include this license, even though PKG-INFO declares it.
+    { path = "LICENSE", format = "sdist" },
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

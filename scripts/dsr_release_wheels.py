@@ -9,18 +9,104 @@ Every build uses DSR's isolated Cargo home and target directory.
 import configparser
 import email
 import os
-from pathlib import Path
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
-import tomllib
 import zipfile
+from email import policy
+from pathlib import Path, PurePosixPath
+
+import tomllib
+
+
+def _safe_archive_path(name):
+    """License metadata is a relative POSIX path, never an extraction target."""
+    if not name or "\\" in name or ":" in name or "\x00" in name:
+        raise ValueError(f"unsafe archive path: {name!r}")
+    parts = name.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError(f"unsafe archive path: {name!r}")
+    return PurePosixPath(name)
+
+
+def _distribution_metadata(raw, version, source_licenses):
+    metadata = email.message_from_bytes(raw, policy=policy.default)
+    if metadata.defects or len(metadata.get_all("Name", [])) != 1 or len(metadata.get_all("Version", [])) != 1:
+        raise ValueError("malformed or ambiguous package metadata")
+    name = re.sub(r"[-_.]+", "-", str(metadata["Name"])).lower()
+    if name != "franken-networkx" or str(metadata["Version"]) != version:
+        raise ValueError("package name/version does not match the candidate")
+    licenses = metadata.get_all("License-File", [])
+    if not licenses or len(set(licenses)) != len(licenses):
+        raise ValueError("missing or duplicate License-File metadata")
+    for license_file in licenses:
+        _safe_archive_path(license_file)
+        if license_file not in source_licenses:
+            raise ValueError(f"license has no frozen source bytes: {license_file!r}")
+    if set(licenses) != set(source_licenses):
+        raise ValueError("declared licenses do not match the frozen source licenses")
+    return metadata, licenses
+
+
+def _zip_regular_bytes(archive, name):
+    members = [entry for entry in archive.infolist() if entry.filename == name]
+    if len(members) != 1:
+        raise ValueError(f"expected one regular archive member: {name}")
+    member = members[0]
+    kind = stat.S_IFMT(member.external_attr >> 16)
+    if member.is_dir() or kind not in (0, stat.S_IFREG):
+        raise ValueError(f"archive member is not a regular file: {name}")
+    for parent in PurePosixPath(name).parents:
+        for entry in archive.infolist():
+            if entry.filename.rstrip("/") == str(parent) and stat.S_ISLNK(entry.external_attr >> 16):
+                raise ValueError(f"archive member has a linked parent: {name}")
+    return archive.read(member)
+
+
+def _tar_regular_bytes(archive, name):
+    members = [entry for entry in archive.getmembers() if entry.name == name]
+    if len(members) != 1 or not members[0].isfile():
+        raise ValueError(f"expected one regular archive member: {name}")
+    for parent in PurePosixPath(name).parents:
+        for entry in archive.getmembers():
+            if entry.name.rstrip("/") == str(parent) and (entry.issym() or entry.islnk()):
+                raise ValueError(f"archive member has a linked parent: {name}")
+    with archive.extractfile(members[0]) as stream:
+        return stream.read()
+
+
+def validate_wheel_licenses(archive, version, source_licenses):
+    """Validate actual wheel members, without extracting untrusted paths."""
+    metadata_path = f"franken_networkx-{version}.dist-info/METADATA"
+    metadata, licenses = _distribution_metadata(
+        _zip_regular_bytes(archive, metadata_path), version, source_licenses
+    )
+    for license_file in licenses:
+        path = f"franken_networkx-{version}.dist-info/licenses/{license_file}"
+        if _zip_regular_bytes(archive, path) != source_licenses[license_file]:
+            raise ValueError(f"wheel license differs from frozen source: {license_file}")
+    return metadata
+
+
+def validate_sdist_licenses(archive, version, source_licenses):
+    """Catch the published missing-root-LICENSE defect before signing/upload."""
+    prefix = f"franken_networkx-{version}"
+    metadata, licenses = _distribution_metadata(
+        _tar_regular_bytes(archive, f"{prefix}/PKG-INFO"), version, source_licenses
+    )
+    for license_file in licenses:
+        if _tar_regular_bytes(archive, f"{prefix}/{license_file}") != source_licenses[license_file]:
+            raise ValueError(f"sdist license differs from frozen source: {license_file}")
+    return metadata
 
 
 def main():
     root = Path(__file__).resolve().parents[1]
     version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    source_licenses = {"LICENSE": (root / "LICENSE").read_bytes()}
     target = os.environ["CARGO_BUILD_TARGET"]
     if sys.platform == "darwin" and shutil.disk_usage("/").free < 15 * 1024**3:
         raise SystemExit("Darwin host root has less than the required 15 GiB free")
@@ -30,7 +116,8 @@ def main():
     maturin = os.environ.get("FNX_MATURIN") or shutil.which("maturin")
     if not maturin:
         raise SystemExit("maturin must be installed on the DSR build host")
-    if subprocess.check_output([maturin, "--version"], text=True).strip() != "maturin 1.12.4":
+    # ubs:ignore — executable is trusted DSR host configuration; argv-only, no shell.
+    if subprocess.check_output([maturin, "--version"], text=True, timeout=30).strip() != "maturin 1.12.4":
         raise SystemExit("this release recipe requires qualified maturin 1.12.4")
 
     platforms = {
@@ -64,7 +151,8 @@ def main():
                 raise SystemExit("llvm-dlltool is required to generate the ABI3 Python import library")
             if not env.get("XWIN_MSVC_SYSROOT_DOWNLOAD_URL"):
                 raise SystemExit("DSR must pin XWIN_MSVC_SYSROOT_DOWNLOAD_URL for the Windows SDK")
-        subprocess.run(command, cwd=root, env=env, check=True)
+        # ubs:ignore — trusted DSR host tool/configuration, passed as argv without a shell.
+        subprocess.run(command, cwd=root, env=env, check=True, timeout=1800)
         wheel = output / f"franken_networkx-{version}-cp310-abi3-{platforms[triple]}.whl"
         if not wheel.is_file():
             raise SystemExit(f"maturin did not produce the contracted wheel: {wheel.name}")
@@ -85,9 +173,7 @@ def main():
             entry_paths = [name for name in archive.namelist() if name.endswith(".dist-info/entry_points.txt")]
             if len(metadata_paths) != 1 or len(entry_paths) != 1:
                 raise SystemExit(f"package metadata or entry points missing from {wheel.name}")
-            metadata = email.message_from_bytes(archive.read(metadata_paths[0]))
-            if metadata["Name"].replace("_", "-") != "franken-networkx" or metadata["Version"] != version:
-                raise SystemExit(f"package name/version does not match {wheel.name}")
+            validate_wheel_licenses(archive, version, source_licenses)
             entry_points = configparser.ConfigParser()
             entry_points.optionxform = str
             entry_points.read_string(archive.read(entry_paths[0]).decode())
@@ -107,11 +193,13 @@ def main():
         shutil.copyfile(wheel, output / f"{wheel.name}.exe")
     if target == "x86_64-unknown-linux-gnu":
         build("x86_64-unknown-linux-musl")
-        subprocess.run([maturin, "sdist", "--out", str(output)], cwd=root, check=True)
+        # ubs:ignore — trusted DSR host tool/configuration; argv-only, no shell.
+        subprocess.run([maturin, "sdist", "--out", str(output)], cwd=root, check=True, timeout=120)
         sdist = output / f"franken_networkx-{version}.tar.gz"
         if not sdist.is_file():
             raise SystemExit("maturin did not produce the contracted source distribution")
         with tarfile.open(sdist, "r:gz") as archive:
+            validate_sdist_licenses(archive, version, source_licenses)
             if f"franken_networkx-{version}/python/fnx_backend_info.py" not in archive.getnames():
                 raise SystemExit("backend discovery shim missing from the source distribution")
 
