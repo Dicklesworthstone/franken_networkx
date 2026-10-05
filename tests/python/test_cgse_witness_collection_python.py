@@ -5,19 +5,50 @@ tests; the README promised a reproducibility receipt per execution that Python
 could not observe. ``collect_witnesses(func)`` runs ``func()`` with the
 thread-local ledger armed and returns ``(result, [ComplexityWitness, ...])``.
 
-Only kernels that call ``cgse_begin`` emit. From the public Python surface that
-is currently: connected components, BFS/DFS edges and trees, Kruskal MST,
-Bellman-Ford and the DFS-based strongly-connected count. Public routes for the
-other reference algorithms (topological sort, Prim, matching, Dijkstra, Euler)
-reach sibling kernels that are not instrumented yet and yield an empty list;
+Only instrumented kernels emit. From the public Python surface that includes
+connected components, BFS/DFS edges and trees, Kruskal MST, Bellman-Ford,
+SCC enumeration/count for DiGraph/MultiDiGraph, and simple-graph bidirectional Dijkstra.
+Other parameter/graph-kind routes and reference algorithms still reach sibling
+kernels that are not instrumented and yield an empty list;
 the planted negative below pins that an un-instrumented call reports nothing
 rather than a fabricated witness.
 """
 
-import pytest
+import hashlib
+import json
+import math
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import franken_networkx as fnx
+import networkx as nx
+import pytest
 from franken_networkx._fnx import cgse
+
+
+def _log_public_case(case_id, oracle, expected, actual, witness, started):
+    """Live public-route evidence, including the extension this process loaded."""
+    print(json.dumps({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "case_id": case_id,
+        "input_sha256": hashlib.sha256(json.dumps(nx.node_link_data(oracle), sort_keys=True).encode()).hexdigest(),
+        "fnx_version": fnx.__version__,
+        "nx_version": nx.__version__,
+        "so_sha256": hashlib.sha256(Path(fnx._fnx.__file__).read_bytes()).hexdigest(),
+        "graph_class": type(oracle).__name__,
+        "construction_path": "independent-native-and-networkx-public-constructors",
+        "expected": expected,
+        "actual": actual,
+        "pass": actual == expected,
+        "duration_ms": (time.perf_counter() - started) * 1000,
+        "policy": witness.policy.id(),
+        "observed_count": witness.observed_count,
+        "decision_path_hash": witness.decision_path_hash,
+    }, default=str, sort_keys=True), flush=True)
 
 
 def _graph():
@@ -113,3 +144,123 @@ def test_exceptions_propagate_unchanged():
 
     with pytest.raises(ValueError, match="boom"):
         cgse.collect_witnesses(boom)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("route", ["shortest_path", "bidirectional_dijkstra"])
+@pytest.mark.parametrize("weight", ["weight", "cost"])
+@pytest.mark.parametrize("case", ["weighted", "equal", "self", "disconnected"])
+def test_public_bidirectional_dijkstra_witness_and_live_oracle(graph_name, route, weight, case):
+    graph = getattr(fnx, graph_name)()
+    oracle = getattr(nx, graph_name)()
+    edges = [(0, 2, 1), (0, 1, 1), (2, 3, 1), (1, 3, 1 if case == "equal" else 5)]
+    for target in (graph, oracle):
+        target.add_nodes_from(range(5))
+        target.add_edges_from((u, v, {weight: value}) for u, v, value in edges)
+    destination = 0 if case == "self" else 4 if case == "disconnected" else 3
+
+    def call(module, target):
+        try:
+            return getattr(module, route)(target, 0, destination, weight=weight)
+        except nx.NetworkXNoPath as error:
+            # Catch inside the collection scope so the failed search's real
+            # witness can also be checked; exception type/message stay exact.
+            return type(error), str(error)
+
+    expected = call(nx, oracle)
+    started = time.perf_counter()
+    result, witnesses = cgse.collect_witnesses(lambda: call(fnx, graph))
+    assert result == expected
+    assert len(witnesses) == 1, witnesses
+    witness = witnesses[0]
+    registered = cgse.policy_registry()["dijkstra"]
+    assert witness.policy.id() == registered["policy"]
+    assert witness.dominant_term == registered["dominant_complexity"]
+    assert (witness.n, witness.m) == (5, 4)
+    upper = 2 * (witness.n + witness.m * math.ceil(math.log2(witness.n)))
+    assert witness.observed_count <= upper
+    if case != "self":
+        assert witness.observed_count > 0
+    _, repeated = cgse.collect_witnesses(lambda: call(fnx, graph))
+    assert witness.decision_path_hash == repeated[0].decision_path_hash
+    _log_public_case(f"{graph_name}/{route}/{weight}/{case}", oracle, expected, result, witness, started)
+
+
+@pytest.mark.parametrize("graph_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["strongly_connected_components", "number_strongly_connected_components"])
+@pytest.mark.parametrize("case", ["empty", "singleton", "cycle", "components", "parallel", "removed", "sparse", "edgeless"])
+def test_public_scc_witness_and_live_oracle(graph_name, route, case):
+    graph = getattr(fnx, graph_name)()
+    oracle = getattr(nx, graph_name)()
+    n = 0 if case == "empty" else 1 if case == "singleton" else 6 if case == "cycle" else 40 if case == "sparse" else 12 if case == "edgeless" else 8
+    edges = []
+    if case == "cycle":
+        edges = [(i, (i + 1) % n) for i in range(n)]
+    elif case == "sparse":
+        edges = [(i, i + 1) for i in range(n - 1)]
+    elif case in ("components", "parallel", "removed"):
+        edges = [(0, 1), (1, 0), (1, 4), (4, 5), (5, 4), (5, 6), (6, 7), (7, 6)]
+        if case == "parallel":
+            edges += [(0, 1), (0, 1), (4, 4)]
+    for target in (graph, oracle):
+        target.add_nodes_from(range(n))
+        target.add_edges_from(edges)
+        if case == "removed":
+            target.remove_nodes_from([2, 3])
+
+    def call(module, target):
+        result = getattr(module, route)(target)
+        # Preserve component order AND each Python set's iteration order.
+        return [list(component) for component in result] if route == "strongly_connected_components" else result
+
+    expected = call(nx, oracle)
+    started = time.perf_counter()
+    result, witnesses = cgse.collect_witnesses(lambda: call(fnx, graph))
+    assert result == expected
+    assert result == call(fnx, graph)  # collection must not alter the route
+    assert len(witnesses) == 1, witnesses
+    witness = witnesses[0]
+    registered = cgse.policy_registry()["strongly_connected_components"]
+    assert witness.policy.id() == registered["policy"]
+    assert witness.dominant_term == registered["dominant_complexity"]
+    assert (witness.n, witness.m) == (oracle.number_of_nodes(), oracle.number_of_edges())
+    assert witness.observed_count <= 2 * (witness.n + witness.m)
+    assert (witness.observed_count > 0) == (n > 0)
+    _, repeated = cgse.collect_witnesses(lambda: call(fnx, graph))
+    assert witness.decision_path_hash == repeated[0].decision_path_hash
+    _log_public_case(f"{graph_name}/{route}/{case}", oracle, expected, result, witness, started)
+
+
+@pytest.mark.parametrize("graph_name,route", [
+    ("Graph", "bidirectional_dijkstra"),
+    ("DiGraph", "bidirectional_dijkstra"),
+    ("DiGraph", "strongly_connected_components"),
+    ("MultiDiGraph", "strongly_connected_components"),
+])
+def test_public_witness_hash_is_stable_across_python_hash_seeds(graph_name, route):
+    program = """
+import json, sys
+import franken_networkx as fnx
+from franken_networkx._fnx import cgse
+graph = getattr(fnx, sys.argv[1])()
+graph.add_edges_from([("z", "b", {"weight": 1}), ("z", "a", {"weight": 1}),
+                      ("b", "t", {"weight": 1}), ("a", "t", {"weight": 1}),
+                      ("t", "z", {"weight": 1})])
+route = sys.argv[2]
+call = (lambda: fnx.bidirectional_dijkstra(graph, "z", "t")) if route == "bidirectional_dijkstra" else (lambda: list(fnx.strongly_connected_components(graph)))
+_, witnesses = cgse.collect_witnesses(call)
+assert len(witnesses) == 1, witnesses
+witness = witnesses[0]
+print(json.dumps([witness.n, witness.m, witness.policy.id(), witness.dominant_term,
+                  witness.observed_count, witness.decision_path_hash]))
+"""
+    results = []
+    for seed in ("0", "1", "42"):
+        env = dict(os.environ, PYTHONHASHSEED=seed)
+        completed = subprocess.run(
+            [sys.executable, "-c", program, graph_name, route],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+        assert completed.returncode == 0, (completed.stdout, completed.stderr)
+        results.append(json.loads(completed.stdout))
+    assert results[0] == results[1] == results[2]

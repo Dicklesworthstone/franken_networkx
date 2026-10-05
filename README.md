@@ -313,7 +313,7 @@ The 10 dominant-term strings recognized by `fnx_cgse::analytic_upper_bound(term,
 | `m` | `m` | `eulerian_circuit`, edge-only scans |
 | `n_plus_m` | `n + m` | BFS, DFS, `connected_components`, `topological_sort`, articulation points |
 | `n_log_n` | `n · ⌈log₂ n⌉` | sorting-based reductions, lex-min element selection |
-| `n_plus_m_log_n` | `(n + m) · ⌈log₂ n⌉` | Dijkstra with binary heap |
+| `n_plus_m_log_n` | `n + m · max(1, ⌈log₂ n⌉)` | Dijkstra with binary heap |
 | `n_m` | `n · m` | Bellman-Ford, Brandes betweenness |
 | `n_squared` | `n²` | dense-matrix shortest-paths, dense centrality |
 | `n_m_alpha` | `n · m · α(n,m)` | Edmonds' max-weight matching, union-find-amortized algorithms |
@@ -343,11 +343,11 @@ The `v1_policy_registry()` table pins a canonical tie-break policy and dominant 
 
 The choice of `InsertionOrder` for `bfs`/`dfs`/`bellman_ford`/`topological_sort` is exactly the NetworkX behavior: those algorithms iterate adjacency in the order the user inserted edges, and `IndexMap` preserves that. The choice of `WeightThenInsertionOrder` for Dijkstra matches NetworkX's `heapq + itertools.count()` pattern (a monotonic per-push counter is the secondary key, so equal-weight frontier entries pop in FIFO order). The choice of `WeightThenLex` for Kruskal / Prim / matching reflects those algorithms' deterministic edge sort by `(weight, left, right)` labels.
 
-These assignments encode the same tie-break choices a careful reading of the NetworkX source would extract, except now they are machine-readable, versioned in source, and enforceable via the witness ledger. The broader algorithm surface (~550 functions) inherits the appropriate policy via the family the algorithm belongs to.
+These are machine-readable assignments for the 12 reference kernels, not automatic policy enforcement across the wider API. Public routes can use different sibling kernels: for example, public Prim uses heap insertion order and NetworkX's `set(G).pop()` roots, whereas the Rust Prim reference sorts equal-weight endpoints lexically. A registry row alone does not prove a public route's policy or witness coverage.
 
 ### Complexity Witnesses
 
-The V1 reference algorithms (Dijkstra, Bellman-Ford, BFS, DFS, max- and min-weight matching, connected and strongly connected components, Kruskal, Prim, Eulerian circuit, topological sort) emit a structured `ComplexityWitness` capturing `n`, `m`, observed operation count, the policy identifier, and a length-prefixed Blake3 hash over the decision path. Witnesses can be drained from a `WitnessLedger` for offline audit, regression-locking, or reproducibility checks. The wider surface (650+ kernels) does not emit witnesses yet; as of 2026-09-15 there are 24 `cgse_begin` sites in `fnx-algorithms`, and wiring proceeds per family.
+Instrumented kernels emit a structured `ComplexityWitness` only while `collect_witnesses` is active, capturing `n`, `m`, observed operation count, the policy identifier, and a length-prefixed Blake3 hash over the decision path. Public connected components, BFS/DFS, Kruskal, Bellman-Ford, DiGraph/MultiDiGraph SCC enumeration, the strongly-connected count, and simple Graph/DiGraph bidirectional Dijkstra routes are instrumented. The latter covers finite numeric weighted source-target `shortest_path` and `bidirectional_dijkstra`; callable weights, multigraphs and other fallback paths are not covered by that instrumentation. Public Prim, matching and other sibling routes still need wiring before the 12-reference public contract is complete. An empty witness list must not be treated as proof. The wider surface does not emit witnesses universally.
 
 ### Strict vs Hardened Modes
 
@@ -1351,7 +1351,7 @@ PyO3 walks the returned Rust collection and constructs the corresponding Python 
 
 ### Step 5: Witness ledger drain (optional)
 
-If the conformance harness or a Rust integration test wrapped the call in `collect_witnesses(...)`, the `WitnessLedger` is drained at scope exit and the per-call `ComplexityWitness`es are returned to the caller. From normal Python use, the witnesses are emitted into the thread-local ledger but typically not collected: they're available if you want them and don't cost anything if you don't.
+If Python, the conformance harness or a Rust integration test wraps an instrumented call in `collect_witnesses(...)`, the `WitnessLedger` is drained at scope exit and the per-call `ComplexityWitness`es are returned to the caller. Outside a collection scope, no sink is opened and no witness is recorded.
 
 ### Anatomy of `PyGraph`
 
@@ -2414,7 +2414,7 @@ Exactly as NetworkX handles them, in every mode. The Dijkstra / A* / PageRank pa
 Because NetworkX does. The contract is that `fnx.<func>` returns the exact same Python type as `nx.<func>`: generators stay generators, dict_values stays dict_values, list stays list. This was specifically locked for `all_shortest_paths` (`br-r37-c1-6atv8`).
 
 **Can I run an algorithm under a non-default tie-break policy?**
-The Rust-level API in `fnx-algorithms` is parameterized by `TieBreakPolicy`, so yes, but the Python wrappers fix the canonical policy that matches NetworkX. Switching policies at the Python layer is not exposed today; the use case (reproducibility audits on the same algorithm under different policies) is a Rust-level integration test pattern, not a user-facing API.
+No. Production kernels implement their ordering directly and do not accept a `TieBreakPolicy` parameter. The enum describes reference policies and supports Rust-side policy tests; it is not a runtime policy switch for the Rust or Python algorithm API.
 
 **Does `pip install franken-networkx` install NetworkX too?**
 Yes. `networkx>=3.0` is a hard dependency. fnx's wrapper layer imports nx for exception classes, the dispatch protocol, and the fallback path on unsupported argument shapes.
