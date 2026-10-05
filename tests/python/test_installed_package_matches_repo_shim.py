@@ -403,6 +403,36 @@ def test_dsr_binding_rejects_config_and_source_topology_movement(release_recipe,
         release_recipe.require_same_inputs(root, frozen, [config])
 
 
+@pytest.mark.parametrize("state", ["absent", "appeared", "linked"])
+def test_dsr_binding_tracks_previously_absent_optional_configuration(release_recipe, binding_tree, state):
+    root, config, _git = binding_tree
+    optional = config.with_name("optional-cargo-config.toml")
+    frozen = release_recipe.snapshot_build_inputs(root, [config, optional])
+    assert frozen["configs"][str(optional)] is None
+    if state == "absent":
+        release_recipe.require_same_inputs(root, frozen, [config, optional])
+    else:
+        if state == "appeared":
+            optional.write_text("[build]\njobs = 1\n")
+        else:
+            optional.symlink_to(config)
+        with pytest.raises(ValueError, match="moved|not a regular file"):
+            release_recipe.require_same_inputs(root, frozen, [config, optional])
+
+
+def test_dsr_configuration_inventory_includes_missing_ancestor_and_cargo_home_paths(release_recipe, binding_tree):
+    root, config, _git = binding_tree
+    dsr_home = config.parent / "dsr-home"
+    cargo_home = config.parent / "cargo-home"
+    paths = release_recipe.build_configuration_paths(root, dsr_home, cargo_home, config)
+    assert config in paths
+    assert dsr_home / "repos.d/franken_networkx.yaml" in paths
+    assert root / ".cargo/config.toml" in paths
+    assert root.parent / ".cargo/config" in paths
+    assert cargo_home / "config.toml" in paths
+    assert len(paths) == len(set(paths))
+
+
 def test_dsr_binding_excludes_only_declared_non_build_coordination(release_recipe, binding_tree):
     root, config, _git = binding_tree
     frozen = release_recipe.snapshot_build_inputs(root, [config])

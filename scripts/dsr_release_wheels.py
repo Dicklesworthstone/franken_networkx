@@ -58,6 +58,15 @@ def _regular_hash(path):
     return digest.hexdigest()
 
 
+def build_configuration_paths(root, config_dir, cargo_home, selected):
+    """Track optional config absence too: creating one changes Cargo inputs."""
+    paths = [Path(selected), Path(config_dir) / "repos.d/franken_networkx.yaml"]
+    for directory in (Path(root), *Path(root).parents):
+        paths.extend(directory / ".cargo" / name for name in ("config", "config.toml"))
+    paths.extend(Path(cargo_home) / name for name in ("config", "config.toml"))
+    return list(dict.fromkeys(path.absolute() for path in paths))
+
+
 def snapshot_build_inputs(root, configs=()):
     """Release-build inputs, not a claim to snapshot the whole quality suite.
 
@@ -85,7 +94,9 @@ def snapshot_build_inputs(root, configs=()):
     for required in ("Cargo.toml", "Cargo.lock", "pyproject.toml", "LICENSE", "scripts/dsr_release_wheels.py"):
         if required not in files:
             raise ValueError(f"missing required build input: {required}")
-    configuration = {str(Path(path).absolute()): _regular_hash(path) for path in configs}
+    configuration = {str(Path(path).absolute()):
+                     _regular_hash(path) if Path(path).exists() or Path(path).is_symlink() else None
+                     for path in configs}
     if names() != selected or git("rev-parse", "HEAD").decode().strip() != head:
         raise ValueError("source inventory moved during snapshot")
     return {"head": head, "files": files, "configs": configuration, "scope": "release-build-inputs"}
@@ -297,16 +308,10 @@ def main():
     if not os.environ.get("DSR_RUN_ID"):
         raise SystemExit("this build recipe must be invoked by DSR")
     config_dir = Path(os.environ.get("DSR_CONFIG_DIR", Path.home() / ".config/dsr"))
-    configs = [Path(os.environ.get("DSR_REPOS_FILE", config_dir / "repos.yaml"))]
-    build_config = config_dir / "repos.d/franken_networkx.yaml"
-    if build_config.exists():
-        configs.append(build_config)
-    for directory in (root, *root.parents, Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))):
-        cargo_dir = directory if directory == Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")) else directory / ".cargo"
-        for name in ("config", "config.toml"):
-            path = cargo_dir / name
-            if path.exists() and path not in configs:
-                configs.append(path)
+    configs = build_configuration_paths(root, config_dir,
+                                       Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")),
+                                       Path(os.environ.get("DSR_REPOS_FILE", config_dir / "repos.yaml")))
+    _regular_hash(configs[0])  # The selected DSR configuration is mandatory, not optional.
     frozen = snapshot_build_inputs(root, configs)
     version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     source_licenses = {"LICENSE": (root / "LICENSE").read_bytes()}
@@ -471,6 +476,7 @@ def verify_main():
     frozen = binding["candidate"]["inputs"]
     require_same_inputs(Path(__file__).resolve().parents[1], frozen, tuple(frozen["configs"]))
     report = verify_loaded_candidate(binding, args.expected_python, args.expected_prefix, args.wheel, args.oracle_version)
+    require_same_inputs(Path(__file__).resolve().parents[1], frozen, tuple(frozen["configs"]))
     if _regular_hash(args.verify_binding) != args.expected_binding_sha:
         raise ValueError("selected DSR binding moved during verification")
     print(json.dumps(report, sort_keys=True), flush=True)
