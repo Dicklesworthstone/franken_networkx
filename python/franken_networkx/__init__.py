@@ -13114,7 +13114,8 @@ def _has_nonnumeric_edge_weight(G, weight, *, _skip_sync=False):
 
 
 def _cached_native_weight_scan(
-    G, weight, require_exact_string_nodes=False, rows_ok=False
+    G, weight, require_exact_string_nodes=False, rows_ok=False,
+    *, allow_exact_integer_nodes=False
 ):
     """The native single-pass weight scan, ``(has_negative, has_nonfinite,
     has_nonnumeric)``, or None when it is unavailable or declines.
@@ -13158,6 +13159,7 @@ def _cached_native_weight_scan(
                     edges_seq,
                     attr_rewrites,
                     require_exact_string_nodes,
+                    allow_exact_integer_nodes,
                 )
                 cached = vars(G).get("_fnx_weight_scan_cache")
                 if cached is not None and cached[0] == cache_key:
@@ -13170,7 +13172,9 @@ def _cached_native_weight_scan(
             vars(G)["_fnx_weight_row_checks"] = (revision, count + 1)
             return _CHECK_ROWS
     try:
-        scan = _native_check_dijkstra_weights_fast(G, weight, require_exact_string_nodes)
+        scan = _native_check_dijkstra_weights_fast(
+            G, weight, require_exact_string_nodes, allow_exact_integer_nodes
+        )
     except Exception:
         scan = None
     if scan is not None and cache_key is not None:
@@ -13179,13 +13183,16 @@ def _cached_native_weight_scan(
 
 
 def _should_delegate_dijkstra_to_networkx(
-    G, weight, *, _require_exact_string_nodes=False
+    G, weight, *, _require_exact_string_nodes=False, _allow_exact_integer_nodes=False
 ):
     if callable(weight):
         return True
     if not isinstance(weight, str):
         return True
-    scan = _cached_native_weight_scan(G, weight, _require_exact_string_nodes)
+    scan = _cached_native_weight_scan(
+        G, weight, _require_exact_string_nodes,
+        allow_exact_integer_nodes=_allow_exact_integer_nodes,
+    )
     if scan is not None:
         has_negative, has_nonfinite, has_nonnumeric = scan
         return bool(has_negative or has_nonfinite or has_nonnumeric)
@@ -13217,7 +13224,7 @@ def _should_delegate_dijkstra_to_networkx(
                 # `single_source_dijkstra_path_length` returned 1.0 and 2.0
                 # where networkx returns nan and nan.
                 #
-                # The exact-string multigraph branch immediately below has
+                # The exact-domain multigraph branch immediately below has
                 # always been right (`not _math.isfinite(_raw)` covers NaN), so
                 # the two halves of the same predicate disagreed about the same
                 # weight depending on a flag that has nothing to do with weights.
@@ -13227,7 +13234,8 @@ def _should_delegate_dijkstra_to_networkx(
                     if _value < 0 or (_math.isinf(_value) and _value > 0):
                         return True
             return False
-        if _require_exact_string_nodes and any(type(_node) is not str for _node in G):
+        _node_types = (str, int) if _allow_exact_integer_nodes else (str,)
+        if G._native_has_adj_py_keys() or any(type(_node) not in _node_types for _node in G):
             return True
         _max_path_edges = max(1, len(G) - 1)
         for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
@@ -38615,10 +38623,10 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
         if (
             G.is_directed()
             or type(G) is not MultiGraph
-            or type(source) is not str
-            or type(target) is not str
+            or type(source) not in (str, int)
+            or type(target) not in (str, int)
             or _should_delegate_dijkstra_to_networkx(
-                G, weight, _require_exact_string_nodes=True
+                G, weight, _require_exact_string_nodes=True, _allow_exact_integer_nodes=True
             )
         ):
             return _bidirectional_dijkstra_local(G, source, target, weight=weight)

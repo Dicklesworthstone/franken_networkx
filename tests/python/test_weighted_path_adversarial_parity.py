@@ -416,11 +416,26 @@ def test_multigraph_mixed_node_display_objects_delegate_exactly():
 def test_multigraph_exact_string_domain_gate_is_bidirectional_only(monkeypatch):
     graph = fnx.MultiGraph()
     graph.add_edge(1, 2, weight=1)
+    mixed = fnx.MultiGraph()
+    mixed.add_edge("s", 1.0, weight=1)
+    mixed.add_edge(1, "t", weight=1)
 
     assert fnx._should_delegate_dijkstra_to_networkx(graph, "weight") is False
     assert (
         fnx._should_delegate_dijkstra_to_networkx(
             graph, "weight", _require_exact_string_nodes=True
+        )
+        is True
+    )
+    assert (
+        fnx._should_delegate_dijkstra_to_networkx(
+            graph, "weight", _require_exact_string_nodes=True, _allow_exact_integer_nodes=True
+        )
+        is False
+    )
+    assert (
+        fnx._should_delegate_dijkstra_to_networkx(
+            mixed, "weight", _require_exact_string_nodes=True, _allow_exact_integer_nodes=True
         )
         is True
     )
@@ -430,6 +445,18 @@ def test_multigraph_exact_string_domain_gate_is_bidirectional_only(monkeypatch):
     assert (
         fnx._should_delegate_dijkstra_to_networkx(
             graph, "weight", _require_exact_string_nodes=True
+        )
+        is True
+    )
+    assert (
+        fnx._should_delegate_dijkstra_to_networkx(
+            graph, "weight", _require_exact_string_nodes=True, _allow_exact_integer_nodes=True
+        )
+        is False
+    )
+    assert (
+        fnx._should_delegate_dijkstra_to_networkx(
+            mixed, "weight", _require_exact_string_nodes=True, _allow_exact_integer_nodes=True
         )
         is True
     )
@@ -450,7 +477,7 @@ def test_shortest_path_exact_multigraph_runs_one_authoritative_weight_scan(monke
 
     assert fnx.shortest_path(graph, "s", "t", weight="weight") == ["s", "m", "t"]
     assert len(calls) == 1
-    assert calls[0][1] == {"_require_exact_string_nodes": True}
+    assert calls[0][1] == {"_require_exact_string_nodes": True, "_allow_exact_integer_nodes": True}
 
 
 # ---------------------------------------------------------------------------

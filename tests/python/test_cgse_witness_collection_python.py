@@ -7,7 +7,8 @@ thread-local ledger armed and returns ``(result, [ComplexityWitness, ...])``.
 
 Only instrumented kernels emit. From the public Python surface that includes
 connected components, BFS/DFS edges and trees, Kruskal MST, Bellman-Ford,
-SCC enumeration/count for DiGraph/MultiDiGraph, simple-graph bidirectional Dijkstra,
+SCC enumeration/count for DiGraph/MultiDiGraph, simple-graph and exact-domain
+undirected MultiGraph bidirectional Dijkstra,
 and unweighted bidirectional BFS on all four graph classes.
 Other parameter/graph-kind routes and reference algorithms still reach sibling
 kernels that are not instrumented and yield an empty list;
@@ -37,7 +38,7 @@ def _log_public_case(case_id, oracle, expected, actual, witness, started, contra
     print("\n" + json.dumps({
         "ts": datetime.now(timezone.utc).isoformat(),
         "case_id": case_id,
-        "input_sha256": hashlib.sha256(json.dumps(nx.node_link_data(oracle), sort_keys=True).encode()).hexdigest(),
+        "input_sha256": hashlib.sha256(json.dumps(nx.node_link_data(oracle), default=str, sort_keys=True).encode()).hexdigest(),
         "fnx_version": fnx.__version__,
         "nx_version": nx.__version__,
         "so_sha256": hashlib.sha256(Path(fnx._fnx.__file__).read_bytes()).hexdigest(),
@@ -339,6 +340,176 @@ def test_public_bidirectional_dijkstra_witness_and_live_oracle(graph_name, route
     assert witness.decision_path_hash == repeated[0].decision_path_hash
 
 
+@pytest.mark.parametrize("route", ["shortest_path", "bidirectional_dijkstra"])
+@pytest.mark.parametrize("weight", ["weight", "cost"])
+@pytest.mark.parametrize("case", ["parallel", "equal", "float", "default", "self", "disconnected", "removed", "dense"])
+def test_public_multigraph_bidirectional_dijkstra_witness_and_live_oracle(route, weight, case):
+    graph = fnx.MultiGraph()
+    oracle = nx.MultiGraph()
+    n = 18 if case == "dense" else 7
+    edges = [(0, 2, 1), (0, 1, 1), (2, 3, 1), (1, 3, 1), (3, 4, 1), (4, 5, 1)]
+    if case == "dense":
+        edges = [(u, v, 1) for u in range(n - 1) for v in range(u + 1, n - 1)]
+    elif case == "float":
+        edges[0] = (0, 2, 0.5)
+    for target in (graph, oracle):
+        target.add_nodes_from(range(n))
+        target.add_edges_from((u, v, {} if case == "default" else {weight: value})
+                              for u, v, value in edges)
+        if case in ("parallel", "dense"):
+            target.add_edge(0, 2, **{weight: 9})
+            target.add_edge(0, 2, **{weight: 0.5})
+            target.add_edge(2, 2, **{weight: 0})
+        if case == "removed":
+            target.remove_node(1)
+    destination = 0 if case == "self" else n - 1 if case == "disconnected" else 5
+
+    def call(module, target):
+        try:
+            return getattr(module, route)(target, 0, destination, weight=weight)
+        except nx.NetworkXNoPath as error:
+            return type(error), str(error)
+
+    expected = call(nx, oracle)
+    started = time.perf_counter()
+    result, witnesses = cgse.collect_witnesses(lambda: call(fnx, graph))
+    _, repeated = cgse.collect_witnesses(lambda: call(fnx, graph))
+    witness = witnesses[0] if len(witnesses) == 1 else None
+    registered = cgse.policy_registry()["dijkstra"]
+    contract_passed = (
+        witness is not None and len(repeated) == 1
+        and witness.policy.id() == registered["policy"]
+        and witness.dominant_term == registered["dominant_complexity"]
+        and (witness.n, witness.m) == (oracle.number_of_nodes(), oracle.number_of_edges())
+        and witness.verify_complexity_bound()["within_bounds"]
+        and (witness.observed_count == 0 if case == "self" else witness.observed_count > 0)
+        and witness.decision_path_hash == repeated[0].decision_path_hash
+    )
+    _log_public_case(f"MultiGraph/{route}/{weight}/{case}", oracle, expected, result,
+                     witness, started, contract_passed)
+    assert result == expected
+    if route == "bidirectional_dijkstra" and case != "disconnected":
+        assert type(result[0]) is type(expected[0])  # integer/float length is observable
+    assert len(witnesses) == len(repeated) == 1, witnesses
+    assert witness.policy.id() == registered["policy"]
+    assert witness.dominant_term == registered["dominant_complexity"]
+    assert (witness.n, witness.m) == (oracle.number_of_nodes(), oracle.number_of_edges())
+    assert witness.verify_complexity_bound()["within_bounds"]
+    assert witness.observed_count == 0 if case == "self" else witness.observed_count > 0
+    assert witness.decision_path_hash == repeated[0].decision_path_hash
+    assert call(fnx, graph) == expected  # scratch reuse/collection must not change the path
+
+
+@pytest.mark.parametrize("native_scan", [True, False])
+@pytest.mark.parametrize("route", ["shortest_path", "bidirectional_dijkstra"])
+@pytest.mark.parametrize("labels", ["integers", "wide_integers", "strings_and_integers"])
+def test_public_multigraph_integer_labels_use_native_witness(route, labels, native_scan, monkeypatch):
+    nodes = [0, 1, 2, 3]
+    if labels == "wide_integers":
+        nodes = [2**100 + i for i in nodes]
+    elif labels == "strings_and_integers":
+        nodes = ["s", 1, "b", 3]
+    graph, oracle = fnx.MultiGraph(), nx.MultiGraph()
+    for target in (graph, oracle):
+        target.add_nodes_from(nodes)
+        for u, v in [(0, 2), (0, 1), (2, 3), (1, 3)]:
+            target.add_edge(nodes[u], nodes[v], weight=1)
+        target.add_edge(nodes[0], nodes[2], weight=9)
+    if not native_scan:
+        monkeypatch.setattr(fnx, "_native_check_dijkstra_weights_fast", None)
+
+    def call(module, target):
+        return getattr(module, route)(target, nodes[0], nodes[3], weight="weight")
+
+    expected = call(nx, oracle)
+    started = time.perf_counter()
+    result, witnesses = cgse.collect_witnesses(lambda: call(fnx, graph))
+    _, repeated = cgse.collect_witnesses(lambda: call(fnx, graph))
+    registered = cgse.policy_registry()["dijkstra"]
+    witness = witnesses[0] if len(witnesses) == 1 else None
+    valid = (witness is not None and len(repeated) == 1
+             and witness.policy.id() == registered["policy"]
+             and witness.dominant_term == registered["dominant_complexity"]
+             and (witness.n, witness.m) == (4, 5)
+             and witness.observed_count > 0
+             and witness.verify_complexity_bound()["within_bounds"]
+             and witness.decision_path_hash == repeated[0].decision_path_hash)
+    _log_public_case(f"MultiGraph/{route}/{labels}/native_scan={native_scan}",
+                     oracle, expected, result, witness, started, valid)
+    assert result == expected
+    actual_path = result[1] if route == "bidirectional_dijkstra" else result
+    expected_path = expected[1] if route == "bidirectional_dijkstra" else expected
+    assert [type(node) for node in actual_path] == [type(node) for node in expected_path]
+    assert valid, witnesses
+
+
+@pytest.mark.parametrize("native_scan", [True, False])
+@pytest.mark.parametrize("route", ["shortest_path", "bidirectional_dijkstra"])
+@pytest.mark.parametrize("case", ["large_int", "sum_envelope", "fraction", "decimal",
+                                 "negative", "inf", "nan", "nonnumeric", "mixed_rows",
+                                 "bool_endpoint", "float_endpoint", "str_subclass_endpoint",
+                                 "int_subclass_endpoint", "callable"])
+def test_public_multigraph_inexact_domains_keep_python_authority(route, case, native_scan, monkeypatch):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    class StringNode(str):
+        pass
+
+    class IntegerNode(int):
+        pass
+
+    graph, oracle = fnx.MultiGraph(), nx.MultiGraph()
+    source, target = 0, 2
+    value = {"large_int": 2**60 + 1, "sum_envelope": 2**52 + 1,
+             "fraction": Fraction(1, 3), "decimal": Decimal("0.1"),
+             "negative": -1, "inf": float("inf"), "nan": float("nan"),
+             "nonnumeric": "heavy"}.get(case, 1)
+    for current in (graph, oracle):
+        if case == "mixed_rows":
+            # All global node objects are exact ints: only the adjacency-row
+            # override reveals that native graph-global rendering is unsafe.
+            current.add_nodes_from([0, 1, 2])
+            current.add_edge(0, 1.0, weight=1)
+            current.add_edge(1, 2, weight=1)
+        elif case == "str_subclass_endpoint":
+            current.add_edge("s", "m", weight=1)
+            current.add_edge("m", "t", weight=1)
+        else:
+            current.add_edge(0, 1, weight=value)
+            current.add_edge(1, 2, weight=value if case == "sum_envelope" else 1)
+    if case == "bool_endpoint":
+        source = False
+    elif case == "float_endpoint":
+        source = 0.0
+    elif case == "str_subclass_endpoint":
+        source, target = StringNode("s"), "t"
+    elif case == "int_subclass_endpoint":
+        source = IntegerNode(0)
+    weight = (lambda u, v, data: min(attrs.get("weight", 1) for attrs in data.values())) if case == "callable" else "weight"
+    if not native_scan:
+        monkeypatch.setattr(fnx, "_native_check_dijkstra_weights_fast", None)
+
+    def call(module, current):
+        try:
+            result = getattr(module, route)(current, source, target, weight=weight)
+        except (TypeError, ValueError, nx.NetworkXException) as error:
+            return "exception", type(error).__qualname__, str(error)
+        path = result[1] if route == "bidirectional_dijkstra" else result
+        typed_path = [(type(node).__qualname__, repr(node)) for node in path]
+        # repr preserves finite floats, arbitrary ints, custom numerics and NaN;
+        # unlike ==, it can also compare two independently produced NaN values.
+        return (type(result[0]).__qualname__, repr(result[0]), typed_path) if route == "bidirectional_dijkstra" else typed_path
+
+    expected = call(nx, oracle)
+    started = time.perf_counter()
+    result, witnesses = cgse.collect_witnesses(lambda: call(fnx, graph))
+    _log_public_case(f"MultiGraph/{route}/fallback/{case}/native_scan={native_scan}",
+                     oracle, expected, result, None, started, not witnesses)
+    assert result == expected
+    assert witnesses == []  # no native receipt may be fabricated for Python traversal
+
+
 @pytest.mark.parametrize("graph_name", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("route", ["strongly_connected_components", "number_strongly_connected_components"])
 @pytest.mark.parametrize("case", ["empty", "singleton", "cycle", "components", "parallel", "removed", "sparse", "edgeless"])
@@ -398,6 +569,7 @@ def test_public_scc_witness_and_live_oracle(graph_name, route, case):
 @pytest.mark.parametrize("graph_name,route", [
     ("Graph", "bidirectional_dijkstra"),
     ("DiGraph", "bidirectional_dijkstra"),
+    ("MultiGraph", "bidirectional_dijkstra"),
     ("DiGraph", "strongly_connected_components"),
     ("MultiDiGraph", "strongly_connected_components"),
     ("Graph", "bidirectional_shortest_path"),

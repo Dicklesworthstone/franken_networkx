@@ -1548,6 +1548,11 @@ fn multigraph_bidirectional_dijkstra(
     weight_attr: &str,
 ) -> fnx_algorithms::BidirectionalDijkstraOutcome {
     use fnx_algorithms::BidirectionalDijkstraOutcome;
+    let mut cgse_run = WitnessRun::new(
+        fnx_cgse::ReferenceAlgorithm::Dijkstra,
+        mg.node_count(),
+        mg.edge_count(),
+    );
 
     let (Some(source_idx), Some(target_idx)) =
         (mg.get_node_index(source), mg.get_node_index(target))
@@ -1602,6 +1607,9 @@ fn multigraph_bidirectional_dijkstra(
                     node,
                     ..
                 } = fringe[direction].pop().expect("fringe checked non-empty");
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision_bytes(&node.to_le_bytes(), &direction.to_le_bytes());
+                }
                 if dists[direction][node].is_some() {
                     continue;
                 }
@@ -1643,6 +1651,9 @@ fn multigraph_bidirectional_dijkstra(
                 }
 
                 for &neighbor in &adjacency[node] {
+                    if let Some(sink) = cgse_run.sink.as_mut() {
+                        sink.record_decision_bytes(&neighbor.to_le_bytes(), &node.to_le_bytes());
+                    }
                     let Some((edge_weight, _)) = multigraph_min_parallel_dijkstra_weight(
                         mg,
                         names[node],
@@ -5023,12 +5034,13 @@ fn check_expanded_weight_rows(
 }
 
 #[pyfunction]
-#[pyo3(signature = (g, weight_attr, require_exact_string_nodes=false))]
+#[pyo3(signature = (g, weight_attr, require_exact_string_nodes=false, allow_exact_integer_nodes=false))]
 pub fn check_dijkstra_edge_weights_fast(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight_attr: &str,
     require_exact_string_nodes: bool,
+    allow_exact_integer_nodes: bool,
 ) -> PyResult<Option<(bool, bool, bool)>> {
     let gr = extract_graph(g)?;
     match &gr {
@@ -5093,7 +5105,7 @@ pub fn check_dijkstra_edge_weights_fast(
             if !require_exact_string_nodes {
                 // Preserve the established shared classifier for unrelated
                 // MultiGraph Dijkstra APIs. The stricter exact-domain checks
-                // below belong only to the new string-key bidirectional path.
+                // below belong only to the exact-domain bidirectional path.
                 let mut has_negative = false;
                 let mut has_positive_infinity = false;
                 let mut has_nonnumeric = false;
@@ -5165,16 +5177,17 @@ pub fn check_dijkstra_edge_weights_fast(
             // The native path emitter resolves graph-global display objects,
             // while NetworkX records the object first seen in each adjacency
             // row. Hash-equal mixed node objects (for example `1` / `1.0`) and
-            // string subclasses therefore need the exact Python traversal.
-            // The measured lane is exact built-in string nodes, for which this
-            // native O(V) mirror check is allocation-free.
-            let mut has_nonnumeric = require_exact_string_nodes
-                && (!mg.adj_py_keys.is_empty()
-                    || mg.node_key_map.len() != mg.inner.node_count()
-                    || mg
-                        .node_key_map
-                        .values()
-                        .any(|node| !node.bind(py).is_exact_instance_of::<PyString>()));
+            // subclasses therefore need the exact Python traversal. Exact
+            // built-in strings and integers have lossless canonical keys and
+            // matching row displays when the override map is empty. Keep the
+            // O(V) mirror check allocation-free and reject incomplete mirrors.
+            let mut has_nonnumeric = !mg.adj_py_keys.is_empty()
+                || mg.node_key_map.len() != mg.inner.node_count()
+                || mg.node_key_map.values().any(|node| {
+                    let node = node.bind(py);
+                    !(node.is_exact_instance_of::<PyString>()
+                        || allow_exact_integer_nodes && node.is_exact_instance_of::<PyInt>())
+                });
             let max_path_edges = mg.inner.node_count().saturating_sub(1).max(1) as u128;
             for dict in mg.edge_py_attrs.values() {
                 let bound = dict.bind(py);
@@ -34418,6 +34431,68 @@ mod tests {
             multigraph_bidirectional_dijkstra(&graph, "missing", "t", "weight"),
             fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing
         ));
+    }
+
+    #[test]
+    fn multigraph_bidirectional_dijkstra_cgse_preserves_paths_and_scratch_reuse() {
+        let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+        add_multigraph_weighted_edge(&mut graph, "s", "b", 9_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "b", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "b", "t", 1_i64.into());
+        add_multigraph_weighted_edge(&mut graph, "a", "t", 1_i64.into());
+        graph.add_node("isolated");
+        for target in ["t", "s", "isolated", "missing"] {
+            let run = || {
+                use fnx_algorithms::BidirectionalDijkstraOutcome;
+                match multigraph_bidirectional_dijkstra(&graph, "s", target, "weight") {
+                    BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
+                        Ok((length, all_int, path))
+                    }
+                    BidirectionalDijkstraOutcome::NoPath => Err("no path"),
+                    BidirectionalDijkstraOutcome::NodeMissing => Err("missing node"),
+                    BidirectionalDijkstraOutcome::Contradiction => Err("contradiction"),
+                }
+            };
+            let expected = match target {
+                "t" => Ok((
+                    2.0,
+                    true,
+                    vec!["s".to_owned(), "b".to_owned(), "t".to_owned()],
+                )),
+                "s" => Ok((0.0, true, vec!["s".to_owned()])),
+                "isolated" => Err("no path"),
+                _ => Err("missing node"),
+            };
+            assert_eq!(run(), expected);
+            let (actual, witnesses) = fnx_cgse::collect_witnesses(run);
+            assert_eq!(actual, expected);
+            assert_eq!(witnesses.len(), 1);
+            let witness = &witnesses[0];
+            assert_eq!((witness.n, witness.m), (5, 5));
+            assert_eq!(
+                witness.policy,
+                fnx_cgse::ReferenceAlgorithm::Dijkstra.policy()
+            );
+            assert_eq!(witness.dominant_term, "n_plus_m_log_n");
+            assert!(
+                fnx_cgse::verify_complexity_bound(witness)
+                    .unwrap()
+                    .within_bounds
+            );
+            if target == "s" || target == "missing" {
+                assert_eq!(witness.observed_count, 0);
+            } else {
+                assert!(witness.observed_count > 0);
+            }
+            let (_, repeated) = fnx_cgse::collect_witnesses(run);
+            assert_eq!(
+                witness.decision_path_blake3,
+                repeated[0].decision_path_blake3
+            );
+            assert_eq!(run(), expected);
+        }
+        assert!(fnx_cgse::collect_witnesses(|| ()).1.is_empty());
     }
 
     #[test]
