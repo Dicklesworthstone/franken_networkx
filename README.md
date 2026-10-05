@@ -1208,7 +1208,7 @@ writer configurations retain their compatibility routes.
 
 ## Algorithm Implementation Notes
 
-The native algorithm implementations in `fnx-algorithms` favor textbook complexity bounds with one consistent twist: **every tie-break is pinned by a CGSE policy and recorded in the witness ledger**. The notes below cover the most-used families.
+The native algorithm implementations in `fnx-algorithms` favor textbook complexity bounds. CGSE registers policies and optional witness collection for twelve reference algorithms; instrumentation does not yet cover every public route. The notes below cover the most-used families.
 
 ### Shortest path
 
@@ -1594,11 +1594,16 @@ print(len(w.decision_path_hash))                                     # 64 (Blake
 _, again = cgse.collect_witnesses(lambda: list(fnx.connected_components(G)))
 assert again[0].decision_path_hash == w.decision_path_hash
 
+# Replay a serialized receipt and apply the same bound checker as Rust.
+# This checks its operation count, not the authenticity of its execution.
+restored = cgse.ComplexityWitness.from_json(w.to_json())
+assert restored.verify_complexity_bound()["within_bounds"]
+
 # A kernel outside the reference set emits nothing rather than a fabricated receipt.
 assert cgse.collect_witnesses(lambda: fnx.degree_centrality(G))[1] == []
 ```
 
-From the public Python surface, witnesses currently surface for connected components, BFS/DFS edges and trees, Kruskal's `minimum_spanning_tree`, Bellman-Ford, the DFS-based strongly-connected count, topological sort (the parity-exact native `topological_generations` Kahn kernel is instrumented), `dijkstra_path` on both simple undirected and directed graphs (the parity-exact single-pair early-exit kernels behind the wrapper emit), and — since 2026-09-04 — `eulerian_circuit` on simple undirected graphs (the native Hierholzer kernel was made nx-copy-order-parity and the wrapper now routes through it; `br-r37-c1-rc-cgse-witness-routes-obp8v`). The remaining public routes reach code that does not emit: Euler's directed and multigraph shapes keep delegating or use fnx-python-local kernels, multigraph-shape Dijkstra variants route through fnx-python-local kernels, and matching delegates to NetworkX for tie-break parity (`br-r37-c1-kpnc8`). The Rust level additionally exposes `fnx_cgse::collect_witnesses` and the `WitnessLedger` JSONL serializer, which the conformance harness uses for the artifacts under `artifacts/conformance/latest/`.
+From the public Python surface, instrumented routes include connected components, BFS/DFS edges and trees, unweighted `bidirectional_shortest_path` (including `shortest_path` with both endpoints) on all four graph classes, Kruskal's `minimum_spanning_tree`, Bellman-Ford, SCC enumeration/count on DiGraph/MultiDiGraph, topological sort, finite numeric simple-graph `dijkstra_path` and bidirectional Dijkstra, and simple undirected `eulerian_circuit`. This is not universal route coverage: public Prim and the parity-exact native blossom matching sibling still lack witnesses; directed/multigraph Euler and several shortest-path variants also remain uninstrumented. Restored witness JSON can be checked with `verify_complexity_bound()`; unknown complexity terms raise `ValueError`, and an inflated count returns `within_bounds=False`. Neither a restored receipt nor a passing bound authenticates the execution or replaces differential conformance. The Rust level also exposes `fnx_cgse::collect_witnesses` and the `WitnessLedger` JSONL serializer.
 
 ---
 
@@ -2380,7 +2385,7 @@ Algorithm calls release the GIL at hundreds of call sites and operate on borrowe
 A runtime mode in `fnx-runtime::CompatibilityMode`. Strict maximizes byte-for-byte NetworkX compatibility on V1-scoped APIs and fails closed on malformed input. Hardened preserves the API contract while applying bounded defensive recovery; useful when ingesting adversarial graphs from untrusted sources. Both modes record every action selection as a `DecisionRecord` in an evidence ledger.
 
 **What's CGSE?**
-The **Canonical Graph Semantics Engine**: a Rust crate (`fnx-cgse`) that makes tie-breaking, complexity witnesses, and policy registries first-class. Its registry names which of the 13 `TieBreakPolicy` variants governs each reference algorithm's choices; every reference-algorithm call emits a length-prefixed-Blake3 `ComplexityWitness` that can be drained from a `WitnessLedger` for offline reproducibility audits.
+The **Canonical Graph Semantics Engine**: a Rust crate (`fnx-cgse`) that makes tie-breaking, complexity witnesses, and policy registries first-class. Twelve reference algorithms are registered. Instrumented kernels emit length-prefixed-Blake3 `ComplexityWitness` receipts only inside a collection scope; public-route coverage is incomplete. See [Inspecting CGSE policy + witness types from Python](#inspecting-cgse-policy--witness-types-from-python) for the implemented routes and receipt checker.
 
 **Why not just use `networkx[backend=cugraph]` / igraph / graph-tool?**
 Use them if they fit. cugraph requires CUDA; igraph and graph-tool have different APIs and don't preserve nx tie-break behavior. The niche FrankenNetworkX fills is "I have an nx codebase, I want it faster, I do not want to think about tie-breaks or rewrite anything."

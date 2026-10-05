@@ -24378,9 +24378,11 @@ fn bidirectional_index_meta_from_rows(
     source_idx: usize,
     target_idx: usize,
     node_count: usize,
+    edge_count: usize,
     succ_row: impl Fn(usize) -> Vec<usize>,
     pred_row: impl Fn(usize) -> Vec<usize>,
 ) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    let mut cgse_run = WitnessRun::new(fnx_cgse::ReferenceAlgorithm::Bfs, node_count, edge_count);
     if source_idx == target_idx {
         return Some(vec![(source_idx, None, false)]);
     }
@@ -24406,7 +24408,13 @@ fn bidirectional_index_meta_from_rows(
         if forward.len() <= reverse.len() {
             let this_level = std::mem::take(&mut forward);
             for &v in &this_level {
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision_bytes(&v.to_le_bytes(), b"forward expansion");
+                }
                 for w in succ_row(v) {
+                    if let Some(sink) = cgse_run.sink.as_mut() {
+                        sink.record_decision_bytes(&w.to_le_bytes(), &v.to_le_bytes());
+                    }
                     if !pred_seen[w] {
                         pred_seen[w] = true;
                         pred_parent.insert(w, v);
@@ -24421,7 +24429,13 @@ fn bidirectional_index_meta_from_rows(
         } else {
             let this_level = std::mem::take(&mut reverse);
             for &v in &this_level {
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision_bytes(&v.to_le_bytes(), b"reverse expansion");
+                }
                 for w in pred_row(v) {
+                    if let Some(sink) = cgse_run.sink.as_mut() {
+                        sink.record_decision_bytes(&w.to_le_bytes(), &v.to_le_bytes());
+                    }
                     if !succ_seen[w] {
                         succ_seen[w] = true;
                         succ_parent.insert(w, v);
@@ -24486,6 +24500,7 @@ fn multigraph_bidirectional_shortest_path_index_meta(
         source_idx,
         target_idx,
         mg.node_count(),
+        mg.edge_count(),
         |v| {
             mg.get_node_name(v)
                 .and_then(|name| mg.neighbors(name))
@@ -24520,6 +24535,7 @@ fn multidigraph_bidirectional_shortest_path_index_meta(
         source_idx,
         target_idx,
         mdg.node_count(),
+        mdg.edge_count(),
         |v| {
             mdg.get_node_name(v)
                 .and_then(|name| mdg.successors(name))

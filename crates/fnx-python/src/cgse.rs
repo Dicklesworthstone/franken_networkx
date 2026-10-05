@@ -164,6 +164,37 @@ pub struct PyComplexityWitness(pub ComplexityWitness);
 
 #[pymethods]
 impl PyComplexityWitness {
+    /// Serialize a receipt using the same schema as the Rust witness ledger.
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0)
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+    }
+
+    /// Restore a receipt for replay/validation, not proof that a kernel ran.
+    #[staticmethod]
+    fn from_json(receipt: &str) -> PyResult<Self> {
+        serde_json::from_str(receipt)
+            .map(Self)
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+    }
+
+    /// Apply the existing Rust bound checker, rejecting unknown complexity terms.
+    fn verify_complexity_bound(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let result = fnx_cgse::verify_complexity_bound(&self.0).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown complexity term: {}",
+                self.0.dominant_term
+            ))
+        })?;
+        let report = PyDict::new(py);
+        report.set_item("within_bounds", result.within_bounds)?;
+        report.set_item("observed_count", result.observed_count)?;
+        report.set_item("upper_bound", result.upper_bound)?;
+        report.set_item("dominant_term", result.dominant_term)?;
+        report.set_item("formula", result.formula)?;
+        Ok(report.unbind())
+    }
+
     /// Number of nodes in the input graph.
     #[getter]
     fn n(&self) -> usize {

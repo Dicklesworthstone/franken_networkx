@@ -7,7 +7,8 @@ thread-local ledger armed and returns ``(result, [ComplexityWitness, ...])``.
 
 Only instrumented kernels emit. From the public Python surface that includes
 connected components, BFS/DFS edges and trees, Kruskal MST, Bellman-Ford,
-SCC enumeration/count for DiGraph/MultiDiGraph, and simple-graph bidirectional Dijkstra.
+SCC enumeration/count for DiGraph/MultiDiGraph, simple-graph bidirectional Dijkstra,
+and unweighted bidirectional BFS on all four graph classes.
 Other parameter/graph-kind routes and reference algorithms still reach sibling
 kernels that are not instrumented and yield an empty list;
 the planted negative below pins that an un-instrumented call reports nothing
@@ -177,6 +178,117 @@ def test_exceptions_propagate_unchanged():
         cgse.collect_witnesses(boom)
 
 
+def test_python_receipt_roundtrip_uses_the_native_bound_checker():
+    graph = _graph()
+    _, witnesses = cgse.collect_witnesses(lambda: list(fnx.bfs_edges(graph, 0)))
+    witness = witnesses[0]
+    receipt = witness.to_json()
+    restored = cgse.ComplexityWitness.from_json(receipt)
+    assert restored.to_json() == receipt
+    assert restored.decision_path_hash == witness.decision_path_hash
+    expected = {
+        "within_bounds": True,
+        "observed_count": witness.observed_count,
+        "upper_bound": 2 * (witness.n + witness.m),
+        "dominant_term": "n_plus_m",
+        "formula": f"2 * f({witness.n}, {witness.m})",
+    }
+    assert restored.verify_complexity_bound() == expected
+    assert witness.verify_complexity_bound() == expected
+
+    # A replayed receipt is data, not evidence that a kernel executed. Check
+    # the real Rust predicate on a deliberately inflated receipt from Python.
+    planted = json.loads(receipt)
+    planted["observed_count"] = 2**64 - 1
+    inflated = cgse.ComplexityWitness.from_json(json.dumps(planted))
+    report = inflated.verify_complexity_bound()
+    assert report["within_bounds"] is False, report
+    assert report["observed_count"] == 2**64 - 1
+    assert report["upper_bound"] == expected["upper_bound"]
+    assert witness.verify_complexity_bound() == expected  # no mutation
+
+
+def test_python_bound_checker_rejects_unknown_complexity_terms():
+    _, witnesses = cgse.collect_witnesses(lambda: list(fnx.bfs_edges(_graph(), 0)))
+    receipt = json.loads(witnesses[0].to_json())
+    receipt["dominant_term"] = "unregistered_term"
+    restored = cgse.ComplexityWitness.from_json(json.dumps(receipt))
+    with pytest.raises(ValueError, match="unknown complexity term: unregistered_term"):
+        restored.verify_complexity_bound()
+
+
+@pytest.mark.parametrize("corruption", ["syntax", "negative_count", "overflow", "hash_length", "policy"])
+def test_python_receipt_decoder_rejects_malformed_witnesses(corruption):
+    _, witnesses = cgse.collect_witnesses(lambda: list(fnx.bfs_edges(_graph(), 0)))
+    receipt = json.loads(witnesses[0].to_json())
+    if corruption == "syntax":
+        text = "{"
+    else:
+        if corruption == "negative_count":
+            receipt["observed_count"] = -1
+        elif corruption == "overflow":
+            receipt["observed_count"] = 2**64
+        elif corruption == "hash_length":
+            receipt["decision_path_blake3"] = [0] * 31
+        elif corruption == "policy":
+            receipt["policy"] = "unregistered_policy"
+        text = json.dumps(receipt)
+    with pytest.raises(ValueError):
+        cgse.ComplexityWitness.from_json(text)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["shortest_path", "bidirectional_shortest_path"])
+@pytest.mark.parametrize("case", ["diamond", "dense", "self", "disconnected", "removed", "parallel"])
+def test_public_unweighted_bidirectional_bfs_witness_and_live_oracle(graph_name, route, case):
+    graph = getattr(fnx, graph_name)()
+    oracle = getattr(nx, graph_name)()
+    n = 18 if case == "dense" else 7
+    edges = [(0, 2), (0, 1), (2, 3), (1, 3), (3, 4), (4, 5)]
+    if case == "dense":
+        edges = [(u, v) for u in range(n - 1) for v in range(n - 1) if u != v]
+    elif case == "parallel":
+        edges += [(0, 2), (0, 2), (2, 2)]
+    for target in (graph, oracle):
+        target.add_nodes_from(range(n))
+        target.add_edges_from(edges)
+        if case == "removed":
+            target.remove_node(1)
+    destination = 0 if case == "self" else n - 1 if case == "disconnected" else 5
+
+    def call(module, target):
+        try:
+            return getattr(module, route)(target, 0, destination)
+        except nx.NetworkXNoPath as error:
+            return type(error), str(error)
+
+    expected = call(nx, oracle)
+    started = time.perf_counter()
+    result, witnesses = cgse.collect_witnesses(lambda: call(fnx, graph))
+    _, repeated = cgse.collect_witnesses(lambda: call(fnx, graph))
+    registered = cgse.policy_registry()["bfs"]
+    witness = witnesses[0] if len(witnesses) == 1 else None
+    contract_passed = (
+        witness is not None and len(repeated) == 1
+        and witness.policy.id() == registered["policy"]
+        and witness.dominant_term == registered["dominant_complexity"]
+        and (witness.n, witness.m) == (oracle.number_of_nodes(), oracle.number_of_edges())
+        and witness.verify_complexity_bound()["within_bounds"]
+        and (case == "self" or witness.observed_count > 0)
+        and witness.decision_path_hash == repeated[0].decision_path_hash
+    )
+    _log_public_case(f"{graph_name}/{route}/{case}", oracle, expected, result, witness, started, contract_passed)
+    assert result == expected
+    assert len(witnesses) == len(repeated) == 1, witnesses
+    assert witness.policy.id() == registered["policy"]
+    assert witness.dominant_term == registered["dominant_complexity"]
+    assert (witness.n, witness.m) == (oracle.number_of_nodes(), oracle.number_of_edges())
+    assert witness.verify_complexity_bound()["within_bounds"]
+    if case != "self":
+        assert witness.observed_count > 0
+    assert witness.decision_path_hash == repeated[0].decision_path_hash
+
+
 @pytest.mark.parametrize("graph_name", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("route", ["shortest_path", "bidirectional_dijkstra"])
 @pytest.mark.parametrize("weight", ["weight", "cost"])
@@ -288,6 +400,10 @@ def test_public_scc_witness_and_live_oracle(graph_name, route, case):
     ("DiGraph", "bidirectional_dijkstra"),
     ("DiGraph", "strongly_connected_components"),
     ("MultiDiGraph", "strongly_connected_components"),
+    ("Graph", "bidirectional_shortest_path"),
+    ("DiGraph", "bidirectional_shortest_path"),
+    ("MultiGraph", "bidirectional_shortest_path"),
+    ("MultiDiGraph", "bidirectional_shortest_path"),
 ])
 def test_public_witness_hash_is_stable_across_python_hash_seeds(graph_name, route):
     program = """
@@ -299,7 +415,10 @@ graph.add_edges_from([("z", "b", {"weight": 1}), ("z", "a", {"weight": 1}),
                       ("b", "t", {"weight": 1}), ("a", "t", {"weight": 1}),
                       ("t", "z", {"weight": 1})])
 route = sys.argv[2]
-call = (lambda: fnx.bidirectional_dijkstra(graph, "z", "t")) if route == "bidirectional_dijkstra" else (lambda: list(fnx.strongly_connected_components(graph)))
+if route == "strongly_connected_components":
+    call = lambda: list(fnx.strongly_connected_components(graph))
+else:
+    call = lambda: getattr(fnx, route)(graph, "z", "t")
 _, witnesses = cgse.collect_witnesses(call)
 assert len(witnesses) == 1, witnesses
 witness = witnesses[0]

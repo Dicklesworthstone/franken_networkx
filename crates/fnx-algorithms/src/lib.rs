@@ -38487,12 +38487,19 @@ pub fn bidirectional_shortest_path_index_meta(
     source: &str,
     target: &str,
 ) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    let mut cgse_run = CgseWitnessRun {
+        reference: CgseReferenceAlgorithm::Bfs,
+        node_count: graph.node_count(),
+        edge_count: graph.edge_count(),
+        sink: cgse_begin(CgseReferenceAlgorithm::Bfs),
+    };
     let source_idx = graph.get_node_index(source)?;
     let target_idx = graph.get_node_index(target)?;
     bidirectional_index_meta_impl(
         source_idx,
         target_idx,
         graph.node_count(),
+        &mut cgse_run.sink,
         |v| graph.neighbors_indices(v),
         |v| graph.neighbors_indices(v),
     )
@@ -38505,12 +38512,19 @@ pub fn bidirectional_shortest_path_directed_index_meta(
     source: &str,
     target: &str,
 ) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    let mut cgse_run = CgseWitnessRun {
+        reference: CgseReferenceAlgorithm::Bfs,
+        node_count: digraph.node_count(),
+        edge_count: digraph.edge_count(),
+        sink: cgse_begin(CgseReferenceAlgorithm::Bfs),
+    };
     let source_idx = digraph.get_node_index(source)?;
     let target_idx = digraph.get_node_index(target)?;
     bidirectional_index_meta_impl(
         source_idx,
         target_idx,
         digraph.node_count(),
+        &mut cgse_run.sink,
         |v| digraph.successors_indices(v),
         |v| digraph.predecessors_indices(v),
     )
@@ -38520,6 +38534,7 @@ fn bidirectional_index_meta_impl<'g>(
     source_idx: usize,
     target_idx: usize,
     node_count: usize,
+    cgse_sink: &mut Option<CgseWitnessSink>,
     succ_row: impl Fn(usize) -> Option<&'g [usize]>,
     pred_row: impl Fn(usize) -> Option<&'g [usize]>,
 ) -> Option<Vec<(usize, Option<usize>, bool)>> {
@@ -38560,10 +38575,16 @@ fn bidirectional_index_meta_impl<'g>(
         if forward.len() <= reverse.len() {
             let this_level = std::mem::take(&mut forward);
             for &v in &this_level {
+                if let Some(sink) = cgse_sink.as_mut() {
+                    sink.record_decision_bytes(&v.to_le_bytes(), b"forward expansion");
+                }
                 let Some(row) = succ_row(v) else {
                     continue;
                 };
                 for &w in row {
+                    if let Some(sink) = cgse_sink.as_mut() {
+                        sink.record_decision_bytes(&w.to_le_bytes(), &v.to_le_bytes());
+                    }
                     if !pred_seen[w] {
                         pred_seen[w] = true;
                         pred_parent.insert(w, v);
@@ -38578,10 +38599,16 @@ fn bidirectional_index_meta_impl<'g>(
         } else {
             let this_level = std::mem::take(&mut reverse);
             for &v in &this_level {
+                if let Some(sink) = cgse_sink.as_mut() {
+                    sink.record_decision_bytes(&v.to_le_bytes(), b"reverse expansion");
+                }
                 let Some(row) = pred_row(v) else {
                     continue;
                 };
                 for &w in row {
+                    if let Some(sink) = cgse_sink.as_mut() {
+                        sink.record_decision_bytes(&w.to_le_bytes(), &v.to_le_bytes());
+                    }
                     if !succ_seen[w] {
                         succ_seen[w] = true;
                         succ_parent.insert(w, v);
@@ -80462,6 +80489,55 @@ mod tests {
     // -----------------------------------------------------------------------
     // dijkstra_path_length tests
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn bidirectional_bfs_cgse_preserves_paths_and_early_exits() {
+        let mut graph = Graph::strict();
+        let mut directed = DiGraph::strict();
+        for (u, v) in [("s", "b"), ("s", "a"), ("b", "t"), ("a", "t")] {
+            let _ = graph.add_edge(u, v);
+            let _ = directed.add_edge(u, v);
+        }
+        graph.add_node("isolated");
+        directed.add_node("isolated");
+        for target in ["t", "s", "isolated", "missing"] {
+            for is_directed in [false, true] {
+                let run = || {
+                    if is_directed {
+                        super::bidirectional_shortest_path_directed_index_meta(
+                            &directed, "s", target,
+                        )
+                    } else {
+                        super::bidirectional_shortest_path_index_meta(&graph, "s", target)
+                    }
+                };
+                let expected = run();
+                let (actual, witnesses) = fnx_cgse::collect_witnesses(run);
+                assert_eq!(actual, expected);
+                assert_eq!(witnesses.len(), 1);
+                let witness = &witnesses[0];
+                assert_eq!((witness.n, witness.m), (5, 4));
+                assert_eq!(witness.policy, fnx_cgse::ReferenceAlgorithm::Bfs.policy());
+                assert_eq!(witness.dominant_term, "n_plus_m");
+                assert!(
+                    fnx_cgse::verify_complexity_bound(witness)
+                        .unwrap()
+                        .within_bounds
+                );
+                if target == "s" || target == "missing" {
+                    assert_eq!(witness.observed_count, 0);
+                } else {
+                    assert!(witness.observed_count > 0);
+                }
+                let (_, repeated) = fnx_cgse::collect_witnesses(run);
+                assert_eq!(
+                    witness.decision_path_blake3,
+                    repeated[0].decision_path_blake3
+                );
+            }
+        }
+        assert!(fnx_cgse::collect_witnesses(|| ()).1.is_empty());
+    }
 
     fn assert_bidirectional_cgse_witness(
         run: impl Fn() -> super::BidirectionalDijkstraOutcome,
