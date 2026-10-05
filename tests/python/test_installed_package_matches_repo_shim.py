@@ -34,11 +34,17 @@ taken outside pytest are measuring something other than the working tree.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import io
 import site
+import stat
 import sys
+import tarfile
+import zipfile
 from pathlib import Path
 
 import pytest
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PKG = REPO_ROOT / "python" / "franken_networkx"
@@ -161,3 +167,132 @@ def test_the_import_pytest_resolves_is_the_repo_checkout() -> None:
         f"pytest imported {resolved}, not the repo shim at {expected}; the "
         "installed-vs-repo comparisons in this file assume the checkout wins"
     )
+
+
+# Archive checks belong with installed-package identity, not a second release
+# checker. These real in-memory containers exercise the DSR builder's checker;
+# they are unit-level planted inputs, not proof of a published wheel/source build.
+@pytest.fixture(scope="module")
+def release_recipe():
+    path = REPO_ROOT / "scripts" / "dsr_release_wheels.py"
+    spec = importlib.util.spec_from_file_location("fnx_dsr_release_recipe", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _license_archive(kind, metadata, entries):
+    stream = io.BytesIO()
+    prefix = "franken_networkx-1.2.3"
+    metadata_path = f"{prefix}.dist-info/METADATA" if kind == "wheel" else f"{prefix}/PKG-INFO"
+    if kind == "wheel":
+        with zipfile.ZipFile(stream, "w") as archive:
+            archive.writestr(metadata_path, metadata)
+            for path, data in entries:
+                entry = zipfile.ZipInfo(path)
+                entry.create_system = 3
+                if isinstance(data, tuple):
+                    entry.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    archive.writestr(entry, data[1].encode())
+                else:
+                    entry.external_attr = (stat.S_IFREG | 0o644) << 16
+                    archive.writestr(entry, data)
+        stream.seek(0)
+        return zipfile.ZipFile(stream)
+    with tarfile.open(fileobj=stream, mode="w") as archive:
+        for path, data in [(metadata_path, metadata), *entries]:
+            entry = tarfile.TarInfo(path)
+            if isinstance(data, tuple):
+                entry.type = tarfile.SYMTYPE
+                entry.linkname = data[1]
+                archive.addfile(entry)
+            else:
+                entry.size = len(data)
+                archive.addfile(entry, io.BytesIO(data))
+    stream.seek(0)
+    return tarfile.open(fileobj=stream, mode="r:")
+
+
+def _license_member(kind, name="LICENSE"):
+    prefix = "franken_networkx-1.2.3"
+    return f"{prefix}.dist-info/licenses/{name}" if kind == "wheel" else f"{prefix}/{name}"
+
+
+def _license_metadata(extra="License-File: LICENSE\n"):
+    return f"Metadata-Version: 2.4\nName: franken-networkx\nVersion: 1.2.3\n{extra}\nREADME body\n".encode()
+
+
+def _validate_licenses(recipe, kind, archive, licenses):
+    validate = recipe.validate_wheel_licenses if kind == "wheel" else recipe.validate_sdist_licenses
+    return validate(archive, "1.2.3", licenses)
+
+
+@pytest.mark.parametrize("kind", ["wheel", "sdist"])
+def test_dsr_license_members_match_frozen_source_bytes(release_recipe, kind):
+    licenses = {"LICENSE": (REPO_ROOT / "LICENSE").read_bytes(), "crates/NOTICE": b"crate license\n"}
+    metadata = _license_metadata("".join(f"License-File: {name}\n" for name in licenses))
+    entries = [(_license_member(kind, name), data) for name, data in licenses.items()]
+    with _license_archive(kind, metadata, entries) as archive:
+        result = _validate_licenses(release_recipe, kind, archive, licenses)
+        assert result.get_all("License-File") == list(licenses)
+
+
+@pytest.mark.parametrize("kind", ["wheel", "sdist"])
+@pytest.mark.parametrize("defect", ["missing", "wrong_bytes", "linked_member", "linked_parent", "duplicate"])
+def test_dsr_rejects_missing_changed_linked_or_ambiguous_licenses(release_recipe, kind, defect):
+    data = (REPO_ROOT / "LICENSE").read_bytes()
+    member = _license_member(kind)
+    entries = [(member, data)]
+    if defect == "missing":
+        entries = []  # The real v0.2.3 source archive's defect.
+    elif defect == "wrong_bytes":
+        entries = [(member, b"different license\n")]
+    elif defect == "linked_member":
+        entries = [(member, ("symlink", "../../outside/LICENSE"))]
+    elif defect == "linked_parent":
+        entries.append((str(Path(member).parent), ("symlink", "../../outside")))
+    else:
+        entries.append((member, data))
+    with _license_archive(kind, _license_metadata(), entries) as archive, pytest.raises(ValueError):
+        _validate_licenses(release_recipe, kind, archive, {"LICENSE": data})
+
+
+@pytest.mark.parametrize("kind", ["wheel", "sdist"])
+@pytest.mark.parametrize("name", ["../LICENSE", "/LICENSE", "a/../LICENSE", "a//LICENSE", "./LICENSE", "C:/LICENSE", "a\\LICENSE"])
+def test_dsr_rejects_unsafe_license_metadata_paths(release_recipe, kind, name):
+    data = b"license\n"
+    metadata = _license_metadata(f"License-File: {name}\n")
+    with (
+        _license_archive(kind, metadata, [(_license_member(kind, name), data)]) as archive,
+        pytest.raises(ValueError, match="unsafe archive path"),
+    ):
+        _validate_licenses(release_recipe, kind, archive, {name: data})
+
+
+@pytest.mark.parametrize("kind", ["wheel", "sdist"])
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        _license_metadata(""),
+        _license_metadata("License-File: LICENSE\nLicense-File: LICENSE\n"),
+        _license_metadata("License-File: UNKNOWN\n"),
+        _license_metadata().replace(b"Name: franken-networkx", b"Name: wrong-package"),
+        _license_metadata().replace(b"Version: 1.2.3", b"Version: 1.2.4"),
+        _license_metadata().replace(b"Version: 1.2.3", b"Version: 1.2.3\nVersion: 1.2.3"),
+        _license_metadata().replace(b"Name: franken-networkx", b"Name: franken-networkx\nName: franken-networkx"),
+        b"not a metadata header\n",
+    ],
+)
+def test_dsr_rejects_malformed_or_wrong_candidate_metadata(release_recipe, kind, metadata):
+    data = (REPO_ROOT / "LICENSE").read_bytes()
+    with (
+        _license_archive(kind, metadata, [(_license_member(kind), data)]) as archive,
+        pytest.raises(ValueError),
+    ):
+        _validate_licenses(release_recipe, kind, archive, {"LICENSE": data})
+
+
+def test_sdist_recipe_explicitly_includes_the_workspace_license():
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    includes = project["tool"]["maturin"]["include"]
+    assert any(entry["path"] == "LICENSE" and "sdist" in entry["format"] for entry in includes)
