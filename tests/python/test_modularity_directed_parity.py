@@ -13,9 +13,11 @@ must be networkx's float to the last bit - the tests at the bottom compare
 repr(), not within a tolerance.
 """
 
-import networkx as nx
-import franken_networkx as fnx
+import json
+import sys
 
+import franken_networkx as fnx
+import networkx as nx
 import pytest
 
 
@@ -153,3 +155,44 @@ def test_undirected_modularity_unchanged(seed):
     gf = fnx.gnp_random_graph(9, 0.45, seed=seed)
     part = [set(range(4)), set(range(4, 9))]
     assert abs(fnx.community.modularity(gf, part) - nx.community.modularity(gn, part)) <= 1e-9
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("mutated", [False, True])
+def test_directed_modularity_interpreter_cancellation_exact(cls, mode, bulk, mutated):
+    edges = [("hub", 0, {"weight": 1e16}), ("hub", 1, {"weight": 1.0}),
+             ("hub", 2, {"weight": -1e16}), ("hub", "hub", {"weight": 0.25}),
+             (0, 1, {"weight": 0.5}), (2, 0, {"weight": 0.75})]
+    partition = [{"hub", 0}, {1, 2}, {"isolated"}]
+    with fnx.compatibility_mode(mode):
+        graphs = []
+        for lib in (fnx, nx):
+            graph = getattr(lib, cls)()
+            graph.add_nodes_from(["hub", 0, 1, 2, "isolated"])
+            if bulk:
+                graph.add_edges_from(edges)
+            else:
+                for u, v, attrs in edges:
+                    graph.add_edge(u, v, **attrs)
+            if mutated:
+                attrs = graph["hub"][1]
+                if graph.is_multigraph():
+                    attrs = attrs[0]
+                attrs["weight"] = 1
+            graphs.append(graph)
+        for resolution in (0.5, 1, 2):
+            got = _outcome(lambda r=resolution: fnx.community.modularity(graphs[0], partition, resolution=r))
+            want = _outcome(lambda r=resolution: nx.community.modularity(graphs[1], partition, resolution=r))
+            trace = {
+                "python": sys.version, "oracle": nx.__version__, "cls": cls, "mode": mode,
+                "bulk": bulk, "mutated": mutated, "resolution": resolution, "got": got, "want": want,
+                "nodes": list(graphs[1]), "partition": [sorted(c, key=repr) for c in partition],
+                "edges": [(u, v, type(data["weight"]).__name__, repr(data["weight"]))
+                          for u, v, data in graphs[1].edges(data=True)],
+                "got_hex": float(got[1]).hex() if got[0] == "ok" else None,
+                "want_hex": float(want[1]).hex() if want[0] == "ok" else None,
+            }
+            print(json.dumps(trace), flush=True)
+            assert got == want, trace

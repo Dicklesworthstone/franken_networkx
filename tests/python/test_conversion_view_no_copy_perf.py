@@ -15,12 +15,13 @@ contract, and that construction does not scale with parent size.
 
 from __future__ import annotations
 
+import json
 import random
+import sys
 import time
 
-import pytest
-
 import franken_networkx as fnx
+import pytest
 
 try:
     import networkx as nx
@@ -274,3 +275,53 @@ def test_to_undirected_view_degrees_are_networkxs(cls, seed):
         G.add_edge(1, 2, weight=0.1)
         G.add_edge(2, 1, weight=0.2)
     assert reads(fv) == reads(nv)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mixed", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("mutated", [False, True])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_conversion_view_interpreter_cancellation_exact(cls, mixed, reverse, mutated, mode):
+    values = [0.0, 1e16, 1, -1e16] if mixed else [1e16, 1.0, -1e16]
+    with fnx.compatibility_mode(mode):
+        views = []
+        for lib in (fnx, nx):
+            graph = getattr(lib, cls)()
+            graph.add_nodes_from(["hub", *range(len(values)), "isolated"])
+            items = list(enumerate(values))
+            if reverse:
+                items.reverse()
+            for i, value in items:
+                graph.add_edge("hub", i, weight=value)
+            graph.add_edge("hub", "hub", weight=0.25)
+            view = (graph.to_undirected(as_view=True) if graph.is_directed()
+                    else graph.to_directed(as_view=True))
+            if mutated:
+                attrs = graph["hub"][0]
+                if graph.is_multigraph():
+                    attrs = attrs[0]
+                attrs["weight"] = 0.2
+            views.append(view)
+        def exact(view):
+            def number(value):
+                return (type(value).__name__, value.hex() if isinstance(value, float) else repr(value))
+            result = []
+            names = ("degree", "in_degree", "out_degree") if view.is_directed() else ("degree",)
+            for name in names:
+                degree = getattr(view, name)
+                result.append([(node, number(value)) for node, value in degree(weight="weight")])
+                result.append(number(degree("hub", weight="weight")))
+                result.append([(node, number(value)) for node, value in
+                               degree(["hub", "isolated", "hub"], weight="weight")])
+            result.append(number(view.size(weight="weight")))
+            return result
+        got, want = exact(views[0]), exact(views[1])
+        trace = {
+            "python": sys.version, "oracle": nx.__version__, "cls": cls, "mixed": mixed,
+            "reverse": reverse, "mutated": mutated, "mode": mode, "nodes": list(views[1]),
+            "edges": [(u, v, type(data["weight"]).__name__, repr(data["weight"]))
+                      for u, v, data in views[1].edges(data=True)], "got": got, "want": want,
+        }
+        print(json.dumps(trace), flush=True)
+        assert got == want, trace

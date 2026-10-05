@@ -367,32 +367,41 @@ pub(crate) struct MixedSum {
     f: f64,
     c: f64,
     is_float: bool,
+    semantics: fnx_algorithms::PythonSum,
 }
 
 impl MixedSum {
     /// The largest integer magnitude an f64 holds exactly.
     pub(crate) const EXACT_F64_INT: i128 = 1i128 << 53;
 
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(semantics: fnx_algorithms::PythonSum) -> Self {
         Self {
             int_total: 0,
             f: 0.0,
             c: 0.0,
             is_float: false,
+            semantics,
         }
     }
 
     /// Returns false when the caller must fall back to the exact path.
     pub(crate) fn add_int(&mut self, w: i128) -> bool {
         if self.is_float {
-            if w.abs() > Self::EXACT_F64_INT {
+            if !(-Self::EXACT_F64_INT..=Self::EXACT_F64_INT).contains(&w) {
                 return false;
             }
-            crate::neumaier_add(&mut self.f, &mut self.c, w as f64);
+            crate::python_sum_add(self.semantics, &mut self.f, &mut self.c, w as f64, true);
         } else {
             let Some(t) = self.int_total.checked_add(w) else {
                 return false;
             };
+            // Conservatively admit the older C-long fast-loop range. Once
+            // that loop overflows, even later cancellation needs exact fallback.
+            if t < i128::from(std::os::raw::c_long::MIN)
+                || t > i128::from(std::os::raw::c_long::MAX)
+            {
+                return false;
+            }
             self.int_total = t;
         }
         true
@@ -400,7 +409,7 @@ impl MixedSum {
 
     pub(crate) fn add_float(&mut self, x: f64) -> bool {
         if self.is_float {
-            crate::neumaier_add(&mut self.f, &mut self.c, x);
+            crate::python_sum_add(self.semantics, &mut self.f, &mut self.c, x, false);
         } else {
             // CPython leaves its integer loop here with `int_total + x` as a plain
             // float add, then compensates only the adds after it.
@@ -419,7 +428,7 @@ impl MixedSum {
     /// is `Ok(0)`, which is nx's `sum(())`.
     pub(crate) fn value(&self) -> Result<i128, f64> {
         if self.is_float {
-            Err(self.f + self.c)
+            Err(crate::python_sum_total(self.f, self.c))
         } else {
             Ok(self.int_total)
         }
@@ -433,7 +442,7 @@ pub(crate) fn mixed_combine(
 ) -> Option<Result<i128, f64>> {
     fn as_f64(v: Result<i128, f64>) -> Option<f64> {
         match v {
-            Ok(i) if i.abs() > MixedSum::EXACT_F64_INT => None,
+            Ok(i) if !(-MixedSum::EXACT_F64_INT..=MixedSum::EXACT_F64_INT).contains(&i) => None,
             Ok(i) => Some(i as f64),
             Err(x) => Some(x),
         }
@@ -1344,7 +1353,7 @@ impl PyMultiDiGraph {
             let float_total = match kind {
                 DegreeKind::Total => {
                     if store_clean {
-                        self.weighted_total_degree_float_node_store(&canonical, weight)
+                        self.weighted_total_degree_float_node_store(py, &canonical, weight)
                     } else {
                         self.weighted_total_degree_float_node(py, &canonical, weight)?
                     }
@@ -1353,7 +1362,7 @@ impl PyMultiDiGraph {
                     let outgoing = matches!(kind, DegreeKind::Out);
                     if store_clean {
                         self.weighted_directional_degree_float_node_store(
-                            &canonical, weight, outgoing,
+                            py, &canonical, weight, outgoing,
                         )
                     } else {
                         self.weighted_directional_degree_float_node(
@@ -2309,6 +2318,7 @@ impl PyMultiDiGraph {
         node: &str,
         weight: &str,
     ) -> PyResult<Option<f64>> {
+        let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
         let mut sf = 0.0f64;
         let mut sc = 0.0f64;
         let mut succ_saw = false;
@@ -2320,7 +2330,7 @@ impl PyMultiDiGraph {
                     return Ok(None);
                 };
                 succ_saw = true;
-                crate::neumaier_add(&mut sf, &mut sc, x);
+                crate::python_sum_add(sum, &mut sf, &mut sc, x, false);
             }
         }
         let mut pf = 0.0f64;
@@ -2334,14 +2344,22 @@ impl PyMultiDiGraph {
                     return Ok(None);
                 };
                 pred_saw = true;
-                crate::neumaier_add(&mut pf, &mut pc, x);
+                crate::python_sum_add(sum, &mut pf, &mut pc, x, false);
             }
         }
         if !succ_saw && !pred_saw {
             return Ok(None);
         }
-        let succ_total = if succ_saw { sf + sc } else { 0.0 };
-        let pred_total = if pred_saw { pf + pc } else { 0.0 };
+        let succ_total = if succ_saw {
+            crate::python_sum_total(sf, sc)
+        } else {
+            0.0
+        };
+        let pred_total = if pred_saw {
+            crate::python_sum_total(pf, pc)
+        } else {
+            0.0
+        };
         Ok(Some(succ_total + pred_total))
     }
 
@@ -2357,7 +2375,13 @@ impl PyMultiDiGraph {
     /// the mirror twin, so it is bit-identical to `sum(succ) + sum(pred)`.
     /// `None` on any non-float/absent value or a fully edgeless node (nx int 0).
     /// CALLER must gate on `!edges_dirty` (store authoritative).
-    fn weighted_total_degree_float_node_store(&self, node: &str, weight: &str) -> Option<f64> {
+    fn weighted_total_degree_float_node_store(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        weight: &str,
+    ) -> Option<f64> {
+        let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
         let mut sf = 0.0f64;
         let mut sc = 0.0f64;
         let mut succ_saw = false;
@@ -2369,7 +2393,7 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     succ_saw = true;
-                    crate::neumaier_add(&mut sf, &mut sc, x);
+                    crate::python_sum_add(sum, &mut sf, &mut sc, x, false);
                 }
             }
         }
@@ -2384,15 +2408,23 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     pred_saw = true;
-                    crate::neumaier_add(&mut pf, &mut pc, x);
+                    crate::python_sum_add(sum, &mut pf, &mut pc, x, false);
                 }
             }
         }
         if !succ_saw && !pred_saw {
             return None;
         }
-        let succ_total = if succ_saw { sf + sc } else { 0.0 };
-        let pred_total = if pred_saw { pf + pc } else { 0.0 };
+        let succ_total = if succ_saw {
+            crate::python_sum_total(sf, sc)
+        } else {
+            0.0
+        };
+        let pred_total = if pred_saw {
+            crate::python_sum_total(pf, pc)
+        } else {
+            0.0
+        };
         Some(succ_total + pred_total)
     }
 
@@ -2475,6 +2507,7 @@ impl PyMultiDiGraph {
         weight: &str,
         outgoing: bool,
     ) -> PyResult<Option<f64>> {
+        let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
         let mut f = 0.0f64;
         let mut c = 0.0f64;
         let mut saw = false;
@@ -2487,7 +2520,7 @@ impl PyMultiDiGraph {
                         return Ok(None);
                     };
                     saw = true;
-                    crate::neumaier_add(&mut f, &mut c, x);
+                    crate::python_sum_add(sum, &mut f, &mut c, x, false);
                 }
             }
         } else {
@@ -2499,14 +2532,14 @@ impl PyMultiDiGraph {
                         return Ok(None);
                     };
                     saw = true;
-                    crate::neumaier_add(&mut f, &mut c, x);
+                    crate::python_sum_add(sum, &mut f, &mut c, x, false);
                 }
             }
         }
         if !saw {
             return Ok(None);
         }
-        Ok(Some(f + c))
+        Ok(Some(crate::python_sum_total(f, c)))
     }
 
     /// br-r37-c1-mdgwdegfs (cc): store-backed twin of
@@ -2519,10 +2552,12 @@ impl PyMultiDiGraph {
     /// direction. CALLER must gate on `!edges_dirty` (store authoritative).
     fn weighted_directional_degree_float_node_store(
         &self,
+        py: Python<'_>,
         node: &str,
         weight: &str,
         outgoing: bool,
     ) -> Option<f64> {
+        let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
         let mut f = 0.0f64;
         let mut c = 0.0f64;
         let mut saw = false;
@@ -2534,7 +2569,7 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     saw = true;
-                    crate::neumaier_add(&mut f, &mut c, x);
+                    crate::python_sum_add(sum, &mut f, &mut c, x, false);
                 }
             }
         } else {
@@ -2545,14 +2580,14 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     saw = true;
-                    crate::neumaier_add(&mut f, &mut c, x);
+                    crate::python_sum_add(sum, &mut f, &mut c, x, false);
                 }
             }
         }
         if !saw {
             return None;
         }
-        Some(f + c)
+        Some(crate::python_sum_total(f, c))
     }
 
     /// br-r37-c1-fpssi: all node display objects as a Vec, reusing the
@@ -8911,7 +8946,7 @@ impl PyMultiDiGraph {
             // parity, numeric promotion, and nx's int-0 for isolated nodes stay
             // byte-exact.
             let float_total = if store_clean {
-                self.weighted_total_degree_float_node_store(node, weight)
+                self.weighted_total_degree_float_node_store(py, node, weight)
             } else {
                 self.weighted_total_degree_float_node(py, node, weight)?
             };
@@ -9010,7 +9045,7 @@ impl PyMultiDiGraph {
             // Returns None (-> exact fallback) on any non-float/absent value
             // and for an edgeless direction, keeping nx's int-0 byte-exact.
             let float_total = if store_clean {
-                self.weighted_directional_degree_float_node_store(node, weight, outgoing)
+                self.weighted_directional_degree_float_node_store(py, node, weight, outgoing)
             } else {
                 self.weighted_directional_degree_float_node(py, node, weight, outgoing)?
             };
@@ -11336,6 +11371,7 @@ impl PyDiGraph {
         // contributing float edge yields nx's int 0 (`sum(())`).
         if !self.edges_dirty.load(Ordering::Relaxed) {
             let mut float_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+            let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
             let mut all_float = true;
             'fnodes: for (node, canonical) in &items {
                 let mut fo = 0.0f64;
@@ -11353,7 +11389,7 @@ impl PyDiGraph {
                             }
                         };
                         saw = true;
-                        crate::neumaier_add(&mut fo, &mut co, x);
+                        crate::python_sum_add(sum, &mut fo, &mut co, x, false);
                     }
                 }
                 if build_in && let Some(in_edges) = self.inner.in_edge_attrs(canonical) {
@@ -11366,16 +11402,18 @@ impl PyDiGraph {
                             }
                         };
                         saw = true;
-                        crate::neumaier_add(&mut fi, &mut ci, x);
+                        crate::python_sum_add(sum, &mut fi, &mut ci, x, false);
                     }
                 }
                 let value_obj = if !saw {
                     0i64.into_py_any(py)?
                 } else {
                     let deg = match kind {
-                        DegreeKind::Total => (fo + co) + (fi + ci),
-                        DegreeKind::Out => fo + co,
-                        DegreeKind::In => fi + ci,
+                        DegreeKind::Total => {
+                            crate::python_sum_total(fo, co) + crate::python_sum_total(fi, ci)
+                        }
+                        DegreeKind::Out => crate::python_sum_total(fo, co),
+                        DegreeKind::In => crate::python_sum_total(fi, ci),
                     };
                     pyo3::types::PyFloat::new(py, deg).into_any().unbind()
                 };
@@ -14417,15 +14455,16 @@ impl PyDiGraph {
     /// total; and the final `/2` is gated on the integer total staying within
     /// 2**53, since Python's `int / 2` is correctly rounded where `t as f64 / 2.0`
     /// stops being so.
-    fn _weighted_size_fast_float(&self, weight: &str) -> Option<f64> {
+    fn _weighted_size_fast_float(&self, py: Python<'_>, weight: &str) -> Option<f64> {
+        let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
         Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return None;
         }
-        let mut outer = MixedSum::new();
+        let mut outer = MixedSum::new(sum);
         for i in 0..self.inner.node_count() {
-            let mut acc_out = MixedSum::new();
-            let mut acc_in = MixedSum::new();
+            let mut acc_out = MixedSum::new(sum);
+            let mut acc_in = MixedSum::new(sum);
             if let Some(succs) = self.inner.successors_indices(i) {
                 for &j in succs {
                     let ok = match self
@@ -17552,6 +17591,7 @@ impl PyDiGraph {
         inc_out: bool,
         inc_in: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
         Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
@@ -17575,7 +17615,7 @@ impl PyDiGraph {
                         _ => return Ok(None),
                     };
                     saw = true;
-                    crate::neumaier_add(&mut fo, &mut co, x);
+                    crate::python_sum_add(sum, &mut fo, &mut co, x, false);
                 }
             }
             if inc_in && let Some(preds) = self.inner.predecessors_indices(i) {
@@ -17589,7 +17629,7 @@ impl PyDiGraph {
                         _ => return Ok(None),
                     };
                     saw = true;
-                    crate::neumaier_add(&mut fi, &mut ci, x);
+                    crate::python_sum_add(sum, &mut fi, &mut ci, x, false);
                 }
             }
             if !saw {
@@ -17600,9 +17640,9 @@ impl PyDiGraph {
             // Combine per (inc_out, inc_in) EXACTLY as the exact path's match arms:
             // total -> o.add(i); out-only -> o; in-only -> i.
             let deg = match (inc_out, inc_in) {
-                (true, true) => (fo + co) + (fi + ci),
-                (true, false) => fo + co,
-                (false, true) => fi + ci,
+                (true, true) => crate::python_sum_total(fo, co) + crate::python_sum_total(fi, ci),
+                (true, false) => crate::python_sum_total(fo, co),
+                (false, true) => crate::python_sum_total(fi, ci),
                 (false, false) => 0.0,
             };
             out.push(pyo3::types::PyFloat::new(py, deg).into_any().unbind());
@@ -17729,6 +17769,7 @@ impl PyDiGraph {
         inc_out: bool,
         inc_in: bool,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        let sum = fnx_algorithms::PythonSum::for_minor_version(py.version_info().minor);
         Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
@@ -17736,8 +17777,8 @@ impl PyDiGraph {
         let n = self.inner.node_count();
         let mut out: Vec<PyObject> = Vec::with_capacity(n);
         for i in 0..n {
-            let mut acc_out = MixedSum::new();
-            let mut acc_in = MixedSum::new();
+            let mut acc_out = MixedSum::new(sum);
+            let mut acc_in = MixedSum::new(sum);
             if inc_out && let Some(succs) = self.inner.successors_indices(i) {
                 for &j in succs {
                     let ok = match self

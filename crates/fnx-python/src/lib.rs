@@ -18,6 +18,7 @@ mod views;
 pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_json};
 
 use arrayvec::ArrayString;
+use fnx_algorithms::PythonSum;
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
@@ -74,6 +75,35 @@ pub(crate) fn neumaier_add(total: &mut f64, comp: &mut f64, x: f64) {
         *comp += (x - t) + *total;
     }
     *total = t;
+}
+
+/// Apply the running interpreter's float-phase `sum` policy. CPython 3.10/11
+/// left-fold both types; 3.12/13 compensate only floats; 3.14 compensates ints
+/// too. The integer-prefix promotion is a separate plain add in `MixedSum`.
+#[inline]
+pub(crate) fn python_sum_add(
+    semantics: PythonSum,
+    total: &mut f64,
+    comp: &mut f64,
+    x: f64,
+    is_int: bool,
+) {
+    match semantics {
+        PythonSum::Plain => *total += x,
+        PythonSum::CompensatedFloats if is_int => *total += x,
+        PythonSum::CompensatedFloats | PythonSum::Compensated => neumaier_add(total, comp, x),
+    }
+}
+
+/// CPython adds a finite, nonzero compensation only; a zero must not change
+/// the sign of the total, and a non-finite compensation must not corrupt it.
+#[inline]
+pub(crate) fn python_sum_total(total: f64, comp: f64) -> f64 {
+    if comp != 0.0 && comp.is_finite() {
+        total + comp
+    } else {
+        total
+    }
 }
 
 /// The node-key mirror is a lookup-heavy cache; public graph order comes from
@@ -13762,7 +13792,7 @@ impl PyMultiGraph {
             // weight) AND for an edgeless node, so int/mixed parity, numeric
             // promotion, and nx's int-0 for isolated nodes stay byte-exact.
             let float_total = if store_authoritative {
-                self.weighted_degree_float_node_store(node, weight)
+                self.weighted_degree_float_node_store(py, node, weight)
             } else {
                 self.weighted_degree_float_node(py, node, weight)?
             };
@@ -13889,7 +13919,7 @@ impl PyMultiGraph {
             // `py_node_key`, so this path must do the same or a caller that passed
             // an equal-but-distinct node object would get a different key back.
             let float_total = if store_authoritative {
-                self.weighted_degree_float_node_store(&node, weight)
+                self.weighted_degree_float_node_store(py, &node, weight)
             } else {
                 self.weighted_degree_float_node(py, &node, weight)?
             };
@@ -15182,6 +15212,7 @@ impl PyMultiGraph {
         node: &str,
         weight: &str,
     ) -> PyResult<Option<f64>> {
+        let sum = PythonSum::for_minor_version(py.version_info().minor);
         let mut f = 0.0f64;
         let mut c = 0.0f64;
         let mut sf = 0.0f64;
@@ -15198,18 +15229,18 @@ impl PyMultiGraph {
                     return Ok(None);
                 };
                 saw = true;
-                neumaier_add(&mut f, &mut c, x);
+                python_sum_add(sum, &mut f, &mut c, x, false);
                 if is_self {
-                    neumaier_add(&mut sf, &mut sc, x);
+                    python_sum_add(sum, &mut sf, &mut sc, x, false);
                 }
             }
         }
         if !saw {
             return Ok(None);
         }
-        let mut total = f + c;
+        let mut total = python_sum_total(f, c);
         if has_selfloop {
-            total += sf + sc;
+            total += python_sum_total(sf, sc);
         }
         Ok(Some(total))
     }
@@ -15229,7 +15260,13 @@ impl PyMultiGraph {
     /// absent value (nx default int 1) or a fully edgeless node (nx int 0). CALLER
     /// must gate on `!edges_dirty` (store authoritative). Undirected sibling of
     /// `PyMultiDiGraph::weighted_total_degree_float_node_store`.
-    fn weighted_degree_float_node_store(&self, node: &str, weight: &str) -> Option<f64> {
+    fn weighted_degree_float_node_store(
+        &self,
+        py: Python<'_>,
+        node: &str,
+        weight: &str,
+    ) -> Option<f64> {
+        let sum = PythonSum::for_minor_version(py.version_info().minor);
         let mut f = 0.0f64;
         let mut c = 0.0f64;
         let mut sf = 0.0f64;
@@ -15253,9 +15290,9 @@ impl PyMultiGraph {
                     };
                     let x = *x;
                     saw = true;
-                    neumaier_add(&mut f, &mut c, x);
+                    python_sum_add(sum, &mut f, &mut c, x, false);
                     if is_self {
-                        neumaier_add(&mut sf, &mut sc, x);
+                        python_sum_add(sum, &mut sf, &mut sc, x, false);
                     }
                 }
             }
@@ -15263,9 +15300,9 @@ impl PyMultiGraph {
         if !saw {
             return None;
         }
-        let mut total = f + c;
+        let mut total = python_sum_total(f, c);
         if has_selfloop {
-            total += sf + sc;
+            total += python_sum_total(sf, sc);
         }
         Some(total)
     }
@@ -19834,12 +19871,13 @@ impl PyGraph {
     /// two-level store walk with no per-edge PyObject at all (166us), against a
     /// 1875us Python fallback. The margin is what makes the same probe a win.
     fn _weighted_size_fast_float(&self, py: Python<'_>, weight: &str) -> Option<f64> {
+        let sum = PythonSum::for_minor_version(py.version_info().minor);
         let scope = self.weighted_read_scope().ok()?;
         let escaped = scope.as_deref().and_then(Option::as_ref);
         self.inner.with_edge_slots_by_neighbor(|edge_slots| {
-            let mut outer = crate::digraph::MixedSum::new();
+            let mut outer = crate::digraph::MixedSum::new(sum);
             for (i, node_slots) in edge_slots.iter().enumerate() {
-                let mut node = crate::digraph::MixedSum::new();
+                let mut node = crate::digraph::MixedSum::new(sum);
                 let mut selfloop: Option<Result<i128, f64>> = None;
                 if let Some(nbrs) = self.inner.neighbors_indices(i) {
                     for (row_pos, &j) in nbrs.iter().enumerate() {
@@ -19918,14 +19956,15 @@ impl PyGraph {
     /// constant-folded out of the loop, which would fake a speedup.
     ///
     /// baseline minus this probe = the cost of `edge_attrs_by_indices`.
-    fn _probe_size_no_lookup(&self, _weight: &str) -> Option<f64> {
+    fn _probe_size_no_lookup(&self, py: Python<'_>, _weight: &str) -> Option<f64> {
+        let sum = PythonSum::for_minor_version(py.version_info().minor);
         Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return None;
         }
-        let mut outer = crate::digraph::MixedSum::new();
+        let mut outer = crate::digraph::MixedSum::new(sum);
         for i in 0..self.inner.node_count() {
-            let mut node = crate::digraph::MixedSum::new();
+            let mut node = crate::digraph::MixedSum::new(sum);
             let mut selfloop: Option<Result<i128, f64>> = None;
             if let Some(nbrs) = self.inner.neighbors_indices(i) {
                 for &j in nbrs {
@@ -20085,6 +20124,7 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        let sum = PythonSum::for_minor_version(py.version_info().minor);
         // br-r37-c1-igdzi: not scope-aware, for the reason measured on the int
         // sibling above — the per-edge probe costs more than the fallback it
         // replaces on this shape.
@@ -20111,8 +20151,8 @@ impl PyGraph {
                         _ => return Ok(None),
                     };
                     saw = true;
-                    // Neumaier / Kahan-Babuska compensated add (== CPython float sum).
-                    neumaier_add(&mut f, &mut c, x);
+                    // Follow the running interpreter's float summation policy.
+                    python_sum_add(sum, &mut f, &mut c, x, false);
                     if i == j {
                         selfloop_w = Some(x);
                     }
@@ -20123,7 +20163,7 @@ impl PyGraph {
                 out.push(0i64.into_pyobject(py)?.into_any().unbind());
                 continue;
             }
-            let mut total = f + c;
+            let mut total = python_sum_total(f, c);
             if let Some(w) = selfloop_w {
                 // nx's undirected DegreeView counts a self-loop's weight twice.
                 total += w;
@@ -20173,6 +20213,7 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        let sum = PythonSum::for_minor_version(py.version_info().minor);
         self.refresh_edges_dirty(py); // br-r37-c1-urjxk
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
@@ -20204,20 +20245,28 @@ impl PyGraph {
                     match value {
                         Ok(w) => {
                             if is_float {
-                                if w.abs() > EXACT_F64_INT {
+                                if !(-EXACT_F64_INT..=EXACT_F64_INT).contains(&w) {
                                     return Ok(None);
                                 }
-                                neumaier_add(&mut float_total, &mut comp, w as f64);
+                                python_sum_add(sum, &mut float_total, &mut comp, w as f64, true);
                             } else {
                                 let Some(t) = int_total.checked_add(w) else {
                                     return Ok(None);
                                 };
+                                // Conservatively admit the older C-long fast-loop
+                                // range; overflow requires the exact generic path,
+                                // including after a later cancellation.
+                                if t < i128::from(std::os::raw::c_long::MIN)
+                                    || t > i128::from(std::os::raw::c_long::MAX)
+                                {
+                                    return Ok(None);
+                                }
                                 int_total = t;
                             }
                         }
                         Err(x) => {
                             if is_float {
-                                neumaier_add(&mut float_total, &mut comp, x);
+                                python_sum_add(sum, &mut float_total, &mut comp, x, false);
                             } else {
                                 // First float for this node: CPython leaves its
                                 // integer loop with `int_total + x` as a plain float
@@ -20237,7 +20286,7 @@ impl PyGraph {
                 }
             }
             if is_float {
-                let mut total = float_total + comp;
+                let mut total = python_sum_total(float_total, comp);
                 if let Some(w) = selfloop {
                     // nx's undirected DegreeView counts a self-loop's weight twice.
                     total += match w {
@@ -20403,6 +20452,7 @@ impl PyGraph {
         // missing weight. An edgeless nbunch node yields nx's int 0 (matching `sum(())`).
         if !self.edges_dirty.load(Ordering::Relaxed) {
             let mut float_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+            let sum = PythonSum::for_minor_version(py.version_info().minor);
             let mut all_float = true;
             'fnodes: for (node, canonical) in &items {
                 let Some(edges) = self.inner.incident_edge_attrs(canonical) else {
@@ -20422,7 +20472,7 @@ impl PyGraph {
                         }
                     };
                     saw = true;
-                    neumaier_add(&mut f, &mut c, x);
+                    python_sum_add(sum, &mut f, &mut c, x, false);
                     if is_loop {
                         selfloop_w = Some(x);
                     }
@@ -20430,7 +20480,7 @@ impl PyGraph {
                 let value_obj = if !saw {
                     0i64.into_pyobject(py)?.into_any().unbind()
                 } else {
-                    let mut total = f + c;
+                    let mut total = python_sum_total(f, c);
                     if let Some(w) = selfloop_w {
                         total += w;
                     }
@@ -20810,6 +20860,57 @@ pub(crate) fn unwrap_infallible<T>(result: Result<T, Infallible>) -> T {
 mod tests {
     use super::*;
     use fnx_runtime::RuntimePolicy;
+
+    #[test]
+    fn python_sum_policy_distinguishes_float_and_integer_cancellation() {
+        let fold = |policy, items: &[(f64, bool)]| {
+            let mut total = 0.0;
+            let mut comp = 0.0;
+            for &(value, is_int) in items {
+                python_sum_add(policy, &mut total, &mut comp, value, is_int);
+            }
+            python_sum_total(total, comp)
+        };
+        let floats = [(1e16, false), (1.0, false), (-1e16, false)];
+        let mixed = [(1e16, false), (1.0, true), (-1e16, false)];
+        assert_eq!(fold(PythonSum::Plain, &floats), 0.0);
+        assert_eq!(fold(PythonSum::CompensatedFloats, &floats), 1.0);
+        assert_eq!(fold(PythonSum::CompensatedFloats, &mixed), 0.0);
+        assert_eq!(fold(PythonSum::Compensated, &mixed), 1.0);
+    }
+
+    #[test]
+    fn python_sum_policy_preserves_prefix_promotion_and_generic_fallback() {
+        use crate::digraph::MixedSum;
+        let mut sum = MixedSum::new(PythonSum::Compensated);
+        assert!(sum.add_int(3));
+        assert!(sum.add_float(0.2));
+        assert!(sum.add_float(0.1));
+        assert!(sum.add_float(0.1));
+        assert_eq!(sum.value(), Err(3.400_000_000_000_000_4));
+        let mut overflow = MixedSum::new(PythonSum::Compensated);
+        assert!(overflow.add_int(i128::from(std::os::raw::c_long::MAX)));
+        assert!(!overflow.add_int(1));
+        let mut extreme = MixedSum::new(PythonSum::Compensated);
+        assert!(extreme.add_float(1.0));
+        assert!(!extreme.add_int(i128::MIN));
+    }
+
+    #[test]
+    fn python_sum_policy_keeps_sign_and_non_finite_totals() {
+        assert_eq!(python_sum_total(-0.0, 0.0).to_bits(), (-0.0_f64).to_bits());
+        assert_eq!(python_sum_total(f64::INFINITY, f64::NAN), f64::INFINITY);
+        for policy in [
+            PythonSum::Plain,
+            PythonSum::CompensatedFloats,
+            PythonSum::Compensated,
+        ] {
+            let mut total = 1e308;
+            let mut comp = 0.0;
+            python_sum_add(policy, &mut total, &mut comp, 1e308, false);
+            assert_eq!(python_sum_total(total, comp), f64::INFINITY);
+        }
+    }
 
     /// br-r37-c1-ilj40: `neumaier_add` must equal CPython's `sum()` exactly,
     /// including once the running total leaves the finite range.

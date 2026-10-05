@@ -25,12 +25,13 @@ when the accumulator is added.
 
 from __future__ import annotations
 
+import json
 import random
-
-import networkx as nx
-import pytest
+import sys
 
 import franken_networkx as fnx
+import networkx as nx
+import pytest
 
 CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 
@@ -254,3 +255,113 @@ def test_single_node_weighted_degree_after_removals(class_name, weights):
                 one = getattr(got, view)(node, weight="weight")
                 expected = getattr(want, view)(node, weight="weight")
                 assert (one, type(one)) == (expected, type(expected)), (victim, view, node)
+
+
+# hhj5p.7: these are actual interpreter/oracle differences, not tolerances.
+_SUM_BOUNDARIES = {
+    "float-cancellation": [1e16, 1.0, -1e16],
+    "integer-after-float": [0.0, 1e16, 1, -1e16],
+    "prefix-promotion": [3, 0.2, 0.1, 0.1],
+    "finite-overflow": [1e308, 1e308, -1e308],
+    "signed-zero-negative": [0.0, -0.0, 0, -7, -2.5],
+    "missing-weight": [1.5, None, 2, 0.2],
+    "bool-generic": [True, 3, 1.5, False],
+    "integer-prefix-overflow": [2**63 - 1, 1, -(2**63 - 1), 1.0, 0.1, 0.1],
+}
+
+
+def _exact_number(value):
+    return (type(value).__name__, value.hex() if isinstance(value, float) else repr(value))
+
+
+def _boundary_graph(lib, class_name, values, bulk, reverse):
+    graph = getattr(lib, class_name)()
+    graph.add_nodes_from(["hub", *range(len(values)), "isolated"])
+    items = list(enumerate(values))
+    if reverse:
+        items.reverse()
+    edges = [("hub", i, {} if value is None else {"weight": value})
+             for i, value in items]
+    edges.append(("hub", "hub", {"weight": 0.1}))
+    if graph.is_directed():
+        edges.append((0, "hub", {"weight": 0.7}))
+    if bulk:
+        graph.add_edges_from(edges)
+    else:
+        for u, v, attrs in edges:
+            graph.add_edge(u, v, **attrs)
+    if graph.is_multigraph():
+        graph.add_edge("hub", "hub", weight=0.2)
+    return graph
+
+
+def _exact_reads(graph):
+    result = {}
+    names = ("degree", "in_degree", "out_degree") if graph.is_directed() else ("degree",)
+    for name in names:
+        degree = getattr(graph, name)
+        result[name] = [(node, _exact_number(value)) for node, value in degree(weight="weight")]
+        result[name + "-one"] = _exact_number(degree("hub", weight="weight"))
+        result[name + "-subset"] = [(node, _exact_number(value)) for node, value in
+                                    degree(["hub", "isolated", "hub"], weight="weight")]
+    result["size"] = _exact_number(graph.size(weight="weight"))
+    return result
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("case", list(_SUM_BOUNDARIES))
+@pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("exposure", ["fresh", "read", "mutated"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_interpreter_sum_boundaries_exact(class_name, case, bulk, reverse, exposure, mode):
+    values = _SUM_BOUNDARIES[case]
+    with fnx.compatibility_mode(mode):
+        ours = _boundary_graph(fnx, class_name, values, bulk, reverse)
+        oracle = _boundary_graph(nx, class_name, values, bulk, reverse)
+        for graph in (ours, oracle):
+            if exposure != "fresh":
+                list(graph.edges(data=True))
+            if exposure == "mutated":
+                attrs = graph["hub"][0]
+                if graph.is_multigraph():
+                    attrs = attrs[0]
+                attrs["weight"] = 0.2
+        got, want = _exact_reads(ours), _exact_reads(oracle)
+        record = {
+            "python": sys.version, "oracle": nx.__version__, "cls": class_name,
+            "case": case, "bulk": bulk, "reverse": reverse, "exposure": exposure,
+            "mode": mode, "inputs": [_exact_number(x) for x in values],
+            "nodes": list(oracle), "edges": [(u, v, _exact_number(data.get("weight", 1)))
+                                           for u, v, data in oracle.edges(data=True)],
+            "got": got, "want": want,
+        }
+        print(json.dumps(record), flush=True)
+        assert got == want, record
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("case", ["float-cancellation", "integer-after-float"])
+def test_wrong_interpreter_sum_policy_is_detectable(class_name, case):
+    values = _SUM_BOUNDARIES[case]
+    expected = sum(values)
+    compensated = sys.version_info >= ((3, 14) if case == "integer-after-float" else (3, 12))
+    wrong_policy_value = 0.0 if compensated else 1.0
+    assert _exact_number(expected) != _exact_number(wrong_policy_value)
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, class_name)()
+        for i, value in enumerate(values):
+            graph.add_edge("hub", i, weight=value)
+        graphs.append(graph)
+    view = "out_degree" if "Di" in class_name else "degree"
+    got = getattr(graphs[0], view)("hub", weight="weight")
+    want = getattr(graphs[1], view)("hub", weight="weight")
+    assert _exact_number(want) == _exact_number(expected)
+    assert _exact_number(got) == _exact_number(want)
+    for nodes in (None, ["hub", "hub"]):
+        got = [(node, _exact_number(value)) for node, value in
+               getattr(graphs[0], view)(nodes, weight="weight")]
+        want = [(node, _exact_number(value)) for node, value in
+                getattr(graphs[1], view)(nodes, weight="weight")]
+        assert got == want, (class_name, case, nodes, got, want)
