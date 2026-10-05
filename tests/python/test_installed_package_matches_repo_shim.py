@@ -36,8 +36,10 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import io
+import json
 import site
 import stat
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -296,3 +298,217 @@ def test_sdist_recipe_explicitly_includes_the_workspace_license():
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     includes = project["tool"]["maturin"]["include"]
     assert any(entry["path"] == "LICENSE" and "sdist" in entry["format"] for entry in includes)
+
+
+# These retained small Git trees/archives are controlled integrity inputs,
+# not proof that a real wheel compiled or that the generic DSR gate is fixed.
+@pytest.mark.parametrize("state", ["absent", "empty", "cached", "file", "linked"])
+def test_dsr_build_requires_a_fresh_target_without_deleting_previous_work(release_recipe, tmp_path, state):
+    target = tmp_path / "candidate-target"
+    if state == "empty":
+        target.mkdir()
+    elif state == "cached":
+        target.mkdir()
+        (target / "old-compiled-input").write_bytes(b"previous retained build")
+    elif state == "file":
+        target.write_bytes(b"previous retained file")
+    elif state == "linked":
+        retained = tmp_path / "retained-target"
+        retained.mkdir()
+        target.symlink_to(retained, target_is_directory=True)
+    if state in ("absent", "empty"):
+        release_recipe.require_fresh_build_target(target)
+    else:
+        with pytest.raises(ValueError, match="fresh.*DSR target"):
+            release_recipe.require_fresh_build_target(target)
+        assert target.exists()
+        if state == "cached":
+            assert (target / "old-compiled-input").read_bytes() == b"previous retained build"
+        elif state == "file":
+            assert target.read_bytes() == b"previous retained file"
+        else:
+            assert target.is_symlink() and retained.is_dir()
+
+
+@pytest.fixture
+def binding_tree(tmp_path):
+    root = tmp_path / "source"
+    root.mkdir()
+    entries = {"Cargo.toml": "[workspace]\n", "Cargo.lock": "version = 4\n",
+               "pyproject.toml": "[project]\nname = 'franken-networkx'\n",
+               "LICENSE": "retained fixture license\n", "scripts/dsr_release_wheels.py": "# fixture recipe\n",
+               "crates/example/Cargo.toml": "[package]\nname = 'example'\nversion = '1.0.0'\n",
+               "crates/example/src/lib.rs": "pub fn value() -> u32 { 1 }\n"}
+    for name, content in entries.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(root), *args], timeout=30)
+    git("init", "--quiet")
+    git("add", "--", *entries)
+    git("-c", "user.name=DSR fixture", "-c", "user.email=fixture@example.invalid",
+        "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "controlled binding inputs")
+    config = tmp_path / "selected-dsr.yaml"
+    config.write_text("tools: {}\n")
+    return root, config, git
+
+
+@pytest.mark.parametrize("state", ["clean", "dirty", "untracked"])
+def test_dsr_build_binding_accepts_stable_actual_source_bytes(release_recipe, binding_tree, state):
+    root, config, _git = binding_tree
+    source = root / "crates/example/src/lib.rs"
+    if state == "dirty":
+        source.write_text("pub fn value() -> u32 { 2 }\n")
+    elif state == "untracked":
+        source = source.with_name("untracked.rs")
+        source.write_text("pub fn untracked() -> u32 { 3 }\n")
+    frozen = release_recipe.snapshot_build_inputs(root, [config])
+    assert frozen["files"][source.relative_to(root).as_posix()]["sha256"] == _sha256(source)
+    assert frozen["configs"][str(config)] == _sha256(config)
+    release_recipe.require_same_inputs(root, frozen, [config])
+
+
+@pytest.mark.parametrize("state", ["dirty", "untracked"])
+def test_dsr_binding_detects_byte_changes_when_porcelain_is_identical(release_recipe, binding_tree, state):
+    root, config, git = binding_tree
+    source = root / "crates/example/src/lib.rs"
+    if state == "untracked":
+        source = source.with_name("untracked.rs")
+    source.write_text("pub fn value() -> u32 { 2 }\n")
+    porcelain = git("status", "--porcelain", "--untracked-files=all")
+    frozen = release_recipe.snapshot_build_inputs(root, [config])
+    source.write_text("pub fn value() -> u32 { 3 }\n")
+    # Planted negative for the actual generic DSR defect: its old input did
+    # not change, while this source-byte comparison must reject the run.
+    assert git("status", "--porcelain", "--untracked-files=all") == porcelain
+    with pytest.raises(ValueError, match="candidate source/config moved"):
+        release_recipe.require_same_inputs(root, frozen, [config])
+
+
+@pytest.mark.parametrize("change", ["config", "new_source", "missing_source", "linked_source"])
+def test_dsr_binding_rejects_config_and_source_topology_movement(release_recipe, binding_tree, change):
+    root, config, _git = binding_tree
+    frozen = release_recipe.snapshot_build_inputs(root, [config])
+    source = root / "crates/example/src/lib.rs"
+    if change == "config":
+        config.write_text("tools: {different: {}}\n")
+    elif change == "new_source":
+        source.with_name("new.rs").write_text("pub fn new() {}\n")
+    elif change == "missing_source":
+        source.rename(root / "retained-original.rs")  # Preserve every byte; no deletion.
+    else:
+        source.with_name("linked.rs").symlink_to(source)
+    with pytest.raises(ValueError, match="moved|not a regular file"):
+        release_recipe.require_same_inputs(root, frozen, [config])
+
+
+def test_dsr_binding_excludes_only_declared_non_build_coordination(release_recipe, binding_tree):
+    root, config, _git = binding_tree
+    frozen = release_recipe.snapshot_build_inputs(root, [config])
+    coordination = root / ".beads/issues.jsonl"
+    coordination.parent.mkdir()
+    coordination.write_text('{"id":"fixture-coordination"}\n')
+    release_recipe.require_same_inputs(root, frozen, [config])
+    assert frozen["scope"] == "release-build-inputs"  # Not full-suite authority.
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_dsr_dependency_graph_binds_internal_paths_and_refuses_unbound_paths(release_recipe, binding_tree, external):
+    root, config, _git = binding_tree
+    manifest = root / "crates/example/Cargo.toml"
+    if external:
+        manifest = config.with_name("external-Cargo.toml")
+        manifest.write_text("[package]\nname = 'external'\n")
+    metadata = {"packages": [{"id": "fixture-path-id", "name": "example", "version": "1.0.0",
+                              "source": None, "manifest_path": str(manifest)}],
+                "resolve": {"nodes": [{"id": "fixture-path-id", "features": ["b", "a"], "dependencies": []}]}}
+    if external:
+        with pytest.raises(ValueError, match="unbound out-of-tree dependency"):
+            release_recipe.normalized_dependency_graph(root, metadata)
+    else:
+        graph = release_recipe.normalized_dependency_graph(root, metadata)
+        assert graph["packages"] == ["example@1.0.0::path:crates/example/Cargo.toml"]
+        assert graph["nodes"][0]["features"] == ["a", "b"]
+
+
+@pytest.fixture
+def artifact_binding(release_recipe, binding_tree, tmp_path):
+    root, config, _git = binding_tree
+    # Explicit synthetic archive bytes for checker tests; never imported.
+    wheel = tmp_path / "controlled.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("franken_networkx/_fnx.abi3.so", b"controlled-native-bytes")
+        archive.writestr("franken_networkx/__init__.py", b"# controlled Python bytes\n")
+    native = tmp_path / "fnx-extension"
+    native.write_bytes(b"controlled-native-bytes")
+    sdist = tmp_path / "controlled.tar.gz"
+    with tarfile.open(sdist, "w:gz") as archive:
+        entry = tarfile.TarInfo("controlled/source.txt")
+        data = b"controlled source bytes\n"
+        entry.size = len(data)
+        archive.addfile(entry, io.BytesIO(data))
+    candidate = {"inputs": release_recipe.snapshot_build_inputs(root, [config]),
+                 "graphs": {"fixture-target": {"packages": ["fixture"], "nodes": []}},
+                 "maturin": "fixture-build-tool", "rustc": "fixture-toolchain", "cargo": "fixture-cargo",
+                 "build_environment": {}}
+    identity = release_recipe._json_hash(candidate)
+    records = [release_recipe.bind_artifact(path, kind, identity)
+               for path, kind in [(wheel, "wheel"), (native, "native"), (sdist, "sdist")]]
+    return {"schema": "fnx-dsr-build-binding-v1", "candidate": candidate,
+            "candidate_id": identity, "artifacts": records}
+
+
+def test_dsr_artifact_binding_joins_actual_archive_and_payload_bytes(release_recipe, artifact_binding):
+    release_recipe.verify_artifact_binding(artifact_binding)
+    release_recipe.verify_artifact_binding(json.loads(json.dumps(artifact_binding)))
+    wheel, native, sdist = artifact_binding["artifacts"]
+    assert wheel["native_sha256"] == native["sha256"]
+    assert all(record["sha256"] == _sha256(Path(record["path"])) for record in [wheel, native, sdist])
+
+
+@pytest.mark.parametrize("kind", ["wheel", "native", "sdist"])
+def test_dsr_old_binding_cannot_accept_replaced_artifact_bytes(release_recipe, artifact_binding, kind):
+    record = next(record for record in artifact_binding["artifacts"] if record["kind"] == kind)
+    path = Path(record["path"])
+    if kind == "wheel":
+        with zipfile.ZipFile(path, "a") as archive:
+            archive.writestr("unexpected.py", b"different package bytes\n")
+    else:
+        with path.open("ab") as stream:
+            stream.write(b"different artifact bytes")
+    with pytest.raises(ValueError, match="candidate artifact mismatch"):
+        release_recipe.verify_artifact_binding(artifact_binding)
+
+
+@pytest.mark.parametrize("field", ["inputs", "graphs", "maturin", "rustc", "cargo", "build_environment"])
+def test_dsr_binding_refuses_missing_required_candidate_field(release_recipe, artifact_binding, field):
+    candidate = artifact_binding["candidate"]
+    candidate.pop(field)
+    artifact_binding["candidate_id"] = release_recipe._json_hash(candidate)
+    with pytest.raises(ValueError, match="missing|required|invalid"):
+        release_recipe.verify_artifact_binding(artifact_binding)
+
+
+@pytest.mark.parametrize("field", ["sha256", "path", "native_sha256", "python_members", "candidate_id"])
+def test_dsr_binding_refuses_missing_artifact_fields(release_recipe, artifact_binding, field):
+    artifact_binding["artifacts"][0].pop(field)
+    with pytest.raises(ValueError, match="missing|mismatch|different candidate"):
+        release_recipe.verify_artifact_binding(artifact_binding)
+
+
+def test_dsr_payload_must_come_from_one_bound_wheel(release_recipe, artifact_binding):
+    record = next(record for record in artifact_binding["artifacts"] if record["kind"] == "native")
+    Path(record["path"]).write_bytes(b"unrelated native build")
+    record["sha256"] = _sha256(Path(record["path"]))
+    with pytest.raises(ValueError, match="native payload does not join"):
+        release_recipe.verify_artifact_binding(artifact_binding)
+
+
+@pytest.mark.parametrize("wrong", ["python", "prefix"])
+def test_dsr_loaded_verifier_refuses_a_different_selected_interpreter_before_import(release_recipe, artifact_binding, wrong):
+    python = sys.executable + "-other" if wrong == "python" else sys.executable
+    prefix = sys.prefix + "-other" if wrong == "prefix" else sys.prefix
+    with pytest.raises(ValueError, match="interpreter/venv mismatch"):
+        release_recipe.verify_loaded_candidate(artifact_binding, python, prefix,
+                                                artifact_binding["artifacts"][0]["path"], "3.6.1")
