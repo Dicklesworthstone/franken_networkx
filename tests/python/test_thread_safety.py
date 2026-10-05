@@ -7,6 +7,7 @@ Run with: python -m pytest tests/python/test_thread_safety.py -v
 """
 
 import concurrent.futures
+import hashlib
 import json
 import os
 import subprocess
@@ -72,29 +73,38 @@ ITERATIONS = 100
 _RESOURCE_PROBE = r'''
 import concurrent.futures, hashlib, io, json, os, platform, resource, sys, threading, time
 from pathlib import Path
+
+limit = 2 * 1024**3
+resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
 import franken_networkx as fnx
 import franken_networkx._fnx as native
 import networkx as nx
 
-limit = 2 * 1024**3
-resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+if sys.argv[4] == "nproc":
+    resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
+mode, concurrent_first, graph_kind = sys.argv[1], sys.argv[2] == "concurrent", sys.argv[3]
 identity = dict(host=platform.node(), python=sys.executable, nx_version=nx.__version__,
                 so_sha256=hashlib.sha256(Path(native.__file__).read_bytes()).hexdigest(),
                 address_space_limit=limit, cpu_count=os.cpu_count(),
                 affinity_count=len(os.sched_getaffinity(0)),
-                requested_threads=os.environ.get("RAYON_NUM_THREADS", "default"))
-mode, concurrent_first = sys.argv[1], sys.argv[2] == "concurrent"
+                requested_threads=os.environ.get("RAYON_NUM_THREADS", "default"),
+                graph_kind=graph_kind, uid=os.getuid(),
+                process_limit=resource.getrlimit(resource.RLIMIT_NPROC))
 graph = fnx.karate_club_graph()
 oracle = nx.karate_club_graph()
 expected_diameter = nx.diameter(oracle)
 before = list(graph.edges())
-pool_graph = fnx.cycle_graph(520)
+pool_graph = fnx.cycle_graph(520, create_using=getattr(fnx, graph_kind))
+pool_oracle = nx.cycle_graph(520, create_using=getattr(nx, graph_kind))
+pool_diameter = nx.diameter(pool_oracle)
+pool_closeness = nx.closeness_centrality(pool_oracle)
 
 def first_call(graph=graph):
     with fnx.compatibility_mode(mode):
         assert fnx.get_compatibility_mode() == mode
         result = fnx.diameter(graph)
-        assert fnx.diameter(pool_graph) == 260
+        assert fnx.diameter(pool_graph) == pool_diameter
+        assert fnx.closeness_centrality(pool_graph) == pool_closeness
         assert fnx.get_compatibility_mode() == mode
         assert result == expected_diameter
         return result
@@ -111,13 +121,14 @@ else:
 first_call()
 assert list(graph.edges()) == before
 print(json.dumps(dict(case_id="karate-default-first-use", n=len(graph), m=graph.number_of_edges(),
-                      result=expected_diameter, mode=mode, concurrent=concurrent_first, **identity)), flush=True)
+                      input_type="Graph", result=expected_diameter, mode=mode,
+                      concurrent=concurrent_first, **identity)), flush=True)
 
 # Cross the production parallel thresholds, with independently constructed
 # oracle graphs. Integer-valued distances/clustering are compared exactly;
 # floats retain their original source-ordered arithmetic (no widened epsilon).
-graph = fnx.cycle_graph(520)
-oracle = nx.cycle_graph(520)
+graph = fnx.cycle_graph(520, create_using=getattr(fnx, graph_kind))
+oracle = nx.cycle_graph(520, create_using=getattr(nx, graph_kind))
 operations = [
     ("eccentricity", lambda api, g: api.eccentricity(g)),
     ("diameter", lambda api, g: api.diameter(g)),
@@ -139,6 +150,20 @@ operations = [
     ("weighted_percolation", lambda api, g: api.percolation_centrality(g, states={i: 1.0 for i in g}, weight="weight")),
 ]
 for name, operation in operations:
+    if graph_kind == "DiGraph" and name == "triangles":
+        # This route is unsupported by the oracle, not a capacity refusal or
+        # a successful algorithm result. Keep the ordinary exception contract.
+        for api, current in ((nx, oracle), (fnx, graph)):
+            try:
+                operation(api, current)
+            except api.NetworkXNotImplemented:
+                pass
+            else:
+                raise AssertionError("directed triangles was accepted")
+        print(json.dumps(dict(case_id=name, n=len(graph), m=graph.number_of_edges(),
+                              expected_exception="NetworkXNotImplemented",
+                              mode=mode, **identity)), flush=True)
+        continue
     start = time.monotonic()
     expected = operation(nx, oracle)
     nx_seconds = time.monotonic() - start
@@ -159,7 +184,7 @@ reference = nx.read_edgelist(io.BytesIO(content.encode()), data=False)
 assert list(parsed.nodes()) == list(reference.nodes())
 assert list(parsed.edges()) == list(reference.edges())
 print(json.dumps(dict(case_id="ordered-edgelist", n=len(parsed), m=parsed.number_of_edges(),
-                      mode=mode, equal=True, **identity)), flush=True)
+                      input_type="Graph", mode=mode, equal=True, **identity)), flush=True)
 
 # An algorithm error must still propagate, and must not poison the next call.
 broken = fnx.Graph([(0, 1), (2, 3)])
@@ -174,24 +199,28 @@ names = [p.read_text().strip() for p in Path("/proc/self/task").glob("*/comm")]
 effective = sum(name.startswith("fnx-rayon-") for name in names)
 print(json.dumps(dict(case_id="usable-after-capacity-and-algorithm-error",
                       effective_worker_threads=effective, peak_rss_kb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-                      task_names=names, **identity)), flush=True)
+                      mode=mode, task_names=names, **identity)), flush=True)
 '''
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="real Linux address-space/task probes")
-@pytest.mark.parametrize("threads", [None, "1", "2", "4096"])
+@pytest.mark.parametrize("threads", [None, "1", "2", "4096", "2-nproc"])
 @pytest.mark.parametrize("mode", ["strict", "hardened"])
-def test_parallel_first_use_under_real_capacity_limit(threads, mode, tmp_path):
+@pytest.mark.parametrize("graph_kind", ["Graph", "DiGraph"])
+def test_parallel_first_use_under_real_capacity_limit(threads, mode, graph_kind, tmp_path):
     """Capacity failure must yield correct serial results, not PanicException."""
+    if threads == "2-nproc" and os.getuid() == 0:
+        pytest.skip("Linux does not enforce RLIMIT_NPROC for uid 0")
     env = os.environ.copy()
     env.pop("RAYON_NUM_THREADS", None)
     env.pop("RAYON_RS_NUM_CPUS", None)
     env.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
     if threads is not None:
-        env["RAYON_NUM_THREADS"] = threads
+        env["RAYON_NUM_THREADS"] = "2" if threads == "2-nproc" else threads
     result = subprocess.run(
         [sys.executable, "-I", "-c", _RESOURCE_PROBE, mode,
-         "concurrent" if mode == "hardened" else "serial"],
+         "concurrent" if mode == "hardened" and threads != "2-nproc" else "serial",
+         graph_kind, "nproc" if threads == "2-nproc" else "normal"],
         env=env, capture_output=True, text=True, timeout=90, check=False,
     )
     (tmp_path / "probe.stdout.jsonl").write_text(result.stdout)
@@ -208,6 +237,19 @@ def test_parallel_first_use_under_real_capacity_limit(threads, mode, tmp_path):
     if threads == "4096":
         assert "using serial kernels" in result.stderr
         assert records[-1]["effective_worker_threads"] == 0
+    if threads == "2-nproc":
+        assert "os error 11" in result.stderr
+        assert "using serial kernels" in result.stderr
+        assert records[-1]["effective_worker_threads"] == 0
+    observation = {
+        "case_id": "capacity-observation", "mode": mode, "graph_kind": graph_kind,
+        "returncode": result.returncode, "first_use": records[0], "recovery": records[-1],
+        "refusal_reason": result.stderr if "using serial kernels" in result.stderr else None,
+        "stdout_sha256": hashlib.sha256(result.stdout.encode()).hexdigest(),
+        "stderr_sha256": hashlib.sha256(result.stderr.encode()).hexdigest(),
+    }
+    (tmp_path / "capacity.receipt.json").write_text(json.dumps(observation, sort_keys=True))
+    print(json.dumps(observation, sort_keys=True), flush=True)
 
 
 # ---------------------------------------------------------------------------

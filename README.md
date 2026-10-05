@@ -1720,6 +1720,17 @@ Algorithm calls release the GIL during their inner loops, with the following con
 - Concurrent writes are *not* safe. `Graph` mutation is `&mut self` in Rust; Python-side, the mutation paths take a write borrow internally, and `_sync_rust_edge_attrs` tolerates concurrent borrow with bounded retry, but neither is a substitute for application-level synchronization on a shared graph.
 - The `tests/python/test_thread_safety.py` suite exercises the concurrent-read contract specifically; concurrent Dijkstra calls from a thread pool over a shared graph is the canonical pattern.
 
+Native parallel kernels share one fallibly initialized worker pool. Set
+`RAYON_NUM_THREADS` before the first parallel call; the default follows CPU
+availability. On Linux, finite address-space limits are checked before spawning:
+admission reserves 256 MiB for caller/TLS work plus 128 MiB and the configured
+stack per requested worker. The full request is admitted or the existing serial
+kernels are used, with one stderr diagnostic; a failed admission or spawn is
+cached for the process lifetime. An installed Rust caller pool takes precedence.
+This conservative admission policy is not a general out-of-memory guarantee:
+graphs and algorithms still need memory. Other platforms retain fallible spawn
+handling without the Linux address-space preflight.
+
 ---
 
 ## Examples

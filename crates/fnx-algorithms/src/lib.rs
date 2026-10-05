@@ -22,22 +22,116 @@ use std::sync::OnceLock;
 // Do not initialize Rayon's infallible global registry. A failed first spawn
 // there can turn even a tiny distance query into a PyO3 PanicException. Own one
 // fallibly built pool instead; failure is a stable serial execution decision,
-// not a poisoned global registry or a retry storm. Builder defaults honor
-// RAYON_NUM_THREADS (including the legacy Rayon variable).
+// not a poisoned global registry or a retry storm. Resolve Rayon's current
+// thread configuration once, so admission and creation use the same request.
 static PARALLEL_POOL: OnceLock<Result<rayon::ThreadPool, String>> = OnceLock::new();
+
+fn configured_parallel_threads(
+    primary: Option<usize>,
+    legacy: Option<usize>,
+    available: usize,
+) -> usize {
+    // rayon-core 1.13: primary zero selects the CPU default, not the legacy value;
+    // invalid/unset primary permits the legacy value. Retain Rayon's ceiling.
+    let requested = match primary {
+        Some(0) => available,
+        Some(count) => count,
+        None => legacy.filter(|&count| count != 0).unwrap_or(available),
+    };
+    requested.max(1).min(rayon::max_num_threads())
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parallel_address_space(limits: &str, status: &str) -> Result<Option<(u64, u64)>, String> {
+    let soft = limits
+        .lines()
+        .find_map(|line| line.strip_prefix("Max address space"))
+        .and_then(|line| line.split_whitespace().next())
+        .ok_or_else(|| "address-space admission: missing limit".to_owned())?;
+    if soft == "unlimited" {
+        return Ok(None);
+    }
+    let limit = soft
+        .parse::<u64>()
+        .map_err(|_| "address-space admission: invalid limit".to_owned())?;
+    let mut size = status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmSize:"))
+        .ok_or_else(|| "address-space admission: missing virtual size".to_owned())?
+        .split_whitespace();
+    let used = size
+        .next()
+        .and_then(|value| value.parse::<u64>().ok())
+        .and_then(|value| value.checked_mul(1024))
+        .filter(|_| size.next() == Some("kB"))
+        .ok_or_else(|| "address-space admission: invalid virtual size".to_owned())?;
+    Ok(Some((limit, used)))
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn parallel_address_space_reserve(threads: usize, stack: u64) -> Option<u64> {
+    // An admission POLICY, not a claim that arbitrary allocator activity is
+    // bounded by this estimate. Leave 256 MiB for caller/TLS work and budget
+    // 128 MiB per worker beyond its stack for allocator arenas and bookkeeping.
+    // The real 2 GiB concurrent first-use probe aborted inside glibc before a
+    // spawn error could be returned; fallible spawn alone is therefore too late.
+    (128 * 1024 * 1024_u64)
+        .checked_add(stack)?
+        .checked_mul(u64::try_from(threads).ok()?)?
+        .checked_add(256 * 1024 * 1024)
+}
+
+#[cfg(target_os = "linux")]
+fn admit_parallel_pool(threads: usize) -> Result<(), String> {
+    let limits = std::fs::read_to_string("/proc/self/limits")
+        .map_err(|error| format!("address-space admission: cannot read limits ({error})"))?;
+    let status = std::fs::read_to_string("/proc/self/status")
+        .map_err(|error| format!("address-space admission: cannot read virtual size ({error})"))?;
+    let Some((limit, used)) = parallel_address_space(&limits, &status)? else {
+        return Ok(());
+    };
+    let stack = std::env::var("RUST_MIN_STACK")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(2 * 1024 * 1024);
+    let reserve = parallel_address_space_reserve(threads, stack)
+        .ok_or_else(|| "address-space admission: reservation overflow".to_owned())?;
+    if reserve > limit.saturating_sub(used) {
+        return Err(format!(
+            "address-space admission refused: requested_threads={threads}, limit_bytes={limit}, virtual_bytes={used}, reserve_bytes={reserve}"
+        ));
+    }
+    Ok(())
+}
 
 fn parallel_pool() -> &'static Result<rayon::ThreadPool, String> {
     PARALLEL_POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
-            .thread_name(|index| format!("fnx-rayon-{index}"))
-            .build()
-            .map_err(|error| {
-                let message = error.to_string();
-                eprintln!(
-                    "franken_networkx: parallel pool unavailable ({message}); using serial kernels"
-                );
-                message
-            })
+        let result = (|| {
+            let configured = |name| {
+                std::env::var(name)
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+            };
+            let available = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+            let threads = configured_parallel_threads(
+                configured("RAYON_NUM_THREADS"),
+                configured("RAYON_RS_NUM_CPUS"),
+                available,
+            );
+            #[cfg(target_os = "linux")]
+            admit_parallel_pool(threads)?;
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .thread_name(|index| format!("fnx-rayon-{index}"))
+                .build()
+                .map_err(|error| error.to_string())
+        })();
+        if let Err(message) = &result {
+            eprintln!(
+                "franken_networkx: parallel pool unavailable ({message}); using serial kernels"
+            );
+        }
+        result
     })
 }
 
@@ -56,6 +150,8 @@ pub fn parallel_threads() -> usize {
 
 /// Run only a parallel kernel here, never the caller's mode/witness bookkeeping:
 /// install changes threads, so caller-local state must stay on the caller.
+/// The caller must first check `parallel_threads() > 1` and select its serial
+/// kernel otherwise; an operation containing a parallel iterator is not serial.
 pub fn in_parallel_pool<T: Send>(operation: impl FnOnce() -> T + Send) -> T {
     if rayon::current_thread_index().is_some() {
         operation()
@@ -57203,6 +57299,68 @@ mod lr_state_nx_dump_data;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parallel_capacity_configuration_matches_rayon_precedence() {
+        for (primary, legacy, available, expected) in [
+            (Some(2), Some(1), 4, 2),
+            (Some(0), Some(2), 4, 4),
+            (None, Some(2), 4, 2),
+            (None, Some(0), 4, 4),
+            (None, None, 0, 1),
+            (Some(usize::MAX), None, 4, rayon::max_num_threads()),
+        ] {
+            assert_eq!(
+                super::configured_parallel_threads(primary, legacy, available),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn parallel_capacity_parses_real_proc_fields_fail_closed() {
+        assert_eq!(
+            super::parallel_address_space("Max address space unlimited unlimited bytes\n", ""),
+            Ok(None)
+        );
+        let bounded = "Max address space 2147483648 2147483648 bytes\n";
+        assert_eq!(
+            super::parallel_address_space(bounded, "VmSize:\t262144 kB\n"),
+            Ok(Some((2147483648, 268435456)))
+        );
+        for (limits, status) in [
+            ("", "VmSize: 1 kB"),
+            ("Max address space bad bad bytes", "VmSize: 1 kB"),
+            (bounded, "VmRSS: 1 kB"),
+            (bounded, "VmSize: 1 MB"),
+            (bounded, "VmSize: 18446744073709551615 kB"),
+        ] {
+            assert!(super::parallel_address_space(limits, status).is_err());
+        }
+    }
+
+    #[test]
+    fn parallel_capacity_reserves_before_spawning_without_overflow() {
+        let remaining = 2 * 1024 * 1024 * 1024_u64 - 256 * 1024 * 1024;
+        let stack = 2 * 1024 * 1024;
+        for threads in [1, 2] {
+            assert!(
+                super::parallel_address_space_reserve(threads, stack).expect("small request")
+                    < remaining
+            );
+        }
+        for threads in [64, 4096] {
+            assert!(
+                super::parallel_address_space_reserve(threads, stack).expect("bounded request")
+                    > remaining
+            );
+        }
+        assert!(super::parallel_address_space_reserve(2, u64::MAX).is_none());
+        assert!(
+            super::parallel_address_space_reserve(usize::MAX, stack)
+                .is_none_or(|reserve| reserve > remaining)
+        );
+    }
+
     #[test]
     fn parallel_capacity_honors_installed_pool() {
         for count in [1, 2, 4] {
