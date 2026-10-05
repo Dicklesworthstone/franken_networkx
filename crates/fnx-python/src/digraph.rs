@@ -1821,6 +1821,25 @@ impl PyMultiDiGraph {
         Ok(row)
     }
 
+    /// `u -> v`'s live keydict, or `None` when there is no such edge: the
+    /// registry is asked first, as `get_edge_data` asks it, and the edge
+    /// check only runs on a miss.
+    fn existing_live_keydict(
+        &mut self,
+        py: Python<'_>,
+        graph: &Bound<'_, PyAny>,
+        u: &str,
+        v: &str,
+    ) -> PyResult<Option<PyObject>> {
+        if let Some(row) = self.live_keydict_rows.get(py, u, v) {
+            return Ok(Some(row.into_any()));
+        }
+        if !self.inner.has_edge(u, v) {
+            return Ok(None);
+        }
+        Ok(Some(self.live_keydict(py, graph, u, v)?.into_any().unbind()))
+    }
+
     /// An edge's attribute dict for a `&self` reader that hands dicts out: the
     /// live mirror when the edge has one, else a dict built from the store - the
     /// edge's only copy (reverse() leaves a MultiDiGraph store-only) - else an
@@ -7628,6 +7647,152 @@ impl PyMultiDiGraph {
             out.push((self.py_node_key(py, node), preds));
         }
         Ok(out)
+    }
+
+    /// br-r37-c1-pgpg1: one row of a `to_undirected(as_view=True)` view, in one
+    /// crossing - networkx's `UnionMultiInner(succ[node], pred[node])` as
+    /// `(neighbor, succ keydict | None, pred keydict | None)` per neighbor, in
+    /// the order networkx iterates the row: the set `set(succ[node].keys()) |
+    /// set(pred[node].keys())`. Both sets are built through CPython's set API
+    /// from the rows' display keys in row order (`PySet_New` + `PySet_Add`,
+    /// what `set(iterable)` does) and joined with `|`, so the table and its
+    /// iteration order are the ones networkx gets. The key dicts are the
+    /// graph's live ones, as `get_edge_data(u, v)` returns them; the per-pair
+    /// Python lookups this replaces made 100 rows' items 0.7x networkx.
+    #[allow(clippy::type_complexity)]
+    fn _fnx_union_multi_row(
+        slf: &Bound<'_, Self>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, Option<PyObject>, Option<PyObject>)>> {
+        let py = slf.py();
+        let mut buf = ArrayString::new();
+        let key = canonical_node_key_in(py, node, &mut buf)?;
+        let canonical = key.as_str();
+        let mut this = slf.borrow_mut();
+        if !this.inner.has_node(canonical) {
+            return Err(crate::missing_key_error(node));
+        }
+        let successors: Vec<String> = this
+            .inner
+            .successors(canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let predecessors: Vec<String> = this
+            .inner
+            .predecessors(canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let succ_keys: Vec<PyObject> = successors
+            .iter()
+            .map(|successor| this.py_succ_key(py, canonical, successor))
+            .collect();
+        let pred_keys: Vec<PyObject> = predecessors
+            .iter()
+            .map(|predecessor| this.py_pred_key(py, canonical, predecessor))
+            .collect();
+        let out_names: rustc_hash::FxHashSet<&str> =
+            successors.iter().map(String::as_str).collect();
+        let in_names: rustc_hash::FxHashSet<&str> =
+            predecessors.iter().map(String::as_str).collect();
+        // The union holds the very objects inserted, so each is mapped back to
+        // its node by identity rather than re-canonicalised.
+        let mut names: rustc_hash::FxHashMap<usize, &str> = rustc_hash::FxHashMap::default();
+        for (key, name) in succ_keys
+            .iter()
+            .zip(&successors)
+            .chain(pred_keys.iter().zip(&predecessors))
+        {
+            names.entry(key.as_ptr() as usize).or_insert(name.as_str());
+        }
+        let union = PySet::new(py, &succ_keys)?
+            .as_any()
+            .bitor(PySet::new(py, &pred_keys)?)?;
+        let mut row = Vec::with_capacity(names.len());
+        for neighbor in union.try_iter()? {
+            let neighbor = neighbor?;
+            let recanonicalised;
+            let nbr = match names.get(&(neighbor.as_ptr() as usize)) {
+                Some(name) => *name,
+                None => {
+                    recanonicalised = node_key_to_string(py, &neighbor)?;
+                    recanonicalised.as_str()
+                }
+            };
+            // A name in the succ (pred) row is an edge, so its key dict exists.
+            let outgoing = if out_names.contains(nbr) {
+                Some(
+                    this.live_keydict(py, slf.as_any(), canonical, nbr)?
+                        .into_any()
+                        .unbind(),
+                )
+            } else {
+                None
+            };
+            let incoming = if in_names.contains(nbr) {
+                Some(
+                    this.live_keydict(py, slf.as_any(), nbr, canonical)?
+                        .into_any()
+                        .unbind(),
+                )
+            } else {
+                None
+            };
+            row.push((neighbor.unbind(), outgoing, incoming));
+        }
+        Ok(row)
+    }
+
+    /// br-r37-c1-pgpg1: the `(u, v)` entry of a `to_undirected(as_view=True)`
+    /// view - `(succ keydict | None, pred keydict | None)`, the live key dicts
+    /// of `u -> v` and `v -> u` - or `None` when neither edge exists; one
+    /// crossing where two `get_edge_data` calls made two.
+    #[allow(clippy::type_complexity)]
+    fn _fnx_union_multi_pair(
+        slf: &Bound<'_, Self>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<(Option<PyObject>, Option<PyObject>)>> {
+        let py = slf.py();
+        // networkx's `v in succ[u]` on a plain dict: its TypeError for an
+        // unhashable neighbor.
+        crate::hash_key_as_dict_would(v)?;
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let (u_c, v_c) = (u_key.as_str(), v_key.as_str());
+        let mut this = slf.borrow_mut();
+        let outgoing = this.existing_live_keydict(py, slf.as_any(), u_c, v_c)?;
+        let incoming = this.existing_live_keydict(py, slf.as_any(), v_c, u_c)?;
+        if outgoing.is_none() && incoming.is_none() {
+            return Ok(None);
+        }
+        Ok(Some((outgoing, incoming)))
+    }
+
+    /// br-r37-c1-pgpg1: how many neighbors `node` has in a
+    /// `to_undirected(as_view=True)` view - `len(set(succ) | set(pred))` -
+    /// counted over the node names, building no Python object.
+    fn _fnx_union_row_len(&self, py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<usize> {
+        let mut buf = ArrayString::new();
+        let key = canonical_node_key_in(py, node, &mut buf)?;
+        let canonical = key.as_str();
+        if !self.inner.has_node(canonical) {
+            return Err(crate::missing_key_error(node));
+        }
+        let successors = self.inner.successors(canonical).unwrap_or_default();
+        let only_in = self
+            .inner
+            .predecessors(canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|predecessor| !self.inner.has_edge(canonical, predecessor))
+            .count();
+        Ok(successors.len() + only_in)
     }
 
     fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiDiAtlasView>> {

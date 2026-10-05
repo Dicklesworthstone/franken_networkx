@@ -382,3 +382,142 @@ def test_union_view_edges_list_keys_in_networkx_order(seed):
             mdg.add_edge(u, v, key=key)
         out.append(list(mdg.to_undirected(as_view=True).edges(keys=True)))
     assert out[0] == out[1]
+
+
+# br-r37-c1-pgpg1: a to_undirected(as_view=True) view of a MultiDiGraph reads the
+# source's rows in a few native crossings instead of a synthesized row per node.
+# Every read must stay networkx's, value for value: each node's neighbours and
+# each pair's keys in set order (one-way pairs too), weights summed in that
+# order with their int / float type, the edges' live attr dicts handed out.
+
+_UNION_WEIGHTS = [0.1, 0.2, 0.3, 1e16, -1e16, 3.0, 7, 2, 0.7, 1e-17]
+
+
+def _union_views(seed):
+    import random
+
+    rng = random.Random(seed)
+    if seed % 3 == 0:
+        nodes = [f"n{i}" for i in range(9)]
+    else:
+        nodes = rng.sample(range(-50, 5000), 9)
+    keys = [0, 5, 1024, 33, "a", "zz"] if seed % 2 else [None]
+    ops = []
+    for _ in range(45):
+        u = rng.choice(nodes)
+        v = u if rng.random() < 0.1 else rng.choice(nodes)
+        attrs = {"weight": rng.choice(_UNION_WEIGHTS)} if rng.random() < 0.8 else {}
+        ops.append((u, v, rng.choice(keys), attrs))
+    views = []
+    for lib in (fnx, nx):
+        mdg = lib.MultiDiGraph()
+        mdg.add_nodes_from(nodes)
+        for u, v, key, attrs in ops:
+            mdg.add_edge(u, v, key=key, **attrs)
+        views.append(mdg.to_undirected(as_view=True))
+    return nodes, views
+
+
+def _exact(x):
+    """x with every number tagged by its type and exact value."""
+    if isinstance(x, bool):
+        return ("bool", x)
+    if isinstance(x, float):
+        return ("float", x.hex())
+    if isinstance(x, int):
+        return ("int", x)
+    if isinstance(x, (list, tuple)):
+        return [_exact(item) for item in x]
+    if hasattr(x, "items"):
+        return [(key, _exact(value)) for key, value in x.items()]
+    return x
+
+
+UNION_VIEW_READS = {
+    "edges": lambda V, nb: list(V.edges),
+    "edges()": lambda V, nb: list(V.edges()),
+    "edges(keys)": lambda V, nb: list(V.edges(keys=True)),
+    "edges(data)": lambda V, nb: list(V.edges(data=True)),
+    "edges(keys, data)": lambda V, nb: list(V.edges(keys=True, data=True)),
+    "edges(data=weight)": lambda V, nb: list(V.edges(data="weight", default=-1)),
+    "edges(nbunch, keys, data)": lambda V, nb: list(V.edges(nb, keys=True, data=True)),
+    "edges(nbunch)": lambda V, nb: list(V.edges(nb)),
+    "len(edges)": lambda V, nb: [len(V.edges), len(V.edges(data=True)), len(V.edges(nb))],
+    "number_of_edges": lambda V, nb: V.number_of_edges(),
+    "size": lambda V, nb: [V.size(), V.size(weight="weight")],
+    "degree": lambda V, nb: list(V.degree),
+    "degree(weight)": lambda V, nb: list(V.degree(weight="weight")),
+    "degree(nbunch)": lambda V, nb: [list(V.degree(nb)), list(V.degree(nb, weight="weight"))],
+    "degree[n]": lambda V, nb: [(V.degree[n], V.degree(n, weight="weight")) for n in V],
+    "rows": lambda V, nb: [
+        (list(V.adj[n]), list(V.adj[n].items()), list(V.adj[n].values()), len(V.adj[n]))
+        for n in V
+    ],
+    "entries": lambda V, nb: [
+        (list(V.adj[u][v].items()), repr(V.adj[u][v]), str(V.adj[u][v]))
+        for u in V
+        for v in V.adj[u]
+    ],
+    "row types": lambda V, nb: [
+        type(row).__name__ for n in V for row in (V.adj[n], V.adj[n].items(), V.adj[n].values())
+    ],
+}
+
+
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize("read", list(UNION_VIEW_READS))
+def test_union_view_reads_match_networkx_exactly(seed, read):
+    nodes, (fnx_view, nx_view) = _union_views(seed)
+    nbunch = nodes[3:6] + nodes[3:4]  # networkx drops the duplicate
+    call = UNION_VIEW_READS[read]
+    assert _exact(call(fnx_view, nbunch)) == _exact(call(nx_view, nbunch))
+
+
+@pytest.mark.parametrize("lib", [fnx, nx], ids=["fnx", "nx"])
+def test_union_view_one_way_pair_weights_sum_in_set_order(lib):
+    # Keys 1024, 5, 0 one way only. networkx's UnionAtlas over {} iterates the
+    # key set, [1024, 0, 5], so the weights sum 1e16 - 1e16 + 1.0 = 1.0; summed
+    # in the key dict's order [1024, 5, 0] the 1.0 is lost and it reads 0.0.
+    mdg = lib.MultiDiGraph()
+    mdg.add_edge(0, 1, key=1024, weight=1e16)
+    mdg.add_edge(0, 1, key=5, weight=1.0)
+    mdg.add_edge(0, 1, key=0, weight=-1e16)
+    view = mdg.to_undirected(as_view=True)
+    assert list(view.adj[0][1]) == [1024, 0, 5]
+    assert view.degree(0, weight="weight") == 1.0
+    assert list(view.degree(weight="weight")) == [(0, 1.0), (1, 1.0)]
+    assert view.size(weight="weight") == 1.0
+
+
+@pytest.mark.parametrize("lib", [fnx, nx], ids=["fnx", "nx"])
+def test_union_view_reads_follow_the_source_and_hand_out_live_dicts(lib):
+    mdg = lib.MultiDiGraph([(0, 1), (1, 0), (1, 2)])
+    view = mdg.to_undirected(as_view=True)
+    row = view.adj[1]
+    entry = view.adj[1][0]
+    assert view.number_of_edges() == 2
+    mdg.add_edge(1, 0, key=7, weight=3)
+    mdg.add_edge(1, 3)
+    mdg.edges[0, 1, 0]["weight"] = 9
+    assert list(row) == [0, 2, 3]
+    assert dict(entry) == {0: {"weight": 9}, 7: {"weight": 3}}
+    assert list(view.edges(keys=True, data=True)) == [
+        (0, 1, 0, {"weight": 9}),
+        (0, 1, 7, {"weight": 3}),
+        (1, 2, 0, {}),
+        (1, 3, 0, {}),
+    ]
+    assert view.number_of_edges() == len(view.edges(data=True)) == 4
+    # Node 1's pair with 0 reads key 0 from its own out-edge (1, 0, 0): weight 1.
+    assert list(view.degree(weight="weight")) == [(0, 12), (1, 6), (2, 1), (3, 1)]
+    for _, _, attrs in view.edges(data=True):
+        attrs["seen"] = True
+    for _, keydict in view.adj[2].items():
+        keydict[0]["row"] = True
+    assert list(mdg.edges(keys=True, data=True)) == [
+        (0, 1, 0, {"weight": 9, "seen": True}),
+        (1, 0, 0, {}),
+        (1, 0, 7, {"weight": 3, "seen": True}),
+        (1, 2, 0, {"seen": True, "row": True}),
+        (1, 3, 0, {"seen": True}),
+    ]

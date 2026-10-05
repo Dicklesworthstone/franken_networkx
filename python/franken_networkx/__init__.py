@@ -50404,6 +50404,12 @@ class _ViewEdgeDataView:
         return iter(self._produce(self._nbunch))
 
     def __len__(self):
+        # br-r37-c1-pgpg1: list() asks for the length before it iterates, so
+        # this walked the view twice. A conversion view's whole edge count is
+        # its number_of_edges (br-r37-c1-ktsxn checked the two equal on all
+        # six conversions), which most of them answer without the walk.
+        if self._nbunch is None and isinstance(self._view, _ConversionGraphViewBase):
+            return self._view.number_of_edges()
         return len(self._produce(self._nbunch))
 
     def __contains__(self, e):
@@ -57242,6 +57248,8 @@ class _UnionKeyAtlas(_Mapping):
     where networkx prints ``AtlasView(UnionAtlas({...}, {...}))``.
     """
 
+    __slots__ = ("_primary", "_secondary")
+
     def __init__(self, primary, secondary):
         self._primary = primary
         self._secondary = secondary
@@ -57514,9 +57522,25 @@ def _undirected_row_degrees(view, nbunch, weight, factor):
     return ((node, single(node, node in loops)) for node in view._nbunch(nbunch))
 
 
+class _ConversionViewAccessor:
+    """A conversion view's nodes / edges / adj / succ / pred without a view
+    stored under that name: the graph base class's accessor, as the
+    property's super() branch answered (succ / pred of an undirected view,
+    an instance mid-construction)."""
+
+    def __init__(self, name):
+        self._name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return getattr(super(_ConversionGraphViewBase, obj), self._name)
+
+
 class _ConversionGraphViewBase:
     _directed = False
     _multigraph = False
+    _adj_view_type = _ConversionAdjacencyView
 
     def __bool__(self):
         return _view_bool(self)
@@ -57558,7 +57582,7 @@ class _ConversionGraphViewBase:
         self.__dict__["_edges_view"] = _CONVERSION_EDGE_VIEW_TYPES[
             (self._directed, self._multigraph)
         ](self)
-        self.__dict__["_adj_view"] = _ConversionAdjacencyView(self)
+        self.__dict__["_adj_view"] = self._adj_view_type(self)
         # br-r37-c1-fabqo: register the view's adjacency as the graph's private
         # storage, as filtered and reverse views do, so an inherited accessor
         # (the `_adj` fallback to_scipy_sparse_array / bellman_ford read) and
@@ -57570,11 +57594,17 @@ class _ConversionGraphViewBase:
         # one method it would shadow, get_edge_data, is defined below.
         self.__dict__[_PRIVATE_ADJ_OVERRIDE] = self._adj_view
         self._fnx_set_private_adj_override()
+        storage = self.__dict__
+        storage["nodes"] = storage["_nodes_view"]
+        storage["edges"] = storage["_edges_view"]
+        storage["adj"] = storage["_adj_view"]
         if self.is_directed():
             self.__dict__["_succ_view"] = self._adj_view
             self.__dict__["_pred_view"] = _ConversionAdjacencyView(self, reverse=True)
             self.__dict__[_PRIVATE_SUCC_OVERRIDE] = self._adj_view
             self.__dict__[_PRIVATE_PRED_OVERRIDE] = self.__dict__["_pred_view"]
+            storage["succ"] = storage["_succ_view"]
+            storage["pred"] = storage["_pred_view"]
             self._fnx_set_private_dir_override()
 
     def _fnx_native_graph(self):
@@ -57592,30 +57622,17 @@ class _ConversionGraphViewBase:
     # and blew the stack.  ``is not None`` resolves the cached view
     # regardless of emptiness; the ``super()`` branch survives only for
     # succ/pred on undirected views (where the view is never cached).
-    @property
-    def nodes(self):
-        view = self.__dict__.get("_nodes_view")
-        return view if view is not None else super().nodes
-
-    @property
-    def edges(self):
-        view = self.__dict__.get("_edges_view")
-        return view if view is not None else super().edges
-
-    @property
-    def adj(self):
-        view = self.__dict__.get("_adj_view")
-        return view if view is not None else super().adj
-
-    @property
-    def succ(self):
-        view = self.__dict__.get("_succ_view")
-        return view if view is not None else super().succ
-
-    @property
-    def pred(self):
-        view = self.__dict__.get("_pred_view")
-        return view if view is not None else super().pred
+    #
+    # br-r37-c1-pgpg1: and they are read as networkx reads its cached_property:
+    # __init__ stores each view under its public name too, and these non-data
+    # descriptors only answer when the instance dict has no entry, so a warm
+    # read is a dict hit with no Python frame (view.adj was 86 ns against
+    # networkx's 20 ns).
+    nodes = _ConversionViewAccessor("nodes")
+    edges = _ConversionViewAccessor("edges")
+    adj = _ConversionViewAccessor("adj")
+    succ = _ConversionViewAccessor("succ")
+    pred = _ConversionViewAccessor("pred")
 
     @property
     def graph(self):
@@ -57841,6 +57858,12 @@ class _ConversionGraphViewBase:
                 seen_nodes.add(source)
             return result
 
+        # br-r37-c1-pgpg1: an undirected view of a concrete MultiDiGraph walks
+        # the source's own rows, as networkx's view does, instead of a
+        # synthesized row per node and a frozenset marker per key.
+        if _is_concrete_multidigraph(self._graph):
+            return _union_multi_edges(self._graph, dict.fromkeys(nodes), data, keys)
+
         seen = set()
         for source in nodes:
             for target in self.adj[source]:
@@ -57959,6 +57982,10 @@ class _ConversionGraphViewBase:
             and not src.is_multigraph()
         ):
             return 2 * src.number_of_edges() - number_of_selfloops(src)
+        # br-r37-c1-pgpg1: networkx's count is size(), half the degree sum, so
+        # a reciprocal pair's key held both ways counts once.
+        if not self.is_directed() and self.is_multigraph() and _is_concrete_multidigraph(src):
+            return sum(degree for _, degree in _union_multi_degrees(src, src, None)) // 2
         # br-r37-c1-77tw1: count the edge list, not edges(): that call returns
         # the edge view now, whose len is this method.
         return len(self._edges(keys=self.is_multigraph()))
@@ -58017,6 +58044,10 @@ class _ConversionGraphViewBase:
             union_degree = _UNION_NODE_DEGREE.get(type(source))
             if union_degree is not None and not _has_networkx_private_storage(source):
                 union_source = source
+                # br-r37-c1-pgpg1: every node's degree from one read of the
+                # MultiDiGraph's rows.
+                if nbunch is None and union_degree is _union_multi_node_degree:
+                    return _union_multi_degrees(source, source, weight)
                 try:
                     if nbunch is not None and nbunch in source:
                         return union_degree(source, nbunch, weight)
@@ -58343,35 +58374,137 @@ def _union_node_degree(graph, node, weight):
     return total + (loop is not None and loop.get(weight, 1))
 
 
-def _union_multi_node_degree(graph, node, weight):
-    """br-r37-c1-gue3i: _union_node_degree for the MultiDiGraph `graph` -
-    networkx's MultiDegreeView over the UnionMultiInner: one sum() over every
-    key dict's values in the union's order (a pair both ways is a UnionAtlas
-    over set(succ keys) | set(pred keys), succ first), plus the self-loop's.
-    The view's per-neighbour subtotals summed differently: 58.900000000000006
-    where networkx answers 58.9."""
-    succ = dict(graph.succ[node])
-    pred = dict(graph.pred[node])
+def _union_multi_rows(graph, data):
+    """br-r37-c1-pgpg1: the MultiDiGraph `graph`'s succ and pred rows as plain
+    dicts - what networkx's UnionMultiAdjacency reads, G._succ and G._pred -
+    in two native crossings. With `data` a pair's value is its {key: attrs}
+    dict holding the edges' live attr dicts (the cached native adjacency);
+    without it, the list of its keys in key order and no attr dict is made.
+    A pred row shares the succ rows' values, as networkx's _pred[v][u] is
+    _succ[u][v]. Walking the view's synthesized rows instead built a row
+    mapping per node and a _UnionKeyAtlas per pair: list(view.edges(keys=True,
+    data=True)) was 0.09x networkx, number_of_edges 0.08x, degree 0.16x."""
+    if data:
+        succ = graph._native_adjacency_dict()
+    else:
+        succ = {node: {} for node in graph}
+        for u, v, key in graph.edges(keys=True):
+            row = succ[u]
+            keys = row.get(v)
+            if keys is None:
+                row[v] = [key]
+            else:
+                keys.append(key)
+    pred = {
+        node: {nbr: succ[nbr][node] for nbr in nbrs}
+        for node, nbrs in graph._native_predecessor_keys_bulk()
+    }
+    return succ, pred
 
-    def keydicts(nbr):
-        out_keys = succ.get(nbr)
-        in_keys = pred.get(nbr)
-        if out_keys is not None and in_keys is not None:
-            return [
-                out_keys[key] if key in out_keys else in_keys[key]
-                for key in set(out_keys.keys()) | set(in_keys.keys())
-            ]
-        return list((out_keys if out_keys is not None else in_keys).values())
 
-    has_loop = node in succ or node in pred
+_NO_KEYS = {}
+
+
+def _union_multi_values(out_keys, in_keys):
+    """networkx's UnionAtlas(succ[u][v], pred[u][v]).values() for a pair of a
+    to_undirected(as_view=True) view of a MultiDiGraph: the keys in
+    set(succ keys) | set(pred keys) order, each value from succ first. A
+    one-way pair is a UnionAtlas over {} too (br-r37-c1-u7szm), so its keys
+    still come in set order, not the key dict's."""
+    return [
+        out_keys[key] if key in out_keys else in_keys[key]
+        for key in set(out_keys.keys()) | set(in_keys.keys())
+    ]
+
+
+def _union_multi_row_degree(out_row, in_row, node, weight):
+    """br-r37-c1-gue3i / br-r37-c1-pgpg1: `node`'s degree in a
+    to_undirected(as_view=True) view of a MultiDiGraph, from its succ and pred
+    rows - networkx's MultiDegreeView over the UnionMultiInner: per neighbour
+    the size of the key union, or one sum() over every key dict's values in
+    the union's order, plus the self-loop's. Unweighted, a row value may be a
+    key dict or a key list. The view's per-neighbour subtotals summed
+    differently: 58.900000000000006 where networkx answers 58.9."""
     if weight is None:
-        return sum(len(keydicts(nbr)) for nbr in _union_row(graph, node)) + (
-            has_loop and len(keydicts(node))
+        total = 0
+        for nbr, out_keys in out_row.items():
+            in_keys = in_row.get(nbr)
+            total += len(out_keys) if in_keys is None else len(set(out_keys) | set(in_keys))
+        for nbr, in_keys in in_row.items():
+            if nbr not in out_row:
+                total += len(in_keys)
+        loop = out_row.get(node)
+        return total if loop is None else total + len(loop)
+    total = sum(
+        attrs.get(weight, 1)
+        for nbr in set(out_row.keys()) | set(in_row.keys())
+        for attrs in _union_multi_values(out_row.get(nbr, _NO_KEYS), in_row.get(nbr, _NO_KEYS))
+    )
+    if node in out_row or node in in_row:
+        total += sum(
+            attrs.get(weight, 1)
+            for attrs in _union_multi_values(
+                out_row.get(node, _NO_KEYS), in_row.get(node, _NO_KEYS)
+            )
         )
-    total = sum(d.get(weight, 1) for nbr in _union_row(graph, node) for d in keydicts(nbr))
-    if has_loop:
-        total += sum(d.get(weight, 1) for d in keydicts(node))
     return total
+
+
+def _union_multi_node_degree(graph, node, weight):
+    """_union_multi_row_degree over `node`'s own two rows (plain key dicts,
+    one native crossing each), for a single-node read."""
+    return _union_multi_row_degree(
+        graph._native_successor_row_dict(node),
+        graph._native_predecessor_row_dict(node),
+        node,
+        weight,
+    )
+
+
+def _union_multi_degrees(graph, nodes, weight):
+    """(node, degree) for every node of `nodes` in a to_undirected(as_view=True)
+    view of the MultiDiGraph `graph`, from one snapshot of its rows taken when
+    the iteration starts."""
+    succ, pred = _union_multi_rows(graph, weight is not None)
+    for node in nodes:
+        yield node, _union_multi_row_degree(succ[node], pred[node], node, weight)
+
+
+def _union_multi_edges(graph, nodes, data, keys):
+    """br-r37-c1-pgpg1: networkx's MultiEdgeDataView walk over a
+    to_undirected(as_view=True) view of the MultiDiGraph `graph`: each node's
+    neighbours in set(succ) | set(pred) order, a neighbour already walked as a
+    source skipped, each pair's keys in set(succ keys) | set(pred keys) order
+    with the attrs read from succ first (UnionAtlas). `nodes` holds no
+    duplicates (networkx's nbunch is a dict)."""
+    succ, pred = _union_multi_rows(graph, data)
+    empty = _NO_KEYS if data else ()
+    seen = set()
+    result = []
+    append = result.append
+    for node in nodes:
+        out_row = succ[node]
+        in_row = pred[node]
+        for nbr in set(out_row.keys()) | set(in_row.keys()):
+            if nbr in seen:
+                continue
+            out_keys = out_row.get(nbr, empty)
+            in_keys = in_row.get(nbr, empty)
+            if data:
+                for key in set(out_keys.keys()) | set(in_keys.keys()):
+                    attrs = out_keys[key] if key in out_keys else in_keys[key]
+                    append((node, nbr, key, attrs) if keys else (node, nbr, attrs))
+            elif keys:
+                for key in set(out_keys) | set(in_keys):
+                    append((node, nbr, key))
+            else:
+                result.extend([(node, nbr)] * len(set(out_keys) | set(in_keys)))
+        seen.add(node)
+    return result
+
+
+def _is_concrete_multidigraph(graph):
+    return type(graph) is MultiDiGraph and not _has_networkx_private_storage(graph)
 
 
 _UNION_NODE_DEGREE = {DiGraph: _union_node_degree, MultiDiGraph: _union_multi_node_degree}
@@ -58396,8 +58529,105 @@ class _UndirectedGraphConversionView(_ConversionGraphViewBase):
         return self._graph.has_edge(u, v) or self._graph.has_edge(v, u)
 
 
+class _UnionMultiRow(_Mapping):
+    """br-r37-c1-pgpg1: a row of a to_undirected(as_view=True) view of a
+    concrete MultiDiGraph (networkx's AdjacencyView(UnionMultiInner)). An
+    entry is networkx's AtlasView(UnionAtlas(succ, pred)) over the pair's
+    live key dicts, {} for a missing side; one native call reads a pair, or
+    a whole row's pairs, where the generic row subscripted the source's succ
+    and pred rows per pair: 100 rows' items were 0.15x networkx and
+    view.adj[u][v] 0.16x. Slotted, it prints as the generic row does."""
+
+    __slots__ = ("_view", "_node")
+    _reverse = False
+    _source_rows = _ConversionNeighborMap._source_rows
+    __repr__ = _ConversionNeighborMap.__repr__
+    __str__ = _ConversionNeighborMap.__str__
+
+    def __init__(self, view, node):
+        self._view = view
+        self._node = node
+
+    def __iter__(self):
+        return _union_row(self._view._graph, self._node)
+
+    def __len__(self):
+        return self._view._graph._fnx_union_row_len(self._node)
+
+    def __getitem__(self, neighbor):
+        pair = self._view._graph._fnx_union_multi_pair(self._node, neighbor)
+        if pair is None:
+            raise KeyError(f"Key {neighbor} not found")
+        outgoing, incoming = pair
+        return _UnionKeyAtlas(
+            _NO_KEYS if outgoing is None else outgoing,
+            _NO_KEYS if incoming is None else incoming,
+        )
+
+    def items(self):
+        return _UnionMultiRowItems(self)
+
+    def values(self):
+        return _UnionMultiRowValues(self)
+
+
+_UnionMultiRow.__name__ = _UnionMultiRow.__qualname__ = "AdjacencyView"
+
+
+class _UnionMultiRowItems(_ItemsViewABC):
+    __slots__ = ()
+
+    def __iter__(self):
+        row = self._mapping
+        for neighbor, outgoing, incoming in row._view._graph._fnx_union_multi_row(row._node):
+            yield neighbor, _UnionKeyAtlas(
+                _NO_KEYS if outgoing is None else outgoing,
+                _NO_KEYS if incoming is None else incoming,
+            )
+
+
+_UnionMultiRowItems.__name__ = _UnionMultiRowItems.__qualname__ = "ItemsView"
+
+
+class _UnionMultiRowValues(_ValuesViewABC):
+    __slots__ = ()
+
+    def __iter__(self):
+        row = self._mapping
+        for _, outgoing, incoming in row._view._graph._fnx_union_multi_row(row._node):
+            yield _UnionKeyAtlas(
+                _NO_KEYS if outgoing is None else outgoing,
+                _NO_KEYS if incoming is None else incoming,
+            )
+
+
+_UnionMultiRowValues.__name__ = _UnionMultiRowValues.__qualname__ = "ValuesView"
+
+
+class _UnionMultiAdjacencyView(_ConversionAdjacencyView):
+    """The adjacency of a to_undirected(as_view=True) view of a concrete
+    MultiDiGraph without networkx private storage: _UnionMultiRow rows."""
+
+    def __getitem__(self, node):
+        view = self._view
+        if node not in view._graph:
+            # The generic row's errors: the graph's adjacency raises first.
+            view._graph.adj[node]
+            raise KeyError(node)
+        return _UnionMultiRow(view, node)
+
+
+def _undirected_multi_adjacency_view(view):
+    # networkx's generic_graph_view reads the source's _succ / _pred once,
+    # when the view is made, so the row kind is chosen then too.
+    if _is_concrete_multidigraph(view._graph):
+        return _UnionMultiAdjacencyView(view)
+    return _ConversionAdjacencyView(view)
+
+
 class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
     _multigraph = True
+    _adj_view_type = staticmethod(_undirected_multi_adjacency_view)
     get_edge_data = _assigned_private_get_edge_data_multi
 
     def _adj_neighbors(self, node):
