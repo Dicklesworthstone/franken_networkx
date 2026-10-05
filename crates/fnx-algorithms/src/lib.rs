@@ -473,6 +473,26 @@ fn cgse_publish(
     }
 }
 
+// Public-route kernels have several successful and error returns. Publish the
+// decisions actually collected on every exit without changing their outcomes.
+struct CgseWitnessRun {
+    reference: CgseReferenceAlgorithm,
+    node_count: usize,
+    edge_count: usize,
+    sink: Option<CgseWitnessSink>,
+}
+
+impl Drop for CgseWitnessRun {
+    fn drop(&mut self) {
+        cgse_publish(
+            self.reference,
+            self.node_count,
+            self.edge_count,
+            self.sink.take(),
+        );
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShortestPathResult {
     pub path: Option<Vec<String>>,
@@ -2085,6 +2105,12 @@ pub fn bidirectional_dijkstra_undirected(
     target: &str,
     weight_attr: &str,
 ) -> BidirectionalDijkstraOutcome {
+    let mut cgse_run = CgseWitnessRun {
+        reference: CgseReferenceAlgorithm::Dijkstra,
+        node_count: graph.node_count(),
+        edge_count: graph.edge_count(),
+        sink: cgse_begin(CgseReferenceAlgorithm::Dijkstra),
+    };
     let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
         return BidirectionalDijkstraOutcome::NodeMissing;
     };
@@ -2127,6 +2153,17 @@ pub fn bidirectional_dijkstra_undirected(
         direction = 1 - direction;
         let DijkstraState { dist, node: v, .. } =
             fringe[direction].pop().expect("fringe checked non-empty");
+        if cgse_run.sink.is_some() {
+            cgse_record_decision(
+                &mut cgse_run.sink,
+                ordered(v),
+                if direction == 0 {
+                    "forward_pop"
+                } else {
+                    "backward_pop"
+                },
+            );
+        }
         if dists[direction].contains_key(&v) {
             continue;
         }
@@ -2177,6 +2214,7 @@ pub fn bidirectional_dijkstra_undirected(
         if let Some(neighbors) = graph.neighbors_indices(v) {
             for &w in neighbors {
                 let w_name = ordered(w);
+                cgse_record_decision(&mut cgse_run.sink, v_name, w_name);
                 let cost = edge_weight_or_default(graph, v_name, w_name, weight_attr);
                 let vw_length = dist + cost;
                 if let Some(&existing) = dists[direction].get(&w) {
@@ -2224,6 +2262,12 @@ pub fn bidirectional_dijkstra_directed(
     target: &str,
     weight_attr: &str,
 ) -> BidirectionalDijkstraOutcome {
+    let mut cgse_run = CgseWitnessRun {
+        reference: CgseReferenceAlgorithm::Dijkstra,
+        node_count: graph.node_count(),
+        edge_count: graph.edge_count(),
+        sink: cgse_begin(CgseReferenceAlgorithm::Dijkstra),
+    };
     let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
         return BidirectionalDijkstraOutcome::NodeMissing;
     };
@@ -2264,6 +2308,17 @@ pub fn bidirectional_dijkstra_directed(
         direction = 1 - direction;
         let DijkstraState { dist, node: v, .. } =
             fringe[direction].pop().expect("fringe checked non-empty");
+        if cgse_run.sink.is_some() {
+            cgse_record_decision(
+                &mut cgse_run.sink,
+                ordered(v),
+                if direction == 0 {
+                    "forward_pop"
+                } else {
+                    "backward_pop"
+                },
+            );
+        }
         if dists[direction].contains_key(&v) {
             continue;
         }
@@ -2318,6 +2373,9 @@ pub fn bidirectional_dijkstra_directed(
         };
         if let Some(neighbors) = neighbors {
             for &w in neighbors {
+                if cgse_run.sink.is_some() {
+                    cgse_record_decision(&mut cgse_run.sink, ordered(v), ordered(w));
+                }
                 let cost = if direction == 0 {
                     directed_edge_weight_or_default(graph, v, w, weight_attr)
                 } else {
@@ -27975,6 +28033,9 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
             continue;
         }
 
+        // Record roots as well as tree-edge discoveries: an isolated vertex
+        // is real traversal work and must not produce a zero-event witness.
+        cgse_record_decision(&mut cgse_sink, nodes[i], "component_root");
         // Initialize DFS from node i
         indices[i] = Some(index_counter);
         lowlinks[i] = index_counter;
@@ -28171,6 +28232,7 @@ pub fn number_strongly_connected_components(digraph: &DiGraph) -> usize {
             continue;
         }
 
+        cgse_record_decision(&mut cgse_sink, nodes[i], "component_root");
         indices[i] = Some(index_counter);
         lowlinks[i] = index_counter;
         index_counter += 1;
@@ -76206,6 +76268,36 @@ mod tests {
     }
 
     #[test]
+    fn scc_cgse_records_isolated_roots_for_enumeration_and_count() {
+        use fnx_cgse::{collect_witnesses, verify_complexity_bound};
+
+        for n in [0, 1, 12] {
+            let mut graph = DiGraph::strict();
+            for node in 0..n {
+                let _ = graph.add_node(format!("isolated-{node}"));
+            }
+            let (components, enumeration) =
+                collect_witnesses(|| strongly_connected_components(&graph));
+            let (count, counting) =
+                collect_witnesses(|| number_strongly_connected_components(&graph));
+            assert_eq!(components.len(), n);
+            assert_eq!(count, n);
+            assert_eq!(enumeration.len(), 1);
+            assert_eq!(counting.len(), 1);
+            assert_eq!(enumeration[0].observed_count, n as u64);
+            assert_eq!(counting[0].observed_count, n as u64);
+            assert_eq!(
+                enumeration[0].decision_path_blake3,
+                counting[0].decision_path_blake3
+            );
+            assert!(verify_complexity_bound(&counting[0]).unwrap().within_bounds);
+            let mut inflated = counting[0].clone();
+            inflated.observed_count = u64::MAX;
+            assert!(!verify_complexity_bound(&inflated).unwrap().within_bounds);
+        }
+    }
+
+    #[test]
     fn is_strongly_connected_yes() {
         let mut dg = DiGraph::strict();
         dg.add_edge("a", "b").unwrap();
@@ -80370,6 +80462,101 @@ mod tests {
     // -----------------------------------------------------------------------
     // dijkstra_path_length tests
     // -----------------------------------------------------------------------
+
+    fn assert_bidirectional_cgse_witness(
+        run: impl Fn() -> super::BidirectionalDijkstraOutcome,
+        n: usize,
+        m: usize,
+    ) {
+        let (result, witnesses) = fnx_cgse::collect_witnesses(&run);
+        match (run(), result) {
+            (
+                super::BidirectionalDijkstraOutcome::Found(length, integer, path),
+                super::BidirectionalDijkstraOutcome::Found(other_length, other_integer, other_path),
+            ) => {
+                assert_eq!(
+                    (length, integer, path),
+                    (other_length, other_integer, other_path)
+                );
+            }
+            (
+                super::BidirectionalDijkstraOutcome::NoPath,
+                super::BidirectionalDijkstraOutcome::NoPath,
+            )
+            | (
+                super::BidirectionalDijkstraOutcome::NodeMissing,
+                super::BidirectionalDijkstraOutcome::NodeMissing,
+            ) => {}
+            _ => panic!("collection changed the bidirectional Dijkstra outcome"),
+        }
+        assert_eq!(witnesses.len(), 1, "the public-route kernel must emit");
+        let witness = &witnesses[0];
+        assert_eq!((witness.n, witness.m), (n, m));
+        assert_eq!(
+            witness.policy,
+            fnx_cgse::ReferenceAlgorithm::Dijkstra.policy()
+        );
+        assert_eq!(witness.dominant_term, "n_plus_m_log_n");
+        assert!(
+            fnx_cgse::verify_complexity_bound(witness)
+                .unwrap()
+                .within_bounds
+        );
+        let (_, repeated) = fnx_cgse::collect_witnesses(run);
+        assert_eq!(
+            witness.decision_path_blake3,
+            repeated[0].decision_path_blake3
+        );
+        let mut inflated = witness.clone();
+        inflated.observed_count = u64::MAX;
+        assert!(
+            !fnx_cgse::verify_complexity_bound(&inflated)
+                .unwrap()
+                .within_bounds
+        );
+        assert!(fnx_cgse::collect_witnesses(|| ()).1.is_empty());
+    }
+
+    #[test]
+    fn bidirectional_dijkstra_cgse_undirected_routes_and_early_exits() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_edge("source", "first");
+        let _ = graph.add_edge("source", "second");
+        let _ = graph.add_edge("first", "target");
+        let _ = graph.add_edge("second", "target");
+        graph.add_node("isolated");
+        for target in ["target", "source", "isolated", "missing"] {
+            assert_bidirectional_cgse_witness(
+                || super::bidirectional_dijkstra_undirected(&graph, "source", target, "weight"),
+                graph.node_count(),
+                graph.edge_count(),
+            );
+        }
+        let mut pair = Graph::strict();
+        let _ = pair.add_edge("a", "b");
+        assert_bidirectional_cgse_witness(
+            || super::bidirectional_dijkstra_undirected(&pair, "a", "b", "weight"),
+            2,
+            1,
+        );
+    }
+
+    #[test]
+    fn bidirectional_dijkstra_cgse_directed_routes_and_early_exits() {
+        let mut graph = DiGraph::strict();
+        let _ = graph.add_edge("source", "first");
+        let _ = graph.add_edge("source", "second");
+        let _ = graph.add_edge("first", "target");
+        let _ = graph.add_edge("second", "target");
+        graph.add_node("isolated");
+        for target in ["target", "source", "isolated", "missing"] {
+            assert_bidirectional_cgse_witness(
+                || super::bidirectional_dijkstra_directed(&graph, "source", target, "weight"),
+                graph.node_count(),
+                graph.edge_count(),
+            );
+        }
+    }
 
     #[test]
     fn test_dijkstra_path_length_simple() {

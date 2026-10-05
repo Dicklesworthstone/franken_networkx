@@ -4,6 +4,7 @@
 //! delegates to the Rust implementation in `fnx_algorithms`, and returns
 //! Python-native types (lists, dicts, floats, bools).
 
+use crate::cgse::WitnessRun;
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{
     NetworkXError, NetworkXNoCycle, NetworkXNoPath, NetworkXNotImplemented, NetworkXUnfeasible,
@@ -7447,6 +7448,11 @@ fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
     // build < HashMap/String rebuild). Same vein as is_dag (v03q9) / is_strongly_connected
     // (d291d).
     let n = mdg.node_count();
+    let mut cgse_run = WitnessRun::new(
+        fnx_cgse::ReferenceAlgorithm::StronglyConnectedComponents,
+        n,
+        mdg.edge_count(),
+    );
     if n == 0 {
         return 0;
     }
@@ -7469,12 +7475,21 @@ fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
             if ci < succ.len() {
                 *idx.last_mut().unwrap() += 1;
                 let v = succ[ci] as usize;
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision(
+                        mdg.get_node_name(node).unwrap_or_default(),
+                        mdg.get_node_name(v).unwrap_or_default(),
+                    );
+                }
                 if v < n && !visited[v] {
                     visited[v] = true;
                     stack.push(v);
                     idx.push(0);
                 }
             } else {
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision(mdg.get_node_name(node).unwrap_or_default(), "postorder");
+                }
                 finish.push(node);
                 stack.pop();
                 idx.pop();
@@ -7492,6 +7507,9 @@ fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
         let mut st = vec![s];
         visited2[s] = true;
         while let Some(node) = st.pop() {
+            if let Some(sink) = cgse_run.sink.as_mut() {
+                sink.record_decision(mdg.get_node_name(node).unwrap_or_default(), "component");
+            }
             for &raw in csr.predecessors(node) {
                 let v = raw as usize;
                 if v < n && !visited2[v] {
@@ -15776,11 +15794,22 @@ fn digraph_reaches_every_node(
     source: usize,
     n: usize,
     reverse: bool,
+    cgse_run: &mut WitnessRun,
 ) -> bool {
     let mut visited = vec![false; n];
     let mut stack = vec![source];
     visited[source] = true;
     let mut seen = 1usize;
+    if let Some(sink) = cgse_run.sink.as_mut() {
+        sink.record_decision(
+            digraph.get_node_name(source).unwrap_or_default(),
+            if reverse {
+                "reverse_reach"
+            } else {
+                "forward_reach"
+            },
+        );
+    }
     while let Some(node) = stack.pop() {
         let neighbors = if reverse {
             digraph.predecessors_indices(node)
@@ -15793,6 +15822,16 @@ fn digraph_reaches_every_node(
                     visited[neighbor] = true;
                     seen += 1;
                     stack.push(neighbor);
+                    if let Some(sink) = cgse_run.sink.as_mut() {
+                        sink.record_decision(
+                            digraph.get_node_name(neighbor).unwrap_or_default(),
+                            if reverse {
+                                "reverse_reach"
+                            } else {
+                                "forward_reach"
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -15813,11 +15852,21 @@ fn strongly_connected_components_nx_ordered(
     // so this wins uniformly, not just warm.
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
+    let mut cgse_run = WitnessRun::new(
+        fnx_cgse::ReferenceAlgorithm::StronglyConnectedComponents,
+        n,
+        digraph.edge_count(),
+    );
+    // Count reachability discoveries, Tarjan discoveries and cursor advances,
+    // not every instruction or the lowlink pass over the same adjacency row.
+    // If forward reachability fails, it discovers < n nodes. If only reverse
+    // fails, m >= n-1 and reverse discovers <= n-1. Thus these primary events
+    // stay within the unchanged 2*(n+m) registry bound on either branch.
     if n == 0 {
         return Vec::new();
     }
-    if digraph_reaches_every_node(digraph, 0, n, false)
-        && digraph_reaches_every_node(digraph, 0, n, true)
+    if digraph_reaches_every_node(digraph, 0, n, false, &mut cgse_run)
+        && digraph_reaches_every_node(digraph, 0, n, true, &mut cgse_run)
     {
         return vec![nodes.into_iter().map(str::to_owned).collect()];
     }
@@ -15839,6 +15888,7 @@ fn strongly_connected_components_nx_ordered(
             if preorder[v] == 0 {
                 preorder_counter += 1;
                 preorder[v] = preorder_counter;
+                cgse_run.record(nodes[v], "discover");
             }
             let succ_v = digraph.successors_indices(v).unwrap_or(&[]);
 
@@ -15846,6 +15896,7 @@ fn strongly_connected_components_nx_ordered(
             while neighbor_pos[v] < succ_v.len() {
                 let w = succ_v[neighbor_pos[v]];
                 neighbor_pos[v] += 1;
+                cgse_run.record(nodes[v], nodes[w]);
                 if preorder[w] == 0 {
                     queue.push(w);
                     done = false;
@@ -16004,13 +16055,20 @@ fn multidigraph_strongly_connected_component_indices_nx_ordered(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> Vec<Vec<usize>> {
     let n = mdg.node_count();
+    let mut cgse_run = WitnessRun::new(
+        fnx_cgse::ReferenceAlgorithm::StronglyConnectedComponents,
+        n,
+        mdg.edge_count(),
+    );
+    // Same event definition as the simple directed sibling; CSR adjacency is
+    // multiplicity-invariant while m retains the graph's actual edge count.
     if n == 0 {
         return Vec::new();
     }
 
     let csr = mdg.csr();
-    if multidigraph_csr_reaches_every_node(&csr, 0, n, false)
-        && multidigraph_csr_reaches_every_node(&csr, 0, n, true)
+    if multidigraph_csr_reaches_every_node(&csr, 0, n, false, mdg, &mut cgse_run)
+        && multidigraph_csr_reaches_every_node(&csr, 0, n, true, mdg, &mut cgse_run)
     {
         return vec![(0..n).collect()];
     }
@@ -16032,6 +16090,9 @@ fn multidigraph_strongly_connected_component_indices_nx_ordered(
             if preorder[v] == 0 {
                 preorder_counter += 1;
                 preorder[v] = preorder_counter;
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision(mdg.get_node_name(v).unwrap_or_default(), "discover");
+                }
             }
 
             let neighbors = csr.successors(v);
@@ -16039,6 +16100,12 @@ fn multidigraph_strongly_connected_component_indices_nx_ordered(
             while neighbor_pos[v] < neighbors.len() {
                 let w = neighbors[neighbor_pos[v]] as usize;
                 neighbor_pos[v] += 1;
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision(
+                        mdg.get_node_name(v).unwrap_or_default(),
+                        mdg.get_node_name(w).unwrap_or_default(),
+                    );
+                }
                 if preorder[w] == 0 {
                     queue.push(w);
                     done = false;
@@ -16088,11 +16155,23 @@ fn multidigraph_csr_reaches_every_node(
     source: usize,
     n: usize,
     reverse: bool,
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    cgse_run: &mut WitnessRun,
 ) -> bool {
     let mut visited = vec![false; n];
     let mut stack = vec![source];
     visited[source] = true;
     let mut seen = 1usize;
+    if let Some(sink) = cgse_run.sink.as_mut() {
+        sink.record_decision(
+            mdg.get_node_name(source).unwrap_or_default(),
+            if reverse {
+                "reverse_reach"
+            } else {
+                "forward_reach"
+            },
+        );
+    }
 
     while let Some(node) = stack.pop() {
         let neighbors = if reverse {
@@ -16106,6 +16185,16 @@ fn multidigraph_csr_reaches_every_node(
                 visited[neighbor] = true;
                 seen += 1;
                 stack.push(neighbor);
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision(
+                        mdg.get_node_name(neighbor).unwrap_or_default(),
+                        if reverse {
+                            "reverse_reach"
+                        } else {
+                            "forward_reach"
+                        },
+                    );
+                }
             }
         }
     }

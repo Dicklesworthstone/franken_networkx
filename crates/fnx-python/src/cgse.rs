@@ -5,9 +5,49 @@
 //! - `ComplexityWitness`: Per-execution proof of tie-break decisions
 //! - `collect_witnesses()`: Wrapper for running algorithms with witness collection
 
-use fnx_cgse::{ComplexityWitness, ReferenceAlgorithm, TieBreakPolicy, v1_policy_registry};
+use fnx_cgse::{
+    ComplexityWitness, ReferenceAlgorithm, TieBreakPolicy, WitnessSink, v1_policy_registry,
+};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+
+/// Observe binding-local kernels, including their early returns, without
+/// rerouting them to a different reference implementation or ordering policy.
+pub(crate) struct WitnessRun {
+    reference: ReferenceAlgorithm,
+    n: usize,
+    m: usize,
+    pub(crate) sink: Option<WitnessSink>,
+}
+
+impl WitnessRun {
+    pub(crate) fn new(reference: ReferenceAlgorithm, n: usize, m: usize) -> Self {
+        Self {
+            reference,
+            n,
+            m,
+            sink: fnx_cgse::witness_collection_enabled()
+                .then(|| WitnessSink::new(reference.policy())),
+        }
+    }
+
+    pub(crate) fn record(&mut self, chosen: &str, rejected: &str) {
+        if let Some(sink) = self.sink.as_mut() {
+            sink.record_decision(chosen, rejected);
+        }
+    }
+}
+
+impl Drop for WitnessRun {
+    fn drop(&mut self) {
+        if let Some(sink) = self.sink.take() {
+            let witness = sink.finalize(self.n, self.m, self.reference.dominant_complexity(), None);
+            // Collection is optional and reentrant ledger borrows deliberately
+            // return None; never change the algorithm's result for telemetry.
+            let _ = fnx_cgse::with_ledger(|ledger| ledger.append(witness));
+        }
+    }
+}
 
 /// The 13 canonical tie-break orderings that NetworkX algorithms exhibit.
 #[pyclass(name = "TieBreakPolicy")]
