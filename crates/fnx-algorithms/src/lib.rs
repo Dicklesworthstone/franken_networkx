@@ -17,6 +17,56 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::sync::OnceLock;
+
+// Do not initialize Rayon's infallible global registry. A failed first spawn
+// there can turn even a tiny distance query into a PyO3 PanicException. Own one
+// fallibly built pool instead; failure is a stable serial execution decision,
+// not a poisoned global registry or a retry storm. Builder defaults honor
+// RAYON_NUM_THREADS (including the legacy Rayon variable).
+static PARALLEL_POOL: OnceLock<Result<rayon::ThreadPool, String>> = OnceLock::new();
+
+fn parallel_pool() -> &'static Result<rayon::ThreadPool, String> {
+    PARALLEL_POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .thread_name(|index| format!("fnx-rayon-{index}"))
+            .build()
+            .map_err(|error| {
+                let message = error.to_string();
+                eprintln!(
+                    "franken_networkx: parallel pool unavailable ({message}); using serial kernels"
+                );
+                message
+            })
+    })
+}
+
+/// Effective worker capacity, or one for the existing serial kernels when
+/// thread creation fails. A Rust caller's installed Rayon pool takes precedence.
+#[must_use]
+pub fn parallel_threads() -> usize {
+    if rayon::current_thread_index().is_some() {
+        rayon::current_num_threads()
+    } else {
+        parallel_pool()
+            .as_ref()
+            .map_or(1, rayon::ThreadPool::current_num_threads)
+    }
+}
+
+/// Run only a parallel kernel here, never the caller's mode/witness bookkeeping:
+/// install changes threads, so caller-local state must stay on the caller.
+pub fn in_parallel_pool<T: Send>(operation: impl FnOnce() -> T + Send) -> T {
+    if rayon::current_thread_index().is_some() {
+        operation()
+    } else {
+        match parallel_pool() {
+            Ok(pool) => pool.install(operation),
+            // Callers must select their serial arm with parallel_threads first.
+            Err(_) => operation(),
+        }
+    }
+}
 
 /// Exact-integer primal network-simplex kernel, exposed as a first-class Rust
 /// API so sibling crates can use the exact-integer min-cost-flow path without
@@ -3227,15 +3277,18 @@ fn all_pairs_shortest_path_length_indexed_csr(
     if node_count >= PARALLEL_MIN_SOURCES
         && cutoff != Some(0)
         && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS
+        && parallel_threads() > 1
     {
         use rayon::prelude::*;
-        (0..node_count)
-            .into_par_iter()
-            .map_init(
-                || AllPairsBfsScratch::new(node_count),
-                |scratch, source| all_pairs_bfs_source(scratch, csr, source, cutoff),
-            )
-            .collect()
+        in_parallel_pool(|| {
+            (0..node_count)
+                .into_par_iter()
+                .map_init(
+                    || AllPairsBfsScratch::new(node_count),
+                    |scratch, source| all_pairs_bfs_source(scratch, csr, source, cutoff),
+                )
+                .collect()
+        })
     } else {
         let mut scratch = AllPairsBfsScratch::new(node_count);
         (0..node_count)
@@ -3307,17 +3360,20 @@ fn shortest_path_length_matrix_indexed_csr(
     if sources.len() >= PARALLEL_MIN_SOURCES
         && cutoff != Some(0)
         && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS
+        && parallel_threads() > 1
     {
         use rayon::prelude::*;
-        matrix
-            .par_chunks_mut(node_count)
-            .zip(sources.par_iter().copied())
-            .for_each_init(
-                || AllPairsBfsScratch::new(node_count),
-                |scratch, (row, source)| {
-                    shortest_path_length_matrix_source(scratch, csr, source, cutoff, row);
-                },
-            );
+        in_parallel_pool(|| {
+            matrix
+                .par_chunks_mut(node_count)
+                .zip(sources.par_iter().copied())
+                .for_each_init(
+                    || AllPairsBfsScratch::new(node_count),
+                    |scratch, (row, source)| {
+                        shortest_path_length_matrix_source(scratch, csr, source, cutoff, row);
+                    },
+                )
+        });
     } else {
         let mut scratch = AllPairsBfsScratch::new(node_count);
         for (row, &source) in matrix.chunks_mut(node_count).zip(sources) {
@@ -3379,15 +3435,20 @@ fn all_sources_bfs_histograms(
     const PARALLEL_MIN_SOURCES: usize = 128;
     const PARALLEL_MIN_EDGE_SCANS: usize = 1 << 18;
     let estimated_edge_scans = csr.targets.len().saturating_mul(node_count);
-    if node_count >= PARALLEL_MIN_SOURCES && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS {
+    if node_count >= PARALLEL_MIN_SOURCES
+        && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS
+        && parallel_threads() > 1
+    {
         use rayon::prelude::*;
-        (0..node_count)
-            .into_par_iter()
-            .map_init(
-                || AllPairsBfsScratch::new(node_count),
-                |scratch, source| all_pairs_bfs_histogram_source(scratch, csr, source),
-            )
-            .collect()
+        in_parallel_pool(|| {
+            (0..node_count)
+                .into_par_iter()
+                .map_init(
+                    || AllPairsBfsScratch::new(node_count),
+                    |scratch, source| all_pairs_bfs_histogram_source(scratch, csr, source),
+                )
+                .collect()
+        })
     } else {
         let mut scratch = AllPairsBfsScratch::new(node_count);
         (0..node_count)
@@ -4086,7 +4147,11 @@ fn closeness_centrality_generic_arm<G: GraphView>(
         // br-r37-c1-k4we4: gate on the borrowed adjacency ROWS, and build the CSR
         // only once the gate has ACCEPTED. The capacity test needs no traversal, so
         // a declined graph pays neither a CSR build nor a graph probe.
-        let threads = rayon::current_num_threads();
+        let threads = if n < CENTRALITY_PARALLEL_THRESHOLD {
+            1
+        } else {
+            parallel_threads()
+        };
         let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
             None
         } else if arm == BitparArm::ChunkedBitpar {
@@ -4157,15 +4222,19 @@ fn closeness_centrality_generic_arm<G: GraphView>(
     // Each source's score is independent (no cross-source accumulation), so the
     // per-source reverse-BFS fans out over rayon workers with no ordering or
     // float-summation-order concern; results collect in source order.
-    let per_source: Vec<(f64, usize, usize, usize)> = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+    let per_source: Vec<(f64, usize, usize, usize)> = if n >= CENTRALITY_PARALLEL_THRESHOLD
+        && parallel_threads() > 1
+    {
         use rayon::prelude::*;
-        (0..n)
-            .into_par_iter()
-            .map_init(
-                || CentralityBfsScratch::new(n),
-                |scratch, s| closeness_source(scratch, &reverse_adjacency, n, s, wf_improved),
-            )
-            .collect()
+        in_parallel_pool(|| {
+            (0..n)
+                .into_par_iter()
+                .map_init(
+                    || CentralityBfsScratch::new(n),
+                    |scratch, s| closeness_source(scratch, &reverse_adjacency, n, s, wf_improved),
+                )
+                .collect()
+        })
     } else {
         let mut scratch = CentralityBfsScratch::new(n);
         (0..n)
@@ -4298,6 +4367,7 @@ fn harmonic_centrality_source_ordered_impl<G: GraphView>(
     if allow_gather
         && n >= CENTRALITY_PARALLEL_THRESHOLD
         && src_idx.len() == n
+        && parallel_threads() > 1
         && let Some(rows) = (0..n)
             .map(|u| graph.in_neighbors_indices(u))
             .collect::<Option<Vec<&[usize]>>>()
@@ -4322,52 +4392,54 @@ fn harmonic_centrality_source_ordered_impl<G: GraphView>(
         // harmonic gather had the identical shape.
         let (csr_offsets, csr_targets) = build_u32_csr(n, |u| rows[u]);
         const UNREACHED: u32 = u32::MAX;
-        let per_target: Vec<(f64, usize, usize, usize)> = (0..n)
-            .into_par_iter()
-            .map_init(
-                || (vec![UNREACHED; n], Vec::<u32>::with_capacity(n)),
-                |(distance, queue): &mut (Vec<u32>, Vec<u32>), u| {
-                    distance.fill(UNREACHED);
-                    queue.clear();
-                    distance[u] = 0;
-                    queue.push(u as u32);
-                    let (mut touched, mut edges, mut peak) = (0usize, 0usize, 1usize);
+        let per_target: Vec<(f64, usize, usize, usize)> = in_parallel_pool(|| {
+            (0..n)
+                .into_par_iter()
+                .map_init(
+                    || (vec![UNREACHED; n], Vec::<u32>::with_capacity(n)),
+                    |(distance, queue): &mut (Vec<u32>, Vec<u32>), u| {
+                        distance.fill(UNREACHED);
+                        queue.clear();
+                        distance[u] = 0;
+                        queue.push(u as u32);
+                        let (mut touched, mut edges, mut peak) = (0usize, 0usize, 1usize);
 
-                    let mut head = 0usize;
-                    while head < queue.len() {
-                        let v = queue[head] as usize;
-                        head += 1;
-                        touched += 1;
-                        let d = distance[v];
-                        let lo = csr_offsets[v] as usize;
-                        let hi = csr_offsets[v + 1] as usize;
-                        for &target in &csr_targets[lo..hi] {
-                            let w = target as usize;
-                            edges += 1;
-                            if distance[w] == UNREACHED {
-                                distance[w] = d + 1;
-                                queue.push(w as u32);
+                        let mut head = 0usize;
+                        while head < queue.len() {
+                            let v = queue[head] as usize;
+                            head += 1;
+                            touched += 1;
+                            let d = distance[v];
+                            let lo = csr_offsets[v] as usize;
+                            let hi = csr_offsets[v + 1] as usize;
+                            for &target in &csr_targets[lo..hi] {
+                                let w = target as usize;
+                                edges += 1;
+                                if distance[w] == UNREACHED {
+                                    distance[w] = d + 1;
+                                    queue.push(w as u32);
+                                }
+                            }
+                            peak = peak.max(queue.len() - head);
+                        }
+
+                        // nx's exact addend sequence for target `u`: sources in their
+                        // given order, skipping self (d == 0) and unreached sources,
+                        // which is precisely what the scatter's `if d != 0` and
+                        // "only reached targets" behaviour amount to. UNCHANGED — the
+                        // whole point of the rewrite above is that it stops here.
+                        let mut acc = 0.0_f64;
+                        for &s in &src_idx {
+                            let d = distance[s];
+                            if d != UNREACHED && d != 0 {
+                                acc += 1.0 / (f64::from(d));
                             }
                         }
-                        peak = peak.max(queue.len() - head);
-                    }
-
-                    // nx's exact addend sequence for target `u`: sources in their
-                    // given order, skipping self (d == 0) and unreached sources,
-                    // which is precisely what the scatter's `if d != 0` and
-                    // "only reached targets" behaviour amount to. UNCHANGED — the
-                    // whole point of the rewrite above is that it stops here.
-                    let mut acc = 0.0_f64;
-                    for &s in &src_idx {
-                        let d = distance[s];
-                        if d != UNREACHED && d != 0 {
-                            acc += 1.0 / (f64::from(d));
-                        }
-                    }
-                    (acc, touched, edges, peak)
-                },
-            )
-            .collect();
+                        (acc, touched, edges, peak)
+                    },
+                )
+                .collect()
+        });
 
         let mut scores = Vec::with_capacity(n);
         for (u, (score, touched, edges, peak)) in per_target.into_iter().enumerate() {
@@ -4549,7 +4621,11 @@ fn harmonic_centrality_generic_arm_impl<G: GraphView>(
         // br-r37-c1-k4we4: gate on the borrowed adjacency ROWS, and build the CSR
         // only once the gate has ACCEPTED, so a declined graph pays neither a CSR
         // build nor a full eccentricity sweep.
-        let threads = rayon::current_num_threads();
+        let threads = if n < CENTRALITY_PARALLEL_THRESHOLD {
+            1
+        } else {
+            parallel_threads()
+        };
         let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
             None
         } else if arm == BitparArm::ChunkedBitpar {
@@ -4616,21 +4692,24 @@ fn harmonic_centrality_generic_arm_impl<G: GraphView>(
     // Each source's harmonic sum is independent; fan the per-source reverse-BFS
     // out over rayon workers (per-source 1/d additions stay in BFS pop order, so
     // byte-identical to sequential), results collect in source order.
-    let per_source: Vec<(f64, usize, usize, usize)> = if n >= CENTRALITY_PARALLEL_THRESHOLD {
-        use rayon::prelude::*;
-        (0..n)
-            .into_par_iter()
-            .map_init(
-                || CentralityBfsScratch::new(n),
-                |scratch, s| harmonic_source(scratch, &reverse_adjacency, s),
-            )
-            .collect()
-    } else {
-        let mut scratch = CentralityBfsScratch::new(n);
-        (0..n)
-            .map(|s| harmonic_source(&mut scratch, &reverse_adjacency, s))
-            .collect()
-    };
+    let per_source: Vec<(f64, usize, usize, usize)> =
+        if n >= CENTRALITY_PARALLEL_THRESHOLD && parallel_threads() > 1 {
+            use rayon::prelude::*;
+            in_parallel_pool(|| {
+                (0..n)
+                    .into_par_iter()
+                    .map_init(
+                        || CentralityBfsScratch::new(n),
+                        |scratch, s| harmonic_source(scratch, &reverse_adjacency, s),
+                    )
+                    .collect()
+            })
+        } else {
+            let mut scratch = CentralityBfsScratch::new(n);
+            (0..n)
+                .map(|s| harmonic_source(&mut scratch, &reverse_adjacency, s))
+                .collect()
+        };
 
     for (s, (score, reached, src_edges, src_peak)) in per_source.into_iter().enumerate() {
         nodes_touched += reached;
@@ -6085,44 +6164,45 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    if n >= 500 && source_idx.len() > 1 {
+    if n >= 500 && source_idx.len() > 1 && parallel_threads() > 1 {
         use rayon::prelude::*;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
 
-        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
+            let mut start = 0usize;
+            while start < source_idx.len() {
+                let end = (start + chunk).min(source_idx.len());
+                let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = source_idx[start..end]
+                    .par_iter()
+                    .map_init(
+                        || BrandesScratch::new(n),
+                        |scratch, &source| {
+                            brandes_source_delta(
+                                scratch,
+                                &out_offsets,
+                                &out_targets,
+                                &in_offsets,
+                                &in_targets,
+                                source,
+                                endpoints,
+                                n,
+                            )
+                        },
+                    )
+                    .collect();
 
-        let mut start = 0usize;
-        while start < source_idx.len() {
-            let end = (start + chunk).min(source_idx.len());
-            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = source_idx[start..end]
-                .par_iter()
-                .map_init(
-                    || BrandesScratch::new(n),
-                    |scratch, &source| {
-                        brandes_source_delta(
-                            scratch,
-                            &out_offsets,
-                            &out_targets,
-                            &in_offsets,
-                            &in_targets,
-                            source,
-                            endpoints,
-                            n,
-                        )
-                    },
-                )
-                .collect();
-
-            for (delta, src_edges, src_touched, src_peak) in chunk_results {
-                for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+                for (delta, src_edges, src_touched, src_peak) in chunk_results {
+                    for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
+                    edges_scanned += src_edges;
+                    total_nodes_touched += src_touched;
+                    queue_peak = queue_peak.max(src_peak);
                 }
-                edges_scanned += src_edges;
-                total_nodes_touched += src_touched;
-                queue_peak = queue_peak.max(src_peak);
+                start = end;
             }
-            start = end;
-        }
+        });
     } else {
         let mut scratch = BrandesScratch::new(n);
         for &source in &source_idx {
@@ -6283,97 +6363,98 @@ fn betweenness_centrality_brandes_arm<G: GraphView>(
     // identical to the sequential path. Sources are chunked to cap peak delta
     // memory (~64 MiB), so the order is preserved both within and across chunks.
     const BRANDES_PARALLEL_THRESHOLD: usize = 500;
-    if n >= BRANDES_PARALLEL_THRESHOLD {
+    if n >= BRANDES_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
 
-        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+            // One slab for the whole call, reused chunk to chunk: the per-source
+            // `vec![0.0; n]` is gone, so the allocator sees O(1) requests instead of
+            // O(n).
+            let mut start = 0usize;
+            while start < n {
+                let end = (start + chunk).min(n);
+                let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = (start..end)
+                    .into_par_iter()
+                    .map_init(
+                        || BrandesScratch::new(n),
+                        |scratch, s| {
+                            brandes_source_delta(
+                                scratch,
+                                &out_offsets,
+                                &out_targets,
+                                &in_offsets,
+                                &in_targets,
+                                s,
+                                endpoints,
+                                n,
+                            )
+                        },
+                    )
+                    .collect();
 
-        // One slab for the whole call, reused chunk to chunk: the per-source
-        // `vec![0.0; n]` is gone, so the allocator sees O(1) requests instead of
-        // O(n).
-        let mut start = 0usize;
-        while start < n {
-            let end = (start + chunk).min(n);
-            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = (start..end)
-                .into_par_iter()
-                .map_init(
-                    || BrandesScratch::new(n),
-                    |scratch, s| {
-                        brandes_source_delta(
-                            scratch,
-                            &out_offsets,
-                            &out_targets,
-                            &in_offsets,
-                            &in_targets,
-                            s,
-                            endpoints,
-                            n,
-                        )
-                    },
-                )
-                .collect();
+                // Fold the chunk's per-source deltas into the global score IN SOURCE
+                // ORDER (the collected Vec is already ordered by s), so the f64
+                // summation order — and therefore the result — matches the sequential
+                // path byte for byte.
+                //
+                // Two schedulings, identical arithmetic. The serial fold walks whole
+                // rows one source at a time. The parallel fold splits the NODE axis
+                // into disjoint blocks: for any fixed target `w` the addends still
+                // arrive in increasing source order, only independent `w`s go to
+                // different threads, so nothing is reassociated. Blocking also keeps
+                // the accumulator slice resident while the source rows stream past it.
+                //
+                // br-r37-c1-bcsr measured the parallel fold at n=3000 and it LOST
+                // (delta row 24 KiB, allocator-recycled and L2-resident; the fold is a
+                // negligible slice of a kernel already running at cpu/wall 42). The
+                // retry predicate recorded then was "reopen when the delta rows exceed
+                // last-level cache anyway", and the ca-AstroPh whole-job profile
+                // satisfies it: n=17903 makes each row 143 KiB and the fold 320M adds.
+                // Hence the threshold rather than a flat choice — see `brandes_reduce_ab`.
+                const REDUCE_PARALLEL_MIN_N: usize = 8192;
+                const REDUCE_BLOCK: usize = 2048;
+                let parallel_reduce = match reduce {
+                    BrandesReduce::Auto => n >= REDUCE_PARALLEL_MIN_N,
+                    BrandesReduce::Serial => false,
+                    BrandesReduce::Parallel => true,
+                };
 
-            // Fold the chunk's per-source deltas into the global score IN SOURCE
-            // ORDER (the collected Vec is already ordered by s), so the f64
-            // summation order — and therefore the result — matches the sequential
-            // path byte for byte.
-            //
-            // Two schedulings, identical arithmetic. The serial fold walks whole
-            // rows one source at a time. The parallel fold splits the NODE axis
-            // into disjoint blocks: for any fixed target `w` the addends still
-            // arrive in increasing source order, only independent `w`s go to
-            // different threads, so nothing is reassociated. Blocking also keeps
-            // the accumulator slice resident while the source rows stream past it.
-            //
-            // br-r37-c1-bcsr measured the parallel fold at n=3000 and it LOST
-            // (delta row 24 KiB, allocator-recycled and L2-resident; the fold is a
-            // negligible slice of a kernel already running at cpu/wall 42). The
-            // retry predicate recorded then was "reopen when the delta rows exceed
-            // last-level cache anyway", and the ca-AstroPh whole-job profile
-            // satisfies it: n=17903 makes each row 143 KiB and the fold 320M adds.
-            // Hence the threshold rather than a flat choice — see `brandes_reduce_ab`.
-            const REDUCE_PARALLEL_MIN_N: usize = 8192;
-            const REDUCE_BLOCK: usize = 2048;
-            let parallel_reduce = match reduce {
-                BrandesReduce::Auto => n >= REDUCE_PARALLEL_MIN_N,
-                BrandesReduce::Serial => false,
-                BrandesReduce::Parallel => true,
-            };
-
-            if parallel_reduce {
-                let rows = &chunk_results;
-                centrality
-                    .par_chunks_mut(REDUCE_BLOCK)
-                    .enumerate()
-                    .for_each(|(block_idx, block)| {
-                        let base = block_idx * REDUCE_BLOCK;
-                        let width = block.len();
-                        for (delta, _, _, _) in rows.iter() {
-                            for (acc, contribution) in
-                                block.iter_mut().zip(&delta[base..base + width])
-                            {
-                                *acc += *contribution;
+                if parallel_reduce {
+                    let rows = &chunk_results;
+                    centrality
+                        .par_chunks_mut(REDUCE_BLOCK)
+                        .enumerate()
+                        .for_each(|(block_idx, block)| {
+                            let base = block_idx * REDUCE_BLOCK;
+                            let width = block.len();
+                            for (delta, _, _, _) in rows.iter() {
+                                for (acc, contribution) in
+                                    block.iter_mut().zip(&delta[base..base + width])
+                                {
+                                    *acc += *contribution;
+                                }
                             }
-                        }
-                    });
-                for (_, src_edges, src_touched, src_peak) in &chunk_results {
-                    edges_scanned += *src_edges;
-                    total_nodes_touched += *src_touched;
-                    queue_peak = queue_peak.max(*src_peak);
-                }
-            } else {
-                for (delta, src_edges, src_touched, src_peak) in chunk_results {
-                    for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
-                        *acc += *contribution;
+                        });
+                    for (_, src_edges, src_touched, src_peak) in &chunk_results {
+                        edges_scanned += *src_edges;
+                        total_nodes_touched += *src_touched;
+                        queue_peak = queue_peak.max(*src_peak);
                     }
-                    edges_scanned += src_edges;
-                    total_nodes_touched += src_touched;
-                    queue_peak = queue_peak.max(src_peak);
+                } else {
+                    for (delta, src_edges, src_touched, src_peak) in chunk_results {
+                        for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                            *acc += *contribution;
+                        }
+                        edges_scanned += src_edges;
+                        total_nodes_touched += src_touched;
+                        queue_peak = queue_peak.max(src_peak);
+                    }
                 }
+                start = end;
             }
-            start = end;
-        }
+        });
     } else {
         let mut stack = Vec::<usize>::with_capacity(n);
         let mut sigma = vec![0.0; n];
@@ -6699,21 +6780,23 @@ fn betweenness_centrality_weighted_generic<G: GraphView>(
     // Per-source deltas are folded in source order, parallel or not, so the
     // sums are networkx's.
     const WEIGHTED_BRANDES_PARALLEL_THRESHOLD: usize = 400;
-    if n >= WEIGHTED_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 {
+    if n >= WEIGHTED_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 && parallel_threads() > 1 {
         use rayon::prelude::*;
-        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
-        for chunk_sources in source_idx.chunks(chunk) {
-            let chunk_results: Vec<Vec<f64>> = chunk_sources
-                .par_iter()
-                .map(|&s| weighted_brandes_source_delta(&adjacency, s, n, endpoints))
-                .collect();
-            for delta in chunk_results {
-                for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
+            for chunk_sources in source_idx.chunks(chunk) {
+                let chunk_results: Vec<Vec<f64>> = chunk_sources
+                    .par_iter()
+                    .map(|&s| weighted_brandes_source_delta(&adjacency, s, n, endpoints))
+                    .collect();
+                for delta in chunk_results {
+                    for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
                 }
             }
-        }
+        });
     } else {
         for &s in &source_idx {
             let delta = weighted_brandes_source_delta(&adjacency, s, n, endpoints);
@@ -7484,29 +7567,30 @@ fn edge_betweenness_centrality_brandes_run<G: GraphView>(
     // float parity with the sequential path. Sources chunked to cap peak delta
     // memory (~64 MiB); order preserved within and across chunks.
     const EDGE_BRANDES_PARALLEL_THRESHOLD: usize = 500;
-    if n >= EDGE_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 {
+    if n >= EDGE_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 && parallel_threads() > 1 {
         use rayon::prelude::*;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n_edges.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
 
-        let bytes_per_delta = n_edges.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
-
-        for chunk_sources in source_idx.chunks(chunk) {
-            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = chunk_sources
-                .par_iter()
-                .map_init(
-                    || EdgeBrandesScratch::new(n),
-                    |scratch, &s| edge_brandes_source(scratch, &edge_csr, n_edges, s),
-                )
-                .collect();
-            for (delta, src_edges, src_touched, src_peak) in chunk_results {
-                for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+            for chunk_sources in source_idx.chunks(chunk) {
+                let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = chunk_sources
+                    .par_iter()
+                    .map_init(
+                        || EdgeBrandesScratch::new(n),
+                        |scratch, &s| edge_brandes_source(scratch, &edge_csr, n_edges, s),
+                    )
+                    .collect();
+                for (delta, src_edges, src_touched, src_peak) in chunk_results {
+                    for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
+                    edges_scanned += src_edges;
+                    nodes_touched += src_touched;
+                    queue_peak = queue_peak.max(src_peak);
                 }
-                edges_scanned += src_edges;
-                nodes_touched += src_touched;
-                queue_peak = queue_peak.max(src_peak);
             }
-        }
+        });
     } else {
         let mut scratch = EdgeBrandesScratch::new(n);
         for &s in &source_idx {
@@ -7701,21 +7785,26 @@ fn edge_betweenness_centrality_weighted_generic<G: GraphView>(
     };
 
     const WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD: usize = 400;
-    if n >= WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD && source_idx.len() > 1 {
+    if n >= WEIGHTED_EDGE_BRANDES_PARALLEL_THRESHOLD
+        && source_idx.len() > 1
+        && parallel_threads() > 1
+    {
         use rayon::prelude::*;
-        let bytes_per_delta = n_edges.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
-        for chunk_sources in source_idx.chunks(chunk) {
-            let chunk_results: Vec<Vec<f64>> = chunk_sources
-                .par_iter()
-                .map(|&s| weighted_edge_brandes_source(&adjacency, n, n_edges, s))
-                .collect();
-            for delta in chunk_results {
-                for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n_edges.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, source_idx.len());
+            for chunk_sources in source_idx.chunks(chunk) {
+                let chunk_results: Vec<Vec<f64>> = chunk_sources
+                    .par_iter()
+                    .map(|&s| weighted_edge_brandes_source(&adjacency, n, n_edges, s))
+                    .collect();
+                for delta in chunk_results {
+                    for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
                 }
             }
-        }
+        });
     } else {
         for &s in &source_idx {
             let delta = weighted_edge_brandes_source(&adjacency, n, n_edges, s);
@@ -8463,32 +8552,33 @@ fn load_centrality_generic<G: GraphView>(
     // byte-exact float parity with the sequential path. Sources chunked to cap
     // peak delta memory (~64 MiB); order preserved within and across chunks.
     const LOAD_PARALLEL_THRESHOLD: usize = 500;
-    if n >= LOAD_PARALLEL_THRESHOLD {
+    if n >= LOAD_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
 
-        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
-
-        let mut start = 0usize;
-        while start < n {
-            let end = (start + chunk).min(n);
-            let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = (start..end)
-                .into_par_iter()
-                .map_init(
-                    || LoadScratch::new(n),
-                    |scratch, s| load_source(scratch, &adjacency, rank_order, n, s),
-                )
-                .collect();
-            for (delta, src_touched, src_edges, src_peak) in chunk_results {
-                for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+            let mut start = 0usize;
+            while start < n {
+                let end = (start + chunk).min(n);
+                let chunk_results: Vec<(Vec<f64>, usize, usize, usize)> = (start..end)
+                    .into_par_iter()
+                    .map_init(
+                        || LoadScratch::new(n),
+                        |scratch, s| load_source(scratch, &adjacency, rank_order, n, s),
+                    )
+                    .collect();
+                for (delta, src_touched, src_edges, src_peak) in chunk_results {
+                    for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
+                    total_nodes_touched += src_touched;
+                    edges_scanned += src_edges;
+                    queue_peak = queue_peak.max(src_peak);
                 }
-                total_nodes_touched += src_touched;
-                edges_scanned += src_edges;
-                queue_peak = queue_peak.max(src_peak);
+                start = end;
             }
-            start = end;
-        }
+        });
     } else {
         let mut scratch = LoadScratch::new(n);
         for s in 0..n {
@@ -8673,24 +8763,26 @@ fn load_centrality_weighted_generic<G: GraphView>(
     let mut load = vec![0.0f64; n];
 
     const WEIGHTED_LOAD_PARALLEL_THRESHOLD: usize = 400;
-    if n >= WEIGHTED_LOAD_PARALLEL_THRESHOLD {
+    if n >= WEIGHTED_LOAD_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
-        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
-        let mut start = 0usize;
-        while start < n {
-            let end = (start + chunk).min(n);
-            let chunk_results: Vec<Vec<f64>> = (start..end)
-                .into_par_iter()
-                .map(|s| weighted_load_source(&adjacency, value_rank, n, s))
-                .collect();
-            for delta in chunk_results {
-                for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+            let mut start = 0usize;
+            while start < n {
+                let end = (start + chunk).min(n);
+                let chunk_results: Vec<Vec<f64>> = (start..end)
+                    .into_par_iter()
+                    .map(|s| weighted_load_source(&adjacency, value_rank, n, s))
+                    .collect();
+                for delta in chunk_results {
+                    for (acc, contribution) in load.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
                 }
+                start = end;
             }
-            start = end;
-        }
+        });
     } else {
         for s in 0..n {
             let delta = weighted_load_source(&adjacency, value_rank, n, s);
@@ -8876,24 +8968,26 @@ fn percolation_centrality_weighted_generic<G: GraphView>(
     let mut perc = vec![0.0f64; n];
 
     const WEIGHTED_PERC_PARALLEL_THRESHOLD: usize = 400;
-    if n >= WEIGHTED_PERC_PARALLEL_THRESHOLD {
+    if n >= WEIGHTED_PERC_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
-        let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
-        let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
-        let mut start = 0usize;
-        while start < n {
-            let end = (start + chunk).min(n);
-            let chunk_results: Vec<Vec<f64>> = (start..end)
-                .into_par_iter()
-                .map(|s| weighted_percolation_source(&adjacency, states, state_sum, n, s))
-                .collect();
-            for delta in chunk_results {
-                for (acc, contribution) in perc.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+        in_parallel_pool(|| {
+            let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
+            let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
+            let mut start = 0usize;
+            while start < n {
+                let end = (start + chunk).min(n);
+                let chunk_results: Vec<Vec<f64>> = (start..end)
+                    .into_par_iter()
+                    .map(|s| weighted_percolation_source(&adjacency, states, state_sum, n, s))
+                    .collect();
+                for delta in chunk_results {
+                    for (acc, contribution) in perc.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
                 }
+                start = end;
             }
-            start = end;
-        }
+        });
     } else {
         for s in 0..n {
             let delta = weighted_percolation_source(&adjacency, states, state_sum, n, s);
@@ -11328,43 +11422,45 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     // index order below, so the f64 summation order that defines the public
     // value is untouched. NetworkX cannot take this path at all; its triangle
     // census is a Python loop serialised by the GIL.
-    let (tri, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+    let (tri, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
         // Each worker owns a full-width count vector plus a mark array; cap the
         // worker count so that scratch stays bounded on very large graphs.
         let bytes_per_worker = n.saturating_mul(std::mem::size_of::<usize>() + 1).max(1);
-        let workers = rayon::current_num_threads()
+        let workers = parallel_threads()
             .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
             .max(1);
         let span = n.div_ceil(workers);
-        (0..workers)
-            .into_par_iter()
-            .map(|worker| {
-                let lo = worker.saturating_mul(span);
-                let hi = lo.saturating_add(span).min(n);
-                let mut tri_local = vec![0usize; n];
-                let mut in_neighborhood = vec![false; n];
-                let mut scanned = 0usize;
-                for u in lo..hi {
-                    clustering_census_node(
-                        graph,
-                        u,
-                        &mut tri_local,
-                        &mut in_neighborhood,
-                        &mut scanned,
-                    );
-                }
-                (tri_local, scanned)
-            })
-            .reduce(
-                || (vec![0usize; n], 0usize),
-                |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
-                    for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
-                        *acc += *part;
+        in_parallel_pool(|| {
+            (0..workers)
+                .into_par_iter()
+                .map(|worker| {
+                    let lo = worker.saturating_mul(span);
+                    let hi = lo.saturating_add(span).min(n);
+                    let mut tri_local = vec![0usize; n];
+                    let mut in_neighborhood = vec![false; n];
+                    let mut scanned = 0usize;
+                    for u in lo..hi {
+                        clustering_census_node(
+                            graph,
+                            u,
+                            &mut tri_local,
+                            &mut in_neighborhood,
+                            &mut scanned,
+                        );
                     }
-                    (acc_tri, acc_scanned + part_scanned)
-                },
-            )
+                    (tri_local, scanned)
+                })
+                .reduce(
+                    || (vec![0usize; n], 0usize),
+                    |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
+                        for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
+                            *acc += *part;
+                        }
+                        (acc_tri, acc_scanned + part_scanned)
+                    },
+                )
+        })
     } else {
         let mut tri = vec![0usize; n];
         let mut in_neighborhood = vec![false; n];
@@ -11479,27 +11575,29 @@ pub fn transitivity(graph: &Graph) -> f64 {
     // same reason: the accumulator is an integer, so worker order cannot change
     // the total. Only the final division is floating point, and it sees the
     // identical operands.
-    let total_triangles: usize = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+    let total_triangles: usize = if n >= CENTRALITY_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
         // Scratch is one mark byte per node per worker; cap the worker count so
         // it stays bounded on very large graphs.
-        let workers = rayon::current_num_threads()
+        let workers = parallel_threads()
             .min((256 * 1024 * 1024 / n.max(1)).max(1))
             .max(1);
         let span = n.div_ceil(workers);
-        (0..workers)
-            .into_par_iter()
-            .map(|worker| {
-                let lo = worker.saturating_mul(span);
-                let hi = lo.saturating_add(span).min(n);
-                let mut in_neighborhood = vec![false; n];
-                let mut local = 0usize;
-                for u in lo..hi {
-                    local += transitivity_census_node(graph, u, &mut in_neighborhood);
-                }
-                local
-            })
-            .sum()
+        in_parallel_pool(|| {
+            (0..workers)
+                .into_par_iter()
+                .map(|worker| {
+                    let lo = worker.saturating_mul(span);
+                    let hi = lo.saturating_add(span).min(n);
+                    let mut in_neighborhood = vec![false; n];
+                    let mut local = 0usize;
+                    for u in lo..hi {
+                        local += transitivity_census_node(graph, u, &mut in_neighborhood);
+                    }
+                    local
+                })
+                .sum()
+        })
     } else {
         let mut in_neighborhood = vec![false; n];
         let mut serial = 0usize;
@@ -11786,7 +11884,11 @@ pub fn distance_measures_arm(graph: &Graph, arm: BitparArm) -> DistanceMeasuresR
         let rows: Vec<&[usize]> = (0..n)
             .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
             .collect();
-        let threads = rayon::current_num_threads();
+        let threads = if n < CENTRALITY_PARALLEL_THRESHOLD {
+            1
+        } else {
+            parallel_threads()
+        };
         let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
             None
         } else if arm == BitparArm::ChunkedBitpar {
@@ -11998,15 +12100,17 @@ fn aspl_finalize(
 /// Run `aspl_bfs_source` over all `n` sources, parallel for large graphs.
 fn aspl_run_sources(adjacency: &[&[usize]], n: usize) -> Vec<(usize, usize, usize, usize)> {
     const ASPL_PARALLEL_THRESHOLD: usize = 500;
-    if n >= ASPL_PARALLEL_THRESHOLD {
+    if n >= ASPL_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
-        (0..n)
-            .into_par_iter()
-            .map_init(
-                || AsplScratch::new(n),
-                |scratch, s| aspl_bfs_source(scratch, adjacency, n, s),
-            )
-            .collect()
+        in_parallel_pool(|| {
+            (0..n)
+                .into_par_iter()
+                .map_init(
+                    || AsplScratch::new(n),
+                    |scratch, s| aspl_bfs_source(scratch, adjacency, n, s),
+                )
+                .collect()
+        })
     } else {
         let mut scratch = AsplScratch::new(n);
         (0..n)
@@ -12214,21 +12318,26 @@ fn aspl_bitpar_run<const W: usize>(offsets: &[u32], targets: &[u32], n: usize) -
 /// reduction tree yields a bit-identical aggregate, and the `sum / (n*(n-1))` division
 /// that follows is bit-identical too.
 fn aspl_bitpar_run_parallel<const W: usize>(offsets: &[u32], targets: &[u32], n: usize) -> AsplAgg {
+    if parallel_threads() == 1 {
+        return aspl_bitpar_run::<W>(offsets, targets, n);
+    }
     use rayon::prelude::*;
     let width = W * 64;
-    (0..n.div_ceil(width))
-        .into_par_iter()
-        .map_init(
-            || BitParBfsScratch::<W>::new(n),
-            |sc, chunk| {
-                // `batch` refills seen/frontier and leaves `next` all-zero, so one
-                // scratch is safely reused across the chunks a worker runs.
-                let s0 = chunk * width;
-                let k = (n - s0).min(width);
-                bitpar_bfs_batch::<W>(sc, offsets, targets, s0, k)
-            },
-        )
-        .reduce(|| AsplAgg::ZERO, AsplAgg::merge)
+    in_parallel_pool(|| {
+        (0..n.div_ceil(width))
+            .into_par_iter()
+            .map_init(
+                || BitParBfsScratch::<W>::new(n),
+                |sc, chunk| {
+                    // `batch` refills seen/frontier and leaves `next` all-zero, so one
+                    // scratch is safely reused across the chunks a worker runs.
+                    let s0 = chunk * width;
+                    let k = (n - s0).min(width);
+                    bitpar_bfs_batch::<W>(sc, offsets, targets, s0, k)
+                },
+            )
+            .reduce(|| AsplAgg::ZERO, AsplAgg::merge)
+    })
 }
 
 /// Sequential `aspl_bitpar_run` at an EXPLICIT lane width, so the chunked twin can be
@@ -12617,28 +12726,33 @@ fn bitpar_reverse_bfs_run_parallel<const W: usize, S: ReachSink>(
     reached: &mut [usize],
     acc: &mut [S::Acc],
 ) -> (usize, usize) {
+    if parallel_threads() == 1 {
+        return bitpar_reverse_bfs_run::<W, S>(offsets, targets, n, reached, acc);
+    }
     use rayon::prelude::*;
     let width = W * 64;
-    reached
-        .par_chunks_mut(width)
-        .zip(acc.par_chunks_mut(width))
-        .enumerate()
-        .map_init(
-            || BitParBfsScratch::<W>::new(n),
-            |scratch, (chunk, (reached_chunk, acc_chunk))| {
-                // `batch` leaves `next` all-zero and refills `seen`/`frontier`, so
-                // one scratch is safely reused across the chunks a worker runs.
-                bitpar_reverse_bfs_batch::<W, S>(
-                    scratch,
-                    offsets,
-                    targets,
-                    chunk * width,
-                    reached_chunk,
-                    acc_chunk,
-                )
-            },
-        )
-        .reduce(|| (0usize, 0usize), |a, b| (a.0 + b.0, a.1.max(b.1)))
+    in_parallel_pool(|| {
+        reached
+            .par_chunks_mut(width)
+            .zip(acc.par_chunks_mut(width))
+            .enumerate()
+            .map_init(
+                || BitParBfsScratch::<W>::new(n),
+                |scratch, (chunk, (reached_chunk, acc_chunk))| {
+                    // `batch` leaves `next` all-zero and refills `seen`/`frontier`, so
+                    // one scratch is safely reused across the chunks a worker runs.
+                    bitpar_reverse_bfs_batch::<W, S>(
+                        scratch,
+                        offsets,
+                        targets,
+                        chunk * width,
+                        reached_chunk,
+                        acc_chunk,
+                    )
+                },
+            )
+            .reduce(|| (0usize, 0usize), |a, b| (a.0 + b.0, a.1.max(b.1)))
+    })
 }
 
 /// Lane width for the chunked-parallel path: the WIDEST `W` that still leaves at
@@ -12826,7 +12940,7 @@ pub fn aspl_gate_overhead_cost(graph: &Graph, _bounded: bool) -> usize {
     if n == 0 || n > u32::MAX as usize {
         return 0;
     }
-    let threads = rayon::current_num_threads();
+    let threads = parallel_threads();
     bitpar_chunked_lane_width_if_profitable_rows(&[], n, threads).unwrap_or_default()
 }
 
@@ -12866,7 +12980,11 @@ pub fn average_shortest_path_length_arm(
     if arm != BitparArm::PerSource && n <= u32::MAX as usize {
         // Above the sequential ceiling the per-source path fans out over rayon, so
         // accept chunking only when enough source chunks can occupy the pool.
-        let threads = rayon::current_num_threads();
+        let threads = if n < ASPL_BITPAR_MAX_N {
+            1
+        } else {
+            parallel_threads()
+        };
         let lane_width = if n < ASPL_BITPAR_MAX_N {
             None
         } else if arm == BitparArm::ChunkedBitpar {
@@ -17056,41 +17174,44 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
     // Same fan-out as `clustering_coefficient`'s census: the counters are
     // integers, so splitting the `u` range across workers and summing the
     // per-worker vectors is bit-identical to the serial scan.
-    let (tri_count, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+    let (tri_count, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD && parallel_threads() > 1
+    {
         use rayon::prelude::*;
         let bytes_per_worker = n.saturating_mul(std::mem::size_of::<usize>() + 1).max(1);
-        let workers = rayon::current_num_threads()
+        let workers = parallel_threads()
             .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
             .max(1);
         let span = n.div_ceil(workers);
-        (0..workers)
-            .into_par_iter()
-            .map(|worker| {
-                let lo = worker.saturating_mul(span);
-                let hi = lo.saturating_add(span).min(n);
-                let mut tri_local: Vec<usize> = vec![0; n];
-                let mut in_neighborhood = vec![false; n];
-                let mut scanned = 0usize;
-                for u in lo..hi {
-                    triangles_census_node(
-                        graph,
-                        u,
-                        &mut tri_local,
-                        &mut in_neighborhood,
-                        &mut scanned,
-                    );
-                }
-                (tri_local, scanned)
-            })
-            .reduce(
-                || (vec![0usize; n], 0usize),
-                |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
-                    for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
-                        *acc += *part;
+        in_parallel_pool(|| {
+            (0..workers)
+                .into_par_iter()
+                .map(|worker| {
+                    let lo = worker.saturating_mul(span);
+                    let hi = lo.saturating_add(span).min(n);
+                    let mut tri_local: Vec<usize> = vec![0; n];
+                    let mut in_neighborhood = vec![false; n];
+                    let mut scanned = 0usize;
+                    for u in lo..hi {
+                        triangles_census_node(
+                            graph,
+                            u,
+                            &mut tri_local,
+                            &mut in_neighborhood,
+                            &mut scanned,
+                        );
                     }
-                    (acc_tri, acc_scanned + part_scanned)
-                },
-            )
+                    (tri_local, scanned)
+                })
+                .reduce(
+                    || (vec![0usize; n], 0usize),
+                    |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
+                        for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
+                            *acc += *part;
+                        }
+                        (acc_tri, acc_scanned + part_scanned)
+                    },
+                )
+        })
     } else {
         let mut tri_count: Vec<usize> = vec![0; n];
         let mut in_neighborhood = vec![false; n];
@@ -38157,9 +38278,9 @@ pub fn all_pairs_dijkstra_path_length_indexed_with_pred(
         )
     };
 
-    if n >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD {
+    if n >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
-        (0..n).into_par_iter().map(solve_source).collect()
+        in_parallel_pool(|| (0..n).into_par_iter().map(solve_source).collect())
     } else {
         (0..n).map(solve_source).collect()
     }
@@ -38209,9 +38330,9 @@ pub fn all_pairs_dijkstra_path_length_indexed_with_pred_directed(
         )
     };
 
-    if node_count >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD {
+    if node_count >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD && parallel_threads() > 1 {
         use rayon::prelude::*;
-        (0..node_count).into_par_iter().map(solve_source).collect()
+        in_parallel_pool(|| (0..node_count).into_par_iter().map(solve_source).collect())
     } else {
         (0..node_count).map(solve_source).collect()
     }
@@ -57082,6 +57203,33 @@ mod lr_state_nx_dump_data;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parallel_capacity_honors_installed_pool() {
+        for count in [1, 2, 4] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(count)
+                .build()
+                .expect("test worker pool");
+            pool.install(|| {
+                assert_eq!(super::parallel_threads(), count);
+                assert_eq!(super::in_parallel_pool(rayon::current_num_threads), count);
+            });
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "algorithm failure is not capacity failure")]
+    fn parallel_capacity_does_not_swallow_algorithm_panic() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("test worker pool");
+        pool.install(|| {
+            // ubs:ignore — test-only planted panic; should_panic verifies propagation, not production suppression.
+            super::in_parallel_pool(|| panic!("algorithm failure is not capacity failure"));
+        });
+    }
+
     use super::{
         AttrMap,
         BranchingEdge,

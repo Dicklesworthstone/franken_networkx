@@ -7,6 +7,10 @@ Run with: python -m pytest tests/python/test_thread_safety.py -v
 """
 
 import concurrent.futures
+import json
+import os
+import subprocess
+import sys
 import threading
 
 import pytest
@@ -61,6 +65,149 @@ def connected_graph():
 
 NUM_WORKERS = 4
 ITERATIONS = 100
+
+
+# Fresh interpreters are essential: an already initialized pool hides first-use
+# failure. These are real OS limits, not a mocked ThreadPoolBuildError.
+_RESOURCE_PROBE = r'''
+import concurrent.futures, hashlib, io, json, os, platform, resource, sys, threading, time
+from pathlib import Path
+import franken_networkx as fnx
+import franken_networkx._fnx as native
+import networkx as nx
+
+limit = 2 * 1024**3
+resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+identity = dict(host=platform.node(), python=sys.executable, nx_version=nx.__version__,
+                so_sha256=hashlib.sha256(Path(native.__file__).read_bytes()).hexdigest(),
+                address_space_limit=limit, cpu_count=os.cpu_count(),
+                affinity_count=len(os.sched_getaffinity(0)),
+                requested_threads=os.environ.get("RAYON_NUM_THREADS", "default"))
+mode, concurrent_first = sys.argv[1], sys.argv[2] == "concurrent"
+graph = fnx.karate_club_graph()
+oracle = nx.karate_club_graph()
+expected_diameter = nx.diameter(oracle)
+before = list(graph.edges())
+pool_graph = fnx.cycle_graph(520)
+
+def first_call(graph=graph):
+    with fnx.compatibility_mode(mode):
+        assert fnx.get_compatibility_mode() == mode
+        result = fnx.diameter(graph)
+        assert fnx.diameter(pool_graph) == 260
+        assert fnx.get_compatibility_mode() == mode
+        assert result == expected_diameter
+        return result
+
+if concurrent_first:
+    barrier = threading.Barrier(3)
+    def simultaneous():
+        barrier.wait(timeout=10)
+        return first_call()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as workers:
+        assert list(workers.map(lambda _: simultaneous(), range(3))) == [expected_diameter] * 3
+else:
+    first_call()
+first_call()
+assert list(graph.edges()) == before
+print(json.dumps(dict(case_id="karate-default-first-use", n=len(graph), m=graph.number_of_edges(),
+                      result=expected_diameter, mode=mode, concurrent=concurrent_first, **identity)), flush=True)
+
+# Cross the production parallel thresholds, with independently constructed
+# oracle graphs. Integer-valued distances/clustering are compared exactly;
+# floats retain their original source-ordered arithmetic (no widened epsilon).
+graph = fnx.cycle_graph(520)
+oracle = nx.cycle_graph(520)
+operations = [
+    ("eccentricity", lambda api, g: api.eccentricity(g)),
+    ("diameter", lambda api, g: api.diameter(g)),
+    ("closeness", lambda api, g: api.closeness_centrality(g)),
+    ("harmonic", lambda api, g: api.harmonic_centrality(g)),
+    ("betweenness", lambda api, g: api.betweenness_centrality(g)),
+    ("edge_betweenness", lambda api, g: api.edge_betweenness_centrality(g)),
+    ("clustering", lambda api, g: api.clustering(g)),
+    ("triangles", lambda api, g: api.triangles(g)),
+    ("transitivity", lambda api, g: api.transitivity(g)),
+    ("aspl", lambda api, g: api.average_shortest_path_length(g)),
+    ("all_pairs_bfs", lambda api, g: dict(api.all_pairs_shortest_path_length(g))),
+    ("all_pairs_dijkstra", lambda api, g: dict(api.all_pairs_dijkstra_path_length(g))),
+    ("sampled_betweenness", lambda api, g: api.betweenness_centrality(g, k=2, seed=17)),
+    ("load", lambda api, g: api.load_centrality(g)),
+    ("weighted_betweenness", lambda api, g: api.betweenness_centrality(g, weight="weight")),
+    ("weighted_edge_betweenness", lambda api, g: api.edge_betweenness_centrality(g, weight="weight")),
+    ("weighted_load", lambda api, g: api.load_centrality(g, weight="weight")),
+    ("weighted_percolation", lambda api, g: api.percolation_centrality(g, states={i: 1.0 for i in g}, weight="weight")),
+]
+for name, operation in operations:
+    start = time.monotonic()
+    expected = operation(nx, oracle)
+    nx_seconds = time.monotonic() - start
+    start = time.monotonic()
+    with fnx.compatibility_mode(mode):
+        actual = operation(fnx, graph)
+        assert fnx.get_compatibility_mode() == mode
+    assert actual == expected, (name, actual, expected)
+    print(json.dumps(dict(case_id=name, n=len(graph), m=graph.number_of_edges(),
+                          fnx_seconds=time.monotonic()-start, nx_seconds=nx_seconds,
+                          mode=mode, equal=True, **identity)), flush=True)
+
+# Parser shares the worker pool; retain line/node/edge order on fallback too.
+content = "".join(f"{i} {i+1}\n" for i in range(12000))
+with fnx.compatibility_mode(mode):
+    parsed = fnx.read_edgelist(io.BytesIO(content.encode()), data=False)
+reference = nx.read_edgelist(io.BytesIO(content.encode()), data=False)
+assert list(parsed.nodes()) == list(reference.nodes())
+assert list(parsed.edges()) == list(reference.edges())
+print(json.dumps(dict(case_id="ordered-edgelist", n=len(parsed), m=parsed.number_of_edges(),
+                      mode=mode, equal=True, **identity)), flush=True)
+
+# An algorithm error must still propagate, and must not poison the next call.
+broken = fnx.Graph([(0, 1), (2, 3)])
+try:
+    fnx.diameter(broken)
+except fnx.NetworkXError:
+    pass
+else:
+    raise AssertionError("disconnected graph was accepted")
+assert first_call() == expected_diameter
+names = [p.read_text().strip() for p in Path("/proc/self/task").glob("*/comm")]
+effective = sum(name.startswith("fnx-rayon-") for name in names)
+print(json.dumps(dict(case_id="usable-after-capacity-and-algorithm-error",
+                      effective_worker_threads=effective, peak_rss_kb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                      task_names=names, **identity)), flush=True)
+'''
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="real Linux address-space/task probes")
+@pytest.mark.parametrize("threads", [None, "1", "2", "4096"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_parallel_first_use_under_real_capacity_limit(threads, mode, tmp_path):
+    """Capacity failure must yield correct serial results, not PanicException."""
+    env = os.environ.copy()
+    env.pop("RAYON_NUM_THREADS", None)
+    env.pop("RAYON_RS_NUM_CPUS", None)
+    env.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
+    if threads is not None:
+        env["RAYON_NUM_THREADS"] = threads
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", _RESOURCE_PROBE, mode,
+         "concurrent" if mode == "hardened" else "serial"],
+        env=env, capture_output=True, text=True, timeout=90, check=False,
+    )
+    (tmp_path / "probe.stdout.jsonl").write_text(result.stdout)
+    (tmp_path / "probe.stderr.log").write_text(result.stderr)
+    print(result.stdout, end="")
+    print(result.stderr, end="", file=sys.stderr)
+    assert result.returncode == 0, result.stderr
+    assert "PanicException" not in result.stderr
+    records = [json.loads(line) for line in result.stdout.splitlines()]
+    assert len(records) == 21
+    assert records[-1]["case_id"] == "usable-after-capacity-and-algorithm-error"
+    if threads in ("1", "2"):
+        assert records[-1]["effective_worker_threads"] == int(threads)
+    if threads == "4096":
+        assert "using serial kernels" in result.stderr
+        assert records[-1]["effective_worker_threads"] == 0
 
 
 # ---------------------------------------------------------------------------

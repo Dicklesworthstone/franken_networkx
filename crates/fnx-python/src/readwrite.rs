@@ -1348,7 +1348,7 @@ fn parse_edgelist_simple_content(
     // optimum and still falls back to a single serial chunk for small payloads.
     const CHUNK_TARGET_BYTES: usize = 64 * 1024;
     let target =
-        (content.len() / CHUNK_TARGET_BYTES).clamp(1, 16.min(rayon::current_num_threads().max(1)));
+        (content.len() / CHUNK_TARGET_BYTES).clamp(1, 16.min(fnx_algorithms::parallel_threads()));
     let bounds = edgelist_chunk_bounds(content, target);
 
     // The scan is pure `&str` work that touches no Python object, so chunks fan
@@ -1361,10 +1361,12 @@ fn parse_edgelist_simple_content(
         )]
     } else {
         use rayon::prelude::*;
-        bounds
-            .par_iter()
-            .map(|&(start, end)| parse_edgelist_chunk(&content[start..end], mode))
-            .collect()
+        fnx_algorithms::in_parallel_pool(|| {
+            bounds
+                .par_iter()
+                .map(|&(start, end)| parse_edgelist_chunk(&content[start..end], mode))
+                .collect()
+        })
     };
     let mut chunks: Vec<EdgelistChunk<'_>> = Vec::with_capacity(scanned.len());
     for chunk in scanned {
