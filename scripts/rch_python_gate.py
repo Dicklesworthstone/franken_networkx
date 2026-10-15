@@ -20,7 +20,7 @@ import subprocess
 import tomllib
 import urllib.request
 
-USER_AGENT = "OpenAI File Downloader, XaiImageApiFetch/1.0"
+USER_AGENT = "franken_networkx-python-gate (+https://github.com/Dicklesworthstone/franken_networkx)"
 
 
 def fetch(url):

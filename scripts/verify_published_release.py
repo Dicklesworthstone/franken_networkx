@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-UA = "OpenAI File Downloader, XaiImageApiFetch/1.0"
+UA = "franken_networkx-release-verify (+https://github.com/Dicklesworthstone/franken_networkx)"
 REPOSITORY = "Dicklesworthstone/franken_networkx"
 PLATFORMS = (
     "macosx_10_12_x86_64", "macosx_11_0_arm64",
