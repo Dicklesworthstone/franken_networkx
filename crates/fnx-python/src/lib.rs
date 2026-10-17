@@ -898,16 +898,16 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
                 return Ok(canonical);
             }
             // br-r37-c1-numtower-29ggu: a tuple the fast path cannot serve still
-            // has to agree with its bool-free twin -- `('a', True)` and
-            // `('a', 1)` are one dict key in Python. Normalising the bools away
-            // and reprting THAT keeps the canonical format exactly CPython's
-            // tuple repr while making the two spellings land on one node.
-            if let Some(normalized) = tuple_with_bools_as_ints(py, t)? {
-                return Ok(normalized.repr()?.to_string());
+            // has to agree with its numeric-alias twin: bools and integral
+            // floats accepted by the scalar canonicalizer equal their ints.
+            let normalized = tuple_with_numeric_aliases_as_ints(py, t)?;
+            let effective = normalized.as_ref().unwrap_or(t);
+            if tuple_is_pure_primitive(effective) {
+                return tuple_value_repr(py, effective);
             }
+            return custom_object_canonical_key(py, effective.as_any(), "");
         }
-        let repr = key.repr()?;
-        return Ok(repr.to_string());
+        return custom_object_canonical_key(py, key, "");
     }
     if let Ok(i) = key.extract::<i64>() {
         return Ok(i.to_string());
@@ -942,20 +942,117 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // br-r37-c1-y7m24: all-int tuples — the node-key shape of grid_2d /
     // hypercube / kneser and most relabeled lattices — get their canonical
     // built in Rust, byte-identical to CPython's tuple repr ("(0, 1)",
-    // singleton "(0,)"). The generic key.repr() below is a full Python
-    // call and dominated tuple-keyed construction (grid_2d_graph spent
-    // 18.7ms of 29.7ms in batch canonicalization at 60x60). Exact-int
-    // elements only: bool is excluded (repr "True" differs) and ints
-    // outside i64 fall back to repr (their canonical already came from
-    // repr, so the formats stay consistent).
-    if let Ok(t) = key.downcast::<PyTuple>()
-        && let Some(canonical) = exact_int_tuple_canonical(t)
-    {
-        return Ok(canonical);
+    // singleton "(0,)").
+    if let Ok(t) = key.downcast::<PyTuple>() {
+        if let Some(canonical) = exact_int_tuple_canonical(t) {
+            return Ok(canonical);
+        }
+        let normalized = tuple_with_numeric_aliases_as_ints(py, t)?;
+        let effective = normalized.as_ref().unwrap_or(t);
+        if tuple_is_pure_primitive(effective) {
+            return tuple_value_repr(py, effective);
+        }
+        return custom_object_canonical_key(py, effective.as_any(), "");
     }
-    // For other hashable types, use repr as the canonical key.
-    let repr = key.repr()?;
-    Ok(repr.to_string())
+    // br-r37-c1-epic-storage-architecture-yr2oc.5: for custom hashable objects,
+    // use a bounded PyDict interner + integer-hash equality check so custom
+    // `__eq__`/`__hash__`, hash collisions, and same-repr distinct objects
+    // match Python dict key semantics instead of `repr()`.
+    custom_object_canonical_key(py, key, "")
+}
+
+struct CustomKeyInterner {
+    map: Option<Py<PyDict>>,
+    next_id: u64,
+}
+
+static CUSTOM_KEY_INTERNER: std::sync::Mutex<CustomKeyInterner> =
+    std::sync::Mutex::new(CustomKeyInterner {
+        map: None,
+        next_id: 1,
+    });
+
+const CUSTOM_KEY_INTERNER_MAX_ENTRIES: usize = 65_536;
+
+fn custom_object_canonical_key(
+    py: Python<'_>,
+    key: &Bound<'_, PyAny>,
+    prefix: &str,
+) -> PyResult<String> {
+    let h = key.hash()?;
+    let cand_i64 = h as i64;
+    if let Ok(cand_py) = cand_i64.into_pyobject(py)
+        && key.eq(&cand_py).unwrap_or(false)
+    {
+        return if prefix.is_empty() {
+            Ok(cand_i64.to_string())
+        } else {
+            Ok(format!("int:{cand_i64}"))
+        };
+    }
+    if h == -2
+        && let Ok(neg_one) = (-1_i64).into_pyobject(py)
+        && key.eq(&neg_one).unwrap_or(false)
+    {
+        return if prefix.is_empty() {
+            Ok("-1".to_owned())
+        } else {
+            Ok("int:-1".to_owned())
+        };
+    }
+    let mut guard = CUSTOM_KEY_INTERNER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dict_py = guard
+        .map
+        .get_or_insert_with(|| PyDict::new(py).unbind())
+        .clone_ref(py);
+    let dict = dict_py.bind(py);
+    if let Some(existing) = dict.get_item(key)? {
+        let base = existing.extract::<String>()?;
+        return if prefix.is_empty() {
+            Ok(base)
+        } else {
+            Ok(format!("{prefix}{base}"))
+        };
+    }
+    if dict.len() >= CUSTOM_KEY_INTERNER_MAX_ENTRIES
+        && let Some(oldest_key) = dict.keys().iter().next()
+    {
+        let _ = dict.del_item(oldest_key);
+    }
+    let id = guard.next_id;
+    guard.next_id = guard.next_id.wrapping_add(1);
+    let base = format!("__fnx_obj:{id}");
+    dict.set_item(key, &base)?;
+    if prefix.is_empty() {
+        Ok(base)
+    } else {
+        Ok(format!("{prefix}{base}"))
+    }
+}
+
+fn tuple_is_pure_primitive(t: &Bound<'_, PyTuple>) -> bool {
+    t.iter().all(|item| {
+        item.is_exact_instance_of::<PyInt>()
+            || item.is_instance_of::<PyBool>()
+            || item.is_exact_instance_of::<PyFloat>()
+            || item.is_exact_instance_of::<PyString>()
+            || item.is_exact_instance_of::<pyo3::types::PyBytes>()
+            || item
+                .downcast::<PyTuple>()
+                .is_ok_and(|inner| tuple_is_pure_primitive(inner))
+    })
+}
+
+fn tuple_value_repr(py: Python<'_>, value: &Bound<'_, PyTuple>) -> PyResult<String> {
+    if value.is_exact_instance_of::<PyTuple>() {
+        return Ok(value.repr()?.to_string());
+    }
+    py.get_type::<PyTuple>()
+        .getattr(pyo3::intern!(py, "__repr__"))?
+        .call1((value,))?
+        .extract::<String>()
 }
 
 /// The float half of `node_key_to_string`, shared by the concrete-type probe
@@ -1022,18 +1119,16 @@ fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResu
             return Ok(as_float.repr()?.to_string());
         }
     }
-    let repr = key.repr()?;
-    Ok(repr.to_string())
+    custom_object_canonical_key(py, key, "")
 }
 
-/// br-r37-c1-numtower-29ggu: a copy of `t` with every bool inside it replaced by
-/// the int it equals, recursively through nested tuples. `None` when there was
-/// no bool to replace, so the ordinary path pays only the scan.
+/// A copy of `t` with bools, finite integral floats, numeric aliases, and
+/// primitive subclasses replaced by their equal exact primitives, recursively
+/// through nested tuples. `None` when nothing changes.
 ///
-/// Safe by construction: `True == 1` and `False == 0` hold unconditionally in
-/// Python, so this can only merge keys Python already calls equal -- it can
-/// never merge two keys Python keeps apart.
-fn tuple_with_bools_as_ints<'py>(
+/// Matches the scalar rule without narrowing wide Python integers. Only keys
+/// Python already calls equal can merge.
+fn tuple_with_numeric_aliases_as_ints<'py>(
     py: Python<'py>,
     t: &Bound<'py, PyTuple>,
 ) -> PyResult<Option<Bound<'py, PyTuple>>> {
@@ -1044,13 +1139,79 @@ fn tuple_with_bools_as_ints<'py>(
             changed = true;
             let value: i64 = if item.is_truthy()? { 1 } else { 0 };
             items.push(value.into_pyobject(py)?.into_any());
+        } else if item.is_exact_instance_of::<PyInt>()
+            || item.is_exact_instance_of::<PyString>()
+            || item.is_exact_instance_of::<pyo3::types::PyBytes>()
+        {
+            items.push(item);
+        } else if item.is_exact_instance_of::<PyFloat>() {
+            // Like float_key_canonical, use the exact integer represented by
+            // the float, not a saturating i64 cast or a rounded nearby int.
+            let value = item.extract::<f64>()?;
+            if value.is_finite() && value.fract() == 0.0 {
+                changed = true;
+                items.push(item.call_method0(pyo3::intern!(py, "__int__"))?);
+            } else {
+                items.push(item);
+            }
         } else if let Ok(inner) = item.downcast::<PyTuple>() {
-            match tuple_with_bools_as_ints(py, inner)? {
+            match tuple_with_numeric_aliases_as_ints(py, inner)? {
                 Some(normalized) => {
                     changed = true;
                     items.push(normalized.into_any());
                 }
+                None if !inner.is_exact_instance_of::<PyTuple>() => {
+                    let plain = PyTuple::new(py, inner.iter())?;
+                    if inner.eq(&plain).unwrap_or(false) {
+                        changed = true;
+                        items.push(plain.into_any());
+                    } else {
+                        items.push(item);
+                    }
+                }
                 None => items.push(item),
+            }
+        } else if item.downcast::<PyInt>().is_ok() {
+            let plain = py.get_type::<PyInt>().call1((&item,))?;
+            if item.eq(&plain).unwrap_or(false) {
+                changed = true;
+                items.push(plain);
+            } else {
+                items.push(item);
+            }
+        } else if let Ok(s) = item.downcast::<PyString>() {
+            let plain = PyString::new(py, s.to_str()?);
+            if item.eq(&plain).unwrap_or(false) {
+                changed = true;
+                items.push(plain.into_any());
+            } else {
+                items.push(item);
+            }
+        } else if let Ok(f) = item.extract::<f64>()
+            && let Ok(as_float) = f.into_pyobject(py)
+            && item.eq(&as_float).unwrap_or(false)
+        {
+            changed = true;
+            if f.is_finite() && f.fract() == 0.0 {
+                items.push(as_float.call_method0(pyo3::intern!(py, "__int__"))?);
+            } else {
+                items.push(as_float.into_any());
+            }
+        } else if let Ok(h) = item.hash() {
+            let cand_i64 = h as i64;
+            if let Ok(cand_py) = cand_i64.into_pyobject(py)
+                && item.eq(&cand_py).unwrap_or(false)
+            {
+                changed = true;
+                items.push(cand_py.into_any());
+            } else if h == -2
+                && let Ok(neg_one) = (-1_i64).into_pyobject(py)
+                && item.eq(&neg_one).unwrap_or(false)
+            {
+                changed = true;
+                items.push(neg_one.into_any());
+            } else {
+                items.push(item);
             }
         } else {
             items.push(item);
@@ -2453,22 +2614,20 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
         }
         return Ok(format!("float:{f:?}"));
     }
-    // br-r37-c1-numtower-29ggu: the node path's bool-in-tuple normalisation, on
-    // the EDGE-key axis. `repr(True)` is "True" and `repr(1)` is "1", so
-    // `add_edge(key=(True, 1))` and `add_edge(key=(1, 1))` canonicalised apart
-    // and became TWO parallel edges where Python holds one key and networkx
-    // holds one edge. Replacing each bool with the int it equals is safe by
-    // construction — `True == 1` and `False == 0` hold unconditionally — so it
-    // can only merge keys Python already calls equal.
-    if let Ok(t) = key.downcast::<PyTuple>()
-        && let Some(normalized) = tuple_with_bools_as_ints(py, t)?
-    {
-        let ty = key.get_type().name()?.to_string_lossy().into_owned();
-        return Ok(format!("{ty}:{}", normalized.repr()?));
+    // The same tuple alias rule applies on the edge-key axis: equal bool/int
+    // and finite integral float/int tuples must update one parallel edge.
+    if let Ok(t) = key.downcast::<PyTuple>() {
+        if let Some(canonical) = exact_int_tuple_canonical(t) {
+            return Ok(format!("tuple:{canonical}"));
+        }
+        let normalized = tuple_with_numeric_aliases_as_ints(py, t)?;
+        let effective = normalized.as_ref().unwrap_or(t);
+        if tuple_is_pure_primitive(effective) {
+            return Ok(format!("tuple:{}", tuple_value_repr(py, effective)?));
+        }
+        return custom_object_canonical_key(py, effective.as_any(), "tuple:");
     }
-    let ty = key.get_type().name()?.to_string_lossy().into_owned();
-    let repr = key.repr()?.to_string();
-    Ok(format!("{ty}:{repr}"))
+    custom_object_canonical_key(py, key, "obj:")
 }
 
 pub(crate) fn weighted_edge_triplet<'py>(
@@ -4522,7 +4681,14 @@ impl PyGraph {
     /// un-interned equal values so uniform-key batches never trip this.
     // br-r37-c1-z6uka: pub(crate) for the PyDiGraph row-key probes.
     pub(crate) fn display_objs_conflict(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> bool {
-        !(a.is(b) || a.get_type().is(b.get_type()) && a.eq(b).unwrap_or(false))
+        if a.is(b) {
+            return false;
+        }
+        let exact_builtin = a.is_exact_instance_of::<PyInt>()
+            || a.is_exact_instance_of::<PyString>()
+            || a.is_exact_instance_of::<PyFloat>()
+            || a.is_exact_instance_of::<PyTuple>();
+        !(exact_builtin && a.get_type().is(b.get_type()) && a.eq(b).unwrap_or(false))
     }
 
     /// br-r37-c1-z6uka: batch-bail probe — true when adding `passed` under
@@ -7423,10 +7589,14 @@ impl PyMultiGraph {
     /// orphaned rather than edited. So fnx completed the loop and reported the
     /// pre-removal neighbours where networkx raised.
     ///
-    /// The node's OWN row is deliberately left alone: networkx drops it from
-    /// `_adj` without touching the dict, so an iterator over it completes there
-    /// too, and clearing it here would make fnx raise where networkx does not.
-    fn neighbor_key_rows_drop_node_in_place(&mut self, py: Python<'_>, canonical: &str) {
+    /// Earlier removals have already detached their rows. The current owner's
+    /// self-loop is deleted by NetworkX's neighbour loop, like any other cell.
+    fn neighbor_key_rows_drop_node_in_place(
+        &mut self,
+        py: Python<'_>,
+        canonical: &str,
+        removed_before: &rustc_hash::FxHashSet<String>,
+    ) {
         if self.neighbor_key_rows.is_none() {
             return;
         }
@@ -7436,7 +7606,9 @@ impl PyMultiGraph {
             .map(|nbrs| nbrs.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
         for nb in neighbors {
-            let _ = self.cached_neighbor_row_remove(py, &nb, canonical);
+            if !removed_before.contains(&nb) {
+                let _ = self.cached_neighbor_row_remove(py, &nb, canonical);
+            }
         }
     }
 
@@ -9382,10 +9554,9 @@ impl PyMultiGraph {
         Ok(())
     }
 
-    /// `del keydict[key]`: removes the edge. When that empties the pair,
-    /// networkx keeps the now-empty keydict in `_adj` (a "ghost" pair that a
-    /// later add_edge reuses), so the row is registered again instead of being
-    /// detached.
+    /// `del keydict[key]` keeps the keydict and its ordered native neighbor
+    /// cells, including when the pair becomes empty. Graph-side removal has
+    /// different semantics: it drops the pair and detaches the held dict.
     fn _fnx_keydict_remove(
         slf: &Bound<'_, Self>,
         py: Python<'_>,
@@ -9395,19 +9566,24 @@ impl PyMultiGraph {
         key: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let mut g = slf.borrow_mut();
-        if g.resolve_internal_edge_key(py, source, target, key)?
-            .is_none()
+        let Some(internal_key) = g.resolve_internal_edge_key(py, source, target, key)? else {
+            return Err(PyKeyError::new_err((key.clone().unbind(),)));
+        };
+        // A str/int subclass can raise in __hash__ even though the native
+        // resolver accepts its value. Commit no Rust mutation until dict
+        // deletion succeeds; otherwise a failed `del row[key]` loses an edge.
+        // PyDict deletion bypasses the subclass hook, so this cannot recurse.
+        row.del_item(key)?;
+        if !g
+            .inner
+            .remove_key_preserving_pair(source, target, internal_key)
         {
             return Err(PyKeyError::new_err((key.clone().unbind(),)));
         }
-        let u_obj = g.py_node_key(py, source);
-        let v_obj = g.py_node_key(py, target);
-        g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), Some(key))?;
-        if !g.inner.has_edge(source, target) {
-            g.live_keydict_rows
-                .insert(source, target, row.clone().unbind());
-            drop(g);
-            row.setattr(pyo3::intern!(py, "_fnx_graph"), slf)?;
+        g.remove_edge_metadata(source, target, internal_key);
+        g.bump_edges_seq();
+        if g.neighbor_rows_live() {
+            g.restamp_neighbor_rows();
         }
         Ok(())
     }
@@ -9914,7 +10090,12 @@ impl PyMultiGraph {
         // keydict row hands its attr dicts out for as long as the caller holds
         // it, with no access to intercept, so the mirror is never trusted to
         // match the store while one exists.
-        if self.live_keydict_rows.is_empty() {
+        if self.live_keydict_rows.is_empty()
+            && self
+                .edge_py_attrs
+                .values()
+                .all(|dict| attr_dict_is_batch_lossless(dict.bind(py)))
+        {
             self.edges_dirty.store(false, Ordering::Relaxed);
         }
         Ok(())
@@ -10115,7 +10296,11 @@ impl PyMultiGraph {
         // in-flight `G.neighbors(u)` sees the removal and raises like networkx.
         // The drop below stays: it is what keeps a stale row from being
         // laundered, and it cannot deliver the raise on its own.
-        self.neighbor_key_rows_drop_node_in_place(py, &canonical);
+        self.neighbor_key_rows_drop_node_in_place(
+            py,
+            &canonical,
+            &rustc_hash::FxHashSet::default(),
+        );
         // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
@@ -10136,14 +10321,27 @@ impl PyMultiGraph {
             .inner
             .neighbors_iter(&canonical)
             .is_some_and(|mut neighbors| neighbors.next().is_some());
-        if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
+        if !self.edge_py_attrs.is_empty()
+            || !self.edge_py_keys.is_empty()
+            || !self.adj_py_keys.is_empty()
+        {
             let inner = &self.inner;
-            let (attrs, py_keys) = (&mut self.edge_py_attrs, &mut self.edge_py_keys);
+            let (attrs, py_keys, adj_keys) = (
+                &mut self.edge_py_attrs,
+                &mut self.edge_py_keys,
+                &mut self.adj_py_keys,
+            );
             for nb in inner.neighbors_iter(&canonical).into_iter().flatten() {
-                for &key in inner.edge_keys_iter(&canonical, nb).into_iter().flatten() {
-                    let ek = Self::edge_key(&canonical, nb, key);
-                    attrs.remove(&ek);
-                    py_keys.remove(&ek);
+                if !adj_keys.is_empty() {
+                    adj_keys.remove(&(canonical.clone(), nb.to_owned()));
+                    adj_keys.remove(&(nb.to_owned(), canonical.clone()));
+                }
+                if !attrs.is_empty() || !py_keys.is_empty() {
+                    for &key in inner.edge_keys_iter(&canonical, nb).into_iter().flatten() {
+                        let ek = Self::edge_key(&canonical, nb, key);
+                        attrs.remove(&ek);
+                        py_keys.remove(&ek);
+                    }
                 }
             }
         }
@@ -10157,11 +10355,6 @@ impl PyMultiGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
-        if !self.adj_py_keys.is_empty() {
-            // br-r37-c1-z6uka: drop cell overrides touching the removed node.
-            self.adj_py_keys
-                .retain(|(a, b), _| a != &canonical && b != &canonical);
-        }
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -10198,8 +10391,12 @@ impl PyMultiGraph {
         // br-r37-c1-pyzv0: edit the live rows BEFORE the drop below, while
         // `inner` still knows each removed node's neighbours, so an in-flight
         // `G.neighbors(u)` sees the removal and raises like networkx.
-        for canonical in &present {
-            self.neighbor_key_rows_drop_node_in_place(py, canonical);
+        if self.neighbor_key_rows.is_some() {
+            let mut removed_before = rustc_hash::FxHashSet::default();
+            for canonical in &present {
+                self.neighbor_key_rows_drop_node_in_place(py, canonical, &removed_before);
+                removed_before.insert(canonical.clone());
+            }
         }
         // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
@@ -10522,6 +10719,9 @@ impl PyMultiGraph {
             // br-r37-c1-aefbatch: single C-level dict.update instead of N
             // per-item set_item calls (see PyGraph::add_edge).
             py_dict.bind(py).update(a.as_mapping())?;
+            if !attr_dict_is_batch_lossless(a) {
+                self.mark_edges_dirty();
+            }
         }
         // br-r37-c1-dwy1n: maintain any live neighbour rows IN PLACE, then
         // re-stamp the cache, so an outstanding `G.neighbors(n)` iterator sees
@@ -12565,10 +12765,15 @@ impl PyMultiGraph {
             Some(explicit_key) => {
                 self.resolve_internal_edge_key(py, &u_canonical, &v_canonical, explicit_key)?
             }
-            None => self
-                .inner
-                .edge_keys(&u_canonical, &v_canonical)
-                .and_then(|keys| keys.last().copied()),
+            None => {
+                let keys = self.inner.edge_keys(&u_canonical, &v_canonical);
+                if keys.as_ref().is_some_and(Vec::is_empty) {
+                    // NetworkX pops the last key before testing whether the
+                    // pair is empty: a retained empty keydict raises KeyError.
+                    return Err(PyKeyError::new_err("popitem(): dictionary is empty"));
+                }
+                keys.and_then(|keys| keys.last().copied())
+            }
         };
         let live_row_key = auto_removal_key.map(|internal_key| {
             let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
@@ -14515,9 +14720,10 @@ impl PyMultiGraph {
 
     /// Support ``copy.copy(G)`` — returns a shallow copy.
     ///
-    /// NetworkX parity (br-r37-c1-5ctpe): `copy.copy(G)` must share the same
-    /// attribute dict references (graph, node, edge attrs are `is`, not just `==`).
-    /// `G.copy()` returns a deep copy; `copy.copy(G)` returns a shallow copy.
+    /// Preserves source node/edge/row order verbatim, shares the graph attribute
+    /// dict (`G.graph`), and copies node/edge attribute dicts as independent
+    /// one-level shallow copies (`dict.copy()`) so mutations on one graph's
+    /// Rust storage do not desynchronize the other (`test_adj_mapping_parity`).
     fn __copy__(&self, py: Python<'_>) -> PyResult<Self> {
         // br-r37-c1-o1i86: clone the inner Rust graph WHOLESALE.
         // The old rebuild iterated node_key_map (a HashMap — scrambled
@@ -14982,9 +15188,13 @@ impl PyMultiGraph {
             };
             let u_c = node_key_to_string(py, u)?;
             let v_c = node_key_to_string(py, v)?;
-            // Silently skip edges not in the graph
-            if self.inner.has_edge(&u_c, &v_c) {
-                let _ = self.remove_edge(py, u, v, key.as_ref());
+            // NetworkX skips missing-edge errors, not failures such as
+            // popitem() on a retained empty keydict.
+            if self.inner.has_edge(&u_c, &v_c)
+                && let Err(error) = self.remove_edge(py, u, v, key.as_ref())
+                && !error.is_instance_of::<NetworkXError>(py)
+            {
+                return Err(error);
             }
         }
         self.bump_edges_seq();
@@ -15201,9 +15411,9 @@ impl PyMultiGraph {
     /// br-r37-c1-mgwdegf: total weighted degree of `node` as an f64 iff the node
     /// has at least one edge AND every contributing weight value is an exact
     /// float; otherwise None (signalling the caller's exact builtins.sum
-    /// fallback). Replicates CPython sum's Neumaier compensation over the main
+    /// fallback). Follows the interpreter's sum policy over the main
     /// (neighbor, key) pass in adjacency order and re-adds the self-loop weights
-    /// with a second compensated sum, matching nx's `sum(main) + sum(self_loop)`
+    /// with a second sum, matching nx's `sum(main) + sum(self_loop)`
     /// bitwise. Returning None for an edgeless node preserves nx's int `0`
     /// (sum of an empty sequence) rather than a float `0.0`.
     fn weighted_degree_float_node(
@@ -15252,7 +15462,7 @@ impl PyMultiGraph {
     /// so the float fast path paid a per-edge PyObject on the common weighted case
     /// and `degree(weight)` fell to ~0.5x nx. This reads the exact float straight
     /// from the CgseValue store in the SAME `neighbors -> edge_keys` order as the
-    /// (proven byte-exact) mirror twin and with the SAME two Neumaier-compensated
+    /// (proven byte-exact) mirror twin and with the SAME two interpreter-policy
     /// sums (every incident edge once, plus a SECOND pass over self-loop weights —
     /// nx's undirected `MultiDegreeView` counts a self-loop's weight twice), so it
     /// is bit-identical to the mirror twin's store-fallback path. Returns `None`
@@ -16803,6 +17013,10 @@ impl PyGraph {
                 let ek = Self::edge_key(&canonical, nb);
                 self.edge_py_attrs.remove(&ek);
                 self.cached_adj_remove_key(py, nb, &canonical)?;
+                if !self.adj_py_keys.is_empty() {
+                    self.adj_py_keys.remove(&(canonical.clone(), nb.clone()));
+                    self.adj_py_keys.remove(&(nb.clone(), canonical.clone()));
+                }
                 had_incident_edges = true;
             }
         }
@@ -16811,12 +17025,6 @@ impl PyGraph {
         self.node_iter_mirror_remove_key(py, mirror_key.bind(py));
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
-        if !self.adj_py_keys.is_empty() {
-            // br-r37-c1-z6uka: drop adjacency-row overrides touching the
-            // removed node.
-            self.adj_py_keys
-                .retain(|(a, b), _| a != &canonical && b != &canonical);
-        }
         self.adj_row_py.remove(&canonical);
         self.neighbor_key_rows.remove(&canonical); // br-r37-c1-3rtyk
         self.bump_nodes_seq();
@@ -16831,23 +17039,37 @@ impl PyGraph {
     /// Remove multiple nodes. Silently skips absent nodes.
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
-        let mut present = HashSet::<String>::new();
+        let mut present = Vec::<String>::new();
+        let mut present_set = HashSet::<String>::new();
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
-            if self.inner.has_node(&canonical) {
-                present.insert(canonical);
+            if self.inner.has_node(&canonical) && present_set.insert(canonical.clone()) {
+                present.push(canonical);
             }
         }
         let present_refs: HashSet<&str> = present.iter().map(String::as_str).collect();
+        let removal_positions: HashMap<&str, usize> = present
+            .iter()
+            .enumerate()
+            .map(|(index, node)| (node.as_str(), index))
+            .collect();
         let mut removed_py_edge_attrs = false;
-        for canonical in &present {
+        for (index, canonical) in present.iter().enumerate() {
             if let Some(neighbors) = self
                 .inner
                 .neighbors(canonical)
                 .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>())
             {
                 for nb in neighbors {
+                    // Earlier owners have already been detached by NetworkX.
+                    // The current owner's self-loop is still deleted.
+                    if removal_positions
+                        .get(nb.as_str())
+                        .is_some_and(|position| *position < index)
+                    {
+                        continue;
+                    }
                     self.cached_adj_remove_key(py, &nb, canonical)?;
                 }
             }
@@ -16873,7 +17095,7 @@ impl PyGraph {
         if !self.adj_py_keys.is_empty() {
             // br-r37-c1-z6uka: drop adjacency-row overrides touching removed nodes.
             self.adj_py_keys
-                .retain(|(a, b), _| !present.contains(a) && !present.contains(b));
+                .retain(|(a, b), _| !present_set.contains(a) && !present_set.contains(b));
         }
         self.bump_nodes_seq();
         if removed_edges > 0 || removed_py_edge_attrs {
@@ -17017,6 +17239,11 @@ impl PyGraph {
                     self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
                 };
                 mirror.bind(py).update(a.as_mapping())?;
+            }
+            // Numeric subclasses can change sum's type dispatch or override
+            // addition even when their projected native value compares equal.
+            if !attr_dict_is_batch_lossless(a) {
+                self.mark_edges_dirty();
             }
         }
 
@@ -19726,11 +19953,10 @@ impl PyGraph {
             self.inner.replace_edge_attrs(&u, &v, attrs);
         }
         self.edge_attr_writes.note_rewrite();
-        if self
-            .edge_py_attrs
-            .values()
-            .all(|dict| self.edge_attr_writes.reports_here(py, dict.bind(py)))
-        {
+        if self.edge_py_attrs.values().all(|dict| {
+            self.edge_attr_writes.reports_here(py, dict.bind(py))
+                && attr_dict_is_batch_lossless(dict.bind(py))
+        }) {
             self.edges_dirty.store(false, Ordering::Relaxed);
         }
         Ok(())
@@ -20607,9 +20833,10 @@ impl PyGraph {
 
     /// Support ``copy.copy(G)`` — returns a shallow copy.
     ///
-    /// NetworkX parity (br-r37-c1-5ctpe): `copy.copy(G)` must share the same
-    /// attribute dict references (graph, node, edge attrs are `is`, not just `==`).
-    /// `G.copy()` returns a deep copy; `copy.copy(G)` returns a shallow copy.
+    /// Preserves source node/edge/row order verbatim, shares the graph attribute
+    /// dict (`G.graph`), and copies node/edge attribute dicts as independent
+    /// one-level shallow copies (`dict.copy()`) so mutations on one graph's
+    /// Rust storage do not desynchronize the other (`test_adj_mapping_parity`).
     fn __copy__(&self, py: Python<'_>) -> PyResult<Self> {
         // br-r37-c1-o1i86: wholesale inner clone — the old rebuild iterated
         // node_key_map (HashMap, scrambled node order) and replayed edge
@@ -22465,6 +22692,49 @@ class FnxMultiGraphCtorEdgeIterable:
                     borrowed.as_str(),
                     literal,
                     "big-int canonical is not {literal}"
+                );
+            }
+        });
+    }
+
+    /// Tuple aliases agree through owned and borrowed node lookup, and edge
+    /// lookup; adjacent rounded values must remain distinct.
+    #[test]
+    fn tuple_numeric_alias_canonical_keys_match_without_boundary_collisions() {
+        ensure_python();
+        Python::attach(|py| {
+            let cases = py
+                .eval(
+                    c"[(('v', 0), ('v', 0.0), True), (((True, 2), 'v'), ((1.0, 2.0), 'v'), True), (((-2**63,), 'v'), ((-float(2**63),), 'v'), True), (((0, (2, 3)),), ((0.0, (2.0, 3.0)),), True), (('v', 2**53), ('v', float(2**53)), True), (('v', 2**64), ('v', float(2**64)), True), (('v', 1.5), ('v', 1.5), True), (('v', 2**63-1), ('v', float(2**63-1)), False), (('v', 1), ('v', 1.5), False)]",
+                    None,
+                    None,
+                )
+                .expect("tuple cases should evaluate")
+                .downcast_into::<PyList>()
+                .expect("cases should be a list");
+            for case in cases.iter() {
+                let case = case.downcast::<PyTuple>().expect("case should be a tuple");
+                let left = case.get_item(0).expect("left should exist");
+                let right = case.get_item(1).expect("right should exist");
+                let equal = case
+                    .get_item(2)
+                    .expect("expectation should exist")
+                    .extract::<bool>()
+                    .expect("expectation should be bool");
+                assert_eq!(left.eq(&right).expect("equality should work"), equal);
+                let left_key = node_key_to_string(py, &left).expect("left should canonicalize");
+                let right_key = node_key_to_string(py, &right).expect("right should canonicalize");
+                assert_eq!(left_key == right_key, equal);
+                for (key, owned) in [(&left, &left_key), (&right, &right_key)] {
+                    let mut buf = ArrayString::new();
+                    let borrowed = canonical_node_key_in(py, key, &mut buf)
+                        .expect("borrowed canonical should work");
+                    assert_eq!(borrowed.as_str(), owned.as_str());
+                }
+                assert_eq!(
+                    edge_key_lookup_string(py, &left).expect("left edge key should work")
+                        == edge_key_lookup_string(py, &right).expect("right edge key should work"),
+                    equal
                 );
             }
         });

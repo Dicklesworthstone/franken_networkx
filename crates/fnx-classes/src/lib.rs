@@ -3621,8 +3621,7 @@ mod multigraph_storage {
             }
         }
 
-        /// br-r37-c1-thp6w S27: number of parallel keys (never zero — a cell is
-        /// dropped wholesale when its last key is removed).
+        /// Number of parallel keys, including zero for a live empty keydict.
         #[must_use]
         pub fn len(&self) -> usize {
             match self {
@@ -4174,6 +4173,22 @@ mod multigraph_storage {
 
         /// Mirror of `MultiGraph::remove_edge` (key=None -> LAST bucket key).
         pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+            self.remove_edge_impl(left, right, key, false)
+        }
+
+        /// A keydict deletion preserves the pair's adjacency position even
+        /// when its last key is gone. It is not graph-side `remove_edge`.
+        pub fn remove_key_preserving_pair(&mut self, left: &str, right: &str, key: usize) -> bool {
+            self.remove_edge_impl(left, right, Some(key), true)
+        }
+
+        fn remove_edge_impl(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: Option<usize>,
+            preserve_pair: bool,
+        ) -> bool {
             let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
             else {
                 return false;
@@ -4191,7 +4206,14 @@ mod multigraph_storage {
             }
             self.edge_count -= 1;
             if bucket_empty {
-                self.edges.swap_remove(&pair);
+                if preserve_pair {
+                    // `One::shift_remove` reports emptiness without changing
+                    // its variant; it must not retain a phantom singleton.
+                    *bucket = CompactBucket::Many(crate::FxIndexMap::default());
+                    debug_assert!(bucket.is_empty());
+                } else {
+                    self.edges.swap_remove(&pair);
+                }
             }
             let mut drop_cell = |u: usize, v: usize| {
                 let mut cell_empty = false;
@@ -4199,8 +4221,11 @@ mod multigraph_storage {
                     let (cell_removed, now_empty) = keys.shift_remove(removal_key);
                     debug_assert!(cell_removed);
                     cell_empty = now_empty;
+                    if now_empty && preserve_pair {
+                        *keys = CompactKeys::Many(crate::FxIndexSet::default());
+                    }
                 }
-                if cell_empty {
+                if cell_empty && !preserve_pair {
                     self.rows[u].shift_remove(&v);
                 }
             };
@@ -4314,7 +4339,7 @@ mod multigraph_storage {
         }
 
         /// br-r37-c1-thp6w S28: edge membership (mirror of `MultiGraph::has_edge`)
-        /// — true iff a non-empty (left, right) bucket exists.
+        /// — true iff a pair exists, including a live empty keydict.
         #[must_use]
         pub fn has_edge(&self, left: &str, right: &str) -> bool {
             let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
@@ -4336,9 +4361,7 @@ mod multigraph_storage {
         /// implementation of the logic.
         #[must_use]
         pub fn has_edge_by_pair(&self, l: usize, r: usize) -> bool {
-            self.edges
-                .get(&(l.min(r), l.max(r)))
-                .is_some_and(|bucket| !bucket.is_empty())
+            self.edges.contains_key(&(l.min(r), l.max(r)))
         }
 
         /// Slot for a node name, or `None` when absent.
@@ -4756,15 +4779,23 @@ mod multigraph_storage {
         /// row v), then late in original order), then applied. Sort key
         /// (pos, idx, slot) is equivalent to the real (pos, idx, name)
         /// because pos is unique per neighbor.
-        pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+        /// Returns whether the edge-only copy walk dropped live empty pairs.
+        pub fn reorder_rows_for_nx_copy_walk(&mut self) -> bool {
             let pos = self.slot_positions();
             let order_slots: Vec<usize> = self.node_order.values().collect();
             let mut new_orders: Vec<(usize, Vec<usize>)> = Vec::with_capacity(order_slots.len());
+            let mut dropped_empty_pairs = false;
             for &u_slot in &order_slots {
                 let pu = pos[u_slot];
                 let mut early: Vec<(usize, usize, usize)> = Vec::new();
                 let mut late: Vec<usize> = Vec::new();
-                for &v_slot in self.rows[u_slot].keys() {
+                for (&v_slot, keys) in &self.rows[u_slot] {
+                    // NetworkX copies edges, not empty adjacency cells left by
+                    // a held keydict.clear(). The source still keeps its cell.
+                    if keys.len() == 0 {
+                        dropped_empty_pairs = true;
+                        continue;
+                    }
                     let pv = pos[v_slot];
                     if pv < pu {
                         let idx = self.rows[v_slot]
@@ -4782,6 +4813,9 @@ mod multigraph_storage {
             }
             for (u_slot, order) in new_orders {
                 let mut old = std::mem::take(&mut self.rows[u_slot]);
+                if dropped_empty_pairs {
+                    old.retain(|_, keys| keys.len() != 0);
+                }
                 let mut rebuilt = crate::FxIndexMap::with_capacity_and_hasher(
                     old.len(),
                     rustc_hash::FxBuildHasher,
@@ -4794,6 +4828,10 @@ mod multigraph_storage {
                 debug_assert!(old.is_empty(), "copy-walk reorder dropped a cell");
                 self.rows[u_slot] = rebuilt;
             }
+            if dropped_empty_pairs {
+                self.edges.retain(|_, bucket| !bucket.is_empty());
+            }
+            dropped_empty_pairs
         }
 
         /// Apply arbitrary name-keyed row orders to the slot-keyed rows, with
@@ -4920,7 +4958,9 @@ impl MultiGraph {
     /// earlier-position neighbors sorted by (pos(v), index of u within
     /// row v), then the rest (self-loops included) in original order.
     pub fn reorder_rows_for_nx_copy_walk(&mut self) {
-        self.storage.reorder_rows_for_nx_copy_walk();
+        if self.storage.reorder_rows_for_nx_copy_walk() {
+            self.revision = self.revision.saturating_add(1);
+        }
         *self
             .int_adj_cache
             .0
@@ -6013,6 +6053,23 @@ impl MultiGraph {
     }
 
     pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+        self.remove_edge_impl(left, right, key, false)
+    }
+
+    /// Delete a key through a live adjacency keydict without removing the
+    /// pair's ordered neighbor cells. An empty pair still has adjacency, but
+    /// contributes no edges or degree. Normal `remove_edge` drops the pair.
+    pub fn remove_key_preserving_pair(&mut self, left: &str, right: &str, key: usize) -> bool {
+        self.remove_edge_impl(left, right, Some(key), true)
+    }
+
+    fn remove_edge_impl(
+        &mut self,
+        left: &str,
+        right: &str,
+        key: Option<usize>,
+        preserve_pair: bool,
+    ) -> bool {
         // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
         // keyed here is advanced across this mutation instead of invalidated.
         let prev_revision = self.revision;
@@ -6026,10 +6083,14 @@ impl MultiGraph {
             return false;
         };
 
-        if !self
-            .slab_store_mut()
-            .remove_edge(left, right, Some(removal_key))
-        {
+        let removed = if preserve_pair {
+            self.slab_store_mut()
+                .remove_key_preserving_pair(left, right, removal_key)
+        } else {
+            self.slab_store_mut()
+                .remove_edge(left, right, Some(removal_key))
+        };
+        if !removed {
             return false;
         }
         self.edge_count -= 1;
@@ -6047,7 +6108,7 @@ impl MultiGraph {
     }
 
     pub fn clear_edges(&mut self) {
-        if self.edge_count == 0 {
+        if self.slab_store().edges.is_empty() {
             return;
         }
 
@@ -6151,6 +6212,115 @@ impl MultiGraph {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn multigraph_live_empty_pairs_preserve_topology_not_edges() {
+        for keys in [vec![7], vec![7, 2]] {
+            for target in ["v", "u"] {
+                let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+                graph.add_edge("u", "before").unwrap();
+                for &key in &keys {
+                    graph
+                        .add_edge_with_key_and_attrs("u", target, key, AttrMap::new())
+                        .unwrap();
+                }
+                graph.add_edge("u", "after").unwrap();
+                let expected_neighbors = graph.neighbors("u").unwrap();
+                let expected_neighbors: Vec<String> =
+                    expected_neighbors.into_iter().map(str::to_owned).collect();
+                let before_adjacency = graph.with_int_adjacency(<[Vec<usize>]>::to_vec);
+                let before_count = graph.edge_count();
+                for &key in &keys {
+                    assert!(graph.remove_key_preserving_pair("u", target, key));
+                }
+                assert_eq!(graph.edge_count(), before_count - keys.len());
+                assert_eq!(graph.neighbors("u").unwrap(), expected_neighbors);
+                assert_eq!(
+                    graph.with_int_adjacency(<[Vec<usize>]>::to_vec),
+                    before_adjacency
+                );
+                assert_eq!(graph.edge_keys("u", target), Some(vec![]));
+                assert!(graph.has_edge("u", target));
+                let u = graph.get_node_index("u").unwrap();
+                let v = graph.get_node_index(target).unwrap();
+                assert!(graph.has_edge_by_indices(u, v));
+                assert!(graph.edge_attrs_by_indices(u, v, 7).is_none());
+                assert_eq!(graph.degree("u"), 2);
+                let mut copied = graph.clone();
+                // Warm the clone's memo too: pruning must invalidate it.
+                assert_eq!(
+                    copied.with_int_adjacency(<[Vec<usize>]>::to_vec),
+                    before_adjacency
+                );
+                copied.reorder_rows_for_nx_copy_walk();
+                assert!(!copied.has_edge("u", target));
+                assert_eq!(copied.edge_keys("u", target), None);
+                assert_eq!(copied.neighbors("u").unwrap(), vec!["before", "after"]);
+                assert_eq!(copied.edge_count(), graph.edge_count());
+                assert_eq!(
+                    copied.with_int_adjacency(|rows| rows[u].clone()),
+                    vec![
+                        copied.get_node_index("before").unwrap(),
+                        copied.get_node_index("after").unwrap(),
+                    ]
+                );
+                assert!(graph.has_edge("u", target));
+                assert_eq!(graph.neighbors("u").unwrap(), expected_neighbors);
+                let revision = graph.revision();
+                assert!(!graph.remove_key_preserving_pair("u", target, 7));
+                assert!(!graph.remove_edge("u", target, None));
+                assert_eq!(graph.revision(), revision);
+                graph
+                    .add_edge_with_key_and_attrs("u", target, 9, AttrMap::new())
+                    .unwrap();
+                assert_eq!(graph.neighbors("u").unwrap(), expected_neighbors);
+                assert_eq!(graph.edge_keys("u", target), Some(vec![9]));
+                assert!(graph.remove_edge("u", target, Some(9)));
+                assert!(!graph.has_edge("u", target));
+                assert_eq!(graph.neighbors("u").unwrap(), vec!["before", "after"]);
+            }
+        }
+    }
+
+    #[test]
+    fn multigraph_clear_and_node_removal_drop_edgeless_live_pairs() {
+        for remove_node in [false, true] {
+            let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+            graph
+                .add_edge_with_key_and_attrs("u", "v", 7, AttrMap::new())
+                .unwrap();
+            graph
+                .add_edge_with_key_and_attrs("u", "u", 2, AttrMap::new())
+                .unwrap();
+            assert!(graph.remove_key_preserving_pair("u", "v", 7));
+            assert!(graph.remove_key_preserving_pair("u", "u", 2));
+            assert_eq!(graph.edge_count(), 0);
+            let mut copied = graph.clone();
+            copied.reorder_rows_for_nx_copy_walk();
+            assert_eq!(copied.edge_count(), 0);
+            assert!(!copied.has_edge("u", "v"));
+            assert!(!copied.has_edge("u", "u"));
+            assert!(copied.neighbors("u").unwrap().is_empty());
+            assert!(copied.neighbors("v").unwrap().is_empty());
+            assert!(graph.has_edge("u", "v"));
+            assert!(graph.has_edge("u", "u"));
+            if remove_node {
+                assert!(graph.remove_node("u"));
+                graph.add_node("u");
+            } else {
+                graph.clear_edges();
+            }
+            assert!(!graph.has_edge("u", "v"));
+            assert!(!graph.has_edge("u", "u"));
+            assert!(graph.neighbors("u").unwrap().is_empty());
+            assert!(graph.neighbors("v").unwrap().is_empty());
+            assert_eq!(graph.degree("u"), 0);
+            graph
+                .add_edge_with_key_and_attrs("u", "v", 7, AttrMap::new())
+                .unwrap();
+            assert_eq!(graph.edge_count(), 1);
+        }
+    }
+
     /// br-r37-c1-19ngg: the compact key cells are Fx-hashed; their order must
     /// stay insertion order (a pair's key order is what edges(keys=True) and
     /// every keydict iterate) through the One -> Many promotion, a repeated

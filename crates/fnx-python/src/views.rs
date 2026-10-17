@@ -14,7 +14,7 @@ use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyDict, PyIterator, PyList, PyModule, PySlice, PyString, PyTuple};
+use pyo3::types::{PyDict, PyIterator, PyList, PyModule, PySet, PySlice, PyString, PyTuple};
 
 /// Decide what a spec endpoint that will not canonicalise should do
 /// (br-r37-c1-dtrpe).
@@ -313,6 +313,7 @@ impl NodeView {
                 expected_count: Some(nodes.len()),
                 expected_seq: Some(expected_seq),
                 closes_on_raise: false,
+                edge_walk: None,
             },
         )?
         .into_any())
@@ -1078,18 +1079,41 @@ impl EdgeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        // br-r37-c1-2a00r: NoData fast path — `list(G.edges())` was ~2.4x slower
-        // than nx because each edge endpoint went through py_node_key/py_adj_key,
-        // hashing the canonical String in a HashMap<String, PyObject> per node
-        // per edge. Iterate edges by node INDEX (edges_ordered_indices, same
+        // NetworkX's no-data EdgeView snapshots ONE adjacency row at a time,
+        // not the whole graph. Node-dict mutations are noticed only when that
+        // row finishes; edge-only changes to future rows remain visible.
+        if matches!(self.data, NodeViewData::NoData) && self.private_adj.is_none() {
+            return Py::new(
+                py,
+                NodeViewIterator {
+                    inner: Vec::new().into_iter(),
+                    graph: None,
+                    expected_count: None,
+                    expected_seq: None,
+                    closes_on_raise: true,
+                    edge_walk: Some(GraphEdgeWalk {
+                        graph: self.graph.clone_ref(py),
+                        nodes: None,
+                        owner: None,
+                        neighbors: Vec::new().into_iter(),
+                        seen: PySet::empty(py)?.unbind(),
+                    }),
+                },
+            )
+            .map(|iterator| iterator.into_any());
+        }
+        // Indexed attribute-data path (br-r37-c1-2a00r). The normal no-data
+        // view now uses the live row walk above. Avoid hashing the canonical
+        // String in a HashMap<String, PyObject> per endpoint here by iterating
+        // edges by node INDEX (edges_ordered_indices, same
         // node-major order as edges_ordered_borrowed) and clone the per-index
         // cached Python node-key object directly (O(1) incref, no string hash).
         // Gated on adj_py_keys being empty: when non-empty (non-uniform
         // adjacency-row key objects, br-r37-c1-z6uka) the neighbor's display
         // object can differ from the node's own key, so fall through to the
         // exact per-edge py_adj_key path below.
-        // Covers NoData (`G.edges()`), Attr (`data="w"`) and AttrWithDefault —
-        // every non-AllData variant. AllData has its own one-pass helper
+        // Covers Attr (`data="w"`), AttrWithDefault and private-adj NoData.
+        // AllData has its own one-pass helper
         // (edge_alldata_items) which carries the same index path.
         if !matches!(self.data, NodeViewData::AllData) {
             let g = self.graph.borrow(py);
@@ -1131,6 +1155,7 @@ impl EdgeView {
                         expected_count: Some(node_count),
                         expected_seq: Some(nodes_seq),
                         closes_on_raise: true,
+                        edge_walk: None,
                     },
                 )
                 .map(|iterator| iterator.into_any());
@@ -1282,6 +1307,7 @@ impl EdgeView {
                 expected_count: Some(node_count),
                 expected_seq: Some(nodes_seq),
                 closes_on_raise: true,
+                edge_walk: None,
             },
         )
         .map(|iterator| iterator.into_any())
@@ -1790,6 +1816,7 @@ impl DegreeView {
                 expected_count: None,
                 expected_seq: None,
                 closes_on_raise: false,
+                edge_walk: None,
             },
         )
     }
@@ -2600,6 +2627,64 @@ impl AtlasView {
 // Shared iterator (reused for all view iterations)
 // ---------------------------------------------------------------------------
 
+/// The public undirected no-data view follows NetworkX's `list(nbrs)` row
+/// snapshot and a live outer dict iterator. Starting the outer iterator at the
+/// first next() also preserves the generator's lazy-start contract.
+struct GraphEdgeWalk {
+    graph: Py<PyGraph>,
+    nodes: Option<Py<PyIterator>>,
+    owner: Option<PyObject>,
+    neighbors: std::vec::IntoIter<PyObject>,
+    seen: Py<PySet>,
+}
+
+impl GraphEdgeWalk {
+    fn next(&mut self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        loop {
+            for neighbor in self.neighbors.by_ref() {
+                if !self.seen.bind(py).contains(neighbor.bind(py))?
+                    && let Some(owner) = &self.owner
+                {
+                    return tuple_object(py, &[owner.clone_ref(py), neighbor]).map(Some);
+                }
+            }
+            if let Some(owner) = self.owner.take() {
+                self.seen.bind(py).add(owner.bind(py))?;
+            }
+            if self.nodes.is_none() {
+                self.nodes = Some(
+                    self.graph
+                        .bind(py)
+                        .call_method0("_fnx_native_node_iter")?
+                        .downcast_into::<PyIterator>()?
+                        .unbind(),
+                );
+            }
+            let Some(nodes) = &self.nodes else {
+                return Ok(None);
+            };
+            let Some(node) = nodes.bind(py).clone().next().transpose()? else {
+                return Ok(None);
+            };
+            // Canonicalisation can execute Python: never hold a graph borrow
+            // across it, or across the set membership/add calls above.
+            let canonical = node_key_to_string(py, &node)?;
+            let neighbors = {
+                let graph = self.graph.borrow(py);
+                let neighbors = graph
+                    .inner
+                    .neighbors_iter(&canonical)
+                    .ok_or_else(|| crate::missing_key_error(&node))?;
+                neighbors
+                    .map(|neighbor| graph.py_adj_key(py, &canonical, neighbor))
+                    .collect::<Vec<_>>()
+            };
+            self.owner = Some(node.unbind());
+            self.neighbors = neighbors.into_iter();
+        }
+    }
+}
+
 #[pyclass]
 pub struct NodeViewIterator {
     inner: std::vec::IntoIter<PyObject>,
@@ -2615,14 +2700,49 @@ pub struct NodeViewIterator {
     /// iterate through generators, which close on an exception. A node view's
     /// networkx twin is a dict iterator, which raises again on every next().
     closes_on_raise: bool,
+    edge_walk: Option<GraphEdgeWalk>,
 }
 
 #[pymethods]
 impl NodeViewIterator {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        for item in self.inner.as_slice() {
+            visit.call(item)?;
+        }
+        if let Some(walk) = &self.edge_walk {
+            visit.call(&walk.graph)?;
+            visit.call(&walk.nodes)?;
+            visit.call(&walk.owner)?;
+            visit.call(&walk.seen)?;
+            for neighbor in walk.neighbors.as_slice() {
+                visit.call(neighbor)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.inner = Vec::new().into_iter();
+        self.graph = None;
+        self.edge_walk = None;
+    }
+
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
     fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        let py = slf.py();
+        if let Some(walk) = &mut slf.edge_walk {
+            let result = walk.next(py);
+            if !matches!(&result, Ok(Some(_))) {
+                // A spent generator releases all frame locals, including the
+                // graph and seen set. Keeping only a closed flag would retain
+                // the entire graph while callers keep this iterator alive.
+                slf.edge_walk = None;
+            }
+            return result;
+        }
         let Some(item) = slf.inner.next() else {
             return Ok(None);
         };

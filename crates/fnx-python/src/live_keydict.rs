@@ -31,6 +31,7 @@ use pyo3::types::{PyDict, PyType};
 // get_edge_data hashes two node labels here, and no output order depends on
 // these maps (br-r37-c1-49u7h).
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+use std::sync::Arc;
 
 static KEYDICT_CLASS: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
@@ -82,16 +83,28 @@ fn detach(py: Python<'_>, row: &Py<PyDict>) {
 
 #[derive(Default)]
 pub(crate) struct LiveKeydictRows {
-    rows: HashMap<String, HashMap<String, Py<PyDict>>>,
+    // Both indexes share the endpoint labels. Allocate once per source/target
+    // index entry, not four strings per pair (including discarded entry keys).
+    // Arc keeps this state Send, as required by the graph's PyO3 class.
+    rows: HashMap<Arc<str>, HashMap<Arc<str>, Py<PyDict>>>,
     /// target -> sources holding a row for it, so a node removal finds its
     /// rows without scanning every registered row.
-    sources_by_target: HashMap<String, HashSet<String>>,
+    sources_by_target: HashMap<Arc<str>, HashSet<Arc<str>>>,
 }
 
 impl LiveKeydictRows {
     #[inline]
     pub(crate) fn is_empty(&self) -> bool {
         self.rows.is_empty()
+    }
+
+    /// Empty live pairs are adjacency entries, not unit-weight edges: a
+    /// Dijkstra weight reduction over their parallel dictionaries is min([]).
+    /// Inspect the underlying dict without calling Python subclass hooks.
+    pub(crate) fn has_empty_row(&self, py: Python<'_>) -> bool {
+        self.rows
+            .values()
+            .any(|targets| targets.values().any(|row| row.bind(py).is_empty()))
     }
 
     pub(crate) fn get(&self, py: Python<'_>, source: &str, target: &str) -> Option<Py<PyDict>> {
@@ -108,14 +121,22 @@ impl LiveKeydictRows {
     }
 
     pub(crate) fn insert(&mut self, source: &str, target: &str, row: Py<PyDict>) {
+        let source = self
+            .rows
+            .get_key_value(source)
+            .map_or_else(|| Arc::<str>::from(source), |(label, _)| Arc::clone(label));
+        let target = self
+            .sources_by_target
+            .get_key_value(target)
+            .map_or_else(|| Arc::<str>::from(target), |(label, _)| Arc::clone(label));
         self.rows
-            .entry(source.to_owned())
+            .entry(Arc::clone(&source))
             .or_default()
-            .insert(target.to_owned(), row);
+            .insert(Arc::clone(&target), row);
         self.sources_by_target
-            .entry(target.to_owned())
+            .entry(target)
             .or_default()
-            .insert(source.to_owned());
+            .insert(source);
     }
 
     fn unregister(&mut self, source: &str, target: &str) -> Option<Py<PyDict>> {
@@ -148,7 +169,7 @@ impl LiveKeydictRows {
     /// A node was removed: detach every row that has it as an endpoint, with
     /// its contents untouched.
     pub(crate) fn node_removed(&mut self, py: Python<'_>, node: &str) {
-        let targets: Vec<String> = self
+        let targets: Vec<Arc<str>> = self
             .rows
             .get(node)
             .map(|targets| targets.keys().cloned().collect())
@@ -158,7 +179,7 @@ impl LiveKeydictRows {
                 detach(py, &row);
             }
         }
-        let sources: Vec<String> = self
+        let sources: Vec<Arc<str>> = self
             .sources_by_target
             .get(node)
             .map(|sources| sources.iter().cloned().collect())
@@ -189,5 +210,167 @@ impl LiveKeydictRows {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LiveKeydictRows;
+    use pyo3::prelude::*;
+    use pyo3::types::PyDict;
+    use std::sync::Arc;
+
+    #[test]
+    fn unit_weight_dijkstra_path_detects_empty_live_rows() {
+        Python::initialize();
+        Python::attach(|py| {
+            let mut rows = LiveKeydictRows::default();
+            assert!(!rows.has_empty_row(py));
+            let row = PyDict::new(py);
+            row.set_item(0, PyDict::new(py)).expect("key should add");
+            rows.insert("s", "t", row.clone().unbind());
+            assert!(!rows.has_empty_row(py));
+            row.clear();
+            assert!(rows.has_empty_row(py));
+            row.set_item(1, PyDict::new(py)).expect("key should add");
+            assert!(!rows.has_empty_row(py));
+        });
+    }
+
+    #[test]
+    fn endpoint_labels_are_shared_between_both_indexes() {
+        Python::initialize();
+        Python::attach(|py| {
+            let mut rows = LiveKeydictRows::default();
+            rows.insert("source-a", "target-b", PyDict::new(py).unbind());
+            rows.insert("source-a", "target-c", PyDict::new(py).unbind());
+            rows.insert("source-d", "target-b", PyDict::new(py).unbind());
+            let source_a = rows.rows.get_key_value("source-a").expect("source-a").0;
+            let target_b = rows
+                .sources_by_target
+                .get_key_value("target-b")
+                .expect("target-b")
+                .0;
+            for target in ["target-b", "target-c"] {
+                assert!(Arc::ptr_eq(
+                    source_a,
+                    rows.sources_by_target[target]
+                        .get("source-a")
+                        .expect("reverse source"),
+                ));
+            }
+            for source in ["source-a", "source-d"] {
+                assert!(Arc::ptr_eq(
+                    target_b,
+                    rows.rows[source]
+                        .get_key_value("target-b")
+                        .expect("forward target")
+                        .0,
+                ));
+            }
+        });
+    }
+
+    #[test]
+    fn replacement_and_unregister_keep_indexes_in_step() {
+        Python::initialize();
+        Python::attach(|py| {
+            let mut rows = LiveKeydictRows::default();
+            let old = PyDict::new(py);
+            let replacement = PyDict::new(py);
+            rows.insert("a", "b", old.unbind());
+            rows.insert("a", "b", replacement.clone().unbind());
+            rows.insert("a", "c", PyDict::new(py).unbind());
+            rows.insert("d", "b", PyDict::new(py).unbind());
+            assert_eq!(rows.sources_by_target["b"].len(), 2);
+            assert!(
+                rows.get(py, "a", "b")
+                    .expect("row")
+                    .bind(py)
+                    .is(&replacement)
+            );
+            assert!(rows.unregister("a", "missing").is_none());
+            assert!(
+                rows.unregister("a", "b")
+                    .expect("row")
+                    .bind(py)
+                    .is(&replacement)
+            );
+            assert!(rows.contains("a", "c"));
+            assert!(rows.contains("d", "b"));
+            assert!(!rows.sources_by_target["b"].contains("a"));
+            assert!(rows.unregister("a", "c").is_some());
+            assert!(!rows.rows.contains_key("a"));
+            assert!(!rows.sources_by_target.contains_key("c"));
+            assert!(rows.unregister("d", "b").is_some());
+            assert!(rows.is_empty());
+            assert!(rows.sources_by_target.is_empty());
+        });
+    }
+
+    #[test]
+    fn node_removal_handles_both_roles_and_self_loop_without_emptying_rows() {
+        Python::initialize();
+        Python::attach(|py| -> PyResult<()> {
+            let mut rows = LiveKeydictRows::default();
+            let mut held = Vec::new();
+            for (source, target) in [("hub", "left"), ("right", "hub"), ("hub", "hub")] {
+                let row = PyDict::new(py);
+                row.set_item("edge", 7)?;
+                rows.insert(source, target, row.clone().unbind());
+                held.push(row);
+            }
+            rows.insert("unrelated", "other", PyDict::new(py).unbind());
+            rows.node_removed(py, "missing");
+            rows.node_removed(py, "hub");
+            assert!(!rows.rows.contains_key("hub"));
+            assert!(!rows.rows.contains_key("right"));
+            assert!(!rows.sources_by_target.contains_key("hub"));
+            assert!(!rows.sources_by_target.contains_key("left"));
+            assert!(rows.contains("unrelated", "other"));
+            for row in held {
+                assert_eq!(row.get_item("edge")?.expect("edge").extract::<i32>()?, 7);
+            }
+            rows.detach_all(py);
+            assert!(rows.is_empty());
+            assert!(rows.sources_by_target.is_empty());
+            Ok(())
+        })
+        .expect("held rows stay intact");
+    }
+
+    #[test]
+    fn pair_emptying_clears_only_its_held_row_and_releases_its_labels() {
+        Python::initialize();
+        Python::attach(|py| -> PyResult<()> {
+            let mut rows = LiveKeydictRows::default();
+            let row = PyDict::new(py);
+            row.set_item("edge", 7)?;
+            rows.insert("a", "b", row.clone().unbind());
+            let unrelated = PyDict::new(py);
+            unrelated.set_item("edge", 9)?;
+            rows.insert("other", "unrelated", unrelated.clone().unbind());
+            let source = Arc::downgrade(rows.rows.get_key_value("a").expect("source").0);
+            let target =
+                Arc::downgrade(rows.sources_by_target.get_key_value("b").expect("target").0);
+            rows.pair_emptied(py, "a", "missing");
+            assert_eq!(row.len(), 1);
+            rows.pair_emptied(py, "a", "b");
+            assert!(row.is_empty());
+            assert!(rows.contains("other", "unrelated"));
+            assert_eq!(rows.rows.len(), 1);
+            assert_eq!(rows.sources_by_target.len(), 1);
+            assert_eq!(
+                unrelated
+                    .get_item("edge")?
+                    .expect("edge")
+                    .extract::<i32>()?,
+                9
+            );
+            assert!(source.upgrade().is_none());
+            assert!(target.upgrade().is_none());
+            Ok(())
+        })
+        .expect("only the emptied pair is cleared");
     }
 }

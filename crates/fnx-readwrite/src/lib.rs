@@ -1356,6 +1356,22 @@ impl EdgeListEngine {
     }
 
     pub fn read_graphml(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.read_graphml_report(input, false)
+    }
+
+    /// Apply native GraphML validation for a richer downstream decoder.
+    /// The returned simple graph is only a policy carrier/projection, NOT a
+    /// decoded multigraph. Parallel-edge attributes are all validated, and the
+    /// ledger marks when reconstructing the original multigraph is required.
+    pub fn validate_graphml(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.read_graphml_report(input, true)
+    }
+
+    fn read_graphml_report(
+        &mut self,
+        input: &str,
+        validation_only: bool,
+    ) -> Result<ReadWriteReport, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "read_graphml".to_owned(),
             requested_backend: None,
@@ -1385,7 +1401,13 @@ impl EdgeListEngine {
             self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
         }
 
-        self.read_graphml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.read_graphml_into(
+            &mut graph,
+            &mut graph_attrs,
+            &mut warnings,
+            input,
+            validation_only,
+        )?;
 
         self.record(
             "read_graphml",
@@ -1540,6 +1562,22 @@ impl EdgeListEngine {
         &mut self,
         input: &str,
     ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.read_digraph_graphml_report(input, false)
+    }
+
+    /// Directed twin of `validate_graphml`; this is not a decoded multigraph.
+    pub fn validate_digraph_graphml(
+        &mut self,
+        input: &str,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.read_digraph_graphml_report(input, true)
+    }
+
+    fn read_digraph_graphml_report(
+        &mut self,
+        input: &str,
+        validation_only: bool,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "read_graphml".to_owned(),
             requested_backend: None,
@@ -1569,7 +1607,13 @@ impl EdgeListEngine {
             self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
         }
 
-        self.read_graphml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.read_graphml_into(
+            &mut graph,
+            &mut graph_attrs,
+            &mut warnings,
+            input,
+            validation_only,
+        )?;
 
         self.record(
             "read_graphml",
@@ -1587,6 +1631,7 @@ impl EdgeListEngine {
         graph_attrs: &mut AttrMap,
         warnings: &mut Vec<String>,
         input: &str,
+        validation_only: bool,
     ) -> Result<(), ReadWriteError>
     where
         G: GraphLike,
@@ -1646,6 +1691,7 @@ impl EdgeListEngine {
                         &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
+                        validation_only,
                     )?;
                 }
                 Ok(Event::Empty(ref e)) => {
@@ -1677,6 +1723,7 @@ impl EdgeListEngine {
                         &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
+                        validation_only,
                     )?;
                     self.handle_graphml_end_element(
                         xml_local_name(e.name().as_ref()),
@@ -1910,6 +1957,7 @@ impl EdgeListEngine {
         pending_graph_attrs: &mut AttrMap,
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
+        validation_only: bool,
     ) -> Result<(), ReadWriteError>
     where
         G: GraphLike,
@@ -2229,7 +2277,14 @@ impl EdgeListEngine {
                     self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
                     *current_edge_skip = true;
                 }
-                if graph.has_edge(&source, &target) {
+                if graph.has_edge(&source, &target) && validation_only {
+                    self.record(
+                        "read_graphml",
+                        DecisionAction::Allow,
+                        "graphml parallel edges require multigraph reconstruction",
+                        0.10,
+                    );
+                } else if graph.has_edge(&source, &target) {
                     let warning = format!(
                         "graphml multiedge not supported: source={source:?} target={target:?}"
                     );
@@ -8486,6 +8541,84 @@ mod tests {
             Some(&CgseValue::String("demo".to_owned()))
         );
         assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn graphml_validation_parallel_edges_does_not_change_ordinary_reader() {
+        let input = r#"<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+<key id="w" for="edge" attr.name="weight" attr.type="int"/>
+<graph edgedefault="undirected"><node id="a"/><node id="b"/>
+<edge source="a" target="b"><data key="w">1</data></edge>
+<edge source="a" target="b"><data key="w">2</data></edge>
+</graph></graphml>"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .validate_graphml(input)
+            .expect("validation projection");
+        assert!(report.warnings.is_empty());
+        assert_eq!(
+            report.graph.edge_count(),
+            1,
+            "projection is not a multigraph"
+        );
+        let records = report.graph.evidence_ledger().records();
+        assert!(records.iter().any(|record| {
+            record.rationale == "graphml parallel edges require multigraph reconstruction"
+        }));
+        assert!(matches!(
+            engine.read_graphml(input),
+            Err(ReadWriteError::FailClosed { .. })
+        ));
+        assert!(
+            engine.validate_graphml(input).is_ok(),
+            "no mutable validation flag leaks"
+        );
+    }
+
+    #[test]
+    fn graphml_validation_checks_attributes_on_later_parallel_edges() {
+        let input = r#"<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+<key id="w" for="edge" attr.name="weight" attr.type="int"/>
+<graph edgedefault="undirected"><node id="a"/><node id="b"/>
+<edge source="a" target="b"><data key="w">1</data></edge>
+<edge source="a" target="b"><data key="w">not-an-int</data></edge>
+</graph></graphml>"#;
+        assert!(matches!(
+            EdgeListEngine::strict().validate_graphml(input),
+            Err(ReadWriteError::FailClosed { .. })
+        ));
+        let report = EdgeListEngine::hardened()
+            .validate_graphml(input)
+            .expect("bounded recovery is reported, not a complete multigraph");
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("not-an-int"))
+        );
+        let records = report.graph.evidence_ledger().records();
+        assert!(records.iter().any(|record| {
+            record.rationale == "graphml parallel edges require multigraph reconstruction"
+        }));
+    }
+
+    #[test]
+    fn graphml_validation_directed_parallel_projection_retains_direction_gate() {
+        let input = r#"<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+<graph edgedefault="directed"><node id="a"/><node id="b"/>
+<edge source="a" target="b"/><edge source="a" target="b"/>
+</graph></graphml>"#;
+        let report = EdgeListEngine::strict()
+            .validate_digraph_graphml(input)
+            .expect("directed projection");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+        assert!(EdgeListEngine::strict().validate_graphml(input).is_err());
+        assert!(
+            EdgeListEngine::strict()
+                .read_digraph_graphml(input)
+                .is_err()
+        );
     }
 
     #[test]

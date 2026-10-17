@@ -173,6 +173,7 @@ pub use network_simplex_int::{
     CAP_INF as NETWORK_SIMPLEX_INT_CAP_INF, NetworkSimplexIntSolution, NetworkSimplexStatus,
     network_simplex_int,
 };
+pub mod preflow_push;
 
 pub const CGSE_WITNESS_ARTIFACT_SCHEMA_VERSION_V1: &str = "1.0.0";
 pub const CGSE_WITNESS_POLICY_SPEC_PATH: &str =
@@ -3440,13 +3441,20 @@ fn shortest_path_length_matrix_indexed_csr(
     node_count: usize,
     sources: &[usize],
     cutoff: Option<usize>,
-) -> Vec<i32> {
+) -> Result<Vec<i32>, std::collections::TryReserveError> {
     if node_count == 0 || sources.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     debug_assert!(sources.iter().all(|&source| source < node_count));
 
-    let mut matrix = vec![-1; sources.len().saturating_mul(node_count)];
+    // A repeated-source batch can request far more output than its input
+    // occupies. Reserve fallibly before initializing any cells, rather than
+    // letting vec! abort the process. Saturation also produces a capacity
+    // error: usize::MAX i32 elements cannot fit Vec's isize::MAX byte limit.
+    let cells = sources.len().saturating_mul(node_count);
+    let mut matrix = Vec::new();
+    matrix.try_reserve_exact(cells)?;
+    matrix.resize(cells, -1);
     // Dense output makes even modest source batches worth distributing: every
     // worker writes an independent cache-contiguous row while sharing one
     // immutable CSR. Cutoff zero performs no edge scan and stays serial.
@@ -3476,7 +3484,7 @@ fn shortest_path_length_matrix_indexed_csr(
             shortest_path_length_matrix_source(&mut scratch, csr, source, cutoff, row);
         }
     }
-    matrix
+    Ok(matrix)
 }
 
 /// One source's distance histogram plus exact work counters. A histogram is
@@ -3588,12 +3596,15 @@ pub fn all_pairs_shortest_path_length_directed_indexed(
 /// Rows follow `sources`, columns follow `Graph::nodes_ordered`, and `-1`
 /// denotes an unreachable node. Every source is independent, so sufficiently
 /// large batches run in parallel over one shared immutable CSR.
-#[must_use]
+///
+/// # Errors
+/// Returns an error if the dense output exceeds the addressable vector size
+/// or its allocation is refused. This does not bound all graph/scratch storage.
 pub fn shortest_path_length_matrix_indexed(
     graph: &Graph,
     sources: &[usize],
     cutoff: Option<usize>,
-) -> Vec<i32> {
+) -> Result<Vec<i32>, std::collections::TryReserveError> {
     let node_count = graph.node_count();
     let csr = AllPairsBfsCsr::from_rows(
         (0..node_count).map(|node| graph.neighbors_indices(node).unwrap_or(&[])),
@@ -3603,12 +3614,14 @@ pub fn shortest_path_length_matrix_indexed(
 }
 
 /// Directed counterpart of [`shortest_path_length_matrix_indexed`].
-#[must_use]
+///
+/// # Errors
+/// Returns an error if the dense output is too large or cannot be allocated.
 pub fn shortest_path_length_matrix_directed_indexed(
     digraph: &DiGraph,
     sources: &[usize],
     cutoff: Option<usize>,
-) -> Vec<i32> {
+) -> Result<Vec<i32>, std::collections::TryReserveError> {
     let node_count = digraph.node_count();
     let csr = AllPairsBfsCsr::from_rows(
         (0..node_count).map(|node| digraph.successors_indices(node).unwrap_or(&[])),
@@ -5946,14 +5959,23 @@ pub fn betweenness_centrality_directed_with_params(
     betweenness_centrality_generic(graph, normalized, endpoints)
 }
 
+/// Observable Brandes rescaling policy of the caller's NetworkX oracle.
+/// Node sampling became source-aware in 3.5; edge scaling changed in 3.6.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BetweennessRescalePolicy {
+    Uniform,
+    SourceAware,
+}
+
 #[must_use]
 pub fn betweenness_centrality_sampled_with_params(
     graph: &Graph,
     sources: &[&str],
     normalized: bool,
     endpoints: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> BetweennessCentralityResult {
-    betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints)
+    betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints, rescale)
 }
 
 #[must_use]
@@ -5962,8 +5984,9 @@ pub fn betweenness_centrality_sampled_directed_with_params(
     sources: &[&str],
     normalized: bool,
     endpoints: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> BetweennessCentralityResult {
-    betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints)
+    betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints, rescale)
 }
 
 /// Transpose a `u32` CSR: row `w` of the result lists every `v` whose forward row
@@ -6166,15 +6189,39 @@ fn brandes_build_csr<G: GraphView>(
 /// networkx's `_rescale(..., sampled_nodes=...)` for betweenness summed over
 /// the sampled sources `source_idx`: one scale with `endpoints`, else the
 /// sampled nodes (which lose their own source) get `scale_source` and the
-/// others `scale_nonsource`.
+/// others `scale_nonsource`. The pre-3.5 policy instead applies one uniform
+/// scale, retaining its multiply-then-divide association.
 fn brandes_rescale_sampled(
     centrality: &mut [f64],
     source_idx: &[usize],
     normalized: bool,
     endpoints: bool,
     directed: bool,
+    rescale: BetweennessRescalePolicy,
 ) {
     let n = centrality.len();
+    if rescale == BetweennessRescalePolicy::Uniform {
+        let scale = if normalized {
+            if endpoints && n >= 2 {
+                Some(1.0 / (((n as u128) * ((n - 1) as u128)) as f64))
+            } else if !endpoints && n > 2 {
+                Some(1.0 / ((((n - 1) as u128) * ((n - 2) as u128)) as f64))
+            } else {
+                None
+            }
+        } else if directed {
+            None
+        } else {
+            Some(0.5)
+        };
+        if let Some(scale) = scale {
+            let scale = scale * (n as f64) / (source_idx.len() as f64);
+            for score in centrality.iter_mut() {
+                *score *= scale;
+            }
+        }
+        return;
+    }
     let pair_nodes = if endpoints { n } else { n.saturating_sub(1) };
     if pair_nodes < 2 {
         return;
@@ -6231,6 +6278,7 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
     sources: &[&str],
     normalized: bool,
     endpoints: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> BetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -6327,6 +6375,7 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
         normalized,
         endpoints,
         graph.is_directed(),
+        rescale,
     );
 
     let ordered_scores = nodes
@@ -6827,6 +6876,7 @@ fn betweenness_centrality_weighted_generic<G: GraphView>(
     normalized: bool,
     endpoints: bool,
     sources: Option<&[&str]>,
+    rescale: BetweennessRescalePolicy,
 ) -> BetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -6909,6 +6959,7 @@ fn betweenness_centrality_weighted_generic<G: GraphView>(
             normalized,
             endpoints,
             graph.is_directed(),
+            rescale,
         );
         let ordered_scores = nodes
             .iter()
@@ -6970,7 +7021,14 @@ pub fn betweenness_centrality_weighted(
     normalized: bool,
     endpoints: bool,
 ) -> BetweennessCentralityResult {
-    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints, None)
+    betweenness_centrality_weighted_generic(
+        graph,
+        weight_attr,
+        normalized,
+        endpoints,
+        None,
+        BetweennessRescalePolicy::SourceAware,
+    )
 }
 
 /// Weighted Brandes betweenness for a directed `DiGraph` (out-edge projection).
@@ -6981,7 +7039,14 @@ pub fn betweenness_centrality_weighted_directed(
     normalized: bool,
     endpoints: bool,
 ) -> BetweennessCentralityResult {
-    betweenness_centrality_weighted_generic(graph, weight_attr, normalized, endpoints, None)
+    betweenness_centrality_weighted_generic(
+        graph,
+        weight_attr,
+        normalized,
+        endpoints,
+        None,
+        BetweennessRescalePolicy::SourceAware,
+    )
 }
 
 /// networkx's `betweenness_centrality(G, k=..., weight=...)` over the sources
@@ -6993,6 +7058,7 @@ pub fn betweenness_centrality_weighted_sampled(
     weight_attr: Option<&str>,
     normalized: bool,
     endpoints: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> BetweennessCentralityResult {
     betweenness_centrality_weighted_generic(
         graph,
@@ -7000,6 +7066,7 @@ pub fn betweenness_centrality_weighted_sampled(
         normalized,
         endpoints,
         Some(sources),
+        rescale,
     )
 }
 
@@ -7011,6 +7078,7 @@ pub fn betweenness_centrality_weighted_sampled_directed(
     weight_attr: Option<&str>,
     normalized: bool,
     endpoints: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> BetweennessCentralityResult {
     betweenness_centrality_weighted_generic(
         graph,
@@ -7018,6 +7086,7 @@ pub fn betweenness_centrality_weighted_sampled_directed(
         normalized,
         endpoints,
         Some(sources),
+        rescale,
     )
 }
 
@@ -7562,14 +7631,41 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
 }
 
 fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweennessCentralityResult {
-    edge_betweenness_centrality_brandes_run(graph, None, true)
+    edge_betweenness_centrality_brandes_run(
+        graph,
+        None,
+        true,
+        BetweennessRescalePolicy::SourceAware,
+    )
 }
 
 /// networkx's `_rescale(betweenness, n, normalized=..., directed=...,
 /// sampled_nodes=...)` as `edge_betweenness_centrality` calls it - with
 /// `endpoints` left at True, so one scale for every edge: `1 / (k * (n - 1))`
 /// normalized, else `n / (k * correction)`; none below two nodes.
-fn edge_brandes_scale(n: usize, source_count: usize, normalized: bool, directed: bool) -> f64 {
+fn edge_brandes_scale(
+    n: usize,
+    source_count: usize,
+    normalized: bool,
+    directed: bool,
+    rescale: BetweennessRescalePolicy,
+) -> f64 {
+    if rescale == BetweennessRescalePolicy::Uniform {
+        // The pre-3.6 caller never passes k to _rescale_e, even when
+        // sampling sources. Its available n/k branch is not exercised.
+        let scale = if normalized {
+            if n >= 2 {
+                Some(1.0 / (((n as u128) * ((n - 1) as u128)) as f64))
+            } else {
+                None
+            }
+        } else if directed {
+            None
+        } else {
+            Some(0.5)
+        };
+        return scale.unwrap_or(1.0);
+    }
     if n < 2 {
         return 1.0;
     }
@@ -7590,6 +7686,7 @@ fn edge_betweenness_centrality_brandes_run<G: GraphView>(
     graph: &G,
     sources: Option<&[&str]>,
     normalized: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> EdgeBetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -7701,7 +7798,7 @@ fn edge_betweenness_centrality_brandes_run<G: GraphView>(
         }
     }
 
-    let scale = edge_brandes_scale(n, source_idx.len(), normalized, is_directed);
+    let scale = edge_brandes_scale(n, source_idx.len(), normalized, is_directed, rescale);
     let mut scores = (0..n_edges)
         .map(|e| {
             let (left_idx, right_idx) = edge_endpoints[e];
@@ -7823,6 +7920,7 @@ fn edge_betweenness_centrality_weighted_generic<G: GraphView>(
     weight_attr: Option<&str>,
     sources: Option<&[&str]>,
     normalized: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> EdgeBetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -7910,7 +8008,7 @@ fn edge_betweenness_centrality_weighted_generic<G: GraphView>(
         }
     }
 
-    let scale = edge_brandes_scale(n, source_idx.len(), normalized, is_directed);
+    let scale = edge_brandes_scale(n, source_idx.len(), normalized, is_directed, rescale);
     let mut scores = (0..n_edges)
         .map(|e| {
             let (left_idx, right_idx) = edge_endpoints[e];
@@ -7945,7 +8043,13 @@ pub fn edge_betweenness_centrality_weighted(
     graph: &Graph,
     weight_attr: Option<&str>,
 ) -> EdgeBetweennessCentralityResult {
-    edge_betweenness_centrality_weighted_generic(graph, weight_attr, None, true)
+    edge_betweenness_centrality_weighted_generic(
+        graph,
+        weight_attr,
+        None,
+        true,
+        BetweennessRescalePolicy::SourceAware,
+    )
 }
 
 /// Weighted edge betweenness for a directed `DiGraph` (normalized, out-edges).
@@ -7954,7 +8058,13 @@ pub fn edge_betweenness_centrality_weighted_directed(
     graph: &DiGraph,
     weight_attr: Option<&str>,
 ) -> EdgeBetweennessCentralityResult {
-    edge_betweenness_centrality_weighted_generic(graph, weight_attr, None, true)
+    edge_betweenness_centrality_weighted_generic(
+        graph,
+        weight_attr,
+        None,
+        true,
+        BetweennessRescalePolicy::SourceAware,
+    )
 }
 
 /// networkx's `edge_betweenness_centrality(G, k=..., normalized=...,
@@ -7966,12 +8076,17 @@ pub fn edge_betweenness_centrality_with_params(
     sources: Option<&[&str]>,
     weight_attr: Option<&str>,
     normalized: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> EdgeBetweennessCentralityResult {
     match weight_attr {
-        Some(_) => {
-            edge_betweenness_centrality_weighted_generic(graph, weight_attr, sources, normalized)
-        }
-        None => edge_betweenness_centrality_brandes_run(graph, sources, normalized),
+        Some(_) => edge_betweenness_centrality_weighted_generic(
+            graph,
+            weight_attr,
+            sources,
+            normalized,
+            rescale,
+        ),
+        None => edge_betweenness_centrality_brandes_run(graph, sources, normalized, rescale),
     }
 }
 
@@ -7982,12 +8097,17 @@ pub fn edge_betweenness_centrality_directed_with_params(
     sources: Option<&[&str]>,
     weight_attr: Option<&str>,
     normalized: bool,
+    rescale: BetweennessRescalePolicy,
 ) -> EdgeBetweennessCentralityResult {
     match weight_attr {
-        Some(_) => {
-            edge_betweenness_centrality_weighted_generic(graph, weight_attr, sources, normalized)
-        }
-        None => edge_betweenness_centrality_brandes_run(graph, sources, normalized),
+        Some(_) => edge_betweenness_centrality_weighted_generic(
+            graph,
+            weight_attr,
+            sources,
+            normalized,
+            rescale,
+        ),
+        None => edge_betweenness_centrality_brandes_run(graph, sources, normalized, rescale),
     }
 }
 
@@ -13995,10 +14115,15 @@ impl PartialOrd for PrimIndexEdge {
 impl Ord for PrimIndexEdge {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Reversed: the max-heap then yields the minimum (weight, seq).
-        other
-            .weight
-            .total_cmp(&self.weight)
-            .then_with(|| other.seq.cmp(&self.seq))
+        // Python considers both signed zeros equal, so they must reach the
+        // FIFO tie-break rather than total_cmp's sign-bit ordering. Keep a
+        // total ordering otherwise; NaNs are rejected before heap insertion.
+        let weight_order = if self.weight == other.weight {
+            std::cmp::Ordering::Equal
+        } else {
+            other.weight.total_cmp(&self.weight)
+        };
+        weight_order.then_with(|| other.seq.cmp(&self.seq))
     }
 }
 
@@ -14032,6 +14157,15 @@ pub fn prim_spanning_edges_indexed(
     ignore_nan: bool,
 ) -> Option<Vec<(usize, usize)>> {
     let n = graph.node_count();
+    let mut cgse_run = CgseWitnessRun {
+        reference: CgseReferenceAlgorithm::Prim,
+        node_count: n,
+        edge_count: graph.edge_count(),
+        // This public kernel orders equal weights by seq, not the lexical
+        // policy of minimum_spanning_tree_prim's separate reference kernel.
+        sink: cgse_witness_collection_enabled()
+            .then(|| CgseWitnessSink::new(fnx_cgse::TieBreakPolicy::WeightThenInsertionOrder)),
+    };
     let nodes = graph.nodes_ordered();
     let sign = if minimum { 1.0 } else { -1.0 };
     let mut visited = vec![false; n];
@@ -14064,6 +14198,9 @@ pub fn prim_spanning_edges_indexed(
                     parent: start,
                     child: v,
                 });
+                if let Some(sink) = cgse_run.sink.as_mut() {
+                    sink.record_decision(&format!("push:{}", nodes[v]), nodes[start]);
+                }
                 seq += 1;
             }
         }
@@ -14071,6 +14208,9 @@ pub fn prim_spanning_edges_indexed(
             let Some(PrimIndexEdge { parent, child, .. }) = heap.pop() else {
                 break;
             };
+            if let Some(sink) = cgse_run.sink.as_mut() {
+                sink.record_decision(&format!("pop:{}", nodes[child]), nodes[parent]);
+            }
             if visited[child] {
                 continue;
             }
@@ -14096,6 +14236,9 @@ pub fn prim_spanning_edges_indexed(
                         parent: child,
                         child: w2,
                     });
+                    if let Some(sink) = cgse_run.sink.as_mut() {
+                        sink.record_decision(&format!("push:{}", nodes[w2]), nodes[child]);
+                    }
                     seq += 1;
                 }
             }
@@ -14646,7 +14789,9 @@ pub fn partition_spanning_tree(
                     });
                 }
 
-                let weight = raw_weight.filter(|value| value.is_finite()).unwrap_or(1.0);
+                // NaNs were handled above. Both infinities are legitimate
+                // NetworkX weights; only a missing weight defaults to 1.
+                let weight = raw_weight.unwrap_or(1.0);
                 let entry = OrderedSpanningEdge {
                     weight,
                     ordinal,
@@ -14672,7 +14817,10 @@ pub fn partition_spanning_tree(
     }
 
     open_edges.sort_by(|left, right| {
-        let order = if minimum {
+        // Python considers signed zeros equal before the ordinal tie-break.
+        let order = if left.weight == right.weight {
+            std::cmp::Ordering::Equal
+        } else if minimum {
             left.weight.total_cmp(&right.weight)
         } else {
             right.weight.total_cmp(&left.weight)
@@ -14732,7 +14880,10 @@ pub fn partition_spanning_tree(
 }
 
 /// br-r37-c1-psptidx A/B baseline: the pre-lever String-keyed Kruskal partition MST (HashMap<&str>
-/// union-find + name-keyed edge_attrs). Test-only; bit-identical to the shipped integer-index version.
+/// union-find + name-keyed edge_attrs). Test-only legacy measurement baseline;
+/// it preserves the pre-fix signed-zero/infinite-weight behavior, so it is not
+/// a correctness oracle for those inputs. The paired integer-weight benchmark
+/// below does not exercise either defect.
 #[cfg(test)]
 fn partition_spanning_tree_orig_string(
     graph: &Graph,
@@ -16703,8 +16854,36 @@ pub fn networkx_max_weight_matching_mate(
     adjacency: &[Vec<(usize, f64)>],
     maxcardinality: bool,
 ) -> Vec<(usize, usize)> {
+    networkx_max_weight_matching_mate_for_reference(adjacency, maxcardinality, false)
+}
+
+#[must_use]
+pub fn networkx_max_weight_matching_mate_for_reference(
+    adjacency: &[Vec<(usize, f64)>],
+    maxcardinality: bool,
+    min_weight: bool,
+) -> Vec<(usize, usize)> {
+    let reference = if min_weight {
+        CgseReferenceAlgorithm::MinWeightMatching
+    } else {
+        CgseReferenceAlgorithm::MaxWeightMatching
+    };
+    let mut cgse_sink = cgse_begin(reference);
     let n = adjacency.len();
+    let mut edge_entries = 0usize;
+    let mut self_loops = 0usize;
+    for (u, row) in adjacency.iter().enumerate() {
+        for &(v, _) in row {
+            if u == v {
+                self_loops += 1;
+            } else {
+                edge_entries += 1;
+            }
+        }
+    }
+    let edge_count = edge_entries / 2 + self_loops;
     if n == 0 {
+        cgse_publish(reference, 0, 0, cgse_sink);
         return Vec::new();
     }
     let mut weight = HashMap::new();
@@ -16905,7 +17084,12 @@ pub fn networkx_max_weight_matching_mate(
             }
         }
     }
-    m.mate.into_iter().collect()
+    let out: Vec<(usize, usize)> = m.mate.into_iter().collect();
+    for &(u, v) in &out {
+        cgse_record_decision(&mut cgse_sink, &u.to_string(), &v.to_string());
+    }
+    cgse_publish(reference, n, edge_count, cgse_sink);
+    out
 }
 
 /// Return a maximum branching of a directed graph.
@@ -23827,6 +24011,90 @@ pub fn eulerian_path_directed(
     })
 }
 
+/// Finds an Eulerian circuit in a simple directed graph with CGSE witness instrumentation.
+#[must_use]
+pub fn eulerian_circuit_directed(
+    digraph: &DiGraph,
+    source: Option<&str>,
+) -> Option<EulerianCircuitResult> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::EulerianCircuit);
+    if !is_directed_eulerian(digraph) {
+        cgse_publish(
+            CgseReferenceAlgorithm::EulerianCircuit,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
+        return None;
+    }
+
+    let start = directed_reverse_eulerian_start(digraph, source, true)?;
+    if digraph.edge_count() == 0 {
+        cgse_publish(
+            CgseReferenceAlgorithm::EulerianCircuit,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
+        return Some(EulerianCircuitResult {
+            edges: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "hierholzer_directed_circuit".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: digraph.node_count(),
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        });
+    }
+
+    let nodes = digraph.nodes_ordered();
+    let mut reverse_adj = vec![Vec::<usize>::new(); nodes.len()];
+    for (source_idx, target_idx) in digraph.edges_ordered_indices() {
+        reverse_adj[target_idx].push(source_idx);
+    }
+
+    let mut edge_pos = vec![0usize; nodes.len()];
+    let mut stack = vec![digraph.get_node_index(start)?];
+    let mut queue_peak = stack.len();
+    let mut last_vertex = None::<usize>;
+    let mut edges = Vec::<(String, String)>::with_capacity(digraph.edge_count());
+
+    while let Some(&current) = stack.last() {
+        if edge_pos[current] == reverse_adj[current].len() {
+            if let Some(last) = last_vertex {
+                edges.push((nodes[last].to_owned(), nodes[current].to_owned()));
+            }
+            last_vertex = Some(current);
+            stack.pop();
+        } else {
+            let next = reverse_adj[current][edge_pos[current]];
+            edge_pos[current] += 1;
+            cgse_record_decision(&mut cgse_sink, nodes[next], nodes[current]);
+            stack.push(next);
+            queue_peak = queue_peak.max(stack.len());
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::EulerianCircuit,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    Some(EulerianCircuitResult {
+        edges,
+        witness: ComplexityWitness {
+            algorithm: "hierholzer_directed_circuit".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: digraph.node_count(),
+            edges_scanned: digraph.edge_count(),
+            queue_peak,
+        },
+    })
+}
+
 // ---------------------------------------------------------------------------
 // DAG Algorithms (DiGraph)
 // ---------------------------------------------------------------------------
@@ -28518,12 +28786,61 @@ pub fn number_strongly_connected_components(digraph: &DiGraph) -> usize {
 /// Return whether the directed graph is strongly connected.
 #[must_use]
 pub fn is_strongly_connected(digraph: &DiGraph) -> bool {
-    if digraph.node_count() == 0 {
+    let n = digraph.node_count();
+    if n == 0 {
         // NetworkX raises an exception for empty graphs, but we return false
         // to match the spirit of "not connected"
         return false;
     }
-    number_strongly_connected_components(digraph) == 1
+    if n == 1 {
+        return true;
+    }
+
+    let mut visited = vec![false; n];
+    let mut visited_count = 1usize;
+    let mut queue = VecDeque::with_capacity(n);
+    visited[0] = true;
+    queue.push_back(0usize);
+
+    'forward: while let Some(current) = queue.pop_front() {
+        if let Some(succs) = digraph.successors_indices(current) {
+            for &nbr in succs {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    visited_count += 1;
+                    if visited_count == n {
+                        break 'forward;
+                    }
+                    queue.push_back(nbr);
+                }
+            }
+        }
+    }
+    if visited_count != n {
+        return false;
+    }
+
+    visited.fill(false);
+    visited_count = 1;
+    queue.clear();
+    visited[0] = true;
+    queue.push_back(0usize);
+
+    'backward: while let Some(current) = queue.pop_front() {
+        if let Some(preds) = digraph.predecessors_indices(current) {
+            for &nbr in preds {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    visited_count += 1;
+                    if visited_count == n {
+                        break 'backward;
+                    }
+                    queue.push_back(nbr);
+                }
+            }
+        }
+    }
+    visited_count == n
 }
 
 /// Condense a directed graph by contracting each SCC into a single node.
@@ -70239,6 +70556,31 @@ mod tests {
     }
 
     #[test]
+    fn shortest_path_length_matrix_allocation_size_errors_are_fallible() {
+        // Impossible dimensions fail before CSR traversal or a giant allocation.
+        let csr = super::AllPairsBfsCsr {
+            offsets: vec![0],
+            targets: Vec::new(),
+        };
+        for (nodes, sources) in [(usize::MAX, vec![0, 0]), (isize::MAX as usize, vec![0])] {
+            assert!(
+                super::shortest_path_length_matrix_indexed_csr(&csr, nodes, &sources, Some(0))
+                    .is_err()
+            );
+        }
+        assert!(
+            shortest_path_length_matrix_indexed(&Graph::strict(), &[], None)
+                .expect("empty matrix fits")
+                .is_empty()
+        );
+        assert!(
+            shortest_path_length_matrix_directed_indexed(&DiGraph::strict(), &[], None)
+                .expect("empty matrix fits")
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn parallel_indexed_all_pairs_bfs_preserves_exact_order_and_cutoffs() {
         let node_count = 160usize;
         let names: Vec<String> = (0..node_count).map(|i| format!("node-{i:03}")).collect();
@@ -70284,17 +70626,23 @@ mod tests {
             assert_eq!(directed_parallel, directed_reference);
 
             let undirected_matrix_reference = one_thread
-                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff));
+                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff))
+                .expect("small undirected matrix fits");
             let undirected_matrix_parallel = four_threads
-                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff));
+                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff))
+                .expect("small undirected matrix fits");
             assert_eq!(undirected_matrix_parallel, undirected_matrix_reference);
 
-            let directed_matrix_reference = one_thread.install(|| {
-                shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
-            });
-            let directed_matrix_parallel = four_threads.install(|| {
-                shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
-            });
+            let directed_matrix_reference = one_thread
+                .install(|| {
+                    shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
+                })
+                .expect("small directed matrix fits");
+            let directed_matrix_parallel = four_threads
+                .install(|| {
+                    shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
+                })
+                .expect("small directed matrix fits");
             assert_eq!(directed_matrix_parallel, directed_matrix_reference);
 
             for (matrix_row, &source) in undirected_matrix_parallel
@@ -71241,6 +71589,70 @@ mod tests {
     }
 
     #[test]
+    fn betweenness_sampled_oracle_policies_preserve_path_counts() {
+        use super::{
+            BetweennessRescalePolicy, betweenness_centrality_sampled_directed_with_params,
+            betweenness_centrality_sampled_with_params, betweenness_centrality_weighted_sampled,
+            betweenness_centrality_weighted_sampled_directed,
+        };
+
+        let mut graph = Graph::strict();
+        let mut directed = DiGraph::strict();
+        for (left, right) in [("a", "b"), ("b", "c")] {
+            graph.add_edge(left, right).expect("valid path edge");
+            directed.add_edge(left, right).expect("valid path edge");
+        }
+        for policy in [
+            BetweennessRescalePolicy::Uniform,
+            BetweennessRescalePolicy::SourceAware,
+        ] {
+            let results = [
+                betweenness_centrality_sampled_with_params(&graph, &["a"], true, false, policy),
+                betweenness_centrality_sampled_directed_with_params(
+                    &directed,
+                    &["a"],
+                    true,
+                    false,
+                    policy,
+                ),
+                betweenness_centrality_weighted_sampled(
+                    &graph,
+                    &["a"],
+                    Some("weight"),
+                    true,
+                    false,
+                    policy,
+                ),
+                betweenness_centrality_weighted_sampled_directed(
+                    &directed,
+                    &["a"],
+                    Some("weight"),
+                    true,
+                    false,
+                    policy,
+                ),
+            ];
+            // The only interior path is a->b->c. The old estimator inflates
+            // its one contribution to 3/2; the source-aware one gives 1.
+            for result in results {
+                let scores = result.scores;
+                assert_eq!(scores.len(), 3);
+                assert_eq!(scores[0].node, "a");
+                assert_eq!(scores[1].node, "b");
+                assert_eq!(scores[2].node, "c");
+                if policy == BetweennessRescalePolicy::Uniform {
+                    assert_eq!(scores[0].score.to_bits(), 0.0_f64.to_bits());
+                    assert_eq!(scores[1].score.to_bits(), 1.5_f64.to_bits());
+                } else {
+                    assert!(scores[0].score.is_nan());
+                    assert_eq!(scores[1].score.to_bits(), 1.0_f64.to_bits());
+                }
+                assert_eq!(scores[2].score.to_bits(), 0.0_f64.to_bits());
+            }
+        }
+    }
+
+    #[test]
     fn betweenness_centrality_cycle_graph_distributes_evenly() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
@@ -71988,6 +72400,50 @@ mod tests {
         let result = edge_betweenness_centrality(&graph);
         for score in result.scores {
             assert!((score.score - (1.0 / 3.0)).abs() <= TEST_TOLERANCE);
+        }
+    }
+
+    #[test]
+    fn edge_betweenness_sampled_oracle_policies_preserve_directed_path_counts() {
+        use super::{BetweennessRescalePolicy, edge_betweenness_centrality_directed_with_params};
+
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("valid path edge");
+        graph.add_edge("b", "c").expect("valid path edge");
+        for weight in [None, Some("weight")] {
+            for (policy, normalized, expected) in [
+                (BetweennessRescalePolicy::Uniform, false, [2.0_f64, 1.0_f64]),
+                (
+                    BetweennessRescalePolicy::SourceAware,
+                    false,
+                    [6.0_f64, 3.0_f64],
+                ),
+                (
+                    BetweennessRescalePolicy::Uniform,
+                    true,
+                    [2.0 / 6.0, 1.0 / 6.0],
+                ),
+                (
+                    BetweennessRescalePolicy::SourceAware,
+                    true,
+                    [1.0_f64, 0.5_f64],
+                ),
+            ] {
+                let result = edge_betweenness_centrality_directed_with_params(
+                    &graph,
+                    Some(&["a"]),
+                    weight,
+                    normalized,
+                    policy,
+                );
+                // Source a traverses a->b twice and b->c once. The older
+                // oracle never inflates sampled edges by n/k, normalized
+                // or not. The normalized old scale is 1/(n*(n-1)).
+                assert_eq!(result.scores.len(), 2);
+                for (score, expected) in result.scores.iter().zip(expected) {
+                    assert_eq!(score.score.to_bits(), expected.to_bits());
+                }
+            }
         }
     }
 
@@ -77783,6 +78239,86 @@ mod tests {
     }
 
     #[test]
+    fn partition_spanning_tree_signed_zero_preserves_ordinal_ties() {
+        for minimum in [false, true] {
+            for first_negative in [false, true] {
+                let mut graph = Graph::strict();
+                for node in ["0", "1", "2", "3"] {
+                    graph.add_node(node);
+                }
+                let first = if first_negative { -0.0_f64 } else { 0.0 };
+                let second = if first_negative { 0.0_f64 } else { -0.0 };
+                for (u, v, weight) in [
+                    ("0", "2", first),
+                    ("0", "1", second),
+                    ("2", "3", 0.0),
+                    ("1", "3", 0.0),
+                ] {
+                    graph
+                        .add_edge_with_attrs(
+                            u,
+                            v,
+                            AttrMap::from([("weight".to_owned(), CgseValue::Float(weight))]),
+                        )
+                        .unwrap();
+                }
+                let result =
+                    super::partition_spanning_tree(&graph, minimum, "weight", "partition", false)
+                        .unwrap();
+                let chosen = result
+                    .edges
+                    .iter()
+                    .map(|edge| (edge.left.as_str(), edge.right.as_str()))
+                    .collect::<Vec<_>>();
+                assert_eq!(chosen, vec![("0", "2"), ("0", "1"), ("1", "3")]);
+                assert_eq!(result.edges[0].weight.to_bits(), first.to_bits());
+                assert_eq!(result.edges[1].weight.to_bits(), second.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn partition_spanning_tree_preserves_infinite_weights() {
+        for minimum in [false, true] {
+            for infinity in [f64::INFINITY, f64::NEG_INFINITY] {
+                let mut graph = Graph::strict();
+                for (u, v, weight) in [("0", "1", infinity), ("1", "2", 2.0), ("0", "2", 3.0)] {
+                    graph
+                        .add_edge_with_attrs(
+                            u,
+                            v,
+                            AttrMap::from([("weight".to_owned(), CgseValue::Float(weight))]),
+                        )
+                        .unwrap();
+                }
+                let result =
+                    super::partition_spanning_tree(&graph, minimum, "weight", "partition", false)
+                        .unwrap();
+                let expected = match (minimum, infinity.is_sign_negative()) {
+                    (true, false) => vec![("1", "2"), ("0", "2")],
+                    (false, false) => vec![("0", "1"), ("0", "2")],
+                    (true, true) => vec![("0", "1"), ("1", "2")],
+                    (false, true) => vec![("0", "2"), ("1", "2")],
+                };
+                let chosen = result
+                    .edges
+                    .iter()
+                    .map(|edge| (edge.left.as_str(), edge.right.as_str()))
+                    .collect::<Vec<_>>();
+                assert_eq!(chosen, expected);
+                assert_eq!(
+                    result.total_weight,
+                    if minimum == infinity.is_sign_negative() {
+                        infinity
+                    } else {
+                        5.0
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
     fn random_spanning_tree_from_samples_returns_tree() {
         let mut g = Graph::strict();
         g.add_edge_with_attrs("a", "b", attrs([("weight", "2.0")]))
@@ -80795,6 +81331,165 @@ mod tests {
     // -----------------------------------------------------------------------
     // dijkstra_path_length tests
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn prim_indexed_cgse_preserves_fifo_edge_decisions() {
+        // Compare every field without requiring a public PartialEq trait or
+        // adding a dependency solely for this test.
+        let signature = |witness: &fnx_cgse::ComplexityWitness| {
+            (
+                witness.n,
+                witness.m,
+                witness.dominant_term.clone(),
+                witness.observed_count,
+                witness.policy,
+                witness.seed,
+                witness.decision_path_blake3,
+            )
+        };
+        let mut graph = Graph::strict();
+        for node in ["s", "b", "a", "t", "isolated"] {
+            graph.add_node(node);
+        }
+        for (u, v) in [("s", "b"), ("s", "a"), ("b", "t"), ("a", "t")] {
+            graph.add_edge(u, v).unwrap();
+        }
+        for minimum in [false, true] {
+            let run = || {
+                super::prim_spanning_edges_indexed(
+                    &graph,
+                    "weight",
+                    minimum,
+                    &[0, 1, 2, 3, 4],
+                    false,
+                )
+            };
+            let expected = Some(vec![(0, 1), (0, 2), (1, 3)]);
+            assert_eq!(run(), expected);
+            let (actual, witnesses) = fnx_cgse::collect_witnesses(run);
+            assert_eq!(actual, expected);
+            assert_eq!(witnesses.len(), 1);
+            let mut expected_sink =
+                fnx_cgse::WitnessSink::new(fnx_cgse::TieBreakPolicy::WeightThenInsertionOrder);
+            // Includes the stale t-from-a entry popped while the isolated
+            // node remains. Counting only selected tree edges misses work.
+            for (chosen, parent) in [
+                ("push:b", "s"),
+                ("push:a", "s"),
+                ("pop:b", "s"),
+                ("push:t", "b"),
+                ("pop:a", "s"),
+                ("push:t", "a"),
+                ("pop:t", "b"),
+                ("pop:t", "a"),
+            ] {
+                expected_sink.record_decision(chosen, parent);
+            }
+            assert_eq!(
+                signature(&witnesses[0]),
+                signature(&expected_sink.finalize(5, 4, "m_log_n", None))
+            );
+            assert!(
+                fnx_cgse::verify_complexity_bound(&witnesses[0])
+                    .unwrap()
+                    .within_bounds
+            );
+            let (_, repeated) = fnx_cgse::collect_witnesses(run);
+            assert_eq!(
+                witnesses.iter().map(signature).collect::<Vec<_>>(),
+                repeated.iter().map(signature).collect::<Vec<_>>()
+            );
+        }
+        let (_, outside) = fnx_cgse::collect_witnesses(|| ());
+        assert!(outside.is_empty());
+    }
+
+    #[test]
+    fn prim_indexed_cgse_signed_zero_preserves_fifo() {
+        for minimum in [false, true] {
+            for first_negative in [false, true] {
+                let mut graph = Graph::strict();
+                for node in ["s", "b", "a", "t"] {
+                    graph.add_node(node);
+                }
+                for (u, v, weight) in [
+                    ("s", "b", if first_negative { -0.0 } else { 0.0 }),
+                    ("s", "a", if first_negative { 0.0 } else { -0.0 }),
+                    ("b", "t", 0.0),
+                    ("a", "t", 0.0),
+                ] {
+                    graph
+                        .add_edge_with_attrs(
+                            u,
+                            v,
+                            AttrMap::from([("weight".to_owned(), CgseValue::Float(weight))]),
+                        )
+                        .unwrap();
+                }
+                let (result, witnesses) = fnx_cgse::collect_witnesses(|| {
+                    super::prim_spanning_edges_indexed(
+                        &graph,
+                        "weight",
+                        minimum,
+                        &[0, 1, 2, 3],
+                        false,
+                    )
+                });
+                assert_eq!(result, Some(vec![(0, 1), (0, 2), (1, 3)]));
+                assert_eq!(witnesses.len(), 1);
+                assert_eq!(witnesses[0].observed_count, 7);
+                assert!(
+                    fnx_cgse::verify_complexity_bound(&witnesses[0])
+                        .unwrap()
+                        .within_bounds
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prim_indexed_cgse_empty_and_nan_exits() {
+        let mut graph = Graph::strict();
+        for singleton in [false, true] {
+            if singleton {
+                graph.add_node("s");
+            }
+            let (result, witnesses) = fnx_cgse::collect_witnesses(|| {
+                super::prim_spanning_edges_indexed(&graph, "weight", true, &[0], false)
+            });
+            assert_eq!(result, Some(vec![]));
+            assert_eq!(witnesses.len(), 1);
+            assert_eq!(witnesses[0].observed_count, 0);
+            assert!(
+                fnx_cgse::verify_complexity_bound(&witnesses[0])
+                    .unwrap()
+                    .within_bounds
+            );
+        }
+        graph
+            .add_edge_with_attrs(
+                "s",
+                "t",
+                AttrMap::from([("weight".to_owned(), CgseValue::Float(f64::NAN))]),
+            )
+            .unwrap();
+        for ignore_nan in [false, true] {
+            let (result, witnesses) = fnx_cgse::collect_witnesses(|| {
+                super::prim_spanning_edges_indexed(&graph, "weight", true, &[0, 1], ignore_nan)
+            });
+            assert_eq!(result, ignore_nan.then(Vec::new));
+            assert_eq!(witnesses.len(), 1);
+            assert_eq!(
+                (witnesses[0].n, witnesses[0].m, witnesses[0].observed_count),
+                (2, 1, 0)
+            );
+            assert!(
+                fnx_cgse::verify_complexity_bound(&witnesses[0])
+                    .unwrap()
+                    .within_bounds
+            );
+        }
+    }
 
     #[test]
     fn bidirectional_bfs_cgse_preserves_paths_and_early_exits() {

@@ -352,9 +352,10 @@ pub struct PyDiGraph {
 
 /// br-r37-c1-weightupdate-9rts1: one group of a weighted degree, summed the way
 /// CPython's `sum` types it — an exact integer prefix that promotes to a
-/// Neumaier-compensated float on the FIRST float value, and not before. The
+/// float on the FIRST float value, and not before. Subsequent additions follow
+/// the running interpreter's plain or compensated policy. The
 /// promoting add itself is plain `int + float` (CPython's `PyNumber_Add`), so
-/// its rounding error is not compensated; the compensation starts after it.
+/// its rounding error is not compensated; any compensation starts after it.
 ///
 /// Directed degree needs this per GROUP, not per node: nx computes
 /// `sum(succ) + sum(pred)`, so an all-int successor row stays an int even when
@@ -1830,6 +1831,27 @@ impl PyMultiDiGraph {
         Ok(row)
     }
 
+    /// `u -> v`'s live keydict, or `None` when there is no such edge: the
+    /// registry is asked first, as `get_edge_data` asks it, and the edge
+    /// check only runs on a miss.
+    fn existing_live_keydict(
+        &mut self,
+        py: Python<'_>,
+        graph: &Bound<'_, PyAny>,
+        u: &str,
+        v: &str,
+    ) -> PyResult<Option<PyObject>> {
+        if let Some(row) = self.live_keydict_rows.get(py, u, v) {
+            return Ok(Some(row.into_any()));
+        }
+        if !self.inner.has_edge(u, v) {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.live_keydict(py, graph, u, v)?.into_any().unbind(),
+        ))
+    }
+
     /// An edge's attribute dict for a `&self` reader that hands dicts out: the
     /// live mirror when the edge has one, else a dict built from the store - the
     /// edge's only copy (reverse() leaves a MultiDiGraph store-only) - else an
@@ -2834,10 +2856,14 @@ impl PyMultiDiGraph {
     /// br-r37-c1-txkrn records) merely orphans the row the iterator is walking,
     /// so it completed and reported the pre-removal neighbours.
     ///
-    /// The removed node's OWN rows are left alone: networkx drops them from
-    /// `_succ`/`_pred` without touching the dicts, so an iterator over one of
-    /// them completes there too.
-    fn direction_rows_drop_node_in_place(&mut self, py: Python<'_>, canonical: &str) {
+    /// Earlier removals have detached their rows. A self-loop is deleted from
+    /// pred by the first loop, so the second loop never deletes it from succ.
+    fn direction_rows_drop_node_in_place(
+        &mut self,
+        py: Python<'_>,
+        canonical: &str,
+        removed_before: &rustc_hash::FxHashSet<String>,
+    ) {
         if self.succ_key_rows.is_none() && self.pred_key_rows.is_none() {
             return;
         }
@@ -2853,10 +2879,14 @@ impl PyMultiDiGraph {
             .unwrap_or_default();
         // A successor loses it from its PRED row; a predecessor from its SUCC row.
         for s in succs {
-            let _ = self.cached_direction_row_remove(py, &s, canonical, false);
+            if !removed_before.contains(&s) {
+                let _ = self.cached_direction_row_remove(py, &s, canonical, false);
+            }
         }
         for p in preds {
-            let _ = self.cached_direction_row_remove(py, &p, canonical, true);
+            if p != canonical && !removed_before.contains(&p) {
+                let _ = self.cached_direction_row_remove(py, &p, canonical, true);
+            }
         }
     }
 
@@ -4980,8 +5010,8 @@ impl PyMultiDiGraph {
         Ok(())
     }
 
-    /// `del keydict[key]`: remove the edge; an emptied pair keeps its keydict
-    /// registered as a networkx-style "ghost" (see live_keydict.rs).
+    /// `del keydict[key]` keeps the keydict and ordered successor/predecessor
+    /// cells even when empty. It must not take graph-side removal's detach path.
     fn _fnx_keydict_remove(
         slf: &Bound<'_, Self>,
         py: Python<'_>,
@@ -4991,19 +5021,22 @@ impl PyMultiDiGraph {
         key: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         let mut g = slf.borrow_mut();
-        if g.resolve_internal_edge_key(py, source, target, key)?
-            .is_none()
+        let Some(internal_key) = g.resolve_internal_edge_key(py, source, target, key)? else {
+            return Err(PyKeyError::new_err((key.clone().unbind(),)));
+        };
+        // Finish fallible Python hashing/deletion before changing native
+        // topology. PyDict bypasses the keydict subclass's deletion hook.
+        row.del_item(key)?;
+        if !g
+            .inner
+            .remove_key_preserving_pair(source, target, internal_key)
         {
             return Err(PyKeyError::new_err((key.clone().unbind(),)));
         }
-        let u_obj = g.py_node_key(py, source);
-        let v_obj = g.py_node_key(py, target);
-        g.remove_edge(py, u_obj.bind(py), v_obj.bind(py), Some(key))?;
-        if !g.inner.has_edge(source, target) {
-            g.live_keydict_rows
-                .insert(source, target, row.clone().unbind());
-            drop(g);
-            row.setattr(pyo3::intern!(py, "_fnx_graph"), slf)?;
+        g.remove_edge_metadata(source, target, internal_key);
+        g.bump_edges_seq();
+        if g.direction_rows_live() {
+            g.restamp_direction_rows();
         }
         Ok(())
     }
@@ -6681,6 +6714,9 @@ impl PyMultiDiGraph {
             for (k, val) in a.iter() {
                 py_dict.bind(py).set_item(k, val)?;
             }
+            if !crate::attr_dict_is_batch_lossless(a) {
+                self.mark_edges_dirty();
+            }
         }
         // br-r37-c1-dwy1n: maintain live direction rows IN PLACE so an
         // outstanding successors/predecessors/neighbors iterator sees the
@@ -6833,18 +6869,25 @@ impl PyMultiDiGraph {
             Some(explicit_key) => {
                 self.resolve_internal_edge_key(py, &u_canonical, &v_canonical, explicit_key)?
             }
-            None => self
-                .inner
-                .edge_keys(&u_canonical, &v_canonical)
-                .and_then(|keys| keys.last().copied()),
+            None => {
+                let keys = self.inner.edge_keys(&u_canonical, &v_canonical);
+                if keys.as_ref().is_some_and(Vec::is_empty) {
+                    return Err(PyKeyError::new_err("popitem(): dictionary is empty"));
+                }
+                keys.and_then(|keys| keys.last().copied())
+            }
         };
         let live_row_key = auto_removal_key.map(|internal_key| {
             let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
             self.py_edge_key_with_key(py, internal_key, &edge_key)
         });
-        let removed = self
-            .inner
-            .remove_edge(&u_canonical, &v_canonical, auto_removal_key);
+        // An unresolved explicit key must not become key=None (remove last).
+        // Bulk removal calls this native method without the Python wrapper's
+        // keyed-membership precheck.
+        let removed = auto_removal_key.is_some()
+            && self
+                .inner
+                .remove_edge(&u_canonical, &v_canonical, auto_removal_key);
         if !removed {
             return Err(NetworkXError::new_err(format!(
                 "The edge {}-{} is not in the graph",
@@ -6906,7 +6949,7 @@ impl PyMultiDiGraph {
         // `G.neighbors(u)` sees the removal and raises like networkx. The drop
         // stays: it is what keeps a stale row from being laundered, and it
         // cannot deliver the raise on its own.
-        self.direction_rows_drop_node_in_place(py, &canonical);
+        self.direction_rows_drop_node_in_place(py, &canonical, &rustc_hash::FxHashSet::default());
         // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
@@ -6932,14 +6975,31 @@ impl PyMultiDiGraph {
                 .inner
                 .predecessors_iter(&canonical)
                 .is_some_and(|mut preds| preds.next().is_some());
-        if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
+        if !self.edge_py_attrs.is_empty()
+            || !self.edge_py_keys.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
             let inner = &self.inner;
-            let (attrs, py_keys) = (&mut self.edge_py_attrs, &mut self.edge_py_keys);
+            let (attrs, py_keys, succ_keys, pred_keys) = (
+                &mut self.edge_py_attrs,
+                &mut self.edge_py_keys,
+                &mut self.succ_py_keys,
+                &mut self.pred_py_keys,
+            );
             let mut forget = |u: &str, v: &str| {
-                for &key in inner.edge_keys_iter(u, v).into_iter().flatten() {
-                    let ek = Self::edge_key(u, v, key);
-                    attrs.remove(&ek);
-                    py_keys.remove(&ek);
+                if !succ_keys.is_empty() {
+                    succ_keys.remove(&(u.to_owned(), v.to_owned()));
+                }
+                if !pred_keys.is_empty() {
+                    pred_keys.remove(&(v.to_owned(), u.to_owned()));
+                }
+                if !attrs.is_empty() || !py_keys.is_empty() {
+                    for &key in inner.edge_keys_iter(u, v).into_iter().flatten() {
+                        let ek = Self::edge_key(u, v, key);
+                        attrs.remove(&ek);
+                        py_keys.remove(&ek);
+                    }
                 }
             };
             for v in inner.successors_iter(&canonical).into_iter().flatten() {
@@ -6959,13 +7019,6 @@ impl PyMultiDiGraph {
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
-        if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
-            // br-r37-c1-z6uka: drop cell overrides touching the removed node.
-            self.succ_py_keys
-                .retain(|(a, b), _| a != &canonical && b != &canonical);
-            self.pred_py_keys
-                .retain(|(a, b), _| a != &canonical && b != &canonical);
-        }
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -7002,8 +7055,12 @@ impl PyMultiDiGraph {
         // br-r37-c1-pyzv0: edit the live rows BEFORE the drop below, while
         // `inner` still knows each removed node's successors and predecessors,
         // so an in-flight `G.neighbors(u)` raises like networkx.
-        for canonical in &present {
-            self.direction_rows_drop_node_in_place(py, canonical);
+        if self.succ_key_rows.is_some() || self.pred_key_rows.is_some() {
+            let mut removed_before = rustc_hash::FxHashSet::default();
+            for canonical in &present {
+                self.direction_rows_drop_node_in_place(py, canonical, &removed_before);
+                removed_before.insert(canonical.clone());
+            }
         }
         // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
@@ -7663,6 +7720,152 @@ impl PyMultiDiGraph {
             out.push((self.py_node_key(py, node), preds));
         }
         Ok(out)
+    }
+
+    /// br-r37-c1-pgpg1: one row of a `to_undirected(as_view=True)` view, in one
+    /// crossing - networkx's `UnionMultiInner(succ[node], pred[node])` as
+    /// `(neighbor, succ keydict | None, pred keydict | None)` per neighbor, in
+    /// the order networkx iterates the row: the set `set(succ[node].keys()) |
+    /// set(pred[node].keys())`. Both sets are built through CPython's set API
+    /// from the rows' display keys in row order (`PySet_New` + `PySet_Add`,
+    /// what `set(iterable)` does) and joined with `|`, so the table and its
+    /// iteration order are the ones networkx gets. The key dicts are the
+    /// graph's live ones, as `get_edge_data(u, v)` returns them; the per-pair
+    /// Python lookups this replaces made 100 rows' items 0.7x networkx.
+    #[allow(clippy::type_complexity)]
+    fn _fnx_union_multi_row(
+        slf: &Bound<'_, Self>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, Option<PyObject>, Option<PyObject>)>> {
+        let py = slf.py();
+        let mut buf = ArrayString::new();
+        let key = canonical_node_key_in(py, node, &mut buf)?;
+        let canonical = key.as_str();
+        let mut this = slf.borrow_mut();
+        if !this.inner.has_node(canonical) {
+            return Err(crate::missing_key_error(node));
+        }
+        let successors: Vec<String> = this
+            .inner
+            .successors(canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let predecessors: Vec<String> = this
+            .inner
+            .predecessors(canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let succ_keys: Vec<PyObject> = successors
+            .iter()
+            .map(|successor| this.py_succ_key(py, canonical, successor))
+            .collect();
+        let pred_keys: Vec<PyObject> = predecessors
+            .iter()
+            .map(|predecessor| this.py_pred_key(py, canonical, predecessor))
+            .collect();
+        let out_names: rustc_hash::FxHashSet<&str> =
+            successors.iter().map(String::as_str).collect();
+        let in_names: rustc_hash::FxHashSet<&str> =
+            predecessors.iter().map(String::as_str).collect();
+        // The union holds the very objects inserted, so each is mapped back to
+        // its node by identity rather than re-canonicalised.
+        let mut names: rustc_hash::FxHashMap<usize, &str> = rustc_hash::FxHashMap::default();
+        for (key, name) in succ_keys
+            .iter()
+            .zip(&successors)
+            .chain(pred_keys.iter().zip(&predecessors))
+        {
+            names.entry(key.as_ptr() as usize).or_insert(name.as_str());
+        }
+        let union = PySet::new(py, &succ_keys)?
+            .as_any()
+            .bitor(PySet::new(py, &pred_keys)?)?;
+        let mut row = Vec::with_capacity(names.len());
+        for neighbor in union.try_iter()? {
+            let neighbor = neighbor?;
+            let recanonicalised;
+            let nbr = match names.get(&(neighbor.as_ptr() as usize)) {
+                Some(name) => *name,
+                None => {
+                    recanonicalised = node_key_to_string(py, &neighbor)?;
+                    recanonicalised.as_str()
+                }
+            };
+            // A name in the succ (pred) row is an edge, so its key dict exists.
+            let outgoing = if out_names.contains(nbr) {
+                Some(
+                    this.live_keydict(py, slf.as_any(), canonical, nbr)?
+                        .into_any()
+                        .unbind(),
+                )
+            } else {
+                None
+            };
+            let incoming = if in_names.contains(nbr) {
+                Some(
+                    this.live_keydict(py, slf.as_any(), nbr, canonical)?
+                        .into_any()
+                        .unbind(),
+                )
+            } else {
+                None
+            };
+            row.push((neighbor.unbind(), outgoing, incoming));
+        }
+        Ok(row)
+    }
+
+    /// br-r37-c1-pgpg1: the `(u, v)` entry of a `to_undirected(as_view=True)`
+    /// view - `(succ keydict | None, pred keydict | None)`, the live key dicts
+    /// of `u -> v` and `v -> u` - or `None` when neither edge exists; one
+    /// crossing where two `get_edge_data` calls made two.
+    #[allow(clippy::type_complexity)]
+    fn _fnx_union_multi_pair(
+        slf: &Bound<'_, Self>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<(Option<PyObject>, Option<PyObject>)>> {
+        let py = slf.py();
+        // networkx's `v in succ[u]` on a plain dict: its TypeError for an
+        // unhashable neighbor.
+        crate::hash_key_as_dict_would(v)?;
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let (u_c, v_c) = (u_key.as_str(), v_key.as_str());
+        let mut this = slf.borrow_mut();
+        let outgoing = this.existing_live_keydict(py, slf.as_any(), u_c, v_c)?;
+        let incoming = this.existing_live_keydict(py, slf.as_any(), v_c, u_c)?;
+        if outgoing.is_none() && incoming.is_none() {
+            return Ok(None);
+        }
+        Ok(Some((outgoing, incoming)))
+    }
+
+    /// br-r37-c1-pgpg1: how many neighbors `node` has in a
+    /// `to_undirected(as_view=True)` view - `len(set(succ) | set(pred))` -
+    /// counted over the node names, building no Python object.
+    fn _fnx_union_row_len(&self, py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<usize> {
+        let mut buf = ArrayString::new();
+        let key = canonical_node_key_in(py, node, &mut buf)?;
+        let canonical = key.as_str();
+        if !self.inner.has_node(canonical) {
+            return Err(crate::missing_key_error(node));
+        }
+        let successors = self.inner.successors(canonical).unwrap_or_default();
+        let only_in = self
+            .inner
+            .predecessors(canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|predecessor| !self.inner.has_edge(canonical, predecessor))
+            .count();
+        Ok(successors.len() + only_in)
     }
 
     fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiDiAtlasView>> {
@@ -9704,16 +9907,17 @@ impl PyMultiDiGraph {
 
     /// Support ``copy.copy(G)`` — returns a shallow copy.
     ///
-    /// NetworkX parity (br-r37-c1-5ctpe): `copy.copy(G)` must share the same
-    /// attribute dict references (graph, node, edge attrs are `is`, not just `==`).
-    /// `G.copy()` returns a deep copy; `copy.copy(G)` returns a shallow copy.
+    /// Preserves source node/edge/row order verbatim, shares the graph attribute
+    /// dict (`G.graph`), and copies node/edge attribute dicts as independent
+    /// one-level shallow copies (`dict.copy()`) so mutations on one graph's
+    /// Rust storage do not desynchronize the other (`test_adj_mapping_parity`).
     fn __copy__(&self, py: Python<'_>) -> PyResult<Self> {
         // br-r37-c1-o1i86: wholesale inner clone (see PyMultiGraph::__copy__)
         // — the old rebuild iterated node_key_map (HashMap, scrambled node
         // order) and replayed edge iteration order, diverging succ/pred row
-        // content order from the source after remove+re-add. Python-side
-        // dicts are clone_ref'd so attrs stay SHARED (shallow-copy
-        // semantics); row-key override maps clone exactly.
+        // content order from the source after remove+re-add. Node/edge attr
+        // dicts are independent one-level copies; row-key override maps clone
+        // exactly.
         // br-r37-c1-urjxk: the edge attr dicts below are COPIES (not shared),
         // so they belong to, and report their writes to, the new graph.
         let edge_attr_writes = crate::EdgeAttrWrites::default();
@@ -10290,8 +10494,11 @@ impl PyMultiDiGraph {
             };
             let u_c = node_key_to_string(py, u)?;
             let v_c = node_key_to_string(py, v)?;
-            if self.inner.has_edge(&u_c, &v_c) {
-                let _ = self.remove_edge(py, u, v, key.as_ref());
+            if self.inner.has_edge(&u_c, &v_c)
+                && let Err(error) = self.remove_edge(py, u, v, key.as_ref())
+                && !error.is_instance_of::<crate::NetworkXError>(py)
+            {
+                return Err(error);
             }
         }
         self.bump_edges_seq();
@@ -10416,10 +10623,10 @@ impl PyMultiDiGraph {
         // keydict row is registered — it hands its attr dicts out for as long
         // as the caller holds it, with no access to intercept.
         if self.live_keydict_rows.is_empty()
-            && self
-                .edge_py_attrs
-                .values()
-                .all(|dict| self.edge_attr_writes.reports_here(py, dict.bind(py)))
+            && self.edge_py_attrs.values().all(|dict| {
+                self.edge_attr_writes.reports_here(py, dict.bind(py))
+                    && crate::attr_dict_is_batch_lossless(dict.bind(py))
+            })
         {
             self.edges_dirty.store(false, Ordering::Relaxed);
             self.pending_edge_dirty_positions.lock().unwrap().clear();
@@ -14636,6 +14843,12 @@ impl PyDiGraph {
                 let ek = Self::edge_key(&canonical, v);
                 self.edge_py_attrs.remove(&ek);
                 self.cached_pred_remove_key(py, v, &canonical);
+                if !self.succ_py_keys.is_empty() {
+                    self.succ_py_keys.remove(&(canonical.clone(), v.to_owned()));
+                }
+                if !self.pred_py_keys.is_empty() {
+                    self.pred_py_keys.remove(&(v.to_owned(), canonical.clone()));
+                }
                 had_incident_edges = true;
             }
         }
@@ -14650,6 +14863,12 @@ impl PyDiGraph {
                 // here, so skip it to delete what networkx deletes.
                 if u != canonical {
                     self.cached_succ_remove_key(py, u, &canonical);
+                }
+                if !self.succ_py_keys.is_empty() {
+                    self.succ_py_keys.remove(&(u.to_owned(), canonical.clone()));
+                }
+                if !self.pred_py_keys.is_empty() {
+                    self.pred_py_keys.remove(&(canonical.clone(), u.to_owned()));
                 }
                 had_incident_edges = true;
             }
@@ -14666,13 +14885,6 @@ impl PyDiGraph {
         self.node_py_attrs.remove(&canonical);
         self.succ_row_py.remove(&canonical);
         self.pred_row_py.remove(&canonical);
-        if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
-            // br-r37-c1-z6uka: drop row overrides touching the removed node.
-            self.succ_py_keys
-                .retain(|(a, b), _| a != &canonical && b != &canonical);
-            self.pred_py_keys
-                .retain(|(a, b), _| a != &canonical && b != &canonical);
-        }
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -14736,15 +14948,21 @@ impl PyDiGraph {
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
-        let mut present = HashSet::<String>::new();
+        let mut present = Vec::<String>::new();
+        let mut present_set = HashSet::<String>::new();
         for item in iter {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
-            if self.inner.has_node(&canonical) {
-                present.insert(canonical);
+            if self.inner.has_node(&canonical) && present_set.insert(canonical.clone()) {
+                present.push(canonical);
             }
         }
         let present_refs: HashSet<&str> = present.iter().map(String::as_str).collect();
+        let removal_positions: HashMap<&str, usize> = present
+            .iter()
+            .enumerate()
+            .map(|(index, node)| (node.as_str(), index))
+            .collect();
         let mut removed_py_edge_attrs = false;
         self.edge_py_attrs.retain(|(source, target), _| {
             let keep =
@@ -14768,23 +14986,29 @@ impl PyDiGraph {
         // per-row display-key overrides still exist. Doing this after dropping
         // those maps rendered an integer node's canonical "1" as Python "1",
         // so del_item silently missed the live row's integer key and left a
-        // captured AtlasView stale. Skip rows whose owner is itself removed:
-        // nx detaches those inner dicts without clearing them, so an already
-        // captured row remains readable with its old contents.
+        // captured AtlasView stale. Retired rows see only earlier removals;
+        // pred also loses its self-loop when its owner is removed, while succ
+        // keeps that entry. Preserve the order without repeated inner compaction.
         for (owner, row) in &self.succ_row_py {
-            if present.contains(owner) {
-                continue;
-            }
-            for canonical in &present {
+            for (index, canonical) in present.iter().enumerate() {
+                if removal_positions
+                    .get(owner.as_str())
+                    .is_some_and(|position| index >= *position)
+                {
+                    break;
+                }
                 let py_node = self.py_succ_key(py, owner, canonical);
                 let _ = row.bind(py).del_item(py_node);
             }
         }
         for (owner, row) in &self.pred_row_py {
-            if present.contains(owner) {
-                continue;
-            }
-            for canonical in &present {
+            for (index, canonical) in present.iter().enumerate() {
+                if removal_positions
+                    .get(owner.as_str())
+                    .is_some_and(|position| index > *position)
+                {
+                    break;
+                }
                 let py_node = self.py_pred_key(py, owner, canonical);
                 let _ = row.bind(py).del_item(py_node);
             }
@@ -14796,9 +15020,9 @@ impl PyDiGraph {
         if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
             // br-r37-c1-z6uka: drop row overrides touching removed nodes.
             self.succ_py_keys
-                .retain(|(a, b), _| !present.contains(a) && !present.contains(b));
+                .retain(|(a, b), _| !present_set.contains(a) && !present_set.contains(b));
             self.pred_py_keys
-                .retain(|(a, b), _| !present.contains(a) && !present.contains(b));
+                .retain(|(a, b), _| !present_set.contains(a) && !present_set.contains(b));
         }
         for canonical in &present {
             self.succ_row_py.remove(canonical);
@@ -14918,6 +15142,11 @@ impl PyDiGraph {
                 // One C-level update, in the caller's order, as Graph does
                 // (br-r37-c1-aefbatch).
                 py_dict.bind(py).update(a.as_mapping())?;
+            }
+            // A numeric projection cannot preserve subclass addition or the
+            // interpreter's exact-type sum dispatch. Keep the mirror live.
+            if !crate::attr_dict_is_batch_lossless(a) {
+                self.mark_edges_dirty();
             }
         }
 
@@ -16864,11 +17093,10 @@ impl PyDiGraph {
             self.inner.replace_edge_attrs(&u, &v, attrs);
         }
         self.edge_attr_writes.note_rewrite();
-        if self
-            .edge_py_attrs
-            .values()
-            .all(|dict| self.edge_attr_writes.reports_here(py, dict.bind(py)))
-        {
+        if self.edge_py_attrs.values().all(|dict| {
+            self.edge_attr_writes.reports_here(py, dict.bind(py))
+                && crate::attr_dict_is_batch_lossless(dict.bind(py))
+        }) {
             self.edges_dirty.store(false, Ordering::Relaxed);
         }
         Ok(())
@@ -18903,9 +19131,10 @@ impl PyDiGraph {
 
     /// Support ``copy.copy(G)`` — returns a shallow copy.
     ///
-    /// NetworkX parity (br-r37-c1-5ctpe): `copy.copy(G)` must share the same
-    /// attribute dict references (graph, node, edge attrs are `is`, not just `==`).
-    /// `G.copy()` returns a deep copy; `copy.copy(G)` returns a shallow copy.
+    /// Preserves source node/edge/row order verbatim, shares the graph attribute
+    /// dict (`G.graph`), and copies node/edge attribute dicts as independent
+    /// one-level shallow copies (`dict.copy()`) so mutations on one graph's
+    /// Rust storage do not desynchronize the other (`test_adj_mapping_parity`).
     fn __copy__(&self, py: Python<'_>) -> PyResult<Self> {
         // br-r37-c1-o1i86: wholesale inner clone — the old rebuild iterated
         // node_key_map (HashMap, scrambled node order) and replayed edge

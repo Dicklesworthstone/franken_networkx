@@ -6,7 +6,7 @@
 //! engine format matches the public NetworkX surface.
 
 use crate::algorithms::{GraphRef, extract_graph};
-use crate::digraph::PyDiGraph;
+use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{
     DictOfDictsCache, PyGraph, PyMultiGraph, PyNodeKeyMap, PyObject, PythonAllowThreadsExt,
     attr_map_to_pydict, cgse_value_to_py, node_key_to_string, py_dict_to_attr_map,
@@ -170,6 +170,11 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v)?)?;
     }
 
+    // Reconstruction is not a new public mutation. Keep the parser's policy
+    // intact: thousands of internal node/edge Allow records would otherwise
+    // retire parse decisions needed by the public recovery/reconstruction path.
+    inner.set_runtime_policy(g.runtime_policy().clone());
+
     Ok(PyGraph {
         inner,
         node_key_map,
@@ -250,6 +255,8 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
     for (k, v) in &graph_attrs {
         py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v)?)?;
     }
+
+    inner.set_runtime_policy(g.runtime_policy().clone());
 
     Ok(PyDiGraph {
         inner,
@@ -1687,9 +1694,61 @@ fn read_json_graph(
 // GraphML
 // ---------------------------------------------------------------------------
 
+/// Preserve native validation evidence when a public reader needs the richer
+/// NetworkX graph/key representation. Do not replace it with constructor-only
+/// records or the caller's ambient compatibility mode.
+#[pyfunction]
+fn copy_readwrite_policy(source: &Bound<'_, PyAny>, target: &Bound<'_, PyAny>) -> PyResult<()> {
+    let policy = if let Ok(graph) = source.extract::<PyRef<'_, PyGraph>>() {
+        graph.inner.runtime_policy().clone()
+    } else if let Ok(graph) = source.extract::<PyRef<'_, PyDiGraph>>() {
+        graph.inner.runtime_policy().clone()
+    } else {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "readwrite policy source must be a native Graph or DiGraph",
+        ));
+    };
+    if let Ok(mut graph) = target.extract::<PyRefMut<'_, PyGraph>>() {
+        graph.inner.set_runtime_policy(policy);
+    } else if let Ok(mut graph) = target.extract::<PyRefMut<'_, PyDiGraph>>() {
+        graph.inner.set_runtime_policy(policy);
+    } else if let Ok(mut graph) = target.extract::<PyRefMut<'_, PyMultiGraph>>() {
+        graph.inner.set_runtime_policy(policy);
+    } else if let Ok(mut graph) = target.extract::<PyRefMut<'_, PyMultiDiGraph>>() {
+        graph.inner.set_runtime_policy(policy);
+    } else {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "readwrite policy target must be a native graph",
+        ));
+    }
+    Ok(())
+}
+
 #[pyfunction]
 #[pyo3(signature = (path, mode=None))]
 fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyObject> {
+    read_graphml_report(py, path, mode, false)
+}
+
+/// Return a native policy carrier for the public richer decoder. Parallel
+/// edges are validated but projected; callers must reconstruct the original
+/// multigraph and must not return this projection as a complete graph.
+#[pyfunction]
+#[pyo3(signature = (path, mode=None))]
+fn validate_graphml(
+    py: Python<'_>,
+    path: &Bound<'_, PyAny>,
+    mode: Option<&str>,
+) -> PyResult<PyObject> {
+    read_graphml_report(py, path, mode, true)
+}
+
+fn read_graphml_report(
+    py: Python<'_>,
+    path: &Bound<'_, PyAny>,
+    mode: Option<&str>,
+    validation_only: bool,
+) -> PyResult<PyObject> {
     let input = read_input(py, path)?;
     let cmode = crate::resolve_compatibility_mode(mode)?;
     let mut engine = EdgeListEngine::new(cmode);
@@ -1699,7 +1758,13 @@ fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> 
         .map_err(rw_error_to_py)?
     {
         let report = py
-            .allow_threads(|| engine.read_digraph_graphml(&input))
+            .allow_threads(|| {
+                if validation_only {
+                    engine.validate_digraph_graphml(&input)
+                } else {
+                    engine.read_digraph_graphml(&input)
+                }
+            })
             .map_err(rw_error_to_py)?;
         Ok(di_report_to_pydigraph(py, report)?
             .into_pyobject(py)?
@@ -1707,7 +1772,13 @@ fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> 
             .unbind())
     } else {
         let report = py
-            .allow_threads(|| engine.read_graphml(&input))
+            .allow_threads(|| {
+                if validation_only {
+                    engine.validate_graphml(&input)
+                } else {
+                    engine.read_graphml(&input)
+                }
+            })
             .map_err(rw_error_to_py)?;
         Ok(report_to_pygraph(py, report)?
             .into_pyobject(py)?
@@ -4201,6 +4272,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(node_link_data, m)?)?;
     m.add_function(wrap_pyfunction!(node_link_graph, m)?)?;
     m.add_function(wrap_pyfunction!(read_graphml, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_graphml, m)?)?;
+    m.add_function(wrap_pyfunction!(copy_readwrite_policy, m)?)?;
     m.add_function(wrap_pyfunction!(write_graphml, m)?)?;
     m.add_function(wrap_pyfunction!(read_gexf, m)?)?;
     m.add_function(wrap_pyfunction!(write_gexf, m)?)?;

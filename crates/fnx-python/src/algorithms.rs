@@ -14,8 +14,8 @@ use crate::{
 use fnx_classes::AttrMap;
 use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::{
-    PyException, PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError,
-    PyZeroDivisionError,
+    PyException, PyIndexError, PyKeyError, PyMemoryError, PyRuntimeError, PyTypeError,
+    PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
 use pyo3::types::{
@@ -5838,6 +5838,51 @@ fn bench_bidirectional_dijkstra_orig(
     )
 }
 
+/// Unit-weight Dijkstra is a FIFO traversal: every first discovery is optimal.
+/// Stop at target finalization, not discovery, preserving the single-source
+/// heap's equal-distance order rather than bidirectional BFS's meeting order.
+/// Sparse state grows with the reached component, not the whole graph.
+fn unit_weight_dijkstra_path<'g>(
+    source: &'g str,
+    target: &str,
+    node_count: usize,
+    edge_count: usize,
+    row: impl Fn(&str) -> Vec<&'g str>,
+) -> Option<Vec<&'g str>> {
+    let mut witness = WitnessRun::new(
+        fnx_cgse::ReferenceAlgorithm::Dijkstra,
+        node_count,
+        edge_count,
+    );
+    if source == target {
+        return Some(vec![source]);
+    }
+    let mut parent = rustc_hash::FxHashMap::default();
+    parent.insert(source, None);
+    let mut queue = VecDeque::from([source]);
+    while let Some(node) = queue.pop_front() {
+        witness.record(node, "finalized");
+        if node == target {
+            let mut path = vec![node];
+            let mut cursor = node;
+            while let Some(&Some(previous)) = parent.get(cursor) {
+                path.push(previous);
+                cursor = previous;
+            }
+            path.reverse();
+            return Some(path);
+        }
+        for neighbor in row(node) {
+            witness.record(neighbor, node);
+            if let std::collections::hash_map::Entry::Vacant(entry) = parent.entry(neighbor) {
+                entry.insert(Some(node));
+                queue.push_back(neighbor);
+            }
+        }
+    }
+    None
+}
+
 /// br-r37-c1-lc2qy (cc): single-pair weighted Dijkstra PATH with target early-exit.
 ///
 /// Returns ``(length, all_int, path)`` or raises ``NetworkXNoPath`` if the target is
@@ -5846,6 +5891,8 @@ fn bench_bidirectional_dijkstra_orig(
 /// all-paths construction that made single-pair ``single_source_dijkstra_path[target]``
 /// slow). Byte-identical to ``networkx.dijkstra_path``. The wrapper has already validated
 /// the source and edge-only-synced post-construction weight mutations.
+/// ``weight=None`` uses the unit-weight FIFO specialization, but returns None
+/// to decline dictionaries with non-string keys or empty live parallel rows.
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight, check_rows=false))]
 pub fn dijkstra_path_to_target(
@@ -5853,13 +5900,104 @@ pub fn dijkstra_path_to_target(
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
-    weight: &str,
+    weight: Option<&str>,
     check_rows: bool,
-) -> PyResult<(f64, bool, PyObject)> {
+) -> PyResult<Option<(f64, bool, PyObject)>> {
     let gr = extract_graph(g)?;
-    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let source_str = node_key_to_string(py, source)?;
     let target_str = node_key_to_string(py, target)?;
+    if weight.is_none() {
+        // NetworkX uses data.get(None, 1), not an unconditional unit weight.
+        // Only Python mirrors can contain a non-string attribute key. Decline
+        // before arming a witness if such a key exists; the wrapper walks the
+        // actual Python dictionaries. Self queries do not read any weights.
+        if source_str != target_str {
+            // Inspect types, not dict.contains(None): a custom key can compare
+            // equal to None or raise in __eq__. Never invoke that comparison
+            // on an unreachable edge just to admit the unit-weight shortcut.
+            let nonstring_key = |attrs: &Py<PyDict>| {
+                attrs
+                    .bind(py)
+                    .iter()
+                    .any(|(key, _)| !key.is_exact_instance_of::<PyString>())
+            };
+            let must_read_python_weights = match &gr {
+                GraphRef::Undirected(pg) => pg.edge_py_attrs.values().any(nonstring_key),
+                GraphRef::Directed { dg, .. } => dg.edge_py_attrs.values().any(nonstring_key),
+                GraphRef::MultiUndirected { mg, .. } => {
+                    mg.edge_py_attrs.values().any(nonstring_key)
+                        || mg.live_keydict_rows.has_empty_row(py)
+                }
+                GraphRef::MultiDirected { mdg, .. } => {
+                    mdg.edge_py_attrs.values().any(nonstring_key)
+                        || mdg.live_keydict_rows.has_empty_row(py)
+                }
+            };
+            if must_read_python_weights {
+                return Ok(None);
+            }
+        }
+        if !gr.has_node(&source_str) {
+            return Err(NodeNotFound::new_err(format!(
+                "Node {} not found in graph",
+                source
+            )));
+        }
+        let n = gr.node_count_original();
+        let m = gr.edge_count_original();
+        let path = match &gr {
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
+                py.allow_threads(|| {
+                    unit_weight_dijkstra_path(&source_str, &target_str, n, m, |node| {
+                        inner.neighbors(node).unwrap_or_default()
+                    })
+                })
+            }
+            GraphRef::Directed { dg, .. } => {
+                let inner = &dg.inner;
+                py.allow_threads(|| {
+                    unit_weight_dijkstra_path(&source_str, &target_str, n, m, |node| {
+                        inner.successors(node).unwrap_or_default()
+                    })
+                })
+            }
+            GraphRef::MultiUndirected { mg, .. } => {
+                let inner = &mg.inner;
+                py.allow_threads(|| {
+                    unit_weight_dijkstra_path(&source_str, &target_str, n, m, |node| {
+                        inner.neighbors(node).unwrap_or_default()
+                    })
+                })
+            }
+            GraphRef::MultiDirected { mdg, .. } => {
+                let inner = &mdg.inner;
+                py.allow_threads(|| {
+                    unit_weight_dijkstra_path(&source_str, &target_str, n, m, |node| {
+                        inner.successors(node).unwrap_or_default()
+                    })
+                })
+            }
+        }
+        .ok_or_else(|| NetworkXNoPath::new_err(format!("No path to {}.", target)))?;
+        let mut output = Vec::with_capacity(path.len());
+        for (index, node) in path.iter().enumerate() {
+            output.push(if index + 1 == path.len() {
+                target.clone().unbind()
+            } else if index == 0 {
+                source.clone().unbind()
+            } else {
+                gr.py_row_key(py, path[index - 1], node)
+            });
+        }
+        return Ok(Some((
+            (path.len() - 1) as f64,
+            true,
+            output.into_pyobject(py)?.into_any().unbind(),
+        )));
+    }
+    let weight = weight.expect("None weight handled above");
+    let row_limit = check_rows.then(|| expanded_row_limit(&gr));
     let (outcome, rows) = if let Some(projection) = gr.weighted_digraph_projection(weight) {
         let inner = projection.as_ref();
         py.allow_threads(|| {
@@ -5894,11 +6032,11 @@ pub fn dijkstra_path_to_target(
     match outcome {
         Some((length, path, all_int)) => {
             let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
-            Ok((
+            Ok(Some((
                 length,
                 all_int,
                 py_path.into_pyobject(py)?.into_any().unbind(),
-            ))
+            )))
         }
         None => Err(NetworkXNoPath::new_err(format!(
             "No path to {}.",
@@ -8305,23 +8443,38 @@ fn closeness_centrality_kernel_baseline(
 
 /// Return the harmonic centrality for all nodes.
 #[pyfunction]
-pub fn harmonic_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+#[pyo3(signature = (g, sources=None))]
+pub fn harmonic_centrality(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     // br-r37-c1-4l10m: NetworkX initializes `sources = set(G.nodes)` and
     // accumulates one forward BFS at a time in that set's iteration order.
     // Replaying distances grouped by target/level changes low f64 bits. Build
     // the same Python set from the same display keys, then pass its exact order
     // into the native source-ordered kernel.
-    let py_nodes: Vec<PyObject> = gr
-        .nodes_ordered()
-        .iter()
-        .map(|node| gr.py_node_key(py, node))
-        .collect();
-    let source_set = PySet::new(py, &py_nodes)?;
-    let source_order: Vec<String> = source_set
-        .iter()
-        .map(|node| node_key_to_string(py, &node))
-        .collect::<PyResult<_>>()?;
+    // The public wrapper passes its already-normalized Python source set.
+    // Iterate it directly: rebuilding a set could change its floating-point
+    // accumulation order, and materializing each BFS as a Python dict defeats
+    // the existing native source-subset kernel.
+    let source_order: Vec<String> = if let Some(sources) = sources {
+        sources
+            .try_iter()?
+            .map(|node| node_key_to_string(py, &node?))
+            .collect::<PyResult<_>>()?
+    } else {
+        let py_nodes: Vec<PyObject> = gr
+            .nodes_ordered()
+            .iter()
+            .map(|node| gr.py_node_key(py, node))
+            .collect();
+        PySet::new(py, &py_nodes)?
+            .iter()
+            .map(|node| node_key_to_string(py, &node))
+            .collect::<PyResult<_>>()?
+    };
     let source_refs: Vec<&str> = source_order.iter().map(String::as_str).collect();
     let result = match &gr {
         GraphRef::Undirected(pg) => {
@@ -8509,7 +8662,7 @@ pub fn betweenness_centrality(
 /// (Dijkstra) when `weight` names the attribute, on a simple Graph or
 /// DiGraph whose weights the caller has checked (br-r37-c1-quim8).
 #[pyfunction]
-#[pyo3(signature = (g, sources, normalized=true, endpoints=false, weight=None))]
+#[pyo3(signature = (g, sources, normalized=true, endpoints=false, weight=None, source_aware=true))]
 pub fn betweenness_centrality_sampled_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
@@ -8517,8 +8670,14 @@ pub fn betweenness_centrality_sampled_rust(
     normalized: bool,
     endpoints: bool,
     weight: Option<&str>,
+    source_aware: bool,
 ) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    let rescale = if source_aware {
+        fnx_algorithms::BetweennessRescalePolicy::SourceAware
+    } else {
+        fnx_algorithms::BetweennessRescalePolicy::Uniform
+    };
     let source_keys: Vec<String> = sources
         .iter()
         .map(|n| node_key_to_string(py, n))
@@ -8535,6 +8694,7 @@ pub fn betweenness_centrality_sampled_rust(
                         Some(weight),
                         normalized,
                         endpoints,
+                        rescale,
                     )
                 })
             }
@@ -8547,6 +8707,7 @@ pub fn betweenness_centrality_sampled_rust(
                         Some(weight),
                         normalized,
                         endpoints,
+                        rescale,
                     )
                 })
             }
@@ -8563,7 +8724,7 @@ pub fn betweenness_centrality_sampled_rust(
             let inner = &pg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::betweenness_centrality_sampled_with_params(
-                    inner, &src_refs, normalized, endpoints,
+                    inner, &src_refs, normalized, endpoints, rescale,
                 )
             })
         }
@@ -8571,7 +8732,7 @@ pub fn betweenness_centrality_sampled_rust(
             let inner = &dg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::betweenness_centrality_sampled_directed_with_params(
-                    inner, &src_refs, normalized, endpoints,
+                    inner, &src_refs, normalized, endpoints, rescale,
                 )
             })
         }
@@ -8580,14 +8741,14 @@ pub fn betweenness_centrality_sampled_rust(
                 let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| {
                     fnx_algorithms::betweenness_centrality_sampled_directed_with_params(
-                        inner, &src_refs, normalized, endpoints,
+                        inner, &src_refs, normalized, endpoints, rescale,
                     )
                 })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| {
                     fnx_algorithms::betweenness_centrality_sampled_with_params(
-                        inner, &src_refs, normalized, endpoints,
+                        inner, &src_refs, normalized, endpoints, rescale,
                     )
                 })
             }
@@ -8602,15 +8763,21 @@ pub fn betweenness_centrality_sampled_rust(
 /// as networkx's `_rescale` (br-r37-c1-f0uiy). Returns a canonical-keyed dict
 /// that the Python wrapper re-keys into `G.edges()` order.
 #[pyfunction]
-#[pyo3(signature = (g, sources=None, weight=None, normalized=true))]
+#[pyo3(signature = (g, sources=None, weight=None, normalized=true, source_aware=true))]
 pub fn edge_betweenness_centrality(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     sources: Option<Vec<Bound<'_, PyAny>>>,
     weight: Option<&str>,
     normalized: bool,
+    source_aware: bool,
 ) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    let rescale = if source_aware {
+        fnx_algorithms::BetweennessRescalePolicy::SourceAware
+    } else {
+        fnx_algorithms::BetweennessRescalePolicy::Uniform
+    };
     let source_keys: Option<Vec<String>> = sources
         .map(|sources| {
             sources
@@ -8628,7 +8795,7 @@ pub fn edge_betweenness_centrality(
             let inner = &pg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::edge_betweenness_centrality_with_params(
-                    inner, sources, weight, normalized,
+                    inner, sources, weight, normalized, rescale,
                 )
             })
         }
@@ -8636,7 +8803,7 @@ pub fn edge_betweenness_centrality(
             let inner = &dg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::edge_betweenness_centrality_directed_with_params(
-                    inner, sources, weight, normalized,
+                    inner, sources, weight, normalized, rescale,
                 )
             })
         }
@@ -8645,14 +8812,14 @@ pub fn edge_betweenness_centrality(
                 let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| {
                     fnx_algorithms::edge_betweenness_centrality_directed_with_params(
-                        inner, sources, weight, normalized,
+                        inner, sources, weight, normalized, rescale,
                     )
                 })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| {
                     fnx_algorithms::edge_betweenness_centrality_with_params(
-                        inner, sources, weight, normalized,
+                        inner, sources, weight, normalized, rescale,
                     )
                 })
             }
@@ -9943,6 +10110,127 @@ fn flow_py_error(err: fnx_algorithms::FlowError) -> PyErr {
     NetworkXError::new_err(err.to_string())
 }
 
+fn py_num_to_f64(value: fnx_algorithms::preflow_push::PyNum) -> f64 {
+    match value {
+        fnx_algorithms::preflow_push::PyNum::Int(v) => v as f64,
+        fnx_algorithms::preflow_push::PyNum::Float(v) => v,
+    }
+}
+
+fn py_num_to_pyobject(
+    py: Python<'_>,
+    value: fnx_algorithms::preflow_push::PyNum,
+) -> PyResult<PyObject> {
+    match value {
+        fnx_algorithms::preflow_push::PyNum::Int(v) => Ok(v.into_pyobject(py)?.into_any().unbind()),
+        fnx_algorithms::preflow_push::PyNum::Float(v) => {
+            Ok(v.into_pyobject(py)?.into_any().unbind())
+        }
+    }
+}
+
+fn extract_preflow_capacity(
+    attrs: &fnx_classes::AttrMap,
+    capacity: &str,
+) -> Option<fnx_algorithms::preflow_push::PyNum> {
+    use fnx_algorithms::preflow_push::PyNum;
+    match attrs.get(capacity) {
+        Some(fnx_runtime::CgseValue::Int(v)) => (*v >= 0).then_some(PyNum::Int(*v)),
+        Some(fnx_runtime::CgseValue::Bool(v)) => Some(PyNum::Int(i64::from(*v))),
+        Some(fnx_runtime::CgseValue::Float(v)) => {
+            (v.is_finite() && *v >= 0.0).then_some(PyNum::Float(*v))
+        }
+        None => Some(PyNum::Int(1)),
+        Some(_) => None,
+    }
+}
+
+fn try_run_preflow_push(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    s: &str,
+    t: &str,
+    capacity: &str,
+    value_only: bool,
+) -> PyResult<
+    Option<(
+        Vec<PyObject>,
+        usize,
+        fnx_algorithms::preflow_push::PreflowResidual,
+    )>,
+> {
+    use fnx_algorithms::preflow_push::{FlowNetworkInput, PyNum, preflow_push};
+    match gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            let Some(s_idx) = inner.get_node_index(s) else {
+                return Ok(None);
+            };
+            let Some(t_idx) = inner.get_node_index(t) else {
+                return Ok(None);
+            };
+            let nodes = inner.nodes_ordered();
+            let node_objs: Vec<PyObject> = nodes.iter().map(|&n| pg.py_node_key(py, n)).collect();
+            let node_hashes: Vec<usize> = node_objs
+                .iter()
+                .map(|obj| Ok(obj.bind(py).hash()? as usize))
+                .collect::<PyResult<Vec<usize>>>()?;
+            let mut edges = Vec::<(usize, usize, PyNum)>::with_capacity(inner.edge_count());
+            for (u, v, attrs) in inner.edges_ordered_indices_borrowed() {
+                let Some(cap) = extract_preflow_capacity(attrs, capacity) else {
+                    return Ok(None);
+                };
+                edges.push((u, v, cap));
+            }
+            let res = py.allow_threads(|| {
+                let input = FlowNetworkInput {
+                    node_hashes: &node_hashes,
+                    edges: &edges,
+                    directed: false,
+                    source: s_idx,
+                    sink: t_idx,
+                };
+                preflow_push(&input, value_only)
+            });
+            Ok(res.ok().map(|r| (node_objs, t_idx, r)))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            let Some(s_idx) = inner.get_node_index(s) else {
+                return Ok(None);
+            };
+            let Some(t_idx) = inner.get_node_index(t) else {
+                return Ok(None);
+            };
+            let nodes = inner.nodes_ordered();
+            let node_objs: Vec<PyObject> = nodes.iter().map(|&n| dg.py_node_key(py, n)).collect();
+            let node_hashes: Vec<usize> = node_objs
+                .iter()
+                .map(|obj| Ok(obj.bind(py).hash()? as usize))
+                .collect::<PyResult<Vec<usize>>>()?;
+            let mut edges = Vec::<(usize, usize, PyNum)>::with_capacity(inner.edge_count());
+            for (u, v, attrs) in inner.edges_ordered_indices_borrowed() {
+                let Some(cap) = extract_preflow_capacity(attrs, capacity) else {
+                    return Ok(None);
+                };
+                edges.push((u, v, cap));
+            }
+            let res = py.allow_threads(|| {
+                let input = FlowNetworkInput {
+                    node_hashes: &node_hashes,
+                    edges: &edges,
+                    directed: true,
+                    source: s_idx,
+                    sink: t_idx,
+                };
+                preflow_push(&input, value_only)
+            });
+            Ok(res.ok().map(|r| (node_objs, t_idx, r)))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// Return the maximum flow value and flow dictionary between source and sink.
 #[pyfunction]
 #[pyo3(signature = (g, source, sink, capacity="capacity"))]
@@ -9955,6 +10243,83 @@ pub fn maximum_flow(
 ) -> PyResult<(f64, PyObject)> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
+    if let Some((node_objs, _, residual)) = try_run_preflow_push(py, &gr, &s, &t, capacity, false)?
+    {
+        let outer = PyDict::new(py);
+        match &gr {
+            GraphRef::Undirected(pg) => {
+                let nodes = pg.inner.nodes_ordered();
+                let has_aliases = !pg.adj_py_keys.is_empty();
+                for (u_idx, u_obj) in node_objs.iter().enumerate() {
+                    let row = PyDict::new(py);
+                    if let Some(nbrs) = pg.inner.neighbors_indices(u_idx) {
+                        for &v_idx in nbrs {
+                            if has_aliases
+                                && let Some(alias) = pg
+                                    .adj_py_keys
+                                    .get(&(nodes[u_idx].to_owned(), nodes[v_idx].to_owned()))
+                            {
+                                row.set_item(alias.bind(py), 0_i64)?;
+                            } else {
+                                row.set_item(&node_objs[v_idx], 0_i64)?;
+                            }
+                        }
+                    }
+                    for (v_idx, flow) in residual.positive_flows(u_idx) {
+                        let flow_obj = py_num_to_pyobject(py, flow)?;
+                        if has_aliases
+                            && let Some(alias) = pg
+                                .adj_py_keys
+                                .get(&(nodes[u_idx].to_owned(), nodes[v_idx].to_owned()))
+                        {
+                            row.set_item(alias.bind(py), flow_obj)?;
+                        } else {
+                            row.set_item(&node_objs[v_idx], flow_obj)?;
+                        }
+                    }
+                    outer.set_item(u_obj, row)?;
+                }
+            }
+            GraphRef::Directed { dg, .. } => {
+                let nodes = dg.inner.nodes_ordered();
+                let has_aliases = !dg.succ_py_keys.is_empty();
+                for (u_idx, u_obj) in node_objs.iter().enumerate() {
+                    let row = PyDict::new(py);
+                    if let Some(nbrs) = dg.inner.successors_indices(u_idx) {
+                        for &v_idx in nbrs {
+                            if has_aliases
+                                && let Some(alias) = dg
+                                    .succ_py_keys
+                                    .get(&(nodes[u_idx].to_owned(), nodes[v_idx].to_owned()))
+                            {
+                                row.set_item(alias.bind(py), 0_i64)?;
+                            } else {
+                                row.set_item(&node_objs[v_idx], 0_i64)?;
+                            }
+                        }
+                    }
+                    for (v_idx, flow) in residual.positive_flows(u_idx) {
+                        let flow_obj = py_num_to_pyobject(py, flow)?;
+                        if has_aliases
+                            && let Some(alias) = dg
+                                .succ_py_keys
+                                .get(&(nodes[u_idx].to_owned(), nodes[v_idx].to_owned()))
+                        {
+                            row.set_item(alias.bind(py), flow_obj)?;
+                        } else {
+                            row.set_item(&node_objs[v_idx], flow_obj)?;
+                        }
+                    }
+                    outer.set_item(u_obj, row)?;
+                }
+            }
+            _ => unreachable!(),
+        }
+        return Ok((
+            py_num_to_f64(residual.flow_value()),
+            outer.into_any().unbind(),
+        ));
+    }
     let cap = capacity.to_owned();
     let result = match &gr {
         GraphRef::Undirected(pg) => {
@@ -9996,6 +10361,9 @@ pub fn maximum_flow_value(
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
+    if let Some((_, _, residual)) = try_run_preflow_push(py, &gr, &s, &t, capacity, true)? {
+        return Ok(py_num_to_f64(residual.flow_value()));
+    }
     let cap = capacity.to_owned();
     match &gr {
         GraphRef::Undirected(pg) => {
@@ -10042,6 +10410,9 @@ pub fn minimum_cut_value(
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
+    if let Some((_, _, residual)) = try_run_preflow_push(py, &gr, &s, &t, capacity, true)? {
+        return Ok(py_num_to_f64(residual.flow_value()));
+    }
     let cap = capacity.to_owned();
     match &gr {
         GraphRef::Undirected(pg) => {
@@ -10080,16 +10451,31 @@ pub fn minimum_cut_value(
 
 /// Return the minimum cut value and node partition between source and sink.
 #[pyfunction]
-#[pyo3(signature = (g, source, sink, capacity="capacity"))]
+#[pyo3(signature = (g, source, sink, capacity="capacity", edmonds_karp=false))]
 pub fn minimum_cut(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     sink: &Bound<'_, PyAny>,
     capacity: &str,
+    edmonds_karp: bool,
 ) -> PyResult<(f64, PyObject)> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
+    if !edmonds_karp
+        && let Some((node_objs, t_idx, residual)) =
+            try_run_preflow_push(py, &gr, &s, &t, capacity, true)?
+    {
+        let non_reachable_dict = PyDict::new(py);
+        for idx in residual.sink_side_bfs_order(t_idx) {
+            non_reachable_dict.set_item(&node_objs[idx], py.None())?;
+        }
+        let non_reachable = py.get_type::<PySet>().call1((&non_reachable_dict,))?;
+        let all_nodes = pyo3::types::PySet::new(py, node_objs.iter())?;
+        let reachable = all_nodes.call_method1("__sub__", (&non_reachable,))?;
+        let partition = tuple_object(py, &[reachable.unbind(), non_reachable.unbind()])?;
+        return Ok((py_num_to_f64(residual.flow_value()), partition));
+    }
     let cap = capacity.to_owned();
     let cut = match &gr {
         GraphRef::Undirected(pg) => {
@@ -11692,6 +12078,24 @@ pub fn eulerian_circuit(
     let src = source.map(|s| node_key_to_string(py, s)).transpose()?;
     if let (Some(src_key), Some(src_obj)) = (&src, source) {
         validate_node(&gr, src_key, src_obj, "Source")?;
+    }
+    if gr.is_directed() {
+        if gr.is_multigraph() {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "not implemented for multigraph type",
+            ));
+        }
+        let dg = gr.digraph().expect("is_directed checked above");
+        let result =
+            py.allow_threads(|| fnx_algorithms::eulerian_circuit_directed(dg, src.as_deref()));
+        return match result {
+            Some(r) => Ok(r
+                .edges
+                .iter()
+                .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+                .collect()),
+            None => Err(NetworkXError::new_err("G is not Eulerian.")),
+        };
     }
     let inner = gr.undirected();
     if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
@@ -14162,11 +14566,12 @@ pub fn networkx_maximum_branching_plan(
 /// `[(w, weight), ...]` in `G.neighbors(v)` order over `list(G)` positions;
 /// it must be symmetric, as an undirected graph's is.
 #[pyfunction]
-#[pyo3(signature = (adjacency, maxcardinality=false))]
+#[pyo3(signature = (adjacency, maxcardinality=false, min_weight=false))]
 pub fn networkx_max_weight_matching_mate(
     py: Python<'_>,
     adjacency: Vec<Vec<(usize, f64)>>,
     maxcardinality: bool,
+    min_weight: bool,
 ) -> PyResult<Vec<(usize, usize)>> {
     let n = adjacency.len();
     let mut pairs = HashSet::new();
@@ -14182,7 +14587,11 @@ pub fn networkx_max_weight_matching_mate(
         return Err(PyValueError::new_err("adjacency must be symmetric"));
     }
     Ok(py.allow_threads(|| {
-        fnx_algorithms::networkx_max_weight_matching_mate(&adjacency, maxcardinality)
+        fnx_algorithms::networkx_max_weight_matching_mate_for_reference(
+            &adjacency,
+            maxcardinality,
+            min_weight,
+        )
     }))
 }
 
@@ -14922,16 +15331,31 @@ pub fn shortest_path_length_matrix(
         py.allow_threads(|| {
             fnx_algorithms::shortest_path_length_matrix_indexed(inner, &source_indices, cutoff)
         })
-    };
+    }
+    .map_err(|error| {
+        PyMemoryError::new_err(format!("distance matrix allocation failed: {error}"))
+    })?;
 
-    let packed = py.allow_threads(|| {
-        let mut bytes = Vec::with_capacity(distances.len().saturating_mul(size_of::<i32>()));
-        for distance in distances {
-            bytes.extend_from_slice(&distance.to_ne_bytes());
-        }
-        bytes
-    });
-    Ok(PyBytes::new(py, &packed).unbind())
+    let byte_count = distances
+        .len()
+        .checked_mul(size_of::<i32>())
+        .filter(|&count| count <= isize::MAX as usize)
+        .ok_or_else(|| {
+            PyMemoryError::new_err("distance matrix byte size exceeds addressable memory")
+        })?;
+    // Allocate Python's immutable backing fallibly and write it directly.
+    // PyBytes::new is infallible, and an intermediate Vec<u8> would add a
+    // third dense copy at the very boundary where capacity is scarce.
+    Ok(PyBytes::new_with(py, byte_count, |bytes| {
+        py.allow_threads(|| {
+            let (slots, _) = bytes.as_chunks_mut::<{ size_of::<i32>() }>();
+            for (slot, distance) in slots.iter_mut().zip(distances) {
+                slot.copy_from_slice(&distance.to_ne_bytes());
+            }
+        });
+        Ok(())
+    })?
+    .unbind())
 }
 
 /// Snapshot insertion-ordered native neighbor indices for algorithms that need
@@ -19521,20 +19945,33 @@ fn mycielskian_step_fast(py: Python<'_>, m: &Bound<'_, PyAny>) -> PyResult<Optio
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
-// br-r37-c1-lgnative: native line graph for the simple (non-multi),
-// no-create_using, self-loop-free case. L(G)'s nodes are G's EDGES, represented
-// as Python tuples `(u, v)`; the Python path adds them one PyO3 call at a time
-// and re-canonicalizes both tuple endpoints on every L-edge (the same
-// tuple-key construction tax as the products, 2-3.3x slower than nx). Here each
-// L-node tuple is canonicalized exactly ONCE, then the L-edges are assembled in
-// Rust by integer edge index over the source CSR adjacency. Returns None on any
-// unsupported shape so the wrapper falls back to the Python construction.
+// Native line graph for simple graphs and default create_using, including
+// self-loops. Canonicalize each edge-node tuple once; preserve NX's directed
+// discovery stream or undirected neighbor-row / CPython set stream. Unsupported
+// storage shapes return None for the existing Python construction.
 #[pyfunction]
 #[pyo3(signature = (g,))]
 fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyObject>> {
     let gr = extract_graph(g)?;
+    // The public wrapper excludes private storage and views. Decline row-key
+    // aliases as well: their discovery objects are not the node-table objects.
+    let native_rows = match &gr {
+        GraphRef::Undirected(pg) => {
+            !pg.instance_dict_gc.has_private_override() && pg.adj_py_keys.is_empty()
+        }
+        GraphRef::Directed { dg, .. } => {
+            !dg.instance_dict_gc.has_private_override() && dg.succ_py_keys.is_empty()
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => false,
+    };
+    if !native_rows {
+        return Ok(None);
+    }
     if gr.is_directed() {
         let dg = gr.digraph().expect("directed");
+        // Match the public default constructor: active mode and a fresh ledger,
+        // never a clone of the source's accumulated policy/decision history.
+        let mut py_dg = PyDiGraph::new_empty(py)?;
         let n = dg.node_count();
         let names: Vec<String> = dg.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
         let g_py: Vec<PyObject> = names.iter().map(|s| gr.py_node_key(py, s)).collect();
@@ -19559,39 +19996,37 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
             canon.push(ck);
         }
         // L-edge (u,v) -> (v,w) for each successor w of the head v.
+        // NX inserts each source edge-node, then successor edge-nodes as met,
+        // rather than pre-inserting every node in the original edge order.
+        let mut node_order = Vec::with_capacity(ne);
+        let mut inserted = vec![false; ne];
         let mut ledges: Vec<(String, String)> = Vec::new();
         for (eid, &(_u, v)) in edge_pairs.iter().enumerate() {
+            if !inserted[eid] {
+                inserted[eid] = true;
+                node_order.push(canon[eid].clone());
+            }
             for &w in dg.successors_indices(v).unwrap_or(&[]) {
                 if let Some(&e2) = edge_id.get(&(v, w)) {
+                    if !inserted[e2] {
+                        inserted[e2] = true;
+                        node_order.push(canon[e2].clone());
+                    }
                     ledges.push((canon[eid].clone(), canon[e2].clone()));
                 }
             }
         }
-        let mut inner =
-            fnx_classes::digraph::DiGraph::with_runtime_policy(dg.runtime_policy().clone());
-        let _ = inner
-            .extend_nodes_with_attrs_unrecorded(canon.iter().map(|c| (c.clone(), AttrMap::new())));
-        let _ = inner.extend_edges_unrecorded(ledges);
-        let mut py_dg = PyDiGraph::new_empty_with_policy(py, dg.runtime_policy().clone())?;
-        py_dg.inner = inner;
+        let _ = py_dg.inner.extend_nodes_with_attrs_unrecorded(
+            node_order.into_iter().map(|c| (c, AttrMap::new())),
+        );
+        let _ = py_dg.inner.extend_edges_unrecorded(ledges);
         py_dg.node_key_map = node_key_map;
         Ok(Some(py_dg.into_pyobject(py)?.into_any().unbind()))
     } else {
-        // br-r37-c1-ez7lx: undirected L(G) IS handled natively. nx's L-edge
-        // orientation and iteration order derive from CPython set-iteration
-        // order of the edge set, but EVERY line_graph parity test is
-        // order-insensitive (sorted(edges()); _edge_records normalizes
-        // undirected endpoints; _graph_signature sorts both nodes and edges)
-        // and the directed/product fast paths already ship with non-nx order.
-        // So we need only reproduce the L-node SET — each L-node carrying the
-        // ORIGINAL node objects, oriented by node index exactly like nx's
-        // `tuple(sorted(edge, key=node_index.get))` (smaller node index first)
-        // — plus the L-edge SET. Self-loops are handled (br-r37-c1-lgself);
-        // multigraphs fall back to Python.
-        if gr.is_multigraph() {
-            return Ok(None);
-        }
+        // CPython's set iteration order is part of the undirected contract.
+        // Build the same set in actual neighbor-row order, then consume it.
         let g_inner = gr.undirected();
+        let mut py_graph = PyGraph::new_empty(py)?;
         let n = g_inner.node_count();
         let names: Vec<String> = g_inner
             .nodes_ordered()
@@ -19600,10 +20035,10 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
             .collect();
         let g_py: Vec<PyObject> = names.iter().map(|s| gr.py_node_key(py, s)).collect();
 
-        // Enumerate each undirected edge once, oriented (u < v by node index) to
-        // match nx's node-index sort. Build the per-node incident-edge lists in
-        // the same pass.
+        // Canonicalize each source edge once; incident rows are populated in a
+        // second pass so earlier endpoints cannot reorder a later node's row.
         let mut edge_pairs: Vec<(usize, usize)> = Vec::new();
+        let mut edge_id = HashMap::new();
         let mut incident: Vec<Vec<usize>> = vec![Vec::new(); n];
         for u in 0..n {
             // br-r37-c1-lgself (cc): a self-loop (u,u) is an undirected edge -> an
@@ -19621,13 +20056,12 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
                         self_loop_done = true;
                         let eid = edge_pairs.len();
                         edge_pairs.push((u, u));
-                        incident[u].push(eid);
+                        edge_id.insert((u, u), eid);
                     }
                 } else if v > u {
                     let eid = edge_pairs.len();
                     edge_pairs.push((u, v));
-                    incident[u].push(eid);
-                    incident[v].push(eid);
+                    edge_id.insert((u, v), eid);
                 }
             }
         }
@@ -19635,30 +20069,77 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         let mut canon: Vec<String> = Vec::with_capacity(ne);
         let mut node_key_map =
             crate::PyNodeKeyMap::with_capacity_and_hasher(ne, rustc_hash::FxBuildHasher);
-        for &(u, v) in &edge_pairs {
+        let mut py_edges = Vec::with_capacity(ne);
+        let py_edge_ids = PyDict::new(py);
+        for (eid, &(u, v)) in edge_pairs.iter().enumerate() {
             let tup = PyTuple::new(py, [g_py[u].clone_ref(py), g_py[v].clone_ref(py)])?;
+            py_edge_ids.set_item(&tup, eid)?;
             let ck = crate::node_key_to_string(py, tup.as_any())?;
-            node_key_map.insert(ck.clone(), tup.into_any().unbind());
+            let object = tup.into_any().unbind();
+            node_key_map.insert(ck.clone(), object.clone_ref(py));
+            py_edges.push(object);
             canon.push(ck);
         }
-        // Two G-edges are adjacent in L iff they share an endpoint. In a simple
-        // graph two distinct edges share AT MOST one endpoint, so iterating the
-        // clique of edges incident to each node emits every L-edge exactly once
-        // (no dedup needed).
-        let mut ledges: Vec<(String, String)> = Vec::new();
-        for inc in &incident {
-            for i in 0..inc.len() {
-                for j in (i + 1)..inc.len() {
-                    ledges.push((canon[inc[i]].clone(), canon[inc[j]].clone()));
+        for (u, row) in incident.iter_mut().enumerate() {
+            for &v in g_inner.neighbors_indices(u).unwrap_or(&[]) {
+                if let Some(&eid) = edge_id.get(&(u.min(v), u.max(v))) {
+                    row.push(eid);
                 }
             }
         }
-        let mut inner = fnx_classes::Graph::with_runtime_policy(g_inner.runtime_policy().clone());
-        let _ = inner
-            .extend_nodes_with_attrs_unrecorded(canon.iter().map(|c| (c.clone(), AttrMap::new())));
-        let _ = inner.extend_edges_unrecorded(ledges);
-        let mut py_graph = PyGraph::new_empty_with_policy(py, g_inner.runtime_policy().clone())?;
-        py_graph.inner = inner;
+        let mut node_order = Vec::with_capacity(ne);
+        let mut inserted = vec![false; ne];
+        let pairs = PySet::empty(py)?;
+        for inc in &incident {
+            if inc.len() == 1 && !inserted[inc[0]] {
+                inserted[inc[0]] = true;
+                node_order.push(canon[inc[0]].clone());
+            }
+            for i in 0..inc.len() {
+                for j in (i + 1)..inc.len() {
+                    let (left, right) = if edge_pairs[inc[i]] <= edge_pairs[inc[j]] {
+                        (inc[i], inc[j])
+                    } else {
+                        (inc[j], inc[i])
+                    };
+                    pairs.add(PyTuple::new(
+                        py,
+                        [py_edges[left].clone_ref(py), py_edges[right].clone_ref(py)],
+                    )?)?;
+                }
+            }
+        }
+        let mut ledges = Vec::with_capacity(pairs.len());
+        for pair in pairs.iter() {
+            let pair = pair.downcast::<PyTuple>()?;
+            let left = py_edge_ids
+                .get_item(pair.get_item(0)?)?
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyRuntimeError::new_err(
+                        "line edge key changed during construction",
+                    )
+                })?
+                .extract::<usize>()?;
+            let right = py_edge_ids
+                .get_item(pair.get_item(1)?)?
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyRuntimeError::new_err(
+                        "line edge key changed during construction",
+                    )
+                })?
+                .extract::<usize>()?;
+            for eid in [left, right] {
+                if !inserted[eid] {
+                    inserted[eid] = true;
+                    node_order.push(canon[eid].clone());
+                }
+            }
+            ledges.push((canon[left].clone(), canon[right].clone()));
+        }
+        let _ = py_graph.inner.extend_nodes_with_attrs_unrecorded(
+            node_order.into_iter().map(|c| (c, AttrMap::new())),
+        );
+        let _ = py_graph.inner.extend_edges_unrecorded(ledges);
         py_graph.node_key_map = node_key_map;
         Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
     }
@@ -27412,10 +27893,17 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::power(inner, k));
+    // A returned PyGraph must resolve its own public labels, not expose raw
+    // canonical strings that its adjacency lookup canonicalizes a second time.
+    let node_key_map: PyNodeKeyMap<String, PyObject> = result
+        .nodes_ordered()
+        .iter()
+        .map(|canonical| ((*canonical).to_owned(), gr.py_node_key(py, canonical)))
+        .collect();
     // Convert Rust Graph to PyGraph
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map,
         lazy_int_node_stop: 0,
         edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: crate::PyNodeKeyMap::default(),
@@ -30371,6 +30859,78 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    #[test]
+    fn unit_weight_dijkstra_path_counts_real_fifo_work() {
+        let rows = [vec!["b", "a"], vec!["t"], vec!["t"], vec![]];
+        let names = ["s", "b", "a", "t"];
+        let (path, witnesses) = fnx_cgse::collect_witnesses(|| {
+            unit_weight_dijkstra_path("s", "t", 4, 4, |node| {
+                rows[names
+                    .iter()
+                    .position(|name| *name == node)
+                    .expect("known node")]
+                .clone()
+            })
+        });
+        assert_eq!(path, Some(vec!["s", "b", "t"]));
+        assert_eq!(witnesses.len(), 1);
+        let witness = &witnesses[0];
+        assert_eq!((witness.n, witness.m, witness.observed_count), (4, 4, 8));
+        assert_eq!(
+            witness.policy,
+            fnx_cgse::ReferenceAlgorithm::Dijkstra.policy()
+        );
+        assert_eq!(witness.dominant_term, "n_plus_m_log_n");
+        assert!(
+            fnx_cgse::verify_complexity_bound(witness)
+                .expect("known term")
+                .within_bounds
+        );
+        let (_, repeated) = fnx_cgse::collect_witnesses(|| {
+            unit_weight_dijkstra_path("s", "t", 4, 4, |node| {
+                rows[names
+                    .iter()
+                    .position(|name| *name == node)
+                    .expect("known node")]
+                .clone()
+            })
+        });
+        assert_eq!(
+            witness.decision_path_blake3,
+            repeated[0].decision_path_blake3
+        );
+        let (_, changed) = fnx_cgse::collect_witnesses(|| {
+            unit_weight_dijkstra_path("s", "t", 4, 4, |node| match node {
+                "s" => vec!["a", "b"],
+                "a" | "b" => vec!["t"],
+                _ => vec![],
+            })
+        });
+        assert_ne!(
+            witness.decision_path_blake3,
+            changed[0].decision_path_blake3
+        );
+    }
+
+    #[test]
+    fn unit_weight_dijkstra_path_self_and_disconnected_emit_witnesses() {
+        let (path, witnesses) = fnx_cgse::collect_witnesses(|| {
+            unit_weight_dijkstra_path("s", "s", 1, 0, |_| panic!("self query must not expand"))
+        });
+        assert_eq!(path, Some(vec!["s"]));
+        assert_eq!(witnesses.len(), 1);
+        assert_eq!(witnesses[0].observed_count, 0);
+        let (path, witnesses) = fnx_cgse::collect_witnesses(|| {
+            unit_weight_dijkstra_path("s", "t", 3, 1, |node| match node {
+                "s" => vec!["a"],
+                _ => vec![],
+            })
+        });
+        assert_eq!(path, None);
+        assert_eq!(witnesses.len(), 1);
+        assert_eq!(witnesses[0].observed_count, 3);
     }
 
     #[test]

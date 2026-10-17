@@ -145,8 +145,8 @@ type EdgePairMap = std::collections::HashMap<(usize, usize), usize, rustc_hash::
 
 /// br-r37-c1-s8dj1: the pair lookaside, stamped with the graph revision.
 ///
-/// CLONES COLD, AND IS NEVER SHARED. `MultiDiGraph` derives `Clone`, which would
-/// otherwise hand both copies the same cache. The stamp does not rescue an
+/// CLONES COLD, AND IS NEVER SHARED. Unlike an immutable CSR snapshot, this
+/// incrementally maintained map cannot be shared by cloned graphs. The stamp does not rescue an
 /// INCREMENTALLY maintained map from that: the two graphs' revisions advance
 /// independently and can COINCIDE, so the clone updates the shared map and
 /// stamps its own revision, and the original then reads a map describing a
@@ -187,7 +187,7 @@ fn pair_index_warmup(edge_pairs: usize) -> usize {
     PAIR_INDEX_WARMUP_FLOOR.max(edge_pairs / 2)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DiGraph {
     mode: CompatibilityMode,
     revision: u64,
@@ -201,6 +201,29 @@ pub struct DiGraph {
     runtime_policy: RuntimePolicy,
     csr_cache: DiCsrCache,
     all_int_cache: DiAllIntCache,
+}
+
+impl Clone for DiGraph {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            node_order: self.node_order.clone(),
+            node_attrs: self.node_attrs.clone(),
+            succ_indices: self.succ_indices.clone(),
+            pred_indices: self.pred_indices.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: self.runtime_policy.clone(),
+            // CSR values are immutable snapshots, but revision-only memo
+            // containers must be private to independently mutable graphs.
+            csr_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                self.csr_cache.read().ok().and_then(|memo| memo.clone()),
+            )),
+            all_int_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                self.all_int_cache.read().ok().and_then(|memo| memo.clone()),
+            )),
+        }
+    }
 }
 
 impl DiGraph {
@@ -237,8 +260,12 @@ impl DiGraph {
             pred_indices: self.pred_indices.clone(),
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
-            csr_cache: self.csr_cache.clone(),
-            all_int_cache: self.all_int_cache.clone(),
+            csr_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                self.csr_cache.read().ok().and_then(|memo| memo.clone()),
+            )),
+            all_int_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                self.all_int_cache.read().ok().and_then(|memo| memo.clone()),
+            )),
         }
     }
 
@@ -712,6 +739,9 @@ impl DiGraph {
             }
         }
         *self.pred_indices.rows_mut() = new_rows;
+        // Pred order may change without a revision bump. Invalidate any CSR
+        // built before this walk; the clone's private weight memo stays valid.
+        self.csr_cache = std::sync::Arc::default();
     }
 
     /// br-r37-c1-36v6r: order each successor and predecessor row as
@@ -2379,7 +2409,7 @@ impl NodePositions<'_> {
 type MultiDiRows =
     rustc_hash::FxHashMap<String, crate::FxIndexMap<String, crate::FxIndexSet<usize>>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MultiDiGraph {
     mode: CompatibilityMode,
     revision: u64,
@@ -2418,6 +2448,25 @@ pub struct MultiDiGraph {
     edge_pair_index: EdgePairIndex,
 }
 
+impl Clone for MultiDiGraph {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            nodes: self.nodes.clone(),
+            successors: self.successors.clone(),
+            predecessors: self.predecessors.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: self.runtime_policy.clone(),
+            edge_count: self.edge_count,
+            csr_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                self.csr_cache.read().ok().and_then(|memo| memo.clone()),
+            )),
+            edge_pair_index: self.edge_pair_index.clone(),
+        }
+    }
+}
+
 impl MultiDiGraph {
     /// br-r37-c1-7qqr8: positional index of a node, matching
     /// `DiGraph::get_node_index`. MultiDiGraph carried the
@@ -2442,7 +2491,9 @@ impl MultiDiGraph {
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
             edge_count: self.edge_count,
-            csr_cache: self.csr_cache.clone(),
+            csr_cache: std::sync::Arc::new(std::sync::RwLock::new(
+                self.csr_cache.read().ok().and_then(|memo| memo.clone()),
+            )),
             edge_pair_index: EdgePairIndex::default(),
         }
     }
@@ -2462,16 +2513,34 @@ impl MultiDiGraph {
         // ordering — byte-identical pred row order, no sort, no index lookups.
         let mut order_map: IndexMap<String, Vec<String>> =
             IndexMap::with_capacity(self.predecessors.len());
+        let mut dropped_empty_pairs = false;
         for u in self.nodes.keys() {
             let Some(succ_row) = self.successors.get(u.as_str()) else {
                 continue;
             };
-            for v in succ_row.keys() {
+            for (v, keys) in succ_row {
+                if keys.is_empty() {
+                    dropped_empty_pairs = true;
+                    continue;
+                }
                 order_map.entry(v.clone()).or_default().push(u.clone());
             }
         }
+        if dropped_empty_pairs {
+            self.edges.retain(|_, bucket| !bucket.is_empty());
+            for row in self.successors.values_mut() {
+                row.retain(|_, keys| !keys.is_empty());
+            }
+            for row in self.predecessors.values_mut() {
+                row.retain(|_, keys| !keys.is_empty());
+            }
+            self.revision = self.revision.saturating_add(1);
+        }
         let orders: Vec<(String, Vec<String>)> = order_map.into_iter().collect();
         self.apply_row_orders(&orders, true);
+        // Even a pure predecessor-order change invalidates a CSR snapshot
+        // built before this walk, regardless of whether the revision changed.
+        self.csr_cache = std::sync::Arc::default();
     }
 
     /// br-r37-c1-36v6r: order the successor and predecessor rows as given -
@@ -2723,8 +2792,7 @@ impl MultiDiGraph {
     #[must_use]
     pub fn has_edge(&self, source: &str, target: &str) -> bool {
         self.edges
-            .get(&DirectedEdgeKeyRef::new(source, target))
-            .is_some_and(|edge_bucket| !edge_bucket.is_empty())
+            .contains_key(&DirectedEdgeKeyRef::new(source, target))
     }
 
     /// br-r37-c1-04z53 (cc): directed `has_edge` straight from insertion-order
@@ -2925,8 +2993,8 @@ impl MultiDiGraph {
     /// index resolution bought nothing, and `PyMultiDiGraph`'s exact-string
     /// branch (br-r37-c1-ptiz2) inherited the slope it was written to remove.
     ///
-    /// An `edges` bucket is dropped as soon as its last key goes (see
-    /// `remove_edge`), so membership of the pair map is exactly `has_edge`.
+    /// Membership includes empty buckets retained by live keydict deletion,
+    /// just like the name-keyed `has_edge` path.
     #[must_use]
     pub fn has_edge_by_indices(&self, source_idx: usize, target_idx: usize) -> bool {
         if let Some(position) = self.edge_pair_position(source_idx, target_idx) {
@@ -3790,6 +3858,22 @@ impl MultiDiGraph {
     }
 
     pub fn remove_edge(&mut self, source: &str, target: &str, key: Option<usize>) -> bool {
+        self.remove_edge_impl(source, target, key, false)
+    }
+
+    /// Dictionary-side key deletion keeps an empty pair in both ordered
+    /// direction rows; graph-side removal still drops the pair.
+    pub fn remove_key_preserving_pair(&mut self, source: &str, target: &str, key: usize) -> bool {
+        self.remove_edge_impl(source, target, Some(key), true)
+    }
+
+    fn remove_edge_impl(
+        &mut self,
+        source: &str,
+        target: &str,
+        key: Option<usize>,
+        preserve_pair: bool,
+    ) -> bool {
         // br-r37-c1-s8dj1: revision at entry, for the pair-index patch below.
         let previous_revision = self.revision;
         let edge_key = DirectedEdgeKeyRef::new(source, target);
@@ -3813,7 +3897,8 @@ impl MultiDiGraph {
 
         self.edge_count -= 1;
 
-        let should_drop_bucket = self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
+        let should_drop_bucket =
+            !preserve_pair && self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
         // br-r37-c1-s8dj1: the position the bucket occupies BEFORE swap_remove
         // frees it. Resolved only when a live pair index will actually use it.
         let dropped_position =
@@ -3832,15 +3917,32 @@ impl MultiDiGraph {
             self.edges.swap_remove(&edge_key);
         }
 
-        self.remove_successor_key(source, target, removal_key);
-        self.remove_predecessor_key(target, source, removal_key);
+        if preserve_pair {
+            if let Some(keys) = self
+                .successors
+                .get_mut(source)
+                .and_then(|row| row.get_mut(target))
+            {
+                keys.shift_remove(&removal_key);
+            }
+            if let Some(keys) = self
+                .predecessors
+                .get_mut(target)
+                .and_then(|row| row.get_mut(source))
+            {
+                keys.shift_remove(&removal_key);
+            }
+        } else {
+            self.remove_successor_key(source, target, removal_key);
+            self.remove_predecessor_key(target, source, removal_key);
+        }
         self.revision = self.revision.saturating_add(1);
         self.pair_index_note_edge_removed(previous_revision, source, target, dropped_position);
         true
     }
 
     pub fn clear_edges(&mut self) {
-        if self.edge_count == 0 {
+        if self.edges.is_empty() {
             return;
         }
 
@@ -4180,6 +4282,9 @@ impl MultiDiGraph {
                 let Some(edge_bucket) = self.edges.get(&pair) else {
                     continue;
                 };
+                if edge_bucket.is_empty() {
+                    continue;
+                }
                 let reversed_pair = DirectedEdgeKey::new(target, source);
                 let reversed_bucket = edges.entry(reversed_pair).or_default();
                 let reversed_succ_keys = successors
@@ -4315,6 +4420,273 @@ mod tests {
         CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, RuntimePolicy,
     };
     use proptest::prelude::*;
+
+    #[test]
+    fn digraph_live_clones_isolate_revision_memos() {
+        for warm in [false, true] {
+            for fresh_policy in [false, true] {
+                let mut graph = DiGraph::strict();
+                for node in ["u", "v", "w"] {
+                    assert!(graph.add_node(node));
+                }
+                let int_attrs = AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]);
+                graph
+                    .add_edge_with_attrs("u", "v", int_attrs.clone())
+                    .unwrap();
+                let warm_csr = warm.then(|| graph.csr());
+                if warm {
+                    assert!(graph.edge_weights_all_int("weight"));
+                }
+                let mut copied = if fresh_policy {
+                    graph.clone_with_fresh_policy()
+                } else {
+                    graph.clone()
+                };
+                if let Some(csr) = warm_csr {
+                    // Sharing an immutable CSR is safe; its revision memo is not.
+                    assert!(std::sync::Arc::ptr_eq(&copied.csr(), &csr));
+                }
+                assert!(copied.remove_edge("u", "v"));
+                copied
+                    .add_edge_with_attrs(
+                        "u",
+                        "w",
+                        AttrMap::from([("weight".to_owned(), CgseValue::Float(0.5))]),
+                    )
+                    .unwrap();
+                assert!(graph.remove_edge("u", "v"));
+                graph.add_edge_with_attrs("v", "w", int_attrs).unwrap();
+                assert_eq!(copied.revision(), graph.revision());
+                for _ in 0..2 {
+                    assert_eq!(
+                        (
+                            copied.csr().successors(0).to_vec(),
+                            graph.csr().successors(0).to_vec(),
+                            graph.csr().successors(1).to_vec(),
+                            copied.edge_weights_all_int("weight"),
+                            graph.edge_weights_all_int("weight"),
+                        ),
+                        (vec![2], vec![], vec![2], false, true)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn multidigraph_live_clones_isolate_revision_memos() {
+        for warm in [false, true] {
+            for fresh_policy in [false, true] {
+                let mut graph = MultiDiGraph::new(CompatibilityMode::Strict);
+                for node in ["u", "v", "w"] {
+                    assert!(graph.add_node(node));
+                }
+                graph.add_edge("u", "v").unwrap();
+                let warm_csr = warm.then(|| graph.csr());
+                let mut copied = if fresh_policy {
+                    graph.clone_with_fresh_policy()
+                } else {
+                    graph.clone()
+                };
+                if let Some(csr) = warm_csr {
+                    assert!(std::sync::Arc::ptr_eq(&copied.csr(), &csr));
+                }
+                assert!(copied.remove_edge("u", "v", None));
+                copied.add_edge("u", "w").unwrap();
+                assert!(graph.remove_edge("u", "v", None));
+                graph.add_edge("v", "w").unwrap();
+                assert_eq!(copied.revision(), graph.revision());
+                for _ in 0..2 {
+                    assert_eq!(
+                        (
+                            copied.csr().successors(0).to_vec(),
+                            graph.csr().successors(0).to_vec(),
+                            graph.csr().successors(1).to_vec(),
+                        ),
+                        (vec![2], vec![], vec![2])
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn digraph_live_copy_walk_isolates_revision_memos() {
+        for warm in [false, true] {
+            let mut graph = DiGraph::strict();
+            for node in ["u", "v", "w"] {
+                assert!(graph.add_node(node));
+            }
+            let int_attrs = AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]);
+            graph
+                .add_edge_with_attrs("w", "v", int_attrs.clone())
+                .unwrap();
+            graph
+                .add_edge_with_attrs("u", "v", int_attrs.clone())
+                .unwrap();
+            if warm {
+                assert_eq!(graph.csr().predecessors(1), &[2, 0]);
+                assert!(graph.edge_weights_all_int("weight"));
+            }
+            let mut copied = graph.clone_with_fresh_policy();
+            copied.reorder_pred_rows_for_nx_copy_walk();
+            assert_eq!(copied.csr().predecessors(1), &[0, 2]);
+            assert_eq!(graph.csr().predecessors(1), &[2, 0]);
+
+            assert!(copied.remove_edge("u", "v"));
+            copied
+                .add_edge_with_attrs(
+                    "u",
+                    "w",
+                    AttrMap::from([("weight".to_owned(), CgseValue::Float(0.5))]),
+                )
+                .unwrap();
+            assert!(graph.remove_edge("u", "v"));
+            graph.add_edge_with_attrs("v", "w", int_attrs).unwrap();
+            assert_eq!(copied.revision(), graph.revision());
+            for _ in 0..2 {
+                assert_eq!(copied.csr().successors(0), &[2]);
+                assert!(graph.csr().successors(0).is_empty());
+                assert_eq!(graph.csr().successors(1), &[2]);
+                assert!(!copied.edge_weights_all_int("weight"));
+                assert!(graph.edge_weights_all_int("weight"));
+            }
+        }
+    }
+
+    #[test]
+    fn multidigraph_live_empty_pairs_preserve_topology_not_edges() {
+        for keys in [vec![7], vec![7, 2]] {
+            for target in ["v", "u"] {
+                let mut graph = MultiDiGraph::new(CompatibilityMode::Strict);
+                graph.add_edge("u", "before").unwrap();
+                for &key in &keys {
+                    graph
+                        .add_edge_with_key_and_attrs("u", target, key, AttrMap::new())
+                        .unwrap();
+                }
+                graph.add_edge("u", "after").unwrap();
+                let successors: Vec<String> = graph
+                    .successors("u")
+                    .unwrap()
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+                let predecessors: Vec<String> = graph
+                    .predecessors(target)
+                    .unwrap()
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+                let u = graph.get_node_index("u").unwrap();
+                let v = graph.get_node_index(target).unwrap();
+                // Warm the positional pair index and CSR before mutation.
+                for _ in 0..super::pair_index_warmup(graph.edges.len()) {
+                    assert!(graph.has_edge_by_indices(u, v));
+                }
+                assert!(graph.edge_pair_index_is_live(graph.revision()));
+                let before_csr = graph.csr();
+                let before_count = graph.edge_count();
+                for &key in &keys {
+                    assert!(graph.remove_key_preserving_pair("u", target, key));
+                    assert!(graph.edge_pair_index_is_live(graph.revision()));
+                }
+                assert_eq!(graph.edge_count(), before_count - keys.len());
+                assert_eq!(graph.successors("u").unwrap(), successors);
+                assert_eq!(graph.predecessors(target).unwrap(), predecessors);
+                assert_eq!(graph.csr().successors(u), before_csr.successors(u));
+                assert_eq!(graph.csr().predecessors(v), before_csr.predecessors(v));
+                assert!(graph.has_edge("u", target));
+                assert!(graph.has_edge_by_indices(u, v));
+                assert_eq!(graph.edge_keys("u", target), Some(vec![]));
+                assert!(graph.edge_attrs_by_indices(u, v, 7).is_none());
+                assert_eq!(graph.out_degree("u"), 2);
+                assert_eq!(graph.in_degree(target), 0);
+                let source_csr = graph.csr();
+                let mut copied = graph.clone();
+                assert!(std::sync::Arc::ptr_eq(&copied.csr(), &source_csr));
+                for _ in 0..super::pair_index_warmup(copied.edges.len()) {
+                    assert!(copied.has_edge_by_indices(u, v));
+                }
+                assert!(copied.edge_pair_index_is_live(copied.revision()));
+                copied.reorder_pred_rows_for_nx_copy_walk();
+                assert!(!copied.has_edge_by_indices(u, v));
+                assert_eq!(copied.edge_keys("u", target), None);
+                assert_eq!(copied.successors("u").unwrap(), vec!["before", "after"]);
+                assert!(copied.predecessors(target).unwrap().is_empty());
+                assert_eq!(copied.edge_count(), graph.edge_count());
+                assert_eq!(
+                    copied.csr().successors(u),
+                    &[
+                        u32::try_from(copied.get_node_index("before").unwrap()).unwrap(),
+                        u32::try_from(copied.get_node_index("after").unwrap()).unwrap(),
+                    ]
+                );
+                assert!(copied.csr().predecessors(v).is_empty());
+                let reversed = graph.reversed();
+                assert!(!reversed.has_edge(target, "u"));
+                assert_eq!(reversed.edge_count(), graph.edge_count());
+                assert!(graph.has_edge("u", target));
+                assert_eq!(graph.csr().successors(u), source_csr.successors(u));
+                let revision = graph.revision();
+                assert!(!graph.remove_key_preserving_pair("u", target, 7));
+                assert!(!graph.remove_edge("u", target, None));
+                assert_eq!(graph.revision(), revision);
+                graph
+                    .add_edge_with_key_and_attrs("u", target, 9, AttrMap::new())
+                    .unwrap();
+                assert_eq!(graph.successors("u").unwrap(), successors);
+                assert_eq!(graph.predecessors(target).unwrap(), predecessors);
+                // The source now shares the copy's revision, but not its CSR.
+                assert_eq!(graph.csr().successors(u), before_csr.successors(u));
+                assert!(graph.remove_edge("u", target, Some(9)));
+                assert!(!graph.has_edge_by_indices(u, v));
+                assert_eq!(graph.successors("u").unwrap(), vec!["before", "after"]);
+            }
+        }
+    }
+
+    #[test]
+    fn multidigraph_clear_and_node_removal_drop_edgeless_live_pairs() {
+        for remove_node in [false, true] {
+            let mut graph = MultiDiGraph::new(CompatibilityMode::Strict);
+            graph
+                .add_edge_with_key_and_attrs("u", "v", 7, AttrMap::new())
+                .unwrap();
+            graph
+                .add_edge_with_key_and_attrs("u", "u", 2, AttrMap::new())
+                .unwrap();
+            assert!(graph.remove_key_preserving_pair("u", "v", 7));
+            assert!(graph.remove_key_preserving_pair("u", "u", 2));
+            assert_eq!(graph.edge_count(), 0);
+            let mut copied = graph.clone();
+            copied.reorder_pred_rows_for_nx_copy_walk();
+            for materialized in [copied, graph.reversed()] {
+                assert_eq!(materialized.edge_count(), 0);
+                assert!(!materialized.has_edge("u", "v"));
+                assert!(!materialized.has_edge("u", "u"));
+                assert!(materialized.successors("u").unwrap().is_empty());
+                assert!(materialized.predecessors("v").unwrap().is_empty());
+            }
+            assert!(graph.has_edge("u", "v"));
+            assert!(graph.has_edge("u", "u"));
+            if remove_node {
+                assert!(graph.remove_node("u"));
+                graph.add_node("u");
+            } else {
+                graph.clear_edges();
+            }
+            assert!(!graph.has_edge("u", "v"));
+            assert!(!graph.has_edge("u", "u"));
+            assert!(graph.successors("u").unwrap().is_empty());
+            assert!(graph.predecessors("v").unwrap().is_empty());
+            assert_eq!(graph.degree("u"), 0);
+            graph
+                .add_edge_with_key_and_attrs("u", "v", 7, AttrMap::new())
+                .unwrap();
+            assert_eq!(graph.edge_count(), 1);
+        }
+    }
 
     fn node_name(id: u8) -> String {
         format!("n{}", id % 8)
