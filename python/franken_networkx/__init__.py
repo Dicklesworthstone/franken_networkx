@@ -35,7 +35,7 @@ import bisect as _bisect
 from copy import deepcopy as _deepcopy
 from dataclasses import dataclass as _dataclass, field as _field
 from enum import Enum as _Enum
-from functools import wraps as _wraps
+from functools import cached_property as _cached_property, wraps as _wraps
 import gc as _gc
 import gzip as _gzip
 from heapq import heappop as _heappop, heappush as _heappush
@@ -48,6 +48,7 @@ import operator as _operator
 import sys as _sys
 import threading as _threading
 import types as _types
+import weakref as _weakref
 
 # br-r37-c1-u5tyh: bound once, here, because the nbunch edge guard reads it from
 # inside a per-edge loop's trigger branch and a module-attribute lookup there is
@@ -950,6 +951,7 @@ def _FailFastEdgeIterator(
     nbunch_rows=None,
     ignore_removed_nbunch_row=False,
     refresh_rows=None,
+    initial_rows=None,
 ):
     # br-r37-c1-edgesdataperf: O(1) per-element staleness check against
     # snapshotted counts/revisions (was an O(N) tuple-build + compare per
@@ -1009,6 +1011,7 @@ def _FailFastEdgeIterator(
             # yet, and so the one the row rule could not catch later either.
             base_nodes = graph.nodes_seq
             base_edges = graph.edges_seq if guard_edge_count else None
+            current_rows = initial_rows
 
             def _row_move(previous, emitted, at_end):
                 """What networkx does once the graph has moved mid-walk.
@@ -1020,10 +1023,19 @@ def _FailFastEdgeIterator(
                 owed after ``emitted``, rebuilt from the graph as it now is,
                 or None to carry on with the list as built.
                 """
+                nonlocal current_rows
                 try:
                     owner = previous[0]
+                    nbr = previous[1]
                 except (TypeError, IndexError, KeyError):
                     owner = None
+                    nbr = None
+                prev_rows = (
+                    list(list.__iter__(current_rows))
+                    if isinstance(current_rows, list)
+                    else current_rows
+                )
+                fresh = None
                 if owner in row_sizes:
                     # MultiEdgeDataView holds the source row it already
                     # entered.  Removing that source (including clear())
@@ -1033,44 +1045,94 @@ def _FailFastEdgeIterator(
                     # size check.
                     if not (ignore_removed_nbunch_row and owner not in graph):
                         if degree_of(owner) != row_sizes[owner]:
-                            raise RuntimeError(_err)
+                            if (
+                                graph.is_multigraph()
+                                and prev_rows is not None
+                                and refresh_rows is not None
+                                and nbr is not None
+                            ):
+                                fresh = refresh_rows()
+                                if fresh is not None:
+                                    old_cell = sum(
+                                        1
+                                        for e in prev_rows
+                                        if e[0] == owner and e[1] == nbr
+                                    )
+                                    new_cell = sum(
+                                        1
+                                        for e in fresh
+                                        if e[0] == owner and e[1] == nbr
+                                    )
+                                    if graph.is_directed():
+                                        old_nbrs = {
+                                            e[1]
+                                            for e in prev_rows
+                                            if e[0] == owner
+                                        }
+                                        new_nbrs = {
+                                            e[1] for e in fresh if e[0] == owner
+                                        }
+                                    else:
+                                        old_nbrs = {
+                                            e[1]
+                                            for e in prev_rows
+                                            if e[0] == owner
+                                        } | {
+                                            e[0]
+                                            for e in prev_rows
+                                            if e[1] == owner
+                                        }
+                                        new_nbrs = {
+                                            e[1] for e in fresh if e[0] == owner
+                                        } | {
+                                            e[0] for e in fresh if e[1] == owner
+                                        }
+                                    if old_cell != new_cell or len(old_nbrs) != len(
+                                        new_nbrs
+                                    ):
+                                        raise RuntimeError(_err)
+                                    row_sizes[owner] = degree_of(owner)
+                                else:
+                                    raise RuntimeError(_err)
+                            else:
+                                raise RuntimeError(_err)
                 # br-r37-c1-u5tyh: NO RAISE MEANS NETWORKX CARRIES ON — and it
                 # carries on out of the row dicts it captured, which are the
                 # graph's OWN dicts, so everything it has not reached yet
-                # reflects the mutation. fnx answered from a list built before
-                # it and reported the pre-mutation graph: a later row grown,
-                # shrunk, given a parallel edge or a self-loop was simply
-                # invisible.
-                #
-                # Re-materialising here is the cheapest thing that is not
-                # wrong. It costs NOTHING until a mutation actually lands. The
-                # alternative — walking the live rows lazily, as the simple
-                # classes do — was built and measured at 9.5x-18x, because a
-                # multigraph row has no live PyDict mirror and every cell read
-                # is a fresh materialisation; see the bead.
-                #
-                # The tail is taken from the count emitted so far, which is the
-                # right splice exactly when the already-yielded prefix has not
-                # moved. A mutation to a row the walk has PASSED breaks that
-                # assumption — and is also the case networkx cannot see, having
-                # already walked it out of the same dicts.
-                #
-                # NOT when the row has DETACHED. `G.clear()` empties the outer
-                # adjacency dict and `remove_node` deletes one entry; neither
-                # touches the row dicts, and networkx is holding those objects
-                # — so it keeps walking their pre-mutation contents, which is
-                # what the un-refreshed list already contains. Rebuilding there
-                # would replace a right answer with an empty one, and did: 112
-                # cells of the first version of this, every one of them a
-                # `clear()`.
+                # reflects the mutation.
                 if emitted is None or refresh_rows is None:
                     return None
                 if not (owner is None or owner in graph):
                     return None
-                fresh = refresh_rows()
-                if fresh is None or (at_end and emitted >= len(fresh)):
+                if fresh is None:
+                    fresh = refresh_rows()
+                if fresh is None:
                     return None
-                return fresh[emitted:]
+                resume_at = emitted
+                if (
+                    prev_rows is not None
+                    and owner is not None
+                    and nbr is not None
+                ):
+                    first_idx = next(
+                        (
+                            i
+                            for i, e in enumerate(fresh)
+                            if e[0] == owner and e[1] == nbr
+                        ),
+                        None,
+                    )
+                    if first_idx is not None:
+                        k_done = sum(
+                            1
+                            for e in prev_rows[:emitted]
+                            if e[0] == owner and e[1] == nbr
+                        )
+                        resume_at = first_idx + k_done
+                current_rows = fresh
+                if at_end and resume_at >= len(fresh):
+                    return None
+                return fresh[resume_at:]
 
             # br-r37-c1-ounhu: an exact graph class reads its revisions
             # natively; its per-item check is two integer compares instead of
@@ -3251,7 +3313,7 @@ def _graph_is_filtered(graph, _depth=0):
 
 
 def _atlas_is_filtered(atlas):
-    """True for the filtered adjacency atlases, which carry nx's wording."""
+    """Recognize filtered atlases even through nested public view wrappers."""
     filtered = tuple(
         cls
         for cls in (
@@ -3260,7 +3322,22 @@ def _atlas_is_filtered(atlas):
         )
         if cls is not None
     )
-    return bool(filtered) and isinstance(atlas, filtered)
+    wrappers = tuple(
+        cls
+        for cls in (globals().get("AdjacencyView"), globals().get("MultiAdjacencyView"))
+        if cls is not None
+    )
+    seen = set()
+    while id(atlas) not in seen:
+        if isinstance(atlas, filtered):
+            return True
+        if not isinstance(atlas, wrappers):
+            return False
+        # Filtered multigraph rows can have two public AdjacencyView layers.
+        # Only unwrap our known mappings, and stop if an assigned getter cycles.
+        seen.add(id(atlas))
+        atlas = atlas._atlas()
+    return False
 
 
 def _missing_node_key_error(graph, node, atlas=None):
@@ -3643,6 +3720,30 @@ _MULTI_NATIVE_ROW_ATTR = {
 }
 
 
+def _register_held_multigraph_row(graph, node, row):
+    """Keep retired-cache rows reachable without keeping them alive (u8rs5)."""
+    storage = vars(graph)
+    registry = storage.get("_fnx_held_multigraph_rows")
+    if registry is None:
+        registry = {}
+        storage["_fnx_held_multigraph_rows"] = registry
+        graph._fnx_register_gc_dict(storage)
+    bucket = registry.get(node)
+    if bucket is None:
+        bucket = {}
+        registry[node] = bucket
+    row_id = id(row)
+
+    def expired(reference):
+        if bucket.get(row_id) is reference:
+            bucket.pop(row_id)
+        # A removed/re-added node may already have a different bucket.
+        if not bucket and registry.get(node) is bucket:
+            registry.pop(node)
+
+    bucket[row_id] = _weakref.ref(row, expired)
+
+
 class MultiAdjacencyView(_Mapping):
     # br-r37-c1-rgmef: True only on a private twin, which makes the
     # shared __getitem__ below build writable rows.
@@ -3670,6 +3771,7 @@ class MultiAdjacencyView(_Mapping):
         # the pickle reconstructor + reverse views pass owner=None and keep the
         # _atlas() fallback.
         self._fnx_owner = owner
+        self._fnx_row_kind = row_kind
         # br-r37-c1-spg9n: which native per-row binding to use for G.adj[u] so
         # the inner row view fetches ONLY node u's row (not the whole adjacency).
         self._fnx_native_row_attr = _MULTI_NATIVE_ROW_ATTR.get(row_kind)
@@ -3816,9 +3918,26 @@ class MultiAdjacencyView(_Mapping):
                     # capture every len()/contains on the SAME cached view
                     # crossed the PyO3 boundary again.
                     captured = native(node)
+                    native_row_iter = (
+                        getattr(
+                            owner,
+                            "_native_predecessors_iter"
+                            if self._fnx_row_kind == "pred"
+                            else "_native_neighbors_iter",
+                            None,
+                        )
+                        if not _has_networkx_private_storage(owner)
+                        else None
+                    )
                     view = _row_cls(
                         (lambda row=captured: row),
+                        row_kind=self._fnx_row_kind,
                         multi_edge_owner=owner,
+                        native_iter=(
+                            (lambda fn=native_row_iter, n=node: fn(n))
+                            if native_row_iter is not None
+                            else None
+                        ),
                     )
                     if self._fnx_private_rows:
                         _private_mark_writable(
@@ -3829,6 +3948,7 @@ class MultiAdjacencyView(_Mapping):
                     # membership skip both _atlas() and the lambda.
                     view._fnx_captured_row = captured
                     cache[1][node] = view
+                    _register_held_multigraph_row(owner, node, view)
                 return view
             row_view = _row_cls(
                 lambda: self._atlas()[node],
@@ -3839,11 +3959,15 @@ class MultiAdjacencyView(_Mapping):
             return row_view
         atlas = self._atlas()
         try:
-            atlas[node]
+            row = atlas[node]
         except KeyError as exc:
             # br-r37-c1-k4nsd: multigraph sibling of the AdjacencyView fix —
             # this is the owner-less path, which is the one a subgraph takes.
             raise _missing_node_key_error(owner, node, atlas=atlas) from exc
+        # A private filtered row already supplies the exact lazy iterator.
+        # Wrapping it again would turn that iterator into a fromkeys snapshot.
+        if not self._fnx_private_rows and type(row) is AdjacencyView and row._fnx_native_iter is not None:
+            return row
         row_view = _row_cls(lambda: self._atlas()[node])
         if self._fnx_private_rows:
             _private_mark_writable(row_view, owner, node, _private_parent_kind(self))
@@ -4359,6 +4483,7 @@ def _multigraph_getitem_from_native_row(self, node):
     view = AdjacencyView(
         lambda row=row: row,
         multi_edge_owner=self,
+        native_iter=lambda graph=self, n=node: graph._native_neighbors_iter(n),
     )
     # br-r37-c1-2ndmw: br-r37-c1-fr4me added `_fnx_captured_row` and wired it on
     # the `G.adj[u]` row builder but NOT here on `G[u]`, so the two spellings of
@@ -4368,6 +4493,7 @@ def _multigraph_getitem_from_native_row(self, node):
     # documents.
     view._fnx_captured_row = row
     cache[1][node] = view
+    _register_held_multigraph_row(self, node, view)
     return view
 
 
@@ -4423,12 +4549,15 @@ def _multidigraph_getitem_from_native_row(self, node):
     # native successor row stays live across edge churn.
     view = AdjacencyView(
         lambda row=row: row,
+        row_kind="succ",
         multi_edge_owner=self,
+        native_iter=lambda graph=self, n=node: graph._native_neighbors_iter(n),
     )
     # br-r37-c1-2ndmw: directed twin of the capture note in the undirected
     # builder — the same missing wiring, and the same reason it is sound here.
     view._fnx_captured_row = row
     cache[1][node] = view
+    _register_held_multigraph_row(self, node, view)
     return view
 
 
@@ -5698,21 +5827,58 @@ class _EdgeListWithSetAlgebra(list):
         list.__setitem__(self, slice(None), list(list.__iter__(fresh)))
         self._fnx_token = token
 
+    def _fnx_project_live_values(self, base_iter):
+        spec = self._fnx_membership_spec()
+        if not spec:
+            return base_iter
+        graph, _kind, multi, data, default, keys, _nodes, _view_form = spec
+
+        def _project():
+            if not multi:
+                for u, v, val in base_iter:
+                    dd = graph.get_edge_data(u, v)
+                    if isinstance(dd, _Mapping):
+                        val = dd.get(data, default)
+                    yield (u, v, val)
+            elif keys:
+                for u, v, k, val in base_iter:
+                    dd = graph.get_edge_data(u, v, k)
+                    if isinstance(dd, _Mapping):
+                        val = dd.get(data, default)
+                    yield (u, v, k, val)
+            else:
+                pair_offsets = {}
+                for u, v, val in base_iter:
+                    idx = pair_offsets.get((u, v), 0)
+                    pair_offsets[(u, v)] = idx + 1
+                    kd = graph.get_edge_data(u, v)
+                    if isinstance(kd, _Mapping) and idx < len(kd):
+                        dd = list(kd.values())[idx]
+                        if isinstance(dd, _Mapping):
+                            val = dd.get(data, default)
+                    yield (u, v, val)
+
+        return _project()
+
     def __iter__(self):
         # br-r37-c1-u5tyh: a `list(view)` asks for the length first and nothing
         # can run in between, so it keeps the materialised contents. An
         # explicit `for e in view:` CAN interleave user code, and that is where
         # networkx's semantics live — walk the live rows and let CPython supply
         # them, exactly as the Graph path does.
+        len_hint = self._fnx_take_len_hint()
         spec = self._fnx_lazy_rows
-        if spec is not None and not self._fnx_take_len_hint():
+        if spec is not None and not len_hint:
             walk = self._fnx_walk_live_rows(spec)
             if walk is not None:
                 return walk
         self._fnx_refresh()
         graph = self._fnx_guard_graph
         if graph is None:
-            return list.__iter__(self)
+            base_iter = list.__iter__(self)
+            if not len_hint and self._fnx_holds_values:
+                return self._fnx_project_live_values(base_iter)
+            return base_iter
         guard_edge_count = self._fnx_guard_edge_count
         nbunch_rows = self._fnx_nbunch_rows
         # br-r37-c1-hihrf: the native guarded iterator carries the coarse
@@ -5724,11 +5890,12 @@ class _EdgeListWithSetAlgebra(list):
             nbunch_rows is None
             and guard_edge_count
             and not _has_networkx_private_storage(graph)
+            and (len_hint or not self._fnx_holds_values)
         ):
             native_iter = getattr(graph, "_native_guarded_edge_list_iter", None)
             if native_iter is not None:
                 return native_iter(self)
-        return _FailFastEdgeIterator(
+        guarded = _FailFastEdgeIterator(
             graph,
             list.__iter__(self),
             guard_edge_count=guard_edge_count,
@@ -5745,7 +5912,11 @@ class _EdgeListWithSetAlgebra(list):
             # nothing else.
             ignore_removed_nbunch_row=True,
             refresh_rows=self._fnx_rematerialise_rows,
+            initial_rows=self,
         )
+        if not len_hint and self._fnx_holds_values:
+            return self._fnx_project_live_values(guarded)
+        return guarded
 
     def _fnx_rematerialise_rows(self):
         """br-r37-c1-u5tyh: rebuild this view's contents mid-iteration.
@@ -7495,16 +7666,22 @@ def _remove_nodes_from_materialized(raw):
                 valid_count = i
                 break
         if first_error is None:
+            removed_before = set()
             for n in materialized:
-                _detach_rows_before_node_removal(self, n)
+                if n not in removed_before and n in self:
+                    _detach_rows_before_node_removal(self, n, removed_before=removed_before)
+                    removed_before.add(n)
             result = raw(self, materialized)
             _invalidate_adjacency_row_caches(self)
             if iteration_exc is not None:
                 raise iteration_exc
             return result
         if valid_count:
+            removed_before = set()
             for n in materialized[:valid_count]:
-                _detach_rows_before_node_removal(self, n)
+                if n not in removed_before and n in self:
+                    _detach_rows_before_node_removal(self, n, removed_before=removed_before)
+                    removed_before.add(n)
             raw(self, materialized[:valid_count])
             _invalidate_adjacency_row_caches(self)
         raise first_error
@@ -8477,10 +8654,7 @@ class MultiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
-        return _chain_from_iterable(self._iterator_once())
-
-    def _iterator_once(self):
-        yield self._iter_now()
+        yield from _degree_view_guarded_pairs(self, self._iter_now())
 
     def _iter_now(self):
         # br-r37-c1-pejo5
@@ -8636,10 +8810,7 @@ class MultiDiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
-        return _chain_from_iterable(self._iterator_once())
-
-    def _iterator_once(self):
-        yield self._iter_now()
+        yield from _degree_view_guarded_pairs(self, self._iter_now())
 
     def _iter_now(self):
         # br-r37-c1-pejo5
@@ -9015,7 +9186,7 @@ class _DirectedDegreeView:
             else:
                 pairs = None
             if pairs is not None:
-                yield from pairs()
+                yield from _degree_view_guarded_pairs(self, pairs())
                 return
         # br-r37-c1-8njy5: exact MultiDiGraph weighted in/out degree can use
         # Rust's native multiedge walk; views and nbunch stay on Python paths.
@@ -9033,7 +9204,7 @@ class _DirectedDegreeView:
             else:
                 weighted_pairs = getattr(self._graph, "_native_weighted_in_degree", None)
             if weighted_pairs is not None:
-                yield from weighted_pairs(self._weight)
+                yield from _degree_view_guarded_pairs(self, weighted_pairs(self._weight))
                 return
         # br-r37-c1-wdeg2: weighted full-graph iteration on a SIMPLE DiGraph
         # sums over the native per-row dict directly, skipping the per-node
@@ -9489,12 +9660,10 @@ class _WeightAwareDegreeView:
     def __iter__(self):
         # NetworkX binds its adjacency iterator at the consumer's first
         # ``next()``, not when ``iter(G.degree)`` is called.  The raw PyO3 view
-        # snapshots at ``iter(raw)``; defer that call behind a one-item generator
-        # while keeping the actual pair walk in C.
-        return _chain_from_iterable(self._raw_iterator_once())
-
-    def _raw_iterator_once(self):
-        yield iter(self._raw)
+        # snapshots at ``iter(raw)``; defer that call inside a true generator.
+        # Native bulk pair creation remains intact; unlike an outer chain,
+        # this frame releases the view when the inner walk raises.
+        yield from _degree_view_guarded_pairs(self, iter(self._raw))
 
     def __len__(self):
         return len(self._raw)
@@ -9938,6 +10107,33 @@ class _WeightAwareDegreeView:
         return _filtered_degree_view(self, filtered, weight=weight, owner=self, graph=self._graph)
 
 
+def _degree_view_guarded_pairs(view, pairs):
+    """Preserve a live node-dict guard around native degree snapshots.
+
+    A full NetworkX degree walk is a generator over the adjacency keys. The
+    native pair iterators have no mutation guard; itertools.chain cannot make
+    their snapshot live or spend them after an exception. A real dict iterator
+    supplies CPython's exact size/key checks, including after the final pair,
+    and the generator below closes after the first error. Restricted nbunches
+    iterate a frozen list instead, so they must not inherit the whole-graph
+    guard. Private storage and graph views keep their existing live walks.
+    """
+    graph = view._graph
+    if (
+        (getattr(view, "_nodes", None) is not None and not getattr(view, "_whole_graph", False))
+        or type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+        or _has_networkx_private_storage(graph)
+    ):
+        return pairs
+
+    def walk():
+        nodes = graph._fnx_native_node_iter()
+        for _node, pair in zip(nodes, pairs):
+            yield pair
+
+    return walk()
+
+
 def _degree_view_frozen_nodes_check(view):
     """br-r37-c1-pejo5: an nbunch degree view raises once a frozen node is gone.
 
@@ -10101,10 +10297,7 @@ class _FilteredDegreeView:
         # Fresh/stale selection must happen at the first ``next()``.  Returning
         # the selected native iterator directly makes `iter(view)` itself choose
         # a stale snapshot if a caller mutates the graph before consuming it.
-        return _chain_from_iterable(self._iterator_once())
-
-    def _iterator_once(self):
-        yield self._iter_now()
+        yield from _degree_view_guarded_pairs(self, self._iter_now())
 
     def _iter_now(self):
         _degree_view_frozen_nodes_check(self)
@@ -11838,14 +12031,18 @@ def _detach_rows_before_clear(graph):
     all four classes while ``G[u][v]`` raised ``KeyError('vvv')``, where
     networkx serves the snapshot for both.
 
-    KNOWN LIMIT, stated rather than hidden: this reaches the rows either cache
-    still holds. A row obtained and then orphaned by a node mutation (which
-    advances ``nodes_seq`` and drops the cache) is not reachable from here and
-    keeps the old empty-after-clear behaviour. Covering that would need the
-    graph to track every row it ever handed out, which is an unbounded retention
-    hazard for a divergence that needs a row held across a clear.
+    The weak, node-indexed registry also reaches rows whose lookup cache was
+    replaced by an unrelated mutation. It retains neither dead rows nor their
+    node buckets; a held row is tracked only for its actual lifetime.
     """
     storage = vars(graph)
+    registry = storage.get("_fnx_held_multigraph_rows")
+    if registry:
+        rows = [reference() for bucket in registry.values() for reference in bucket.values()]
+        registry.clear()
+        for row in rows:
+            if row is not None:
+                _detach_row(row)
     # br-r37-c1-wdgb8: the `G[u]` cache, which lives on the graph itself.
     own_rows = storage.get("_fnx_getitem_atlas_cache")
     if own_rows:
@@ -11860,7 +12057,7 @@ def _detach_rows_before_clear(graph):
                 _detach_row(row)
 
 
-def _detach_rows_before_node_removal(graph, node):
+def _detach_rows_before_node_removal(graph, node, *, removed_before=()):
     """Detach only cached rows whose own node is about to disappear.
 
     A held NetworkX ``G.adj[node]`` is backed by that node's inner dict. Node
@@ -11869,6 +12066,8 @@ def _detach_rows_before_node_removal(graph, node):
     across the index renumbering caused by this removal.
     """
     storage = vars(graph)
+    registry = storage.get("_fnx_held_multigraph_rows", {})
+    rows = [reference() for reference in registry.pop(node, {}).values()]
     caches = [storage.get("_fnx_getitem_atlas_cache")]
     caches.extend(
         getattr(view, cache_name, None)
@@ -11880,10 +12079,26 @@ def _detach_rows_before_node_removal(graph, node):
             continue
         row = cache[1].get(node)
         if row is not None:
-            _detach_row(row)
+            rows.append(row)
+    for row in rows:
+        if row is None:
+            continue
+        # Batch compaction happens later, but a retired row must reflect
+        # the removals before its own turn, never those after it. Graph's
+        # loop deletes its own self entry; DiGraph only does so in pred.
+        remove_self = (
+            not graph.is_directed()
+            or getattr(row, "_fnx_row_kind", "adj") == "pred"
+        )
+        _detach_row(
+            row,
+            removed_before=removed_before,
+            removed_node=node,
+            remove_self=remove_self,
+        )
 
 
-def _detach_row(row):
+def _detach_row(row, *, removed_before=(), removed_node=None, remove_self=False):
     """Make one held adjacency row serve its current contents forever."""
     if hasattr(row, "_atlas_getter"):
         # A Python AdjacencyView/AtlasView: rebind the getter to a snapshot and
@@ -11893,6 +12108,8 @@ def _detach_row(row):
             snapshot = {
                 neighbor: AtlasView(lambda keys=dict(value): keys)
                 for neighbor, value in row.items()
+                if neighbor not in removed_before
+                and (not remove_self or neighbor != removed_node)
             }
         except Exception:  # noqa: BLE001 - a detached row must never break clear()
             return
@@ -12761,42 +12978,46 @@ def _networkx_graph_for_parity(G):
 
 
 def _networkx_graph_for_traversal_parity(G):
+    """Structural snapshot for chordless_cycles, in source adjacency order.
+
+    The upstream consumer reads topology and parallel-edge counts, never
+    attributes. Avoid rebuilding an attributed graph one edge at a time.
+    """
     if not isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
         return G
 
-    if G.is_multigraph():
-        graph = _nx.MultiDiGraph() if G.is_directed() else _nx.MultiGraph()
+    directed = G.is_directed()
+    multigraph = G.is_multigraph()
+    if multigraph:
+        graph = _nx.MultiDiGraph() if directed else _nx.MultiGraph()
     else:
-        graph = _nx.DiGraph() if G.is_directed() else _nx.Graph()
+        graph = _nx.DiGraph() if directed else _nx.Graph()
 
-    graph.graph.update(dict(G.graph))
-    node_view = getattr(G, "nodes", None)
-    for node in G:
-        if node_view is not None:
-            graph.add_node(node, **dict(node_view[node]))
+    # Exact types only: the Rust base of a view is empty, and assigned private
+    # mappings override even a concrete graph's native storage.
+    rows = None
+    if type(G) in (Graph, DiGraph) and not _has_networkx_private_storage(G):
+        rows = _fnx.to_dict_of_dicts_undirected(G)
+    if rows is None:
+        if multigraph:
+            # Copy keydict topology as well: holding the adapter across a
+            # source mutation must not change its parallel-edge counts.
+            rows = {
+                u: {v: {key: {} for key in keys} for v, keys in G.adj[u].items()}
+                for u in G
+            }
         else:
-            graph.add_node(node)
+            rows = {u: {v: {} for v in G.adj[u]} for u in G}
 
-    seen = set()
-    for u in G:
-        if G.is_multigraph():
-            for v, keyed_attrs in G.adj[u].items():
-                if not G.is_directed():
-                    edge_id = frozenset((u, v))
-                    if edge_id in seen:
-                        continue
-                    seen.add(edge_id)
-                for key, attrs in keyed_attrs.items():
-                    graph.add_edges_from([(u, v, key, dict(attrs))])
-        else:
-            for v, attrs in G.adj[u].items():
-                if not G.is_directed():
-                    edge_id = frozenset((u, v))
-                    if edge_id in seen:
-                        continue
-                    seen.add(edge_id)
-                graph.add_edge(u, v, **dict(attrs))
-
+    graph._node = {node: {} for node in rows}
+    graph._adj = rows
+    if directed:
+        # DiGraph's _adj descriptor also installs _succ. Keep the predecessor
+        # rows consistent and sharing the same per-edge dictionaries.
+        graph._pred = {node: {} for node in rows}
+        for u, neighbors in rows.items():
+            for v, data in neighbors.items():
+                graph._pred[v][u] = data
     return graph
 
 
@@ -12838,8 +13059,9 @@ _ROW_CHECKS_PER_REVISION = 8
 def _dijkstra_weight_route(G, weight):
     """br-r37-c1-svsam: ``"networkx"``, ``"native"``, or ``"rows"`` - run the
     native search with ``check_rows=True`` and re-run on
-    ``_WeightRowsUnverified`` (see _rerun_with_weight_scan). Simple graphs
-    only; the answer is ``_should_delegate_dijkstra_to_networkx``'s."""
+    ``_WeightRowsUnverified`` (see _rerun_with_weight_scan). Row checking is
+    simple-graph only; multigraphs use a full scan. The answer is
+    ``_should_delegate_dijkstra_to_networkx``'s."""
     if callable(weight) or not isinstance(weight, str):
         return "networkx"
     scan = _cached_native_weight_scan(G, weight, rows_ok=not G.is_multigraph())
@@ -13715,6 +13937,12 @@ def _dijkstra_multisource_inproc(
 
     pred_dict = pred if paths is None or pred is not None else {}
     G_succ = G._adj
+    # NetworkX swaps the private mappings directly for reverse views. Public
+    # neighbor adapters can wrap a malformed row and change its .items() error.
+    # Unwrap only these unfiltered adapters, keeping every filter/conversion.
+    while isinstance(G_succ, _ReverseAdjacencyView) and _point_query_uses_private_rows(G):
+        parent = G_succ._view._graph
+        G_succ = parent._succ if G_succ._reverse else parent._pred
 
     dist = {}
     seen = {}
@@ -13901,8 +14129,26 @@ def dijkstra_path(G, source, target, weight="weight"):
     the shortest path. Raises ``NetworkXNoPath`` if no path exists and
     ``NodeNotFound`` if ``source`` is missing.
     """
+    # Private rows override Rust storage, including through live views. Query
+    # them before coercion can materialize a stale native graph.
+    if _point_query_uses_private_rows(G):
+        return _multi_source_dijkstra_inproc(G, {source}, target=target, weight=weight)[1]
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if weight is None:
+        sources = {source}  # Match NetworkX's set-key TypeError, not dict wording.
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        # None is also the source-wide target sentinel in NetworkX. Subclasses
+        # can supply custom Python rows/attributes and retain that traversal.
+        if target is not None and type(G) in _CONCRETE_FNX_GRAPH_TYPES:
+            target in sources  # NetworkX hash-checks the target against sources.
+            native = _fnx.dijkstra_path_to_target(G, source, target, None)
+            if native is not None:
+                return native[2]
+        # A None-keyed attribute is a real weight, not an ignored one. The
+        # native unit-weight specialization declines rather than guessing.
+        return _multi_source_dijkstra_inproc(G, sources, target=target, weight=None)[1]
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
     _HASH_PROBE.get(source)
     _HASH_PROBE.get(target)
@@ -14146,6 +14392,10 @@ def bellman_ford_path(G, source, target, weight="weight"):
     Mirrors ``networkx.bellman_ford_path``. Raises ``NetworkXUnbounded``
     on negative cycles, ``NetworkXNoPath`` if no path exists.
     """
+    if _point_query_uses_private_rows(G):
+        return _single_source_bellman_ford_inproc(
+            G, source, target=target, weight=weight
+        )[1]
     # br-r37-c1-bfpathnative: the native single-pair Bellman-Ford kernel now
     # returns nx-identical PATHS — verified on 240 directed/undirected pairs incl.
     # negative weights and multigraph parallel edges, 0 mismatches (the old
@@ -14223,6 +14473,18 @@ def bellman_ford_path(G, source, target, weight="weight"):
     return _rerun_with_weight_scan(bellman_ford_path, G, source, target, weight)
 
 
+def _point_query_uses_private_rows(G):
+    """Private root rows must be queried before a view is copied to Rust."""
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
+        return _has_networkx_private_storage(G)
+    root = G
+    while isinstance(root, (_FilteredGraphView, _ReverseDirectedViewBase, _ConversionGraphViewBase)):
+        # Synthetic views install private adapters even on a native root.
+        # Those markers alone must not disqualify the ordinary native route.
+        root = root._graph
+    return isinstance(root, (Graph, DiGraph, MultiGraph, MultiDiGraph)) and _has_networkx_private_storage(root)
+
+
 def shortest_path(
     G, source=None, target=None, weight=None, method="dijkstra",
     *, backend=None, **backend_kwargs,
@@ -14230,10 +14492,10 @@ def shortest_path(
     """Compute shortest paths in ``G``.
 
     With both ``source`` and ``target``: returns a single path. With only one,
-    returns a dict keyed by the other endpoint. With neither, returns a
-    dict-of-dicts of all pairs. ``method`` selects the weighted algorithm
-    (``"dijkstra"`` or ``"bellman-ford"``); set ``weight=None`` for unweighted
-    BFS. Mirrors ``networkx.shortest_path``.
+    returns a dict keyed by the other endpoint. With neither, returns an
+    iterator of ``(source, paths_dict)`` pairs. ``method`` selects the weighted
+    algorithm (``"dijkstra"`` or ``"bellman-ford"``); set ``weight=None`` for
+    unweighted BFS. Mirrors ``networkx.shortest_path``.
     """
     # br-r37-c1-spbk: nx adds `backend=None, **backend_kwargs` to all
     # dispatchable functions via the @_dispatchable decorator. Drop-in
@@ -14241,6 +14503,32 @@ def shortest_path(
     # crashed on fnx with `TypeError: shortest_path() got an unexpected
     # keyword argument 'backend'`. Match the dispatch surface.
     _validate_backend_dispatch_keywords("shortest_path", backend, backend_kwargs)
+    if _point_query_uses_private_rows(G):
+        if method not in ("dijkstra", "bellman-ford"):
+            raise ValueError(f"method not supported: {method}")
+        if source is None and target is None:
+            if weight is None:
+                return all_pairs_shortest_path(G)
+            if method == "bellman-ford":
+                return all_pairs_bellman_ford_path(G, weight=weight)
+            return all_pairs_dijkstra_path(G, weight=weight)
+        if source is None or target is None:
+            endpoint = target if source is None else source
+            H = G.reverse(copy=False) if source is None and G.is_directed() else G
+            if weight is None:
+                paths = single_source_shortest_path(H, endpoint)
+            elif method == "bellman-ford":
+                paths = single_source_bellman_ford_path(H, endpoint, weight=weight)
+            else:
+                paths = single_source_dijkstra_path(H, endpoint, weight=weight)
+            if source is None:
+                return {node: list(reversed(path)) for node, path in paths.items()}
+            return paths
+        if weight is None:
+            return bidirectional_shortest_path(G, source, target)
+        if method == "bellman-ford":
+            return bellman_ford_path(G, source, target, weight=weight)
+        return bidirectional_dijkstra(G, source, target, weight=weight)[1]
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if method not in ("dijkstra", "bellman-ford"):
@@ -14366,13 +14654,38 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     If both are given, return a single number.
     Matches ``networkx.shortest_path_length``.
 
-    br-r37-c1-ssspview: materialize SubgraphView inputs first.
+    Native-root views materialize as needed; private-root queries
+    walk their current Python rows without copying to native storage.
     """
+    if _point_query_uses_private_rows(G):
+        if method not in ("dijkstra", "bellman-ford"):
+            raise ValueError(f"method not supported: {method}")
+        if source is None and target is None:
+            if weight is None:
+                return all_pairs_shortest_path_length(G)
+            if method == "bellman-ford":
+                return all_pairs_bellman_ford_path_length(G, weight=weight)
+            return all_pairs_dijkstra_path_length(G, weight=weight)
+        if source is None or target is None:
+            endpoint = target if source is None else source
+            H = G.reverse(copy=False) if source is None and G.is_directed() else G
+            if weight is None:
+                return single_source_shortest_path_length(H, endpoint)
+            if method == "bellman-ford":
+                return single_source_bellman_ford_path_length(H, endpoint, weight=weight)
+            return single_source_dijkstra_path_length(H, endpoint, weight=weight)
+        if weight is None:
+            return len(bidirectional_shortest_path(G, source, target)) - 1
+        if method == "bellman-ford":
+            return bellman_ford_path_length(G, source, target, weight=weight)
+        return dijkstra_path_length(G, source, target, weight=weight)
     G = _coerce_arg_to_fnx_graph(G)
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
         if source is not None and target is not None:
+            if weight is None:
+                return len(bidirectional_shortest_path(G, source, target)) - 1
             if method == "bellman-ford":
                 return bellman_ford_path_length(G, source, target, weight=weight)
             if weight is not None:
@@ -14486,11 +14799,19 @@ def has_path(G, source, target):
     ``G``. Mirrors ``networkx.has_path``.
     """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    private_rows = _point_query_uses_private_rows(G)
+    if not private_rows:
+        G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
+    if private_rows:
+        try:
+            bidirectional_shortest_path(G, source, target)
+        except NetworkXNoPath:
+            return False
+        return True
     return _raw_has_path(G, source, target)
 
 
@@ -14633,7 +14954,11 @@ def _native_minimum_st_node_cut(G, s, t):
     H.add_nodes_from(f"{i}{ab}" for i in range(len(nodes)) for ab in ("A", "B"))
     H.add_edges_from(aux_edges)
     _, (reachable, non_reachable) = _minimum_cut_raw(
-        H, f"{mapping[s]}B", f"{mapping[t]}A", capacity="\x00__fnx_unit_node_cut__"
+        H,
+        f"{mapping[s]}B",
+        f"{mapping[t]}A",
+        capacity="\x00__fnx_unit_node_cut__",
+        edmonds_karp=True,
     )
     reachable = set(reachable)
     non_reachable = set(non_reachable)
@@ -15681,6 +16006,7 @@ def harmonic_centrality(
         and distance is None
         and sources is None
         and not G.is_directed()
+        and not _has_networkx_private_storage(G)
     ):
         centrality = {u: 0 for u in set(G.nbunch_iter(nbunch))}
         for v in centrality:
@@ -15705,6 +16031,7 @@ def harmonic_centrality(
         and distance is None
         and sources is None
         and G.is_directed()
+        and not _has_networkx_private_storage(G)
     ):
         nb = set(G.nbunch_iter(nbunch))
         if len(nb) < G.number_of_nodes():
@@ -15717,26 +16044,41 @@ def harmonic_centrality(
                 centrality[v] = cc
             return centrality
 
-    # br-r37-c1-harmsrc: harmonic(G, sources=[few]) (default nbunch=all) previously
-    # delegated — ~7x SLOWER than nx. This is the NON-transposed direction:
-    # centrality[u] = sum over v in sources of 1/d(v, u), so for each source v one
-    # FORWARD BFS accumulates 1/d into every reachable u (works for directed and
-    # undirected alike — sources are the BFS roots). nx iterates sources (a set)
-    # and accumulates in single_source BFS order; fnx's
-    # single_source_shortest_path_length emits that same order, so the running
-    # float sum is BYTE-IDENTICAL (verified 700/700).
-    if sources is not None and distance is None and nbunch is None:
-        centrality = {u: 0 for u in set(G.nbunch_iter(None))}
-        for v in set(G.nbunch_iter(sources)):
-            for u, d_uv in single_source_shortest_path_length(G, v).items():
-                if d_uv != 0 and u in centrality:
-                    centrality[u] += 1 / d_uv
-        return centrality
-
-    if nbunch is not None or distance is not None or sources is not None:
+    # Source-only queries share this route: capture targets before consuming
+    # lazy sources, then decide transpose and native eligibility on live state.
+    if (
+        nbunch is not None or distance is not None or sources is not None
+        or _has_networkx_private_storage(G)
+    ):
         nb = set(G.nbunch_iter(nbunch) if nbunch is not None else G.nodes)
         sources_set = set(G.nbunch_iter(sources) if sources is not None else G.nodes)
         centrality = {u: 0 for u in nb}
+        if (
+            distance is None
+            and len(nb) >= len(sources_set)
+            and type(G) in _CONCRETE_FNX_GRAPH_TYPES
+            and not _has_networkx_private_storage(G)
+            and (type(G) in (Graph, DiGraph) or nbunch is None)
+        ):
+            # br-r37-c1-mub4s: the native reducer replays this source set in
+            # order, without emitting a Python distance dict per forward BFS.
+            # Do not use it for transpose: that accumulates in BFS order instead.
+            # Both-bunch multigraph calls retain direct native BFS: the reducer
+            # projects the whole graph first, a measured regression for subsets.
+            if not sources_set:
+                return centrality
+            for source in sources_set:
+                if source not in G:
+                    # Lazy sources can remove an already-admitted root. The
+                    # reducer ignores unknown roots; the public BFS must raise.
+                    single_source_shortest_path_length(G, source)
+            raw = _raw_harmonic_centrality(G, sources=sources_set)
+            for u in centrality:
+                # Retain caller key objects and removed targets' integer zeros.
+                score = raw.get(u, 0.0)
+                if score != 0.0:
+                    centrality[u] = score
+            return centrality
         transposed = False
         g_work = G
         if len(nb) < len(sources_set):
@@ -15745,7 +16087,12 @@ def harmonic_centrality(
             if g_work.is_directed():
                 g_work = reverse(g_work, copy=False)
         for v in sources_set:
-            dist = shortest_path_length(g_work, source=v, weight=distance)
+            # Reach the helper before the generic router materializes the
+            # reverse view. Its guarded predecessor BFS keeps discovery order.
+            if distance is None:
+                dist = single_source_shortest_path_length(g_work, v)
+            else:
+                dist = shortest_path_length(g_work, source=v, weight=distance)
             for u, d_uv in dist.items():
                 if d_uv != 0 and u in nb:
                     centrality[v if transposed else u] += 1 / d_uv
@@ -15814,6 +16161,16 @@ def _betweenness_centrality_inproc(
         _raise_translated_networkx_exception(exc)
 
 
+def _networkx_release():
+    """Major/minor of the actual oracle, including prerelease/dev versions."""
+    import re
+
+    match = re.match(r"^(\d+)\.(\d+)", _nx.__version__)
+    if match is None:
+        raise RuntimeError("Cannot determine NetworkX oracle release.")
+    return tuple(map(int, match.groups()))
+
+
 def betweenness_centrality(
     G,
     k=None,
@@ -15836,25 +16193,26 @@ def betweenness_centrality(
     _validate_backend_dispatch_keywords("betweenness_centrality", backend, backend_kwargs)
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    # NetworkX 3.4 applies one uniform sampled scale and still samples at
+    # k == n. From 3.5, excluding endpoints treats sampled nodes separately.
+    source_aware = k is None or _networkx_release() >= (3, 5)
 
     # br-r37-c1-7iiky: weighted betweenness (a string `weight` key) previously
     # delegated to networkx's single-threaded Python Brandes (~540ms on n=400).
     # Run the native weighted Brandes kernel (Dijkstra SSSP, parallel,
     # byte-exact) instead. Mirror the dijkstra/astar family's weight contract:
     # only the native path for a simple Graph/DiGraph whose `weight` values are
-    # all finite, non-negative and numeric (nx requires weights > 0 for
-    # betweenness); a callable/non-string weight, a multigraph, or any
-    # negative / +inf / non-numeric weight delegates to nx for exact parity.
+    # all finite, non-negative built-ins inside the exact integer envelope
+    # (nx requires weights > 0 for betweenness). The shared live-dict checker
+    # also rejects custom arithmetic, NaNs and oversized integer sums: the
+    # old three store-only gates lost those distinctions during projection.
+    # Out-of-contract inputs delegate to nx for exact parity.
     # br-r37-c1-quim8: a k-sampled call takes it too, over the sources
     # networkx samples.
     if isinstance(weight, str) and not G.is_multigraph():
-        _sync_rust_edge_attrs(G)
-        if not (
-            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-        ):
-            if k is None or k == len(G):
+        if not _should_delegate_dijkstra_to_networkx(G, weight):
+            _sync_rust_edge_attrs(G)
+            if k is None or (source_aware and k == len(G)):
                 return _raw_betweenness_centrality(
                     G,
                     k=None,
@@ -15863,13 +16221,16 @@ def betweenness_centrality(
                     endpoints=endpoints,
                     seed=None,
                 )
-            sampled_nodes = _betweenness_sampled_sources(G, rng, k, endpoints)
+            sampled_nodes = _betweenness_sampled_sources(
+                G, rng, k, endpoints, normalized, source_aware
+            )
             return _betweenness_centrality_sampled_rust(
                 G,
                 sampled_nodes,
                 normalized=normalized,
                 endpoints=endpoints,
                 weight=weight,
+                source_aware=source_aware,
             )
 
     # br-r37-c1-8ox3z: k-sampled unweighted betweenness was the remaining common
@@ -15878,7 +16239,7 @@ def betweenness_centrality(
     # substrate. Keep nx's exact source sampling semantics in Python, then run the
     # sampled source list through native Brandes with nx's sampled rescale.
     if k is not None and weight is None and not G.is_multigraph():
-        if k == len(G):
+        if source_aware and k == len(G):
             return _raw_betweenness_centrality(
                 G,
                 k=None,
@@ -15887,12 +16248,15 @@ def betweenness_centrality(
                 endpoints=endpoints,
                 seed=None,
             )
-        sampled_nodes = _betweenness_sampled_sources(G, rng, k, endpoints)
+        sampled_nodes = _betweenness_sampled_sources(
+            G, rng, k, endpoints, normalized, source_aware
+        )
         return _betweenness_centrality_sampled_rust(
             G,
             sampled_nodes,
             normalized=normalized,
             endpoints=endpoints,
+            source_aware=source_aware,
         )
 
     if k is not None or weight is not None:
@@ -15915,7 +16279,7 @@ def betweenness_centrality(
     )
 
 
-def _betweenness_sampled_sources(G, rng, k, endpoints):
+def _betweenness_sampled_sources(G, rng, k, endpoints, normalized, source_aware):
     """networkx's ``seed.sample(list(G.nodes()), k)`` for sampled betweenness."""
     sampled_nodes = rng.sample(list(G.nodes()), k)
     if not isinstance(sampled_nodes, list):
@@ -15923,10 +16287,18 @@ def _betweenness_sampled_sources(G, rng, k, endpoints):
         # samples with rng.choice, an ndarray ('if not sampled_nodes'
         # raised); tolist() gives the node values back.
         sampled_nodes = sampled_nodes.tolist()
-    if not sampled_nodes and (len(G) if endpoints else len(G) - 1) >= 2:
-        # networkx's _rescale divides by the sample size once N >= 2; the
-        # native rescale's float 0/0 would return NaN for every node.
-        raise ZeroDivisionError("division by zero")
+    if not sampled_nodes:
+        if source_aware:
+            scales = (len(G) if endpoints else len(G) - 1) >= 2
+            message = "division by zero"
+        else:
+            scales = ((len(G) >= 2 if endpoints else len(G) > 2)
+                      if normalized else not G.is_directed())
+            message = "float division by zero"
+        if scales:
+            # Python raises before returning scores; Rust float division
+            # would silently produce NaNs. The message also changed upstream.
+            raise ZeroDivisionError(message)
     return sampled_nodes
 
 
@@ -16101,15 +16473,23 @@ def min_weight_matching(G, weight="weight"):
     # networkx's own body over it: the inverted graph is built the way networkx builds it
     # (an fnx Graph keeps networkx's node and adjacency order for the same insertions).
     if len(G.edges) == 0:
+        native = _max_weight_matching_native(G, True, weight, min_weight=True)
+        if native is not None:
+            return native
         return max_weight_matching(G, maxcardinality=True, weight=weight)
     g_edges = list(G.edges(data=weight, default=1))
     max_weight = 1 + max(w for _, _, w in g_edges)
     inverted = Graph()
     inverted.add_weighted_edges_from(((u, v, max_weight - w) for u, v, w in g_edges), weight=weight)
-    return max_weight_matching(inverted, maxcardinality=True, weight=weight)
+    native = _max_weight_matching_native(inverted, True, weight, min_weight=True)
+    if native is not None:
+        return native
+    return _max_weight_matching_structural_nx(
+        inverted, maxcardinality=True, weight=weight
+    )
 
 
-def _max_weight_matching_native(G, maxcardinality, weight):
+def _max_weight_matching_native(G, maxcardinality, weight, min_weight=False):
     """networkx's ``max_weight_matching`` through the native port (1g0lj.1).
 
     ``networkx_max_weight_matching_mate`` repeats networkx's blossom
@@ -16121,8 +16501,6 @@ def _max_weight_matching_native(G, maxcardinality, weight):
     int or a finite float, or an int beyond 2**48.
     """
     nodes = list(G)
-    if not nodes:
-        return set()
     index = {n: i for i, n in enumerate(nodes)}
     adjacency = []
     for u in nodes:
@@ -16140,7 +16518,9 @@ def _max_weight_matching_native(G, maxcardinality, weight):
             row.append((index[v], w))
         adjacency.append(row)
     edges = set()
-    for u, v in _raw_networkx_max_weight_matching_mate(adjacency, bool(maxcardinality)):
+    for u, v in _raw_networkx_max_weight_matching_mate(
+        adjacency, bool(maxcardinality), bool(min_weight)
+    ):
         edge = (nodes[u], nodes[v])
         if (edge[1], edge[0]) in edges or edge in edges:
             continue
@@ -16940,6 +17320,9 @@ def eccentricity(G, v=None, sp=None, weight=None):
     """Returns the eccentricity of nodes in G."""
     # br-r37-c1-eg0jk: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if len(G) == 0 and _networkx_release() >= (3, 7):
+        # This check precedes nbunch/sp validation in the actual 3.7 oracle.
+        raise NetworkXPointlessConcept("Cannot compute eccentricity of a null graph.")
     # br-r37-c1-ct24s: a v given on the null graph is still checked, as
     # nx's nbunch_iter checks it.
     if len(G) == 0 and v is None:
@@ -16966,14 +17349,25 @@ def eccentricity(G, v=None, sp=None, weight=None):
     # functions diameter/radius/center/periphery already delegate the
     # directed case to NX; mirror that here so the family stays
     # internally consistent and matches NX.
-    if v is None and sp is None and weight is None and not G.is_directed():
+    if sp is None and weight is None and not G.is_directed():
         snapshot = _cached_distance_measures_snapshot(G)
         if snapshot is not None:
-            return dict(snapshot[3])
-        start_key = _distance_measures_cache_key(G)
-        result = _raw_eccentricity(G)
-        _store_distance_measures_snapshot(G, result, start_key)
-        return result
+            # Normalize v before checking the topology key: consuming a bunch
+            # can mutate G, and its validation/order remain observable.
+            if not nodes:
+                return {}
+            cached = dict(snapshot[3])
+            if v is None:
+                return cached
+            if single_node:
+                return cached[v]
+            return {node: cached[node] for node in nodes}
+        if v is None:
+            # Cold subsets still compute only the requested sources.
+            start_key = _distance_measures_cache_key(G)
+            result = _raw_eccentricity(G)
+            _store_distance_measures_snapshot(G, result, start_key)
+            return result
 
     order = G.order()
     eccentricities = {}
@@ -18152,11 +18546,7 @@ def eulerian_circuit(G, source=None, keys=False):
         raise NetworkXError("G is not Eulerian.")
     if source is not None and source not in G:
         raise NetworkXError(f"Node {source} is not in the graph.")
-    if (
-        not G.is_directed()
-        and not G.is_multigraph()
-        and number_of_selfloops(G) == 0
-    ):
+    if not G.is_multigraph() and (G.is_directed() or number_of_selfloops(G) == 0):
         yield from _fnx.eulerian_circuit(G, source)
         return
     if source is None:
@@ -18928,6 +19318,10 @@ def _traversal_missing_source_error(G, source):
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Yield edges in BFS order from source.
 
+    Private-root graphs and views stream their current rows with the raw
+    depth limit and lazy source validation. The native-root route below
+    retains its binding-specific argument normalization.
+
     _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
@@ -18942,6 +19336,8 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     negative values. Match nx by short-circuiting to empty on
     negative depth_limit.
     """
+    if _point_query_uses_private_rows(G):
+        return _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
     # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
     root = _reverse_view_root(G)
     if root is not None:
@@ -19090,6 +19486,9 @@ def _normalize_predecessor_cutoff(cutoff):
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Yield edges in DFS order from source.
 
+    Private-root graphs and views stream the existing Python DFS loop,
+    preserving the caller's raw depth limit and lazy source validation.
+
     _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
 
@@ -19102,6 +19501,8 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     behaviour (NaN/-inf/neg → empty, +inf → unbounded, finite
     float → ceil).
     """
+    if _point_query_uses_private_rows(G):
+        return _py_dfs_edges(G, source, depth_limit, sort_neighbors)
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
@@ -19367,7 +19768,9 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
     """
     # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
     root = _reverse_view_root(G)
-    if root is not None:
+    if _point_query_uses_private_rows(G):
+        edge_source = _py_bfs_edges(G, source, depth_limit, sort_neighbors)
+    elif root is not None:
         edge_source = bfs_edges(
             root,
             source,
@@ -19404,6 +19807,11 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Return BFS tree rooted at source."""
+    if _point_query_uses_private_rows(G):
+        T = DiGraph()
+        T.add_node(source)
+        T.add_edges_from(_py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse))
+        return T
     # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
     root = _reverse_view_root(G)
     if root is not None:
@@ -19449,7 +19857,8 @@ def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     (parent for each node) were already correct.
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    if not _point_query_uses_private_rows(G):
+        G = _coerce_arg_to_fnx_graph(G)
     try:
         preds = {}
         for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
@@ -19462,10 +19871,15 @@ def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
 def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return (node, [successors]) dict from DFS.
 
-    The unsorted path is assembled from the native canonical DFS edge stream,
+    The native-root unsorted path uses the native canonical DFS edge stream,
     which preserves NetworkX's DFS-discovery dict order without rebuilding a
     Python ``defaultdict`` from the public ``dfs_edges`` generator.
     """
+    if _point_query_uses_private_rows(G):
+        successors = {}
+        for parent, child in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+            successors.setdefault(parent, []).append(child)
+        return successors
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
@@ -19488,10 +19902,14 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
 def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Yield nodes in DFS preorder from source.
 
-    br-r37-c1-mz7g4: hash-validate source eagerly (nx-shaped TypeError)
-    on unhashable inputs. Restructured as outer fn returning inner
-    generator so the hash check fires at call time, not first ``next()``.
+    Native-root inputs retain the eager hash check (br-r37-c1-mz7g4).
+    Private-root inputs stream labeled events with lazy source validation.
     """
+    if _point_query_uses_private_rows(G):
+        return (
+            node for _, node, label in _py_dfs_labeled_edges(G, source, depth_limit, sort_neighbors)
+            if label == "forward"
+        )
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
@@ -19517,10 +19935,14 @@ def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None)
 def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Yield nodes in DFS postorder from source.
 
-    br-r37-c1-mz7g4: hash-validate source eagerly (nx-shaped TypeError)
-    on unhashable inputs. Restructured as outer fn returning inner
-    generator so the hash check fires at call time, not first ``next()``.
+    Native-root inputs retain the eager hash check (br-r37-c1-mz7g4).
+    Private-root inputs stream labeled events with lazy source validation.
     """
+    if _point_query_uses_private_rows(G):
+        return (
+            node for _, node, label in _py_dfs_labeled_edges(G, source, depth_limit, sort_neighbors)
+            if label == "reverse"
+        )
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
@@ -19546,6 +19968,9 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None
 def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return DFS tree rooted at source.
 
+    Private-root inputs use the Python DFS stream with the raw depth limit;
+    native-root inputs retain their binding-specific normalization below.
+
     br-r37-c1-c4agn: hash-check on source for nx-shaped TypeError
     parity on unhashable inputs.
 
@@ -19555,6 +19980,14 @@ def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
     depth_limit to 0 so the Rust path sees a valid unsigned and
     produces the matching single-node tree.
     """
+    if _point_query_uses_private_rows(G):
+        T = DiGraph()
+        if source is None:
+            T.add_nodes_from(G)
+        else:
+            T.add_node(source)
+        T.add_edges_from(_py_dfs_edges(G, source, depth_limit, sort_neighbors))
+        return T
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
@@ -20388,42 +20821,31 @@ from franken_networkx._fnx import (
 def all_pairs_shortest_path(G, cutoff=None, *, backend=None, **backend_kwargs):
     """Return an iterator of (source, shortest-paths-dict) pairs.
 
-    Matches NetworkX's public contract: the underlying Rust
-    implementation returns a dict; wrap it as a generator of pairs in
-    source-insertion order so callers can consume it like nx's.
+    Compute only the consumed source rows, using the existing single-source
+    routes. Graph/view changes between yields are visible, as in NetworkX.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "all_pairs_shortest_path", backend, backend_kwargs
     )
-    paths = _raw_all_pairs_shortest_path(G, cutoff)
-    # br-r37-c1-cfsoi: the Rust binding now emits each per-source inner dict in
-    # BFS-visit-from-source order (matching nx's single_source_shortest_path
-    # key order), so no Python-side re-BFS / reordering is needed — yield the
-    # native dicts directly. (Previously this paid a full _bfs_visit_order BFS
-    # per source: an 8-10x tax over the whole all-pairs result.)
-    # Preserve graph node insertion order for the source axis.
+    # Materializing every source's paths before the first yield can allocate
+    # cubic output for a deep path, even when the caller requests just one row.
+    # Do not snapshot/coerce the graph here: source iteration and each query
+    # must observe the current graph, including live views and private rows.
     for source in G:
-        if source in paths:
-            yield source, paths[source]
+        yield source, single_source_shortest_path(G, source, cutoff=cutoff)
 
 
 def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kwargs):
     """Return an iterator of (source, shortest-path-length-dict) pairs.
 
-    Matches NetworkX's public contract — wraps the dict-returning
-    Rust implementation as a generator of pairs.
+    Compute only consumed source rows and observe changes between yields.
+    Use shortest_path_length_matrix for explicitly packed bulk output.
     """
     _validate_backend_dispatch_keywords(
         "all_pairs_shortest_path_length", backend, backend_kwargs
     )
-    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
-    G = _coerce_arg_to_fnx_graph(G)
-    lengths = _raw_all_pairs_shortest_path_length(G, cutoff)
     for source in G:
-        if source in lengths:
-            # The Rust binding inserts each inner dict in BFS-visit order.
-            yield source, lengths[source]
+        yield source, single_source_shortest_path_length(G, source, cutoff=cutoff)
 
 
 def shortest_path_length_matrix(G, sources=None, cutoff=None):
@@ -20437,8 +20859,15 @@ def shortest_path_length_matrix(G, sources=None, cutoff=None):
     Unlike repeated :func:`single_source_shortest_path_length` calls, this
     builds one cache-friendly CSR adjacency and fills independent source rows
     in parallel without constructing a Python dict or integer object per pair.
+    Assigned private storage and views over it use the authoritative Python
+    rows instead of a native CSR snapshot.
+
+    Refused dense-output or packed-bytes allocations raise ``MemoryError``.
+    This does not impose a general budget on graph ingestion or BFS scratch.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    private_rows = _point_query_uses_private_rows(G)
+    if not private_rows:
+        G = _coerce_arg_to_fnx_graph(G)
     nodelist = list(G)
     source_nodes = nodelist if sources is None else list(sources)
     for source in source_nodes:
@@ -20453,7 +20882,20 @@ def shortest_path_length_matrix(G, sources=None, cutoff=None):
 
     import numpy as _np
 
-    packed = _raw_shortest_path_length_matrix(G, source_nodes, cutoff)
+    if private_rows:
+        # The native storage can deliberately disagree with assigned _adj /
+        # _succ rows. Reuse the parity-exact source BFS without coercing them
+        # away. Keep immutable packed backing just like the native result.
+        matrix = _np.full((len(source_nodes), len(nodelist)), -1, dtype=_np.int32)
+        positions = {node: column for column, node in enumerate(nodelist)}
+        for row, source in enumerate(source_nodes):
+            for target, distance in single_source_shortest_path_length(
+                G, source, cutoff=cutoff
+            ).items():
+                matrix[row, positions[target]] = distance
+        packed = matrix.tobytes()
+    else:
+        packed = _raw_shortest_path_length_matrix(G, source_nodes, cutoff)
     return _np.frombuffer(packed, dtype=_np.int32).reshape(
         (len(source_nodes), len(nodelist))
     )
@@ -21060,18 +21502,54 @@ def single_source_shortest_path(G, source, cutoff=None):
     cutoff as unsigned int and raised OverflowError on negatives.
     Coerce negative cutoff to 0 to match nx exactly.
 
-    br-r37-c1-ssspview: materialize SubgraphView inputs before
+    br-r37-c1-ssspview: materialize native-root SubgraphView inputs before
     crossing the Rust boundary (see single_source_shortest_path_length).
+    Private-root views instead walk their current Python rows directly.
+    Exact reverse views instead read the root's native predecessor BFS
+    directly, retaining its discovery objects and avoiding a reverse copy.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    root = _reverse_view_root(G)
+    if root is None and not _point_query_uses_private_rows(G):
+        G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
+    if root is None and _has_networkx_private_storage(G):
+        # Assigned adjacency can differ from native topology. Walk the current
+        # rows, preserving discovery objects and the oracle's len(adj) exit.
+        adj = G._adj
+        count = len(adj)
+        paths = {source: [source]}
+        frontier = [source]
+        level = 0
+        limit = float("inf") if cutoff is None else cutoff
+        while frontier and limit > level:
+            current, frontier = frontier, []
+            for node in current:
+                for neighbor in adj[node]:
+                    if neighbor not in paths:
+                        paths[neighbor] = paths[node] + [neighbor]
+                        frontier.append(neighbor)
+                if len(paths) == count:
+                    return paths
+            level += 1
+        return paths
     if cutoff is not None:
         try:
             if int(cutoff) < 0:
                 cutoff = 0
         except (TypeError, ValueError):
             pass
+    if root is not None and (
+        cutoff is None or isinstance(cutoff, int) and 0 <= cutoff <= _sys.maxsize
+    ):
+        # The view's successors are the root's predecessors. BFS emits the
+        # actual discovery objects, unlike the target-path canonical emitter.
+        paths = {source: [source]}
+        for parent, node in _bfs_edges_raw(root, source, reverse=True, depth_limit=cutoff):
+            paths[node] = paths[parent] + [node]
+        return paths
+    if root is not None:
+        G = _coerce_arg_to_fnx_graph(G)
     # Rust returns results in BFS discovery order (br-r37-c1-bapbi), so no reordering needed.
     return _raw_single_source_shortest_path(G, source, cutoff)
 
@@ -21082,17 +21560,54 @@ def single_source_shortest_path_length(G, source, cutoff=None):
     NodeNotFound('Source {src} is not in G') when the source isn't in
     the graph.
 
-    br-r37-c1-ssspview: ``_coerce_arg_to_fnx_graph`` materializes
-    SubgraphView / restricted_view / reverse_view / EdgeSubgraphView
+    br-r37-c1-ssspview: ``_coerce_arg_to_fnx_graph`` materializes native-root
+    SubgraphView / restricted_view / EdgeSubgraphView
     inputs to a concrete fnx graph before the Rust kernel runs.  The
     Rust binding reads the parent's adjacency directly and silently
     ignores the view filter without this materialization — sister
     bug to the ``shortest_path`` / ``shortest_path_length`` view
     handling.
+    An exact reverse view over a concrete root uses native predecessor BFS
+    without copying. Other native-root reverse-view chains still materialize
+    safely. Private-root views walk current Python rows without a native copy.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    root = _reverse_view_root(G)
+    if root is not None and (
+        cutoff is None or isinstance(cutoff, int) and 0 <= cutoff <= _sys.maxsize
+    ):
+        if source not in G:
+            raise NodeNotFound(f"Source {source} is not in G")
+        lengths = {source: 0}
+        for parent, node in _bfs_edges_raw(root, source, reverse=True, depth_limit=cutoff):
+            lengths[node] = lengths[parent] + 1
+        return lengths
+    if not _point_query_uses_private_rows(G):
+        G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
+    if _has_networkx_private_storage(G):
+        # br-r37-c1-mub4s: assigned Python adjacency is authoritative. Native
+        # storage can still contain hidden edges, even on an exact graph class.
+        # Match the oracle's level order and len(adj) early exit, not len(G).
+        adj = G._adj
+        count = len(adj)
+        seen = {source}
+        lengths = {source: 0}
+        frontier = [source]
+        level = 0
+        limit = float("inf") if cutoff is None else cutoff
+        while frontier and limit > level:
+            level += 1
+            current, frontier = frontier, []
+            for node in current:
+                for neighbor in adj[node]:
+                    if neighbor not in seen:
+                        seen.add(neighbor)
+                        frontier.append(neighbor)
+                        lengths[neighbor] = level
+                if len(seen) == count:
+                    return lengths
+        return lengths
     # Rust returns results in BFS discovery order (br-r37-c1-bapbi), so no reordering needed.
     return _raw_single_source_shortest_path_length(G, source, cutoff)
 
@@ -21516,7 +22031,14 @@ def _materialize_view(view):
     cache_key = None
     ns = getattr(root, "nodes_seq", None)
     es = getattr(root, "edges_seq", None)
-    if root is not view and ns is not None and es is not None:
+    # Assigned Python rows can change without moving native counters/epochs.
+    # Such roots must be walked anew rather than reuse a stale native copy.
+    if (
+        root is not view
+        and ns is not None
+        and es is not None
+        and not _has_networkx_private_storage(root)
+    ):
         try:
             epoch = _fnx.edge_attr_epoch(root)
         except TypeError:
@@ -23150,46 +23672,11 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     dicts as ``single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)``.
     Mirrors ``networkx.all_pairs_dijkstra``.
     """
-    G = _coerce_arg_to_fnx_graph(G)
-    should_delegate = _should_delegate_dijkstra_to_networkx(G, weight)
-    has_explicit_nonunit = (
-        False
-        if should_delegate
-        else _graph_has_explicit_nonunit_weight(G, weight)
-    )
-    native_weighted_simple = (
-        cutoff is None
-        and has_explicit_nonunit
-        and isinstance(weight, str)
-        and type(G) in (Graph, DiGraph)
-    )
-    # br-r37-c1-tgwv4: safe simple weighted calls use the packed native
-    # binding below. Keep nx delegation for cutoff/callable/non-string,
-    # multigraph, negative, nonfinite, and nonnumeric cases.
-    if should_delegate or (has_explicit_nonunit and not native_weighted_simple):
-        for node in G:
-            yield (node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight))
-        return
-    if cutoff is not None:
-        for node in G:
-            yield (node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight))
-        return
-    _graph_has_nonunit_weight(G, weight)
-    # br-r37-c1-sk5be: iterate outer keys in node-insertion order
-    # matching nx (Rust dict yields in arbitrary order).
-    raw = _raw_all_pairs_dijkstra(G, weight=weight)
-    for node in G.nodes():
-        if node in raw:
-            # raw[node] is (dists, paths) already in nx's Dijkstra finalize
-            # (heap-pop) order. br-r37-c1-k9q6q: a stable sort by distance
-            # preserves the push-seq tie-break the kernel encodes; the old
-            # BFS-hop tiebreak diverged from nx on equal-distance nodes.
-            dists, paths = raw[node]
-            d_dict = dict(dists)
-            order = _reorder_by_distance(d_dict)
-            ordered_dists = {k: dists[k] for k in order if k in dists}
-            ordered_paths = {k: paths[k] for k in order if k in paths}
-            yield (node, (ordered_dists, ordered_paths))
+    # Single-source routing already preserves exact weight domains, cutoff,
+    # tie order and private rows. Re-evaluate it for each consumed source so
+    # a partial iterator never constructs all paths or freezes later weights.
+    for node in G:
+        yield node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight)
 
 # Algorithm functions — strongly connected components
 from franken_networkx._fnx import (
@@ -23201,6 +23688,11 @@ from franken_networkx._fnx import (
 
 def number_strongly_connected_components(G):
     """Number of strongly connected components in directed graph ``G``."""
+    # Reversal preserves the SCC partition, but not component emission order.
+    # Only this scalar consumer may use the concrete root without a copy.
+    root = _reverse_view_root(G)
+    if root is not None:
+        G = root
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     try:
@@ -23222,6 +23714,10 @@ def is_strongly_connected(G):
     it as lowercase ``g`` so ``is_strongly_connected(G=digraph)``
     kwarg-style drop-in calls broke.
     """
+    # Strong connectivity is invariant under reversing every edge.
+    root = _reverse_view_root(G)
+    if root is not None:
+        G = root
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     try:
@@ -23277,6 +23773,10 @@ from franken_networkx._fnx import (
 
 def number_weakly_connected_components(G):
     """Number of weakly connected components in directed graph ``G``."""
+    # Weak connectivity ignores edge orientation; component order does not.
+    root = _reverse_view_root(G)
+    if root is not None:
+        G = root
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     try:
@@ -23293,6 +23793,9 @@ def number_weakly_connected_components(G):
 
 def is_weakly_connected(G):
     """Return True if the directed graph ``G`` is weakly connected."""
+    root = _reverse_view_root(G)
+    if root is not None:
+        G = root
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     try:
@@ -23650,6 +24153,10 @@ from franken_networkx._fnx import (
 
 def is_directed_acyclic_graph(G):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    # Every directed cycle remains a directed cycle when all arcs reverse.
+    root = _reverse_view_root(G)
+    if root is not None:
+        G = root
     # br-r37-c1-pf5vu: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     return _raw_is_directed_acyclic_graph(G)
@@ -27580,7 +28087,9 @@ def bidirectional_shortest_path(G, source, target):
     reverse-frontier tie-break (br-r37-c1-w7nn3) — and it paid the
     conversion tax on every call.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    private_rows = _point_query_uses_private_rows(G)
+    if not private_rows:
+        G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-qmu8x: validate membership up front with nx's exact wording.
     # The native binding otherwise leaks a repr-quoted "Source 'x' is not in G"
     # whereas nx emits the unquoted "Source x is not in G" (source first).
@@ -27588,6 +28097,50 @@ def bidirectional_shortest_path(G, source, target):
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
+    if private_rows:
+        # The caller's live mappings, not the hidden native topology, own
+        # these rows. Forward-only BFS is insufficient: NetworkX expands
+        # the smaller frontier and uses predecessor order for reverse ties.
+        if target == source:
+            return [source]
+        forward_adj = G._succ if G.is_directed() else G._adj
+        reverse_adj = G._pred if G.is_directed() else G._adj
+        pred, succ = {source: None}, {target: None}
+        forward, reverse = [source], [target]
+
+        def build_path(meeting):
+            path = []
+            node = meeting
+            while node is not None:
+                path.append(node)
+                node = pred[node]
+            path.reverse()
+            node = succ[path[-1]]
+            while node is not None:
+                path.append(node)
+                node = succ[node]
+            return path
+
+        while forward and reverse:
+            if len(forward) <= len(reverse):
+                current, forward = forward, []
+                for node in current:
+                    for neighbor in forward_adj[node]:
+                        if neighbor not in pred:
+                            forward.append(neighbor)
+                            pred[neighbor] = node
+                        if neighbor in succ:
+                            return build_path(neighbor)
+            else:
+                current, reverse = reverse, []
+                for node in current:
+                    for neighbor in reverse_adj[node]:
+                        if neighbor not in succ:
+                            succ[neighbor] = node
+                            reverse.append(neighbor)
+                        if neighbor in pred:
+                            return build_path(neighbor)
+        _reraise_no_path_with_display_keys(source, target)
     try:
         return _raw_bidirectional_shortest_path(G, source, target)
     except NetworkXNoPath:
@@ -27630,6 +28183,15 @@ def single_target_shortest_path_length(G, target, cutoff=None):
     """
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
+    root = _reverse_view_root(G)
+    if root is not None and (
+        cutoff is None or isinstance(cutoff, int) and 0 <= cutoff <= _sys.maxsize
+    ):
+        # Predecessors of a reverse view are successors of its root.
+        lengths = {target: 0}
+        for parent, node in _bfs_edges_raw(root, target, depth_limit=cutoff):
+            lengths[node] = lengths[parent] + 1
+        return lengths
     # br-r37-c1-sptlen: for undirected graphs the distance from every node TO
     # target equals the distance FROM target (symmetric), so route to the native
     # single_source kernel (~2.5x faster than networkx) instead of the per-node
@@ -27638,6 +28200,28 @@ def single_target_shortest_path_length(G, target, cutoff=None):
     # (value + key order). Directed graphs need reverse adjacency -> Python path.
     if not G.is_directed():
         return single_source_shortest_path_length(G, target, cutoff=cutoff)
+    if _has_networkx_private_storage(G):
+        # A directed target walk follows authoritative predecessor rows, not
+        # the native graph's potentially hidden edges or successor rows.
+        adj = G._pred
+        count = len(adj)
+        seen = {target}
+        lengths = {target: 0}
+        frontier = [target]
+        level = 0
+        limit = float("inf") if cutoff is None else cutoff
+        while frontier and limit > level:
+            level += 1
+            current, frontier = frontier, []
+            for node in current:
+                for neighbor in adj[node]:
+                    if neighbor not in seen:
+                        seen.add(neighbor)
+                        frontier.append(neighbor)
+                        lengths[neighbor] = level
+                if len(seen) == count:
+                    return lengths
+        return lengths
     # br-r37-c1-a0nl0: directed reverse BFS is now native as well. The raw
     # binding emits discovery-order pairs, preserving the Python loop's
     # predecessor tie-breaking while avoiding per-node predecessor wrappers.
@@ -27652,6 +28236,27 @@ def single_target_shortest_path(G, target, cutoff=None):
     """
     if target not in G:
         raise NodeNotFound(f"Target {target} not in G")
+    root = _reverse_view_root(G)
+    if root is None and _has_networkx_private_storage(G):
+        # Preserve the original target object at the end of each path, and
+        # use predecessor rows only for directed graphs, exactly as NetworkX.
+        adj = G._pred if G.is_directed() else G._adj
+        count = len(adj)
+        paths = {target: [target]}
+        frontier = [target]
+        level = 0
+        limit = float("inf") if cutoff is None else cutoff
+        while frontier and limit > level:
+            current, frontier = frontier, []
+            for node in current:
+                for neighbor in adj[node]:
+                    if neighbor not in paths:
+                        paths[neighbor] = [neighbor] + paths[node]
+                        frontier.append(neighbor)
+                if len(paths) == count:
+                    return paths
+            level += 1
+        return paths
     # br-r37-c1-stsp: the native binding now emits {node: path} keyed in
     # BFS-discovery-from-target order (reverse BFS over integer adjacency:
     # neighbors for undirected, predecessors for directed), matching nx's
@@ -27659,6 +28264,13 @@ def single_target_shortest_path(G, target, cutoff=None):
     # BFS (~4-5x slower than nx, scaling with |V|+|E|).
     if cutoff is not None and cutoff < 0:
         cutoff = 0
+    if root is not None and (
+        cutoff is None or isinstance(cutoff, int) and 0 <= cutoff <= _sys.maxsize
+    ):
+        paths = {target: [target]}
+        for parent, node in _bfs_edges_raw(root, target, depth_limit=cutoff):
+            paths[node] = [node] + paths[parent]
+        return paths
     return _raw_single_target_shortest_path(G, target, cutoff)
 
 
@@ -27775,6 +28387,8 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     Mirrors ``networkx.dijkstra_path_length``. Raises ``NetworkXNoPath``
     if no path exists.
     """
+    if _point_query_uses_private_rows(G):
+        return _dijkstra_path_length_inproc(G, source, target, weight=weight)
     G = _coerce_arg_to_fnx_graph(G)
     # br-cc-mgdijkstra: multigraph -> simple min-weight graph + fast simple kernel.
     if G.is_multigraph() and isinstance(weight, str):
@@ -27850,6 +28464,8 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     Raises ``NetworkXUnbounded`` on negative cycles reachable from ``source``,
     ``NetworkXNoPath`` if ``target`` is unreachable.
     """
+    if _point_query_uses_private_rows(G):
+        return _bellman_ford_path_length_inproc(G, source, target, weight=weight)
     # br-r37-c1-bfpathnative: the native single-pair Bellman-Ford kernel returns
     # nx-identical paths (the old br-r37-c1-9axrp "incorrect paths/lengths" note
     # is stale — see bellman_ford_path), so compute the path natively and sum it
@@ -28277,8 +28893,14 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     provided, returns the ``(distance, path)`` to that specific target.
     Mirrors ``networkx.single_source_dijkstra``.
     """
-    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    _HASH_PROBE.get(source)
+    # NetworkX constructs a source set, including its unhashable-source error.
+    sources = {source}
+    # Authoritative Python rows must survive view coercion, including cutoffs
+    # and callable weights. The path-only entrypoint calls this one too.
+    if _point_query_uses_private_rows(G):
+        return _multi_source_dijkstra_inproc(
+            G, sources, target=target, cutoff=cutoff, weight=weight
+        )
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-efv3d: the `_graph_has_nonunit_weight` delegation gate was
@@ -28410,8 +29032,6 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
     Returns a dict ``{target: path}`` keyed by every reachable node.
     Mirrors ``networkx.single_source_dijkstra_path``.
     """
-    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    _HASH_PROBE.get(source)
     # br-gauntlet-perf1: ``single_source_dijkstra`` runs the IDENTICAL
     # delegation gate + edge-weight scans; pre-gating here ran the O(E) Python
     # edge scans a second time per call. Delegate straight through — the
@@ -28606,11 +29226,18 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     Returns a dict ``{target: distance}``. Mirrors
     ``networkx.single_source_dijkstra_path_length``.
     """
-    # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    _HASH_PROBE.get(source)
+    # Match NetworkX's source-set validation rather than a dict-key probe.
+    sources = {source}
+    if _point_query_uses_private_rows(G):
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        # Do not build quadratic path output for a length-only query.
+        return _dijkstra_multisource_inproc(
+            G, sources, _weight_function(G, weight), cutoff=cutoff
+        )
     G = _coerce_arg_to_fnx_graph(G)
-    # br-cc-mgdijkstra: collapse a multigraph to its simple min-weight graph and run
-    # the fast simple kernel (see _multigraph_collapse_min_weight).
+    # Directed multigraphs retain their specialized length-only kernel;
+    # undirected multigraphs use the native order-preserving projection below.
     if G.is_multigraph() and isinstance(weight, str):
         if G.is_directed():
             if source not in G:
@@ -28632,16 +29259,10 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
             return _multi_source_dijkstra_inproc(
                 G, {source}, cutoff=cutoff, weight=weight
             )[0]
-        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
-        if _delegate:
-            return _multi_source_dijkstra_inproc(
-                G, {source}, cutoff=cutoff, weight=weight
-            )[0]
-        if source not in G:
-            raise NodeNotFound(f"Node {source} not found in graph")
-        return _raw_single_source_dijkstra_path_length(
-            _simple, source, weight=weight, cutoff=cutoff
-        )
+        # Undirected multigraphs continue through the shared exactness gate
+        # below. The native length kernel already projects parallel minima and
+        # restores each original neighbor row's order. The Python edge-major
+        # collapse changed FIFO ties, even though its distances were correct.
     # br-r37-c1-dijknone: weight=None means "every edge weighs 1", which the
     # native kernel already computes for any attribute no edge carries.
     weight_arg = weight
@@ -28678,6 +29299,10 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     is given, returns ``(distance, path)`` to that node alone. Handles negative
     edge weights; raises ``NetworkXUnbounded`` on negative cycles.
     """
+    if _point_query_uses_private_rows(G):
+        return _single_source_bellman_ford_inproc(
+            G, source, target=target, weight=weight
+        )
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     _HASH_PROBE.get(source)
@@ -28739,6 +29364,8 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     edge weights; raises ``NetworkXUnbounded`` on negative cycles reachable
     from ``source``.
     """
+    if _point_query_uses_private_rows(G):
+        return _single_source_bellman_ford_inproc(G, source, weight=weight)[1]
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     _HASH_PROBE.get(source)
@@ -28776,6 +29403,8 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     negative edge weights; raises ``NetworkXUnbounded`` on negative cycles
     reachable from ``source``.
     """
+    if _point_query_uses_private_rows(G):
+        return _bellman_ford_inproc(G, [source], _weight_function(G, weight))
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
     _HASH_PROBE.get(source)
@@ -28829,33 +29458,8 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
     ``paths`` is a dict ``{target: path-list}``. Mirrors
     ``networkx.all_pairs_dijkstra_path``.
     """
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-dijkignoreweight: same weight-ignoring bug in Rust path.
-    if cutoff is not None:
-        for node in G:
-            yield (
-                node,
-                single_source_dijkstra_path(G, node, cutoff=cutoff, weight=weight),
-            )
-        return
-    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
-        for node in G:
-            yield (
-                node,
-                single_source_dijkstra_path(G, node, cutoff=cutoff, weight=weight),
-            )
-        return
-    # br-r37-c1-3dxfn: iterate outer keys in node-insertion order so
-    # ``for source, paths in all_pairs_dijkstra_path(G): ...`` matches
-    # nx's iteration contract (Rust dict yields in arbitrary order).
-    raw = _raw_all_pairs_dijkstra_path(G, weight=weight)
-    for node in G.nodes():
-        if node in raw:
-            # br-r37-c1-k9q6q: the kernel already yields each source's paths
-            # in nx's Dijkstra finalize (heap-pop) order, so trust it directly.
-            # (The previous path-derived distance reorder used direction-losing
-            # frozenset edge keys and could mis-order ties on digraphs.)
-            yield (node, dict(raw[node]))
+    for node in G:
+        yield node, single_source_dijkstra_path(G, node, cutoff=cutoff, weight=weight)
 
 
 def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
@@ -28864,97 +29468,11 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
     ``lengths`` is a dict ``{target: distance}``. Mirrors
     ``networkx.all_pairs_dijkstra_path_length``.
     """
-    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-dijkignoreweight: Rust path ignores weights; delegate.
-    if cutoff is not None:
-        # br-cc-mgdijkstra: for a multigraph, collapse to the simple min-weight
-        # graph ONCE and run per-source dijkstra on it — calling
-        # single_source_dijkstra_path_length per node would re-collapse the whole
-        # graph N times (all_pairs_dijkstra_path_length(cutoff) on MDG was 0.01x /
-        # 100x slower). Length is order-independent so the collapse is byte-exact.
-        if G.is_multigraph() and isinstance(weight, str):
-            _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
-            if _delegate:
-                for node in G:
-                    yield (
-                        node,
-                        single_source_dijkstra_path_length(
-                            G, node, cutoff=cutoff, weight=weight
-                        ),
-                    )
-                return
-            for node in G:
-                yield (
-                    node,
-                    _raw_single_source_dijkstra_path_length(
-                        _simple, node, weight=weight, cutoff=cutoff
-                    ),
-                )
-            return
-        for node in G:
-            yield (
-                node,
-                single_source_dijkstra_path_length(
-                    G, node, cutoff=cutoff, weight=weight
-                ),
-            )
-        return
-    # br-r37-c1-efv3d: dropped the obsolete `or _graph_has_nonunit_weight`
-    # delegation clause (sibling of the single_source_dijkstra fix). The
-    # native path reproduces nx's distances exactly — 0 VALUE mismatches on an
-    # 80-case int/float/mixed x directed sweep; only int/float TYPE and
-    # per-source order needed handling, both done below. This output carries no
-    # paths, so it is free of the equal-cost path tie-break ambiguity that
-    # keeps all_pairs_dijkstra_path delegated. Only genuinely-unhandleable
-    # weights (negative / +inf / non-numeric / callable) still delegate.
-    if _should_delegate_dijkstra_to_networkx(G, weight):
-        for node in G:
-            yield (
-                node,
-                single_source_dijkstra_path_length(
-                    G, node, cutoff=cutoff, weight=weight
-                ),
-            )
-        return
-    # br-r37-c1-3dxfn: iterate outer keys in node-insertion order
-    # matching nx (Rust dict yields in arbitrary order).
-    if _sp_edge_weights_all_int(G, weight):
-        # all-int weights: nx keeps every distance an int, so the blanket
-        # coercion is correct and we can use the cheap length-only kernel
-        # (no path storage).
-        raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
-        for node in G.nodes():
-            if node in raw:
-                # The native row already has exact Dijkstra finalize order and
-                # int/float path provenance, so yield it without an O(V) copy.
-                yield (node, raw[node])
-        return
-    # br-apdfloat (cc): all-float weights — no distance can be int (except the
-    # source seed, which nx keeps as int 0), so the length-only kernel is exact
-    # and we skip the expensive per-source path walk in _sp_propagate_int_types
-    # (its 497k per-edge G[u][v] PyO3 lookups dominated weighted closeness). This
-    # yields byte-identical output to the mixed path below for an all-float graph.
-    if _sp_edge_weights_all_float(G, weight):
-        raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
-        for node in G.nodes():
-            if node in raw:
-                # The native all-int provenance is true only for the source in
-                # an all-float graph, so its seed is already the required int 0.
-                yield (node, raw[node])
-        return
-    # mixed/float weights: nx preserves an int distance only where EVERY
-    # weight along the chosen path is int (int+int=int, any float taints), so
-    # the type must be re-derived per path. The combined kernel returns
-    # (dists, paths) per source; reuse single_source's _sp_propagate_int_types.
-    raw = _raw_all_pairs_dijkstra(G, weight=weight)
-    for node in G.nodes():
-        if node in raw:
-            dists, paths = raw[node]
-            dists = _sp_propagate_int_types(G, weight, dict(dists), dict(paths))
-            order = _reorder_by_distance(dists)
-            dists = {k: dists[k] for k in order}
-            yield (node, dists)
+    # Keep length-only queries on their typed single-source kernels, never a
+    # paths-carrying traversal. Re-projecting a multigraph per row is deliberate:
+    # a cached projection would hide changes to parallel keys or weights.
+    for node in G:
+        yield node, single_source_dijkstra_path_length(G, node, cutoff=cutoff, weight=weight)
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
@@ -28963,6 +29481,10 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     ``paths`` is a dict ``{target: path-list}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path``.
     """
+    if _point_query_uses_private_rows(G):
+        for node in G:
+            yield node, single_source_bellman_ford_path(G, node, weight=weight)
+        return
     G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
@@ -28985,6 +29507,10 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     ``lengths`` is a dict ``{target: distance}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path_length``.
     """
+    if _point_query_uses_private_rows(G):
+        for node in G:
+            yield node, dict(single_source_bellman_ford_path_length(G, node, weight=weight))
+        return
     G = _coerce_arg_to_fnx_graph(G)
     # br-bfignoreweight: delegate weighted inputs to nx.
     if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
@@ -30248,6 +30774,15 @@ def _validate_graph_graphml_attrs(graph_attrs):
             )
 
 
+from networkx.utils import open_file as _graphml_open_file
+
+
+@_graphml_open_file(0, mode="rb")
+def _read_graphml_mode_payload(path):
+    """Read once with NetworkX's path/compression and file-ownership contract."""
+    return path.read()
+
+
 def read_graphml(
     path,
     node_type=str,
@@ -30259,14 +30794,61 @@ def read_graphml(
 ):
     """Read a graph in GraphML format.
 
-    Delegates to NetworkX's parser (br-grphml) so ``node_type``,
-    ``edge_key_type``, and ``force_multigraph`` kwargs are honoured.
-    The Rust-native reader only accepts ``(path,)``.
+    Default strict reads delegate to NetworkX for its full option surface.
+    Explicit modes and hardened reads use the native recovery policy; typed
+    node labels must retain that policy and its decision ledger.
     """
     mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
-        return _rust_read_graphml(path, mode=mode)
+        payload = _read_graphml_mode_payload(path)
+        stream_type = _io.StringIO if isinstance(payload, str) else _io.BytesIO
+        graph = _fnx.validate_graphml(stream_type(payload), mode=mode)
+        records = graph.decision_records()
+        recovered = any(record["action"] == "full_validate" for record in records)
+        if not recovered:
+            # Native validation remains authoritative. A clean document still
+            # needs the complete key/multigraph/type contract; the simple native
+            # report alone cannot preserve parallel edges or lexical edge IDs.
+            converted = _read_graphml_via_nx(
+                stream_type(payload), node_type=node_type,
+                edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+            )
+            _fnx.copy_readwrite_policy(graph, converted)
+            return converted
+        parallel = any(
+            record["rationale"] == "graphml parallel edges require multigraph reconstruction"
+            for record in records
+        )
+        if parallel or force_multigraph or edge_key_type is not int:
+            raise NetworkXNotImplemented(
+                "GraphML recovery with parallel edges or non-default multigraph/key options "
+                "is not supported"
+            )
+        if node_type is not str:
+            mapping = {}
+            for node in graph:
+                converted_node = node_type(node)
+                # Native canonicalization also supports ingestion values that
+                # are not legal NetworkX labels. This public API requires keys.
+                # Dict insertion, not hash(), preserves the interpreter's
+                # mapping-key TypeError wording (including Python 3.14).
+                {converted_node: None}
+                mapping[node] = converted_node
+            # The existing native relabel kernel retains the parser's runtime
+            # policy, ledger, attrs and insertion order for non-merging labels.
+            converted = graph._native_relabel_copy(mapping)
+            if converted is not None:
+                graph = converted
+            else:
+                # Merging labels take the general relabel path. Reuse the
+                # original graph afterwards: a freshly constructed graph would
+                # lose recovery decisions (and could inherit the ambient mode).
+                with compatibility_mode(graph.mode):
+                    converted = relabel_nodes(graph, mapping, copy=True)
+                graph.clear()
+                _copy_graph_into(converted, graph)
+        return graph
     # br-cc-graphml: for the DEFAULT case, read a FILENAME/Path into memory and
     # route through parse_graphml's native fast path (2x nx via `_fnx.read_graphml`
     # guarded against parallel-edge collapse; see parse_graphml). File-object
@@ -30342,6 +30924,10 @@ def read_json_graph(path, *, mode=None):
 
 def is_semiconnected(G):
     """Returns True if the graph is semiconnected, False otherwise."""
+    # For every pair, reachability in at least one direction is invariant.
+    root = _reverse_view_root(G)
+    if root is not None:
+        G = root
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if not G.is_directed():
@@ -31961,7 +32547,9 @@ def minimum_edge_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backe
     H = _build_auxiliary_edge_connectivity_fast(G)
 
     def _min_st_cut(H, s, t):
-        _, (reachable, non_reachable) = _minimum_cut_raw(H, s, t, capacity="capacity")
+        _, (reachable, non_reachable) = _minimum_cut_raw(
+            H, s, t, capacity="capacity", edmonds_karp=True
+        )
         reachable = set(reachable)
         non_reachable = set(non_reachable)
         cutset = set()
@@ -32362,20 +32950,12 @@ def _pagerank_needs_networkx_weight_parity(G, weight):
     return False
 
 
-def _pagerank_scipy(G, alpha, max_iter, tol, weight):
-    """scipy.sparse-backed PageRank power iteration.
-
-    br-r37-c1-y5y7i: matches nx's _pagerank_scipy for the simple case
-    (no personalization/nstart/dangling). Uses BLAS-backed matvec
-    instead of pure-Rust scalar iteration — 2-3× faster on dense graphs.
-    """
+def _pagerank_scipy_matrix(G, weight):
+    """Build or reuse the transition matrix shared by PageRank vector variants."""
     import numpy as np
     import scipy.sparse as sp
 
     N = len(G)
-    if N == 0:
-        return {}
-
     cache_key = None
     cached = None
     if (
@@ -32497,6 +33077,49 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
                 ).tocsr()
             elif not native_index_used:
                 A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
+        elif (
+            type(G) in (MultiGraph, MultiDiGraph)
+            and not _has_networkx_private_storage(G)
+            and isinstance(weight, str)
+            and _native_adjacency_arrays_multigraph_live_checked is not None
+        ):
+            # Read escaped edge dictionaries on every call. The store-only
+            # sparse exporter can outlive a second write to a held MultiGraph
+            # dictionary, even after the wrapper's attribute sync.
+            native_csr_normalized = False
+            live_arrays = _native_adjacency_arrays_multigraph_live_checked(
+                G, nodelist, weight, 1.0
+            )
+            if live_arrays is not None:
+                rows, cols, data = live_arrays
+                if not G.is_directed():
+                    # NetworkX constructs all forward entries, then their
+                    # mirrors, then negative diagonal entries. A self-loop
+                    # emitted only once is mathematically equivalent but not
+                    # float-bit equivalent after SciPy sums COO duplicates.
+                    rows = np.asarray(rows, dtype=np.intp)
+                    cols = np.asarray(cols, dtype=np.intp)
+                    data = np.asarray(data, dtype=float)
+                    forward = rows <= cols
+                    rows, cols, data = rows[forward], cols[forward], data[forward]
+                    loops = rows == cols
+                    rows, cols, data = (
+                        np.concatenate((rows, cols, rows[loops])),
+                        np.concatenate((cols, rows, cols[loops])),
+                        np.concatenate((data, data, -data[loops])),
+                    )
+                A = sp.coo_array(
+                    (data, (rows, cols)), shape=(N, N), dtype=float
+                ).tocsr()
+            else:
+                # A present nonnumeric/nonfinite value must retain SciPy's
+                # exact conversion/error behavior, never become unit weight.
+                from franken_networkx.backend import _fnx_to_nx
+
+                A = _nx.to_scipy_sparse_array(
+                    _fnx_to_nx(G), nodelist=nodelist, weight=weight,
+                    dtype=float, backend="networkx",
+                )
         else:
             native_csr_normalized = False
             A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
@@ -32512,6 +33135,22 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
                 (nodelist, A, is_dangling),
             )
 
+    return nodelist, A, is_dangling
+
+
+def _pagerank_scipy(G, alpha, max_iter, tol, weight):
+    """scipy.sparse-backed PageRank power iteration.
+
+    br-r37-c1-y5y7i: matches nx's _pagerank_scipy for the simple case
+    (no personalization/nstart/dangling). Uses BLAS-backed matvec
+    instead of pure-Rust scalar iteration — 2-3× faster on dense graphs.
+    """
+    import numpy as np
+
+    N = len(G)
+    if N == 0:
+        return {}
+    nodelist, A, is_dangling = _pagerank_scipy_matrix(G, weight)
     x = np.full(N, 1.0 / N)
     p = np.full(N, 1.0 / N)
 
@@ -32532,22 +33171,16 @@ def _pagerank_scipy_personalized(
 
     The personalized path previously ran a pure-Python power iteration over
     ``G.to_directed()`` (~5x slower than nx, which uses scipy for every case).
-    This rebuilds the same sparse matvec on top of fnx's fast
-    ``to_scipy_sparse_array`` and is byte-identical to nx (same algorithm,
-    same nodelist order, same convergence test).
+    Share the default path's native matrix builder and mutation-aware cache;
+    the vectors and their iteration arithmetic remain separate, including
+    NetworkX's Python ``sum`` association for dangling ranks.
     """
     import numpy as _np
-    import scipy.sparse as _sp
 
     N = len(G)
     if N == 0:
         return {}
-    nodelist = list(G)
-    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
-    S = _np.asarray(A.sum(axis=1)).ravel()
-    S[S != 0] = 1.0 / S[S != 0]
-    Q = _sp.csr_array(_sp.spdiags(S.T, 0, *A.shape))
-    A = Q @ A
+    nodelist, A, is_dangling = _pagerank_scipy_matrix(G, weight)
 
     if nstart is None:
         x = _np.repeat(1.0 / N, N)
@@ -32567,8 +33200,6 @@ def _pagerank_scipy_personalized(
     else:
         dangling_weights = _np.array([dangling.get(n, 0) for n in nodelist], dtype=float)
         dangling_weights = dangling_weights / dangling_weights.sum()
-    is_dangling = _np.where(S == 0)[0]
-
     for _ in range(max_iter):
         xlast = x
         x = alpha * (x @ A + sum(x[is_dangling]) * dangling_weights) + (1 - alpha) * p
@@ -32782,26 +33413,30 @@ def pagerank(
 
     # br-r37-c1-prscipy (cc): personalization / nstart / dangling case — use the scipy
     # matvec (mirroring nx) instead of the ~5x-slower pure-Python power iteration below.
-    # Gated to simple Graph/DiGraph with str/None weight and dict (or None) vectors;
-    # degenerate inputs (zero-sum vector -> div-by-zero, etc.) fall through to the
-    # pure-Python path, which carries the exact nx error/zero-handling contract.
+    # Gated to simple Graph/DiGraph and canonical native multigraphs with
+    # str/None weight and dict (or None) vectors. Multigraph sparse conversion
+    # already sums parallel edges; keep its uncached matrix so held edge-dict
+    # writes remain visible. Multigraph private rows and subclasses retain
+    # their own route.
+    # Keep scipy's errors: retrying zero-sum personalization or invalid weights
+    # in the Python loop changes NetworkX's exception type/message.
     if (
         len(G) > 0
-        and not G.is_multigraph()
-        and isinstance(G, (Graph, DiGraph))
+        and (
+            (not G.is_multigraph() and isinstance(G, (Graph, DiGraph)))
+            or (
+                type(G) in (MultiGraph, MultiDiGraph)
+                and not _has_networkx_private_storage(G)
+            )
+        )
         and (pagerank_weight is None or isinstance(pagerank_weight, str))
         and (personalization is None or isinstance(personalization, dict))
         and (nstart is None or isinstance(nstart, dict))
         and (dangling is None or isinstance(dangling, dict))
     ):
-        try:
-            return _pagerank_scipy_personalized(
-                G, alpha, personalization, max_iter, tol, nstart, pagerank_weight, dangling
-            )
-        except PowerIterationFailedConvergence:
-            raise
-        except (ZeroDivisionError, FloatingPointError, ValueError):
-            pass
+        return _pagerank_scipy_personalized(
+            G, alpha, personalization, max_iter, tol, nstart, pagerank_weight, dangling
+        )
 
     if len(G) == 0:
         return {}
@@ -33035,7 +33670,7 @@ def edge_betweenness_centrality(
 
     # A simple Graph / DiGraph runs the native edge Brandes: BFS, or Dijkstra
     # (br-r37-c1-4v1mt) for a string `weight` whose values are all finite,
-    # non-negative and numeric - the dijkstra/astar weight contract - over
+    # non-negative built-ins within the exact integer envelope, over
     # every node or, with k, over the sources networkx samples, in its order,
     # normalized or not, rescaled as networkx's _rescale does
     # (br-r37-c1-f0uiy; the k path used to go through the SUBSET kernel,
@@ -33045,12 +33680,9 @@ def edge_betweenness_centrality(
     # edge (br-gauntlet-ebc-multi) - run networkx's port.
     native = not G.is_multigraph() and (weight is None or isinstance(weight, str))
     if native and weight is not None:
-        _sync_rust_edge_attrs(G)
-        native = not (
-            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-        )
+        native = not _should_delegate_dijkstra_to_networkx(G, weight)
+        if native:
+            _sync_rust_edge_attrs(G)
     if not native:
         return _edge_betweenness_centrality_inproc(
             G,
@@ -33060,6 +33692,10 @@ def edge_betweenness_centrality(
             seed=seed,
         )
     sources = None
+    # Edge normalization retained _rescale_e through 3.5, one release later
+    # than the node estimator. That caller never passes k to _rescale_e:
+    # sampling changes the sources but not the old scale or its association.
+    source_aware = _networkx_release() >= (3, 6)
     if k is not None:
         # networkx samples even when k == len(G): the draws, and the order the
         # sources are summed in, are the sample's.
@@ -33067,12 +33703,13 @@ def edge_betweenness_centrality(
         if not isinstance(sources, list):
             # br-r37-c1-cdf1v: a numpy RandomState's wrapper returns an ndarray.
             sources = sources.tolist()
-        if not sources and len(G) >= 2:
-            # networkx's _rescale divides by the sample size once n >= 2.
+        if not sources and source_aware and len(G) >= 2:
             raise ZeroDivisionError("division by zero")
     # br-r37-c1-pi615: the Rust dict is keyed canonically (smaller first);
     # networkx keys by G.edges() traversal, in that order and direction.
-    raw = _raw_edge_betweenness_centrality(G, sources, weight, normalized)
+    raw = _raw_edge_betweenness_centrality(
+        G, sources, weight, normalized, source_aware=source_aware
+    )
     reordered = {}
     for u, v in G.edges():
         if (u, v) in raw:
@@ -33933,22 +34570,18 @@ def line_graph(G, create_using=None):
 
     br-r37-c1-cfcls: Always use fnx type as default, not G.__class__.
     """
-    # br-r37-c1-lgnative / br-r37-c1-ez7lx / br-r37-c1-lgself: native fast path for
-    # the simple (non-multi, create_using-default) case, BOTH directed and
-    # undirected, INCLUDING self-loops (br-r37-c1-lgself — a self-loop (u,u) is an
-    # L-node incident at u once, paired with u's other edges; the directed kernel
-    # likewise reproduces nx's (u,u)->(u,w) L-edges). L(G)'s nodes are tuple-keyed
-    # edges; the native kernel canonicalizes each tuple once and assembles the
-    # L-edges in Rust by integer index (vs the per-edge tuple re-canonicalization
-    # below — the tuple-key construction tax, ~55% of the Python path). The
-    # directed L-edge orientation is intrinsic and its order is nx's.
-    # br-r37-c1-bmeog: that kernel is no longer called. It built the right edge
-    # set in another ORDER - list(L) and list(L.edges()) are part of the output,
-    # and the parity tests that accepted it sorted their edges. nx's directed L
-    # adds each edge-node and then its successors' edge-nodes as it meets them;
-    # its undirected L adds the degree-1 edge-nodes as it walks G and then a set
-    # of pairs, in that set's iteration order. The path below builds both exactly
-    # (still ahead of nx: 1.35x directed, 1.49x undirected on 6,000 edges).
+    # br-r37-c1-cqb4b: the kernel preserves discovery-order insertion for
+    # directed graphs and actual CPython set order for undirected graphs.
+    # Private rows, views and custom constructors stay on their Python route;
+    # the kernel also declines hash-equal row display overrides.
+    if (
+        create_using is None
+        and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+    ):
+        native = _fnx.line_graph_fast(G)
+        if native is not None:
+            return native
 
     graph = _empty_graph_from_create_using(create_using, default=_concrete_class_for(G))
 
@@ -34038,39 +34671,6 @@ def make_max_clique_graph(G, create_using=None, *, backend=None, **backend_kwarg
     return graph
 
 
-def _canonical_node_key(node):
-    """Python mirror of Rust ``node_key_to_string`` (crates/fnx-python/src/lib.rs).
-
-    Native kernels that hand node keys back as strings emit this canonical form.
-    Anything decoding such a result must key its reverse map with THIS function:
-    ``str(node)`` only coincides with the canonical form for ints and all-int
-    tuples, so using it silently mislabels str/float/bool nodes (br-r37-c1-zeivc).
-    """
-    if isinstance(node, str):
-        return f"str:{len(node)}:{node}"
-    # bool before int: bool is an int subclass and canonicalizes to "1"/"0".
-    if isinstance(node, bool):
-        return "1" if node else "0"
-    if isinstance(node, int):
-        return str(node)
-    if isinstance(node, float):
-        # Integral floats collide with their int counterparts by hash and ==,
-        # so Rust folds them to the integer spelling; others fall back to repr.
-        if (
-            _math.isfinite(node)
-            and node.is_integer()
-            and -(2**63) <= node < 2**63
-        ):
-            return str(int(node))
-        return repr(node)
-    if isinstance(node, tuple) and node:
-        # Exact-int elements only; bool is excluded because repr("True") differs.
-        if all(type(item) is int for item in node):
-            body = ", ".join(str(item) for item in node)
-            return f"({body},)" if len(node) == 1 else f"({body})"
-    return repr(node)
-
-
 def power(G, k):
     """Return the k-th power of *G*.
 
@@ -34092,32 +34692,12 @@ def power(G, k):
     G = _coerce_arg_to_fnx_graph(G)
     if isinstance(k, _numbers.Integral):
         raw_graph = _fnx.power_rust(G, int(k))
-        # br-r37-c1-zeivc: ``power_rust`` emits CANONICAL node keys, so the
-        # reverse map must be keyed by the canonical form, not by ``str(node)``.
-        # Keying it by ``str(node)`` matched only int and all-int-tuple nodes
-        # (where the two forms coincide); str/float/bool nodes missed, and the
-        # ``.get(raw, raw)`` fallback then leaked the raw canonical key straight
-        # into the returned labels -- ``'a'`` came back as ``'str:1:a'`` and
-        # ``1.0``/``True`` came back as the STRING ``'1'``. Silent: the edge
-        # structure was right, so only the labels were wrong.
-        canonical_to_node = {
-            _canonical_node_key(node): node for node in G.nodes()
-        }
-
-        # br-r37-c1-fi1qe: bulk add_nodes_from / add_edges_from instead of one
-        # PyO3 add_node/add_edge call per element. The rebuild of power_rust's
-        # ~10^5-edge output dominated runtime (per-edge add_edge was larger than
-        # the native kernel itself). Generator order is identical to the old
-        # sequential loops, so node/edge insertion order — hence output — is
-        # byte-identical.
+        # The producer now carries original display objects. Reinterpreting
+        # them as canonical strings can merge distinct labels such as 0 and
+        # "0". Retain the public fresh constructor/active-mode and bulk path.
         graph = _concrete_class_for(G)()
-        graph.add_nodes_from(
-            canonical_to_node.get(raw_node, raw_node) for raw_node in raw_graph.nodes()
-        )
-        graph.add_edges_from(
-            (canonical_to_node.get(raw_u, raw_u), canonical_to_node.get(raw_v, raw_v))
-            for raw_u, raw_v in raw_graph.edges()
-        )
+        graph.add_nodes_from(raw_graph)
+        graph.add_edges_from(raw_graph.edges())
         return graph
 
     graph = _concrete_class_for(G)()
@@ -38414,9 +38994,53 @@ def _planarity_graph_for_certificate(G):
         return graph
 
 
+def _digraph_matches_undirected_edge_order(G):
+    idx = {u: i for i, u in enumerate(G.nodes)}
+    n = len(idx)
+    adj_lr = [[] for _ in range(n)]
+    seen = set()
+    for u, v in G.edges():
+        iu, iv = idx[u], idx[v]
+        if iu == iv:
+            continue
+        key = (iu, iv) if iu < iv else (iv, iu)
+        if key not in seen:
+            seen.add(key)
+            adj_lr[iu].append(iv)
+            adj_lr[iv].append(iu)
+    adj_pe = [[] for _ in range(n)]
+    seen_pe = set()
+    for iu in range(n):
+        for iv in adj_lr[iu]:
+            key = (iu, iv) if iu < iv else (iv, iu)
+            if key not in seen_pe:
+                seen_pe.add(key)
+                adj_pe[iu].append(iv)
+                adj_pe[iv].append(iu)
+    return adj_lr == adj_pe
+
+
+def _has_native_planarity_storage(G):
+    if not isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        return False
+    inst_dict = getattr(G, "__dict__", None)
+    if inst_dict and ("_adj" in inst_dict or "_succ" in inst_dict):
+        return False
+    cls = type(G)
+    if cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        return True
+    return getattr(cls, "_adj", None) in (
+        Graph._adj,
+        DiGraph._adj,
+        MultiGraph._adj,
+        MultiDiGraph._adj,
+    )
+
+
 def _check_planarity_certificate(G, counterexample=False, recursive=False):
-    if not recursive and type(G) is Graph:
-        if not counterexample:
+    if _has_native_planarity_storage(G):
+        is_undirected = isinstance(G, (Graph, MultiGraph))
+        if not counterexample and type(G) is Graph:
             try:
                 node_count = G.number_of_nodes()
                 edge_count = G.number_of_edges()
@@ -38438,20 +39062,15 @@ def _check_planarity_certificate(G, counterexample=False, recursive=False):
                     cex = _fnx.kuratowski_subgraph(G)
                     return False, cex
                 return False, None
-            # rc-planar-embedding-kernel-07rh8 (milestone 1): the native
-            # Boyer-Myrvold assembly produces nx-identical rotation orders
-            # (verified against the planarity_embedding_oracle corpus, byte
-            # for byte incl. isolated nodes). Materialize nx's own
-            # PlanarEmbedding container from the native rotation data so
-            # isinstance and check_structure() keep working.
-            data = _fnx.planar_embedding_data(G)
-            if data is not None:
-                from networkx.algorithms.planarity import PlanarEmbedding
+            if is_undirected or _digraph_matches_undirected_edge_order(G):
+                data = _fnx.planar_embedding_data(G)
+                if data is not None:
+                    from networkx.algorithms.planarity import PlanarEmbedding
 
-                embedding = PlanarEmbedding()
-                embedding.add_nodes_from(node for node, _ in data)
-                embedding.set_data(dict(data))
-                return True, embedding
+                    embedding = PlanarEmbedding()
+                    embedding.add_nodes_from(node for node, _ in data)
+                    embedding.set_data(dict(data))
+                    return True, embedding
         except (AttributeError, TypeError, NetworkXError):
             pass
 
@@ -38608,6 +39227,8 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
     fnx's own dijkstra wrappers (which are weight-correct) for
     unit-weight cases.
     """
+    if _point_query_uses_private_rows(G):
+        return _bidirectional_dijkstra_local(G, source, target, weight=weight)
     # br-r37-c1-bdjkstra: directed multigraphs, callable / non-string weight,
     # and negative / non-finite / non-numeric weights still delegate to nx.
     # Undirected MultiGraph now has the exact native per-key-min kernel below.
@@ -42351,6 +42972,12 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     finalized distance order, preserving nx's algorithm-discovery
     contract while avoiding the full fnx->nx conversion fallback.
     """
+    # Private root rows remain authoritative through views; coercion can read
+    # stale native edges or replace the row's discovery objects before routing.
+    if _point_query_uses_private_rows(G):
+        return _dijkstra_predecessor_and_distance_inproc(
+            G, source, cutoff=cutoff, weight=weight,
+        )
     G = _coerce_arg_to_fnx_graph(G)
     # br-cc-mgbfpath: a DIRECTED multigraph collapses to the simple min-weight
     # DiGraph byte-EXACTLY for BOTH the predecessor-list dict AND the distance
@@ -42401,6 +43028,10 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     """Return shortest path lengths and paths from any source in *sources*."""
     if not sources:
         raise ValueError("sources must not be empty")
+    if _point_query_uses_private_rows(G):
+        return _multi_source_dijkstra_inproc(
+            G, sources, target=target, cutoff=cutoff, weight=weight,
+        )
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-m0cj7: a simple graph runs networkx's search natively - cutoff
@@ -42556,6 +43187,13 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     """
     if not sources:
         raise ValueError("sources must not be empty")
+    if _point_query_uses_private_rows(G):
+        for source in sources:
+            if source not in G:
+                raise NodeNotFound(f"Node {source} not found in graph")
+        return _dijkstra_multisource_inproc(
+            G, sources, _weight_function(G, weight), cutoff=cutoff,
+        )
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-msd-projfix (cc): the native length-only binding runs on the
     # BORROWED ORIGINAL graph (after syncing the mirror), so its settle order is
@@ -47963,7 +48601,8 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     does. A source missing from G still reaches G.neighbors and raises nx's
     NetworkXError after the start's "forward" event (br-r37-c1-750hp).
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    if not _point_query_uses_private_rows(G):
+        G = _coerce_arg_to_fnx_graph(G)
     nodes = G if source is None else [source]
     if depth_limit is None:
         depth_limit = len(G)
@@ -49037,22 +49676,21 @@ class _ReverseDirectedViewBase:
         return super().__new__(cls)
 
     def __init__(self, graph):
-        # br-r37-c1-revctor: the SIBLING of the filtered-view constructor, and
-        # it had none of what that one just received. It assigns THREE private
-        # overrides - succ, pred, adj - one at a time, so each ran the whole
-        # funnel: the descriptor-memo drop, five cached-view pops and the shadow
-        # installer, three times over. br-r37-c1-batchov fixed exactly that
-        # shape for `_FilteredGraphView`, and `reverse(copy=False)` sat at
-        # 0.5738x as the unmoved CONTROL in that measurement and the next one -
-        # which is precisely the signal that the fix had not been applied here.
-        #
-        # `_graph` is written straight to the instance dict for the reason
-        # br-r37-c1-ctorstore gives: the class `__setattr__` wrapper costs
-        # 302.6ns against 74.4ns for the dict write it performs, and it has
-        # nothing to do for a private name. `graph` and `frozen` keep the
-        # normal path, and they are also what keeps the instance dict handed to
-        # `_fnx_register_gc_dict`.
-        _store = vars(self)
+        _store = self.__dict__
+        # A failed graph.graph lookup can leave a parent/view cycle before
+        # the first setattr. Register before any such edge is installed.
+        self._fnx_register_gc_dict(_store)
+        # Fresh canonical views have no caches or user-owned state to reset.
+        # Subclasses, nested views and reinitialization keep the full funnel.
+        fast_init = (
+            not _store
+            and type(graph) in (DiGraph, MultiDiGraph)
+            and type(self) in (_ReverseDirectedView, _ReverseMultiDirectedView)
+            and (
+                type(self).__setattr__ is _digraph_setattr_with_cached_public_adjacency
+                or type(self).__setattr__ is _multidigraph_setattr_with_cached_public_adjacency
+            )
+        )
         _store["_graph"] = graph
         # br-r37-c1-u9a13: share the parent's graph dict, as networkx's
         # reverse view does (R.graph is G.graph). ``self.graph = graph.graph``
@@ -49060,7 +49698,10 @@ class _ReverseDirectedViewBase:
         # view's own dict - a write on either side was lost on the other.
         # Same bypass as the filtered view (br-r37-c1-fgv-graph-id).
         _store[_GRAPH_ATTR_OVERRIDE] = graph.graph
-        self.frozen = True
+        if fast_init:
+            _store["frozen"] = True
+        else:
+            self.frozen = True
         # br-r37-c1-revadjname: pick canonical AdjacencyView /
         # MultiAdjacencyView per multi-ness so type(R.adj).__name__
         # matches nx.
@@ -49076,14 +49717,23 @@ class _ReverseDirectedViewBase:
         succ_view = adj_cls(self)
         pred_view = adj_cls(self, reverse=True)
         adj_view = adj_cls(self)
-        _set_private_overrides(
-            self,
-            (
-                (_PRIVATE_SUCC_OVERRIDE, succ_view),
-                (_PRIVATE_PRED_OVERRIDE, pred_view),
-                (_PRIVATE_ADJ_OVERRIDE, adj_view),
-            ),
-        )
+        if fast_init:
+            _store[_PRIVATE_SUCC_OVERRIDE] = succ_view
+            self._fnx_set_private_dir_override()
+            _store[_PRIVATE_PRED_OVERRIDE] = pred_view
+            self._fnx_set_private_dir_override()
+            _store[_PRIVATE_ADJ_OVERRIDE] = adj_view
+            self._fnx_set_private_adj_override()
+            _install_private_method_shadows(self, _store)
+        else:
+            _set_private_overrides(
+                self,
+                (
+                    (_PRIVATE_SUCC_OVERRIDE, succ_view),
+                    (_PRIVATE_PRED_OVERRIDE, pred_view),
+                    (_PRIVATE_ADJ_OVERRIDE, adj_view),
+                ),
+            )
 
     def _fnx_native_graph(self):
         # br-r37-c1-4rhw0: the reversed graph, for native kernels (see
@@ -49119,53 +49769,30 @@ class _ReverseDirectedViewBase:
         return MultiGraph if self.is_multigraph() else Graph
 
     def to_directed(self, as_view=False):
-        """Materialise the reverse view as a concrete directed graph.
+        """Convert reversed adjacency to a deep copy or a frozen live view."""
+        graph_class = MultiDiGraph if self.is_multigraph() else DiGraph
+        # The canonical routines already preserve attribute-key fidelity,
+        # per-dictionary deepcopy semantics, and the as_view contract. Their
+        # exact-type native paths cannot read this view's empty Rust storage.
+        return graph_class.to_directed(self, as_view=as_view)
 
-        Matches upstream NetworkX: returns a DiGraph / MultiDiGraph
-        whose edges are the reversed edges of the underlying graph.
-        `as_view` is accepted for API compatibility but behaves the
-        same as False (already a reversed adjacency).
-        """
-        cls = self.to_directed_class()
-        out = cls()
-        out.graph.update(_deepcopy(self.graph))
-        out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
-        if self.is_multigraph():
-            for u, v, key, attrs in self._edges(data=True, keys=True):
-                out.add_edges_from([(u, v, key, _deepcopy(attrs))])
-        else:
-            for u, v, attrs in self._edges(data=True):
-                out.add_edge(u, v, **_deepcopy(attrs))
-        return out
-
-    def to_undirected(self, as_view=False):
-        """Materialise the reverse view as a concrete undirected graph.
-
-        Matches upstream NetworkX: collapses both directions of the
-        reversed edges into an undirected Graph / MultiGraph.
-        """
-        cls = self.to_undirected_class()
-        out = cls()
-        out.graph.update(_deepcopy(self.graph))
-        out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
-        if self.is_multigraph():
-            for u, v, key, attrs in self._edges(data=True, keys=True):
-                out.add_edges_from([(u, v, key, _deepcopy(attrs))])
-        else:
-            for u, v, attrs in self._edges(data=True):
-                out.add_edge(u, v, **_deepcopy(attrs))
-        return out
+    def to_undirected(self, reciprocal=False, as_view=False):
+        """Convert reversed adjacency, preserving reciprocal and view options."""
+        graph_class = MultiDiGraph if self.is_multigraph() else DiGraph
+        return graph_class.to_undirected(self, reciprocal=reciprocal, as_view=as_view)
 
     def reverse(self, copy=True):
         """Return the underlying (un-reversed) directed graph.
 
         The reverse of a reverse-view is the original orientation.
-        Matches upstream: copy=True returns a fresh DiGraph copy,
+        copy=True deep-copies graph, node, and edge attribute dictionaries.
         copy=False returns the live underlying graph (no wrapper).
         """
         if copy:
-            # Return a detached copy of the underlying directed graph.
-            return self._graph.copy()
+            graph_class = MultiDiGraph if self.is_multigraph() else DiGraph
+            # Snapshot the current view before the native deep reverse. The
+            # kernel materialization cache does not track node-attribute edits.
+            return graph_class.reverse(self.copy(), copy=True)
         return self._graph
 
     @property
@@ -49237,7 +49864,7 @@ class _ReverseDirectedViewBase:
                         result.append((source, target))
         return result
 
-    @property
+    @_cached_property
     def edges(self):
         # br-r37-c1-revadjname: pick canonical OutEdgeView /
         # OutMultiEdgeView per multi-ness.
@@ -50061,7 +50688,7 @@ def _fast_pred_row(graph, node):
     # class but has an EMPTY Rust base, so native_dict(node) raises KeyError
     # for a nested subgraph's view parent. type() (not getattr) gates it; the
     # view falls through to graph.pred[node] (the filter-aware adjacency).
-    if type(graph) in (DiGraph, MultiDiGraph):
+    if type(graph) in (DiGraph, MultiDiGraph) and not _has_networkx_private_storage(graph):
         native_dict = getattr(graph, "_native_predecessor_row_dict", None)
         if native_dict is not None:
             return native_dict(node)
@@ -50082,6 +50709,8 @@ def _fast_succ_row(graph, node):
     # The per-row accessor already yields the SAME key order AND live attrs
     # (verified byte-identical over mutated / edge-removed graphs), so use it
     # alone — O(deg), byte-identical output.
+    if _has_networkx_private_storage(graph):
+        return graph.succ[node]
     if type(graph) is DiGraph:
         native_row = getattr(graph, "_native_successor_row_dict", None)
         if native_row is not None:
@@ -50108,8 +50737,13 @@ class _FilteredNeighborMap(_Mapping):
         self._view = view
         self._node = node
         self._reverse = reverse
+        if _point_query_uses_private_rows(view._graph):
+            adjacency = view._graph._pred if reverse and view.is_directed() else view._graph._adj
+            self._private_row = adjacency[node]
 
     def _raw_neighbors(self):
+        if "_private_row" in self.__dict__:
+            return self._private_row
         # br-r37-c1-subadjrow: use the parent graph's native per-node
         # __getitem__ (G[node]) instead of G.adj[node] / G.succ[node].
         # The latter go through the (Multi)AdjacencyView whose _atlas()
@@ -50133,6 +50767,14 @@ class _FilteredNeighborMap(_Mapping):
         return self._view._edge_visible(self._node, neighbor, key)
 
     def __iter__(self):
+        if "_private_row" in self.__dict__ and not self._view.is_multigraph():
+            # FilterAtlas constructs its row iterator now; FilterMultiInner's
+            # generator instead delays that operation until its first next().
+            return (neighbor for neighbor in self._private_row
+                    if self._view._node_visible(neighbor) and self._edge_visible(neighbor))
+        return self._iter_neighbors()
+
+    def _iter_neighbors(self):
         row = self._raw_neighbors()
         view = self._view
         # br-r37-c1-ag2sx: DEFAULT edge filter + set node filter — a neighbour
@@ -50208,6 +50850,7 @@ class _FilteredNeighborMap(_Mapping):
             key_set = (
                 getattr(parent, "_native_edge_key_set", None)
                 if type(parent) in (MultiGraph, MultiDiGraph)
+                and not _has_networkx_private_storage(parent)
                 else None
             )
             if key_set is not None:
@@ -50350,10 +50993,17 @@ class _FilteredAdjacencyView(_Mapping):
     def __getitem__(self, node):
         if not self._view._node_visible(node):
             raise KeyError(f"Key {node} not found")
-        atlas_getter = lambda: _FilteredNeighborMap(
-            self._view, node, reverse=self._reverse
-        )
+        private_rows = _point_query_uses_private_rows(self._view)
+        if private_rows:
+            row = _FilteredNeighborMap(self._view, node, reverse=self._reverse)
+            atlas_getter = lambda: row
+        else:
+            atlas_getter = lambda: _FilteredNeighborMap(
+                self._view, node, reverse=self._reverse
+            )
         if self._view.is_multigraph():
+            if private_rows:
+                return AdjacencyView(atlas_getter, native_iter=lambda: iter(row))
             return AdjacencyView(atlas_getter)
         return AtlasView(atlas_getter)
 
@@ -50412,6 +51062,12 @@ class _ViewEdgeDataView:
         return iter(self._produce(self._nbunch))
 
     def __len__(self):
+        # br-r37-c1-pgpg1: list() asks for the length before it iterates, so
+        # this walked the view twice. A conversion view's whole edge count is
+        # its number_of_edges (br-r37-c1-ktsxn checked the two equal on all
+        # six conversions), which most of them answer without the walk.
+        if self._nbunch is None and isinstance(self._view, _ConversionGraphViewBase):
+            return self._view.number_of_edges()
         return len(self._produce(self._nbunch))
 
     def __contains__(self, e):
@@ -50877,24 +51533,19 @@ class _FilteredGraphView:
         return super().__new__(cls)
 
     def __init__(self, graph, *, filter_node=None, filter_edge=None):
-        # br-r37-c1-ctorstore: the six PRIVATE attributes below are written
-        # straight into the instance dict. Every plain `self.x = y` on these
-        # classes goes through the class `__setattr__` wrapper, measured at
-        # 302.6ns against 74.4ns for the dict write it ultimately performs -
-        # 228ns of wrapper per store, and this constructor makes eleven.
-        #
-        # Only names the wrapper has nothing to do for are bypassed. It exists
-        # to special-case `adj` on a filtered view and to discard descriptor
-        # memo markers for the cached PUBLIC accessor names; none of these six
-        # is either. `nodes`, `frozen` and the adjacency overrides keep the
-        # normal path.
-        #
-        # The wrapper's other job - handing the instance dict to
-        # `_fnx_register_gc_dict` - still happens, because `nodes`, `frozen`
-        # and the overrides are all still assigned normally and `vars(self)` is
-        # identity-stable, so one registration covers the same dict. That is
-        # the same argument br-r37-c1-vaayu already relies on.
-        _store = vars(self)
+        _store = self.__dict__
+        self._fnx_register_gc_dict(_store)
+        fast_init = (
+            not _store
+            and type(graph) in _FILTERED_GRAPH_VIEW_TYPES_SOURCE_TYPES
+            and type(self) in _FILTERED_GRAPH_VIEW_TYPES.values()
+            and (
+                type(self).__setattr__ is _graph_setattr_with_cached_public_adj
+                or type(self).__setattr__ is _digraph_setattr_with_cached_public_adjacency
+                or type(self).__setattr__ is _multigraph_setattr_with_cached_public_adj
+                or type(self).__setattr__ is _multidigraph_setattr_with_cached_public_adjacency
+            )
+        )
         _store["_graph"] = graph
         # br-r37-c1-fgv-graph-id: nx's subgraph_view / copy(as_view=
         # True) shares the parent's ``graph`` dict by reference —
@@ -50906,7 +51557,7 @@ class _FilteredGraphView:
         # clears+updates the existing Rust-native dict instead of
         # storing the ref — losing identity.  Bypass the descriptor
         # by writing directly to the override slot in vars(self).
-        vars(self)[_GRAPH_ATTR_OVERRIDE] = graph.graph
+        _store[_GRAPH_ATTR_OVERRIDE] = graph.graph
         _store["_filter_node"] = filter_node or (lambda node: True)
         # br-r37-c1-h8vqr: the NODE-filter twin of the edge flag just below,
         # which already existed. Without it `_node_visible` calls a no-op lambda
@@ -50935,8 +51586,12 @@ class _FilteredGraphView:
         # parent was swapped by some path this constructor never saw, and the
         # per-edge saving is already taken below.
         _store["_fnx_parent_is_multigraph"] = graph.is_multigraph()
-        self.frozen = True
-        self.nodes = NodeView(self)
+        if fast_init:
+            _store["frozen"] = True
+            _store["nodes"] = NodeView(self)
+        else:
+            self.frozen = True
+            self.nodes = NodeView(self)
         # br-r37-c1-batchov: build all three views BEFORE assigning any, so the
         # three private overrides can go through the funnel in one pass. The
         # factory only reads `is_multigraph()` and closes over `self`, so no
@@ -50945,17 +51600,30 @@ class _FilteredGraphView:
         if graph.is_directed():
             succ_view = _filtered_public_adjacency_view(self)
             pred_view = _filtered_public_adjacency_view(self, reverse=True)
-            _set_private_overrides(
-                self,
-                (
-                    (_PRIVATE_ADJ_OVERRIDE, adj_view),
-                    (_PRIVATE_SUCC_OVERRIDE, succ_view),
-                    (_PRIVATE_PRED_OVERRIDE, pred_view),
-                ),
-            )
+            if fast_init:
+                _store[_PRIVATE_ADJ_OVERRIDE] = adj_view
+                self._fnx_set_private_adj_override()
+                _store[_PRIVATE_SUCC_OVERRIDE] = succ_view
+                self._fnx_set_private_dir_override()
+                _store[_PRIVATE_PRED_OVERRIDE] = pred_view
+                self._fnx_set_private_dir_override()
+                _install_private_method_shadows(self, _store)
+            else:
+                _set_private_overrides(
+                    self,
+                    (
+                        (_PRIVATE_ADJ_OVERRIDE, adj_view),
+                        (_PRIVATE_SUCC_OVERRIDE, succ_view),
+                        (_PRIVATE_PRED_OVERRIDE, pred_view),
+                    ),
+                )
         else:
-            # One override, so there is nothing to batch.
-            self.adj = adj_view
+            if fast_init:
+                _store[_PRIVATE_ADJ_OVERRIDE] = adj_view
+                self._fnx_set_private_adj_override()
+                _install_private_method_shadows(self, _store)
+            else:
+                self.adj = adj_view
 
     def _fnx_native_graph(self):
         # br-r37-c1-4rhw0: the concrete graph this view shows, for native
@@ -51549,7 +52217,7 @@ class _FilteredGraphView:
 
     def neighbors(self, node):
         if not self._node_visible(node):
-            raise NetworkXError(f"The node {node} is not in the graph.")
+            raise _traversal_missing_source_error(self, node)
         return iter(self.adj[node])
 
     def successors(self, node):
@@ -51559,7 +52227,7 @@ class _FilteredGraphView:
         if not self.is_directed():
             return self.neighbors(node)
         if not self._node_visible(node):
-            raise NetworkXError(f"The node {node} is not in the graph.")
+            raise _traversal_missing_source_error(self, node)
         return iter(self.pred[node])
 
     def has_edge(self, u, v, key=None):
@@ -52163,6 +52831,12 @@ _RAW_GET_EDGE_DATA_METHODS = (
 _RAW_DIGRAPH_NEIGHBOR_METHODS = (
     _DIGRAPH_NEIGHBORS,
     _DIGRAPH_SUCCESSORS,
+    _fnx.MultiDiGraph._native_neighbors_iter,
+)
+_RAW_MULTIGRAPH_NEIGHBOR_METHODS = (_fnx.MultiGraph._native_neighbors_iter,)
+_RAW_DIRECTED_PREDECESSOR_METHODS = (
+    _fnx.DiGraph._native_predecessors_iter,
+    _fnx.MultiDiGraph._native_predecessors_iter,
 )
 
 
@@ -52359,6 +53033,13 @@ def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
     storage = vars(self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
+    if raw is None:
+        # A subclass can inherit the native writer while carrying only a
+        # private node mapping; its native adjacency still needs the write.
+        for graph_class in type(self).__mro__[1:]:
+            raw = _RAW_ADD_EDGE_BY_CLASS.get(graph_class)
+            if raw is not None:
+                break
     if not python_only and raw is not None:
         raw(self, u_of_edge, v_of_edge, **attr)
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, None, attr, storage)
@@ -52369,6 +53050,13 @@ def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **att
     storage = vars(self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
+    if raw is None:
+        # The shadow installer also handles subclasses inheriting the native
+        # add_edge. With only _node assigned, the adjacency is still native.
+        for graph_class in type(self).__mro__[1:]:
+            raw = _RAW_ADD_EDGE_BY_CLASS.get(graph_class)
+            if raw is not None:
+                break
     if not python_only and raw is not None:
         if key is None:
             key = raw(self, u_of_edge, v_of_edge, **attr)
@@ -52771,6 +53459,16 @@ def _assigned_private_get_edge_data_multi(
     _HASH_PROBE.get(v)
     if key is not None:
         _HASH_PROBE.get(key)
+    storage = self.__dict__
+    if _PRIVATE_ADJ_OVERRIDE not in storage and _PRIVATE_SUCC_OVERRIDE not in storage:
+        # Assigning only _node (or _pred) leaves _adj native. Its writable
+        # facade wraps keydicts, but get_edge_data must return the raw dict.
+        raw = (
+            _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+            if self.is_directed()
+            else _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+        )
+        return raw(self, u, v, key, default)
     if not self.has_edge(u, v, key):
         return default
     # br-r37-c1-vbe1o: raw `_adj`, as networkx does.
@@ -52783,7 +53481,23 @@ def _assigned_private_get_edge_data_multi(
 def _assigned_private_digraph_successors(self, n):
     _HASH_PROBE.get(n)
     try:
-        return iter(self.succ[n])
+        return iter(self._succ[n])
+    except KeyError as exc:
+        raise NetworkXError(f"The node {n} is not in the digraph.") from exc
+
+
+def _assigned_private_graph_neighbors(self, n):
+    _HASH_PROBE.get(n)
+    try:
+        return iter(self._adj[n])
+    except KeyError as exc:
+        raise NetworkXError(f"The node {n} is not in the graph.") from exc
+
+
+def _assigned_private_digraph_predecessors(self, n):
+    _HASH_PROBE.get(n)
+    try:
+        return iter(self._pred[n])
     except KeyError as exc:
         raise NetworkXError(f"The node {n} is not in the digraph.") from exc
 
@@ -52831,8 +53545,9 @@ def _class_shadows_nothing(owner_type):
             ("order", _RAW_NUMBER_OF_NODES_METHODS),
             ("has_edge", _RAW_HAS_EDGE_METHODS),
             ("get_edge_data", _RAW_GET_EDGE_DATA_METHODS),
-            ("neighbors", _RAW_DIGRAPH_NEIGHBOR_METHODS),
+            ("neighbors", _RAW_DIGRAPH_NEIGHBOR_METHODS + _RAW_MULTIGRAPH_NEIGHBOR_METHODS),
             ("successors", _RAW_DIGRAPH_NEIGHBOR_METHODS),
+            ("predecessors", _RAW_DIRECTED_PREDECESSOR_METHODS),
         ):
             class_method = next(
                 (
@@ -52868,7 +53583,7 @@ def _shadow_plan(owner_type, node_override, any_override):
         return plan
 
     multi = issubclass(owner_type, (MultiGraph, MultiDiGraph))
-    directed = issubclass(owner_type, DiGraph)
+    directed = issubclass(owner_type, (DiGraph, MultiDiGraph))
     candidates = []
     if node_override:
         candidates.append(("has_node", _assigned_private_has_node, _RAW_HAS_NODE_METHODS))
@@ -52923,6 +53638,13 @@ def _shadow_plan(owner_type, node_override, any_override):
             candidates.append((
                 "successors", _assigned_private_digraph_successors, _RAW_DIGRAPH_NEIGHBOR_METHODS
             ))
+            candidates.append((
+                "predecessors", _assigned_private_digraph_predecessors, _RAW_DIRECTED_PREDECESSOR_METHODS
+            ))
+        elif multi:
+            candidates.append((
+                "neighbors", _assigned_private_graph_neighbors, _RAW_MULTIGRAPH_NEIGHBOR_METHODS
+            ))
 
     eligible = []
     for name, fallback, raw_methods in candidates:
@@ -52968,6 +53690,9 @@ def _install_private_method_shadows(self, storage):
     descriptors. Their raw methods return live dict-key iterators; assigned
     NetworkX stores keep the corresponding mapping-backed iterator only on that
     instance.
+
+    Private multigraph neighbor and directed predecessor iterators likewise
+    retain the assigned dict itself, rather than an iterator over a copied row.
 
     Do not replace a user-supplied instance method or a subclass override. The
     tracked bound-method identities also let deepcopy/pickle distinguish these
@@ -55343,7 +56068,6 @@ def _private_aware_edges(raw_edges):
 # id-collision correctness bugs where a recycled id() returned a
 # stale Graph from a long-dead EdgeView. Used by
 # EdgeDataView._materialize_via_adj_walk (br-r37-c1-dc14n).
-import weakref as _weakref
 _EDGE_VIEW_GRAPH_OWNER: "_weakref.WeakValueDictionary[int, object]" = (
     _weakref.WeakValueDictionary()
 )
@@ -57250,6 +57974,8 @@ class _UnionKeyAtlas(_Mapping):
     where networkx prints ``AtlasView(UnionAtlas({...}, {...}))``.
     """
 
+    __slots__ = ("_primary", "_secondary")
+
     def __init__(self, primary, secondary):
         self._primary = primary
         self._secondary = secondary
@@ -57264,6 +57990,9 @@ class _UnionKeyAtlas(_Mapping):
         if key in self._primary:
             return self._primary[key]
         return self._secondary[key]
+
+    def copy(self):
+        return {key: self[key].copy() for key in self}
 
     def _union_repr(self):
         return f"UnionAtlas({dict(self._primary)!r}, {dict(self._secondary)!r})"
@@ -57297,6 +58026,10 @@ class _ConversionNeighborMap(_Mapping):
         if self._reverse:
             return self._view._pred_neighbor_value(self._node, neighbor)
         return self._view._adj_neighbor_value(self._node, neighbor)
+
+    def copy(self):
+        # Copy the mapping/attribute layers, not objects stored as attributes.
+        return {neighbor: self[neighbor].copy() for neighbor in self}
 
     # br-r37-c1-u7szm: networkx's row is AtlasView / AdjacencyView (multigraph)
     # over the mapping it reads - the source's row dict, or, in an undirected
@@ -57353,6 +58086,9 @@ class _ConversionAdjacencyView(_Mapping):
 
     def __len__(self):
         return len(self._view)
+
+    def copy(self):
+        return {node: self[node].copy() for node in self}
 
     def __getitem__(self, node):
         # br-r37-c1-2r06n: the wrapped graph's ADJACENCY decides, not its node
@@ -57522,9 +58258,25 @@ def _undirected_row_degrees(view, nbunch, weight, factor):
     return ((node, single(node, node in loops)) for node in view._nbunch(nbunch))
 
 
+class _ConversionViewAccessor:
+    """A conversion view's nodes / edges / adj / succ / pred without a view
+    stored under that name: the graph base class's accessor, as the
+    property's super() branch answered (succ / pred of an undirected view,
+    an instance mid-construction)."""
+
+    def __init__(self, name):
+        self._name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return getattr(super(_ConversionGraphViewBase, obj), self._name)
+
+
 class _ConversionGraphViewBase:
     _directed = False
     _multigraph = False
+    _adj_view_type = _ConversionAdjacencyView
 
     def __bool__(self):
         return _view_bool(self)
@@ -57560,13 +58312,16 @@ class _ConversionGraphViewBase:
         return super().__new__(cls)
 
     def __init__(self, graph):
+        # Register before adding wrappers: native GC must also see their cycles
+        # if setup raises before the canonical __init__ / __setattr__ hooks run.
+        self._fnx_register_gc_dict(self.__dict__)
         self.__dict__["_graph"] = graph
         self.__dict__["frozen"] = True
         self.__dict__["_nodes_view"] = _ConversionNodeView(self)
         self.__dict__["_edges_view"] = _CONVERSION_EDGE_VIEW_TYPES[
             (self._directed, self._multigraph)
         ](self)
-        self.__dict__["_adj_view"] = _ConversionAdjacencyView(self)
+        self.__dict__["_adj_view"] = self._adj_view_type(self)
         # br-r37-c1-fabqo: register the view's adjacency as the graph's private
         # storage, as filtered and reverse views do, so an inherited accessor
         # (the `_adj` fallback to_scipy_sparse_array / bellman_ford read) and
@@ -57578,11 +58333,17 @@ class _ConversionGraphViewBase:
         # one method it would shadow, get_edge_data, is defined below.
         self.__dict__[_PRIVATE_ADJ_OVERRIDE] = self._adj_view
         self._fnx_set_private_adj_override()
+        storage = self.__dict__
+        storage["nodes"] = storage["_nodes_view"]
+        storage["edges"] = storage["_edges_view"]
+        storage["adj"] = storage["_adj_view"]
         if self.is_directed():
             self.__dict__["_succ_view"] = self._adj_view
             self.__dict__["_pred_view"] = _ConversionAdjacencyView(self, reverse=True)
             self.__dict__[_PRIVATE_SUCC_OVERRIDE] = self._adj_view
             self.__dict__[_PRIVATE_PRED_OVERRIDE] = self.__dict__["_pred_view"]
+            storage["succ"] = storage["_succ_view"]
+            storage["pred"] = storage["_pred_view"]
             self._fnx_set_private_dir_override()
 
     def _fnx_native_graph(self):
@@ -57600,30 +58361,17 @@ class _ConversionGraphViewBase:
     # and blew the stack.  ``is not None`` resolves the cached view
     # regardless of emptiness; the ``super()`` branch survives only for
     # succ/pred on undirected views (where the view is never cached).
-    @property
-    def nodes(self):
-        view = self.__dict__.get("_nodes_view")
-        return view if view is not None else super().nodes
-
-    @property
-    def edges(self):
-        view = self.__dict__.get("_edges_view")
-        return view if view is not None else super().edges
-
-    @property
-    def adj(self):
-        view = self.__dict__.get("_adj_view")
-        return view if view is not None else super().adj
-
-    @property
-    def succ(self):
-        view = self.__dict__.get("_succ_view")
-        return view if view is not None else super().succ
-
-    @property
-    def pred(self):
-        view = self.__dict__.get("_pred_view")
-        return view if view is not None else super().pred
+    #
+    # br-r37-c1-pgpg1: and they are read as networkx reads its cached_property:
+    # __init__ stores each view under its public name too, and these non-data
+    # descriptors only answer when the instance dict has no entry, so a warm
+    # read is a dict hit with no Python frame (view.adj was 86 ns against
+    # networkx's 20 ns).
+    nodes = _ConversionViewAccessor("nodes")
+    edges = _ConversionViewAccessor("edges")
+    adj = _ConversionViewAccessor("adj")
+    succ = _ConversionViewAccessor("succ")
+    pred = _ConversionViewAccessor("pred")
 
     @property
     def graph(self):
@@ -57849,6 +58597,12 @@ class _ConversionGraphViewBase:
                 seen_nodes.add(source)
             return result
 
+        # br-r37-c1-pgpg1: an undirected view of a concrete MultiDiGraph walks
+        # the source's own rows, as networkx's view does, instead of a
+        # synthesized row per node and a frozenset marker per key.
+        if _is_concrete_multidigraph(self._graph):
+            return _union_multi_edges(self._graph, dict.fromkeys(nodes), data, keys)
+
         seen = set()
         for source in nodes:
             for target in self.adj[source]:
@@ -57967,6 +58721,10 @@ class _ConversionGraphViewBase:
             and not src.is_multigraph()
         ):
             return 2 * src.number_of_edges() - number_of_selfloops(src)
+        # br-r37-c1-pgpg1: networkx's count is size(), half the degree sum, so
+        # a reciprocal pair's key held both ways counts once.
+        if not self.is_directed() and self.is_multigraph() and _is_concrete_multidigraph(src):
+            return sum(degree for _, degree in _union_multi_degrees(src, src, None)) // 2
         # br-r37-c1-77tw1: count the edge list, not edges(): that call returns
         # the edge view now, whose len is this method.
         return len(self._edges(keys=self.is_multigraph()))
@@ -57985,7 +58743,9 @@ class _ConversionGraphViewBase:
     def adjacency(self):
         return ((node, self.adj[node]) for node in self)
 
-    @property
+    # Cache the live wrapper, not degree values: source mutations still flow
+    # through _degree_compute. Public assignment/deletion matches NetworkX.
+    @_cached_property
     def degree(self):
         return _CONVERSION_DEGREE_VIEW_TYPES[(self._directed, self._multigraph)](self)
 
@@ -58025,6 +58785,10 @@ class _ConversionGraphViewBase:
             union_degree = _UNION_NODE_DEGREE.get(type(source))
             if union_degree is not None and not _has_networkx_private_storage(source):
                 union_source = source
+                # br-r37-c1-pgpg1: every node's degree from one read of the
+                # MultiDiGraph's rows.
+                if nbunch is None and union_degree is _union_multi_node_degree:
+                    return _union_multi_degrees(source, source, weight)
                 try:
                     if nbunch is not None and nbunch in source:
                         return union_degree(source, nbunch, weight)
@@ -58210,11 +58974,11 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
         pred = self.pred
         return u in pred and v in pred[u]
 
-    @property
+    @_cached_property
     def in_degree(self):
         return _CONVERSION_DEGREE_VIEW_TYPES["in", self._multigraph](self)
 
-    @property
+    @_cached_property
     def out_degree(self):
         return _CONVERSION_DEGREE_VIEW_TYPES["out", self._multigraph](self)
 
@@ -58277,11 +59041,11 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
         pred = self.pred
         return u in pred and v in pred[u]
 
-    @property
+    @_cached_property
     def in_degree(self):
         return _CONVERSION_DEGREE_VIEW_TYPES["in", self._multigraph](self)
 
-    @property
+    @_cached_property
     def out_degree(self):
         return _CONVERSION_DEGREE_VIEW_TYPES["out", self._multigraph](self)
 
@@ -58351,35 +59115,137 @@ def _union_node_degree(graph, node, weight):
     return total + (loop is not None and loop.get(weight, 1))
 
 
-def _union_multi_node_degree(graph, node, weight):
-    """br-r37-c1-gue3i: _union_node_degree for the MultiDiGraph `graph` -
-    networkx's MultiDegreeView over the UnionMultiInner: one sum() over every
-    key dict's values in the union's order (a pair both ways is a UnionAtlas
-    over set(succ keys) | set(pred keys), succ first), plus the self-loop's.
-    The view's per-neighbour subtotals summed differently: 58.900000000000006
-    where networkx answers 58.9."""
-    succ = dict(graph.succ[node])
-    pred = dict(graph.pred[node])
+def _union_multi_rows(graph, data):
+    """br-r37-c1-pgpg1: the MultiDiGraph `graph`'s succ and pred rows as plain
+    dicts - what networkx's UnionMultiAdjacency reads, G._succ and G._pred -
+    in two native crossings. With `data` a pair's value is its {key: attrs}
+    dict holding the edges' live attr dicts (the cached native adjacency);
+    without it, the list of its keys in key order and no attr dict is made.
+    A pred row shares the succ rows' values, as networkx's _pred[v][u] is
+    _succ[u][v]. Walking the view's synthesized rows instead built a row
+    mapping per node and a _UnionKeyAtlas per pair: list(view.edges(keys=True,
+    data=True)) was 0.09x networkx, number_of_edges 0.08x, degree 0.16x."""
+    if data:
+        succ = graph._native_adjacency_dict()
+    else:
+        succ = {node: {} for node in graph}
+        for u, v, key in graph.edges(keys=True):
+            row = succ[u]
+            keys = row.get(v)
+            if keys is None:
+                row[v] = [key]
+            else:
+                keys.append(key)
+    pred = {
+        node: {nbr: succ[nbr][node] for nbr in nbrs}
+        for node, nbrs in graph._native_predecessor_keys_bulk()
+    }
+    return succ, pred
 
-    def keydicts(nbr):
-        out_keys = succ.get(nbr)
-        in_keys = pred.get(nbr)
-        if out_keys is not None and in_keys is not None:
-            return [
-                out_keys[key] if key in out_keys else in_keys[key]
-                for key in set(out_keys.keys()) | set(in_keys.keys())
-            ]
-        return list((out_keys if out_keys is not None else in_keys).values())
 
-    has_loop = node in succ or node in pred
+_NO_KEYS = {}
+
+
+def _union_multi_values(out_keys, in_keys):
+    """networkx's UnionAtlas(succ[u][v], pred[u][v]).values() for a pair of a
+    to_undirected(as_view=True) view of a MultiDiGraph: the keys in
+    set(succ keys) | set(pred keys) order, each value from succ first. A
+    one-way pair is a UnionAtlas over {} too (br-r37-c1-u7szm), so its keys
+    still come in set order, not the key dict's."""
+    return [
+        out_keys[key] if key in out_keys else in_keys[key]
+        for key in set(out_keys.keys()) | set(in_keys.keys())
+    ]
+
+
+def _union_multi_row_degree(out_row, in_row, node, weight):
+    """br-r37-c1-gue3i / br-r37-c1-pgpg1: `node`'s degree in a
+    to_undirected(as_view=True) view of a MultiDiGraph, from its succ and pred
+    rows - networkx's MultiDegreeView over the UnionMultiInner: per neighbour
+    the size of the key union, or one sum() over every key dict's values in
+    the union's order, plus the self-loop's. Unweighted, a row value may be a
+    key dict or a key list. The view's per-neighbour subtotals summed
+    differently: 58.900000000000006 where networkx answers 58.9."""
     if weight is None:
-        return sum(len(keydicts(nbr)) for nbr in _union_row(graph, node)) + (
-            has_loop and len(keydicts(node))
+        total = 0
+        for nbr, out_keys in out_row.items():
+            in_keys = in_row.get(nbr)
+            total += len(out_keys) if in_keys is None else len(set(out_keys) | set(in_keys))
+        for nbr, in_keys in in_row.items():
+            if nbr not in out_row:
+                total += len(in_keys)
+        loop = out_row.get(node)
+        return total if loop is None else total + len(loop)
+    total = sum(
+        attrs.get(weight, 1)
+        for nbr in set(out_row.keys()) | set(in_row.keys())
+        for attrs in _union_multi_values(out_row.get(nbr, _NO_KEYS), in_row.get(nbr, _NO_KEYS))
+    )
+    if node in out_row or node in in_row:
+        total += sum(
+            attrs.get(weight, 1)
+            for attrs in _union_multi_values(
+                out_row.get(node, _NO_KEYS), in_row.get(node, _NO_KEYS)
+            )
         )
-    total = sum(d.get(weight, 1) for nbr in _union_row(graph, node) for d in keydicts(nbr))
-    if has_loop:
-        total += sum(d.get(weight, 1) for d in keydicts(node))
     return total
+
+
+def _union_multi_node_degree(graph, node, weight):
+    """_union_multi_row_degree over `node`'s own two rows (plain key dicts,
+    one native crossing each), for a single-node read."""
+    return _union_multi_row_degree(
+        graph._native_successor_row_dict(node),
+        graph._native_predecessor_row_dict(node),
+        node,
+        weight,
+    )
+
+
+def _union_multi_degrees(graph, nodes, weight):
+    """(node, degree) for every node of `nodes` in a to_undirected(as_view=True)
+    view of the MultiDiGraph `graph`, from one snapshot of its rows taken when
+    the iteration starts."""
+    succ, pred = _union_multi_rows(graph, weight is not None)
+    for node in nodes:
+        yield node, _union_multi_row_degree(succ[node], pred[node], node, weight)
+
+
+def _union_multi_edges(graph, nodes, data, keys):
+    """br-r37-c1-pgpg1: networkx's MultiEdgeDataView walk over a
+    to_undirected(as_view=True) view of the MultiDiGraph `graph`: each node's
+    neighbours in set(succ) | set(pred) order, a neighbour already walked as a
+    source skipped, each pair's keys in set(succ keys) | set(pred keys) order
+    with the attrs read from succ first (UnionAtlas). `nodes` holds no
+    duplicates (networkx's nbunch is a dict)."""
+    succ, pred = _union_multi_rows(graph, data)
+    empty = _NO_KEYS if data else ()
+    seen = set()
+    result = []
+    append = result.append
+    for node in nodes:
+        out_row = succ[node]
+        in_row = pred[node]
+        for nbr in set(out_row.keys()) | set(in_row.keys()):
+            if nbr in seen:
+                continue
+            out_keys = out_row.get(nbr, empty)
+            in_keys = in_row.get(nbr, empty)
+            if data:
+                for key in set(out_keys.keys()) | set(in_keys.keys()):
+                    attrs = out_keys[key] if key in out_keys else in_keys[key]
+                    append((node, nbr, key, attrs) if keys else (node, nbr, attrs))
+            elif keys:
+                for key in set(out_keys) | set(in_keys):
+                    append((node, nbr, key))
+            else:
+                result.extend([(node, nbr)] * len(set(out_keys) | set(in_keys)))
+        seen.add(node)
+    return result
+
+
+def _is_concrete_multidigraph(graph):
+    return type(graph) is MultiDiGraph and not _has_networkx_private_storage(graph)
 
 
 _UNION_NODE_DEGREE = {DiGraph: _union_node_degree, MultiDiGraph: _union_multi_node_degree}
@@ -58404,8 +59270,106 @@ class _UndirectedGraphConversionView(_ConversionGraphViewBase):
         return self._graph.has_edge(u, v) or self._graph.has_edge(v, u)
 
 
+class _UnionMultiRow(_Mapping):
+    """br-r37-c1-pgpg1: a row of a to_undirected(as_view=True) view of a
+    concrete MultiDiGraph (networkx's AdjacencyView(UnionMultiInner)). An
+    entry is networkx's AtlasView(UnionAtlas(succ, pred)) over the pair's
+    live key dicts, {} for a missing side; one native call reads a pair, or
+    a whole row's pairs, where the generic row subscripted the source's succ
+    and pred rows per pair: 100 rows' items were 0.15x networkx and
+    view.adj[u][v] 0.16x. Slotted, it prints as the generic row does."""
+
+    __slots__ = ("_view", "_node")
+    _reverse = False
+    _source_rows = _ConversionNeighborMap._source_rows
+    __repr__ = _ConversionNeighborMap.__repr__
+    __str__ = _ConversionNeighborMap.__str__
+    copy = _ConversionNeighborMap.copy
+
+    def __init__(self, view, node):
+        self._view = view
+        self._node = node
+
+    def __iter__(self):
+        return _union_row(self._view._graph, self._node)
+
+    def __len__(self):
+        return self._view._graph._fnx_union_row_len(self._node)
+
+    def __getitem__(self, neighbor):
+        pair = self._view._graph._fnx_union_multi_pair(self._node, neighbor)
+        if pair is None:
+            raise KeyError(neighbor)
+        outgoing, incoming = pair
+        return _UnionKeyAtlas(
+            _NO_KEYS if outgoing is None else outgoing,
+            _NO_KEYS if incoming is None else incoming,
+        )
+
+    def items(self):
+        return _UnionMultiRowItems(self)
+
+    def values(self):
+        return _UnionMultiRowValues(self)
+
+
+_UnionMultiRow.__name__ = _UnionMultiRow.__qualname__ = "AdjacencyView"
+
+
+class _UnionMultiRowItems(_ItemsViewABC):
+    __slots__ = ()
+
+    def __iter__(self):
+        row = self._mapping
+        for neighbor, outgoing, incoming in row._view._graph._fnx_union_multi_row(row._node):
+            yield neighbor, _UnionKeyAtlas(
+                _NO_KEYS if outgoing is None else outgoing,
+                _NO_KEYS if incoming is None else incoming,
+            )
+
+
+_UnionMultiRowItems.__name__ = _UnionMultiRowItems.__qualname__ = "ItemsView"
+
+
+class _UnionMultiRowValues(_ValuesViewABC):
+    __slots__ = ()
+
+    def __iter__(self):
+        row = self._mapping
+        for _, outgoing, incoming in row._view._graph._fnx_union_multi_row(row._node):
+            yield _UnionKeyAtlas(
+                _NO_KEYS if outgoing is None else outgoing,
+                _NO_KEYS if incoming is None else incoming,
+            )
+
+
+_UnionMultiRowValues.__name__ = _UnionMultiRowValues.__qualname__ = "ValuesView"
+
+
+class _UnionMultiAdjacencyView(_ConversionAdjacencyView):
+    """The adjacency of a to_undirected(as_view=True) view of a concrete
+    MultiDiGraph without networkx private storage: _UnionMultiRow rows."""
+
+    def __getitem__(self, node):
+        view = self._view
+        if node not in view._graph:
+            # The generic row's errors: the graph's adjacency raises first.
+            view._graph.adj[node]
+            raise KeyError(node)
+        return _UnionMultiRow(view, node)
+
+
+def _undirected_multi_adjacency_view(view):
+    # networkx's generic_graph_view reads the source's _succ / _pred once,
+    # when the view is made, so the row kind is chosen then too.
+    if _is_concrete_multidigraph(view._graph):
+        return _UnionMultiAdjacencyView(view)
+    return _ConversionAdjacencyView(view)
+
+
 class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
     _multigraph = True
+    _adj_view_type = staticmethod(_undirected_multi_adjacency_view)
     get_edge_data = _assigned_private_get_edge_data_multi
 
     def _adj_neighbors(self, node):
@@ -58420,7 +59384,9 @@ class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
         outgoing = self._graph.succ[node].get(neighbor)
         incoming = self._graph.pred[node].get(neighbor)
         if outgoing is None and incoming is None:
-            raise KeyError(f"Key {neighbor} not found")
+            # Filtered predecessor mappings have their own missing-key wording.
+            self._graph.pred[node][neighbor]
+            raise KeyError(neighbor)
         # br-r37-c1-u7szm: networkx's UnionMultiInner wraps a one-way pair too,
         # with {} for the missing side.
         return _UnionKeyAtlas(
@@ -58543,7 +59509,7 @@ def _global_nbunch_nodes(G, nbunch):
         return nodes
     except TypeError as exc:
         message = exc.args[0] if exc.args else ""
-        if "object is not iterable" in message:
+        if "object is not iterable" in message and _networkx_release() >= (3, 5):
             raise NetworkXError(f"Node {nbunch} is not in the graph.") from exc
         raise NetworkXError("nbunch is not a node or a sequence of nodes.") from exc
 
@@ -63762,7 +64728,9 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
 
     for source in tree:
         target = tree[source]
-        cut_value, partition = _minimum_cut_raw(G, source, target, capacity=capacity)
+        cut_value, partition = _minimum_cut_raw(
+            G, source, target, capacity=capacity, edmonds_karp=True
+        )
         cut_value = _coerce_flow_value(cut_value, all_int)
         labels[(source, target)] = cut_value
 
@@ -70844,15 +71812,15 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
     # Graph/DiGraph with no nodelist/edge_data override. Builds the nested dict
     # in Rust reusing live edge-attr dict objects (same refs as G[u][v]) in
     # adjacency/successor order.
-    if nodelist is None and edge_data is None and (type(G) is Graph or type(G) is DiGraph):
+    if (
+        nodelist is None
+        and edge_data is None
+        and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+    ):
         _fast = _fnx.to_dict_of_dicts_undirected(G)
         if _fast is not None:
             return _fast
-    default_nodelist = nodelist is None
-    if default_nodelist:
-        nodelist = list(G.nodes())
-    nodeset = set(nodelist)
-
     d = {}
     # br-r37-c1-5cqna: with no nodelist, networkx hands out a multigraph's own
     # keydicts (dod[u] = nbrdict.copy()), so d[u][v] is a real dict whose
@@ -70865,18 +71833,97 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
     # The native walk registers a keydict for every pair once, then only looks
     # them up, and ``_multi_keydict_todod_rows`` reuses the rows until the
     # graph's shape changes.
-    if G.is_multigraph() and edge_data is None and default_nodelist:
-        if type(G) in (MultiGraph, MultiDiGraph):
+    if nodelist is None:
+        if edge_data is not None:
+            for u, nbrdict in G.adjacency():
+                d[u] = dict.fromkeys(nbrdict, edge_data)
+            return d
+        if (
+            type(G) in (MultiGraph, MultiDiGraph)
+            and not _has_networkx_private_storage(G)
+        ):
             return _multi_keydict_todod_rows(G, G._native_to_dict_of_dicts_live)
-        keydict = (MultiDiGraph if G.is_directed() else MultiGraph).get_edge_data
-        for u in nodelist:
-            d[u] = {v: keydict(G, u, v) for v in G[u]}
+        if (
+            isinstance(G, (MultiGraph, MultiDiGraph))
+            and _PRIVATE_ADJ_OVERRIDE not in G.__dict__
+            and _PRIVATE_SUCC_OVERRIDE not in G.__dict__
+            and getattr(G.adjacency, "__func__", None) is _multigraph_adjacency
+        ):
+            # Native-backed subclasses also need real, registered keydicts:
+            # adjacency() exposes snapshot keydicts, unlike NetworkX's rows.
+            keydict = (MultiDiGraph if G.is_directed() else MultiGraph).get_edge_data
+            for u, nbrdict in G.adjacency():
+                d[u] = {v: keydict(G, u, v) for v in nbrdict}
+            return d
+        # A synthetic view's native base is empty. Its public row wrapper also
+        # need not have the raw row's copy semantics: a directed conversion
+        # shares rows, whereas UnionAtlas.copy merges and copies attributes.
+        if isinstance(G, _ConversionGraphViewBase):
+            source = G._graph
+            if G.is_directed() or not source.is_directed():
+                return to_dict_of_dicts(source)
+            succ, pred = source._succ, source._pred
+            for u in succ:
+                outgoing, incoming = succ[u], pred[u]
+                if G.is_multigraph():
+                    row = {}
+                    for v in set(outgoing) | set(incoming):
+                        keys = {
+                            key: attrs.copy()
+                            for key, attrs in outgoing.get(v, {}).items()
+                        }
+                        for key, attrs in incoming.get(v, {}).items():
+                            if key in keys:
+                                keys[key].update(attrs)
+                            else:
+                                keys[key] = attrs.copy()
+                        row[v] = keys
+                else:
+                    row = {v: attrs.copy() for v, attrs in outgoing.items()}
+                    for v, attrs in incoming.items():
+                        if v in row:
+                            row[v].update(attrs)
+                        else:
+                            row[v] = attrs.copy()
+                d[u] = row
+            return d
+        if isinstance(G, _ReverseDirectedViewBase):
+            for u, nbrdict in G._graph._pred.items():
+                if _atlas_is_filtered(nbrdict):
+                    name = "FilterMultiInner" if G.is_multigraph() else "FilterAtlas"
+                    raise AttributeError(f"'{name}' object has no attribute 'copy'")
+                d[u] = dict(nbrdict.items())
+            return d
+        simple_native_rows = (
+            isinstance(G, (Graph, DiGraph))
+            and _PRIVATE_ADJ_OVERRIDE not in G.__dict__
+            and _PRIVATE_SUCC_OVERRIDE not in G.__dict__
+            and getattr(G.adjacency, "__func__", None) is _simple_graph_adjacency
+        )
+        for u, nbrdict in G.adjacency():
+            if isinstance(G, _FilteredGraphView):
+                name = "FilterMultiInner" if G.is_multigraph() else "FilterAtlas"
+                raise AttributeError(f"'{name}' object has no attribute 'copy'")
+            d[u] = dict(nbrdict.items()) if simple_native_rows else nbrdict.copy()
         return d
     for u in nodelist:
         d[u] = {}
-        for v, data in G[u].items():
-            if v in nodeset:
-                d[u][v] = data if edge_data is None else edge_data
+        if edge_data is None:
+            for v, data in G[u].items():
+                if v in nodelist:
+                    # Reverse multigraph rows can expose raw keydicts here;
+                    # NetworkX's explicit-nodelist export keeps an AtlasView.
+                    if (
+                        isinstance(G, _ReverseDirectedViewBase)
+                        and G.is_multigraph()
+                        and isinstance(data, dict)
+                    ):
+                        data = AtlasView(lambda data=data: data)
+                    d[u][v] = data
+        else:
+            for v in G[u]:
+                if v in nodelist:
+                    d[u][v] = edge_data
     return d
 
 

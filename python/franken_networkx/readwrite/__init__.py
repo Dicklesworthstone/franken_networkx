@@ -1323,12 +1323,18 @@ def read_graphml(
     backend=None,
     **backend_kwargs,
 ):
-    """Read graph in GraphML format from path.
-
-    Wraps ``networkx.read_graphml`` and converts the result to an fnx
-    graph type for drop-in compatibility.
-    """
+    """Read GraphML with full NetworkX options and explicit native mode policy."""
     import franken_networkx as fnx
+
+    if "mode" in backend_kwargs:
+        return fnx.read_graphml(
+            path,
+            node_type=node_type,
+            edge_key_type=edge_key_type,
+            force_multigraph=force_multigraph,
+            backend=backend,
+            **backend_kwargs,
+        )
 
     fnx._validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
 

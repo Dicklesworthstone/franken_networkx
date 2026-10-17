@@ -4079,6 +4079,12 @@ def _install_fnx_native_algorithm_aliases():
     import franken_networkx as _fnx_pkg
     import networkx as _nx_top
 
+    # These public iterators also have aliases in shortest_paths.unweighted.
+    # Share the final wrapped functions, as NetworkX does, rather than keep
+    # the flattened namespace's separate forwarding functions above.
+    for _name in ("all_pairs_shortest_path", "all_pairs_shortest_path_length"):
+        globals()[_name] = getattr(_fnx_pkg, _name)
+
     def _make_router(_fn_name):
         def _routed(*args, **kwargs):
             import franken_networkx as _fnx_call
@@ -4654,4 +4660,3 @@ def __dir__():
 # Plain rebinding at the end of package init replaces the 07924ecdd
 # module-class swap (br-r37-c1-rc0923-epic-honest-measurement-vbneu.1).
 bridges = _fnx_bridges.bridges
-

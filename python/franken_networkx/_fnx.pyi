@@ -502,7 +502,7 @@ def bridges(g: Graph) -> list[tuple[Any, Any]]: ...
 
 def degree_centrality(g: Graph) -> dict[Any, float]: ...
 def closeness_centrality(g: Graph) -> dict[Any, float]: ...
-def harmonic_centrality(g: Graph) -> dict[Any, float]: ...
+def harmonic_centrality(g: Graph, sources: Any = None) -> dict[Any, float]: ...
 def katz_centrality(g: Graph) -> dict[Any, float]: ...
 def betweenness_centrality(
     g: Graph,
@@ -520,12 +520,15 @@ def betweenness_centrality_sampled_rust(
     sources: Iterable[Any],
     normalized: bool = True,
     endpoints: bool = False,
+    weight: Optional[str] = None,
+    source_aware: bool = True,
 ) -> dict[Any, float]: ...
 def edge_betweenness_centrality(
     g: Graph,
     sources: Optional[list[Any]] = None,
     weight: Optional[str] = None,
     normalized: bool = True,
+    source_aware: bool = True,
 ) -> dict[tuple[Any, Any], float]: ...
 def eigenvector_centrality(
     g: Graph,
@@ -578,7 +581,11 @@ def maximum_flow_value(
     g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
 ) -> float: ...
 def minimum_cut(
-    g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
+    g: Union[Graph, DiGraph],
+    source: Any,
+    sink: Any,
+    capacity: str = "capacity",
+    edmonds_karp: bool = False,
 ) -> tuple[float, tuple[set[Any], set[Any]]]: ...
 def minimum_cut_value(
     g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
