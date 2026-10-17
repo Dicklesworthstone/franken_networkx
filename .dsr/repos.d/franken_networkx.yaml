@@ -38,6 +38,7 @@ workspace_additional_artifacts:
     - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
     - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl
     - franken_networkx-0.2.3.tar.gz
+    - franken_networkx-0.2.3-release-evidence.tar.gz
   linux/arm64:
     - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
   darwin/amd64:
@@ -65,6 +66,9 @@ release_contract:
     - franken_networkx-0.2.3.tar.gz
     - franken_networkx-0.2.3.tar.gz.sha256
     - franken_networkx-0.2.3.tar.gz.minisig
+    - franken_networkx-0.2.3-release-evidence.tar.gz
+    - franken_networkx-0.2.3-release-evidence.tar.gz.sha256
+    - franken_networkx-0.2.3-release-evidence.tar.gz.minisig
     - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
     - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.sha256
     - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.minisig
@@ -92,11 +96,24 @@ checks:
   - RCH_REQUIRE_REMOTE=1 CARGO_BUILD_JOBS=2 rch exec -- cargo check --locked -j 2 --workspace --all-targets
   - RCH_REQUIRE_REMOTE=1 CARGO_BUILD_JOBS=2 rch exec -- cargo clippy --locked -j 2 --workspace --all-targets -- -D warnings
   - RCH_REQUIRE_REMOTE=1 CARGO_BUILD_JOBS=2 rch exec -- cargo test --locked -j 2 --workspace --exclude fnx-python --no-fail-fast
-# Run Python qualification through scripts/rch_python_gate.py as a separate
-# RCH job against the extension produced by the preceding RCH Cargo build.
-# Broad upstream/parity qualification remains incomplete: see CHANGELOG #4.
-# The Rust checks above do not establish a clean full Python suite.
+  - .venv/bin/python scripts/fuzz_corpus_replay.py --budget-seconds 10
+  - .venv/bin/python scripts/verify_docs.py
+  - ./scripts/run_pytest_guarded.sh tests/python/test_instance_dict_memory_leak.py tests/python/test_error_messages.py tests/python/test_thread_safety.py tests/python/test_coverage_gaps.py tests/python/test_delegation_ledger.py tests/python/test_raw_vs_public_audit.py tests/python/test_upstream_divergence_ledger.py tests/python/test_api_ergonomics_audit.py tests/python/test_unused_raw_exposures.py
+  - .venv/bin/python scripts/run_upstream_networkx_suite.py
+  - .venv/bin/python scripts/run_python_parity_suite.py --workers 4
 env:
+  # The release owner supplies a real, five-class input inventory and root.
+  # GNU release builds fail closed before compiling if it is absent.
+  # FNX_DSR_EVIDENCE_MANIFEST is an absolute JSON path, frozen into the
+  # candidate before compilation: {"schema":"fnx-release-evidence-input-v1",
+  # "members":[{"class":"conformance_fixtures","path":"relative/file",
+  # "source_hash":"blake3:<64 hex digits>"}, ...]}.
+  # Include benchmark_baselines, migration_manifests, reproducibility_ledgers
+  # and long_lived_snapshots too; FNX_DSR_EVIDENCE_ROOT selects their root.
+  # Verification uses scripts/dsr_release_wheels.py --verify-evidence with
+  # DSR-selected expected SHA/candidate, trusted --durability-bin (GNU), and
+  # a fresh --verification-dir. Archive-contained code is never executed.
+  FNX_DSR_REQUIRE_EVIDENCE: "1"
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: "1"
   CARGO_INCREMENTAL: "0"
