@@ -237,3 +237,19 @@ def test_louvain_edgeless_graph_yields_networkx_singletons():
     assert _ordered(fnx.community.louvain_partitions(fg, seed=1)) == _ordered(
         nx.community.louvain_partitions(ng, seed=1)
     )
+
+
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("scale", [1, 37, 1024])
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_minimum_cut_partition_iterates_in_networkx_order(cls, scale, seed):
+    fg, ng, r = _twins(cls, scale, seed)
+    for g in (ng, fg):
+        for _, _, d in g.edges(data=True):
+            d["capacity"] = 1
+    nodes = list(ng)
+    for source, sink in ((nodes[0], nodes[25]), (nodes[10], nodes[60])):
+        want = _ordered(nx.minimum_cut(ng, source, sink))
+        got = _ordered(fnx.minimum_cut(fg, source, sink))
+        assert got == want, (cls, scale, seed, source, sink)
+

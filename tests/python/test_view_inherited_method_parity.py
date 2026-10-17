@@ -382,3 +382,396 @@ def test_union_view_edges_list_keys_in_networkx_order(seed):
             mdg.add_edge(u, v, key=key)
         out.append(list(mdg.to_undirected(as_view=True).edges(keys=True)))
     assert out[0] == out[1]
+
+
+# br-r37-c1-pgpg1: a to_undirected(as_view=True) view of a MultiDiGraph reads the
+# source's rows in a few native crossings instead of a synthesized row per node.
+# Every read must stay networkx's, value for value: each node's neighbours and
+# each pair's keys in set order (one-way pairs too), weights summed in that
+# order with their int / float type, the edges' live attr dicts handed out.
+
+_UNION_WEIGHTS = [0.1, 0.2, 0.3, 1e16, -1e16, 3.0, 7, 2, 0.7, 1e-17]
+
+
+def _union_views(seed):
+    import random
+
+    rng = random.Random(seed)
+    if seed % 3 == 0:
+        nodes = [f"n{i}" for i in range(9)]
+    else:
+        nodes = rng.sample(range(-50, 5000), 9)
+    keys = [0, 5, 1024, 33, "a", "zz"] if seed % 2 else [None]
+    ops = []
+    for _ in range(45):
+        u = rng.choice(nodes)
+        v = u if rng.random() < 0.1 else rng.choice(nodes)
+        attrs = {"weight": rng.choice(_UNION_WEIGHTS)} if rng.random() < 0.8 else {}
+        ops.append((u, v, rng.choice(keys), attrs))
+    views = []
+    for lib in (fnx, nx):
+        mdg = lib.MultiDiGraph()
+        mdg.add_nodes_from(nodes)
+        for u, v, key, attrs in ops:
+            mdg.add_edge(u, v, key=key, **attrs)
+        views.append(mdg.to_undirected(as_view=True))
+    return nodes, views
+
+
+def _exact(x):
+    """x with every number tagged by its type and exact value."""
+    if isinstance(x, bool):
+        return ("bool", x)
+    if isinstance(x, float):
+        return ("float", x.hex())
+    if isinstance(x, int):
+        return ("int", x)
+    if isinstance(x, (list, tuple)):
+        return [_exact(item) for item in x]
+    if hasattr(x, "items"):
+        return [(key, _exact(value)) for key, value in x.items()]
+    return x
+
+
+UNION_VIEW_READS = {
+    "edges": lambda V, nb: list(V.edges),
+    "edges()": lambda V, nb: list(V.edges()),
+    "edges(keys)": lambda V, nb: list(V.edges(keys=True)),
+    "edges(data)": lambda V, nb: list(V.edges(data=True)),
+    "edges(keys, data)": lambda V, nb: list(V.edges(keys=True, data=True)),
+    "edges(data=weight)": lambda V, nb: list(V.edges(data="weight", default=-1)),
+    "edges(nbunch, keys, data)": lambda V, nb: list(V.edges(nb, keys=True, data=True)),
+    "edges(nbunch)": lambda V, nb: list(V.edges(nb)),
+    "len(edges)": lambda V, nb: [len(V.edges), len(V.edges(data=True)), len(V.edges(nb))],
+    "number_of_edges": lambda V, nb: V.number_of_edges(),
+    "size": lambda V, nb: [V.size(), V.size(weight="weight")],
+    "degree": lambda V, nb: list(V.degree),
+    "degree(weight)": lambda V, nb: list(V.degree(weight="weight")),
+    "degree(nbunch)": lambda V, nb: [list(V.degree(nb)), list(V.degree(nb, weight="weight"))],
+    "degree[n]": lambda V, nb: [(V.degree[n], V.degree(n, weight="weight")) for n in V],
+    "rows": lambda V, nb: [
+        (list(V.adj[n]), list(V.adj[n].items()), list(V.adj[n].values()), len(V.adj[n]))
+        for n in V
+    ],
+    "entries": lambda V, nb: [
+        (list(V.adj[u][v].items()), repr(V.adj[u][v]), str(V.adj[u][v]))
+        for u in V
+        for v in V.adj[u]
+    ],
+    "row types": lambda V, nb: [
+        type(row).__name__ for n in V for row in (V.adj[n], V.adj[n].items(), V.adj[n].values())
+    ],
+}
+
+
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize("read", list(UNION_VIEW_READS))
+def test_union_view_reads_match_networkx_exactly(seed, read):
+    nodes, (fnx_view, nx_view) = _union_views(seed)
+    nbunch = nodes[3:6] + nodes[3:4]  # networkx drops the duplicate
+    call = UNION_VIEW_READS[read]
+    assert _exact(call(fnx_view, nbunch)) == _exact(call(nx_view, nbunch))
+
+
+@pytest.mark.parametrize("lib", [fnx, nx], ids=["fnx", "nx"])
+def test_union_view_one_way_pair_weights_sum_in_set_order(lib):
+    # Keys 1024, 5, 0 one way only. networkx's UnionAtlas over {} iterates the
+    # key set, [1024, 0, 5], so the weights sum 1e16 - 1e16 + 1.0 = 1.0; summed
+    # in the key dict's order [1024, 5, 0] the 1.0 is lost and it reads 0.0.
+    mdg = lib.MultiDiGraph()
+    mdg.add_edge(0, 1, key=1024, weight=1e16)
+    mdg.add_edge(0, 1, key=5, weight=1.0)
+    mdg.add_edge(0, 1, key=0, weight=-1e16)
+    view = mdg.to_undirected(as_view=True)
+    assert list(view.adj[0][1]) == [1024, 0, 5]
+    assert view.degree(0, weight="weight") == 1.0
+    assert list(view.degree(weight="weight")) == [(0, 1.0), (1, 1.0)]
+    assert view.size(weight="weight") == 1.0
+
+
+@pytest.mark.parametrize("lib", [fnx, nx], ids=["fnx", "nx"])
+def test_union_view_reads_follow_the_source_and_hand_out_live_dicts(lib):
+    mdg = lib.MultiDiGraph([(0, 1), (1, 0), (1, 2)])
+    view = mdg.to_undirected(as_view=True)
+    row = view.adj[1]
+    entry = view.adj[1][0]
+    assert view.number_of_edges() == 2
+    mdg.add_edge(1, 0, key=7, weight=3)
+    mdg.add_edge(1, 3)
+    mdg.edges[0, 1, 0]["weight"] = 9
+    assert list(row) == [0, 2, 3]
+    # At node 1 the outgoing 1->0 entry wins over incoming 0->1's weight 9.
+    assert dict(entry) == {0: {}, 7: {"weight": 3}}
+    assert view.adj[0][1][0]["weight"] == 9
+    assert list(view.edges(keys=True, data=True)) == [
+        (0, 1, 0, {"weight": 9}),
+        (0, 1, 7, {"weight": 3}),
+        (1, 2, 0, {}),
+        (1, 3, 0, {}),
+    ]
+    assert view.number_of_edges() == len(view.edges(data=True)) == 4
+    # Node 1's pair with 0 reads key 0 from its own out-edge (1, 0, 0): weight 1.
+    assert list(view.degree(weight="weight")) == [(0, 12), (1, 6), (2, 1), (3, 1)]
+    for _, _, attrs in view.edges(data=True):
+        attrs["seen"] = True
+    for _, keydict in view.adj[2].items():
+        keydict[0]["row"] = True
+    assert list(mdg.edges(keys=True, data=True)) == [
+        (0, 1, 0, {"weight": 9, "seen": True}),
+        (1, 0, 0, {}),
+        (1, 0, 7, {"weight": 3, "seen": True}),
+        (1, 2, 0, {"seen": True, "row": True}),
+        (1, 3, 0, {"seen": True}),
+    ]
+
+
+def _assert_view_mapping_copy(original, copied, depth):
+    """Copy mapping layers, but leave values inside attribute dicts shallow."""
+    assert type(copied) is dict
+    assert copied is not original
+    assert list(copied) == list(original)
+    if depth > 1:
+        for key in original:
+            _assert_view_mapping_copy(original[key], copied[key], depth - 1)
+    else:
+        assert copied["payload"] is original["payload"]
+        copied["copy_only"] = True
+        assert "copy_only" not in original
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("conversion", ["to_directed", "to_undirected"])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_conversion_row_copy_matches_networkx(graph_type, conversion, filtered):
+    """br-r37-c1-o1z03: row/entry copies are dicts, ordered and independent."""
+    views = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, graph_type)()
+        graph.add_nodes_from([0, 1, 2, "isolated"])
+        for u, v, key in ((0, 1, 1024), (0, 1, 5), (1, 0, 0),
+                          (1, 0, 5), (1, 2, 7), (2, 2, 0)):
+            attrs = {"weight": key + 0.5, "payload": [u, v, key]}
+            if graph.is_multigraph():
+                graph.add_edge(u, v, key=key, **attrs)
+            else:
+                graph.add_edge(u, v, **attrs)
+        if filtered:
+            graph = graph.subgraph(list(graph))
+        views.append(getattr(graph, conversion)(as_view=True))
+    for name in ("adj", "succ", "pred") if views[0].is_directed() else ("adj",):
+        actual_mapping, expected_mapping = getattr(views[0], name), getattr(views[1], name)
+        actual, expected = actual_mapping.copy(), expected_mapping.copy()
+        assert _exact(actual) == _exact(expected), name
+        depth = 4 if views[0].is_multigraph() else 3
+        _assert_view_mapping_copy(actual_mapping, actual, depth)
+        _assert_view_mapping_copy(expected_mapping, expected, depth)
+    actual_rows = dict(_rows("copy", views[0]))
+    expected_rows = dict(_rows("copy", views[1]))
+    assert list(actual_rows) == list(expected_rows)
+    for where, expected_row in expected_rows.items():
+        actual_row = actual_rows[where]
+        actual, expected = actual_row.copy(), expected_row.copy()
+        assert _exact(actual) == _exact(expected), where
+        depth = 3 if views[0].is_multigraph() and len(where) == 2 else 2
+        _assert_view_mapping_copy(actual_row, actual, depth)
+        _assert_view_mapping_copy(expected_row, expected, depth)
+
+
+@pytest.mark.parametrize("filtered", [False, True])
+@pytest.mark.parametrize("missing", [7, "missing", ("absent", 7)])
+def test_union_multi_row_missing_pair_keyerror(filtered, missing):
+    """Union rows preserve their backing mapping's exact KeyError args."""
+    errors = []
+    predecessor_errors = []
+    for lib in (fnx, nx):
+        graph = lib.MultiDiGraph([(0, 1), (1, 0), (1, 2)])
+        if filtered:
+            graph = graph.subgraph(list(graph))
+        # A nested public adjacency wrapper must not erase filtered wording
+        # before a conversion view gets a chance to propagate it.
+        with pytest.raises(KeyError) as predecessor_error:
+            graph.pred[1][missing]
+        predecessor_errors.append(predecessor_error.value.args)
+        view = graph.to_undirected(as_view=True)
+        with pytest.raises(KeyError) as error:
+            view.adj[1][missing]
+        errors.append(error.value.args)
+    assert errors[0] == errors[1]
+    assert predecessor_errors[0] == predecessor_errors[1]
+    if not filtered:
+        assert errors[1] == (missing,)
+
+
+@pytest.mark.parametrize("graph_type,kind", [
+    ("Graph", "filtered"), ("DiGraph", "filtered"),
+    ("MultiGraph", "filtered"), ("MultiDiGraph", "filtered"),
+    ("DiGraph", "reverse"), ("MultiDiGraph", "reverse"),
+])
+def test_partial_view_constructor_cycle_is_collected(graph_type, kind):
+    """An error before the first setattr must not hide the view's GC edges."""
+    import gc
+    import weakref
+
+    parent_class = getattr(fnx, graph_type)
+    ordinary_parent = parent_class()
+    if kind == "reverse":
+        view_class = type(ordinary_parent.reverse(copy=False))
+    else:
+        view_class = type(fnx.subgraph_view(ordinary_parent))
+    refs = []
+
+    class InterruptedParent(parent_class):
+        @property
+        def graph(self):
+            if "partial_view" in self.__dict__:
+                raise ValueError("injected graph attribute access failure")
+            return super().graph
+
+    class InterruptedView(view_class):
+        def __new__(cls, parent):
+            view = super().__new__(cls)
+            # A real parent/view cycle exists before graph.graph can fail.
+            # The parent's canonical initializer has registered its dict.
+            parent.__dict__["partial_view"] = view
+            refs.extend((weakref.ref(parent), weakref.ref(view)))
+            return view
+
+    def construct():
+        parent = InterruptedParent()
+        with pytest.raises(ValueError, match="injected graph attribute access failure"):
+            InterruptedView(parent)
+
+    construct()
+    assert len(refs) == 2
+    gc.collect()
+    assert all(ref() is None for ref in refs)
+
+
+_CONSTRUCTOR_CASES = [
+    (graph_type, kind)
+    for graph_type in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+    for kind in ("subgraph", "restricted")
+] + [("DiGraph", "reverse"), ("MultiDiGraph", "reverse")]
+
+
+def _constructor_view(lib, graph, kind):
+    if kind == "subgraph":
+        return graph.subgraph(list(graph))
+    if kind == "restricted":
+        return lib.restricted_view(graph, [], [])
+    return graph.reverse(copy=False)
+
+
+def _constructor_reads(view):
+    names = ("adj", "succ", "pred") if view.is_directed() else ("adj",)
+    degree_names = ("degree", "in_degree", "out_degree") if view.is_directed() else ("degree",)
+    return (
+        list(view.nodes(data=True)),
+        list(view.edges(keys=True, data=True)) if view.is_multigraph() else list(view.edges(data=True)),
+        [(name, [(u, list(row)) for u, row in getattr(view, name).items()]) for name in names],
+        [(name, list(getattr(view, name)(weight="weight"))) for name in degree_names],
+        [(u, v, view.get_edge_data(u, v)) for u in view for v in view],
+    )
+
+
+@pytest.mark.parametrize("graph_type,kind", _CONSTRUCTOR_CASES)
+def test_fresh_view_constructor_preserves_live_storage_and_accessors(graph_type, kind):
+    pairs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, graph_type)()
+        graph.add_nodes_from(["a", 2, ("c", 3), "isolated"])
+        graph.add_edge("a", 2, weight=2.5)
+        graph.add_edge(2, ("c", 3), weight=3)
+        graph.add_edge(2, 2, weight=4)
+        if graph.is_multigraph():
+            graph.add_edge("a", 2, key="parallel", weight=7)
+        view = _constructor_view(lib, graph, kind)
+        assert view.graph is graph.graph
+        for name in ("nodes", "edges", "adj", "degree"):
+            assert getattr(view, name) is getattr(view, name)
+        if view.is_directed():
+            assert view.adj is not view.succ
+        pairs.append((graph, view))
+    assert _constructor_reads(pairs[0][1]) == _constructor_reads(pairs[1][1])
+    for graph, view in pairs:
+        edge = ("a", 2, 0) if graph.is_multigraph() else ("a", 2)
+        graph.edges[edge]["weight"] = 11
+        graph.nodes[2]["payload"] = ["live"]
+        graph.graph["live"] = True
+        graph.remove_edge(2, ("c", 3))
+        graph.add_edge("isolated", 2, weight=1.25)
+        assert view.graph["live"] is True
+    assert _constructor_reads(pairs[0][1]) == _constructor_reads(pairs[1][1])
+
+
+@pytest.mark.parametrize("graph_type,kind", _CONSTRUCTOR_CASES)
+@pytest.mark.parametrize("warm", [False, True])
+def test_fresh_view_constructor_cycles_are_collected(graph_type, kind, warm):
+    import gc
+    import weakref
+
+    def references(lib):
+        graph = getattr(lib, graph_type)()
+        graph.add_edge("a", "b", weight=2)
+        view = _constructor_view(lib, graph, kind)
+        graph.graph["view_cycle"] = view
+        if warm:
+            _constructor_reads(view)
+        return weakref.ref(graph), weakref.ref(view)
+
+    for lib in (nx, fnx):
+        refs = references(lib)
+        gc.collect()
+        assert all(ref() is None for ref in refs)
+
+
+@pytest.mark.parametrize("graph_type,kind", _CONSTRUCTOR_CASES)
+def test_view_constructor_keeps_subclass_setattr_hooks(graph_type, kind):
+    graph = getattr(fnx, graph_type)()
+    graph.add_edge("a", "b")
+    base = type(_constructor_view(fnx, graph, kind))
+    assignments = []
+
+    class CustomView(base):
+        def __setattr__(self, name, value):
+            assignments.append(name)
+            return super().__setattr__(name, value)
+
+    view = CustomView(graph)
+    assert "frozen" in assignments
+    assert fnx._PRIVATE_ADJ_OVERRIDE in assignments
+    if kind != "reverse":
+        assert "nodes" in assignments
+    if graph.is_directed():
+        assert fnx._PRIVATE_SUCC_OVERRIDE in assignments
+        assert fnx._PRIVATE_PRED_OVERRIDE in assignments
+    assert view.number_of_nodes() == 2
+
+
+@pytest.mark.parametrize("graph_type,kind", _CONSTRUCTOR_CASES)
+def test_reinitialized_view_constructor_invalidates_cached_storage(graph_type, kind):
+    first = getattr(fnx, graph_type)()
+    first.add_edge("old", "node", weight=3)
+    view = _constructor_view(fnx, first, kind)
+    _constructor_reads(view)
+    old_degree = view.degree
+    supplied_method = lambda *args, **kwargs: "user-owned"
+    view.get_edge_data = supplied_method
+    second = getattr(fnx, graph_type)()
+    second.add_edge("new", "target", weight=7)
+    second.add_edge("target", "target", weight=2)
+    view.__init__(second)
+    assert view._graph is second
+    assert view.graph is second.graph
+    assert view.degree is not old_degree
+    assert view.get_edge_data is supplied_method
+    del view.get_edge_data
+    # Reinstall mapping-aware shadows after intentionally removing the user's
+    # method; the constructor itself must never replace it.
+    fnx._install_private_method_shadows(view, view.__dict__)
+    expected = getattr(nx, graph_type)()
+    expected.add_edge("new", "target", weight=7)
+    expected.add_edge("target", "target", weight=2)
+    # Reinitialization without filters makes a filtered view unfiltered.
+    reference = expected.reverse(copy=False) if kind == "reverse" else nx.subgraph_view(expected)
+    assert _constructor_reads(view) == _constructor_reads(reference)

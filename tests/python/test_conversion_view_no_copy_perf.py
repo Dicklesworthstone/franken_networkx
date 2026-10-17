@@ -15,10 +15,14 @@ contract, and that construction does not scale with parent size.
 
 from __future__ import annotations
 
+import copy
+import gc
 import json
+import pickle
 import random
 import sys
 import time
+import weakref
 
 import franken_networkx as fnx
 import pytest
@@ -325,3 +329,189 @@ def test_conversion_view_interpreter_cancellation_exact(cls, mixed, reverse, mut
         }
         print(json.dumps(trace), flush=True)
         assert got == want, trace
+
+
+_DEGREE_ACCESSOR_CASES = [
+    (cls, conversion, name)
+    for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+    for conversion in ("to_directed", "to_undirected")
+    for name in (("degree", "in_degree", "out_degree")
+                 if conversion == "to_directed" else ("degree",))
+]
+
+
+@needs_nx
+@pytest.mark.parametrize("cls,conversion,name", _DEGREE_ACCESSOR_CASES)
+def test_conversion_degree_accessor_cache_and_assignment(cls, conversion, name):
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)()
+        graph.add_edge("a", "b", weight=2)
+        view = getattr(graph, conversion)(as_view=True)
+        assert name not in vars(view)
+        # NetworkX permits assignment even before the cached getter runs.
+        replacement = object()
+        setattr(view, name, replacement)
+        assert getattr(view, name) is replacement
+        delattr(view, name)
+        held = getattr(view, name)
+        assert getattr(view, name) is held
+        assert vars(view)[name] is held
+        assert held() is held
+        setattr(view, name, replacement)
+        assert getattr(view, name) is replacement
+        delattr(view, name)
+        rebuilt = getattr(view, name)
+        assert rebuilt is not held
+        assert list(rebuilt) == list(held)
+
+
+@needs_nx
+@pytest.mark.parametrize("cls,conversion,name", _DEGREE_ACCESSOR_CASES)
+@pytest.mark.parametrize("nested", [False, True])
+def test_cached_conversion_degree_wrappers_remain_live(cls, conversion, name, nested):
+    pairs = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)()
+        graph.add_nodes_from(["a", "b", "isolated"])
+        graph.add_edge("a", "b", weight=2)
+        graph.add_edge("a", "a", weight=0.25)
+        source = graph
+        if nested:
+            source = graph.to_directed(as_view=True).to_undirected(as_view=True)
+        view = getattr(source, conversion)(as_view=True)
+        held = getattr(view, name)
+        weighted = held(weight="weight")
+        restricted = held(["a", "isolated", "a"], weight="weight")
+        pairs.append((graph, view, held, weighted, restricted))
+
+    def reads(pair):
+        _, view, held, weighted, restricted = pair
+        assert getattr(view, name) is held
+        return (
+            [(node, value, type(value)) for node, value in held],
+            [(node, value, type(value)) for node, value in weighted],
+            [(node, value, type(value)) for node, value in restricted],
+            (weighted["a"], type(weighted["a"])) if "a" in view else None,
+        )
+
+    assert reads(pairs[0]) == reads(pairs[1])
+    for graph, *_ in pairs:
+        graph.add_edge("isolated", "a", weight=3.5)
+        graph.add_edge("b", "b", weight=4)
+        attrs = graph["a"]["b"]
+        if graph.is_multigraph():
+            attrs = attrs[0]
+        attrs["weight"] = 0.125
+    assert reads(pairs[0]) == reads(pairs[1])
+    for graph, *_ in pairs:
+        graph.remove_edge("a", "b")
+        graph.remove_node("b")
+        graph.add_edge("new", "a", weight=6)
+    assert reads(pairs[0]) == reads(pairs[1])
+    for graph, view, held, weighted, restricted in pairs:
+        graph.clear()
+        assert getattr(view, name) is held
+        assert list(held) == list(weighted) == []
+        # A restricted wrapper retains its nbunch, just as NetworkX does.
+        for operation in (lambda: weighted["a"], lambda: list(restricted)):
+            with pytest.raises(KeyError) as error:
+                operation()
+            assert error.value.args == ("a",)
+
+
+@needs_nx
+@pytest.mark.parametrize("cls,conversion,name", _DEGREE_ACCESSOR_CASES)
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+def test_cached_conversion_degree_cycles_are_collected(cls, conversion, name, warm, nested):
+    def make_refs(lib):
+        graph = getattr(lib, cls)()
+        graph.add_edge("a", "b")
+        source = graph
+        if nested:
+            source = graph.to_directed(as_view=True).to_undirected(as_view=True)
+        view = getattr(source, conversion)(as_view=True)
+        if warm:
+            held = getattr(view, name)
+            assert held is getattr(view, name)
+        return weakref.ref(graph), weakref.ref(view)
+
+    for lib in (nx, fnx):
+        refs = make_refs(lib)
+        gc.collect()
+        assert all(ref() is None for ref in refs)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("conversion", ["to_directed", "to_undirected"])
+def test_partial_conversion_view_is_collected_after_constructor_error(cls, conversion):
+    graph = getattr(fnx, cls)()
+    graph.add_edge("a", "b")
+    base = type(getattr(graph, conversion)(as_view=True))
+    failed_refs = []
+
+    class InterruptedView(base):
+        @staticmethod
+        def _adj_view_type(view):
+            failed_refs.append(weakref.ref(view))
+            raise ValueError("injected adjacency allocation failure")
+
+    # Nodes/edges already retain the view when adjacency construction fails.
+    with pytest.raises(ValueError, match="injected adjacency allocation failure"):
+        InterruptedView(graph)
+    assert len(failed_refs) == 1
+    gc.collect()
+    assert failed_refs[0]() is None
+
+
+@needs_nx
+@pytest.mark.parametrize("cls,conversion,name", _DEGREE_ACCESSOR_CASES)
+def test_held_conversion_degree_keeps_its_source_alive(cls, conversion, name):
+    def make(lib):
+        graph = getattr(lib, cls)()
+        graph.add_edge("a", "b", weight=2)
+        view = getattr(graph, conversion)(as_view=True)
+        held = getattr(view, name)(weight="weight")
+        return held, (weakref.ref(graph), weakref.ref(view))
+
+    reads = []
+    for lib in (nx, fnx):
+        held, refs = make(lib)
+        gc.collect()
+        assert all(ref() is not None for ref in refs)
+        before = list(held)
+        refs[0]().add_edge("new", "a", weight=3.5)
+        reads.append((before, list(held)))
+        del held
+        gc.collect()
+        assert all(ref() is None for ref in refs)
+    assert reads[0] == reads[1]
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("conversion", ["to_directed", "to_undirected"])
+@pytest.mark.parametrize("method", ["copy", "deepcopy", "pickle"])
+def test_conversion_degree_cache_does_not_alias_snapshot(cls, conversion, method):
+    snapshots = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)()
+        graph.add_edge("a", "b", weight=2)
+        graph.add_edge("a", "a", weight=0.25)
+        view = getattr(graph, conversion)(as_view=True)
+        names = ("degree", "in_degree", "out_degree") if view.is_directed() else ("degree",)
+        held = [getattr(view, name) for name in names]
+        if method == "copy":
+            snapshot = view.copy()
+        elif method == "deepcopy":
+            snapshot = copy.deepcopy(view)
+        else:
+            snapshot = pickle.loads(pickle.dumps(view))
+        snapshot_degrees = [getattr(snapshot, name) for name in names]
+        assert all(cloned is not original for cloned, original in zip(snapshot_degrees, held))
+        before = [list(degree(weight="weight")) for degree in snapshot_degrees]
+        graph.add_edge("a", "new", weight=3.5)
+        assert "new" in view and "new" not in snapshot
+        assert [list(degree(weight="weight")) for degree in snapshot_degrees] == before
+        snapshots.append(before)
+    assert snapshots[0] == snapshots[1]

@@ -152,7 +152,77 @@ def test_custom_equality_key_cannot_corrupt_the_graph_through_add(cls_name):
     # library's own count so a silent change in either is caught.
     assert gnx.number_of_nodes() == 2
     assert gfx.number_of_nodes() == 3
-    # Whatever the count, both libraries must agree with themselves: every
-    # node they report must be found by their own membership test.
     for graph in (gnx, gfx):
         assert all(n in graph for n in graph.nodes)
+
+
+class CustomNode:
+    """Non-primitive custom object with value-based __eq__ and __hash__."""
+
+    def __init__(self, ident: int, label: str = ""):
+        self.ident = ident
+        self.label = label
+
+    def __hash__(self):
+        return hash(("CustomNode", self.ident))
+
+    def __eq__(self, other):
+        return isinstance(other, CustomNode) and self.ident == other.ident
+
+
+class CollidingCustomNode:
+    """Custom object with constant hash to force hash collisions."""
+
+    def __init__(self, ident: int):
+        self.ident = ident
+
+    def __hash__(self):
+        return 424242
+
+    def __eq__(self, other):
+        return isinstance(other, CollidingCustomNode) and self.ident == other.ident
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_non_primitive_custom_object_equality_and_collision_parity(cls_name):
+    """br-r37-c1-epic-storage-architecture-yr2oc.5: non-primitive custom objects
+    with value-based __eq__/__hash__ (and hash collisions) match NetworkX both
+    directly and inside tuple node/edge keys."""
+    gnx = getattr(nx, cls_name)()
+    gfx = getattr(fnx, cls_name)()
+
+    a1 = CustomNode(1, "first")
+    a2 = CustomNode(1, "second")
+    b1 = CollidingCustomNode(10)
+    b2 = CollidingCustomNode(10)
+    b_other = CollidingCustomNode(20)
+
+    for g in (gnx, gfx):
+        g.add_edge(a1, b1)
+        g.add_edge((a1, 1), (b1, 2))
+
+    assert (a2 in gfx) == (a2 in gnx) is True
+    assert (b2 in gfx) == (b2 in gnx) is True
+    assert (b_other in gfx) == (b_other in gnx) is False
+    assert gfx.has_edge(a2, b2) == gnx.has_edge(a2, b2) is True
+    assert gfx.has_edge(a2, b_other) == gnx.has_edge(a2, b_other) is False
+    assert ((a2, 1) in gfx) == ((a2, 1) in gnx) is True
+    assert gfx.has_edge((a2, 1), (b2, 2)) == gnx.has_edge((a2, 1), (b2, 2)) is True
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_remove_node_cleans_up_neighbor_aliases_and_preserves_other_edges(cls_name):
+    """br-r37-c1-epic-storage-architecture-yr2oc.5: neighbor-scoped O(deg(u))
+    remove_node cleanup removes incident alias entries while keeping non-incident
+    adjacency key aliases intact."""
+    gnx = getattr(nx, cls_name)()
+    gfx = getattr(fnx, cls_name)()
+    for g in (gnx, gfx):
+        g.add_edge(0, 1.0)
+        g.add_edge(1, 2.0)
+        g.add_edge(2, 3.0)
+        g.remove_node(1)
+    assert list(gfx.nodes) == list(gnx.nodes)
+    assert list(gfx.edges) == list(gnx.edges)
+    assert dict(gfx[2]) == dict(gnx[2])
+

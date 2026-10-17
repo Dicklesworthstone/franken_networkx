@@ -11,6 +11,8 @@ import json
 import math
 from pathlib import Path
 from runpy import run_path
+import subprocess
+import sys
 from unittest import mock
 
 import pytest
@@ -346,6 +348,92 @@ def test_slo_gate_has_weighted_delegated_shortest_path_probe():
     assert result["metric_id"] == "shortest_path_weighted_delegated"
     assert result["primary_unit"] == "path_nodes"
     assert result["primary_value"] == 5.0
+    assert result["nx_primary_value"] == 5.0
+    assert result["nx_elapsed_ms"] > 0.0
+    assert result["speedup_vs_nx"] > 0.0
+    assert result["fnx_rss_kb"] > 0.0
+
+
+@needs_nx
+def test_slo_gate_planted_regression_fails_closed_and_records_provenance(
+    tmp_path, monkeypatch
+):
+    """br-r37-c1-rc0923-epic-crown-jewels-csmqh.4: negative case proving a planted
+    slowdown causes run_perf_slo_gate.py to exit 1 with a structured violation,
+    live NetworkX comparator arms, and provenance metadata.
+    """
+    import argparse
+
+    slo_script = _load_perf_slo_gate_script()
+    mini_thresholds = {
+        "schema_version": "1.0.0",
+        "thresholds_id": "perf-slo-planted-regression-test",
+        "workloads": [
+            {
+                "metric_id": "shortest_path",
+                "family": "shortest_path",
+                "route": "RUST_NATIVE",
+                "primary_metric": "path_nodes",
+                "primary_unit": "path_nodes",
+                "runs": 1,
+                "warmup_runs": 0,
+                "max_p95_ms": 50.0,
+                "params": {"width": 20, "height": 20},
+            },
+            {
+                "metric_id": "mutation_cycle",
+                "family": "mutation",
+                "primary_metric": "ops_per_s",
+                "primary_unit": "ops_per_s",
+                "runs": 1,
+                "warmup_runs": 0,
+                "params": {"node_count": 200, "edge_repeat": 1},
+            },
+        ],
+        "derived_checks": [
+            {
+                "metric_id": "mutation_regression",
+                "baseline_ops_per_second": 1000.0,
+                "max_regression_pct": 8.0,
+            },
+            {
+                "metric_id": "memory_regression",
+                "baseline_max_rss_kb": 500000.0,
+                "max_regression_pct": 10.0,
+            },
+            {
+                "metric_id": "p99_tail_regression",
+                "baseline_max_latency_p99_ms": 60.0,
+                "max_regression_pct": 10.0,
+            },
+        ],
+    }
+    thresholds_path = tmp_path / "slo_thresholds.json"
+    thresholds_path.write_text(json.dumps(mini_thresholds), encoding="utf-8")
+    regression_path = tmp_path / "regression.json"
+    regression_path.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+    report_path = tmp_path / "slo_report.json"
+
+    monkeypatch.setenv("FNX_SLO_PLANT_SLOWDOWN", "shortest_path:120ms")
+    args = argparse.Namespace(
+        slo_thresholds=str(thresholds_path),
+        matrix=str(tmp_path / "matrix.json"),
+        regression_report=str(regression_path),
+        report=str(report_path),
+        python_bin=sys.executable,
+    )
+    rc = slo_script["controller"](args)
+    assert rc == 1
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "fail"
+    violation_ids = {v["metric_id"] for v in report["violations"]}
+    assert "shortest_path" in violation_ids
+    assert "p99_tail_regression" in violation_ids
+    assert len(report["provenance"]["elf_sha256"]) == 64
+    assert report["provenance"]["harness"] == "scripts/run_perf_slo_gate.py"
+    assert all("nx_latency_ms" in obs for obs in report["observations"])
+    assert all("speedup_vs_nx" in obs for obs in report["observations"])
+
 
 
 def test_public_all_has_no_duplicate_entries():
@@ -411,6 +499,214 @@ def test_behavioral_oracle_canonicalizes_graph_order_but_preserves_paths():
     assert oracle["canonicalize"]([1, 2, 3], "path") != oracle[
         "canonicalize"
     ]([3, 2, 1], "path")
+
+
+def _behavioral_case_request(graph_type="Graph", weight=None):
+    directed = graph_type in {"DiGraph", "MultiDiGraph"}
+    multigraph = graph_type in {"MultiGraph", "MultiDiGraph"}
+    edges = [
+        {"u": 0, "v": 1, "attrs": {"weight": 4}},
+        {"u": 1, "v": 3, "attrs": {"weight": 4}},
+        {"u": 0, "v": 2, "attrs": {"weight": 1}},
+        {"u": 2, "v": 3, "attrs": {"weight": 1}},
+    ]
+    if multigraph:
+        for edge in edges:
+            edge["key"] = 0
+        edges.append({"u": 0, "v": 2, "key": 1, "attrs": {"weight": 9}})
+    return {
+        "schema_version": "fnx.behavioral-oracle-request.v1",
+        "algorithm": "shortest_path",
+        "source": 0,
+        "target": 3,
+        "weight": weight,
+        "graph": {
+            "graph_type": graph_type, "directed": directed, "multigraph": multigraph,
+            "graph_attrs": {},
+            "nodes": [{"id": node, "attrs": {}} for node in range(4)],
+            "edges": edges,
+        },
+    }
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight,path", [(None, [0, 1, 3]), ("weight", [0, 2, 3])])
+def test_behavioral_oracle_packaged_case_runs_real_paths(graph_type, weight, path):
+    oracle = _load_behavioral_oracle_script()
+    request = _behavioral_case_request(graph_type, weight)
+    first = oracle["run_case_from_pyo3"](json.dumps(request))
+    assert first == oracle["run_case_from_pyo3"](json.dumps(request))
+    response = json.loads(first)
+    assert response["schema_version"] == "fnx.behavioral-oracle-case.v1"
+    assert response["reference"]["version"] == "3.6.1"
+    assert response["reference"]["python_source_sha256"] == oracle["NETWORKX_SOURCE_SHA256"]
+    assert response["outcome"] == {
+        "status": "ok",
+        "normalized": {"type": "path", "items": [{"type": "int", "value": node} for node in path]},
+    }
+
+
+@needs_nx
+def test_behavioral_oracle_case_reports_errors_not_success():
+    oracle = _load_behavioral_oracle_script()
+    request = _behavioral_case_request()
+    request["target"] = 99
+    response = json.loads(oracle["run_case_from_pyo3"](json.dumps(request)))
+    assert response["outcome"]["status"] == "error"
+    assert response["outcome"]["normalized"]["type"] == "NodeNotFound"
+    assert response["outcome"]["normalized"]["message"] == "Target 99 is not in G"
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_behavioral_oracle_case_canonical_graph_and_checkout_route(graph_type):
+    launcher = _load_behavioral_oracle_script()
+    packaged = run_path(str(_repo_root() / "crates/fnx-conformance/src/behavioral_oracle.py"))
+    assert launcher["discover_checkout_root"]() == _repo_root()
+    assert packaged["discover_checkout_root"]() == _repo_root()
+    request = _behavioral_case_request(graph_type)
+    request["algorithm"] = "canonical_graph"
+    payload = json.dumps(request)
+    response_text = launcher["run_case_from_pyo3"](payload)
+    assert response_text == packaged["run_case_from_pyo3"](payload)
+    response = json.loads(response_text)
+    graph = response["outcome"]["normalized"]
+    assert response["outcome"]["status"] == "ok"
+    assert graph["type"] == "graph"
+    assert len(graph["nodes"]) == 4
+    assert len(graph["edges"]) == (5 if request["graph"]["multigraph"] else 4)
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_behavioral_oracle_case_preserves_parameter_named_attributes(graph_type):
+    oracle = _load_behavioral_oracle_script()
+    request = _behavioral_case_request(graph_type)
+    request["algorithm"] = "canonical_graph"
+    node_attrs = {"node_for_adding": "node-data"}
+    edge_attrs = {
+        "key": "edge-data", "u_of_edge": "u-data", "u_for_edge": "u-for-data",
+        "v_of_edge": "v-data", "v_for_edge": "v-for-data",
+    }
+    request["graph"]["nodes"][0]["attrs"] = node_attrs
+    request["graph"]["edges"][0]["attrs"] = edge_attrs
+    response = json.loads(oracle["run_case_from_pyo3"](json.dumps(request)))
+    assert response["outcome"]["status"] == "ok"
+    graph = response["outcome"]["normalized"]
+    node = next(node for node in graph["nodes"] if node["node"] == {"type": "int", "value": 0})
+    edge = next(edge for edge in graph["edges"] if edge["u"] == {"type": "int", "value": 0} and edge["v"] == {"type": "int", "value": 1})
+    assert {item["key"]["value"]: item["value"]["value"] for item in node["attrs"]["items"]} == node_attrs
+    assert {item["key"]["value"]: item["value"]["value"] for item in edge["attrs"]["items"]} == edge_attrs
+    assert edge["key"] == ({"type": "int", "value": 0} if request["graph"]["multigraph"] else None)
+
+
+@needs_nx
+@pytest.mark.parametrize("missing_target", [False, True])
+def test_behavioral_oracle_case_ignores_backend_priorities_and_restores_them(missing_target):
+    oracle = _load_behavioral_oracle_script()
+    request = _behavioral_case_request(weight="weight")
+    if missing_target:
+        request["target"] = 99
+    calls = []
+
+    def record_call(frame, event, _argument):
+        if event == "call":
+            module = frame.f_globals.get("__name__", "")
+            if module.startswith(("networkx.algorithms.shortest_paths.", "franken_networkx")):
+                calls.append((module, frame.f_code.co_name))
+
+    priorities = {
+        "algos": ["franken_networkx"], "classes": ["franken_networkx"],
+        "shortest_path": ["franken_networkx"],
+        "bidirectional_dijkstra": ["franken_networkx"],
+    }
+    with nx.config(backend_priority=priorities):
+        configured = nx.config.backend_priority
+        previous_profile = sys.getprofile()
+        try:
+            sys.setprofile(record_call)
+            response = json.loads(oracle["run_case_from_pyo3"](json.dumps(request)))
+        finally:
+            sys.setprofile(previous_profile)
+        assert nx.config.backend_priority is configured
+        assert dict(nx.config.backend_priority) == dict(priorities, generators=[])
+    assert response["outcome"]["status"] == ("error" if missing_target else "ok")
+    assert ("networkx.algorithms.shortest_paths.generic", "shortest_path") in calls
+    assert not any(module.startswith("franken_networkx") for module, _name in calls), calls
+
+
+@pytest.mark.parametrize("mutation,diagnostic", [
+    ("schema", "schema_version"), ("algorithm", "algorithm"),
+    ("algorithm_list", "algorithm"), ("graph_type_list", "graph_type"),
+    ("flags", "flags"), ("nodes", "64 nodes"), ("edges", "256 edges"),
+    ("endpoint", "declared endpoints"), ("weight", "weight"),
+    ("source", "source and target"), ("node_attrs", "object attrs"),
+])
+def test_behavioral_oracle_case_rejects_invalid_requests(mutation, diagnostic):
+    oracle = _load_behavioral_oracle_script()
+    request = _behavioral_case_request()
+    if mutation == "schema":
+        request["schema_version"] = "unknown"
+    elif mutation == "algorithm":
+        request["algorithm"] = "eval"
+    elif mutation == "algorithm_list":
+        request["algorithm"] = []
+    elif mutation == "graph_type_list":
+        request["graph"]["graph_type"] = []
+    elif mutation == "flags":
+        request["graph"]["directed"] = True
+    elif mutation == "nodes":
+        request["graph"]["nodes"] *= 17
+    elif mutation == "edges":
+        request["graph"]["edges"] *= 65
+    elif mutation == "endpoint":
+        request["graph"]["edges"][0]["u"] = 99
+    elif mutation == "weight":
+        request["weight"] = []
+    elif mutation == "source":
+        request["source"] = []
+    elif mutation == "node_attrs":
+        request["graph"]["nodes"][0]["attrs"] = []
+    with pytest.raises(ValueError, match=diagnostic):
+        oracle["run_case_from_pyo3"](json.dumps(request))
+
+
+def test_behavioral_oracle_case_enforces_bytes_and_runtime_pins(monkeypatch):
+    oracle = _load_behavioral_oracle_script()
+    with pytest.raises(ValueError, match="32768 bytes"):
+        oracle["run_case_from_pyo3"](" " * 32769)
+    with pytest.raises(ValueError, match="32768 bytes"):
+        oracle["run_case_from_pyo3"]("é" * 16385)
+    monkeypatch.setenv("PYTHONHASHSEED", "1")
+    with pytest.raises(RuntimeError, match="deterministic runtime environment"):
+        oracle["run_case_from_pyo3"](json.dumps(_behavioral_case_request()))
+
+
+@needs_nx
+@pytest.mark.parametrize("isolated", [False, True])
+def test_behavioral_oracle_launcher_and_actual_hash_seed(tmp_path, isolated):
+    request = tmp_path / "case.json"
+    request.write_text(json.dumps(_behavioral_case_request(weight="weight")))
+    script = _repo_root() / "scripts/generate_behavioral_oracle.py"
+    result = subprocess.run(
+        [sys.executable, "-I" if isolated else "-s", str(script), "--case-file", str(request)],
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    if isolated:
+        # -I ignores PYTHONHASHSEED despite os.environ still advertising 0.
+        assert result.returncode != 0
+        assert "PYTHONHASHSEED(initialization)" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        response = json.loads(result.stdout)
+        assert response["outcome"] == {
+            "status": "ok",
+            "normalized": {"type": "path", "items": [
+                {"type": "int", "value": 0}, {"type": "int", "value": 2},
+                {"type": "int", "value": 3},
+            ]},
+        }
 
 
 # ---------------------------------------------------------------------------

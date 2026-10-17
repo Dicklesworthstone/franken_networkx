@@ -327,3 +327,205 @@ def test_a_guard_that_raised_is_spent(class_name, nbunch, data):
         return ("completed",)
 
     assert outcome(fnx) == outcome(nx)
+
+
+_WHOLE_GRAPH_MUTATIONS = {
+    "add_node": lambda g: g.add_node("brand"),
+    "add_disjoint_edge": lambda g: g.add_edge("brand", "new"),
+    "grow_current_row": lambda g: g.add_edge(0, 7),
+    "shrink_current_row": lambda g: g.remove_edge(0, 2),
+    "grow_later_row": lambda g: g.add_edge(3, 7),
+    "shrink_later_row": lambda g: g.remove_edge(3, 4),
+    "clear": lambda g: g.clear(),
+    "remove_current_node": lambda g: g.remove_node(0),
+    "remove_later_node": lambda g: g.remove_node(3),
+    "replace_node_same_size": lambda g: (g.remove_node(7), g.add_node("brand")),
+    "replace_current_neighbor": lambda g: (g.remove_edge(0, 2), g.add_edge(0, 7)),
+    "change_weight": lambda g: g[0][1].update(w=99),
+}
+
+
+def _whole_graph(lib):
+    graph = lib.Graph()
+    graph.add_nodes_from(range(8))
+    graph.add_edges_from(
+        [(0, 1), (0, 2), (0, 0), (1, 3), (3, 4), (3, 5), (5, 6)], w=1
+    )
+    return graph
+
+
+def _next_trace(iterator, count=16):
+    """Keep stepping after a failure: a generator must remain spent."""
+    trace = []
+    for _ in range(count):
+        try:
+            trace.append(("item", next(iterator)))
+        except (RuntimeError, StopIteration) as exc:
+            trace.append((type(exc).__name__, exc.args))
+    return trace
+
+
+@pytest.mark.parametrize("called", [False, True], ids=["property", "called"])
+@pytest.mark.parametrize("mutation", sorted(_WHOLE_GRAPH_MUTATIONS))
+def test_whole_graph_edge_row_boundary_matches_networkx(called, mutation):
+    """br-r37-c1-hrejw: finish list(nbrs), then enter each live future row."""
+    def outcome(lib):
+        graph = _whole_graph(lib)
+        iterator = iter(graph.edges() if called else graph.edges)
+        first = next(iterator)
+        _WHOLE_GRAPH_MUTATIONS[mutation](graph)
+        return first, _next_trace(iterator)
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("called", [False, True], ids=["property", "called"])
+def test_whole_graph_edge_iterator_starts_lazily(called):
+    def outcome(lib):
+        graph = _whole_graph(lib)
+        iterator = iter(graph.edges() if called else graph.edges)
+        graph.add_edge("brand", "new")
+        return _next_trace(iterator)
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("called", [False, True], ids=["property", "called"])
+def test_whole_graph_edge_iterator_permitted_walk_and_exhaustion(called):
+    def outcome(lib):
+        graph = _whole_graph(lib)
+        view = graph.edges() if called else graph.edges
+        expected = list(view)
+        iterator = iter(view)
+        actual = [next(iterator) for _ in expected]
+        exhausted = _next_trace(iterator, 2)
+        graph.add_edge("brand", "new")
+        return expected, actual, exhausted, _next_trace(iterator, 2)
+
+    reference = outcome(nx)
+    assert len(reference[0]) == 7
+    assert outcome(fnx) == reference
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_node_iterator_resize_errors_remain_sticky(class_name):
+    def outcome(lib):
+        graph = getattr(lib, class_name)()
+        graph.add_nodes_from(range(5))
+        iterator = iter(graph.nodes)
+        next(iterator)
+        graph.add_node("brand")
+        return _next_trace(iterator, 2)
+
+    reference = outcome(nx)
+    assert all(kind == "RuntimeError" for kind, _ in reference)
+    assert outcome(fnx) == reference
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("after_last", [False, True])
+def test_degree_iterator_resize_error_spends_generator(class_name, weighted, after_last):
+    def outcome(lib):
+        graph = getattr(lib, class_name)()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4)])
+        view = graph.degree(weight="w") if weighted else graph.degree
+        iterator = iter(view)
+        for _ in range(len(graph) if after_last else 1):
+            next(iterator)
+        graph.add_node("brand")
+        return _next_trace(iterator, 3)
+
+    reference = outcome(nx)
+    assert [kind for kind, _ in reference] == [
+        "RuntimeError", "StopIteration", "StopIteration"
+    ]
+    assert outcome(fnx) == reference
+
+
+@pytest.mark.parametrize("class_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("direction", ["in_degree", "out_degree"])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_directional_degree_iterator_resize_error_spends_generator(class_name, direction, weighted):
+    def outcome(lib):
+        graph = getattr(lib, class_name)([(0, 1), (1, 2), (2, 3)])
+        view = getattr(graph, direction)
+        iterator = iter(view(weight="w") if weighted else view)
+        next(iterator)
+        graph.add_node("brand")
+        return _next_trace(iterator, 3)
+
+    reference = outcome(nx)
+    assert [kind for kind, _ in reference] == [
+        "RuntimeError", "StopIteration", "StopIteration"
+    ]
+    assert outcome(fnx) == reference
+
+
+def test_whole_graph_edge_iterator_cycles_are_collectable():
+    import gc
+    import weakref
+
+    graph = _whole_graph(fnx)
+    reference = weakref.ref(graph)
+    iterator = iter(graph.edges)
+    next(iterator)
+    graph.graph["iterator"] = iterator
+    del iterator, graph
+    gc.collect()
+    assert reference() is None
+
+
+@pytest.mark.parametrize("raised", [False, True], ids=["exhausted", "failed"])
+def test_whole_graph_edge_spent_iterator_releases_graph(raised):
+    import gc
+    import weakref
+
+    def outcome(lib):
+        graph = _whole_graph(lib)
+        reference = weakref.ref(graph)
+        iterator = iter(graph.edges)
+        if raised:
+            next(iterator)
+            graph.add_node("brand")
+            with pytest.raises(RuntimeError, match="dictionary changed size"):
+                list(iterator)
+        else:
+            list(iterator)
+        del graph
+        gc.collect()
+        collected = reference() is None
+        # Keep the spent iterator alive across collection, not only the graph.
+        assert list(iterator) == []
+        return collected
+
+    assert outcome(nx) is True
+    assert outcome(fnx) is True
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("raised", [False, True], ids=["exhausted", "failed"])
+def test_degree_spent_iterator_releases_graph(class_name, weighted, raised):
+    import gc
+    import weakref
+
+    def outcome(lib):
+        graph = getattr(lib, class_name)([(0, 1), (1, 2), (2, 3)])
+        reference = weakref.ref(graph)
+        iterator = iter(graph.degree(weight="w") if weighted else graph.degree)
+        if raised:
+            next(iterator)
+            graph.add_node("brand")
+            with pytest.raises(RuntimeError, match="dictionary changed size"):
+                next(iterator)
+        else:
+            list(iterator)
+        del graph
+        gc.collect()
+        collected = reference() is None
+        assert list(iterator) == []
+        return collected
+
+    assert outcome(nx) is True
+    assert outcome(fnx) is True

@@ -11,6 +11,7 @@ br-r37-c1-w7wwr
 from __future__ import annotations
 
 import random
+import types
 
 import pytest
 import networkx as nx
@@ -119,3 +120,229 @@ def test_goldens():
     assert list(fnx.dfs_labeled_edges(g, 0)) == list(nx.dfs_labeled_edges(ng, 0))
     assert dict(fnx.bfs_successors(g, 0)) == {0: [1], 1: [2]}
     assert dict(fnx.dfs_predecessors(g, 0)) == {1: 0, 2: 1}
+
+
+_PRIVATE_TRAVERSAL_VIEWS = [
+    (kind, view)
+    for kind in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+    for view in ("plain", "subgraph", "restricted", "conversion", "edge_subgraph")
+] + [("DiGraph", "reverse"), ("MultiDiGraph", "reverse")]
+_PRIVATE_TRAVERSAL_LIVE_VIEWS = [
+    (kind, view) for kind, view in _PRIVATE_TRAVERSAL_VIEWS
+    if view in ("plain", "subgraph", "reverse")
+]
+_PRIVATE_TRAVERSAL_BFS = ("bfs_edges", "bfs_tree", "bfs_predecessors", "bfs_successors")
+_PRIVATE_TRAVERSAL_DFS = (
+    "dfs_edges", "dfs_tree", "dfs_predecessors", "dfs_successors",
+    "dfs_preorder_nodes", "dfs_postorder_nodes", "dfs_labeled_edges",
+)
+_PRIVATE_TRAVERSAL_NAMES = (*_PRIVATE_TRAVERSAL_BFS, *_PRIVATE_TRAVERSAL_DFS)
+_PRIVATE_TRAVERSAL_GENERATORS = (
+    "bfs_edges", "bfs_predecessors", "bfs_successors", "dfs_edges",
+    "dfs_preorder_nodes", "dfs_postorder_nodes", "dfs_labeled_edges",
+)
+_PRIVATE_TRAVERSAL_CONFIGS = [
+    (name, depth, reverse, False, sort)
+    for name in _PRIVATE_TRAVERSAL_BFS
+    for depth in (None, 0, 1.5, -1, float("nan"))
+    for reverse in ((False, True) if name in ("bfs_edges", "bfs_tree") else (False,))
+    for sort in (False, True)
+] + [
+    (name, depth, False, all_sources, sort)
+    for name in _PRIVATE_TRAVERSAL_DFS
+    for depth in (None, 0, 1.5, -1, float("nan"))
+    for all_sources in (False, True) for sort in (False, True)
+]
+
+
+def _private_traversal_twins(kind, private=True):
+    aliases = [float(node) for node in range(5)]
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(range(5))
+        graph.add_edges_from([(0, 1), (1, 3)])  # Native topology is deliberately wrong.
+        if not private:
+            continue
+        rows = {node: {} for node in range(5)}
+        pred = {node: {} for node in range(5)}
+        for source, target in ((0, 2), (0, 4), (2, 3), (4, 3)):
+            attrs = {}
+            edge = {0: attrs} if graph.is_multigraph() else attrs
+            rows[source][aliases[target]] = edge
+            pred[target][aliases[source]] = edge
+            if not graph.is_directed():
+                rows[target][aliases[source]] = edge
+        graph._adj = rows
+        if graph.is_directed():
+            graph._succ, graph._pred = rows, pred
+    return graphs
+
+
+def _private_traversal_view(module, graph, view):
+    if view == "subgraph":
+        return graph.subgraph(range(5))
+    if view == "restricted":
+        return module.restricted_view(graph, [], [])
+    if view == "conversion":
+        return graph.to_undirected(as_view=True) if graph.is_directed() else graph.to_directed(as_view=True)
+    if view == "edge_subgraph":
+        edges = [(0, 2), (0, 4), (2, 3), (4, 3)]
+        return graph.edge_subgraph([(*edge, 0) for edge in edges] if graph.is_multigraph() else edges)
+    if view == "reverse":
+        return graph.reverse(copy=False)
+    return graph
+
+
+def _private_traversal_typed(value):
+    if isinstance(value, dict):
+        return (dict, [(_private_traversal_typed(k), _private_traversal_typed(v)) for k, v in value.items()])
+    if isinstance(value, (list, tuple)):
+        return (type(value), [_private_traversal_typed(item) for item in value])
+    return type(value), value
+
+
+def _private_traversal_result(value, name):
+    if name.endswith("_tree"):
+        assert value.is_directed() and not value.is_multigraph()
+        return _private_traversal_typed((list(value.nodes(data=True)), list(value.edges(data=True)), value.graph))
+    return _private_traversal_typed(value)
+
+
+def _private_traversal_finish(iterator):
+    events = []
+    try:
+        events.extend(iterator)
+    except Exception as error:
+        failure = type(error), str(error)
+    else:
+        failure = None
+    try:
+        next(iterator)
+    except Exception as error:
+        terminal = type(error), str(error)
+    else:
+        raise AssertionError("Finished traversal unexpectedly resumed")
+    return _private_traversal_typed(events), failure, terminal
+
+
+def _private_traversal_outcome(module, graph, name, **kwargs):
+    try:
+        value = getattr(module, name)(graph, **kwargs)
+    except Exception as error:
+        return "call", type(error), str(error)
+    if name in _PRIVATE_TRAVERSAL_GENERATORS:
+        assert isinstance(value, types.GeneratorType)
+        return "iterator", _private_traversal_finish(value)
+    return "result", _private_traversal_result(value, name)
+
+
+@pytest.mark.parametrize("kind,view", _PRIVATE_TRAVERSAL_VIEWS)
+@pytest.mark.parametrize("name,depth,reverse,all_sources,sort", _PRIVATE_TRAVERSAL_CONFIGS)
+def test_private_traversal_views_depth_order_types_and_no_native_witness(kind, view, name, depth, reverse, all_sources, sort):
+    from franken_networkx._fnx import cgse
+
+    fg, ng = _private_traversal_twins(kind)
+    fg, ng = _private_traversal_view(fnx, fg, view), _private_traversal_view(nx, ng, view)
+    kwargs = {"source": None if all_sources else 3 if view == "reverse" else 0, "depth_limit": depth}
+    if name in ("bfs_edges", "bfs_tree"):
+        kwargs["reverse"] = reverse
+    if sort:
+        kwargs["sort_neighbors"] = lambda neighbors: sorted(neighbors, reverse=True)
+    expected = _private_traversal_outcome(nx, ng, name, **kwargs)
+    actual, witnesses = cgse.collect_witnesses(lambda: _private_traversal_outcome(fnx, fg, name, **kwargs))
+    assert actual == expected
+    assert expected[0] != "call"
+    if expected[0] == "iterator":
+        assert expected[1][1] is None
+    assert witnesses == [], "Private traversal must not fabricate native witnesses"
+    if name == "bfs_edges" and depth is None and not reverse and not sort and view != "reverse":
+        assert list(nx.bfs_edges(ng, 0)) == [(0, 2), (0, 4), (2, 3)]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("name", _PRIVATE_TRAVERSAL_NAMES)
+@pytest.mark.parametrize("sort", [False, True])
+def test_private_traversal_ordinary_native_control_unchanged(kind, name, sort):
+    fg, ng = _private_traversal_twins(kind, private=False)
+    kwargs = {"source": 0}
+    if sort:
+        kwargs["sort_neighbors"] = lambda neighbors: sorted(neighbors, reverse=True)
+    assert _private_traversal_outcome(fnx, fg, name, **kwargs) == _private_traversal_outcome(nx, ng, name, **kwargs)
+
+
+def _private_traversal_add_edge(graph, source, target):
+    edge = {0: {}} if graph.is_multigraph() else {}
+    graph._adj[source][target] = edge
+    if graph.is_directed():
+        graph._pred[target][source] = edge
+    else:
+        graph._adj[target][source] = edge
+
+
+@pytest.mark.parametrize("kind,view", _PRIVATE_TRAVERSAL_LIVE_VIEWS)
+@pytest.mark.parametrize("name", _PRIVATE_TRAVERSAL_GENERATORS)
+@pytest.mark.parametrize("case", ["before_first_next", "unreached_row_after_yield", "held_row_after_yield"])
+def test_private_traversal_lazy_live_rows_and_exhaustion(kind, view, name, case):
+    graphs = _private_traversal_twins(kind)
+    views = [_private_traversal_view(module, graph, view) for module, graph in zip((fnx, nx), graphs)]
+    source = 3 if view == "reverse" else 0
+    iterators = [getattr(module, name)(graph, source=source) for module, graph in zip((fnx, nx), views)]
+    assert all(isinstance(iterator, types.GeneratorType) for iterator in iterators)
+    if case == "before_first_next":
+        for graph in graphs:
+            _private_traversal_add_edge(graph, 0, 3)
+        assert _private_traversal_finish(iterators[0]) == _private_traversal_finish(iterators[1])
+        return
+    first = [next(iterator) for iterator in iterators]
+    assert _private_traversal_typed(first[0]) == _private_traversal_typed(first[1])
+    saved = repr(first)
+    for graph in graphs:
+        if case == "unreached_row_after_yield":
+            graph._adj[4] = None
+        else:
+            _private_traversal_add_edge(graph, 0, 1)
+    assert _private_traversal_finish(iterators[0]) == _private_traversal_finish(iterators[1])
+    assert repr(first) == saved, "Later reads must not change an already yielded value"
+
+
+@pytest.mark.parametrize("kind,view", _PRIVATE_TRAVERSAL_LIVE_VIEWS)
+@pytest.mark.parametrize("name", _PRIVATE_TRAVERSAL_NAMES)
+@pytest.mark.parametrize("source", [99, []], ids=["missing", "unhashable"])
+def test_private_traversal_missing_and_unhashable_source_error_timing(kind, view, name, source):
+    graphs = _private_traversal_twins(kind)
+    views = [_private_traversal_view(module, graph, view) for module, graph in zip((fnx, nx), graphs)]
+    actual = _private_traversal_outcome(fnx, views[0], name, source=source)
+    expected = _private_traversal_outcome(nx, views[1], name, source=source)
+    assert actual == expected
+    if expected[0] == "iterator":
+        assert expected[1][1] is not None
+    else:
+        assert expected[0] == "call"
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("name", _PRIVATE_TRAVERSAL_GENERATORS)
+@pytest.mark.parametrize("consume", ["one", "all"])
+def test_private_traversal_sort_callback_coldness_and_partial_consumption(kind, name, consume):
+    observations = []
+    for module, graph in zip((fnx, nx), _private_traversal_twins(kind)):
+        calls = []
+
+        def sort_neighbors(neighbors):
+            nodes = list(neighbors)
+            calls.append(_private_traversal_typed(nodes))
+            return sorted(nodes, reverse=True)
+
+        iterator = getattr(module, name)(graph, source=0, sort_neighbors=sort_neighbors)
+        assert calls == [], "Constructing a traversal must not invoke the sort callback"
+        events = list(iterator) if consume == "all" else [next(iterator)]
+        if consume == "one" and name in ("dfs_preorder_nodes", "dfs_labeled_edges"):
+            assert calls == [], "The root event precedes the first neighbor lookup"
+            assert events == ([0] if name == "dfs_preorder_nodes" else [(0, 0, "forward")])
+        else:
+            assert calls, "Consuming the traversal must perform real neighbor lookups"
+        saved = list(calls)
+        iterator.close()
+        assert calls == saved
+        observations.append((_private_traversal_typed(events), calls))
+    assert observations[0] == observations[1]

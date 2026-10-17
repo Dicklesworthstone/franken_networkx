@@ -2,6 +2,7 @@
 to/from_dict_of_dicts, to/from_dict_of_lists, to/from_edgelist,
 to/from_numpy_array, to/from_scipy_sparse_array, to/from_pandas_edgelist."""
 
+import copy
 import importlib
 import importlib.util
 import inspect
@@ -1017,3 +1018,648 @@ class TestCrossLibraryConstructor:
         assert nx.to_dict_of_dicts(fnx.path_graph(3)) == {
             0: {1: {}}, 1: {0: {}, 2: {}}, 2: {1: {}},
         }
+
+
+_LIVE_DOD_CASES = [
+    (graph_class, private, kind)
+    for graph_class in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+    for private in (False, True)
+    for kind in (
+        ["plain", "filtered", "restricted", "edge", "conversion"]
+        + (["reverse"] if graph_class in ("DiGraph", "MultiDiGraph") else [])
+    )
+]
+
+
+def _live_dod_graph(lib, graph_class, private):
+    graph = getattr(lib, graph_class)()
+    graph.add_nodes_from([3, 0, 4, 1, 2])
+    for u, v in [(0, 1), (1, 2), (2, 0), (3, 2), (3, 4), (1, 0), (0, 0)]:
+        attrs = {"weight": 3.5, "side": f"{u}->{v}"}
+        if graph.is_multigraph():
+            graph.add_edge(u, v, key=7, **attrs)
+            graph.add_edge(u, v, key=9, weight=4.5)
+        else:
+            graph.add_edge(u, v, **attrs)
+    if private:
+        succ = {u: {} for u in graph}
+        pred = {u: {} for u in graph}
+        for u, v in [(0, 2), (2, 1), (3, 1), (2, 0), (0, 0)]:
+            attrs = {"weight": 5.5, "side": f"{u}->{v}"}
+            data = {7: attrs, 9: {"weight": 6.5}} if graph.is_multigraph() else attrs
+            succ[u][v] = data
+            (pred if graph.is_directed() else succ)[v][u] = data
+        if graph.is_directed():
+            graph._succ, graph._pred = succ, pred
+        graph._adj = succ
+    return graph
+
+
+def _live_dod_view(lib, graph, kind):
+    if kind == "plain":
+        return graph
+    if kind == "filtered":
+        return graph.subgraph([0, 1, 2, 3])
+    if kind == "restricted":
+        return lib.restricted_view(graph, [4], [])
+    if kind == "edge":
+        edges = [(0, 0, 7), (2, 0, 7)] if graph.is_multigraph() else [(0, 0), (2, 0)]
+        return graph.edge_subgraph(edges)
+    if kind == "conversion":
+        if graph.is_directed():
+            return graph.to_undirected(as_view=True)
+        return graph.to_directed(as_view=True)
+    assert kind == "reverse"
+    return graph.reverse(copy=False)
+
+
+def _live_dod_signature(value):
+    """Preserve every mapping layer's insertion order, without sorting."""
+    if isinstance(value, Mapping):
+        return [(key, _live_dod_signature(item)) for key, item in value.items()]
+    return value
+
+
+def _live_dod_observe(lib, graph, options):
+    try:
+        result = lib.to_dict_of_dicts(graph, **options)
+    except Exception as error:
+        return ("error", type(error).__name__, error.args)
+    try:
+        encoded = ("json", json.dumps(result))
+    except TypeError as error:
+        encoded = ("json-error", error.args)
+    return ("result", _live_dod_signature(result), encoded)
+
+
+@pytest.mark.parametrize("graph_class,private,kind", _LIVE_DOD_CASES)
+@pytest.mark.parametrize("option", ["default", "list", "tuple", "iterator", "constant", "constant_list"])
+def test_live_dod_actual_mapping_and_view_parity(graph_class, private, kind, option):
+    actual = _live_dod_view(fnx, _live_dod_graph(fnx, graph_class, private), kind)
+    expected = _live_dod_view(nx, _live_dod_graph(nx, graph_class, private), kind)
+    nodes = list(expected)[::-1]
+    constant = {"shared": ["payload"]}
+
+    def options():
+        if option == "list":
+            return {"nodelist": nodes}
+        if option == "tuple":
+            return {"nodelist": tuple(nodes)}
+        if option == "iterator":
+            return {"nodelist": iter(nodes)}
+        if option == "constant":
+            return {"edge_data": constant}
+        if option == "constant_list":
+            return {"nodelist": nodes[:3], "edge_data": constant}
+        return {}
+
+    assert _live_dod_observe(fnx, actual, options()) == _live_dod_observe(nx, expected, options())
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("constant", [None, 17])
+def test_live_dod_includes_adjacency_only_nodes(graph_class, constant):
+    graphs = [_live_dod_graph(lib, graph_class, True) for lib in (fnx, nx)]
+    for graph in graphs:
+        data = {7: {"foreign": True}} if graph.is_multigraph() else {"foreign": True}
+        graph._adj["adjacency-only"] = {0: data}
+    options = {"edge_data": constant}
+    assert _live_dod_observe(fnx, graphs[0], options) == _live_dod_observe(nx, graphs[1], options)
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("private", [False, True])
+def test_live_dod_shallow_copy_keeps_inner_references_and_tracks_new_rows(graph_class, private):
+    snapshots = []
+    for lib in (fnx, nx):
+        graph = _live_dod_graph(lib, graph_class, private)
+        u, v = (0, 2) if private else (0, 1)
+        first = lib.to_dict_of_dicts(graph)
+        held = first[u][v]
+        assert held is graph.get_edge_data(u, v)
+        second = lib.to_dict_of_dicts(graph)
+        assert second is not first and second[u] is not first[u]
+        assert second[u][v] is held
+        first[u].pop(v)
+        assert v in second[u] and graph.has_edge(u, v)
+        if graph.is_multigraph():
+            held[7]["changed"] = [1, 2]
+            graph.add_edge(u, v, key=11, weight=11.5)
+            assert list(held) == [7, 9, 11]
+            held[13] = {"weight": 13.5}
+            assert graph.has_edge(u, v, 13)
+            assert graph.get_edge_data(u, v, 13) is held[13]
+        else:
+            held["changed"] = [1, 2]
+            assert graph.get_edge_data(u, v)["changed"] == [1, 2]
+        if private:
+            # Native shape epochs do not change when assigned rows are edited.
+            graph._adj[u][v] = {23: {"replacement": True}} if graph.is_multigraph() else {"replacement": True}
+        else:
+            graph.add_edge(u, 4)
+        snapshots.append(_live_dod_observe(lib, graph, {}))
+    assert snapshots[0] == snapshots[1]
+
+
+@pytest.mark.parametrize("graph_class,private,kind", _LIVE_DOD_CASES)
+def test_live_dod_constant_is_shared_not_copied(graph_class, private, kind):
+    graph = _live_dod_view(fnx, _live_dod_graph(fnx, graph_class, private), kind)
+    constant = {"mutable": []}
+    result = fnx.to_dict_of_dicts(graph, edge_data=constant)
+    assert any(result.values())
+    assert all(value is constant for row in result.values() for value in row.values())
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_live_dod_ordinary_native_route_is_retained(graph_class):
+    graph = _live_dod_graph(fnx, graph_class, False)
+    calls = []
+
+    def profile(frame, event, arg):
+        if event == "c_call":
+            calls.append(getattr(arg, "__name__", ""))
+
+    previous = sys.getprofile()
+    sys.setprofile(profile)
+    try:
+        fnx.to_dict_of_dicts(graph)
+    finally:
+        sys.setprofile(previous)
+    required = "_native_to_dict_of_dicts_live" if graph.is_multigraph() else "to_dict_of_dicts_undirected"
+    assert required in calls
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("private", [False, True])
+def test_live_dod_restricted_view_reads_authoritative_neighbor_keys(graph_class, private):
+    actual = _live_dod_view(fnx, _live_dod_graph(fnx, graph_class, private), "restricted")
+    expected = _live_dod_view(nx, _live_dod_graph(nx, graph_class, private), "restricted")
+    assert [(u, list(actual[u])) for u in actual] == [(u, list(expected[u])) for u in expected]
+
+
+@pytest.mark.parametrize("graph_class,private,kind", [case for case in _LIVE_DOD_CASES if case[2] in ("conversion", "reverse")])
+def test_live_dod_view_copy_depth_and_live_keydict_mutation(graph_class, private, kind):
+    observations = []
+    for lib in (fnx, nx):
+        root = _live_dod_graph(lib, graph_class, private)
+        source_attrs = root.get_edge_data(0, 0, 7) if root.is_multigraph() else root.get_edge_data(0, 0)
+        source_attrs["nested"] = []
+        view = _live_dod_view(lib, root, kind)
+        exported = lib.to_dict_of_dicts(view)
+        held = exported[0][0]
+        attrs = held[7] if view.is_multigraph() else held
+        sharing = (attrs is source_attrs, attrs["nested"] is source_attrs["nested"])
+        attrs["exported"] = True
+        attrs["nested"].append("shared")
+        if view.is_multigraph():
+            held[13] = {"weight": 13.5}
+            root.add_edge(0, 0, key=17, weight=17.5)
+        observations.append((sharing, _live_dod_signature(exported), _live_dod_observe(lib, root, {})))
+    assert observations[0] == observations[1]
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("private", [False, True, "node_only"])
+def test_live_dod_graph_subclass_keeps_inner_dictionary_identity(graph_class, private):
+    for lib in (fnx, nx):
+        subclass = type("ExportGraph", (getattr(lib, graph_class),), {})
+        graph = subclass()
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, key=7, weight=3.5)
+        else:
+            graph.add_edge(0, 1, weight=3.5)
+        if private == "node_only":
+            graph._node = {0: {}, 1: {}, "node-only": {}}
+        elif private:
+            data = {7: {"weight": 5.5}} if graph.is_multigraph() else {"weight": 5.5}
+            graph._adj = {0: {1: data}, 1: {} if graph.is_directed() else {0: data}}
+        exported = lib.to_dict_of_dicts(graph)
+        assert exported[0][1] is graph.get_edge_data(0, 1)
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, key=11, weight=11.5)
+            assert list(exported[0][1]) == [7, 11]
+        else:
+            graph.add_edge(0, 1, changed=True)
+            assert exported[0][1]["changed"] is True
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+def test_live_dod_node_only_override_keeps_raw_keydict_and_lookup_errors(graph_class):
+    for lib in (fnx, nx):
+        graph = getattr(lib, graph_class)()
+        graph.add_edge(0, 1, key=7, weight=3.5)
+        held = graph.get_edge_data(0, 1)
+        graph._node = {"node-only": {}}
+        assert graph.get_edge_data(0, 1) is held
+        assert graph.get_edge_data(0, 1, 7) is held[7]
+        sentinel = object()
+        assert graph.get_edge_data(0, 1, 9, sentinel) is sentinel
+        assert graph.get_edge_data(8, 9, default=sentinel) is sentinel
+        for args in (([], 1), (0, []), (0, 1, [])):
+            with pytest.raises(TypeError, match="unhashable type: 'list'"):
+                graph.get_edge_data(*args)
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("hub_index", range(3))
+@pytest.mark.parametrize("export_first", [False, True], ids=["get", "export"])
+@pytest.mark.parametrize("operation", ["remove_node", "remove_nodes_from", "clear_edges", "clear"])
+def test_keydict_registry_endpoint_removal_matches_networkx(
+    graph_class, hub_index, export_first, operation
+):
+    """49u7h: both registry indexes must detach every incident held dict.
+
+    Rotating the hub covers both canonical endpoint roles on MultiGraph;
+    incoming, outgoing, and self-loop rows exercise both roles on MultiDiGraph.
+    Unrelated rows distinguish node removal from clearing the entire registry.
+    """
+    observations = []
+    for lib in (nx, fnx):
+        labels = ["a-long-node-label", "m-long-node-label", "z-long-node-label"]
+        hub = labels[hub_index]
+        left, right = [node for node in labels if node != hub]
+        pairs = [(hub, left), (left, hub), (hub, right), (right, hub),
+                 (hub, hub), (left, right), ("outside-a", "outside-z")]
+        graph = getattr(lib, graph_class)()
+        graph.add_nodes_from(labels + ["outside-a", "outside-z"])
+        for index, (u, v) in enumerate(pairs):
+            graph.add_edge(u, v, key="first", weight=index)
+            graph.add_edge(u, v, key="second", weight=index + 10)
+        exported = lib.to_dict_of_dicts(graph) if export_first else None
+        held = [exported[u][v] if export_first else graph.get_edge_data(u, v)
+                for u, v in pairs]
+        assert all(isinstance(row, dict) for row in held)
+        before = [dict(row) for row in held]
+        if operation == "remove_nodes_from":
+            graph.remove_nodes_from([hub, "absent-node"])
+        elif operation == "remove_node":
+            graph.remove_node(hub)
+        else:
+            getattr(graph, operation)()
+        assert [dict(row) for row in held] == before
+
+        def state():
+            return (
+                list(graph),
+                list(graph.edges(keys=True, data=True)),
+                [list(row.items()) for row in held],
+                [graph.get_edge_data(u, v) is row
+                 for (u, v), row in zip(pairs, held)],
+                None if exported is None else json.dumps(exported),
+                json.dumps(lib.to_dict_of_dicts(graph)),
+            )
+
+        trace = [state()]
+        # Detached rows are ordinary dictionaries; unrelated registered rows
+        # still write through on a node-only removal. Compare both behaviors.
+        for index, row in enumerate(held):
+            row["held-write"] = {"weight": index + 100}
+        trace.append(state())
+        graph.add_edge(hub, left, key="new-generation", weight=200)
+        trace.append(state())
+        observations.append(trace)
+    assert observations[1] == observations[0]
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copy_method", ["copy", "constructor", "deepcopy"])
+@pytest.mark.parametrize("copied_weight", [1, 0.5], ids=["integer", "fractional"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_graph_copy_mutations_do_not_share_revision_caches(
+    graph_class, copy_method, copied_weight, warm
+):
+    """Equal revision numbers must not join two independent copied graphs."""
+    observations = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        graph.add_nodes_from([0, 1, 2])
+        graph.add_edge(0, 1, weight=1)
+
+        def paths(subject):
+            # Numeric equality alone hides an integer/float cache mix-up.
+            return [
+                (node, [(target, type(distance), distance)
+                        for target, distance in distances.items()])
+                for node, distances in lib.all_pairs_dijkstra_path_length(subject)
+            ]
+
+        warm_paths = paths(graph) if warm else None
+        if copy_method == "constructor":
+            copied = getattr(lib, graph_class)(graph)
+        elif copy_method == "deepcopy":
+            copied = copy.deepcopy(graph)
+        else:
+            copied = graph.copy()
+        # Both graphs advance their native revisions by the same amount, but
+        # their edge sets differ. Alternate queries to expose a shared memo.
+        copied.remove_edge(0, 1)
+        copied.add_edge(0, 2, weight=copied_weight)
+        graph.remove_edge(0, 1)
+        graph.add_edge(1, 2, weight=1)
+        trace = [warm_paths]
+        for subject in (copied, graph, copied, graph):
+            trace.append((list(subject.edges(data=True)), paths(subject)))
+        observations.append(trace)
+    assert observations[1] == observations[0]
+
+
+@pytest.mark.parametrize("graph_class,operation", [
+    ("MultiGraph", "copy"), ("MultiGraph", "constructor"),
+    ("MultiDiGraph", "copy"), ("MultiDiGraph", "constructor"),
+    ("MultiDiGraph", "reverse"),
+])
+@pytest.mark.parametrize("self_loop", [False, True], ids=["pair", "loop"])
+@pytest.mark.parametrize("empty_all", [False, True], ids=["mixed", "edgeless"])
+def test_keydict_registry_copy_walk_omits_empty_pairs(
+    graph_class, operation, self_loop, empty_all
+):
+    """A native clone must reproduce the incumbent's edge-only copy walk.
+
+    Source ghost adjacency stays live; copying, constructing or reversing
+    a new graph does not copy a pair whose keydict has no edges. Unrelated
+    real pairs distinguish dropping ghosts from clearing every edge.
+    """
+    observations = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        graph.add_nodes_from(["before", "u", "v", "after"])
+        target = "u" if self_loop else "v"
+        graph.add_edge("u", "before", key="before", weight=3)
+        graph.add_edge("u", target, key="ghost", weight=1)
+        graph.add_edge("u", "after", key="after", weight=4)
+        graph.add_edge("before", "v", key="incoming", weight=5)
+        exported = lib.to_dict_of_dicts(graph)
+        held = exported["u"][target]
+        held.clear()
+        if empty_all:
+            for row in exported.values():
+                for keydict in row.values():
+                    keydict.clear()
+        assert graph.has_edge("u", target) and not held
+
+        def state(subject):
+            return (
+                list(subject),
+                [(node, list(row)) for node, row in subject.adjacency()],
+                list(subject.edges(keys=True, data=True)),
+                list(subject.degree()), subject.number_of_edges(),
+                json.dumps(lib.to_dict_of_dicts(subject)),
+            )
+
+        before = state(graph)
+        if operation == "copy":
+            copied = graph.copy()
+        elif operation == "constructor":
+            copied = type(graph)(graph)
+        else:
+            copied = graph.reverse(copy=True)
+        trace = [before, state(copied), state(graph)]
+        assert state(graph) == before
+        assert graph.get_edge_data("u", target) is held
+        copied.add_edge("u", target, key="replacement", weight=9)
+        trace.extend([state(copied), state(graph), list(held.items())])
+        observations.append(trace)
+    assert observations[1] == observations[0]
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("key_type", [str, int], ids=["str-subclass", "int-subclass"])
+@pytest.mark.parametrize("self_loop", [False, True], ids=["pair", "loop"])
+@pytest.mark.parametrize("fail_hash", [False, True], ids=["delete", "hash-error"])
+def test_keydict_registry_hash_error_does_not_remove_native_edge(
+    graph_class, key_type, self_loop, fail_hash
+):
+    """A failed dict deletion must not commit a Rust-only edge removal."""
+    class EdgeKey(key_type):
+        fail = False
+
+        def __hash__(self):
+            if self.fail:
+                raise RuntimeError("edge-key hash failed")
+            return super().__hash__()
+
+    observations = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        target = 0 if self_loop else 1
+        key = EdgeKey("controlled" if key_type is str else 7)
+        graph.add_edge(0, target, key=0, weight=2)
+        graph.add_edge(0, target, key=key, weight=3)
+        exported = lib.to_dict_of_dicts(graph)
+        held = exported[0][target]
+
+        def state():
+            return (
+                graph.number_of_edges(), graph.number_of_edges(0, target),
+                list(graph.edges(keys=True, data=True)), list(graph.degree()),
+                list(graph.degree(weight="weight")), list(held.items()),
+                graph.has_edge(0, target, key),
+                graph.get_edge_data(0, target) is held, json.dumps(exported),
+            )
+
+        trace = [state()]
+        key.fail = fail_hash
+        try:
+            del held[key]
+        except RuntimeError as error:
+            result = (type(error).__name__, str(error))
+        else:
+            result = ("deleted", None)
+        finally:
+            key.fail = False
+        trace.extend([result, state()])
+        if fail_hash:
+            assert result == ("RuntimeError", "edge-key hash failed")
+        else:
+            assert result == ("deleted", None)
+        observations.append(trace)
+    assert observations[1] == observations[0]
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("keys,absent", [
+    ([7, 2], 99),
+    (["first", "second"], "absent"),
+    ([("edge", 7), ("edge", 2)], ("absent", 99)),
+])
+def test_keydict_registry_missing_bulk_key_keeps_parallel_edges(graph_class, keys, absent):
+    """An explicit missing key cannot fall back to removing the last key."""
+    observations = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        for index, key in enumerate(keys):
+            graph.add_edge(0, 1, key=key, weight=index + 1)
+        held = graph.get_edge_data(0, 1)
+
+        def state():
+            return (list(graph.edges(keys=True, data=True)), list(held.items()),
+                    graph.number_of_edges(), graph.get_edge_data(0, 1) is held)
+
+        trace = [state()]
+        trace.append(graph.remove_edges_from([(0, 1, absent)]))
+        trace.append(state())
+        # The valid prefix is removed, but the following missing key must not
+        # remove the remaining parallel edge or detach its held dictionary.
+        trace.append(graph.remove_edges_from([(0, 1, keys[0]), (0, 1, absent)]))
+        trace.append(state())
+        trace.append(graph.remove_edges_from([(0, 1, keys[1])]))
+        trace.append(state())
+        held["detached"] = {"weight": 9}
+        trace.append(state())
+        graph.add_edge(0, 1, key="new-generation", weight=10)
+        trace.append(state())
+        observations.append(trace)
+    assert observations[1] == observations[0]
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("labels", [[0, 1, 2, 3], ["", "v", "before", "after"],
+                                    ["u-long-label", "v-long-label", "before-long", "after-long"]])
+@pytest.mark.parametrize("self_loop", [False, True], ids=["pair", "loop"])
+@pytest.mark.parametrize("mutation", ["pop", "popitem", "clear", "del"])
+@pytest.mark.parametrize("cleanup", ["clear_edges", "clear", "remove_node", "remove_nodes_from"])
+def test_keydict_registry_empty_pair_consumers_match_networkx(
+    graph_class, labels, self_loop, mutation, cleanup
+):
+    """5cqna: native and Python consumers must agree on empty adjacency.
+
+    Warm positional lookasides and real neighbor iterators before the deletion;
+    preserving only membership or appending a ghost at export time is insufficient.
+    Clear every keydict before cleanup so edge_count == 0 cannot hide ghost rows.
+    """
+    observations = []
+    for lib in (nx, fnx):
+        u, other, before, after = labels
+        v = u if self_loop else other
+        graph = getattr(lib, graph_class)()
+        graph.add_nodes_from(labels)
+        graph.add_edge(u, before, key="before", weight=3)
+        graph.add_edge(u, v, key="first", weight=1)
+        graph.add_edge(u, v, key="second", weight=2)
+        graph.add_edge(u, after, key="after", weight=4)
+        graph.add_edge(before, v, key="incoming", weight=5)
+        exported = lib.to_dict_of_dicts(graph)
+        held = exported[u][v]
+        graph.has_edge(u, v)
+        graph.has_edge(u, v, "first")
+        graph.number_of_edges(u, v)
+        neighbor_iterator = graph.neighbors(u)
+        predecessor_iterator = graph.predecessors(v) if graph.is_directed() else graph.neighbors(v)
+        if mutation == "clear":
+            held.clear()
+        else:
+            while held:
+                if mutation == "pop":
+                    held.pop(next(iter(held)))
+                elif mutation == "popitem":
+                    held.popitem()
+                else:
+                    del held[next(iter(held))]
+
+        def outcome(call):
+            try:
+                return ("value", call())
+            except Exception as error:
+                return ("error", type(error).__name__, str(error))
+
+        def state():
+            return (
+                list(graph), [(n, list(row)) for n, row in graph.adjacency()],
+                list(graph.edges(keys=True, data=True)),
+                graph.has_edge(u, v), graph.has_edge(u, v, "first"),
+                graph.number_of_edges(), graph.number_of_edges(u, v),
+                list(graph.degree()), list(graph.degree(weight="weight")),
+                graph.get_edge_data(u, v) is held, list(held.items()),
+                json.dumps(exported), json.dumps(lib.to_dict_of_dicts(graph)),
+                outcome(lambda: list(lib.bfs_edges(graph, u))),
+                outcome(lambda: lib.shortest_path(graph, u, v)),
+            )
+
+        trace = [state(), outcome(lambda: list(neighbor_iterator)),
+                 outcome(lambda: list(predecessor_iterator))]
+        trace.append(outcome(lambda: graph.remove_edge(u, v)))
+        trace.append(outcome(lambda: graph.remove_edges_from([(u, v), (u, v, "absent")])))
+        trace.append(state())
+        graph.add_edge(u, v, key="replacement", weight=6)
+        assert graph.get_edge_data(u, v) is held
+        trace.append(state())
+        # Clear all pair dictionaries, including the recreated singleton and
+        # self-loop, without changing node or neighbor insertion order.
+        for row in lib.to_dict_of_dicts(graph).values():
+            for keydict in row.values():
+                keydict.clear()
+        assert graph.number_of_edges() == 0
+        trace.append(state())
+        if cleanup == "remove_nodes_from":
+            graph.remove_nodes_from([u])
+        elif cleanup == "remove_node":
+            graph.remove_node(u)
+        else:
+            getattr(graph, cleanup)()
+        trace.append(state())
+        held["after-cleanup"] = {"weight": 7}
+        trace.append(state())
+        graph.add_edge(u, v, key="new-generation", weight=8)
+        assert graph.get_edge_data(u, v) is not held
+        trace.append(state())
+        observations.append(trace)
+    assert observations[1] == observations[0]
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("hub_index", range(3))
+@pytest.mark.parametrize("self_loop", [False, True], ids=["pair", "loop"])
+@pytest.mark.parametrize("export_first", [False, True], ids=["get", "export"])
+@pytest.mark.parametrize("remove_through", ["graph", "dict-pop", "dict-clear"])
+def test_keydict_registry_ghost_and_pair_recreation_matches_networkx(
+    graph_class, hub_index, self_loop, export_first, remove_through
+):
+    """49u7h: graph-side last-edge removal and dict-side ghosts differ.
+
+    A ghost must reuse its held keydict until the endpoint is removed. A pair
+    emptied through the graph must instead get a new keydict immediately.
+    """
+    observations = []
+    for lib in (nx, fnx):
+        labels = ["a-long-node-label", "m-long-node-label", "z-long-node-label"]
+        u = labels[hub_index]
+        v = u if self_loop else labels[(hub_index + 1) % 3]
+        graph = getattr(lib, graph_class)()
+        graph.add_nodes_from(labels)
+        graph.add_edge(u, v, key="first", weight=1)
+        graph.add_edge(u, v, key="second", weight=2)
+        graph.add_edge(labels[(hub_index + 2) % 3], "outside", key="unrelated", weight=3)
+        exported = lib.to_dict_of_dicts(graph) if export_first else None
+        held = exported[u][v] if export_first else graph.get_edge_data(u, v)
+        if remove_through == "graph":
+            graph.remove_edge(u, v, "first")
+            graph.remove_edge(u, v, "second")
+        elif remove_through == "dict-pop":
+            held.pop("first")
+            held.pop("second")
+        else:
+            held.clear()
+        assert held == {}
+
+        def state():
+            return (
+                list(graph), list(graph.edges(keys=True, data=True)),
+                graph.has_edge(u, v), graph.number_of_edges(u, v),
+                graph.get_edge_data(u, v) is held, list(held.items()),
+                None if exported is None else json.dumps(exported),
+                json.dumps(lib.to_dict_of_dicts(graph)),
+            )
+
+        trace = [state()]
+        graph.add_edge(u, v, key="replacement", weight=4)
+        assert (graph.get_edge_data(u, v) is held) == (remove_through != "graph")
+        trace.append(state())
+        graph.remove_node(u)
+        trace.append(state())
+        held["detached-write"] = {"weight": 5}
+        trace.append(state())
+        graph.add_edge(u, v, key="after-node-removal", weight=6)
+        assert graph.get_edge_data(u, v) is not held
+        trace.append(state())
+        observations.append(trace)
+    assert observations[1] == observations[0]

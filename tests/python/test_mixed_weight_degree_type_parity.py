@@ -308,6 +308,55 @@ def _exact_reads(graph):
     return result
 
 
+class _SumInt(int):
+    """A non-exact int exits CPython's initial fast integer loop."""
+
+
+class _SumFloat(float):
+    """A non-exact float takes Python's generic addition route."""
+
+
+class _AddSeven(int):
+    def __radd__(self, other):
+        return other + int(self) + 7
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("values", [
+    [1, _SumInt(1), -1e16, _SumInt(1), -1],
+    [_SumInt(0), 1e16, 1.0, -1e16],
+    [0.0, 1e16, _SumFloat(1.0), -1e16],
+    [0, _AddSeven(1), 1e16, 1.0, -1e16],
+], ids=["integer-prefix", "integer-first", "float-middle", "custom-add"])
+@pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("exposure", ["fresh", "read", "sync", "mutated-sync"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_numeric_subclass_sum_routes_exact(class_name, values, bulk, reverse, exposure, mode):
+    """hhj5p.7: numeric equality does not preserve sum's type dispatch."""
+    with fnx.compatibility_mode(mode):
+        ours = _boundary_graph(fnx, class_name, values, bulk, reverse)
+        oracle = _boundary_graph(nx, class_name, values, bulk, reverse)
+        if exposure == "read":
+            list(ours.edges(data=True))
+            list(oracle.edges(data=True))
+        if exposure == "mutated-sync":
+            for graph in (ours, oracle):
+                attrs = graph["hub"][0][0] if graph.is_multigraph() else graph["hub"][0]
+                attrs["weight"] = _SumInt(1)
+        if "sync" in exposure:
+            # Native algorithm wrappers perform this sync; it must not declare
+            # a lossy numeric projection exact for subsequent degree/size reads.
+            _exact_reads(ours)
+            ours._fnx_sync_attrs_to_inner()
+        got, want = _exact_reads(ours), _exact_reads(oracle)
+    trace = {"python": sys.version, "networkx": nx.__version__, "class_name": class_name,
+             "values": [(type(value).__name__, repr(value)) for value in values],
+             "bulk": bulk, "reverse": reverse, "exposure": exposure, "mode": mode,
+             "got": got, "want": want}
+    assert got == want, json.dumps(trace, sort_keys=True)
+
+
 @pytest.mark.parametrize("class_name", CLASSES)
 @pytest.mark.parametrize("case", list(_SUM_BOUNDARIES))
 @pytest.mark.parametrize("bulk", [False, True])

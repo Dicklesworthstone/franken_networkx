@@ -19,6 +19,7 @@ br-r37-c1-bckdt
 
 from __future__ import annotations
 
+import cProfile
 import random
 import warnings
 from collections import Counter
@@ -153,3 +154,163 @@ def test_chordless_cycles_undirected_returns_lazy_generator():
     assert iter(it) is iter(it)
     assert not isinstance(it, list)
     assert _multiset(it) == Counter({("0", "1", "2"): 1})
+
+
+# br-r37-c1-56s29: the adapter is a structural snapshot, not an attributed
+# graph conversion. Check the real consumer's exact sequence, not a sorted
+# multiset that could hide changed insertion order or cycle rotations.
+_ALL_CLASSES = [
+    (fnx.Graph, nx.Graph),
+    (fnx.DiGraph, nx.DiGraph),
+    (fnx.MultiGraph, nx.MultiGraph),
+    (fnx.MultiDiGraph, nx.MultiDiGraph),
+]
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+def test_chordless_cycles_bulk_structure_adapter_avoids_edge_rebuild(fnx_cls, nx_cls):
+    fg, ng = _build(fnx_cls, nx_cls, [("a", "b"), ("b", "c"), ("c", "a")])
+    fg.add_node("isolated")
+    ng.add_node("isolated")
+    profile = cProfile.Profile()
+    converted = profile.runcall(fnx._networkx_graph_for_traversal_parity, fg)
+    assert list(converted) == list(ng)
+    assert list(nx.chordless_cycles(converted)) == list(nx.chordless_cycles(ng))
+    edge_rebuilds = [
+        entry for entry in profile.getstats()
+        if hasattr(entry.code, "co_name")
+        and entry.code.co_name in ("add_node", "add_edge", "add_edges_from")
+        and "networkx/classes" in entry.code.co_filename.replace("\\", "/")
+    ]
+    assert not edge_rebuilds
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+def test_chordless_cycles_bulk_structure_ignores_nonstring_attributes(fnx_cls, nx_cls):
+    fg, ng = _build(fnx_cls, nx_cls, [("a", "b"), ("b", "c"), ("c", "a")])
+    for graph in (fg, ng):
+        graph.graph[0] = object()
+        graph.nodes["a"][1] = object()
+        attrs = graph["a"]["b"]
+        if graph.is_multigraph():
+            attrs = attrs[0]
+        attrs[2] = object()
+    assert list(fnx.chordless_cycles(fg)) == list(nx.chordless_cycles(ng))
+    # Attribute payloads are not consumed by chordless_cycles and must not be
+    # passed as **kwargs (which rejects non-string keys).
+    assert 1 in fg.nodes["a"]
+    attrs = fg["a"]["b"][0] if fg.is_multigraph() else fg["a"]["b"]
+    assert 2 in attrs
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+@pytest.mark.parametrize("seed", range(12))
+@pytest.mark.parametrize("length_bound", [None, 0, 1, 2, 4])
+def test_chordless_cycles_exact_order_after_shuffled_mutations(fnx_cls, nx_cls, seed, length_bound):
+    rng = random.Random(seed)
+    labels = ["alpha", 3, ("tuple", 1), "beta", -7, "gamma", (2, 3)]
+    rng.shuffle(labels)
+    fg, ng = fnx_cls(), nx_cls()
+    for graph in (fg, ng):
+        graph.add_nodes_from(labels)
+        graph.add_edges_from(zip(labels[:6], labels[1:6] + labels[:1]))
+        graph.add_edge(labels[6], labels[6])
+    for _ in range(18):
+        u, v = rng.sample(labels[:6], 2)
+        weight = rng.random()
+        for graph in (fg, ng):
+            graph.add_edge(u, v, weight=weight)
+    # Remove/reinsert changes adjacency order. Use the same node objects on
+    # both arms so CPython set order sees exactly the same labels.
+    for graph in (fg, ng):
+        if graph.has_edge(labels[0], labels[1]):
+            graph.remove_edge(labels[0], labels[1])
+        graph.add_edge(labels[0], labels[1])
+    assert list(fnx.chordless_cycles(fg, length_bound=length_bound)) == list(
+        nx.chordless_cycles(ng, length_bound=length_bound)
+    )
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+@pytest.mark.parametrize("kind", ["subgraph", "conversion", "reverse", "assigned"])
+def test_chordless_cycles_view_and_private_storage_match_networkx(fnx_cls, nx_cls, kind):
+    fg, ng = _build(fnx_cls, nx_cls, [(0, 1), (1, 2), (2, 0), (2, 3), (3, 1), (4, 4)])
+    if kind == "subgraph":
+        fg, ng = fg.subgraph([0, 1, 2]), ng.subgraph([0, 1, 2])
+    elif kind == "conversion":
+        conversion = "to_undirected" if fg.is_directed() else "to_directed"
+        fg = getattr(fg, conversion)(as_view=True)
+        ng = getattr(ng, conversion)(as_view=True)
+    elif kind == "reverse" and fg.is_directed():
+        fg, ng = fg.reverse(copy=False), ng.reverse(copy=False)
+    elif kind == "assigned":
+        replacement = nx_cls()
+        replacement.add_edges_from([(8, 9), (9, 10), (10, 8), (11, 11)])
+        for graph in (fg, ng):
+            graph._node = replacement._node
+            if graph.is_directed():
+                graph._succ = replacement._succ
+                graph._pred = replacement._pred
+            else:
+                graph._adj = replacement._adj
+    assert list(fnx.chordless_cycles(fg)) == list(nx.chordless_cycles(ng))
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+def test_chordless_cycles_snapshot_is_lazy_and_does_not_mutate_source(fnx_cls, nx_cls):
+    fg, ng = _build(fnx_cls, nx_cls, [(0, 1), (1, 2), (2, 0), (3, 3)])
+    it = fnx.chordless_cycles(fg)
+    expected = nx.chordless_cycles(ng)
+    # The adapter must not run until the first next().
+    for graph in (fg, ng):
+        graph.add_edge(4, 4)
+    before_nodes = list(fg)
+    before_edges = list(fg.edges(keys=True)) if fg.is_multigraph() else list(fg.edges)
+    assert list(it) == list(expected)
+    assert list(fg) == before_nodes
+    after_edges = list(fg.edges(keys=True)) if fg.is_multigraph() else list(fg.edges)
+    assert after_edges == before_edges
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+def test_chordless_cycles_negative_bound_matches_networkx(fnx_cls, nx_cls):
+    fg, ng = _build(fnx_cls, nx_cls, [(0, 1), (1, 2), (2, 0)])
+    for library, graph in ((fnx, fg), (nx, ng)):
+        with pytest.raises(ValueError, match="^length bound must be non-negative$"):
+            list(library.chordless_cycles(graph, length_bound=-1))
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+def test_chordless_cycles_adapter_topology_survives_source_mutation(fnx_cls, nx_cls):
+    fg, ng = _build(fnx_cls, nx_cls, [(0, 1), (1, 2), (2, 0)])
+    if fg.is_multigraph():
+        for graph in (fg, ng):
+            graph.add_edge(0, 1)
+    converted = fnx._networkx_graph_for_traversal_parity(fg)
+    expected = list(nx.chordless_cycles(ng))
+    fg.remove_edge(0, 1)
+    fg.add_edge(3, 3)
+    fg.add_node("new")
+    assert list(nx.chordless_cycles(converted)) == expected
+    assert list(converted) == list(ng)
+    assert 3 not in converted
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+@pytest.mark.parametrize("isolated", [False, True])
+def test_chordless_cycles_empty_and_edgeless_match_networkx(fnx_cls, nx_cls, isolated):
+    fg, ng = fnx_cls(), nx_cls()
+    if isolated:
+        fg.add_node("alone")
+        ng.add_node("alone")
+    assert list(fnx.chordless_cycles(fg)) == list(nx.chordless_cycles(ng)) == []
+
+
+@pytest.mark.parametrize("fnx_cls,nx_cls", _ALL_CLASSES)
+def test_chordless_cycles_subclass_rows_match_networkx(fnx_cls, nx_cls):
+    class Derived(fnx_cls):
+        pass
+
+    fg, ng = _build(Derived, nx_cls, [(0, 1), (1, 2), (2, 0)])
+    assert type(fg) is Derived
+    assert list(fnx.chordless_cycles(fg)) == list(nx.chordless_cycles(ng))

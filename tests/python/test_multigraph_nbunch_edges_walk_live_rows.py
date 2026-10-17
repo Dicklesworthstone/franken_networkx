@@ -175,41 +175,32 @@ def test_an_untouched_graph_iterates_without_rebuilding(cls_name):
     assert calls == [], "rebuilt an unmutated view"
 
 
-# ---------------------------------------------------------------------------
-# WHAT THIS CHANGE DOES NOT FIX. Strict, so each one shouts on the day it is
-# fixed rather than quietly continuing to be skipped.
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-u5tyh: fnx OVER-RAISES. The guard compares `degree`, which "
-    "counts parallel edges; the row dict networkx iterates counts DISTINCT "
-    "NEIGHBOURS. Adding an edge between two ALREADY-ADJACENT nodes moves the "
-    "first and not the second, so nothing networkx stands in was resized and it "
-    "completes. One scalar per row cannot express nx's two-level rule — measured: "
-    "swapping the scalar to the row length fixes these 63 cells and breaks 35 "
-    "others, because on MultiDiGraph the SAME mutation resizes the key-dict the "
-    "walk is standing in and nx does raise. The real fix is the live-row walk, "
-    "which is blocked on multigraph rows having no live PyDict mirror.",
-)
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_a_parallel_edge_on_a_later_cell_does_not_raise(cls_name):
+    actual, expected = _both(
+        cls_name,
+        ["n1", "n2"],
+        {"keys": True},
+        lambda g: g.add_edge("n1", "n2", key="ADDED"),
+    )
+    assert actual == expected
+
+    # Ensure ("n1", "n2") is genuinely the SECOND cell of row "n1" on both
+    # MultiGraph and MultiDiGraph so adding a parallel edge on ("n1", "n2")
+    # after advancing once hits a LATER cell in the same row on both classes.
     graph = _build(fnx, cls_name)
+    if cls_name == "MultiDiGraph":
+        graph = fnx.MultiDiGraph()
+        graph.add_edge("n1", "n0", key="p", w=0)
+        graph.add_edge("n1", "n2", key="p", w=1)
+        graph.add_edge("n2", "n3", key="p", w=2)
     iterator = iter(graph.edges(["n1", "n2"], keys=True))
-    next(iterator)
+    first = next(iterator)
+    assert first[:2] == ("n1", "n0")
     graph.add_edge("n1", "n2", key="ADDED")
     assert ("n1", "n2", "ADDED") in list(iterator)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-u5tyh: `data=<key>` projects `attrs.get(key, default)` when "
-    "the view is built, where networkx projects it as it passes the edge. Editing "
-    "an attribute IN PLACE moves neither nodes_seq nor edges_seq, so the guard's "
-    "trigger never fires and there is nothing to hang a rebuild off. Needs a "
-    "different signal, not a different rebuild.",
-)
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_an_attribute_edited_in_place_is_seen_by_a_data_key_view(cls_name):
     graph = _build(fnx, cls_name)
@@ -222,3 +213,51 @@ def test_an_attribute_edited_in_place_is_seen_by_a_data_key_view(cls_name):
 def test_growing_a_single_row_nbunch_on_multidigraph_matches_networkx():
     actual, expected = _both("MultiDiGraph", ["n1"], {}, lambda g: g.add_edge("n1", "zz"))
     assert actual == expected
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("accessor", ["adj", "getitem", "succ", "pred"])
+def test_multigraph_row_view_iteration_matches_networkx_on_mutation(cls_name, accessor):
+    """br-r37-c1-himzq: iterating G.adj[u] / G[u] / G.succ[u] / G.pred[u] walks
+    the persistent per-row neighbor-key PyDict mirror."""
+    if cls_name == "MultiGraph" and accessor in ("succ", "pred"):
+        pytest.skip("directed accessors only")
+
+    def _get_row(g, node):
+        if accessor == "getitem":
+            return g[node]
+        return getattr(g, accessor)[node]
+
+    def _run_row(lib, mutate):
+        g = _build(lib, cls_name)
+        row = _get_row(g, "n1")
+        it = iter(row)
+        first = next(it)
+        mutate(g)
+        try:
+            return (first, list(it))
+        except Exception as exc:  # noqa: BLE001
+            return f"{type(exc).__name__}: {exc}"
+
+    # 1. Adding a new distinct neighbour resizes the row dict -> RuntimeError
+    grow = (
+        (lambda g: g.add_edge("zz", "n1"))
+        if accessor == "pred"
+        else (lambda g: g.add_edge("n1", "zz"))
+    )
+    assert _run_row(fnx, grow) == _run_row(nx, grow)
+
+    # 2. Adding a parallel edge to an existing neighbour does NOT resize the row dict
+    parallel = (
+        (lambda g: g.add_edge("n0", "n1", key="ADDED"))
+        if accessor == "pred"
+        else (lambda g: g.add_edge("n1", "n2", key="ADDED"))
+    )
+    assert _run_row(fnx, parallel) == _run_row(nx, parallel)
+
+    # 3. Removing the row owner or clearing the graph detaches the row without resizing it
+    assert _run_row(fnx, lambda g: g.remove_node("n1")) == _run_row(
+        nx, lambda g: g.remove_node("n1")
+    )
+    assert _run_row(fnx, lambda g: g.clear()) == _run_row(nx, lambda g: g.clear())
+

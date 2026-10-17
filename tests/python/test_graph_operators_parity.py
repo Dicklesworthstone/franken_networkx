@@ -537,3 +537,228 @@ def test_line_graph_node_and_edge_order_match_networkx(cls, label):
         got, expected = fnx.line_graph(g), nx.line_graph(h)
         assert list(got) == list(expected), seed
         assert list(got.edges()) == list(expected.edges()), seed
+
+
+def _native_line_graph_twins(cls, label, shape):
+    nodes = [i if label == "int" else f"node-{i}" if label == "str" else ("node", i)
+             for i in range(7)]
+    edges = {
+        "empty": [],
+        "fork": [(0, 1), (0, 2), (1, 3), (2, 4)],
+        "row_order": [(4, 2), (1, 2), (2, 3), (0, 2), (3, 4), (0, 1)],
+        "loops": [(3, 3), (0, 1), (1, 1), (1, 3), (3, 4)],
+        "isolated_edges": [(5, 6), (1, 2), (2, 3), (0, 4)],
+        "churn": [(0, 1), (1, 3), (0, 2), (2, 4), (4, 3)],
+    }[shape]
+    graphs = [getattr(module, cls)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from((nodes[u], nodes[v], {"weight": 3}) for u, v in edges)
+        graph.graph["not_propagated"] = 1
+        graph.nodes[nodes[0]]["not_propagated"] = 2
+        if shape == "churn":
+            graph.remove_node(nodes[1])
+            graph.add_edge(nodes[1], nodes[4])
+            graph.remove_edge(nodes[0], nodes[2])
+            graph.add_edge(nodes[0], nodes[2])
+    return graphs
+
+
+def _ordered_line_graph_contract(graph):
+    return (
+        type(graph).__name__, dict(graph.graph),
+        [(node, tuple(type(value) for value in node), dict(data))
+         for node, data in graph.nodes(data=True)],
+        [(left, right, dict(data)) for left, right, data in graph.edges(data=True)],
+        [(node, list(graph[node])) for node in graph],
+        [(node, list(graph.pred[node])) for node in graph] if graph.is_directed() else [],
+    )
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("label", ["int", "str", "tuple"])
+@pytest.mark.parametrize("shape", ["empty", "fork", "row_order", "loops", "isolated_edges", "churn"])
+def test_native_line_graph_kernel_exact_order(cls, label, shape):
+    graph, oracle = _native_line_graph_twins(cls, label, shape)
+    before = (list(graph), list(graph.edges(data=True)), dict(graph.graph))
+    result = fnx._fnx.line_graph_fast(graph)
+    assert result is not None
+    assert _ordered_line_graph_contract(result) == _ordered_line_graph_contract(nx.line_graph(oracle))
+    assert (list(graph), list(graph.edges(data=True)), dict(graph.graph)) == before
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("label", ["int", "str", "tuple"])
+@pytest.mark.parametrize("shape", ["empty", "fork", "row_order", "loops", "isolated_edges", "churn"])
+def test_native_line_graph_public_consumes_real_kernel(cls, label, shape, monkeypatch):
+    graph, oracle = _native_line_graph_twins(cls, label, shape)
+    calls = []
+    raw = fnx._fnx.line_graph_fast
+
+    def observed_raw(value):
+        result = raw(value)
+        calls.append((value, result))
+        return result
+
+    monkeypatch.setattr(fnx._fnx, "line_graph_fast", observed_raw)
+    result = fnx.line_graph(graph)
+    assert _ordered_line_graph_contract(result) == _ordered_line_graph_contract(nx.line_graph(oracle))
+    assert len(calls) == 1
+    assert calls[0][0] is graph
+    assert result is calls[0][1], "Eligible public line_graph must return the real native result"
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("case", ["private", "view", "create_using", "alias"])
+def test_native_line_graph_unsupported_inputs_keep_python_route(cls, case, monkeypatch):
+    graphs = [getattr(module, cls)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(range(4))
+        if case == "alias":
+            graph.add_edges_from([(0.0, 2.0), (2.0, 3.0)])
+        else:
+            graph.add_edges_from([(0, 1), (1, 3)])
+        if case == "private":
+            attrs = {0: {}} if graph.is_multigraph() else {}
+            rows = {0: {2: attrs}, 1: {}, 2: {3: attrs}, 3: {}}
+            if graph.is_directed():
+                graph._succ = rows
+                graph._pred = {0: {}, 1: {}, 2: {0: attrs}, 3: {2: attrs}}
+            else:
+                rows[2][0] = attrs
+                rows[3][2] = attrs
+            graph._adj = rows
+    if case == "view":
+        graphs = [graph.subgraph([0, 1, 3]) for graph in graphs]
+    kwargs = [{}, {}]
+    if case == "create_using":
+        kwargs = [{"create_using": module.Graph([(7, 8)])} for module in (fnx, nx)]
+    calls = []
+    raw = fnx._fnx.line_graph_fast
+
+    def observed_raw(value):
+        result = raw(value)
+        calls.append((value, result))
+        return result
+
+    monkeypatch.setattr(fnx._fnx, "line_graph_fast", observed_raw)
+    result = fnx.line_graph(graphs[0], **kwargs[0])
+    expected = nx.line_graph(graphs[1], **kwargs[1])
+    assert _ordered_line_graph_contract(result) == _ordered_line_graph_contract(expected)
+    if case == "alias" and cls in ("Graph", "DiGraph"):
+        assert calls == [(graphs[0], None)], "Display-key overrides must decline native construction"
+    else:
+        assert calls == []
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("source_mode", ["strict", "hardened"])
+@pytest.mark.parametrize("active_mode", ["strict", "hardened"])
+def test_native_line_graph_uses_fresh_active_mode(cls, source_mode, active_mode):
+    previous = fnx.get_compatibility_mode()
+    try:
+        fnx.set_compatibility_mode(source_mode)
+        graph = getattr(fnx, cls)([(0, 1), (1, 2)])
+        assert graph.compatibility_mode == source_mode
+        fnx.set_compatibility_mode(active_mode)
+        result = fnx.line_graph(graph)
+        assert result.compatibility_mode == getattr(fnx, cls)().compatibility_mode
+        assert result.compatibility_mode == active_mode
+        assert _ordered_line_graph_contract(result) == _ordered_line_graph_contract(
+            nx.line_graph(getattr(nx, cls)([(0, 1), (1, 2)]))
+        )
+    finally:
+        fnx.set_compatibility_mode(previous)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("first,alias", [
+    (("v", 0), ("v", 0.0)),
+    (((True, 2), "v"), ((1.0, 2.0), "v")),
+    (((-(2**63),), "v"), ((-float(2**63),), "v")),
+    (((0, (2, 3)),), ((0.0, (2.0, 3.0)),)),
+    (("v", 2**53), ("v", float(2**53))),
+    (("v", 2**64), ("v", float(2**64))),
+    (("v", 1.5), ("v", 1.5)),
+])
+def test_native_line_graph_tuple_alias_prerequisite(cls, first, alias):
+    assert first == alias and hash(first) == hash(alias)
+    graphs = [getattr(module, cls)() for module in (fnx, nx)]
+    target, later = ("target", 4), ("later", 5)
+    for graph in graphs:
+        graph.add_edge(first, target, weight=7)
+    # Query the equal alternate spelling COLD, before any row has been cached.
+    assert list(graphs[0][alias]) == list(graphs[1][alias])
+    assert graphs[0].get_edge_data(alias, target) == graphs[1].get_edge_data(alias, target)
+    for graph in graphs:
+        graph.add_node(alias)
+        graph.add_edge(alias, later, weight=9)
+    assert list(graphs[0]) == list(graphs[1])
+    assert len(graphs[0]) == len(graphs[1]) == 3
+    assert list(graphs[0][first]) == list(graphs[1][first])
+    assert list(graphs[0][alias]) == list(graphs[1][alias])
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_native_line_graph_tuple_boundary_does_not_round_large_int(cls):
+    first, rounded = ("v", 2**63 - 1), ("v", float(2**63 - 1))
+    assert first != rounded
+    graphs = [getattr(module, cls)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from([first, rounded])
+        graph.add_edge(first, ("target", 4))
+    assert list(graphs[0]) == list(graphs[1])
+    assert len(graphs[0]) == len(graphs[1]) == 3
+    assert list(graphs[0][rounded]) == list(graphs[1][rounded]) == []
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("first,alias", [
+    (("key", 0), ("key", 0.0)),
+    (((True, 2),), ((1.0, 2.0),)),
+    (("key", 2**64), ("key", float(2**64))),
+])
+def test_native_line_graph_tuple_alias_edge_keys(cls, first, alias):
+    graphs = [getattr(module, cls)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_edge("a", "b", key=first, weight=7)
+        graph.add_edge("a", "b", key=alias, weight=9)
+    assert graphs[0].number_of_edges() == graphs[1].number_of_edges() == 1
+    assert graphs[0].get_edge_data("a", "b", alias) == graphs[1].get_edge_data("a", "b", alias)
+    assert list(graphs[0].edges(keys=True, data=True)) == list(graphs[1].edges(keys=True, data=True))
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_native_line_graph_tuple_mirror_preserves_unchanged_repr_on_power(nested):
+    class DisplayTuple(tuple):
+        def __repr__(self):
+            return "<display-tuple>"
+
+    key = DisplayTuple((1.5,))
+    if nested:
+        key = (key,)
+    graphs = [module.Graph([(key, "target")]) for module in (fnx, nx)]
+    expected = nx.power(graphs[1], 1)
+    raw = fnx._fnx.power_rust(graphs[0], 1)
+    assert list(raw) == list(expected)
+    assert list(raw.edges()) == list(expected.edges())
+    assert list(raw)[0] is key
+    result = fnx.power(graphs[0], 1)
+    assert list(result) == list(expected)
+    assert list(result.edges()) == list(expected.edges())
+    assert list(result)[0] is key
+
+
+def test_native_line_graph_shared_power_keeps_canonical_looking_labels_distinct():
+    nodes = [0, "0", "str:1:0", "target"]
+    graphs = [module.Graph() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(zip(nodes, nodes[1:]))
+    expected = nx.power(graphs[1], 1)
+    raw = fnx._fnx.power_rust(graphs[0], 1)
+    assert [(node, type(node)) for node in raw] == [(node, type(node)) for node in expected]
+    assert list(raw.edges()) == list(expected.edges())
+    result = fnx.power(graphs[0], 1)
+    assert [(node, type(node)) for node in result] == [(node, type(node)) for node in expected]
+    assert list(result.edges()) == list(expected.edges())

@@ -1,10 +1,9 @@
-"""Conformance scaffold for k-sampled betweenness_centrality parity.
+"""Conformance for native full and k-sampled betweenness centrality.
 
-Full (k=None) betweenness routes to the native parallel Brandes kernel (~290x vs
-nx). k-sampled betweenness currently DELEGATES to nx (the kernel rejects k) — a
-profiled ~1.12x gap (br-r37-c1 k-sampled-betweenness lever). This locks the
-sampled-estimator parity (same sources via seed, same rescaling) so that when the
-native k-sampled kernel lands, it is validated byte-for-byte against nx.
+Checks source sampling, rescaling, float association and RNG consumption
+against the actual installed oracle. Node rescaling changes in NetworkX 3.5;
+edge rescaling changes in 3.6. Admitted plain-weight and unweighted kernels stay
+native; weights with custom or inexact integer arithmetic retain the oracle.
 
 No mocks: real fnx vs real networkx 3.x.
 """
@@ -12,6 +11,7 @@ No mocks: real fnx vs real networkx 3.x.
 from __future__ import annotations
 
 import random
+import re
 
 import pytest
 import networkx as nx
@@ -140,8 +140,8 @@ def test_k_sampled_betweenness_uses_native_route(monkeypatch):
 @pytest.mark.parametrize("seed", [1, 7, 42])
 @pytest.mark.parametrize("k", [5, 10])
 def test_k_sampled_edge_betweenness_matches_nx(seed, k):
-    # Same gap + same planned native k-sampling fix (br-r37-c1-8ox3z sibling):
-    # edge_betweenness_centrality k-sampling also delegates to nx (~0.89x).
+    # Both implementations draw the same sources; edge rescaling must match
+    # the actual oracle even where it differs from the node estimator.
     fg, ng, n = _g(seed, 25)
     fr = fnx.edge_betweenness_centrality(fg, k=k, seed=seed)
     nr = nx.edge_betweenness_centrality(ng, k=k, seed=seed)
@@ -176,18 +176,17 @@ def test_k_sampled_edge_betweenness_uses_native_route(monkeypatch, normalized):
 @pytest.mark.parametrize("directed", [False, True])
 @pytest.mark.parametrize("endpoints", [False, True])
 @pytest.mark.parametrize("normalized", [True, False])
-def test_k_zero_raises_zero_division_like_networkx(directed, endpoints, normalized):
-    # nro4w.7: networkx's _rescale divides by the sample size; the native
-    # sampled rescale's float 0/0 returned NaN for every node instead.
+def test_k_zero_matches_installed_networkx(directed, endpoints, normalized):
+    # Modern networkx divides by zero. Before 3.5, an unnormalized directed
+    # call has no rescale and returns zeros instead. Compare exact outcomes;
+    # a test pinned to the modern exception rejects the real older oracle.
     create = fnx.DiGraph if directed else None
     G = fnx.cycle_graph(4, create_using=create)
-    with pytest.raises(ZeroDivisionError):
-        nx.betweenness_centrality(
-            nx.cycle_graph(4, create_using=nx.DiGraph if directed else None),
-            k=0, endpoints=endpoints, normalized=normalized,
-        )
-    with pytest.raises(ZeroDivisionError):
-        fnx.betweenness_centrality(G, k=0, endpoints=endpoints, normalized=normalized)
+    H = nx.cycle_graph(4, create_using=nx.DiGraph if directed else None)
+    kwargs = {"k": 0, "endpoints": endpoints, "normalized": normalized}
+    assert _centrality_outcome(fnx.betweenness_centrality, G, **kwargs) == (
+        _centrality_outcome(nx.betweenness_centrality, H, **kwargs)
+    ), nx.__version__
 
 
 @pytest.mark.parametrize("endpoints", [False, True])
@@ -368,10 +367,152 @@ def test_edge_betweenness_sampled_advances_a_random_instance_as_networkx_does():
     assert mine.getstate() == theirs.getstate()
 
 
-def test_edge_betweenness_empty_sample_raises_as_networkx_does():
+def test_edge_betweenness_empty_sample_matches_installed_networkx():
     fg, ng = _weighted_twins(10, directed=False)
-    with pytest.raises(ZeroDivisionError) as expected:
-        nx.edge_betweenness_centrality(ng, k=0, seed=1)
-    with pytest.raises(ZeroDivisionError) as actual:
-        fnx.edge_betweenness_centrality(fg, k=0, seed=1)
-    assert str(actual.value) == str(expected.value)
+    # Before 3.6, the edge caller does not pass k to its rescaler and returns
+    # zero scores; the shared modern rescaler raises. Keep exact messages
+    # and zero scores gated by the actual installed implementation.
+    assert _centrality_outcome(fnx.edge_betweenness_centrality, fg, k=0, seed=1) == (
+        _centrality_outcome(nx.edge_betweenness_centrality, ng, k=0, seed=1)
+    ), nx.__version__
+
+
+def _centrality_outcome(function, graph, **kwargs):
+    """Exact ordered return types/float bits, or exact exception class/message."""
+    try:
+        result = function(graph, **kwargs)
+    except Exception as exc:
+        return ("error", type(exc).__name__, str(exc))
+    return ("return", type(result).__name__, [
+        (key, type(value).__name__, value.hex() if type(value) is float else repr(value))
+        for key, value in result.items()
+    ])
+
+
+class _CentralityAddSevenInt(int):
+    def __radd__(self, other):
+        return other + int(self) + 7
+
+
+class _CentralityAddSevenFloat(float):
+    def __radd__(self, other):
+        return other + float(self) + 7
+
+
+@pytest.mark.parametrize("family", [
+    "plain", "custom-int", "custom-float", "fraction", "decimal", "wide-int", "nan",
+])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("k", [None, 0, 1, 2, 4, 4.0])
+@pytest.mark.parametrize("normalized", [False, True])
+@pytest.mark.parametrize("algorithm,endpoints", [
+    ("betweenness_centrality", False), ("betweenness_centrality", True),
+    ("edge_betweenness_centrality", False),
+], ids=["node", "node-endpoints", "edge"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_native_weight_ingress_preserves_exact_oracle(
+    family, directed, k, normalized, algorithm, endpoints, mode, python_port_calls
+):
+    """The shared exactness gate must protect both centrality entry points."""
+    from decimal import Decimal
+    from fractions import Fraction
+
+    if family == "fraction":
+        weights = [Fraction(1, 10), Fraction(2, 10), Fraction(3, 10)]
+    elif family == "decimal":
+        weights = [Decimal("0.1"), Decimal("0.2"), Decimal("0.3")]
+    elif family == "wide-int":
+        weights = [2**54 + 1, 1, 2**54 + 1]
+    else:
+        first = {
+            "plain": 1,
+            "custom-int": _CentralityAddSevenInt(1),
+            "custom-float": _CentralityAddSevenFloat(1.0),
+            "nan": float("nan"),
+        }[family]
+        weights = [first, 1, 5]
+    cls = "DiGraph" if directed else "Graph"
+    graphs = [getattr(lib, cls)() for lib in (fnx, nx)]
+    for graph in graphs:
+        graph.add_weighted_edges_from([
+            (0, 1, weights[0]), (1, 2, weights[1]), (0, 2, weights[2]), (2, 3, 1),
+        ])
+    mine, theirs = random.Random(17), random.Random(17)
+    kwargs = {"k": k, "normalized": normalized, "weight": "weight"}
+    if algorithm == "betweenness_centrality":
+        kwargs["endpoints"] = endpoints
+    with fnx.compatibility_mode(mode):
+        got = _centrality_outcome(getattr(fnx, algorithm), graphs[0], seed=mine, **kwargs)
+    want = _centrality_outcome(getattr(nx, algorithm), graphs[1], seed=theirs, **kwargs)
+    context = (nx.__version__, family, cls, kwargs, mode)
+    assert got == want, (context, got, want)
+    assert mine.getstate() == theirs.getstate(), context
+    expected_route = [] if family == "plain" else [f"_{algorithm}_inproc"]
+    assert python_port_calls == expected_route, (context, python_port_calls)
+
+
+@pytest.mark.parametrize("n,k", [
+    (0, None), (0, 0), (0, 1), (1, None), (1, 0), (1, 1),
+    (2, 0), (2, 1), (2, 2), (7, None), (7, 0), (7, 1),
+    (7, 2), (7, 7), (7, 7.0), (520, 2),
+])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("normalized", [False, True])
+@pytest.mark.parametrize("algorithm,endpoints", [
+    ("betweenness_centrality", False), ("betweenness_centrality", True),
+    ("edge_betweenness_centrality", False),
+], ids=["node", "node-endpoints", "edge"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_actual_oracle_sampled_policy_exact(
+    n, k, directed, weight, normalized, algorithm, endpoints, mode, python_port_calls
+):
+    """hhj5p.6: keep both version policies native, including full-k draws."""
+    cls = "DiGraph" if directed else "Graph"
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, cls)()
+        graph.add_nodes_from(range(n))
+        if n >= 2:
+            graph.add_edges_from((i, (i + 1) % n, {"weight": 1.5}) for i in range(n))
+        if n == 7:
+            graph.add_edge(0, 3, weight=2)
+        graphs.append(graph)
+    mine, theirs = random.Random(17), random.Random(17)
+    kwargs = {"k": k, "normalized": normalized, "weight": weight}
+    if algorithm == "betweenness_centrality":
+        kwargs["endpoints"] = endpoints
+    with fnx.compatibility_mode(mode):
+        got = _centrality_outcome(getattr(fnx, algorithm), graphs[0], seed=mine, **kwargs)
+    want = _centrality_outcome(getattr(nx, algorithm), graphs[1], seed=theirs, **kwargs)
+    context = (nx.__version__, cls, n, kwargs, mode)
+    assert got == want, (context, got, want)
+    assert mine.getstate() == theirs.getstate(), context
+    assert python_port_calls == [], context
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_wrong_native_sampled_policy_is_detected(directed, weight):
+    """An actual native call with the wrong rescale must disagree with nx."""
+    from franken_networkx import _fnx
+
+    cls = "DiGraph" if directed else "Graph"
+    fg, ng = getattr(fnx, cls)(), getattr(nx, cls)()
+    for graph in (fg, ng):
+        graph.add_edges_from((i, (i + 1) % 7, {"weight": 1.5}) for i in range(7))
+    sources = random.Random(17).sample(list(ng), 2)
+    release = tuple(map(int, re.match(r"^(\d+)\.(\d+)", nx.__version__).groups()))
+    source_aware = release >= (3, 5)
+    want = _centrality_outcome(nx.betweenness_centrality, ng, k=2, seed=17, weight=weight)
+    correct = _centrality_outcome(
+        _fnx.betweenness_centrality_sampled_rust, fg, sources=sources,
+        weight=weight, source_aware=source_aware,
+    )
+    wrong = _centrality_outcome(
+        _fnx.betweenness_centrality_sampled_rust, fg, sources=sources,
+        weight=weight, source_aware=not source_aware,
+    )
+    assert correct == want, (nx.__version__, correct, want)
+    assert wrong[0] == "return", wrong  # An API error is not a semantic negative.
+    assert wrong != want, (nx.__version__, wrong, want)

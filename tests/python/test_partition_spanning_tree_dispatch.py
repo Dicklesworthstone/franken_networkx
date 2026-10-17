@@ -3,6 +3,8 @@ non-simple-undirected graph classes."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import franken_networkx as fnx
@@ -52,3 +54,37 @@ def test_partition_spanning_tree_simple_undirected_still_works():
     nr = nx.partition_spanning_tree(ng)
     # Compare as edge sets (sort tuples for deterministic compare).
     assert sorted(tuple(sorted(e)) for e in fr.edges()) == sorted(tuple(sorted(e)) for e in nr.edges())
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [False, True])
+@pytest.mark.parametrize("first_negative", [False, True])
+def test_partition_spanning_tree_signed_zero_keeps_live_oracle_order(minimum, first_negative):
+    """Python compares signed zeros as equal before the insertion-order tie."""
+    graphs = [fnx.Graph(), nx.Graph()]
+    for graph in graphs:
+        graph.add_nodes_from(range(4))
+        graph.add_weighted_edges_from([
+            (0, 2, -0.0 if first_negative else 0.0),
+            (0, 1, 0.0 if first_negative else -0.0),
+            (2, 3, 0.0),
+            (1, 3, 0.0),
+        ])
+    actual = fnx.partition_spanning_tree(graphs[0], minimum=minimum)
+    expected = nx.partition_spanning_tree(graphs[1], minimum=minimum)
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    # JSON preserves both edge order and the original signed attributes.
+    assert json.dumps(list(actual.edges(data=True))) == json.dumps(list(expected.edges(data=True)))
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [False, True])
+@pytest.mark.parametrize("infinity", [float("inf"), -float("inf")])
+def test_partition_spanning_tree_infinite_weight_keeps_live_oracle_choice(minimum, infinity):
+    graphs = [fnx.Graph(), nx.Graph()]
+    for graph in graphs:
+        graph.add_weighted_edges_from([(0, 1, infinity), (1, 2, 2.0), (0, 2, 3.0)])
+    actual = fnx.partition_spanning_tree(graphs[0], minimum=minimum)
+    expected = nx.partition_spanning_tree(graphs[1], minimum=minimum)
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    assert json.dumps(list(actual.edges(data=True))) == json.dumps(list(expected.edges(data=True)))

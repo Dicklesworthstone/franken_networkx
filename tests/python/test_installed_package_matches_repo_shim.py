@@ -37,6 +37,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import site
 import stat
 import subprocess
@@ -53,8 +54,8 @@ REPO_PKG = REPO_ROOT / "python" / "franken_networkx"
 
 _REBUILD_HINT = (
     "Refresh the installed copy so out-of-pytest timings measure the working "
-    "tree (for example: rch exec -- maturin develop --features pyo3/abi3-py310), "
-    "or delete the installed copy so imports fall through to the checkout."
+    "tree: use the DSR-built candidate wheel in a fresh, explicitly selected "
+    "environment and verify its binding before benchmarking."
 )
 
 
@@ -542,3 +543,166 @@ def test_dsr_loaded_verifier_refuses_a_different_selected_interpreter_before_imp
     with pytest.raises(ValueError, match="interpreter/venv mismatch"):
         release_recipe.verify_loaded_candidate(artifact_binding, python, prefix,
                                                 artifact_binding["artifacts"][0]["path"], "3.6.1")
+
+
+@pytest.fixture
+def dsr_durability_binary():
+    configured = os.environ.get("FNX_DURABILITY_BIN")
+    if not configured:
+        pytest.skip("this integration needs the native CLI built by DSR")
+    return Path(configured).resolve(strict=True)
+
+
+@pytest.fixture
+def native_release_evidence(release_recipe, tmp_path, dsr_durability_binary):
+    """Real DSR-built CLI; deliberately small unit payloads, not release data."""
+    binary = dsr_durability_binary
+    root = tmp_path / "inputs"
+    root.mkdir()
+    (root / "Cargo.toml").write_text("[workspace.package]\nversion = '1.2.3'\n")
+    classes = ["conformance_fixtures", "benchmark_baselines", "migration_manifests",
+               "reproducibility_ledgers", "long_lived_snapshots"]
+    members = []
+    originals = {}
+    for index, evidence_class in enumerate(classes):
+        path = root / f"payload-{index}.bin"
+        payload = (f"unit fixture for {evidence_class}\n" * (index + 1)).encode()
+        path.write_bytes(payload)
+        originals[path] = payload
+        sidecar = root / f"hash-{index}.json"
+        subprocess.run([str(binary), "generate", str(path), str(sidecar), "unit-input", evidence_class, "128", "6"],
+                       check=True, timeout=30)
+        generated = json.loads(sidecar.read_bytes())
+        members.append({"class": evidence_class, "path": path.name, "source_hash": generated["source_hash"]})
+    manifest = root / "input-manifest.json"
+    manifest.write_text(json.dumps({"schema": "fnx-release-evidence-input-v1", "members": members}))
+    candidate = {"inputs": {"configs": {str(manifest): _sha256(manifest)}}, "unit_fixture_only": True}
+    output = tmp_path / "output"
+    output.mkdir()
+    return root, manifest, candidate, binary, output, originals
+
+
+@pytest.mark.parametrize("invalid", ["zero_mtu", "nonnumeric_mtu", "nonnumeric_repair", "missing_bundle_arguments"])
+def test_dsr_release_evidence_cli_rejects_invalid_arguments(dsr_durability_binary, tmp_path, invalid):
+    source, sidecar = tmp_path / "source.bin", tmp_path / "sidecar.json"
+    source.write_bytes(b"CLI argument fixture")
+    args = ["generate", str(source), str(sidecar), "id", "fixture", "128", "6"]
+    if invalid == "zero_mtu":
+        args[-2] = "0"
+    elif invalid == "nonnumeric_mtu":
+        args[-2] = "not-a-number"
+    elif invalid == "nonnumeric_repair":
+        args[-1] = "not-a-number"
+    else:
+        args = ["release-bundle"]
+    result = subprocess.run([str(dsr_durability_binary), *args], check=False, capture_output=True, timeout=30)
+    assert result.returncode != 0 and result.stderr
+    assert not sidecar.exists()
+
+
+def test_dsr_release_evidence_required_inventory_fails_before_compilation(release_recipe, tmp_path):
+    env = os.environ.copy()
+    if not env.get("DSR_RUN_ID"):
+        pytest.skip("recipe entry-point checks run under DSR")
+    env.update(CARGO_BUILD_TARGET="x86_64-unknown-linux-gnu", FNX_DSR_REQUIRE_EVIDENCE="1")
+    env.pop("FNX_DSR_EVIDENCE_MANIFEST", None)
+    env["CARGO_TARGET_DIR"] = str(tmp_path / "must-not-compile")
+    result = subprocess.run([sys.executable, str(REPO_ROOT / "scripts/dsr_release_wheels.py")],
+                            env=env, check=False, capture_output=True, timeout=30)
+    assert result.returncode != 0
+    assert b"requires FNX_DSR_EVIDENCE_MANIFEST" in result.stderr
+    assert not (tmp_path / "must-not-compile").exists()
+
+
+def test_dsr_release_evidence_scrub_recovers_after_source_packet_erasure(dsr_durability_binary, tmp_path):
+    source, sidecar = tmp_path / "source.bin", tmp_path / "sidecar.json"
+    original = bytes(range(251)) * 3
+    source.write_bytes(original)
+    subprocess.run([str(dsr_durability_binary), "generate", str(source), str(sidecar), "loss", "unit", "128", "6"],
+                   check=True, timeout=30)
+    envelope = json.loads(sidecar.read_bytes())
+    envelope["raptorq"]["packets_b64"].pop(0)
+    envelope["raptorq"]["symbol_hashes"].pop(0)
+    sidecar.write_text(json.dumps(envelope))
+    source.write_bytes(b"damaged source fixture")
+    subprocess.run([str(dsr_durability_binary), "scrub", str(source), str(sidecar)], check=True, timeout=30)
+    assert source.read_bytes() == original
+    proof = json.loads(sidecar.read_bytes())["decode_proofs"][-1]
+    assert proof["recovered_blocks"] == 1
+
+
+def test_dsr_release_evidence_packages_actual_payloads_and_runs_fresh_decoder(release_recipe, native_release_evidence):
+    root, manifest, candidate, binary, output, originals = native_release_evidence
+    record = release_recipe.package_release_evidence(root, manifest, output, candidate, binary)
+    assert record["kind"] == "release_evidence" and record["member_count"] == 5
+    assert record["input_manifest_sha256"] == _sha256(manifest)
+    assert record["durability_binary_sha256"] == _sha256(binary)
+    with tarfile.open(record["path"], "r:gz") as archive:
+        for index, payload in enumerate(originals.values()):
+            assert release_recipe._tar_regular_bytes(archive, f"evidence/{index:05}/payload.bin") == payload
+            assert release_recipe._tar_regular_bytes(archive, f"evidence/{index:05}/recovered.bin") == payload
+            proof = json.loads(release_recipe._tar_regular_bytes(archive, f"evidence/{index:05}/payload.raptorq.json"))
+            assert proof["decode_proofs"][-1]["dropped_source_packets"]
+    assert all(path.read_bytes() == payload for path, payload in originals.items())
+    checked = release_recipe.verify_release_evidence_archive(
+        record["path"], record["candidate_id"], record["sha256"], output / "independent-verification", binary)
+    assert checked["member_count"] == 5
+    with pytest.raises(FileExistsError):
+        release_recipe.verify_release_evidence_archive(
+            record["path"], record["candidate_id"], record["sha256"], output / "independent-verification", binary)
+
+
+@pytest.mark.parametrize("defect", ["stale_source", "wrong_candidate", "wrong_archive_hash", "unbound_manifest"])
+def test_dsr_release_evidence_rejects_changed_inputs_or_identity(release_recipe, native_release_evidence, defect):
+    root, manifest, candidate, binary, output, originals = native_release_evidence
+    if defect == "unbound_manifest":
+        candidate["inputs"]["configs"].clear()
+        with pytest.raises(ValueError, match="frozen before"):
+            release_recipe.package_release_evidence(root, manifest, output, candidate, binary)
+        return
+    if defect == "stale_source":
+        next(iter(originals)).write_bytes(b"changed after the input inventory was frozen")
+        with pytest.raises(subprocess.CalledProcessError):
+            release_recipe.package_release_evidence(root, manifest, output, candidate, binary)
+        assert not (output / "release-evidence/bundle.json").exists()
+        return
+    record = release_recipe.package_release_evidence(root, manifest, output, candidate, binary)
+    identity = "b" * 64 if defect == "wrong_candidate" else record["candidate_id"]
+    digest = "0" * 64 if defect == "wrong_archive_hash" else record["sha256"]
+    rejected = output / "rejected-verification"
+    with pytest.raises(ValueError, match="different candidate|hash mismatch"):
+        release_recipe.verify_release_evidence_archive(record["path"], identity, digest, rejected, binary)
+    assert not rejected.exists()
+
+
+@pytest.mark.parametrize("defect", ["tampered_recovery", "tampered_verifier", "linked_member", "duplicate", "unexpected_member", "missing_scrub"])
+def test_dsr_release_evidence_rejects_corrupt_or_ambiguous_archive(release_recipe, native_release_evidence, defect):
+    root, manifest, candidate, binary, output, _originals = native_release_evidence
+    record = release_recipe.package_release_evidence(root, manifest, output, candidate, binary)
+    corrupt = output / "corrupt.tar.gz"
+    with tarfile.open(record["path"], "r:gz") as original, tarfile.open(corrupt, "x:gz") as changed:
+        for member in original.getmembers():
+            if defect == "missing_scrub" and member.name == "evidence/00000/scrub.json":
+                continue
+            content = release_recipe._tar_regular_bytes(original, member.name)
+            if defect == "tampered_verifier" and member.name == "evidence/fnx-durability":
+                content = b"untrusted archive executable must never be run"
+            if member.name == "evidence/00000/recovered.bin":
+                if defect == "tampered_recovery":
+                    content = b"not the original payload"
+                elif defect == "linked_member":
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = "/outside"
+                    changed.addfile(member)
+                    continue
+            member.size = len(content)
+            changed.addfile(member, io.BytesIO(content))
+            if defect == "duplicate" and member.name == "evidence/input-manifest.json":
+                changed.addfile(member, io.BytesIO(content))
+        if defect == "unexpected_member":
+            extra = tarfile.TarInfo("evidence/unexpected.bin")
+            extra.size = 1
+            changed.addfile(extra, io.BytesIO(b"x"))
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        release_recipe.verify_release_evidence_archive(
+            corrupt, record["candidate_id"], _sha256(corrupt), output / "corrupt-verification", binary)

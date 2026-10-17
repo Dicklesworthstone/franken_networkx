@@ -873,10 +873,16 @@ def _twin_call(fn, graph):
 
 
 _TWIN_CASES = [(cls, recipe) for cls in _TWIN_CLASSES for recipe in _TWIN_RECIPES]
+# Every allowlisted provenance divergence must cite a bead/ledger identifier (currently 0 divergences on main).
+_TWIN_KNOWN_DIVERGENCE_ALLOWLIST: dict[tuple[str, str], str] = {}
 
 
 @pytest.mark.parametrize("cls, recipe", _TWIN_CASES)
 def test_materialised_twin_agrees(cls, recipe):
+    assert all(
+        isinstance(ledger_id, str) and ledger_id.startswith("br-")
+        for ledger_id in _TWIN_KNOWN_DIVERGENCE_ALLOWLIST.values()
+    )
     build = _TWIN_RECIPES[recipe]
     if build(cls, _PROVENANCE_RING) is None:
         pytest.skip(f"{recipe} does not apply to {cls}")
@@ -889,6 +895,8 @@ def test_materialised_twin_agrees(cls, recipe):
         if recipe == "karate" and label == "negative":
             continue  # the recipe ignores the edge set
         for name in names:
+            if (cls, name) in _TWIN_KNOWN_DIVERGENCE_ALLOWLIST:
+                continue
             fn = subjects[name]
             ref = _twin_call(fn, _twin_materialise(build(cls, edges)))
             if ref is None or ref == "timeout":
@@ -900,6 +908,44 @@ def test_materialised_twin_agrees(cls, recipe):
                 if got not in (ref, "timeout"):
                     failures.append(f"{label} {name} [{touch}]: materialised {ref!r:.120} got {got!r:.120}")
     assert not failures, f"{len(failures)} provenance differences:\n" + "\n".join(failures[:25])
+
+
+def test_materialised_twin_runner_catches_planted_mirror_only_modularity_bug():
+    """br-r37-c1-rc0923-epic-prevent-failure-classes-wvztf.1 negative case:
+    Simulate the pre-fix mirror-only modularity bug (where an untouched generator
+    graph with 0 materialised edge_py_attrs fell back to unweighted modularity
+    0.3905 while a walked twin computed weighted modularity 0.4266) and verify
+    the twin harness catches the divergence.
+    """
+    import gc as _gc
+
+    gnx = nx.karate_club_graph()
+    comms = [set(c) for c in nx.community.louvain_communities(gnx, seed=7)]
+
+    def buggy_mirror_only_modularity(G):
+        materialised_weight_dicts = sum(
+            1
+            for ref_obj in _gc.get_referents(G)
+            if isinstance(ref_obj, dict) and "weight" in ref_obj
+        )
+        weight_arg = (
+            "weight"
+            if materialised_weight_dicts >= G.number_of_edges()
+            else None
+        )
+        return fnx.community.modularity(G, comms, weight=weight_arg)
+
+    build = _TWIN_RECIPES["karate"]
+    ref = _twin_call(buggy_mirror_only_modularity, _twin_materialise(build("Graph", _PROVENANCE_RING)))
+    untouched = _twin_call(buggy_mirror_only_modularity, _TWIN_TOUCHES["none"](build("Graph", _PROVENANCE_RING)))
+    read_one = _twin_call(buggy_mirror_only_modularity, _TWIN_TOUCHES["read_one"](build("Graph", _PROVENANCE_RING)))
+
+    assert ref == ("ok", 0.426622)
+    assert untouched == ("ok", 0.39045)
+    assert read_one == ("ok", 0.39045)
+    assert untouched != ref
+    assert read_one != ref
+
 
 
 # br-r37-c1-6hyf1: the native store keeps each attribute dict's key order, so a
