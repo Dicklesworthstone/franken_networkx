@@ -231,3 +231,54 @@ def test_a_declined_pagerank_does_not_convert_through_its_nested_dispatch():
         assert not g.__networkx_cache__.get("backends", {}).get("franken_networkx")
     finally:
         nx.config.backend_priority.algos = saved
+
+
+def test_backend_convert_from_nx_e2e_jsonl_emission():
+    import hashlib
+    import json
+    import time
+    from datetime import datetime, timezone
+    from pathlib import Path
+    import franken_networkx._fnx as _fnx_ext
+
+    repo_root = Path(__file__).resolve().parents[2]
+    out_path = repo_root / "artifacts" / "conformance" / "latest" / "backend_convert_from_nx_e2e.jsonl"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    so_sha256 = hashlib.sha256(Path(_fnx_ext.__file__).read_bytes()).hexdigest()
+
+    records = []
+    for cls in CLASSES:
+        g = _churned(cls, 19)
+        full_ref = _from_nx_graph(g)
+        input_sha256 = hashlib.sha256(repr(_shape(g)).encode("utf-8")).hexdigest()
+        t0 = time.perf_counter()
+        conv = BackendInterface.convert_from_nx(g, edge_attrs={"weight": 1})
+        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 4)
+        exp_adj = _shape(full_ref)[3]
+        act_adj = _shape(conv)[3]
+        weights_ok = all(set(d) == {"weight"} for *_, d in conv.edges(data=True))
+        passed = (exp_adj == act_adj) and weights_ok
+        assert passed, f"Conversion mismatch on {cls}"
+        records.append(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "case_id": f"convert_from_nx_hinted_{cls}",
+                "input_sha256": input_sha256,
+                "fnx_version": getattr(fnx, "__version__", "0.2.3"),
+                "nx_version": nx.__version__,
+                "so_sha256": so_sha256,
+                "graph_class": cls,
+                "construction_path": "BackendInterface.convert_from_nx(edge_attrs={'weight': 1})",
+                "expected": len(exp_adj),
+                "actual": len(act_adj),
+                "pass": passed,
+                "duration_ms": elapsed_ms,
+            }
+        )
+
+    out_path.write_text(
+        "\n".join(json.dumps(r, sort_keys=True) for r in records) + "\n",
+        encoding="utf-8",
+    )
+    assert len(records) == 4
+

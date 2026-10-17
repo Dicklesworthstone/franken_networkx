@@ -75,9 +75,14 @@ def get_counterexample(G, *, backend=None, **backend_kwargs):
 def get_counterexample_recursive(G, *, backend=None, **backend_kwargs):
     """Recursive version of get_counterexample.
 
-    Wraps ``networkx.algorithms.planarity.get_counterexample_recursive`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Uses native Kuratowski subgraph extraction when G is an fnx Graph,
+    falling back to networkx for other types.
     """
     _fnx._validate_backend_dispatch_keywords("get_counterexample_recursive", backend, backend_kwargs)
+    if isinstance(G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)):
+        cex = _native_fnx.kuratowski_subgraph(G)
+        if cex is None:
+            raise _fnx.NetworkXException("G is planar - no counter example.")
+        return cex
     nx_result = _nx_planarity.get_counterexample_recursive(G)
     return _from_nx_graph(nx_result)

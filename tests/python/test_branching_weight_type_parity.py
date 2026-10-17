@@ -182,3 +182,131 @@ def test_minimum_spanning_arborescence_weight_round_trip_example():
     assert list(A.edges(data=True)) == list(B.edges(data=True))
     assert list(G.edges(data=True)) == list(H.edges(data=True))
     assert list(G.edges(data=True)) != edges  # networkx's own drift, kept
+
+
+@pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+def test_sfq4w4_native_default_routes_e2e_jsonl():
+    """br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.4: verify 0 networkx
+    frames and exact parity on maximum_branching, minimum_branching,
+    maximum_spanning_arborescence, minimum_spanning_arborescence, and
+    k_components (including non-closed-form Moody-White graphs), and emit
+    artifacts/conformance/latest/always_networkx_native_routes_e2e.jsonl.
+    """
+    import hashlib
+    import json
+    import random
+    import sys
+    import time
+    from pathlib import Path
+
+    so_sha256 = hashlib.sha256(
+        Path(fnx._fnx.__file__).read_bytes()
+    ).hexdigest()
+    records = []
+
+    def run_with_frame_census(fn):
+        nx_frames = []
+
+        def prof(frame, event, _arg):
+            if event == "call" and "/networkx/" in frame.f_code.co_filename:
+                nx_frames.append(frame.f_code.co_name)
+
+        t0 = time.perf_counter()
+        sys.setprofile(prof)
+        try:
+            res = fn()
+        finally:
+            sys.setprofile(None)
+        dt_ms = (time.perf_counter() - t0) * 1000.0
+        return res, nx_frames, dt_ms
+
+    for fn_name in (
+        "maximum_branching",
+        "minimum_branching",
+        "maximum_spanning_arborescence",
+        "minimum_spanning_arborescence",
+    ):
+        for cls_name in ("DiGraph", "MultiDiGraph"):
+            rng = random.Random(42)
+            n = 15
+            edges = [(i, (i + 1) % n, {"weight": 1 + (i * 3) % 11}) for i in range(n)]
+            for _ in range(30):
+                u, v = rng.randrange(n), rng.randrange(n)
+                if u != v:
+                    edges.append((u, v, {"weight": rng.choice([1, 2, 5, 9, -1])}))
+            fg = getattr(fnx, cls_name)()
+            ng = getattr(nx, cls_name)()
+            fg.add_nodes_from(range(n))
+            ng.add_nodes_from(range(n))
+            fg.add_edges_from(edges)
+            ng.add_edges_from(edges)
+            res_fnx, nx_frames, dt_ms = run_with_frame_census(
+                lambda: getattr(fnx, fn_name)(fg)
+            )
+            res_nx = getattr(nx, fn_name)(ng)
+            assert nx_frames == [], (fn_name, cls_name, nx_frames)
+            assert list(res_fnx.edges(data=True)) == list(res_nx.edges(data=True))
+            records.append(
+                {
+                    "ts": "2026-10-17T00:00:00Z",
+                    "case_id": f"{fn_name}_{cls_name}",
+                    "input_sha256": hashlib.sha256(repr(edges).encode()).hexdigest(),
+                    "fnx_version": fnx.__version__,
+                    "nx_version": nx.__version__,
+                    "so_sha256": so_sha256,
+                    "graph_class": cls_name,
+                    "construction_path": "add_edges_from",
+                    "expected": len(res_nx.edges()),
+                    "actual": len(res_fnx.edges()),
+                    "nx_frames": len(nx_frames),
+                    "pass": True,
+                    "duration_ms": round(dt_ms, 4),
+                }
+            )
+
+    # Non-closed-form Moody-White graphs for k_components
+    for seed in (3, 7, 12):
+        rng = random.Random(seed)
+        n = 11
+        edges = [(u, v) for u in range(n) for v in range(u + 1, n) if rng.random() < 0.45]
+        fg = fnx.Graph()
+        ng = nx.Graph()
+        fg.add_nodes_from(range(n))
+        ng.add_nodes_from(range(n))
+        fg.add_edges_from(edges)
+        ng.add_edges_from(edges)
+        res_fnx, nx_frames, dt_ms = run_with_frame_census(lambda: fnx.k_components(fg))
+        res_nx = nx.k_components(ng)
+        assert nx_frames == [], (seed, nx_frames)
+        assert res_fnx == res_nx
+        records.append(
+            {
+                "ts": "2026-10-17T00:00:00Z",
+                "case_id": f"k_components_Graph_seed_{seed}",
+                "input_sha256": hashlib.sha256(repr(edges).encode()).hexdigest(),
+                "fnx_version": fnx.__version__,
+                "nx_version": nx.__version__,
+                "so_sha256": so_sha256,
+                "graph_class": "Graph",
+                "construction_path": "add_edges_from",
+                "expected": sorted(res_nx.keys()),
+                "actual": sorted(res_fnx.keys()),
+                "nx_frames": len(nx_frames),
+                "pass": True,
+                "duration_ms": round(dt_ms, 4),
+            }
+        )
+
+    out_path = (
+        Path(__file__).resolve().parents[2]
+        / "artifacts"
+        / "conformance"
+        / "latest"
+        / "always_networkx_native_routes_e2e.jsonl"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        "\n".join(json.dumps(r, sort_keys=True) for r in records) + "\n",
+        encoding="utf-8",
+    )
+

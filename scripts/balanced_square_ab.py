@@ -3263,7 +3263,82 @@ def workload_bitpar_arms_grid_1600(reps: int):
     return build, ops
 
 
+def workload_matching_min_edge_cover(_reps: int):
+    """max_weight_matching, min_weight_matching, and min_edge_cover (br-r37-c1-rftzv)."""
+    rng = random.Random(17)
+    n = 120
+    edges = []
+    # Guarantee no isolated nodes so min_edge_cover is defined.
+    for i in range(n):
+        j = (i + 1) % n
+        edges.append((i, j, 1 + (i * 7 + j * 13) % 29))
+    seen = {(min(u, v), max(u, v)) for u, v, _ in edges}
+    while len(edges) < 420:
+        u, v = rng.randrange(n), rng.randrange(n)
+        if u == v:
+            continue
+        pair = (min(u, v), max(u, v))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        edges.append((u, v, 1 + (u * 11 + v * 5) % 37))
+
+    def build(module):
+        g = module.Graph()
+        g.add_nodes_from(range(n))
+        for u, v, w in edges:
+            g.add_edge(u, v, weight=w)
+        return g, module
+
+    def ops(graph, module):
+        return {
+            "max_weight_matching": lambda: sorted(module.max_weight_matching(graph)),
+            "min_weight_matching": lambda: sorted(module.min_weight_matching(graph)),
+            "min_edge_cover": lambda: sorted(module.min_edge_cover(graph)),
+        }
+
+    return build, ops
+
+
+def workload_branching_family(_reps: int):
+    """Directed and MultiDiGraph branching and spanning arborescence family (sfq4w.4)."""
+    rng = random.Random(23)
+    n = 300
+    edges = []
+    for i in range(n):
+        edges.append((i, (i + 1) % n, 1 + (i * 7) % 31))
+    while len(edges) < 1500:
+        u, v = rng.randrange(n), rng.randrange(n)
+        if u != v:
+            edges.append((u, v, 1 + (u * 13 + v * 17) % 43))
+
+    def build(module):
+        dg = module.DiGraph()
+        mdg = module.MultiDiGraph()
+        dg.add_nodes_from(range(n))
+        mdg.add_nodes_from(range(n))
+        for u, v, w in edges:
+            dg.add_edge(u, v, weight=w)
+            mdg.add_edge(u, v, weight=w)
+        return dg, (mdg, module)
+
+    def ops(dg, fixture):
+        mdg, module = fixture
+        return {
+            "DG max_branching": lambda: module.maximum_branching(dg),
+            "DG min_branching": lambda: module.minimum_branching(dg),
+            "DG max_arborescence": lambda: module.maximum_spanning_arborescence(dg),
+            "DG min_arborescence": lambda: module.minimum_spanning_arborescence(dg),
+            "MDG max_branching": lambda: module.maximum_branching(mdg),
+            "MDG min_branching": lambda: module.minimum_branching(mdg),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
+    "matching-min-edge-cover": workload_matching_min_edge_cover,
+    "branching-family": workload_branching_family,
     "bitpar-grid-1600": workload_bitpar_grid_1600,
     "bitpar-arms-grid-1600": workload_bitpar_arms_grid_1600,
     "claim-add-edge": workload_claim_add_edge,

@@ -482,3 +482,70 @@ def test_str_has_edge_and_neighbors_match_networkx_through_node_churn(
         for g in (Gx, Gf):
             step(g)
         check()
+
+
+def test_has_edge_neighbors_lookaside_e2e_jsonl():
+    import hashlib
+    import json
+    import time
+    from datetime import datetime, timezone
+    from pathlib import Path
+    import franken_networkx._fnx as _fnx_ext
+
+    repo_root = Path(__file__).resolve().parents[2]
+    out_path = (
+        repo_root
+        / "artifacts"
+        / "conformance"
+        / "latest"
+        / "has_edge_neighbors_lookaside_e2e.jsonl"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    so_sha256 = hashlib.sha256(Path(_fnx_ext.__file__).read_bytes()).hexdigest()
+
+    records = []
+    for nx_cls, fnx_cls in _INT_EDGE_CLASSES:
+        for key_kind in ("int_ordered", "int_shuffled", "str"):
+            rng = random.Random(42)
+            Gx, Gf = nx_cls(), fnx_cls()
+            if key_kind == "str":
+                nodes = [f"v{i}" for i in range(40)]
+            else:
+                nodes = list(range(40))
+                if key_kind == "int_shuffled":
+                    rng.shuffle(nodes)
+            edges = [(nodes[rng.randrange(40)], nodes[rng.randrange(40)]) for _ in range(120)]
+            for g in (Gx, Gf):
+                g.add_nodes_from(nodes)
+                g.add_edges_from(edges)
+            t0 = time.perf_counter()
+            exp_hits = sum(1 for u, v in edges if Gx.has_edge(u, v))
+            act_hits = sum(1 for u, v in edges if Gf.has_edge(u, v))
+            exp_nbrs = [list(Gx.neighbors(n)) for n in nodes[:10]]
+            act_nbrs = [list(Gf.neighbors(n)) for n in nodes[:10]]
+            elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 4)
+            passed = (exp_hits == act_hits) and (exp_nbrs == act_nbrs)
+            assert passed
+            records.append(
+                {
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "case_id": f"{fnx_cls.__name__}_{key_kind}",
+                    "input_sha256": hashlib.sha256(repr(edges).encode("utf-8")).hexdigest(),
+                    "fnx_version": getattr(fnx, "__version__", "0.2.3"),
+                    "nx_version": nx.__version__,
+                    "so_sha256": so_sha256,
+                    "graph_class": fnx_cls.__name__,
+                    "construction_path": f"add_nodes_from+add_edges_from ({key_kind})",
+                    "expected": exp_hits,
+                    "actual": act_hits,
+                    "pass": passed,
+                    "duration_ms": elapsed_ms,
+                }
+            )
+
+    out_path.write_text(
+        "\n".join(json.dumps(r, sort_keys=True) for r in records) + "\n",
+        encoding="utf-8",
+    )
+    assert len(records) == 6
+

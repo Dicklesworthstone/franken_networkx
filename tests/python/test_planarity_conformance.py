@@ -338,3 +338,84 @@ def test_K33_minus_edge_is_planar():
 
     fg_minus, _ = _pair(K33_edges[:-1], K33_nodes)
     assert fnx.is_planar(fg_minus) is True
+
+
+def test_native_planarity_certificate_multigraph_digraph_subclass_and_recursive():
+    """br-r37-c1-epic-native-algorithms-1g0lj.2: verify native Boyer-Myrvold
+    certificate extraction and Kuratowski counterexample parity across
+    Graph, MultiGraph, DiGraph, MultiDiGraph, subclasses, and recursive=True.
+    """
+    import json
+    import random
+    from pathlib import Path
+
+    class SubGraph(fnx.Graph):
+        pass
+
+    class SubMultiGraph(fnx.MultiGraph):
+        pass
+
+    records = []
+    for cls_name, nx_cls, fnx_cls in [
+        ("Graph", nx.Graph, fnx.Graph),
+        ("MultiGraph", nx.MultiGraph, fnx.MultiGraph),
+        ("DiGraph", nx.DiGraph, fnx.DiGraph),
+        ("MultiDiGraph", nx.MultiDiGraph, fnx.MultiDiGraph),
+        ("SubGraph", nx.Graph, SubGraph),
+        ("SubMultiGraph", nx.MultiGraph, SubMultiGraph),
+    ]:
+        planar_count = 0
+        nonplanar_count = 0
+        for seed in range(25):
+            rng = random.Random(seed)
+            n = rng.randint(4, 9)
+            ng = nx_cls()
+            ng.add_nodes_from(range(n))
+            for _ in range(rng.randint(n, 3 * n)):
+                ng.add_edge(rng.randrange(n), rng.randrange(n))
+            fg = fnx_cls()
+            fg.add_nodes_from(ng.nodes)
+            fg.add_edges_from(ng.edges)
+
+            for rec in (False, True):
+                for cex in (False, True):
+                    p_fnx, cert_fnx = fnx._check_planarity_certificate(
+                        fg, counterexample=cex, recursive=rec
+                    )
+                    if rec:
+                        p_nx, cert_nx = _nx_check_planarity_recursive(
+                            ng, counterexample=cex
+                        )
+                    else:
+                        p_nx, cert_nx = nx.check_planarity(ng, counterexample=cex)
+                    assert p_fnx == p_nx
+                    if p_fnx:
+                        planar_count += 1
+                        assert cert_fnx.get_data() == cert_nx.get_data()
+                    elif cex:
+                        nonplanar_count += 1
+                        assert list(cert_fnx.nodes) == list(cert_nx.nodes)
+                        assert list(cert_fnx.edges) == list(cert_nx.edges)
+                        cex_rec = fnx.planarity.get_counterexample_recursive(fg)
+                        assert list(cex_rec.edges) == list(cert_nx.edges)
+        records.append(
+            {
+                "class": cls_name,
+                "planar_verified": planar_count,
+                "nonplanar_cex_verified": nonplanar_count,
+                "status": "pass",
+            }
+        )
+
+    out_path = (
+        Path(__file__).resolve().parents[2]
+        / "artifacts"
+        / "conformance"
+        / "latest"
+        / "planarity_native_certificate_e2e.jsonl"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        "\n".join(json.dumps(r, sort_keys=True) for r in records) + "\n",
+        encoding="utf-8",
+    )
