@@ -69,8 +69,44 @@
     ]
   },
   "scrub": {
-    "last_ok_unix_ms": 1771443504553,
-    "status": "ok"
+    "last_ok_unix_ms": 1791978585844,
+    "status": "recovered"
   },
-  "decode_proofs": []
+  "decode_proofs": [
+    {
+      "ts_unix_ms": 1791978585844,
+      "reason": "decode_drill_source_loss_success",
+      "recovered_blocks": 1,
+      "proof_hash": "blake3:ba21bf804eceae05456825f815a23df5ef4f6b364e05f77cffa472ca7ec62a18",
+      "dropped_packets": 6,
+      "fail_closed_beyond": 7,
+      "dropped_source_packets": [
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 0
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 2
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 3
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 12
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 15
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 17
+        }
+      ],
+      "loss_selection": "blake3-source-hash-packet-id-v1"
+    }
+  ]
 }

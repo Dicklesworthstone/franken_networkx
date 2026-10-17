@@ -8,35 +8,37 @@
       "metric_id": "shortest_path",
       "family": "shortest_path",
       "route": "RUST_NATIVE",
-      "representative_shape": "unweighted source-target grid graph",
+      "representative_shape": "unweighted source-target 250x250 grid graph (62,500 nodes, 124,500 edges)",
       "primary_metric": "path_nodes",
       "primary_unit": "path_nodes",
       "runs": 5,
       "warmup_runs": 1,
       "max_p95_ms": 420.0,
       "params": {
-        "width": 90,
-        "height": 90
+        "width": 250,
+        "height": 250
       }
     },
     {
       "metric_id": "shortest_path_weighted_delegated",
       "family": "shortest_path",
       "route": "NETWORKX_HELPER",
-      "representative_shape": "path graph with non-unit `weight` edge attributes",
+      "representative_shape": "sparse weighted graph with non-unit `weight` edge attributes (25,000 nodes, 49,987 weighted edges)",
       "primary_metric": "path_nodes",
       "primary_unit": "path_nodes",
       "runs": 3,
       "warmup_runs": 1,
       "max_p95_ms": 420.0,
       "params": {
-        "nodes": 400,
-        "nonunit_weight": 2.0
+        "nodes": 25000,
+        "nonunit_weight": 2.0,
+        "chord_strides": [7, 19]
       }
     },
     {
       "metric_id": "components",
       "family": "components",
+      "representative_shape": "million-edge multi-component ring-lattice corpus (100,000 nodes, 1,000,000 edges, 20 components)",
       "primary_metric": "component_count",
       "primary_unit": "component_count",
       "runs": 5,
@@ -44,60 +46,73 @@
       "max_p95_ms": 280.0,
       "params": {
         "component_count": 20,
-        "component_size": 250
+        "component_size": 5000,
+        "k": 20,
+        "shards": 4
       }
     },
     {
       "metric_id": "centrality",
       "family": "centrality",
+      "representative_shape": "medium-large small-world graph PageRank (50,000 nodes, 100,000 edges)",
       "primary_metric": "score",
       "primary_unit": "score",
       "runs": 5,
       "warmup_runs": 1,
       "max_p95_ms": 950.0,
       "params": {
-        "nodes": 300,
-        "edge_prob": 0.03,
+        "nodes": 50000,
+        "k": 4,
+        "edge_prob": 0.1,
         "seed": 1337
       }
     },
     {
       "metric_id": "flow",
       "family": "flow",
+      "representative_shape": "multi-seed layered flow corpus (3 topologies: 12x12, 16x10, 20x8)",
       "primary_metric": "flow_value",
       "primary_unit": "flow_value",
       "runs": 5,
       "warmup_runs": 1,
       "max_p95_ms": 700.0,
       "params": {
-        "layers": 8,
-        "width": 8
+        "layers": 12,
+        "width": 12,
+        "topologies": [
+          {"layers": 12, "width": 12, "seed": 1},
+          {"layers": 16, "width": 10, "seed": 2},
+          {"layers": 20, "width": 8, "seed": 3}
+        ]
       }
     },
     {
       "metric_id": "io_roundtrip",
       "family": "io",
+      "representative_shape": "medium-large edgelist write+read roundtrip (12,000 nodes, 60,000 edges, 2 rounds)",
       "primary_metric": "mb_per_s",
       "primary_unit": "mb_per_s",
       "runs": 5,
       "warmup_runs": 1,
       "min_primary_value": 45.0,
       "params": {
-        "nodes": 4000,
-        "edge_prob": 0.008,
+        "nodes": 12000,
+        "k": 10,
+        "edge_prob": 0.05,
         "seed": 1337,
-        "rounds": 3
+        "rounds": 2
       }
     },
     {
       "metric_id": "mutation_cycle",
       "family": "mutation",
+      "representative_shape": "add_node / add_edge / remove_edge / incident-edge remove_node cycle (5,000 nodes, 44,993 ops)",
       "primary_metric": "ops_per_s",
       "primary_unit": "ops_per_s",
       "runs": 5,
       "warmup_runs": 1,
       "params": {
-        "node_count": 2000,
+        "node_count": 5000,
         "edge_repeat": 3
       }
     }

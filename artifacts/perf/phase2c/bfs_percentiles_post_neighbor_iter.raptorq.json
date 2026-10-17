@@ -1,5 +1,5 @@
 {
-  "artifact_id": "bfs_percentiles",
+  "artifact_id": "bfs_percentiles_post_neighbor_iter",
   "artifact_type": "benchmark_report",
   "source_hash": "blake3:9802d59309594c343116fe51bec1d439d076981cea434276f9a9ba672a62f17e",
   "raptorq": {
@@ -27,15 +27,24 @@
     ]
   },
   "scrub": {
-    "last_ok_unix_ms": 1771018657125,
+    "last_ok_unix_ms": 1791978585862,
     "status": "recovered"
   },
   "decode_proofs": [
     {
-      "ts_unix_ms": 1771018657125,
-      "reason": "decode_drill",
+      "ts_unix_ms": 1791978585862,
+      "reason": "decode_drill_source_loss_success",
       "recovered_blocks": 1,
-      "proof_hash": "blake3:9cbb34ff09acf3ce562053b656fe25dde411246aabb89df3ff5ccede8d2d6a17"
+      "proof_hash": "blake3:9802d59309594c343116fe51bec1d439d076981cea434276f9a9ba672a62f17e",
+      "dropped_packets": 1,
+      "fail_closed_beyond": 7,
+      "dropped_source_packets": [
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 0
+        }
+      ],
+      "loss_selection": "blake3-source-hash-packet-id-v1"
     }
   ]
 }

@@ -5,7 +5,7 @@
   "raptorq": {
     "k": 33,
     "repair_symbols": 6,
-    "overhead_ratio": 0.18181818181818182,
+    "overhead_ratio": 0.18181818181818185,
     "symbol_hashes": [
       "blake3:77a84b29c0cde9bc1149be21915b3578df4b734c0118c279b02d3aad5043d8de",
       "blake3:f3e1896ccf4e822c1a2e6fe4de22530466b6599d92901cb2b895571dabef6478",
@@ -91,8 +91,44 @@
     ]
   },
   "scrub": {
-    "last_ok_unix_ms": 1771443504506,
-    "status": "ok"
+    "last_ok_unix_ms": 1791978585838,
+    "status": "recovered"
   },
-  "decode_proofs": []
+  "decode_proofs": [
+    {
+      "ts_unix_ms": 1791978585838,
+      "reason": "decode_drill_source_loss_success",
+      "recovered_blocks": 1,
+      "proof_hash": "blake3:1596c6004366c23763a82205004910cbbce967e87757b0d4d5b4cfb0cb200eac",
+      "dropped_packets": 6,
+      "fail_closed_beyond": 7,
+      "dropped_source_packets": [
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 10
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 16
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 17
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 21
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 24
+        },
+        {
+          "source_block": 0,
+          "encoding_symbol_id": 26
+        }
+      ],
+      "loss_selection": "blake3-source-hash-packet-id-v1"
+    }
+  ]
 }
