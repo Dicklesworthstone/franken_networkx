@@ -26855,3 +26855,27 @@ rebuild. Reconstructing that count from the iterator's length hint at trigger ti
 took it to 0.9772 with byte-identical parity (518 fixed / 0 new both before and after the
 rework, compared by cell identity). Recorded because the same loop's history already says
 this: br-r37-c1-hihrf measured 2x for adding one `item[0]` to it.
+
+## REJECT (cc/GoldenBison, 2026-10-17): two remaining `br-r37-c1-oj681` rejected levers re-measured with same-invocation A/A null controls (`_multigraph_collapse_min_weight` rebuild and `MultiDiGraph` dijkstra delegation)
+
+comparison_class=SELF_BEFORE_AFTER
+decision_gate=median_ci
+cv_role=report_only
+
+in_process_elf_sha256 = 8b72820b08bdfbf5c45b83af83cba7fc4eb95aceee633c4847d4682ed9a404e6
+harness = crates/fnx-python/examples/oj681_rejects_h2h.rs (31 ABBA rounds, inner=5, N=400, DEG=3, seed=7, taskset -c 44, PYTHONHASHSEED=0)
+
+Re-measured the two remaining `br-r37-c1-oj681` rejected levers (`br-r37-c1-0kvxh`) that
+previously lacked same-invocation A/A null controls (Item 3, the empty-instance-dict
+short-circuit in `_has_networkx_private_storage`, already landed in `51c693de8`):
+
+1. **REJECT — `add_weighted_edges_from` instead of `add_edges_from` in `_multigraph_collapse_min_weight` (`br-r37-c1-0kvxh`):**
+   - Shipped `add_edges_from((u, v, {weight: w}) ...)` median: `0.5854 ms` (`A/A null control`: `1.0030x`, inside the ±0.03 band).
+   - Rejected `add_weighted_edges_from(((u, v, w) ...), weight="weight")` median: `0.6216 ms` (`A/A null control`: `1.0012x`, inside the ±0.03 band).
+   - Candidate ratio (`ship / rej`): **0.9417x** (`add_weighted_edges_from` is 6.2% slower because it wraps a Python generator comprehension around the 3-tuple unpacking path before calling `add_edges_from`). Parity: `sorted(a.edges(data=True)) == sorted(b.edges(data=True))` (`True`). Verdict: **REJECT** (`VALID-AB`).
+
+2. **REJECT — Delegating `MultiDiGraph` `single_source_dijkstra` to NetworkX instead of min-weight collapse (`br-r37-c1-0kvxh`):**
+   - Shipped `fnx.single_source_dijkstra(G, 0)` median: `0.2560 ms` (`A/A null control`: `1.0049x`, inside the ±0.03 band).
+   - Rejected `_call_networkx_for_parity("single_source_dijkstra", G, 0, ...)` median: `3.3216 ms` (`A/A null control`: `0.9981x`, inside the ±0.03 band).
+   - Candidate ratio (`ship / dele`): **0.0771x** (delegating to NetworkX is 12.97x slower due to full `MultiDiGraph` conversion + pure-Python heap traversal). Parity: `ship(g1) == dele(g1)` (`True`). Verdict: **REJECT** (`VALID-AB`).
+

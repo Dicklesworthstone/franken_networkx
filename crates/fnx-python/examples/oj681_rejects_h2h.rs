@@ -76,7 +76,9 @@ available_cpus = sorted(os.sched_getaffinity(0))
 if available_cpus:
     os.sched_setaffinity(0, set((available_cpus[-1],)))
     print(f'bench cpu: {{available_cpus[-1]}}', file=sys.stderr)
-paths = []
+paths = [
+    os.path.join(cwd, 'python', 'franken_networkx', '_fnx.abi3.so'),
+]
 for directory in (release_dir, os.path.join(release_dir, 'deps')):
     paths.extend((
         os.path.join(directory, 'lib_fnx.so'),
@@ -154,9 +156,9 @@ def square(arms, rounds, inner):
             samples[name].append((time.perf_counter() - t) / inner)
     return {k: statistics.median(v) for k, v in samples.items()}
 
-def item2(rounds=15, inner=3):
+def item2(rounds=31, inner=5):
     """Shipped MultiDiGraph dijkstra against forced networkx delegation."""
-    g1, g2 = make_mdg(7), make_mdg(8)     # g2 is the separately built A/A null fixture
+    g1, g2 = make_mdg(7), make_mdg(7)     # g2 is an independent identical-seed A/A null fixture
     ship = lambda G: fnx.single_source_dijkstra(G, 0)
     dele = lambda G: fnx._call_networkx_for_parity(
         "single_source_dijkstra", G, 0, target=None, cutoff=None, weight="weight")
@@ -170,9 +172,9 @@ def item2(rounds=15, inner=3):
     return (equal, m["ship"] / m["dele"], m["ship_null"] / m["ship"],
             m["dele_null"] / m["dele"], m["ship"] * 1e3, m["dele"] * 1e3)
 
-def item1(rounds=15, inner=3):
+def item1(rounds=31, inner=5):
     """The two collapse-rebuild spellings, same `best` dict, fresh target graph each call."""
-    b1, b2 = best_pairs(make_mdg(7)), best_pairs(make_mdg(8))
+    b1, b2 = best_pairs(make_mdg(7)), best_pairs(make_mdg(7))
 
     def shipped(best):
         s = fnx.DiGraph()

@@ -15478,9 +15478,7 @@ def _multigraph_degree_assortativity_coefficient(G, weight):
     ``_numeric_ac`` (graph-agnostic numpy) so the float result is byte-identical.
     Only the default (x="out", y="in", nodes=None) contract is routed here.
     """
-    from networkx.algorithms.assortativity.correlation import _numeric_ac
-    from networkx.algorithms.assortativity.mixing import mixing_dict
-    from networkx.utils import dict_to_numpy_array
+    import numpy as _np
 
     if G.is_directed():
         outdeg = dict(G.out_degree(weight=weight))
@@ -15507,10 +15505,28 @@ def _multigraph_degree_assortativity_coefficient(G, weight):
                     yield dv, du
 
     mapping = {d: i for i, d in enumerate(degrees)}
-    mix = mixing_dict(_xy(), normalized=False)
-    matrix = dict_to_numpy_array(mix, mapping=mapping)
-    matrix = matrix / matrix.sum()
-    return _numeric_ac(matrix, mapping=mapping)
+    k = len(mapping)
+    if k == 0:
+        return float("nan")
+    matrix = _np.zeros((k, k), dtype=float)
+    for u_deg, v_deg in _xy():
+        matrix[mapping[u_deg], mapping[v_deg]] += 1.0
+    total = matrix.sum()
+    if total == 0.0:
+        return float("nan")
+    if total != 1.0:
+        matrix = matrix / total
+    x_arr = _np.array(list(mapping.keys()))
+    y_arr = x_arr
+    idx = list(mapping.values())
+    a = matrix.sum(axis=0)
+    b = matrix.sum(axis=1)
+    vara = (a[idx] * x_arr**2).sum() - ((a[idx] * x_arr).sum()) ** 2
+    varb = (b[idx] * y_arr**2).sum() - ((b[idx] * y_arr).sum()) ** 2
+    xy = _np.outer(x_arr, y_arr)
+    ab = _np.outer(a[idx], b[idx])
+    with _np.errstate(divide="ignore", invalid="ignore"):
+        return float((xy * (matrix - ab)).sum() / _np.sqrt(vara * varb))
 
 
 def _degree_assortativity_inproc(G, x="out", y="in", weight=None, nodes=None):
@@ -15598,11 +15614,11 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
         # Degenerate inputs (one degree column constant) make the native kernel
         # return nan (covariance is exactly 0). nx's mixing-matrix path divides a
         # float-rounded near-zero covariance by a zero variance and can yield
-        # ±inf — a value-less artifact we can't reproduce without its float path.
-        # Delegate those rare non-finite cases to nx for exact parity; the common
-        # finite case stays native.
+        # ±inf — compute that exact mixing-matrix float path directly on G with
+        # 0 NetworkX frames.
         if _directed is not None and _math.isfinite(_directed):
             return _directed
+        return _multigraph_degree_assortativity_coefficient(G, None)
     # br-r37-c1-degxywt: directed WEIGHTED simple-graph assortativity used to
     # delegate to nx (the native directed kernel has no weighted path) — ~180ms,
     # because nx's float-weighted-degree mixing matrix is pathologically slow.
@@ -18385,17 +18401,86 @@ def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
     attribute carryover from G). Strict nx parity is enforced by
     test_spanning_tree_conformance.py — see commit 122ab6a2.
     """
-    nx_result = _random_spanning_tree_inproc(
-        G,
-        weight=weight,
-        multiplicative=multiplicative,
-        seed=seed,
-    )
-    from franken_networkx.readwrite import _from_nx_graph
-    # networkx builds the tree in nx.Graph() (nx.empty_graph(G.nodes) when G
-    # has no edges), so the answer is an undirected Graph whatever G's class -
-    # a DiGraph or multigraph input included (br-r37-c1-93tox).
-    return _from_nx_graph(nx_result, create_using=Graph())
+    G = _coerce_arg_to_fnx_graph(G)
+    rng = _create_py_random_state(seed) if _create_py_random_state is not None else _random.Random(seed)
+
+    def find_node(merged_nodes, node):
+        if node not in merged_nodes:
+            return node
+        rep = find_node(merged_nodes, merged_nodes[node])
+        merged_nodes[node] = rep
+        return rep
+
+    def prepare_graph():
+        result = MultiGraph(incoming_graph_data=G)
+        edges_to_remove = set(result.edges()).difference(V)
+        result.remove_edges_from(edges_to_remove)
+        merged_nodes = {}
+        for u, v in U:
+            u_rep = find_node(merged_nodes, u)
+            v_rep = find_node(merged_nodes, v)
+            if u_rep == v_rep:
+                continue
+            contracted_nodes(result, u_rep, v_rep, self_loops=False, copy=False)
+            merged_nodes[v_rep] = u_rep
+        return merged_nodes, result
+
+    def spanning_tree_total_weight(H, w_key):
+        if multiplicative:
+            return number_of_spanning_trees(H, weight=w_key)
+        if H.number_of_edges() == 1:
+            return H.edges(data=w_key).__iter__().__next__()[2]
+        total = 0
+        for u, v, w in H.edges(data=w_key):
+            total += w * number_of_spanning_trees(
+                contracted_edge(H, edge=(u, v), self_loops=False),
+                weight=None,
+            )
+        return total
+
+    if G.number_of_nodes() < 2:
+        return empty_graph(G.nodes)
+
+    U = set()
+    st_cached_value = 0
+    V = set(G.edges())
+    shuffled_edges = list(G.edges())
+    rng.shuffle(shuffled_edges)
+
+    for u, v in shuffled_edges:
+        e_weight = G[u][v][weight] if weight is not None else 1
+        node_map, prepared_G = prepare_graph()
+        G_total_tree_weight = spanning_tree_total_weight(prepared_G, weight)
+        rep_edge = (find_node(node_map, u), find_node(node_map, v))
+        if rep_edge in prepared_G.edges:
+            prepared_G_e = contracted_edge(
+                prepared_G, edge=rep_edge, self_loops=False
+            )
+            G_e_total_tree_weight = spanning_tree_total_weight(prepared_G_e, weight)
+            if multiplicative:
+                threshold = e_weight * G_e_total_tree_weight / G_total_tree_weight
+            else:
+                numerator = (st_cached_value + e_weight) * number_of_spanning_trees(
+                    prepared_G_e
+                ) + G_e_total_tree_weight
+                denominator = (
+                    st_cached_value * number_of_spanning_trees(prepared_G)
+                    + G_total_tree_weight
+                )
+                threshold = numerator / denominator
+        else:
+            threshold = 0.0
+        z = rng.uniform(0.0, 1.0)
+        if z > threshold:
+            V.remove((u, v))
+        else:
+            st_cached_value += e_weight
+            U.add((u, v))
+        if len(U) == G.number_of_nodes() - 1:
+            spanning_tree = Graph()
+            spanning_tree.add_edges_from(U)
+            return spanning_tree
+    raise Exception(f"Something went wrong! Only {len(U)} edges in the spanning tree!")
 
 
 def partition_spanning_tree(G, minimum=True, weight="weight", partition="partition", ignore_nan=False):
@@ -19130,7 +19215,7 @@ def bfs_layers(G, sources):
         sources_list = list(sources)
         for s in sources_list:
             _HASH_PROBE.get(s)
-        sources = sources_list
+        sources = tuple(sources_list)
     # br-r37-c1-jxvsu: nx raises ``NetworkXError("The node X is not
     # in the graph.")`` when any source is missing; fnx's Rust
     # binding silently yielded nothing for missing sources.
@@ -19156,6 +19241,19 @@ def bfs_layers(G, sources):
             _layers.setdefault(_dist, []).append(_node)
         for _d in sorted(_layers):
             yield _layers[_d]
+        return
+    if not single_node and sources in G:
+        visited = set(sources_list)
+        current_layer = list(visited)
+        while current_layer:
+            yield current_layer
+            next_layer = []
+            for node in current_layer:
+                for child in G[node]:
+                    if child not in visited:
+                        visited.add(child)
+                        next_layer.append(child)
+            current_layer = next_layer
         return
     yield from _bfs_layers_raw(G, sources)
 
@@ -25305,15 +25403,294 @@ def astar_path_length(
     return result
 
 
-def _shortest_simple_paths_fallback_generator(G, source, target, weight):
-    import networkx.algorithms.simple_paths as _nx_simple_paths
+import heapq as _heapq
+import itertools as _itertools
 
-    try:
-        yield from _nx_simple_paths.shortest_simple_paths.orig_func(
-            G, source, target, weight=weight
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+
+class _ShortestSimplePathBuffer:
+    __slots__ = ("paths", "sortedpaths", "counter")
+
+    def __init__(self):
+        self.paths = set()
+        self.sortedpaths = []
+        self.counter = _itertools.count()
+
+    def __len__(self):
+        return len(self.sortedpaths)
+
+    def push(self, cost, path):
+        hashable_path = tuple(path)
+        if hashable_path not in self.paths:
+            _heapq.heappush(self.sortedpaths, (cost, next(self.counter), path))
+            self.paths.add(hashable_path)
+
+    def pop(self):
+        (_cost, _num, path) = _heapq.heappop(self.sortedpaths)
+        self.paths.remove(tuple(path))
+        return path
+
+
+def _ssp_bidirectional_pred_succ(G, source, target, ignore_nodes=None, ignore_edges=None):
+    if ignore_nodes and (source in ignore_nodes or target in ignore_nodes):
+        raise NetworkXNoPath(f"No path between {source} and {target}.")
+    if target == source:
+        return ({target: None}, {source: None}, source)
+
+    if G.is_directed():
+        Gpred = G.predecessors
+        Gsucc = G.successors
+    else:
+        Gpred = G.neighbors
+        Gsucc = G.neighbors
+
+    if ignore_nodes:
+        def filter_iter(nodes):
+            def iterate(v):
+                for w in nodes(v):
+                    if w not in ignore_nodes:
+                        yield w
+            return iterate
+
+        Gpred = filter_iter(Gpred)
+        Gsucc = filter_iter(Gsucc)
+
+    if ignore_edges:
+        if G.is_directed():
+            def filter_pred_iter(pred_iter):
+                def iterate(v):
+                    for w in pred_iter(v):
+                        if (w, v) not in ignore_edges:
+                            yield w
+                return iterate
+
+            def filter_succ_iter(succ_iter):
+                def iterate(v):
+                    for w in succ_iter(v):
+                        if (v, w) not in ignore_edges:
+                            yield w
+                return iterate
+
+            Gpred = filter_pred_iter(Gpred)
+            Gsucc = filter_succ_iter(Gsucc)
+        else:
+            def filter_iter(nodes):
+                def iterate(v):
+                    for w in nodes(v):
+                        if (v, w) not in ignore_edges and (w, v) not in ignore_edges:
+                            yield w
+                return iterate
+
+            Gpred = filter_iter(Gpred)
+            Gsucc = filter_iter(Gsucc)
+
+    pred = {source: None}
+    succ = {target: None}
+    forward_fringe = [source]
+    reverse_fringe = [target]
+
+    while forward_fringe and reverse_fringe:
+        if len(forward_fringe) <= len(reverse_fringe):
+            this_level = forward_fringe
+            forward_fringe = []
+            for v in this_level:
+                for w in Gsucc(v):
+                    if w not in pred:
+                        forward_fringe.append(w)
+                        pred[w] = v
+                    if w in succ:
+                        return pred, succ, w
+        else:
+            this_level = reverse_fringe
+            reverse_fringe = []
+            for v in this_level:
+                for w in Gpred(v):
+                    if w not in succ:
+                        succ[w] = v
+                        reverse_fringe.append(w)
+                    if w in pred:
+                        return pred, succ, w
+
+    raise NetworkXNoPath(f"No path between {source} and {target}.")
+
+
+def _ssp_bidirectional_shortest_path(
+    G, source, target, ignore_nodes=None, ignore_edges=None, weight=None
+):
+    pred, succ, w = _ssp_bidirectional_pred_succ(
+        G, source, target, ignore_nodes, ignore_edges
+    )
+    path = []
+    while w is not None:
+        path.append(w)
+        w = succ[w]
+    w = pred[path[0]]
+    while w is not None:
+        path.insert(0, w)
+        w = pred[w]
+    return len(path), path
+
+
+def _ssp_bidirectional_dijkstra(
+    G, source, target, weight="weight", ignore_nodes=None, ignore_edges=None
+):
+    if ignore_nodes and (source in ignore_nodes or target in ignore_nodes):
+        raise NetworkXNoPath(f"No path between {source} and {target}.")
+    if source == target:
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not in graph")
+        return (0, [source])
+
+    if G.is_directed():
+        Gpred = G.predecessors
+        Gsucc = G.successors
+    else:
+        Gpred = G.neighbors
+        Gsucc = G.neighbors
+
+    if ignore_nodes:
+        def filter_iter(nodes):
+            def iterate(v):
+                for w in nodes(v):
+                    if w not in ignore_nodes:
+                        yield w
+            return iterate
+
+        Gpred = filter_iter(Gpred)
+        Gsucc = filter_iter(Gsucc)
+
+    if ignore_edges:
+        if G.is_directed():
+            def filter_pred_iter(pred_iter):
+                def iterate(v):
+                    for w in pred_iter(v):
+                        if (w, v) not in ignore_edges:
+                            yield w
+                return iterate
+
+            def filter_succ_iter(succ_iter):
+                def iterate(v):
+                    for w in succ_iter(v):
+                        if (v, w) not in ignore_edges:
+                            yield w
+                return iterate
+
+            Gpred = filter_pred_iter(Gpred)
+            Gsucc = filter_succ_iter(Gsucc)
+        else:
+            def filter_iter(nodes):
+                def iterate(v):
+                    for w in nodes(v):
+                        if (v, w) not in ignore_edges and (w, v) not in ignore_edges:
+                            yield w
+                return iterate
+
+            Gpred = filter_iter(Gpred)
+            Gsucc = filter_iter(Gsucc)
+
+    wt = _weight_function(G, weight)
+    dists = [{}, {}]
+    paths = [{source: [source]}, {target: [target]}]
+    fringe = [[], []]
+    seen = [{source: 0}, {target: 0}]
+    c = _itertools.count()
+    _heapq.heappush(fringe[0], (0, next(c), source))
+    _heapq.heappush(fringe[1], (0, next(c), target))
+    neighs = [Gsucc, Gpred]
+    finaldist = None
+    finalpath = []
+    dir_idx = 1
+    while fringe[0] and fringe[1]:
+        dir_idx = 1 - dir_idx
+        (dist, _, v) = _heapq.heappop(fringe[dir_idx])
+        if v in dists[dir_idx]:
+            continue
+        dists[dir_idx][v] = dist
+        if v in dists[1 - dir_idx]:
+            return (finaldist, finalpath)
+
+        for w in neighs[dir_idx](v):
+            if dir_idx == 0:
+                minweight = wt(v, w, G.get_edge_data(v, w))
+            else:
+                minweight = wt(w, v, G.get_edge_data(w, v))
+            if minweight is None:
+                continue
+            vwLength = dists[dir_idx][v] + minweight
+
+            if w in dists[dir_idx]:
+                if vwLength < dists[dir_idx][w]:
+                    raise ValueError("Contradictory paths found: negative weights?")
+            elif w not in seen[dir_idx] or vwLength < seen[dir_idx][w]:
+                seen[dir_idx][w] = vwLength
+                _heapq.heappush(fringe[dir_idx], (vwLength, next(c), w))
+                paths[dir_idx][w] = paths[dir_idx][v] + [w]
+                if w in seen[0] and w in seen[1]:
+                    totaldist = seen[0][w] + seen[1][w]
+                    if finalpath == [] or finaldist > totaldist:
+                        finaldist = totaldist
+                        revpath = paths[1][w][:]
+                        revpath.reverse()
+                        finalpath = paths[0][w] + revpath[1:]
+    raise NetworkXNoPath(f"No path between {source} and {target}.")
+
+
+def _shortest_simple_paths_fallback_generator(G, source, target, weight):
+    if source not in G:
+        raise NodeNotFound(f"source node {source} not in graph")
+    if target not in G:
+        raise NodeNotFound(f"target node {target} not in graph")
+
+    if weight is None:
+        length_func = len
+        shortest_path_func = _ssp_bidirectional_shortest_path
+    else:
+        wt = _weight_function(G, weight)
+
+        def length_func(path):
+            return sum(
+                wt(u, v, G.get_edge_data(u, v)) for (u, v) in zip(path, path[1:])
+            )
+
+        shortest_path_func = _ssp_bidirectional_dijkstra
+
+    listA = []
+    listB = _ShortestSimplePathBuffer()
+    prev_path = None
+    while True:
+        if not prev_path:
+            length, path = shortest_path_func(G, source, target, weight=weight)
+            listB.push(length, path)
+        else:
+            ignore_nodes = set()
+            ignore_edges = set()
+            for i in range(1, len(prev_path)):
+                root = prev_path[:i]
+                root_length = length_func(root)
+                for path in listA:
+                    if path[:i] == root:
+                        ignore_edges.add((path[i - 1], path[i]))
+                try:
+                    length, spur = shortest_path_func(
+                        G,
+                        root[-1],
+                        target,
+                        ignore_nodes=ignore_nodes,
+                        ignore_edges=ignore_edges,
+                        weight=weight,
+                    )
+                    path = root[:-1] + spur
+                    listB.push(root_length + length, path)
+                except NetworkXNoPath:
+                    pass
+                ignore_nodes.add(root[-1])
+
+        if listB:
+            path = listB.pop()
+            yield path
+            listA.append(path)
+            prev_path = path
+        else:
+            break
 
 
 def shortest_simple_paths(G, source, target, weight=None):
@@ -26146,13 +26523,21 @@ class _ApproximationNamespace:
         )
         G = _coerce_arg_to_fnx_graph(G)
         if G.is_directed():
-            # networkx iterates the DIRECTED edges of a DiGraph here, so the
-            # greedy order differs from the undirected kernel; delegate to keep
-            # exact parity (the perf-sensitive case is undirected).
-            nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.min_weighted_vertex_cover(
-                nx_G, weight=weight, backend="networkx"
-            )
+            # networkx iterates the DIRECTED edges of a DiGraph here, so run the
+            # exact local-ratio greedy directly over G.nodes and G.edges with
+            # 0 NetworkX conversion or frames.
+            cost = dict(G.nodes(data=weight, default=1))
+            cover = set()
+            for u, v in G.edges():
+                if u in cover or v in cover:
+                    continue
+                if cost[u] <= cost[v]:
+                    cover.add(u)
+                    cost[v] -= cost[u]
+                else:
+                    cover.add(v)
+                    cost[u] -= cost[v]
+            return cover
         if weight is not None:
             # br-r37-c1-303zo: node-view writes mutate the live Python mirrors,
             # while the native kernel reads the typed AttrMap store. Flush those
@@ -27317,24 +27702,152 @@ def simple_cycles(G, length_bound=None):
     yield from _simple_cycles_structure_only_via_networkx(G, length_bound)
 
 
+class _SimpleCyclesNeighborhoodCache(dict):
+    def __init__(self, G):
+        self.G = G
+
+    def __missing__(self, v):
+        Gv = self[v] = list(self.G[v])
+        return Gv
+
+
+from collections import defaultdict as _sc_defaultdict
+
+
+def _johnson_cycle_search_fnx(G, path):
+    G = _SimpleCyclesNeighborhoodCache(G)
+    blocked = set(path)
+    B = _sc_defaultdict(set)
+    start = path[0]
+    stack = [iter(G[path[-1]])]
+    closed = [False]
+    while stack:
+        nbrs = stack[-1]
+        for w in nbrs:
+            if w == start:
+                yield path[:]
+                closed[-1] = True
+            elif w not in blocked:
+                path.append(w)
+                closed.append(False)
+                stack.append(iter(G[w]))
+                blocked.add(w)
+                break
+        else:
+            stack.pop()
+            v = path.pop()
+            if closed.pop():
+                if closed:
+                    closed[-1] = True
+                unblock_stack = {v}
+                while unblock_stack:
+                    u = unblock_stack.pop()
+                    if u in blocked:
+                        blocked.remove(u)
+                        unblock_stack.update(B[u])
+                        B[u].clear()
+            else:
+                for w in G[v]:
+                    B[w].add(v)
+
+
+def _bounded_cycle_search_fnx(G, path, length_bound):
+    G = _SimpleCyclesNeighborhoodCache(G)
+    lock = {v: 0 for v in path}
+    B = _sc_defaultdict(set)
+    start = path[0]
+    stack = [iter(G[path[-1]])]
+    blen = [length_bound]
+    while stack:
+        nbrs = stack[-1]
+        for w in nbrs:
+            if w == start:
+                yield path[:]
+                blen[-1] = 1
+            elif len(path) < lock.get(w, length_bound):
+                path.append(w)
+                blen.append(length_bound)
+                lock[w] = len(path)
+                stack.append(iter(G[w]))
+                break
+        else:
+            stack.pop()
+            v = path.pop()
+            bl = blen.pop()
+            if blen:
+                blen[-1] = min(blen[-1], bl)
+            if bl < length_bound:
+                relax_stack = [(bl, v)]
+                while relax_stack:
+                    bl, u = relax_stack.pop()
+                    if lock.get(u, length_bound) < length_bound - bl + 1:
+                        lock[u] = length_bound - bl + 1
+                        relax_stack.extend((bl + 1, w) for w in B[u].difference(path))
+            else:
+                for w in G[v]:
+                    B[w].add(v)
+
+
 def _simple_cycles_structure_only_via_networkx(G, length_bound):
-    if G.is_multigraph() and not G.is_directed():
-        from franken_networkx.backend import _fnx_to_nx
-        H = _fnx_to_nx(G)
-    elif G.is_multigraph():
-        H = _nx.MultiDiGraph()
-        H.add_nodes_from(G)
-        H.add_edges_from(G.edges(keys=True))
+    G = _coerce_arg_to_fnx_graph(G)
+    if length_bound is not None:
+        if length_bound == 0:
+            return
+        elif length_bound < 0:
+            raise ValueError("length bound must be non-negative")
+
+    directed = G.is_directed()
+    yield from ([v] for v, Gv in G.adj.items() if v in Gv)
+
+    if length_bound is not None and length_bound == 1:
+        return
+
+    if G.is_multigraph() and not directed:
+        visited = set()
+        for u, Gu in G.adj.items():
+            multiplicity = ((v, len(Guv)) for v, Guv in Gu.items() if v in visited)
+            yield from ([u, v] for v, m in multiplicity if m > 1)
+            visited.add(u)
+
+    if directed:
+        H = DiGraph((u, v) for u, Gu in G.adj.items() for v in Gu if v != u)
     else:
-        H = _nx.DiGraph() if G.is_directed() else _nx.Graph()
-        H.add_nodes_from(G)
-        H.add_edges_from(G.edges())
-    try:
-        yield from _nx.simple_cycles(
-            H, length_bound=length_bound, backend="networkx"
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+        H = Graph((u, v) for u, Gu in G.adj.items() for v in Gu if v != u)
+
+    if length_bound is not None and length_bound == 2:
+        if directed:
+            visited = set()
+            for u, Hu in H.adj.items():
+                yield from (
+                    [v, u] for v in visited.intersection(Hu) if H.has_edge(v, u)
+                )
+                visited.add(u)
+        return
+
+    if directed:
+        components = [c for c in strongly_connected_components(H) if len(c) >= 2]
+        while components:
+            c = components.pop()
+            Hc = H.subgraph(c)
+            v = next(iter(c))
+            if length_bound is None:
+                yield from _johnson_cycle_search_fnx(Hc, [v])
+            else:
+                yield from _bounded_cycle_search_fnx(Hc, [v], length_bound)
+            H.remove_node(v)
+            components.extend(c for c in strongly_connected_components(Hc) if len(c) >= 2)
+    else:
+        components = [c for c in biconnected_components(H) if len(c) >= 3]
+        while components:
+            c = components.pop()
+            Hc = H.subgraph(c)
+            uv = list(next(iter(Hc.edges)))
+            H.remove_edge(*uv)
+            if length_bound is None:
+                yield from _johnson_cycle_search_fnx(Hc, uv)
+            else:
+                yield from _bounded_cycle_search_fnx(Hc, uv, length_bound)
+            components.extend(c for c in biconnected_components(Hc) if len(c) >= 3)
 
 
 def find_cycle(G, source=None, orientation=None):
@@ -30859,13 +31372,23 @@ def read_graphml(
         node_type is str
         and edge_key_type is int
         and not force_multigraph
-        and (isinstance(path, str) or hasattr(path, "__fspath__"))
     ):
-        try:
-            with open(path, "rb") as _fh:
-                _content = _fh.read()
-        except Exception:
-            _content = None
+        _content = None
+        if isinstance(path, str) or hasattr(path, "__fspath__"):
+            if not str(path).endswith((".gz", ".bz2", ".xz")):
+                try:
+                    with open(path, "rb") as _fh:
+                        _content = _fh.read()
+                except Exception:
+                    _content = None
+        elif hasattr(path, "read"):
+            try:
+                _raw = path.read()
+                _content = (
+                    _raw.encode("utf-8") if isinstance(_raw, str) else bytes(_raw)
+                )
+            except Exception:
+                _content = None
         if _content is not None:
             return parse_graphml(_content)
     return _read_graphml_via_nx(
@@ -38704,12 +39227,19 @@ def hoffman_singleton_graph():
 
 
 def _hoffman_singleton_impl():
-    """Internal helper that delegates to nx. Kept out of the public
-    ``hoffman_singleton_graph`` function body so the coverage
-    classifier doesn't flag the public API as NX_DELEGATED."""
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(_nx.hoffman_singleton_graph(backend="networkx"))
+    """Construct the Hoffman-Singleton graph with NetworkX canonical labelling."""
+    G = Graph()
+    for i in range(5):
+        for j in range(5):
+            G.add_edge(("pentagon", i, j), ("pentagon", i, (j - 1) % 5))
+            G.add_edge(("pentagon", i, j), ("pentagon", i, (j + 1) % 5))
+            G.add_edge(("pentagram", i, j), ("pentagram", i, (j - 2) % 5))
+            G.add_edge(("pentagram", i, j), ("pentagram", i, (j + 2) % 5))
+            for k in range(5):
+                G.add_edge(("pentagon", i, j), ("pentagram", k, (i * k + j) % 5))
+    G = convert_node_labels_to_integers(G)
+    G.graph["name"] = "Hoffman-Singleton Graph"
+    return G
 
 
 def tutte_graph(create_using=None):
@@ -66760,6 +67290,7 @@ def parse_graphml(
         and edge_key_type is int
         and not force_multigraph
         and _text is not None
+        and _rust_get_compatibility_mode() != "hardened"
     ):
         # Cheap pre-check to AVOID double-parsing an nx-written multigraph: nx
         # emits an ``id=`` attribute on every edge ONLY for multigraphs, so if the
@@ -66796,7 +67327,15 @@ def parse_graphml(
             ):
                 return _native
 
-    graph = read_graphml(_io.BytesIO(payload))
+    if _rust_get_compatibility_mode() == "hardened":
+        graph = read_graphml(_io.BytesIO(payload))
+    else:
+        graph = _read_graphml_via_nx(
+            _io.BytesIO(payload),
+            node_type=str,
+            edge_key_type=int,
+            force_multigraph=False,
+        )
 
     if node_type is not str:
         mapping = {node: node_type(node) for node in list(graph.nodes())}
@@ -69277,7 +69816,99 @@ def k_components(G, flow_func=None):
                 if components:
                     result[1] = components
                 return result
+    if (
+        flow_func is None
+        and isinstance(G, (Graph, MultiGraph))
+        and "_adj" not in getattr(G, "__dict__", ())
+        and getattr(type(G), "_adj", None) in (Graph._adj, MultiGraph._adj)
+    ):
+        return _k_components_moody_white_fnx(G)
     return _k_components_inproc(G, flow_func=flow_func)
+
+
+def _k_components_consolidate_fnx(sets, k):
+    H = Graph()
+    nodes = dict(enumerate(sets))
+    H.add_nodes_from(nodes)
+    H.add_edges_from(
+        (u, v)
+        for u, v in _itertools.combinations(nodes, 2)
+        if len(nodes[u] & nodes[v]) >= k
+    )
+    for component in connected_components(H):
+        yield set.union(*[nodes[n] for n in component])
+
+
+def _k_components_generate_partition_fnx(G, cuts, k):
+    def has_nbrs_in_partition(node, partition):
+        return any(n in partition for n in G[node])
+
+    components = []
+    n_in_cuts = {n for cut in cuts for n in cut}
+    nodes = {n for n, d in G.degree() if d > k} - n_in_cuts
+    H = G.subgraph(nodes).copy()
+    for cc in map(set, connected_components(H)):
+        component = cc | {n for n in n_in_cuts if has_nbrs_in_partition(n, cc)}
+        if len(component) < G.order():
+            components.append(component)
+    yield from _k_components_consolidate_fnx(components, k + 1)
+
+
+def _k_components_reconstruct_fnx(k_comps):
+    result = {}
+    max_k = max(k_comps) if k_comps else 0
+    for k in range(max_k, 0, -1):
+        if k == max_k:
+            result[k] = list(_k_components_consolidate_fnx(k_comps[k], k))
+        elif k not in k_comps:
+            result[k] = list(_k_components_consolidate_fnx(result[k + 1], k))
+        else:
+            nodes_at_k = set.union(*k_comps[k])
+            to_add = [c for c in result[k + 1] if any(n not in nodes_at_k for n in c)]
+            if to_add:
+                result[k] = list(
+                    _k_components_consolidate_fnx(k_comps[k] + to_add, k)
+                )
+            else:
+                result[k] = list(_k_components_consolidate_fnx(k_comps[k], k))
+    return result
+
+
+def _k_components_moody_white_fnx(G):
+    k_comps = _defaultdict(list)
+    for component in connected_components(G):
+        comp = set(component)
+        if len(comp) > 1:
+            k_comps[1].append(comp)
+    bicomponents = [G.subgraph(c).copy() for c in biconnected_components(G)]
+    for bicomponent in bicomponents:
+        bicomp = set(bicomponent)
+        if len(bicomp) > 2:
+            k_comps[2].append(bicomp)
+    for B in bicomponents:
+        if len(B) <= 2:
+            continue
+        k = node_connectivity(B)
+        if k > 2:
+            k_comps[k].append(set(B))
+        cuts = list(all_node_cuts(B, k=k))
+        stack = [(k, _k_components_generate_partition_fnx(B, cuts, k))]
+        while stack:
+            parent_k, partition = stack[-1]
+            try:
+                nodes = next(partition)
+                C = B.subgraph(nodes).copy()
+                this_k = node_connectivity(C)
+                if this_k > parent_k and this_k > 2:
+                    k_comps[this_k].append(set(C))
+                cuts = list(all_node_cuts(C, k=this_k))
+                if cuts:
+                    stack.append(
+                        (this_k, _k_components_generate_partition_fnx(C, cuts, this_k))
+                    )
+            except StopIteration:
+                stack.pop()
+    return _k_components_reconstruct_fnx(k_comps)
 
 
 def k_factor(G, k, matching_weight="weight"):
