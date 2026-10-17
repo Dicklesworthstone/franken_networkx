@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build source-bound wheels and a native-library proof payload inside DSR.
 
 DSR collects the extension extracted from the primary wheel as its native
@@ -24,7 +23,6 @@ from email import policy
 from pathlib import Path, PurePosixPath
 
 import tomllib
-
 
 _BUILD_INPUTS = (
     "Cargo.toml", "Cargo.lock", "pyproject.toml", "rust-toolchain.toml",
@@ -160,6 +158,9 @@ def bind_artifact(path, kind, candidate_id):
             record["python_members"] = {name: hashlib.sha256(_zip_regular_bytes(archive, name)).hexdigest()
                                         for name in archive.namelist()
                                         if name.endswith((".py", ".pyi"))}
+    elif kind == "release_evidence":
+        with tarfile.open(path, "r:gz") as archive:
+            record.update(release_evidence_inventory(archive, candidate_id))
     if _regular_hash(path) != record["sha256"]:
         raise ValueError(f"candidate artifact moved during binding: {path}")
     return record
@@ -177,7 +178,7 @@ def verify_artifact_binding(binding):
         raise ValueError("missing required candidate fields")
     kinds = set()
     for record in binding["artifacts"]:
-        if record.get("candidate_id") != binding["candidate_id"] or record.get("kind") not in ("wheel", "sdist", "native"):
+        if record.get("candidate_id") != binding["candidate_id"] or record.get("kind") not in ("wheel", "sdist", "native", "release_evidence"):
             raise ValueError("artifact belongs to a different candidate")
         if not all(record.get(key) for key in ("path", "sha256")):
             raise ValueError("missing artifact binding fields")
@@ -303,6 +304,99 @@ def validate_sdist_licenses(archive, version, source_licenses):
     return metadata
 
 
+def release_evidence_inventory(archive, candidate_id):
+    """Check the exact regular member set before any extraction/execution."""
+    members = archive.getmembers()
+    names = [member.name for member in members]
+    if (len(names) != len(set(names)) or len(names) > 50_004
+            or any(not member.isfile() or member.size <= 0 or member.size > 400 * 1024**2 for member in members)):
+        raise ValueError("invalid, duplicate or oversized release evidence members")
+    candidate = json.loads(_tar_regular_bytes(archive, "evidence/candidate.json"))
+    if _json_hash(candidate) != candidate_id:
+        raise ValueError("release evidence belongs to a different candidate")
+    manifest_bytes = _tar_regular_bytes(archive, "evidence/input-manifest.json")
+    manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
+    if manifest_sha not in candidate["inputs"]["configs"].values():
+        raise ValueError("release evidence manifest was not bound before compilation")
+    manifest = json.loads(manifest_bytes)
+    bundle = json.loads(_tar_regular_bytes(archive, "evidence/bundle.json"))
+    classes = sorted({member["class"] for member in manifest["members"]})
+    if (manifest.get("schema") != "fnx-release-evidence-input-v1"
+            or classes != sorted(["conformance_fixtures", "benchmark_baselines", "migration_manifests",
+                                  "reproducibility_ledgers", "long_lived_snapshots"])
+            or not 0 < len(manifest["members"]) <= 10_000
+            or bundle.get("schema") != "fnx-release-evidence-bundle-v1"
+            or bundle.get("candidate_id") != candidate_id
+            or [record["member"] for record in bundle["members"]] != manifest["members"]):
+        raise ValueError("release evidence does not cover the exact five-class input inventory")
+    expected = {"evidence/candidate.json", "evidence/input-manifest.json", "evidence/bundle.json", "evidence/fnx-durability"}
+    expected.update(f"evidence/{index:05}/{name}" for index in range(len(manifest["members"]))
+                    for name in ("payload.bin", "recovered.bin", "payload.raptorq.json", "scrub.json"))
+    if set(names) != expected:
+        raise ValueError("release evidence archive member set differs from its inventory")
+    return {"input_manifest_sha256": manifest_sha, "member_count": len(manifest["members"]),
+            "classes": classes, "durability_binary_sha256": hashlib.sha256(
+                _tar_regular_bytes(archive, "evidence/fnx-durability")).hexdigest()}
+
+
+def verify_release_evidence_archive(path, candidate_id, expected_sha, verification_dir, trusted_binary):
+    """Re-decode with DSR's selected verifier; never execute archive contents."""
+    path, verification_dir = Path(path), Path(verification_dir)
+    if _regular_hash(path) != expected_sha:
+        raise ValueError("release evidence archive hash mismatch")
+    with tarfile.open(path, "r:gz") as archive:
+        inventory = release_evidence_inventory(archive, candidate_id)
+        binary = Path(trusted_binary).absolute()
+        if _regular_hash(binary) != inventory["durability_binary_sha256"]:
+            raise ValueError("trusted durability verifier differs from the bound archive")
+        verification_dir.mkdir()  # Never overwrite a previous verification.
+        for member in archive.getmembers():
+            destination = verification_dir / _safe_archive_path(member.name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("xb") as stream:
+                stream.write(_tar_regular_bytes(archive, member.name))
+    if _regular_hash(path) != expected_sha or _regular_hash(binary) != inventory["durability_binary_sha256"]:
+        raise ValueError("archive or trusted verifier moved before decoding")
+    report = json.loads(subprocess.check_output(
+        [str(binary), "verify-release-bundle", str(verification_dir / "evidence"), candidate_id], timeout=600))
+    if report["candidate_id"] != candidate_id or len(report["members"]) != inventory["member_count"]:
+        raise ValueError("live durability verifier did not cover the archived member set")
+    if _regular_hash(path) != expected_sha:
+        raise ValueError("release evidence archive moved during verification")
+    if _regular_hash(binary) != inventory["durability_binary_sha256"]:
+        raise ValueError("trusted durability verifier moved during verification")
+    return inventory
+
+
+def package_release_evidence(root, manifest_path, output, candidate, binary, payload_root=None):
+    """The production path: original payloads, real sidecars, and live repair."""
+    manifest_path, output, binary = Path(manifest_path).absolute(), Path(output), Path(binary).absolute()
+    if candidate["inputs"]["configs"].get(str(manifest_path)) != _regular_hash(manifest_path):
+        raise ValueError("release evidence manifest must be frozen before candidate compilation")
+    candidate_id = _json_hash(candidate)
+    bundle = output / "release-evidence"
+    subprocess.run([str(binary), "release-bundle", str(manifest_path), str(payload_root or root), str(bundle), candidate_id],
+                   check=True, timeout=600)
+    with (bundle / "candidate.json").open("x") as stream:
+        json.dump(candidate, stream, sort_keys=True, indent=2)
+    binary_sha = _regular_hash(binary)
+    with (bundle / "fnx-durability").open("xb") as stream, binary.open("rb") as source:
+        shutil.copyfileobj(source, stream)
+    if _regular_hash(binary) != binary_sha or _regular_hash(bundle / "fnx-durability") != binary_sha:
+        raise ValueError("durability binary moved during packaging")
+    version = tomllib.loads((Path(root) / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+    path = output / f"franken_networkx-{version}-release-evidence.tar.gz"
+    with tarfile.open(path, "x:gz") as archive:
+        for member in sorted(bundle.rglob("*")):
+            if member.is_symlink():
+                raise ValueError("linked release evidence cannot be archived")
+            if member.is_file():
+                archive.add(member, arcname="evidence/" + member.relative_to(bundle).as_posix(), recursive=False)
+    record = bind_artifact(path, "release_evidence", candidate_id)
+    verify_release_evidence_archive(path, candidate_id, record["sha256"], output / "release-evidence-verification", binary)
+    return record
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     if not os.environ.get("DSR_RUN_ID"):
@@ -311,11 +405,17 @@ def main():
     configs = build_configuration_paths(root, config_dir,
                                        Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")),
                                        Path(os.environ.get("DSR_REPOS_FILE", config_dir / "repos.yaml")))
+    target = os.environ["CARGO_BUILD_TARGET"]
+    evidence_manifest = os.environ.get("FNX_DSR_EVIDENCE_MANIFEST") if target == "x86_64-unknown-linux-gnu" else None
+    if target == "x86_64-unknown-linux-gnu" and os.environ.get("FNX_DSR_REQUIRE_EVIDENCE") == "1" and not evidence_manifest:
+        raise SystemExit("DSR release build requires FNX_DSR_EVIDENCE_MANIFEST with actual payloads in all five classes")
+    if evidence_manifest:
+        configs.append(Path(evidence_manifest).absolute())
+        _regular_hash(configs[-1])
     _regular_hash(configs[0])  # The selected DSR configuration is mandatory, not optional.
     frozen = snapshot_build_inputs(root, configs)
     version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     source_licenses = {"LICENSE": (root / "LICENSE").read_bytes()}
-    target = os.environ["CARGO_BUILD_TARGET"]
     if sys.platform == "darwin" and shutil.disk_usage("/").free < 15 * 1024**3:
         raise SystemExit("Darwin host root has less than the required 15 GiB free")
     target_dir = Path(os.environ["CARGO_TARGET_DIR"]).absolute()
@@ -447,6 +547,21 @@ def main():
             if f"franken_networkx-{version}/python/fnx_backend_info.py" not in archive.getnames():
                 raise SystemExit("backend discovery shim missing from the source distribution")
         artifacts.append(bind_artifact(sdist, "sdist", candidate_id))
+        if evidence_manifest:
+            require_same_inputs(root, frozen, configs)
+            env = os.environ.copy()
+            env.update(RCH_REQUIRE_REMOTE="1", CARGO_BUILD_JOBS="2")
+            subprocess.run(["rch", "exec", "--base", frozen["head"], "--clean-overlay",
+                            "--overlay-path", "Cargo.toml", "--overlay-path", "Cargo.lock",
+                            "--overlay-path", "rust-toolchain.toml", "--overlay-path", "crates/fnx-durability",
+                            "--overlay-path", ".cargo",
+                            "--", "cargo", "build", "--locked", "--release", "-j", "2",
+                            "--target", target, "-p", "fnx-durability", "--bin", "fnx-durability"],
+                           cwd=root, env=env, check=True, timeout=1800)
+            require_same_inputs(root, frozen, configs)
+            artifacts.append(package_release_evidence(
+                root, evidence_manifest, output, candidate, target_dir / target / "release/fnx-durability",
+                payload_root=Path(os.environ.get("FNX_DSR_EVIDENCE_ROOT", root))))
     require_same_inputs(root, frozen, configs)
     binding = {"schema": "fnx-dsr-build-binding-v1", "candidate": candidate,
                "candidate_id": candidate_id, "artifacts": artifacts}
@@ -482,8 +597,25 @@ def verify_main():
     print(json.dumps(report, sort_keys=True), flush=True)
 
 
+def verify_evidence_main():
+    parser = argparse.ArgumentParser(description="Re-decode DSR-selected release evidence in a fresh retained directory")
+    parser.add_argument("--verify-evidence", type=Path, required=True)
+    parser.add_argument("--expected-candidate", required=True)
+    parser.add_argument("--expected-sha", required=True)
+    parser.add_argument("--verification-dir", type=Path, required=True)
+    parser.add_argument("--durability-bin", type=Path, required=True,
+                        help="trusted verifier selected by DSR, not an executable from an unverified archive")
+    args = parser.parse_args()
+    if not os.environ.get("DSR_RUN_ID"):
+        raise SystemExit("release evidence verification must be invoked by DSR")
+    print(json.dumps(verify_release_evidence_archive(args.verify_evidence, args.expected_candidate,
+                                                   args.expected_sha, args.verification_dir, args.durability_bin), sort_keys=True), flush=True)
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         main()
+    elif "--verify-evidence" in sys.argv:
+        verify_evidence_main()
     else:
         verify_main()

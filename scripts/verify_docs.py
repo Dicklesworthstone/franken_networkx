@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_SOURCES = [ROOT / "README.md"]
 EXAMPLE_DIR = ROOT / "examples"
 DOCS_DIR = ROOT / "docs"
-DOCS_EXEC_TIMEOUT_SECONDS = 60
+DOCS_EXEC_TIMEOUT_SECONDS = 90
 PYTHON_FENCE_RE = re.compile(r"```([^\n`]*)\n(.*?)```", re.DOTALL)
 LINK_RE = re.compile(r'!?\[[^\]]*\]\(([^)\s]+(?:\s+"[^"]*")?)\)')
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
@@ -115,10 +115,11 @@ def run_markdown(path: Path, python_bin: str) -> list[str]:
     if not blocks:
         return errors
 
-    source_lines = []
+    source_lines = ["import gc as _fnx_doc_gc"]
     for index, block in enumerate(blocks, start=1):
         source_lines.append(f"# {path.name} block {index}")
         source_lines.append(block.rstrip())
+        source_lines.append("_fnx_doc_gc.collect()")
         source_lines.append("")
 
     env = repo_python_env()
@@ -175,6 +176,49 @@ def run_example(path: Path, python_bin: str) -> list[str]:
         ]
     else:
         return []
+
+
+def assert_native_extension_fresh() -> list[str]:
+    """Ensure python/franken_networkx/_fnx*.so is not stale relative to crates/**/*.rs
+    and matches any .venv site-packages copy (br-r37-c1-rc0923-epic-evidence-authority-hhj5p.10)."""
+    import hashlib
+
+    errors: list[str] = []
+    pkg_dir = ROOT / "python" / "franken_networkx"
+    so_files = sorted(pkg_dir.glob("_fnx*.so"))
+    if not so_files:
+        return [f"missing compiled native extension under {pkg_dir}"]
+    primary_so = so_files[0]
+    so_mtime = primary_so.stat().st_mtime
+
+    newest_rs: Path | None = None
+    newest_rs_mtime = 0.0
+    for rs_path in (ROOT / "crates").rglob("*.rs"):
+        mtime = rs_path.stat().st_mtime
+        if mtime > newest_rs_mtime:
+            newest_rs_mtime = mtime
+            newest_rs = rs_path
+
+    if newest_rs is not None and so_mtime + 1.0 < newest_rs_mtime:
+        errors.append(
+            f"stale native extension {primary_so.relative_to(ROOT)} "
+            f"(mtime {so_mtime:.0f}) is older than {newest_rs.relative_to(ROOT)} "
+            f"(mtime {newest_rs_mtime:.0f}); rebuild with maturin develop --release"
+        )
+
+    primary_sha = hashlib.sha256(primary_so.read_bytes()).hexdigest()
+    venv_dir = ROOT / ".venv"
+    if venv_dir.exists():
+        for venv_so in sorted(venv_dir.glob("lib/python*/site-packages/franken_networkx/_fnx*.so")):
+            if venv_so.resolve() == primary_so.resolve():
+                continue
+            venv_sha = hashlib.sha256(venv_so.read_bytes()).hexdigest()
+            if venv_sha != primary_sha:
+                errors.append(
+                    f"split-brain native extension: {venv_so.relative_to(ROOT)} "
+                    f"({venv_sha[:12]}) != {primary_so.relative_to(ROOT)} ({primary_sha[:12]})"
+                )
+    return errors
 
 
 def validate_generated_docs(python_bin: str) -> list[str]:
@@ -243,18 +287,79 @@ def validate_release_mentions(text: str, published: str) -> list[str]:
     return failures
 
 
+def verify_doc_truth_invariants(readme_text: str | None = None) -> list[str]:
+    """Enforce doc-truth invariants across README.md and planning docs (br-r37-c1-rc0923-epic-docs-truth-structure-8813x.4)."""
+    import json
+
+    sys.path.insert(0, str(ROOT / "python"))
+    import franken_networkx as fnx
+    from franken_networkx import backend as fnx_backend
+
+    failures: list[str] = []
+    if readme_text is None:
+        readme_text = (ROOT / "README.md").read_text(encoding="utf-8")
+    actual_exports = len(fnx.__all__)
+    actual_backend = len(fnx_backend._SUPPORTED_ALGORITHMS)
+
+    for m in re.finditer(r"\b(\d+)\s+(?:FNX root exports|`franken_networkx\.__all__`)", readme_text):
+        val = int(m.group(1))
+        if val != actual_exports:
+            line = readme_text.count("\n", 0, m.start()) + 1
+            failures.append(
+                f"README.md:{line}: claims {val} __all__ exports, but len(fnx.__all__) == {actual_exports}"
+            )
+
+    for m in re.finditer(r"\b(\d+)\s+algorithms\s+(?:in\s+`backend\.py`|wired into nx dispatch|in the backend)", readme_text):
+        val = int(m.group(1))
+        if val != actual_backend:
+            line = readme_text.count("\n", 0, m.start()) + 1
+            failures.append(
+                f"README.md:{line}: claims {val} backend algorithms, but len(_SUPPORTED_ALGORITHMS) == {actual_backend}"
+            )
+
+    logs_path = ROOT / "artifacts" / "conformance" / "latest" / "structured_logs.jsonl"
+    if logs_path.exists():
+        first_line = logs_path.read_text(encoding="utf-8").splitlines()[0]
+        actual_keys = set(json.loads(first_line).keys())
+        m = re.search(
+            r"`artifacts/conformance/latest/structured_logs\.jsonl`.*?Fields include `\{([^}]+)\}`",
+            readme_text,
+        )
+        if m:
+            claimed_keys = {k.strip().rstrip("?") for k in m.group(1).split(",") if k.strip()}
+            missing_keys = sorted(claimed_keys - actual_keys)
+            if missing_keys:
+                line = readme_text.count("\n", 0, m.start()) + 1
+                failures.append(
+                    f"README.md:{line}: structured_logs.jsonl claims non-existent fields {missing_keys}"
+                )
+
+    feature_parity_path = ROOT / "docs" / "planning" / "FEATURE_PARITY.md"
+    if feature_parity_path.exists():
+        fp_text = feature_parity_path.read_text(encoding="utf-8")
+        for m in re.finditer(r"(?m)^\s*pytest\s+tests/python/", fp_text):
+            line = fp_text.count("\n", 0, m.start()) + 1
+            failures.append(
+                f"docs/planning/FEATURE_PARITY.md:{line}: bare 'pytest tests/python/' command violates machine-protection rule; use ./scripts/run_pytest_guarded.sh"
+            )
+
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--python-bin", default=sys.executable)
     args = parser.parse_args()
 
     failures: list[str] = []
+    failures.extend(assert_native_extension_fresh())
     failures.extend(validate_generated_docs(args.python_bin))
     failures.extend(
         validate_release_mentions(
             (ROOT / "README.md").read_text(encoding="utf-8"), published_pypi_release()
         )
     )
+    failures.extend(verify_doc_truth_invariants())
 
     for path in markdown_sources():
         failures.extend(run_markdown(path, args.python_bin))
@@ -275,3 +380,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

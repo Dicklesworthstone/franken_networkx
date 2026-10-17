@@ -82,6 +82,7 @@ from __future__ import annotations
 import argparse
 import gc
 import hashlib
+import math
 import os
 import platform
 import random
@@ -3159,7 +3160,112 @@ def workload_claim_attr_batch(reps: int):
     return build, ops
 
 
+def _make_claim_incumbent_workload(job_name: str):
+    """Bridge a preregistered suite_claim_incumbent() job into balanced_square_ab."""
+
+    def _workload(reps: int):
+        try:
+            from scripts import perf_harness
+        except ModuleNotFoundError:
+            import perf_harness
+
+        prev = os.environ.get("FNX_CLAIM_INCUMBENT_JOBS")
+        os.environ["FNX_CLAIM_INCUMBENT_JOBS"] = job_name
+        try:
+            rows = perf_harness.suite_claim_incumbent()
+        finally:
+            if prev is None:
+                os.environ.pop("FNX_CLAIM_INCUMBENT_JOBS", None)
+            else:
+                os.environ["FNX_CLAIM_INCUMBENT_JOBS"] = prev
+        if len(rows) != 1:
+            raise RuntimeError(f"Expected 1 row for {job_name}, got {len(rows)}")
+        label, nx_arm, fnx_arm = rows[0]
+
+        def build(module):
+            return module.Graph(), (nx_arm if module is nx else fnx_arm)
+
+        def ops(_graph, arm_fn):
+            def run_many():
+                res = None
+                for _ in range(reps):
+                    res = arm_fn()
+                return res
+
+            return {label: run_many}
+
+        return build, ops
+
+    return _workload
+
+
+def workload_bitpar_grid_1600(_reps: int):
+    """40x40 grid (1600 nodes, 3120 edges) vs-incumbent rows for bitpar consumers (lex6h)."""
+    ref = nx.convert_node_labels_to_integers(nx.grid_2d_graph(40, 40))
+    nodes = list(ref.nodes())
+    edges = list(ref.edges())
+
+    def build(module):
+        g = module.Graph()
+        g.add_nodes_from(nodes)
+        g.add_edges_from(edges)
+        return g, module
+
+    def ops(graph, module):
+        return {
+            "grid40x40 diameter": lambda: module.diameter(graph),
+            "grid40x40 aspl": lambda: module.average_shortest_path_length(graph),
+            "grid40x40 closeness": lambda: module.closeness_centrality(graph),
+            "grid40x40 harmonic": lambda: module.harmonic_centrality(graph),
+        }
+
+    return build, ops
+
+
+def workload_bitpar_arms_grid_1600(reps: int):
+    """40x40 grid (1600 nodes, 3120 edges) persource vs auto arm comparison (lex6h)."""
+    ref = nx.convert_node_labels_to_integers(nx.grid_2d_graph(40, 40))
+    nodes = list(ref.nodes())
+    edges = list(ref.edges())
+    g_fx = fnx.Graph()
+    g_fx.add_nodes_from(nodes)
+    g_fx.add_edges_from(edges)
+
+    def build(module):
+        g = module.Graph()
+        g.add_nodes_from(nodes)
+        g.add_edges_from(edges)
+        arm = "persource" if module is nx else "auto"
+        return g, arm
+
+    def ops(_graph, arm):
+        def _repeat(fn):
+            out = None
+            for _ in range(reps):
+                out = fn()
+            return out
+
+        return {
+            "arm persource/auto diameter": lambda: _repeat(
+                lambda: _fnx_ext._distance_measures_arm(g_fx, arm)
+            ),
+            "arm persource/auto aspl": lambda: _repeat(
+                lambda: _fnx_ext._average_shortest_path_length_arm(g_fx, arm)
+            ),
+            "arm persource/auto closeness": lambda: _repeat(
+                lambda: _fnx_ext._closeness_centrality_arm(g_fx, arm)
+            ),
+            "arm persource/auto harmonic": lambda: _repeat(
+                lambda: _fnx_ext._harmonic_centrality_arm(g_fx, arm)
+            ),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
+    "bitpar-grid-1600": workload_bitpar_grid_1600,
+    "bitpar-arms-grid-1600": workload_bitpar_arms_grid_1600,
     "claim-add-edge": workload_claim_add_edge,
     "claim-attr-batch": workload_claim_attr_batch,
     "claim-convert-node-attrs": workload_claim_convert_node_attrs,
@@ -3199,6 +3305,12 @@ WORKLOADS = {
     "claim-preferential-attachment": workload_claim_preferential_attachment,
     "claim-adj-descriptor": workload_claim_adj_descriptor,
     "claim-k-corona": workload_claim_k_corona,
+    "claim-k-crust": _make_claim_incumbent_workload("k_crust"),
+    "claim-erdos-renyi": _make_claim_incumbent_workload("erdos_renyi_graph"),
+    "claim-minimum-branching": _make_claim_incumbent_workload("minimum_branching"),
+    "claim-partition-spanning-tree": _make_claim_incumbent_workload(
+        "partition_spanning_tree"
+    ),
     "claim-bidirectional-dijkstra": workload_claim_bidirectional_dijkstra,
     "claim-label-propagation": workload_claim_label_propagation,
     "claim-kosaraju": workload_claim_kosaraju,
@@ -3477,6 +3589,80 @@ def bootstrap_ci(values, iters: int = 4000, seed: int = 3):
     return medians[int(0.025 * iters)], medians[int(0.975 * iters)]
 
 
+def anytime_valid_median_cs(
+    values,
+    *,
+    alpha: float = 0.05,
+    rho: float = 0.5,
+) -> tuple[float, float]:
+    """Nonparametric anytime-valid (1 - alpha) confidence sequence for the median.
+
+    br-r37-c1-rc0923-epic-honest-measurement-vbneu.4:
+    Mathematical derivation (Robbins-Siegmund 1970 normal-mixture martingale +
+    Ville 1939 maximal inequality inverted on the sign-test process):
+
+    1. For any candidate population median m, let B_t(m) = I(X_t > m). Under the
+       null hypothesis that the continuous per-round ratio distribution has
+       median m (which holds for the balanced ABBAABBA square under equal arms
+       even in the presence of linear drift and arbitrary heavy-tailed symmetric
+       or median-zero noise), B_1(m), ..., B_n(m) are independent Bernoulli(1/2)
+       variables, so centered increments Z_t(m) = B_t(m) - 1/2 are 1/2-sub-Gaussian:
+           E[exp(lambda * Z_t(m)) | F_{t-1}] = cosh(lambda / 2) <= exp(lambda^2 / 8).
+
+    2. Mixing exp(lambda * S_n(m) - n * lambda^2 * sigma^2 / 2) with sigma^2 = 1/4
+       against a N(0, rho^2) prior on lambda yields the Robbins-Siegmund
+       non-negative supermartingale with M_0(m) = 1:
+           M_n(m) = (1 + n * sigma^2 * rho^2)^(-1/2)
+                    * exp(rho^2 * S_n(m)^2 / (2 * (1 + n * sigma^2 * rho^2))).
+
+    3. By Ville's maximal inequality, P(exists n >= 1 : M_n(m) >= 1 / alpha) <= alpha.
+       Inverting M_n(m) < 1 / alpha gives the time-uniform rank half-width:
+           Delta_n(alpha, rho) = sqrt(
+               ((1 + n * sigma^2 * rho^2) / rho^2)
+               * ln((1 + n * sigma^2 * rho^2) / alpha^2)
+           ).
+
+    4. In terms of the sorted order statistics X_(1) <= ... <= X_(n), every m
+       outside [X_(lo), X_(hi)] has |S_n(m)| >= Delta_n(alpha, rho), where
+       (0-indexed):
+           lo = floor(n / 2 - Delta_n),   hi = ceil(n / 2 + Delta_n) - 1.
+       When n / 2 - Delta_n < 0 or n / 2 + Delta_n > n (sample size too small to
+       bound the median away from the tails), the interval expands to
+       (0.0, +inf) so optional stopping at early rounds cannot false-reject.
+    """
+    n = len(values)
+    if n == 0:
+        return (0.0, float("inf"))
+    ordered = sorted(values)
+    v_eff = 1.0 + 0.25 * n * (rho * rho)
+    delta = math.sqrt((v_eff / (rho * rho)) * math.log(v_eff / (alpha * alpha)))
+    lo_raw = 0.5 * n - delta
+    hi_raw = 0.5 * n + delta
+    low = 0.0 if lo_raw < 0.0 else float(ordered[max(0, int(math.floor(lo_raw)))])
+    high = (
+        float("inf")
+        if hi_raw > float(n)
+        else float(ordered[min(n - 1, int(math.ceil(hi_raw)) - 1)])
+    )
+    return (low, high)
+
+
+def cs_decide_row(*, verdict: str, cs_low: float, cs_high: float) -> str:
+    """Classify a row as WIN, LOSE, UNDECIDED, or VOID under the anytime-valid CS.
+
+    A row is eligible for a directional claim (WIN or LOSE) only when its
+    stationarity/placement gate passed (`verdict == "ADMISSIBLE"`) AND its
+    anytime-valid confidence sequence excludes 1.0.
+    """
+    if verdict not in ("ADMISSIBLE", "STRADDLES-1"):
+        return "VOID"
+    if verdict == "ADMISSIBLE" and cs_low > 1.0:
+        return "WIN"
+    if verdict == "ADMISSIBLE" and cs_high < 1.0:
+        return "LOSE"
+    return "UNDECIDED"
+
+
 def run_row(
     label: str,
     incumbent_fn,
@@ -3564,6 +3750,7 @@ def run_row(
     sibling_busy_pct = end_sibling_watch(sibling_watch)
     ratio = statistics.median(ratios)
     low, high = bootstrap_ci(ratios)
+    cs_low, cs_high = anytime_valid_median_cs(ratios)
     n_a, n_b = statistics.median(null_a), statistics.median(null_b)
     # br-r37-c1-gateaudit: NAME THE ARM THAT FAILED. `nulls_ok` is a conjunction,
     # so it is symmetric in FORM and dominated in PRACTICE by whichever arm is
@@ -3586,6 +3773,7 @@ def run_row(
         verdict = "STRADDLES-1"
     else:
         verdict = "ADMISSIBLE"
+    cs_verdict = cs_decide_row(verdict=verdict, cs_low=cs_low, cs_high=cs_high)
 
     # Per-ARM clock, and the asymmetry between them. `clock_skew` is the number
     # that matters for the RATIO: the arms interleave inside one square, so they
@@ -3614,6 +3802,8 @@ def run_row(
         "label": label,
         "ratio": ratio,
         "ci": (low, high),
+        "cs": (cs_low, cs_high),
+        "cs_verdict": cs_verdict,
         "null_incumbent": n_a,
         "null_fnx": n_b,
         "verdict": verdict,
@@ -3772,6 +3962,8 @@ def main(argv: list[str]) -> int:
         f"   null bound +/-{NULL_BOUND}"
     )
     admitted = 0
+    cs_wins = 0
+    cs_losses = 0
     skewed = 0
     sibling_contended = 0
     arm_exclusive_cpus = 0
@@ -3812,6 +4004,8 @@ def main(argv: list[str]) -> int:
             f"{placement}  {sibling}  {row['verdict']}"
         )
         admitted += row["verdict"] == "ADMISSIBLE"
+        cs_wins += row["cs_verdict"] == "WIN"
+        cs_losses += row["cs_verdict"] == "LOSE"
         skewed += bool(row["clock_skewed"])
         sibling_contended += row["verdict"] == "SIBLING-CONTENDED"
         if exclusive:
@@ -3840,6 +4034,7 @@ def main(argv: list[str]) -> int:
             f"(taskset -c N) and re-measure before quoting it."
         )
     print(f"  admitted rows            {admitted}/{len(selected)}")
+    print(f"  cs win/lose split        {cs_wins} WIN / {cs_losses} LOSE ({admitted} admitted)")
     if admitted == 0:
         print("  NO ADMISSIBLE ROW — do not quote any number from this run.")
     return 0

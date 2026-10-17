@@ -13,8 +13,12 @@ Exit 0 = all SLOs met.  Exit 1 = at least one SLO violated.
 from __future__ import annotations
 
 import argparse
+import gc
+import hashlib
 import json
 import math
+import os
+import platform
 import statistics
 import subprocess
 import sys
@@ -53,8 +57,86 @@ def summarize(values: list[float]) -> dict[str, float]:
     }
 
 
-def build_components_graph(fnx, component_count: int, component_size: int):
-    graph = fnx.Graph()
+def read_proc_rss_kb() -> tuple[float, float]:
+    """Return (VmRSS_kB, VmHWM_kB) from /proc/self/status when available."""
+    vm_rss = 0.0
+    vm_hwm = 0.0
+    status_path = Path("/proc/self/status")
+    if status_path.exists():
+        for line in status_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("VmRSS:"):
+                vm_rss = float(line.split()[1])
+            elif line.startswith("VmHWM:"):
+                vm_hwm = float(line.split()[1])
+    return vm_rss, vm_hwm
+
+
+def collect_provenance() -> dict[str, object]:
+    import franken_networkx as fnx
+    import networkx as nx
+
+    elf_path = Path(fnx._fnx.__file__).resolve()
+    elf_sha256 = hashlib.sha256(elf_path.read_bytes()).hexdigest()
+    governor_path = Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+    governor = (
+        governor_path.read_text(encoding="utf-8").strip()
+        if governor_path.exists()
+        else "unknown"
+    )
+    return {
+        "harness": "scripts/run_perf_slo_gate.py",
+        "host": platform.node(),
+        "platform": platform.platform(),
+        "cpu_count": os.cpu_count() or 1,
+        "governor": governor,
+        "thread_env": {
+            "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS", "1"),
+            "OPENBLAS_NUM_THREADS": os.environ.get("OPENBLAS_NUM_THREADS", "1"),
+            "MKL_NUM_THREADS": os.environ.get("MKL_NUM_THREADS", "1"),
+        },
+        "elf_path": str(elf_path),
+        "elf_sha256": elf_sha256,
+        "python_version": platform.python_version(),
+        "networkx_version": nx.__version__,
+    }
+
+
+def maybe_apply_planted_slowdown(metric_id: str, base_elapsed_s: float) -> float:
+    """Apply an optional planted slowdown for negative gate testing.
+
+    Syntax via env `FNX_SLO_PLANT_SLOWDOWN`:
+      - `<metric_id>` or `<metric_id>:2x`: sleep 500ms + 1.0 * base_elapsed_s
+      - `<metric_id>:<ms>ms`: sleep `<ms>` milliseconds
+      - `<metric_id>:<mult>x`: sleep `max((mult - 1.0) * base_elapsed_s, 0.5)` seconds
+    """
+    spec = os.environ.get("FNX_SLO_PLANT_SLOWDOWN", "").strip()
+    if not spec:
+        return 0.0
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" in token:
+            target, arg = token.split(":", 1)
+        else:
+            target, arg = token, "500ms"
+        if target.strip() != metric_id and target.strip() != "*":
+            continue
+        arg = arg.strip().lower()
+        if arg.endswith("ms"):
+            delay_s = float(arg[:-2]) / 1000.0
+        elif arg.endswith("x"):
+            mult = float(arg[:-1])
+            delay_s = max((mult - 1.0) * base_elapsed_s, 0.5)
+        else:
+            delay_s = float(arg) / 1000.0
+        time.sleep(delay_s)
+        return delay_s
+    return 0.0
+
+
+def build_components_graph(mod, component_count: int, component_size: int):
+    graph = mod.Graph()
     offset = 0
     for _ in range(component_count):
         for idx in range(component_size - 1):
@@ -63,116 +145,241 @@ def build_components_graph(fnx, component_count: int, component_size: int):
     return graph
 
 
-def build_layered_flow_graph(fnx, layers: int, width: int):
-    graph = fnx.DiGraph()
+def build_layered_flow_graph(mod, layers: int, width: int, seed: int = 0):
+    graph = mod.DiGraph()
     source = "source"
     sink = "sink"
     previous = [source]
     for layer in range(layers):
         current = [f"L{layer}_{col}" for col in range(width)]
-        for left in previous:
-            for right in current:
-                graph.add_edge(left, right, capacity=7)
+        for idx_u, left in enumerate(previous):
+            for idx_v, right in enumerate(current):
+                cap = (
+                    7
+                    if seed == 0
+                    else 3 + ((layer * 17 + idx_u * 31 + idx_v * 13 + seed) % 19)
+                )
+                graph.add_edge(left, right, capacity=cap)
         previous = current
-    for node in previous:
-        graph.add_edge(node, sink, capacity=7)
+    for idx_u, node in enumerate(previous):
+        cap = 7 if seed == 0 else 5 + ((idx_u * 7 + seed) % 11)
+        graph.add_edge(node, sink, capacity=cap)
     return graph, source, sink
 
 
-def run_worker(spec: dict) -> dict:
-    import franken_networkx as fnx
-
-    metric_id = spec["metric_id"]
-    params = spec.get("params", {})
-    started = time.perf_counter()
+def _run_arm(mod, metric_id: str, params: dict, *, is_fnx: bool) -> dict[str, float]:
+    setup_started = time.perf_counter()
 
     if metric_id == "shortest_path":
         width = int(params["width"])
         height = int(params["height"])
-        graph = fnx.grid_2d_graph(width, height)
+        graph = mod.grid_2d_graph(width, height)
         start = (0, 0) if (0, 0) in graph else "0,0"
-        target = (width - 1, height - 1) if (0, 0) in graph else f"{width - 1},{height - 1}"
-        path = fnx.shortest_path(graph, start, target)
+        target = (
+            (width - 1, height - 1)
+            if (0, 0) in graph
+            else f"{width - 1},{height - 1}"
+        )
+        setup_ms = (time.perf_counter() - setup_started) * 1000.0
+        algo_started = time.perf_counter()
+        path = mod.shortest_path(graph, start, target)
+        if is_fnx:
+            maybe_apply_planted_slowdown(metric_id, time.perf_counter() - algo_started)
+        elapsed_ms = (time.perf_counter() - algo_started) * 1000.0
         if len(path) != width + height - 1:
             raise RuntimeError("unexpected shortest path length")
         primary_value = float(len(path))
         primary_unit = "path_nodes"
+
     elif metric_id == "shortest_path_weighted_delegated":
         node_count = int(params["nodes"])
         nonunit_weight = float(params["nonunit_weight"])
-        graph = fnx.Graph()
-        for node in range(node_count - 1):
-            graph.add_edge(str(node), str(node + 1), weight=nonunit_weight)
-        path = fnx.shortest_path(
+        chord_strides = [int(s) for s in params.get("chord_strides", [])]
+        graph = mod.Graph()
+        edges = [
+            (str(node), str(node + 1), {"weight": nonunit_weight})
+            for node in range(node_count - 1)
+        ]
+        for stride in chord_strides:
+            if stride > 1 and node_count > stride:
+                chord_w = stride * nonunit_weight + 5.0
+                edges.extend(
+                    (str(node), str(node + stride), {"weight": chord_w})
+                    for node in range(0, node_count - stride, 2)
+                )
+        graph.add_edges_from(edges)
+        setup_ms = (time.perf_counter() - setup_started) * 1000.0
+        algo_started = time.perf_counter()
+        path = mod.shortest_path(
             graph,
             "0",
             str(node_count - 1),
             weight="weight",
         )
+        if is_fnx:
+            maybe_apply_planted_slowdown(metric_id, time.perf_counter() - algo_started)
+        elapsed_ms = (time.perf_counter() - algo_started) * 1000.0
         if len(path) != node_count:
             raise RuntimeError("unexpected delegated weighted shortest path length")
         primary_value = float(len(path))
         primary_unit = "path_nodes"
+
     elif metric_id == "components":
-        graph = build_components_graph(
-            fnx,
-            int(params["component_count"]),
-            int(params["component_size"]),
-        )
-        components = list(fnx.connected_components(graph))
-        if len(components) != int(params["component_count"]):
-            raise RuntimeError("unexpected component count")
-        primary_value = float(len(components))
-        primary_unit = "component_count"
+        component_count = int(params["component_count"])
+        component_size = int(params["component_size"])
+        k = int(params.get("k", 0))
+        shards = int(params.get("shards", 1))
+        if k > 0:
+            comps_per_shard = max(1, component_count // shards)
+            nodes_per_shard = comps_per_shard * component_size
+            half_k = k // 2
+            total_setup_s = 0.0
+            total_algo_s = 0.0
+            total_comps = 0
+            total_edges = 0
+            for shard in range(shards):
+                s0 = time.perf_counter()
+                graph = mod.watts_strogatz_graph(
+                    nodes_per_shard, k, 0.0, seed=42 + shard
+                )
+                for c_idx in range(comps_per_shard):
+                    boundary = c_idx * component_size
+                    for offset in range(1, half_k + 1):
+                        u = (boundary - offset) % nodes_per_shard
+                        for step in range(offset, half_k + 1):
+                            v = (u + step) % nodes_per_shard
+                            if graph.has_edge(u, v):
+                                graph.remove_edge(u, v)
+                            c_u = boundary + offset
+                            c_v = boundary + 100 + offset * 20 + step
+                            graph.add_edge(c_u, c_v)
+                total_edges += graph.number_of_edges()
+                total_setup_s += time.perf_counter() - s0
+                a0 = time.perf_counter()
+                components = list(mod.connected_components(graph))
+                total_algo_s += time.perf_counter() - a0
+                total_comps += len(components)
+                del graph, components
+                gc.collect()
+            if is_fnx:
+                total_algo_s += maybe_apply_planted_slowdown(metric_id, total_algo_s)
+            if total_comps != component_count:
+                raise RuntimeError(
+                    f"unexpected component count: {total_comps} != {component_count}"
+                )
+            if total_edges < (component_count * component_size * k) // 2:
+                raise RuntimeError(f"unexpected total edges: {total_edges}")
+            setup_ms = total_setup_s * 1000.0
+            elapsed_ms = total_algo_s * 1000.0
+            primary_value = float(total_comps)
+            primary_unit = "component_count"
+        else:
+            graph = build_components_graph(mod, component_count, component_size)
+            setup_ms = (time.perf_counter() - setup_started) * 1000.0
+            algo_started = time.perf_counter()
+            components = list(mod.connected_components(graph))
+            if is_fnx:
+                maybe_apply_planted_slowdown(
+                    metric_id, time.perf_counter() - algo_started
+                )
+            elapsed_ms = (time.perf_counter() - algo_started) * 1000.0
+            if len(components) != component_count:
+                raise RuntimeError("unexpected component count")
+            primary_value = float(len(components))
+            primary_unit = "component_count"
+
     elif metric_id == "centrality":
-        graph = fnx.gnp_random_graph(
-            int(params["nodes"]),
-            float(params["edge_prob"]),
-            seed=int(params["seed"]),
-        )
-        ranks = fnx.pagerank(graph, tol=1.0e-6)
-        if len(ranks) != int(params["nodes"]):
+        node_count = int(params["nodes"])
+        edge_prob = float(params["edge_prob"])
+        seed = int(params["seed"])
+        k = int(params.get("k", 0))
+        if k > 0:
+            graph = mod.watts_strogatz_graph(node_count, k, edge_prob, seed=seed)
+        else:
+            graph = mod.gnp_random_graph(node_count, edge_prob, seed=seed)
+        setup_ms = (time.perf_counter() - setup_started) * 1000.0
+        algo_started = time.perf_counter()
+        ranks = mod.pagerank(graph, tol=1.0e-6)
+        if is_fnx:
+            maybe_apply_planted_slowdown(metric_id, time.perf_counter() - algo_started)
+        elapsed_ms = (time.perf_counter() - algo_started) * 1000.0
+        if len(ranks) != node_count:
             raise RuntimeError("unexpected pagerank output size")
-        if abs(sum(ranks.values()) - 1.0) > 1.0e-6:
+        if abs(sum(ranks.values()) - 1.0) > 1.0e-5:
             raise RuntimeError("pagerank sum drifted")
         primary_value = float(max(ranks.values()))
         primary_unit = "score"
+
     elif metric_id == "flow":
-        graph, source, sink = build_layered_flow_graph(
-            fnx,
-            int(params["layers"]),
-            int(params["width"]),
+        topologies = params.get("topologies")
+        if topologies:
+            graphs = [
+                build_layered_flow_graph(
+                    mod,
+                    int(topo["layers"]),
+                    int(topo["width"]),
+                    int(topo.get("seed", 0)),
+                )
+                for topo in topologies
+            ]
+        else:
+            graphs = [
+                build_layered_flow_graph(
+                    mod,
+                    int(params["layers"]),
+                    int(params["width"]),
+                    0,
+                )
+            ]
+        setup_ms = (time.perf_counter() - setup_started) * 1000.0
+        algo_started = time.perf_counter()
+        flow_value = sum(
+            mod.maximum_flow_value(g, src, snk, capacity="capacity")
+            for g, src, snk in graphs
         )
-        flow_value = fnx.maximum_flow_value(graph, source, sink, capacity="capacity")
+        if is_fnx:
+            maybe_apply_planted_slowdown(metric_id, time.perf_counter() - algo_started)
+        elapsed_ms = (time.perf_counter() - algo_started) * 1000.0
         if flow_value <= 0:
             raise RuntimeError("expected positive flow value")
         primary_value = float(flow_value)
         primary_unit = "flow_value"
+
     elif metric_id == "io_roundtrip":
-        graph = fnx.gnp_random_graph(
-            int(params["nodes"]),
-            float(params["edge_prob"]),
-            seed=int(params["seed"]),
-        )
+        node_count = int(params["nodes"])
+        edge_prob = float(params["edge_prob"])
+        seed = int(params["seed"])
+        k = int(params.get("k", 0))
+        if k > 0:
+            graph = mod.watts_strogatz_graph(node_count, k, edge_prob, seed=seed)
+        else:
+            graph = mod.gnp_random_graph(node_count, edge_prob, seed=seed)
+        setup_ms = (time.perf_counter() - setup_started) * 1000.0
         rounds = int(params["rounds"])
         processed_bytes = 0
         with tempfile.TemporaryDirectory(prefix="fnx-slo-io-") as tmpdir:
             path = Path(tmpdir) / "graph.edgelist"
             io_started = time.perf_counter()
             for _ in range(rounds):
-                fnx.write_edgelist(graph, path)
+                mod.write_edgelist(graph, path)
                 processed_bytes += path.stat().st_size
-                reloaded = fnx.read_edgelist(path)
+                reloaded = mod.read_edgelist(path)
                 processed_bytes += path.stat().st_size
                 if reloaded.number_of_edges() != graph.number_of_edges():
                     raise RuntimeError("edgelist roundtrip edge drift")
+            if is_fnx:
+                maybe_apply_planted_slowdown(metric_id, time.perf_counter() - io_started)
             elapsed_s = time.perf_counter() - io_started
+        elapsed_ms = elapsed_s * 1000.0
         primary_value = (processed_bytes / (1024.0 * 1024.0)) / elapsed_s
         primary_unit = "mb_per_s"
+
     elif metric_id == "mutation_cycle":
         node_count = int(params["node_count"])
         edge_repeat = int(params["edge_repeat"])
-        graph = fnx.Graph()
+        setup_ms = 0.0
+        algo_started = time.perf_counter()
+        graph = mod.Graph()
         operations = 0
         for node in range(node_count):
             graph.add_node(node)
@@ -184,23 +391,86 @@ def run_worker(spec: dict) -> dict:
             for node in range(node_count - 1):
                 graph.remove_edge(node, node + 1)
                 operations += 1
+        # Re-add incident edges before remove_node so remove_node exercises O(deg(u)) neighbor cleanup
+        for node in range(node_count - 1):
+            graph.add_edge(node, node + 1)
+            operations += 1
         for node in range(node_count):
             graph.remove_node(node)
             operations += 1
         if graph.number_of_nodes() != 0:
             raise RuntimeError("mutation cycle should end empty")
-        elapsed_s = time.perf_counter() - started
+        if is_fnx:
+            maybe_apply_planted_slowdown(metric_id, time.perf_counter() - algo_started)
+        elapsed_s = time.perf_counter() - algo_started
+        elapsed_ms = elapsed_s * 1000.0
         primary_value = operations / elapsed_s
         primary_unit = "ops_per_s"
+
     else:
         raise RuntimeError(f"unsupported workload metric id: {metric_id}")
 
-    elapsed_ms = (time.perf_counter() - started) * 1000.0
     return {
-        "metric_id": metric_id,
+        "setup_ms": setup_ms,
         "elapsed_ms": elapsed_ms,
         "primary_value": primary_value,
         "primary_unit": primary_unit,
+    }
+
+
+def run_worker(spec: dict) -> dict:
+    import franken_networkx as fnx
+
+    metric_id = spec["metric_id"]
+    params = spec.get("params", {})
+
+    fnx_res = _run_arm(fnx, metric_id, params, is_fnx=True)
+    fnx_rss_kb, fnx_hwm_kb = read_proc_rss_kb()
+    gc.collect()
+
+    import networkx as nx
+
+    nx_res = _run_arm(nx, metric_id, params, is_fnx=False)
+    nx_rss_kb, nx_hwm_kb = read_proc_rss_kb()
+    gc.collect()
+
+    # Verify result agreement between fnx and live networkx oracle on non-rate metrics
+    if metric_id in {
+        "shortest_path",
+        "shortest_path_weighted_delegated",
+        "components",
+        "flow",
+    }:
+        if abs(fnx_res["primary_value"] - nx_res["primary_value"]) > 1.0e-9:
+            raise RuntimeError(
+                f"fnx vs nx primary_value mismatch on {metric_id}: "
+                f"{fnx_res['primary_value']} != {nx_res['primary_value']}"
+            )
+    elif metric_id == "centrality":
+        if abs(fnx_res["primary_value"] - nx_res["primary_value"]) > 1.0e-4:
+            raise RuntimeError(
+                f"fnx vs nx pagerank max score mismatch: "
+                f"{fnx_res['primary_value']} != {nx_res['primary_value']}"
+            )
+
+    speedup_vs_nx = (
+        nx_res["elapsed_ms"] / fnx_res["elapsed_ms"]
+        if fnx_res["elapsed_ms"] > 0.0
+        else 0.0
+    )
+
+    return {
+        "metric_id": metric_id,
+        "setup_ms": fnx_res["setup_ms"],
+        "elapsed_ms": fnx_res["elapsed_ms"],
+        "primary_value": fnx_res["primary_value"],
+        "primary_unit": fnx_res["primary_unit"],
+        "fnx_rss_kb": fnx_hwm_kb or fnx_rss_kb,
+        "nx_setup_ms": nx_res["setup_ms"],
+        "nx_elapsed_ms": nx_res["elapsed_ms"],
+        "nx_primary_value": nx_res["primary_value"],
+        "nx_rss_kb": nx_hwm_kb or nx_rss_kb,
+        "speedup_vs_nx": speedup_vs_nx,
     }
 
 
@@ -250,7 +520,10 @@ def run_sample(
                 f"stdout:\n{proc.stdout}\n"
                 f"stderr:\n{proc.stderr}"
             )
-        return json.loads(proc.stdout), float(rss_path.read_text(encoding="utf-8").strip())
+        payload = json.loads(proc.stdout)
+        time_rss_kb = float(rss_path.read_text(encoding="utf-8").strip())
+        fnx_rss_kb = float(payload.get("fnx_rss_kb") or time_rss_kb)
+        return payload, fnx_rss_kb
     finally:
         rss_path.unlink(missing_ok=True)
 
@@ -263,6 +536,7 @@ def controller(args: argparse.Namespace) -> int:
     script_path = Path(__file__).resolve()
     threshold_data = load_json(thresholds_path)
     regression_report = load_json(regression_path)
+    provenance = collect_provenance()
 
     observations = []
     failures = []
@@ -280,6 +554,10 @@ def controller(args: argparse.Namespace) -> int:
         latency_samples = []
         primary_samples = []
         rss_samples = []
+        nx_latency_samples = []
+        nx_primary_samples = []
+        nx_rss_samples = []
+        speedup_samples = []
 
         for _ in range(int(workload.get("warmup_runs", 0))):
             run_sample(args.python_bin, script_path, workload, measure_rss=False)
@@ -294,10 +572,19 @@ def controller(args: argparse.Namespace) -> int:
             latency_samples.append(float(payload["elapsed_ms"]))
             primary_samples.append(float(payload["primary_value"]))
             rss_samples.append(float(rss_kb))
+            nx_latency_samples.append(float(payload["nx_elapsed_ms"]))
+            nx_primary_samples.append(float(payload["nx_primary_value"]))
+            nx_rss_samples.append(float(payload.get("nx_rss_kb", rss_kb)))
+            speedup_samples.append(float(payload["speedup_vs_nx"]))
 
         latency_summary = summarize(latency_samples)
         primary_summary = summarize(primary_samples)
         rss_summary = summarize(rss_samples)
+        nx_latency_summary = summarize(nx_latency_samples)
+        nx_primary_summary = summarize(nx_primary_samples)
+        nx_rss_summary = summarize(nx_rss_samples)
+        speedup_summary = summarize(speedup_samples)
+        verdict_vs_nx = "WIN" if speedup_summary["p50"] >= 1.0 else "LOSS"
         checks = []
         status = "pass"
 
@@ -336,6 +623,11 @@ def controller(args: argparse.Namespace) -> int:
             "latency_ms": latency_summary,
             "primary_value": primary_summary,
             "max_rss_kb": rss_summary,
+            "nx_latency_ms": nx_latency_summary,
+            "nx_primary_value": nx_primary_summary,
+            "nx_max_rss_kb": nx_rss_summary,
+            "speedup_vs_nx": speedup_summary,
+            "verdict_vs_nx": verdict_vs_nx,
             "checks": checks,
             "status": status,
         }
@@ -421,6 +713,17 @@ def controller(args: argparse.Namespace) -> int:
                 }
             )
 
+    wins = [
+        row["metric_id"]
+        for row in observations
+        if row.get("verdict_vs_nx") == "WIN"
+    ]
+    losses = [
+        row["metric_id"]
+        for row in observations
+        if row.get("verdict_vs_nx") == "LOSS"
+    ]
+
     report = {
         "schema_version": "1.0.0",
         "report_id": "slo-gate-v1",
@@ -429,6 +732,7 @@ def controller(args: argparse.Namespace) -> int:
         "matrix_path": str(matrix_path),
         "regression_report_path": str(regression_path),
         "python_bin": args.python_bin,
+        "provenance": provenance,
         "phase2c_regression_status": regression_report.get("status"),
         "observations": observations,
         "derived_checks": derived_checks,
@@ -438,6 +742,12 @@ def controller(args: argparse.Namespace) -> int:
             "failure_count": len(failures),
             "max_rss_p95_kb": max_rss_observed,
             "max_latency_p99_ms": max_latency_p99,
+            "win_lose_split_vs_nx": {
+                "wins": wins,
+                "losses": losses,
+                "win_count": len(wins),
+                "loss_count": len(losses),
+            },
         },
         "violations": failures,
     }

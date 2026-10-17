@@ -18,6 +18,10 @@ VIRT_MEM_LIMIT_KB="${FNX_VIRT_MEM_LIMIT_KB:-16777216}"
 TIMEOUT_SECONDS="${FNX_TEST_TIMEOUT_SECS:-600}"
 # In-process RSS limit in MB (checked by conftest.py): default 4096 MB (4 GB)
 export FNX_TEST_MAX_RSS_MB="${FNX_TEST_MAX_RSS_MB:-4096}"
+export PYTHONHASHSEED="${PYTHONHASHSEED:-0}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 
 echo "[guarded-pytest] Setting virtual memory limit to $(( VIRT_MEM_LIMIT_KB / 1024 / 1024 )) GB..."
 ulimit -v "${VIRT_MEM_LIMIT_KB}" || {
@@ -36,5 +40,5 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
 fi
 
 echo "[guarded-pytest] Running pytest with timeout ${TIMEOUT_SECONDS}s and RSS limit ${FNX_TEST_MAX_RSS_MB} MB..."
-exec timeout --signal=KILL "${TIMEOUT_SECONDS}s" \
+exec timeout --foreground --signal=KILL "${TIMEOUT_SECONDS}s" \
     "${PYTHON_BIN}" -m pytest "$@"
