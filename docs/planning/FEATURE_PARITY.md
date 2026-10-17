@@ -18,7 +18,7 @@ is refreshed where applicable. Implementation completion alone does not count.
 
 ## Conformance Source of Truth
 
-- Canonical parity source: `pytest tests/python/`
+- Canonical parity source: `./scripts/run_pytest_guarded.sh <target_test_file.py>` (sharded full suite via `scripts/run_python_parity_suite.py --workers 4`)
 - Curated evidence layer: `fnx-conformance`
 
 The Python parity suite is the source of truth for observable
@@ -71,19 +71,20 @@ preserve NetworkX's `**attr` signature contract:
 - Verified across 24 well-formed parity fixtures, 24 malformed fail-closed/recovery fixtures,
   and planted negatives ensuring unknown incompatible features fail closed even in Hardened mode.
 
-## Declared Scope Boundary: Node-Key Equivalence (br-r37-c1-cow38)
+## Declared Scope Boundary: Node-Key Equivalence (`br-r37-c1-cow38`, updated in `br-r37-c1-epic-storage-architecture-yr2oc.5`)
 
-**Decision: a node key's identity is its VALUE, not a caller-supplied equivalence
-relation. Node-key types that redefine `__eq__`/`__hash__` to make distinct
-values compare equal are OUT OF SCOPE for V1.** This is a deliberate, recorded
-divergence, not an open defect.
+**Decision: non-primitive custom objects and tuples containing custom objects honor Python `__eq__`/`__hash__` (including hash collisions) via a bounded 65,536-entry canonical interner (`custom_object_canonical_key`, `yr2oc.5`), whereas subclasses of primitive types (`str`, `int`, `float`) that redefine `__eq__`/`__hash__` to make distinct primitive values compare equal remain canonicalized by primitive value (`br-r37-c1-cow38`).** This primitive-subclass boundary is a deliberate, recorded divergence, not an open defect.
 
 networkx stores nodes in a `dict`, so a key's own `__eq__`/`__hash__` define the
 equivalence relation and any object hashing and comparing equal to a stored key
-*is* that key. fnx canonicalises every node key to a string (`"str:{len}:{s}"`)
-and compares those bytes, which implements exactly one equivalence relation —
-character identity. The observable consequence, measured against live networkx
-3.6.1 on all four graph classes:
+*is* that key. For non-primitive user-defined classes (and tuples containing them),
+fnx probes Python `__hash__` and `__eq__` against `CUSTOM_KEY_INTERNER` (`yr2oc.5`)
+and matches networkx across all four graph classes (`Graph`, `DiGraph`, `MultiGraph`,
+`MultiDiGraph`). For built-in primitive types (`str`, `int`, `float`, `bool`) and
+their subclasses, fnx canonicalises by primitive value (e.g. `"str:{len}:{s}"`)
+so fast-path lookups avoid calling back into Python `__eq__`. The observable
+consequence for primitive subclasses, measured against live networkx 3.6.1 on all
+four graph classes:
 
 ```python
 class Ci(str):
@@ -99,29 +100,26 @@ g.has_edge(Ci("N0"), "n1")    # networkx True,  fnx False
 g.degree(Ci("N0"))            # networkx 1,     fnx empty view
 ```
 
-**Why the boundary is drawn here rather than closed.** Honouring a caller's
-equivalence relation requires a Python-object-keyed node index that is
-*complete* — every node, maintained across every mutation — because a partial
-one answers from cache state rather than from the graph. That is a storage-model
-change, and its cost is already an open, measured problem in its own right
-(`br-r37-c1-node-storage-materialization-wall-5fije`, the node-key PyObject
-materialization wall). The existing lookasides deliberately do not qualify:
-`NodeIndexLookupCache::present_keys` is gated to exact `str` precisely because a
-subclass that lies about `__hash__`/`__eq__` would otherwise resolve to whatever
-entry it claims to equal, and would do so only after some other key had been
-probed — a cache-state-dependent answer, which is worse than a consistent
-divergence.
+**Why the primitive-subclass boundary is drawn here.** Honouring a primitive
+subclass's custom equivalence relation against plain `str`/`int`/`float` keys
+would require routing every primitive lookup through Python `PyObject` equality
+instead of unboxed Rust string/integer keys. `NodeIndexLookupCache::present_keys`
+is gated to exact `str` precisely so a `str` subclass that redefines
+`__hash__`/`__eq__` cannot produce a cache-state-dependent answer.
 
-**What is IN scope and must not regress:** the *hashability* contract. An
-unhashable key raises or answers absent exactly as networkx does, on every
-probe; that was closed in `c14dc2ecf` and is locked by
-`tests/python/test_unhashable_key_parity.py`. A plain `str` subclass that does
-not override `__eq__`/`__hash__` behaves identically to `str` in both libraries.
+**What is IN scope and must not regress:**
+1. Non-primitive custom objects and tuples containing custom objects honor `__eq__`
+   and `__hash__` (including hash collisions) on node, edge, and multigraph key
+   lookups (`yr2oc.5`).
+2. The *hashability* contract: an unhashable key raises or answers absent exactly
+   as networkx does, on every probe (`c14dc2ecf`, locked by
+   `tests/python/test_unhashable_key_parity.py`).
+3. A plain `str` subclass that does not override `__eq__`/`__hash__` behaves
+   identically to `str` in both libraries.
 
-The divergence above is asserted deliberately, from both sides, in
-`tests/python/test_custom_equality_node_key_scope.py`. If that file starts
-failing because fnx began matching networkx, the boundary has moved and this
-section is what needs updating.
+Both the custom-object parity contract (`yr2oc.5`) and the primitive-subclass
+scope boundary (`cow38`) are asserted in
+`tests/python/test_custom_equality_node_key_scope.py`.
 
 ## Parity Matrix
 
@@ -130,10 +128,10 @@ section is what needs updating.
 | Graph/DiGraph/MultiGraph semantics | in_progress | `fnx-classes` now has deterministic undirected graph core, mutation ops, attr merge, evidence ledger hooks. |
 | View and mutation contracts | in_progress | `fnx-views` now provides live node/edge/neighbor views plus revision-aware cached snapshots. |
 | Dispatchable/backend behavior | in_progress | `fnx-dispatch` now has deterministic backend registry, strict/hardened fail-closed routing, and dispatch evidence ledger. |
-| Algorithm core families | in_progress | 280+ Rust algorithms covering shortest path (26 variants), connectivity (20), centrality (24), clustering (11), matching (11), flow (4), trees (18), Euler (5), paths/cycles (7), operators (6), traversal (17), DAG (16), link prediction (5), distance (8), efficiency (4), predicates (18+), graph metrics, and more. Eigenvector centrality, density (directed-aware), all_simple_paths (directed DFS), betweenness normalization fixed, `is_isomorphic` callback filtering, Panther similarity helpers, `k_edge_augmentation`, `graph_edit_distance`, `optimal_edit_paths`, and graph-edit optimizer wrappers now stay on the local path. Pure-Python: `compose_all`, `union_all`, `intersection_all`, `relabel_nodes`, `dedensify`, `quotient_graph`, `full_join`, `identified_nodes`. |
+| Algorithm core families | in_progress | 280+ Rust algorithms covering shortest path (26 variants), connectivity (20), centrality (24), clustering (11), matching (11), flow (5, including native `preflow_push` default in `br-r37-c1-uh5ua`), trees (18), Euler (5), paths/cycles (7), operators (6), traversal (17), DAG (16), link prediction (5), distance (8), efficiency (4), predicates (18+), graph metrics, and more. Eigenvector centrality, density (directed-aware), all_simple_paths (directed DFS), betweenness normalization fixed, `is_isomorphic` callback filtering, Panther similarity helpers, `k_edge_augmentation`, `graph_edit_distance`, `optimal_edit_paths`, and graph-edit optimizer wrappers now stay on the local path. Pure-Python: `compose_all`, `union_all`, `intersection_all`, `relabel_nodes`, `dedensify`, `quotient_graph`, `full_join`, `identified_nodes`. |
 | Graph generator families | in_progress | `fnx-generators` ships a broad native generator set including classic, stochastic, scale-free, and degree-sequence families. The Python surface no longer delegates the focused degree-sequence generators covered by `franken_networkx-vh7p`; `dorogovtsev_goltsev_mendes_graph(create_using=...)`, `extended_barabasi_albert_graph`, `grid_graph`, `hexagonal_lattice_graph`, `triangular_lattice_graph`, `margulis_gabber_galil_graph`, `nonisomorphic_trees`, `graph_atlas`, `graph_atlas_g`, `lattice_reference`, and `LFR_benchmark_graph` now stay on the native path. See [`docs/coverage.md`](docs/coverage.md) for the machine-checked public export inventory. Remaining gaps are tracked as family-specific work, not estimated here with hand-maintained percentages. |
 | Bipartite algorithms | in_progress | Core recognition (`is_bipartite`, `bipartite_sets`) is native. Higher-level helpers such as projections and matching-adjacent helpers still rely on Python-layer wrappers and need more explicit parity accounting. |
-| Community detection | in_progress | `modularity` is native. `louvain_communities` is native only for a plain unweighted `Graph` without self-loops and routes every other shape through NetworkX; `label_propagation_communities` is a Python implementation over native primitives; `greedy_modularity_communities` routes through NetworkX (the native CNM route was retired, `br-r37-c1-z4rnj`). Verified 2026-09-02 against `python/franken_networkx/community.py`. |
+| Community detection | in_progress | `modularity` is native. `louvain_communities` is native for a plain unweighted `Graph` without self-loops and routes every other shape through NetworkX; `label_propagation_communities` is a Python implementation over native primitives; `greedy_modularity_communities` runs the native parity-exact `networkx_greedy_modularity_merges` kernel (`br-r37-c1-epic-native-algorithms-1g0lj.3`) for standard int/str node labels and finite weights. |
 | Tournament algorithms | in_progress | `python/franken_networkx/tournament.py` routes `score_sequence`, `hamiltonian_path`, `is_tournament`, `tournament_matrix`, `random_tournament`, `is_reachable`, and `is_strongly_connected` through the native `_fnx` surface with backend-dispatch keyword validation and NetworkX-compatible multigraph/undirected rejection. Canonical parity: `tests/python/test_tournament_module_parity.py` (predicate/matrix/hamiltonian/reachability parity, bitset-endpoint `is_reachable` parity, byte-exact `random_tournament`, and golden transitive/three-cycle/non-tournament cases). |
 | Graph summarization | in_progress | `python/franken_networkx/summarization.py` routes `dedensify` through the native path while preserving NetworkX `copy=True`/`copy=False` identity semantics (in-place mutation for `copy=False`, fresh copied result for `copy=True`). Canonical parity: `tests/python/test_summarization_module_parity.py` covers fnx- and nx-input in-place identity preservation and native-path use under `copy=True`. |
 | Graph utilities | in_progress | Public-surface accounting now comes from the generated coverage matrix rather than prose counts. Simple drawing layout helpers (`circular_layout`, `random_layout`, `shell_layout`, `rescale_layout_dict`), drawing layout convenience wrappers (`draw_*`), LaTeX figure wrappers (`to_latex`, `write_latex`), planar embedding positioning (`combinatorial_embedding_to_pos`), `apply_matplotlib_colors`, `tree_data`, and the generic assortativity helper `mixing_dict` now avoid direct NetworkX delegation. Remaining drawing text/raw-rendering helpers preserve graph edges/attributes through conversion before NetworkX delegation. Use [`docs/coverage.md`](docs/coverage.md) for exact `RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` counts at HEAD. |
@@ -154,10 +152,11 @@ section is what needs updating.
 
 ## Conformance Gate Checklist (Phase 5)
 
-All CPU-heavy checks must be offloaded using `rch`.
+All CPU-heavy checks must be offloaded using `rch`, and Python tests must run through the guarded runner or sharded suite runner (never bare monolithic `pytest`).
 
 ```bash
-pytest tests/python/ -v --tb=long
+./scripts/run_pytest_guarded.sh tests/python/test_error_messages.py -v
+.venv/bin/python scripts/run_python_parity_suite.py --workers 4
 rch exec -- cargo run -q -p fnx-conformance --bin run_smoke
 rch exec -- cargo test -p fnx-conformance --test smoke -- --nocapture
 rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture

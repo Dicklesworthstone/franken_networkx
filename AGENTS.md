@@ -211,7 +211,7 @@ maturin sdist
 | Path | Purpose |
 |------|---------|
 | `pyproject.toml` | Maturin config, Python project metadata |
-| `crates/fnx-python/` | PyO3 binding crate (lib.rs, algorithms.rs, digraph.rs, generators.rs, readwrite.rs, views.rs) |
+| `crates/fnx-python/` | PyO3 binding crate (lib.rs, algorithms.rs, centrality.rs, cgse.rs, community.rs, digraph.rs, flow.rs, generators.rs, live_keydict.rs, readwrite.rs, views.rs) |
 | `python/franken_networkx/` | Python package (\_\_init\_\_.py, backend.py, \_fnx.pyi) |
 | `tests/python/` | Python test suite (conftest.py, test\_\*.py) |
 
@@ -299,6 +299,7 @@ cargo test -p fnx-convert
 cargo test -p fnx-algorithms
 cargo test -p fnx-generators
 cargo test -p fnx-readwrite
+cargo test -p fnx-cgse
 cargo test -p fnx-durability
 cargo test -p fnx-conformance
 cargo test -p fnx-runtime
@@ -318,6 +319,7 @@ cargo test --workspace --all-features
 | `fnx-algorithms` | Shortest path, components, centrality, flow, matching — correctness against NetworkX reference |
 | `fnx-generators` | Classic, social, random graph generators |
 | `fnx-readwrite` | Graph I/O formats (adjacency list, edge list, GML, GraphML, JSON) |
+| `fnx-cgse` | Canonical Graph Semantics Engine tie-break policies, reference registry, and complexity witnesses |
 | `fnx-durability` | RaptorQ sidecar generation, integrity scrub, decode proofs |
 | `fnx-conformance` | Differential conformance tests against legacy NetworkX oracle |
 | `fnx-runtime` | Runtime integration, end-to-end pipeline tests |
@@ -369,6 +371,7 @@ franken_networkx/
 │   ├── fnx-algorithms/                # Algorithm implementations (shortest path, centrality, flow, etc.)
 │   ├── fnx-generators/                # Graph generators (classic, social, random)
 │   ├── fnx-readwrite/                 # Graph I/O formats
+│   ├── fnx-cgse/                      # Canonical Graph Semantics Engine (tie-breaks, witnesses)
 │   ├── fnx-durability/                # RaptorQ sidecar durability layer
 │   ├── fnx-conformance/               # Differential conformance test harness
 │   ├── fnx-runtime/                   # Runtime integration facade
@@ -506,6 +509,7 @@ Beads provides a lightweight, dependency-aware issue database and CLI (`br` - be
 - **Single source of truth:** Beads for task status/priority/dependencies; Agent Mail for conversation and audit
 - **Shared identifiers:** Use Beads issue ID (e.g., `br-123`) as Mail `thread_id` and prefix subjects with `[br-123]`
 - **Reservations:** When starting a task, call `file_reservation_paths()` with the issue ID in `reason`
+- **Closure receipts (`scripts/check_bead_receipts.py`):** Closed beads carrying labels `release`, `perf-claim`, `gate`, or `docs-integrity` must include a machine-parsable receipt reference in their `close_reason` (or a `CLOSE EVIDENCE` comment): a script/test/artifact path (`scripts/...`, `tests/...`, `artifacts/...`), a git commit hash, a `sha256` hex digest, a `dsr:` receipt ID, or a concrete test pass count (`<N> passed`). Narrative-only closes without receipts are rejected by `scripts/check_bead_receipts.py`.
 
 ### Typical Agent Flow
 

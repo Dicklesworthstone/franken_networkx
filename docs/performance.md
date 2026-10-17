@@ -41,14 +41,14 @@ assert "regression_count" in report["summary"]
 
 The SLO gate is configured in [`artifacts/perf/slo_thresholds.json`](../artifacts/perf/slo_thresholds.json).
 
-It currently enforces or derives checks for:
+It enforces or derives checks across Spec §17 representative scale workloads with a live `networkx` comparator arm in the same worker invocation:
 
-- shortest-path latency,
-- connected-components latency,
-- centrality latency,
-- flow latency,
-- I/O throughput,
-- mutation regression,
+- shortest-path latency (`250x250` unweighted grid and `25,000`-node sparse weighted graph),
+- connected-components latency (`100,000` nodes, `1,000,000` edges across `20` components),
+- centrality latency (`50,000` nodes, `100,000` edges PageRank),
+- flow latency (multi-seed layered flow corpus),
+- I/O throughput (`12,000` nodes, `60,000` edges edgelist write+read roundtrip),
+- mutation regression (`5,000` nodes, `44,993` operations including incident-edge `remove_node`),
 - memory regression,
 - p99 tail regression.
 
@@ -72,14 +72,15 @@ python examples/benchmark_comparison.py
 
 That script measures a small set of representative operations on identical graphs in NetworkX and FrankenNetworkX and prints JSON with median latency and speedup ratios.
 
-## CI Gate
+## Release Quality Gate (DSR)
 
-The GitHub Actions `G6 performance` job runs the benchmark gate and uploads the resulting artifacts. The goal is not just to catch catastrophic regressions, but to keep a durable paper trail for why the performance posture changed.
+Doodlestein Self-Releaser (`dsr quality --tool franken_networkx`) is the exclusive quality and release authority. The SLO gate (`scripts/run_perf_slo_gate.py`) records self-reported provenance (host, CPU governor, thread configuration, and `_fnx` ELF SHA-256) alongside paired `fnx` and `networkx` latency/memory distributions and explicit win/loss splits in `artifacts/perf/latest/slo_gate_report_v1.json`.
 
 ## Reading The Artifact Tree
 
 - `artifacts/perf/phase2c/perf_baseline_matrix_v1.json` stores the structured candidate matrix.
 - `artifacts/perf/phase2c/perf_regression_gate_report_v1.json` summarizes drift against the stored comparator.
+- `artifacts/perf/latest/slo_gate_report_v1.json` stores the Spec §17 SLO gate report with live NetworkX comparator measurements and provenance.
 - `artifacts/perf/cgse/` tracks deterministic tie-break policy benchmarks.
 - `artifacts/perf/proof/` stores supporting evidence and proofs for specific optimizations.
 
