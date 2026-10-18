@@ -5569,7 +5569,7 @@ pub fn multi_source_dijkstra(
         emit_dijkstra_indexed_full(py, &gr, name, &settled, |node: u32| {
             passed.get(&node).map(|obj| obj.clone_ref(py))
         })
-    } else if let GraphRef::Multi(mg) = &gr {
+    } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
         let (positions, passed) =
             multi_source_seeds(py, &gr, sources, |name| inner.get_node_index(name))?;
@@ -5682,7 +5682,7 @@ pub fn multi_source_dijkstra_path_length(
         emit_dijkstra_indexed_lengths(py, &gr, name, &settled, |node: u32| {
             passed.get(&node).map(|obj| obj.clone_ref(py))
         })
-    } else if let GraphRef::Multi(mg) = &gr {
+    } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
         let (positions, passed) =
             multi_source_seeds(py, &gr, sources, |name| inner.get_node_index(name))?;
@@ -23910,7 +23910,7 @@ fn single_source_dijkstra(
         let name = |idx: u32| __wp.get_node_name(idx as usize);
         let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
         emit_dijkstra_indexed_full(py, &gr, name, &result.settled, source_key)
-    } else if let GraphRef::Multi(mg) = &gr {
+    } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
         let (result, rows) = py.allow_threads(|| {
             run_recording_rows(row_limit, || {
@@ -24019,7 +24019,7 @@ fn single_source_dijkstra_path_length(
         let name = |idx: u32| __wp.get_node_name(idx as usize);
         let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
         emit_dijkstra_indexed_lengths(py, &gr, name, &result.settled, source_key)
-    } else if let GraphRef::Multi(mg) = &gr {
+    } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
         let (result, rows) = py.allow_threads(|| {
             run_recording_rows(row_limit, || {

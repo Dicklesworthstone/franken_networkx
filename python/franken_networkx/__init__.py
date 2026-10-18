@@ -1297,6 +1297,25 @@ def _edge_list_freshness_token(graph, nodes_seq=_FRESHNESS_SEQ_UNSET):
         return None
 
 
+def _edge_attr_freshness_token(graph):
+    storage = getattr(graph, "__dict__", None)
+    if (
+        storage is not None
+        and type(graph) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+        and not (
+            _PRIVATE_NODE_OVERRIDE in storage
+            or _PRIVATE_ADJ_OVERRIDE in storage
+            or _PRIVATE_SUCC_OVERRIDE in storage
+            or _PRIVATE_PRED_OVERRIDE in storage
+        )
+    ):
+        try:
+            return _fnx.edge_attr_epoch(graph)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
 # br-r37-c1-aq6jv: nbunch sizes at or below this walk the cached rows in
 # Python instead of calling the native kernel. MEASURED crossover, not a guess
 # — py-walk/native was 0.693x at nbunch=1, 0.981x at 8 and 1.105x at 16, so the
@@ -5719,6 +5738,8 @@ class _EdgeListWithSetAlgebra(list):
     # VALUES - an attribute write moves no revision token, so such a view is
     # re-read on every access instead of only when the structure changed.
     _fnx_holds_values = False
+    _fnx_attr_epoch = None
+    _fnx_read_once = False
 
     def _fnx_membership_spec(self):
         """br-r37-c1-ex1s6: the _called_edge_view_spec of the call that made
@@ -5809,8 +5830,17 @@ class _EdgeListWithSetAlgebra(list):
             return
         token = _edge_list_freshness_token(graph)
         moved = token is not None and token != self._fnx_token
-        if not moved and not (values and self._fnx_holds_values):
-            return
+        if not moved:
+            if not (values and self._fnx_holds_values):
+                return
+            attr_epoch = _edge_attr_freshness_token(graph)
+            if (
+                not self._fnx_read_once
+                and attr_epoch is not None
+                and attr_epoch == self._fnx_attr_epoch
+            ):
+                self._fnx_read_once = True
+                return
         # br-r37-c1-2pia7: the graph moved — if it moved by removing one of the
         # nodes this view's nbunch was resolved to, nx raises rather than
         # answering with the survivors. Checked only on a token change, so an
@@ -5826,6 +5856,9 @@ class _EdgeListWithSetAlgebra(list):
         # this machinery (and its fail-fast guard) for no reason.
         list.__setitem__(self, slice(None), list(list.__iter__(fresh)))
         self._fnx_token = token
+        if self._fnx_holds_values:
+            self._fnx_attr_epoch = _edge_attr_freshness_token(graph)
+            self._fnx_read_once = True
 
     def _fnx_project_live_values(self, base_iter):
         spec = self._fnx_membership_spec()
@@ -5834,6 +5867,9 @@ class _EdgeListWithSetAlgebra(list):
         graph, _kind, multi, data, default, keys, _nodes, _view_form = spec
 
         def _project():
+            if self._fnx_take_len_hint():
+                yield from base_iter
+                return
             if not multi:
                 for u, v, val in base_iter:
                     dd = graph.get_edge_data(u, v)
@@ -5989,8 +6025,10 @@ class _EdgeListWithSetAlgebra(list):
     def __len__(self):
         # A count does not read values, so only a structural move rebuilds here.
         self._fnx_refresh(values=False)
-        if self._fnx_lazy_rows is not None:
+        if self._fnx_lazy_rows is not None or self._fnx_holds_values:
             graph = self._fnx_live_graph
+            if graph is None:
+                graph = self._fnx_guard_graph
             if graph is not None:
                 self._fnx_len_hint = _edge_list_freshness_token(graph)
         return list.__len__(self)
@@ -10795,6 +10833,7 @@ def _live_called_edge_view(original_call):
                 data = kwargs["data"] if "data" in kwargs else (args[1] if len(args) > 1 else False)
                 if data is not True and data is not False and data is not None:
                     result._fnx_holds_values = True
+                    result._fnx_attr_epoch = _edge_attr_freshness_token(graph)
                 # br-r37-c1-ex1s6: what membership needs, resolved on the first
                 # `in` (building it here cost 0.5-0.8 us on every call).
                 result._fnx_contains_call = (self, graph, args, kwargs)

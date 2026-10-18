@@ -4349,29 +4349,13 @@ impl PyGraph {
         py: Python<'_>,
         n: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        let nodes_seq = self.nodes_seq;
-        if self
-            .has_edge_node_index_cache
-            .is_known_present(py, nodes_seq, n)?
-        {
-            return Ok(true);
-        }
-        if n.is_exact_instance_of::<PyInt>()
-            && self
-                .has_edge_node_index_cache
-                .is_known_absent_exact_int(py, nodes_seq, n)?
-        {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc.
-        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
-        if present {
-            self.has_edge_node_index_cache.remember_present(py, n)?;
-        } else if n.is_exact_instance_of::<PyInt>() {
-            self.has_edge_node_index_cache
-                .remember_absent_exact_int(py, n)?;
-        }
-        Ok(present)
+        self.has_edge_node_index_cache.exact_str_or_int_is_present(
+            py,
+            self.nodes_seq,
+            n,
+            &self.node_key_map,
+            |canonical| self.inner.has_node(canonical),
+        )
     }
 
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -7243,18 +7227,13 @@ impl PyMultiGraph {
     /// only — the caller enforces it, because the set answers with the key's
     /// own `__hash__`/`__eq__`.
     fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let nodes_seq = self.nodes_seq;
-        if self
-            .has_edge_node_index_cache
-            .is_known_present(py, nodes_seq, n)?
-        {
-            return Ok(true);
-        }
-        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
-        if present {
-            self.has_edge_node_index_cache.remember_present(py, n)?;
-        }
-        Ok(present)
+        self.has_edge_node_index_cache.exact_str_or_int_is_present(
+            py,
+            self.nodes_seq,
+            n,
+            &self.node_key_map,
+            |canonical| self.inner.has_node(canonical),
+        )
     }
 
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -12175,15 +12154,108 @@ impl PyMultiGraph {
         // out/in_edges nbunch data_key wins) -- read the attr from the store instead
         // of edge_data_value_or_default_with_key's edge_key build + mirror probe.
         let pristine = self.edge_py_attrs.is_empty();
-        let attr_name: Option<String> = if pristine {
-            data.extract::<String>().ok()
-        } else {
-            None
-        };
+        let attr_name: Option<String> = data.extract::<String>().ok();
         let mut out: Vec<PyObject> = Vec::new();
-        // br-r37-c1-mgnbdedup (cc): dedup by processed nbunch SOURCE node (nx's exact
-        // algorithm), replacing the per-edge canonical seen-set. See
-        // _native_mg_edges_nbunch_data for the rationale + correctness notes.
+        if let Some(an) = attr_name.as_deref() {
+            let mut seen_indices: rustc_hash::FxHashSet<usize> = rustc_hash::FxHashSet::default();
+            for item in nbunch.try_iter()? {
+                let node = item?;
+                if node.hash().is_err() {
+                    let label = node
+                        .str()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| "?".to_owned());
+                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Node {label} in sequence nbunch is not a valid node."
+                    )));
+                }
+                let (u_idx, canonical_opt) = if pristine {
+                    (
+                        with_node_key_str(py, &node, |c| self.inner.get_node_index(c))?,
+                        None,
+                    )
+                } else {
+                    let c = node_key_to_string(py, &node)?;
+                    (self.inner.get_node_index(&c), Some(c))
+                };
+                let Some(u_idx) = u_idx else {
+                    continue;
+                };
+                if seen_indices.contains(&u_idx) {
+                    continue;
+                }
+                if let Some(buckets) = self.inner.neighbor_edge_buckets_by_index(u_idx) {
+                    let node_obj = node.unbind();
+                    for (v_idx, bucket_iter) in buckets {
+                        if seen_indices.contains(&v_idx) {
+                            continue;
+                        }
+                        let Some(nbr) = self.inner.get_node_name(v_idx) else {
+                            continue;
+                        };
+                        let nbr_obj = self.py_node_key(py, nbr);
+                        for (key, attrs_map) in bucket_iter {
+                            let value = if let Some(canonical) = canonical_opt.as_deref() {
+                                let ek = Self::edge_key(canonical, nbr, key);
+                                if let Some(attrs) = self.edge_py_attrs.get(&ek) {
+                                    attrs
+                                        .bind(py)
+                                        .get_item(data)
+                                        .ok()
+                                        .flatten()
+                                        .map_or_else(|| default.clone_ref(py), |v| v.unbind())
+                                } else {
+                                    match attrs_map.get(an) {
+                                        Some(v) => cgse_value_to_py(py, v)?,
+                                        None => default.clone_ref(py),
+                                    }
+                                }
+                            } else {
+                                match attrs_map.get(an) {
+                                    Some(v) => cgse_value_to_py(py, v)?,
+                                    None => default.clone_ref(py),
+                                }
+                            };
+                            if keys {
+                                let key_obj = if self.edge_py_keys.is_empty() {
+                                    crate::unwrap_infallible(key.into_pyobject(py))
+                                        .into_any()
+                                        .unbind()
+                                } else {
+                                    let u_name = self.inner.get_node_name(u_idx).unwrap_or("");
+                                    self.py_edge_key(py, u_name, nbr, key)
+                                };
+                                out.push(
+                                    PyTuple::new(
+                                        py,
+                                        &[
+                                            node_obj.clone_ref(py),
+                                            nbr_obj.clone_ref(py),
+                                            key_obj,
+                                            value,
+                                        ],
+                                    )?
+                                    .into_any()
+                                    .unbind(),
+                                );
+                            } else {
+                                out.push(
+                                    PyTuple::new(
+                                        py,
+                                        &[node_obj.clone_ref(py), nbr_obj.clone_ref(py), value],
+                                    )?
+                                    .into_any()
+                                    .unbind(),
+                                );
+                            }
+                        }
+                    }
+                }
+                seen_indices.insert(u_idx);
+            }
+            return Ok(Some(out));
+        }
+        // Fallback when `data` is not a string attribute name.
         let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
             let node = item?;
@@ -12212,21 +12284,10 @@ impl PyMultiGraph {
                     self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
                 for key in keys_vec {
                     let nbr_obj = self.py_node_key(py, nbr);
-                    let value = if let Some(an) = attr_name.as_deref() {
-                        match self
-                            .inner
-                            .edge_attrs(&canonical, nbr, key)
-                            .and_then(|a| a.get(an))
-                        {
-                            Some(v) => cgse_value_to_py(py, v)?,
-                            None => default.clone_ref(py),
-                        }
-                    } else {
-                        let ek = Self::edge_key(&canonical, nbr, key);
-                        self.edge_data_value_or_default_with_key(
-                            py, &canonical, nbr, key, &ek, data, &default,
-                        )?
-                    };
+                    let ek = Self::edge_key(&canonical, nbr, key);
+                    let value = self.edge_data_value_or_default_with_key(
+                        py, &canonical, nbr, key, &ek, data, &default,
+                    )?;
                     if keys {
                         let key_obj = if self.edge_py_keys.is_empty() {
                             crate::unwrap_infallible(key.into_pyobject(py))

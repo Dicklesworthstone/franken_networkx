@@ -2723,7 +2723,7 @@ impl MultiDiGraph {
         impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a,
     > {
         let row = self.successors.get(source)?;
-        let source_name = self.nodes.get_key_value(source)?.0.as_str();
+        let source_name = self.nodes.order.slots.get_key_value(source)?.0.as_str();
         Some(row.keys().filter_map(move |target| {
             let bucket = self
                 .edges
@@ -2744,7 +2744,7 @@ impl MultiDiGraph {
         impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a,
     > {
         let row = self.predecessors.get(target)?;
-        let target_name = self.nodes.get_key_value(target)?.0.as_str();
+        let target_name = self.nodes.order.slots.get_key_value(target)?.0.as_str();
         Some(row.keys().filter_map(move |source| {
             let bucket = self
                 .edges

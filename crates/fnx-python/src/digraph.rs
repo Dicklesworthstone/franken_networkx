@@ -496,18 +496,13 @@ impl PyDiGraph {
     /// only — the caller enforces it, because the set answers with the key's
     /// own `__hash__`/`__eq__`.
     fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let nodes_seq = self.nodes_seq;
-        if self
-            .has_edge_node_index_cache
-            .is_known_present(py, nodes_seq, n)?
-        {
-            return Ok(true);
-        }
-        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
-        if present {
-            self.has_edge_node_index_cache.remember_present(py, n)?;
-        }
-        Ok(present)
+        self.has_edge_node_index_cache.exact_str_or_int_is_present(
+            py,
+            self.nodes_seq,
+            n,
+            &self.node_key_map,
+            |canonical| self.inner.has_node(canonical),
+        )
     }
 
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -881,18 +876,13 @@ impl PyMultiDiGraph {
     /// own `__hash__`/`__eq__`, so a subclass that lies about either would
     /// resolve to whatever entry it claims to equal.
     fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let nodes_seq = self.nodes_seq;
-        if self
-            .has_edge_node_index_cache
-            .is_known_present(py, nodes_seq, n)?
-        {
-            return Ok(true);
-        }
-        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
-        if present {
-            self.has_edge_node_index_cache.remember_present(py, n)?;
-        }
-        Ok(present)
+        self.has_edge_node_index_cache.exact_str_or_int_is_present(
+            py,
+            self.nodes_seq,
+            n,
+            &self.node_key_map,
+            |canonical| self.inner.has_node(canonical),
+        )
     }
 
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -8687,13 +8677,86 @@ impl PyMultiDiGraph {
         // out_edges nbunch data_key win) -- read the attr straight from the store
         // instead of edge_data_value_or_default's mirror probe.
         let pristine = self.edge_py_attrs.is_empty();
-        let attr_name: Option<String> = if pristine {
-            data.extract::<String>().ok()
-        } else {
-            None
-        };
+        let attr_name: Option<String> = data.extract::<String>().ok();
         let mut probe = (String::new(), String::new(), 0);
         let mut out: Vec<PyObject> = Vec::new();
+        if let Some(an) = attr_name.as_deref() {
+            let mut seen_nodes: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+            for item in nbunch.try_iter()? {
+                let node = item?;
+                if node.hash().is_err() {
+                    let label = node
+                        .str()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| "?".to_owned());
+                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Node {label} in sequence nbunch is not a valid node."
+                    )));
+                }
+                let canonical = node_key_to_string(py, &node)?;
+                let Some(buckets) = self.inner.predecessor_edge_buckets(&canonical) else {
+                    continue;
+                };
+                if !seen_nodes.insert(canonical.clone()) {
+                    continue;
+                }
+                let node_obj = node.unbind();
+                for (src, bucket) in buckets {
+                    let src_obj = self.py_node_key(py, src);
+                    for (key, attrs_map) in bucket {
+                        let value = if !pristine {
+                            probe.0.clear();
+                            probe.0.push_str(src);
+                            probe.1.clear();
+                            probe.1.push_str(&canonical);
+                            probe.2 = key;
+                            if let Some(attrs) = self.edge_py_attrs.get(&probe) {
+                                attrs
+                                    .bind(py)
+                                    .get_item(data)
+                                    .ok()
+                                    .flatten()
+                                    .map_or_else(|| default.clone_ref(py), |v| v.unbind())
+                            } else {
+                                match attrs_map.get(an) {
+                                    Some(v) => crate::cgse_value_to_py(py, v)?,
+                                    None => default.clone_ref(py),
+                                }
+                            }
+                        } else {
+                            match attrs_map.get(an) {
+                                Some(v) => crate::cgse_value_to_py(py, v)?,
+                                None => default.clone_ref(py),
+                            }
+                        };
+                        if keys {
+                            let key_obj = if self.edge_py_keys.is_empty() {
+                                crate::unwrap_infallible(key.into_pyobject(py))
+                                    .into_any()
+                                    .unbind()
+                            } else {
+                                self.py_edge_key(py, src, &canonical, key)
+                            };
+                            out.push(tuple_object(
+                                py,
+                                &[
+                                    src_obj.clone_ref(py),
+                                    node_obj.clone_ref(py),
+                                    key_obj,
+                                    value,
+                                ],
+                            )?);
+                        } else {
+                            out.push(tuple_object(
+                                py,
+                                &[src_obj.clone_ref(py), node_obj.clone_ref(py), value],
+                            )?);
+                        }
+                    }
+                }
+            }
+            return Ok(Some(out));
+        }
         let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
             let node = item?;
@@ -8717,20 +8780,9 @@ impl PyMultiDiGraph {
             for src in &preds {
                 for key in self.inner.edge_keys(src, &canonical).unwrap_or_default() {
                     let src_obj = self.py_node_key(py, src);
-                    let value = if let Some(an) = attr_name.as_deref() {
-                        match self
-                            .inner
-                            .edge_attrs(src, &canonical, key)
-                            .and_then(|a| a.get(an))
-                        {
-                            Some(v) => crate::cgse_value_to_py(py, v)?,
-                            None => default.clone_ref(py),
-                        }
-                    } else {
-                        self.edge_data_value_or_default(
-                            py, src, &canonical, key, data, &default, &mut probe,
-                        )?
-                    };
+                    let value = self.edge_data_value_or_default(
+                        py, src, &canonical, key, data, &default, &mut probe,
+                    )?;
                     if keys {
                         let key_obj = self.py_edge_key(py, src, &canonical, key);
                         out.push(tuple_object(
@@ -8767,13 +8819,86 @@ impl PyMultiDiGraph {
         // (edge_attrs) instead of edge_data_value_or_default's edge_key build +
         // mirror probe + re-lookup. Non-pristine / non-str data keep the mirror path.
         let pristine = self.edge_py_attrs.is_empty();
-        let attr_name: Option<String> = if pristine {
-            data.extract::<String>().ok()
-        } else {
-            None
-        };
+        let attr_name: Option<String> = data.extract::<String>().ok();
         let mut probe = (String::new(), String::new(), 0);
         let mut out: Vec<PyObject> = Vec::new();
+        if let Some(an) = attr_name.as_deref() {
+            let mut seen_nodes: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+            for item in nbunch.try_iter()? {
+                let node = item?;
+                if node.hash().is_err() {
+                    let label = node
+                        .str()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| "?".to_owned());
+                    return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                        "Node {label} in sequence nbunch is not a valid node."
+                    )));
+                }
+                let canonical = node_key_to_string(py, &node)?;
+                let Some(buckets) = self.inner.successor_edge_buckets(&canonical) else {
+                    continue;
+                };
+                if !seen_nodes.insert(canonical.clone()) {
+                    continue;
+                }
+                let node_obj = node.unbind();
+                for (nbr, bucket) in buckets {
+                    let nbr_obj = self.py_node_key(py, nbr);
+                    for (key, attrs_map) in bucket {
+                        let value = if !pristine {
+                            probe.0.clear();
+                            probe.0.push_str(&canonical);
+                            probe.1.clear();
+                            probe.1.push_str(nbr);
+                            probe.2 = key;
+                            if let Some(attrs) = self.edge_py_attrs.get(&probe) {
+                                attrs
+                                    .bind(py)
+                                    .get_item(data)
+                                    .ok()
+                                    .flatten()
+                                    .map_or_else(|| default.clone_ref(py), |v| v.unbind())
+                            } else {
+                                match attrs_map.get(an) {
+                                    Some(v) => crate::cgse_value_to_py(py, v)?,
+                                    None => default.clone_ref(py),
+                                }
+                            }
+                        } else {
+                            match attrs_map.get(an) {
+                                Some(v) => crate::cgse_value_to_py(py, v)?,
+                                None => default.clone_ref(py),
+                            }
+                        };
+                        if keys {
+                            let key_obj = if self.edge_py_keys.is_empty() {
+                                crate::unwrap_infallible(key.into_pyobject(py))
+                                    .into_any()
+                                    .unbind()
+                            } else {
+                                self.py_edge_key(py, &canonical, nbr, key)
+                            };
+                            out.push(tuple_object(
+                                py,
+                                &[
+                                    node_obj.clone_ref(py),
+                                    nbr_obj.clone_ref(py),
+                                    key_obj,
+                                    value,
+                                ],
+                            )?);
+                        } else {
+                            out.push(tuple_object(
+                                py,
+                                &[node_obj.clone_ref(py), nbr_obj.clone_ref(py), value],
+                            )?);
+                        }
+                    }
+                }
+            }
+            return Ok(Some(out));
+        }
         let mut seen_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in nbunch.try_iter()? {
             let node = item?;
@@ -8799,20 +8924,9 @@ impl PyMultiDiGraph {
                     self.inner.edge_keys(&canonical, nbr).unwrap_or_default();
                 for key in keys_vec {
                     let nbr_obj = self.py_node_key(py, nbr);
-                    let value = if let Some(an) = attr_name.as_deref() {
-                        match self
-                            .inner
-                            .edge_attrs(&canonical, nbr, key)
-                            .and_then(|a| a.get(an))
-                        {
-                            Some(v) => crate::cgse_value_to_py(py, v)?,
-                            None => default.clone_ref(py),
-                        }
-                    } else {
-                        self.edge_data_value_or_default(
-                            py, &canonical, nbr, key, data, &default, &mut probe,
-                        )?
-                    };
+                    let value = self.edge_data_value_or_default(
+                        py, &canonical, nbr, key, data, &default, &mut probe,
+                    )?;
                     if keys {
                         let key_obj = self.py_edge_key(py, &canonical, nbr, key);
                         out.push(tuple_object(
