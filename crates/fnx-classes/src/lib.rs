@@ -598,15 +598,21 @@ impl SlotOrder {
         }
     }
 
-    /// The position of a live name.
+    /// The position of a live slot.
     #[inline]
-    pub(crate) fn get_index_of(&self, name: &str) -> Option<usize> {
-        let entry = self.entry_of[*self.slots.get(name)?];
-        Some(if self.is_dense() {
+    pub(crate) fn position_of_slot(&self, slot: usize) -> usize {
+        let entry = self.entry_of[slot];
+        if self.is_dense() {
             entry
         } else {
             self.ranks().rank(entry)
-        })
+        }
+    }
+
+    /// The position of a live name.
+    #[inline]
+    pub(crate) fn get_index_of(&self, name: &str) -> Option<usize> {
+        Some(self.position_of_slot(*self.slots.get(name)?))
     }
 
     /// The name and slot at a position.
@@ -5366,6 +5372,26 @@ impl MultiGraph {
         right: &str,
     ) -> Option<impl Iterator<Item = &AttrMap> + '_> {
         self.slab_store().edge_attr_values(left, right)
+    }
+
+    /// Yield `(neighbor_position, parallel_edge_attr_maps)` for the node at
+    /// insertion-order position `node_index`, in exact adjacency-row order,
+    /// without allocating a projection graph or hashing node name strings.
+    pub fn neighbor_edge_attr_values_by_index(
+        &self,
+        node_index: usize,
+    ) -> Option<impl Iterator<Item = (usize, multigraph_storage::CompactBucketValues<'_>)> + '_> {
+        let slab = self.slab_store();
+        let u_slot = slab.slot_at_position(node_index)?;
+        let row = slab.rows.get(u_slot)?;
+        Some(row.keys().filter_map(move |&v_slot| {
+            let bucket = slab.edges.get(&(u_slot.min(v_slot), u_slot.max(v_slot)))?;
+            if bucket.is_empty() {
+                return None;
+            }
+            let v_pos = slab.node_order.position_of_slot(v_slot);
+            Some((v_pos, bucket.values()))
+        }))
     }
 
     #[must_use]

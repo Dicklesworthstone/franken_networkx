@@ -36972,6 +36972,48 @@ pub fn multi_source_dijkstra_indexed_directed(
     )
 }
 
+/// Undirected `MultiGraph` twin of [`single_source_dijkstra_indexed_full`]:
+/// expands each settled node's neighbor row directly over the multigraph's
+/// buckets without constructing an intermediate simple `Graph` projection.
+#[must_use]
+pub fn single_source_dijkstra_indexed_full_multigraph(
+    graph: &MultiGraph,
+    source: &str,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> Option<IndexedDijkstraFull> {
+    let source_idx = graph.get_node_index(source)?;
+    let settled = dijkstra_typed_lazy(
+        &[source_idx],
+        None,
+        graph.node_count(),
+        cutoff.unwrap_or(f64::INFINITY),
+        |u, row| multigraph_weighted_row(graph, u, weight_attr, row),
+    );
+    Some(IndexedDijkstraFull {
+        source_idx,
+        settled,
+    })
+}
+
+/// Undirected `MultiGraph` twin of [`multi_source_dijkstra_indexed`].
+#[must_use]
+pub fn multi_source_dijkstra_indexed_multigraph(
+    graph: &MultiGraph,
+    sources: &[usize],
+    target: Option<usize>,
+    weight_attr: &str,
+    cutoff: Option<f64>,
+) -> IndexedTypedPredDistances {
+    dijkstra_typed_lazy(
+        sources,
+        target,
+        graph.node_count(),
+        cutoff.unwrap_or(f64::INFINITY),
+        |u, row| multigraph_weighted_row(graph, u, weight_attr, row),
+    )
+}
+
 /// Single-source Dijkstra returning paths only.
 /// Matches `networkx.single_source_dijkstra_path(G, source, weight=weight)`.
 #[must_use]
@@ -37465,6 +37507,31 @@ fn successor_weighted_row(
             let (weight, is_int) =
                 digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
             row.push((v, weight, is_int));
+        }
+    }
+}
+
+/// Undirected `MultiGraph` twin of [`undirected_weighted_row`]: selects the
+/// first minimum-weight parallel edge per neighbor in bucket key order.
+fn multigraph_weighted_row(
+    graph: &MultiGraph,
+    u: usize,
+    weight_attr: &str,
+    row: &mut Vec<(usize, f64, bool)>,
+) {
+    row.clear();
+    if let Some(neighbors) = graph.neighbor_edge_attr_values_by_index(u) {
+        for (v, values) in neighbors {
+            let mut best: Option<(f64, bool)> = None;
+            for attrs in values {
+                let (weight, is_int) = weight_value_or_default_typed(attrs.get(weight_attr));
+                if best.is_none_or(|(best_w, _)| weight < best_w) {
+                    best = Some((weight, is_int));
+                }
+            }
+            if let Some((weight, is_int)) = best {
+                row.push((v, weight, is_int));
+            }
         }
     }
 }
