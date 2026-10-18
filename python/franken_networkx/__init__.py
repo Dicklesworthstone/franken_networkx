@@ -3016,6 +3016,9 @@ class AtlasView(_Mapping):
                 # unhashable key too; networkx's dict raises TypeError.
                 _HASH_PROBE.get(node)
                 return False
+            except TypeError:
+                _HASH_PROBE.get(node)
+                raise
             return True
         keydict = self._keydict()
         if keydict is not None:
@@ -3025,6 +3028,9 @@ class AtlasView(_Mapping):
         except KeyError:
             _HASH_PROBE.get(node)
             return False
+        except TypeError:
+            _HASH_PROBE.get(node)
+            raise
         return True
 
     def __getitem__(self, node):
@@ -3036,6 +3042,9 @@ class AtlasView(_Mapping):
                 return self._atlas()[node]
             except KeyError:
                 _HASH_PROBE.get(node)  # br-r37-c1-ex1s6: as __contains__
+                raise
+            except TypeError:
+                _HASH_PROBE.get(node)
                 raise
         # br-r37-c1-spg9n: G[u][v] edge-attr access. The cached row keydict's
         # VALUES are the live edge_py_attrs dicts (keydict[v] is G[u][v]; attr
@@ -43610,7 +43619,7 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     # re-sort the result in Python (87 us beside a 32k ring for cutoff=2), and
     # sent every float-weighted graph to networkx.
     if (
-        not G.is_multigraph()
+        type(G) in (Graph, DiGraph, MultiGraph)
         and isinstance(weight, str)
         and (
             cutoff is None
@@ -43772,7 +43781,7 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     # stay native too; after a write it checks the rows it read.
     if (
         isinstance(weight, str)
-        and type(G) in (Graph, DiGraph)
+        and type(G) in (Graph, DiGraph, MultiGraph)
         and (
             cutoff is None
             or type(cutoff) is float
