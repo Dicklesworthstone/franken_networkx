@@ -5394,6 +5394,26 @@ impl MultiGraph {
         }))
     }
 
+    /// Yield `(neighbor_position, parallel_edge_key_attr_pairs)` for the node at
+    /// insertion-order position `node_index`, in exact adjacency-row order,
+    /// without allocating neighbor name vectors or key vectors (br-r37-c1-7ye53).
+    pub fn neighbor_edge_buckets_by_index(
+        &self,
+        node_index: usize,
+    ) -> Option<impl Iterator<Item = (usize, multigraph_storage::CompactBucketIter<'_>)> + '_> {
+        let slab = self.slab_store();
+        let u_slot = slab.slot_at_position(node_index)?;
+        let row = slab.rows.get(u_slot)?;
+        Some(row.keys().filter_map(move |&v_slot| {
+            let bucket = slab.edges.get(&(u_slot.min(v_slot), u_slot.max(v_slot)))?;
+            if bucket.is_empty() {
+                return None;
+            }
+            let v_pos = slab.node_order.position_of_slot(v_slot);
+            Some((v_pos, bucket.iter()))
+        }))
+    }
+
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()

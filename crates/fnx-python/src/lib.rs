@@ -2342,6 +2342,9 @@ pub(crate) struct NodeIndexLookupCache {
     /// which paid a dict probe PLUS a `PyLong` round-trip per endpoint and
     /// measured 1.27x slower in wall clock despite removing instructions.
     present_keys: Py<PySet>,
+    present_int_keys: Py<PySet>,
+    all_str_seeded: AtomicBool,
+    str_misses_at_seq: std::sync::atomic::AtomicU32,
     /// Exact built-in integer keys already proven absent for this node-set
     /// generation.  Repeated absent-int probes can then use CPython's cached
     /// integer hash instead of rebuilding and probing a canonical Rust key.
@@ -2373,6 +2376,11 @@ impl NodeIndexLookupCache {
             present_keys: PySet::empty(py)
                 .expect("an empty set is always constructible")
                 .unbind(),
+            present_int_keys: PySet::empty(py)
+                .expect("an empty set is always constructible")
+                .unbind(),
+            all_str_seeded: AtomicBool::new(false),
+            str_misses_at_seq: std::sync::atomic::AtomicU32::new(0),
             missing_exact_int_keys: PySet::empty(py)
                 .expect("an empty set is always constructible")
                 .unbind(),
@@ -2397,7 +2405,10 @@ impl NodeIndexLookupCache {
         if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
             self.entries.bind(py).clear();
             self.present_keys.bind(py).clear();
+            self.present_int_keys.bind(py).clear();
             self.missing_exact_int_keys.bind(py).clear();
+            self.all_str_seeded.store(false, Ordering::Relaxed);
+            self.str_misses_at_seq.store(0, Ordering::Relaxed);
             self.exact_int_positions().clear();
             self.exact_str_positions().clear();
             self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
@@ -2477,58 +2488,85 @@ impl NodeIndexLookupCache {
         self.entries.bind(py).set_item(public_key, index)
     }
 
-    /// br-r37-c1-6n9vm: has this EXACT-`str` key already been proven present
-    /// for this node-set generation?
+    /// br-r37-c1-770z8: exact `str` or exact `int` membership.
     ///
-    /// Exact `str` only, and the caller must enforce it: the set answers with
-    /// the KEY's `__hash__`/`__eq__`, so a `str` subclass that lies about
-    /// either would resolve to whatever entry it claims to equal — and, worse,
-    /// would do so only once some other key had been probed, making the answer
-    /// depend on cache state. Subclasses keep the canonical path, where the
-    /// answer is decided by the characters.
-    pub(crate) fn is_known_present(
+    /// Once `present_keys` has been seeded with every `"str:..."` node in
+    /// `node_key_map` for this `nodes_seq` (immediately for small node maps, or
+    /// on the second `present_keys` miss at the same `nodes_seq` so interleaved
+    /// `if not G.has_node(u): G.add_node(u)` loops stay O(1) per step),
+    /// `present_keys.contains(key)` is both necessary and sufficient for any
+    /// exact `str` key: both present and absent exact `str` probes answer in a
+    /// single CPython `PySet_Contains` lookup reusing the `str` object's cached
+    /// hash, without building or hashing `"str:{len}:{s}"`.
+    pub(crate) fn exact_str_or_int_is_present(
         &self,
         py: Python<'_>,
         nodes_seq: u64,
         key: &Bound<'_, PyAny>,
+        node_key_map: &PyNodeKeyMap<String, PyObject>,
+        has_node: impl FnOnce(&str) -> bool,
     ) -> PyResult<bool> {
         self.invalidate_if_stale(py, nodes_seq);
-        self.present_keys.bind(py).contains(key)
-    }
-
-    /// Remember a key the canonical path just proved present. Bounded by the
-    /// node set: equal keys collapse to one entry by Python equality, and the
-    /// whole set is dropped when `nodes_seq` moves.
-    pub(crate) fn remember_present(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.present_keys.bind(py).add(key)
-    }
-
-    /// Query a known miss for an exact built-in int.  The caller enforces that
-    /// type rule, so this is a direct non-raising integer hash probe.
-    fn is_known_absent_exact_int(
-        &self,
-        py: Python<'_>,
-        nodes_seq: u64,
-        key: &Bound<'_, PyAny>,
-    ) -> PyResult<bool> {
-        self.invalidate_if_stale(py, nodes_seq);
-        self.missing_exact_int_keys.bind(py).contains(key)
-    }
-
-    fn remember_absent_exact_int(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
-        self.missing_exact_int_keys.bind(py).add(key)
+        if key.is_exact_instance_of::<PyString>() {
+            let present_set = self.present_keys.bind(py);
+            if self.all_str_seeded.load(Ordering::Relaxed) {
+                return present_set.contains(key);
+            }
+            if present_set.contains(key)? {
+                return Ok(true);
+            }
+            let misses = self.str_misses_at_seq.fetch_add(1, Ordering::Relaxed) + 1;
+            if misses >= 2 || node_key_map.len() <= 64 {
+                for (canonical, obj) in node_key_map {
+                    if let Some(rest) = canonical.strip_prefix("str:") {
+                        let bound = obj.bind(py);
+                        if bound.is_exact_instance_of::<PyString>() {
+                            present_set.add(bound)?;
+                        } else if let Some((_, raw)) = rest.split_once(':') {
+                            present_set.add(PyString::new(py, raw))?;
+                        }
+                    }
+                }
+                self.all_str_seeded.store(true, Ordering::Relaxed);
+                return present_set.contains(key);
+            }
+            let present = with_node_key_str(py, key, has_node)?;
+            if present {
+                present_set.add(key)?;
+            }
+            return Ok(present);
+        }
+        let present_ints = self.present_int_keys.bind(py);
+        if present_ints.contains(key)? {
+            return Ok(true);
+        }
+        let missing_ints = self.missing_exact_int_keys.bind(py);
+        if missing_ints.contains(key)? {
+            return Ok(false);
+        }
+        let present = with_node_key_str(py, key, has_node)?;
+        if present {
+            present_ints.add(key)?;
+        } else {
+            missing_ints.add(key)?;
+        }
+        Ok(present)
     }
 
     fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.entries)?;
         visit.call(&self.present_keys)?;
+        visit.call(&self.present_int_keys)?;
         visit.call(&self.missing_exact_int_keys)
     }
 
     fn clear(&self, py: Python<'_>) {
         self.entries.bind(py).clear();
         self.present_keys.bind(py).clear();
+        self.present_int_keys.bind(py).clear();
         self.missing_exact_int_keys.bind(py).clear();
+        self.all_str_seeded.store(false, Ordering::Relaxed);
+        self.str_misses_at_seq.store(0, Ordering::Relaxed);
         self.exact_int_positions().clear();
         self.exact_str_positions().clear();
         self.nodes_seq.store(u64::MAX, Ordering::Relaxed);

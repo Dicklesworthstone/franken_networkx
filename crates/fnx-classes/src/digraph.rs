@@ -2714,6 +2714,48 @@ impl MultiDiGraph {
             .map(|keys| keys.iter())
     }
 
+    /// Yield `(target_name, parallel_edge_key_attr_pairs)` in exact successor-row
+    /// order without allocating neighbor name vectors or key vectors (br-r37-c1-7ye53).
+    pub fn successor_edge_buckets<'a>(
+        &'a self,
+        source: &str,
+    ) -> Option<
+        impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a,
+    > {
+        let row = self.successors.get(source)?;
+        let source_name = self.nodes.get_key_value(source)?.0.as_str();
+        Some(row.keys().filter_map(move |target| {
+            let bucket = self
+                .edges
+                .get(&DirectedEdgeKeyRef::new(source_name, target.as_str()))?;
+            if bucket.is_empty() {
+                return None;
+            }
+            Some((target.as_str(), bucket.iter().map(|(&k, a)| (k, a))))
+        }))
+    }
+
+    /// Yield `(source_name, parallel_edge_key_attr_pairs)` in exact predecessor-row
+    /// order without allocating neighbor name vectors or key vectors (br-r37-c1-7ye53).
+    pub fn predecessor_edge_buckets<'a>(
+        &'a self,
+        target: &str,
+    ) -> Option<
+        impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a,
+    > {
+        let row = self.predecessors.get(target)?;
+        let target_name = self.nodes.get_key_value(target)?.0.as_str();
+        Some(row.keys().filter_map(move |source| {
+            let bucket = self
+                .edges
+                .get(&DirectedEdgeKeyRef::new(source.as_str(), target_name))?;
+            if bucket.is_empty() {
+                return None;
+            }
+            Some((source.as_str(), bucket.iter().map(|(&k, a)| (k, a))))
+        }))
+    }
+
     /// Every (source, target) pair joined by more than one edge, with its
     /// edge count, in edge insertion order.
     pub fn parallel_edge_counts(&self) -> impl Iterator<Item = (&str, &str, usize)> {
