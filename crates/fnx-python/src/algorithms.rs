@@ -5569,6 +5569,28 @@ pub fn multi_source_dijkstra(
         emit_dijkstra_indexed_full(py, &gr, name, &settled, |node: u32| {
             passed.get(&node).map(|obj| obj.clone_ref(py))
         })
+    } else if let GraphRef::Multi(mg) = &gr {
+        let inner = &mg.inner;
+        let (positions, passed) =
+            multi_source_seeds(py, &gr, sources, |name| inner.get_node_index(name))?;
+        let stop = target.as_deref().and_then(|t| inner.get_node_index(t));
+        let (settled, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::multi_source_dijkstra_indexed_multigraph(
+                    inner, &positions, stop, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let name = |idx: u32| inner.get_node_name(idx as usize);
+        if nearest_sources {
+            return emit_nearest_sources(py, &gr, name, &settled, &passed);
+        }
+        emit_dijkstra_indexed_full(py, &gr, name, &settled, |node: u32| {
+            passed.get(&node).map(|obj| obj.clone_ref(py))
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
@@ -5657,6 +5679,24 @@ pub fn multi_source_dijkstra_path_length(
             check_expanded_weight_rows(py, &gr, rows, weight, false)?;
         }
         let name = |idx: u32| __wp.get_node_name(idx as usize);
+        emit_dijkstra_indexed_lengths(py, &gr, name, &settled, |node: u32| {
+            passed.get(&node).map(|obj| obj.clone_ref(py))
+        })
+    } else if let GraphRef::Multi(mg) = &gr {
+        let inner = &mg.inner;
+        let (positions, passed) =
+            multi_source_seeds(py, &gr, sources, |name| inner.get_node_index(name))?;
+        let (settled, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::multi_source_dijkstra_indexed_multigraph(
+                    inner, &positions, None, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let name = |idx: u32| inner.get_node_name(idx as usize);
         emit_dijkstra_indexed_lengths(py, &gr, name, &settled, |node: u32| {
             passed.get(&node).map(|obj| obj.clone_ref(py))
         })
@@ -23870,6 +23910,27 @@ fn single_source_dijkstra(
         let name = |idx: u32| __wp.get_node_name(idx as usize);
         let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
         emit_dijkstra_indexed_full(py, &gr, name, &result.settled, source_key)
+    } else if let GraphRef::Multi(mg) = &gr {
+        let inner = &mg.inner;
+        let (result, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::single_source_dijkstra_indexed_full_multigraph(
+                    inner, &s, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let Some(result) = result else {
+            return Ok((
+                PyDict::new(py).into_any().unbind(),
+                PyDict::new(py).into_any().unbind(),
+            ));
+        };
+        let name = |idx: u32| inner.get_node_name(idx as usize);
+        let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_full(py, &gr, name, &result.settled, source_key)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
@@ -23956,6 +24017,24 @@ fn single_source_dijkstra_path_length(
             return Ok(PyDict::new(py).into_any().unbind());
         };
         let name = |idx: u32| __wp.get_node_name(idx as usize);
+        let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
+        emit_dijkstra_indexed_lengths(py, &gr, name, &result.settled, source_key)
+    } else if let GraphRef::Multi(mg) = &gr {
+        let inner = &mg.inner;
+        let (result, rows) = py.allow_threads(|| {
+            run_recording_rows(row_limit, || {
+                fnx_algorithms::single_source_dijkstra_indexed_full_multigraph(
+                    inner, &s, weight, cutoff,
+                )
+            })
+        });
+        if check_rows {
+            check_expanded_weight_rows(py, &gr, rows, weight, false)?;
+        }
+        let Some(result) = result else {
+            return Ok(PyDict::new(py).into_any().unbind());
+        };
+        let name = |idx: u32| inner.get_node_name(idx as usize);
         let source_key = single_source_key(py, result.source_idx, source.clone().unbind());
         emit_dijkstra_indexed_lengths(py, &gr, name, &result.settled, source_key)
     } else {
