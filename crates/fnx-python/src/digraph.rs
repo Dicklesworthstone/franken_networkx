@@ -850,6 +850,14 @@ impl PyMultiDiGraph {
         self.instance_dict_gc.set_private_adj_override();
     }
 
+    #[pyo3(signature = (nodes_seq, cache=None))]
+    fn _fnx_set_getitem_row_cache(&self, nodes_seq: u64, cache: Option<&Bound<'_, PyDict>>) {
+        match cache {
+            Some(dict) => self.instance_dict_gc.set_getitem_row_cache(nodes_seq, dict),
+            None => self.instance_dict_gc.clear_getitem_row_cache(),
+        }
+    }
+
     /// br-r37-c1-pauth: the `_succ` / `_pred` twin, carrying the ef8rt argument
     /// one level down — `_succ` can be assigned without `_adj`, so the adj flag
     /// cannot stand in for it. Without this the directed multigraph accessors,
@@ -4427,6 +4435,10 @@ struct MultiDiAtlasView {
     /// another edge's presence. Mismatched seq means fall through to the
     /// string path.
     node_pos: Option<(u64, usize)>,
+    cell_cache: std::sync::Mutex<rustc_hash::FxHashMap<usize, Py<MultiDiKeyDictView>>>,
+    hit_nodes_seq: std::sync::atomic::AtomicU64,
+    hit_edges_seq: std::sync::atomic::AtomicU64,
+    hit_key_ptr: std::sync::atomic::AtomicUsize,
 }
 
 impl MultiDiAtlasView {
@@ -4447,6 +4459,10 @@ impl MultiDiAtlasView {
             node,
             kind,
             node_pos,
+            cell_cache: std::sync::Mutex::new(rustc_hash::FxHashMap::default()),
+            hit_nodes_seq: std::sync::atomic::AtomicU64::new(u64::MAX),
+            hit_edges_seq: std::sync::atomic::AtomicU64::new(u64::MAX),
+            hit_key_ptr: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -4485,7 +4501,16 @@ impl MultiDiAtlasView {
     /// captured row wrapper makes graph -> cache -> wrapper -> view -> graph a
     /// real cycle, and without a traverse it is uncollectable.
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.graph)
+        visit.call(&self.graph)?;
+        let cache = self.cell_cache.lock().unwrap();
+        for view in cache.values() {
+            visit.call(view)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.cell_cache.get_mut().unwrap().clear();
     }
 
     fn __getitem__(
@@ -4494,6 +4519,37 @@ impl MultiDiAtlasView {
         v: &Bound<'_, PyAny>,
     ) -> PyResult<Py<MultiDiKeyDictView>> {
         let g = self.graph.borrow(py);
+        if let Some((seq, row_index)) = self.node_pos
+            && seq == g.nodes_seq
+            && crate::node_key_can_use_index_lookaside(v)
+            && let Some(other_index) = g.cached_exact_string_node_index(py, v)?
+        {
+            let (source_idx, target_idx) = match self.kind {
+                MultiDiAdjKind::Successors => (row_index, other_index),
+                MultiDiAdjKind::Predecessors => (other_index, row_index),
+            };
+            if g.inner.has_edge_by_indices(source_idx, target_idx) {
+                if let Some(cached) = self.cell_cache.lock().unwrap().get(&other_index) {
+                    return Ok(cached.clone_ref(py));
+                }
+                let v_canon = node_key_to_string(py, v)?;
+                let (source, target) = self.endpoint_pair(v_canon);
+                let view = Py::new(
+                    py,
+                    MultiDiKeyDictView::new(
+                        self.graph.clone_ref(py),
+                        source,
+                        target,
+                        Some((seq, source_idx, target_idx)),
+                    ),
+                )?;
+                self.cell_cache
+                    .lock()
+                    .unwrap()
+                    .insert(other_index, view.clone_ref(py));
+                return Ok(view);
+            }
+        }
         let v_canon = node_key_to_string(py, v)?;
         let (source, target) = self.endpoint_pair(v_canon);
         if !g.inner.has_edge(&source, &target) && !g.has_live_edge_key_view(&source, &target) {
@@ -4525,12 +4581,19 @@ impl MultiDiAtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let g = self.graph.borrow(py);
+        let key_ptr = v.as_ptr() as usize;
+        if self.hit_key_ptr.load(Ordering::Relaxed) == key_ptr
+            && self.hit_nodes_seq.load(Ordering::Relaxed) == g.nodes_seq
+            && self.hit_edges_seq.load(Ordering::Relaxed) == g.edges_seq
+        {
+            return Ok(true);
+        }
         // br-r37-c1-mh4sg: see MultiAtlasView::__contains__ — networkx hashes
         // this key, so an unhashable one is a TypeError and not False. Same gap
         // br-r37-c1-espyz closed on the simple AtlasView, masked here by the
         // explicit hash in the Python AdjacencyView sitting in front.
         crate::require_hashable_node_key(v)?;
-        let g = self.graph.borrow(py);
         // br-r37-c1-2ndmw: INDEX PATH, the directed twin of
         // `MultiAtlasView::__contains__`. The string path below canonicalises
         // `v` and then hashes BOTH endpoint keys inside `has_edge` — three
@@ -4562,6 +4625,11 @@ impl MultiDiAtlasView {
                 MultiDiAdjKind::Predecessors => (other_index, row_index),
             };
             if g.inner.has_edge_by_indices(source_idx, target_idx) {
+                if v.is_exact_instance_of::<PyString>() {
+                    self.hit_nodes_seq.store(g.nodes_seq, Ordering::Relaxed);
+                    self.hit_edges_seq.store(g.edges_seq, Ordering::Relaxed);
+                    self.hit_key_ptr.store(key_ptr, Ordering::Relaxed);
+                }
                 return Ok(true);
             }
         }
@@ -7881,8 +7949,28 @@ impl PyMultiDiGraph {
         Ok(successors.len() + only_in)
     }
 
-    fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiDiAtlasView>> {
-        Self::_native_successor_row(slf, n)
+    fn __getitem__(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let py = slf.py();
+        if slf.is_exact_instance_of::<Self>() {
+            let cache = {
+                let this = slf.borrow();
+                if !this.instance_dict_gc.has_private_override() {
+                    this.instance_dict_gc
+                        .warm_getitem_row_cache(py, this.nodes_seq)
+                } else {
+                    None
+                }
+            };
+            if let Some(cache_dict) = cache
+                && let Some(view) = cache_dict.bind(py).get_item(n)?
+            {
+                return Ok(view.unbind());
+            }
+        }
+        let Some(fallback) = crate::MULTIDIGRAPH_GETITEM_FALLBACK.get(py) else {
+            return Ok(Self::_native_successor_row(slf.borrow(), n)?.into_any());
+        };
+        Ok(fallback.bind(py).call1((slf, n))?.unbind())
     }
 
     fn __str__(&self) -> String {

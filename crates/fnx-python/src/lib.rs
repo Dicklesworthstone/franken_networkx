@@ -905,7 +905,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
             if tuple_is_pure_primitive(effective) {
                 return tuple_value_repr(py, effective);
             }
-            return custom_object_canonical_key(py, effective.as_any(), "");
+            return structural_tuple_canonical_key(py, effective, "");
         }
         return custom_object_canonical_key(py, key, "");
     }
@@ -952,27 +952,107 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         if tuple_is_pure_primitive(effective) {
             return tuple_value_repr(py, effective);
         }
-        return custom_object_canonical_key(py, effective.as_any(), "");
+        if tuple_subclass_uses_tuple_equality(py, t) {
+            return structural_tuple_canonical_key(py, effective, "");
+        }
+        return custom_object_canonical_key(py, key, "");
     }
     // br-r37-c1-epic-storage-architecture-yr2oc.5: for custom hashable objects,
-    // use a bounded PyDict interner + integer-hash equality check so custom
-    // `__eq__`/`__hash__`, hash collisions, and same-repr distinct objects
-    // match Python dict key semantics instead of `repr()`.
+    // use a weakref-backed hash-bucket interner + integer-hash equality check so
+    // custom `__eq__`/`__hash__`, hash collisions, and same-repr distinct objects
+    // match Python dict key semantics without retaining strong references that
+    // would prevent cyclic GC collection of graph-referencing keys.
     custom_object_canonical_key(py, key, "")
 }
 
+enum CustomKeyRef {
+    Weak(PyObject),
+    Strong(PyObject),
+}
+
+impl CustomKeyRef {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        match self {
+            Self::Weak(wref) => Self::Weak(wref.clone_ref(py)),
+            Self::Strong(obj) => Self::Strong(obj.clone_ref(py)),
+        }
+    }
+}
+
 struct CustomKeyInterner {
-    map: Option<Py<PyDict>>,
+    buckets: Option<rustc_hash::FxHashMap<isize, Vec<(CustomKeyRef, String)>>>,
     next_id: u64,
 }
 
 static CUSTOM_KEY_INTERNER: std::sync::Mutex<CustomKeyInterner> =
     std::sync::Mutex::new(CustomKeyInterner {
-        map: None,
+        buckets: None,
         next_id: 1,
     });
 
-const CUSTOM_KEY_INTERNER_MAX_ENTRIES: usize = 65_536;
+const CUSTOM_KEY_INTERNER_MAX_BUCKETS: usize = 65_536;
+
+fn object_uses_identity_equality(py: Python<'_>, key: &Bound<'_, PyAny>) -> bool {
+    let ty = key.get_type();
+    let base_obj = py.get_type::<PyAny>();
+    let Ok(ty_eq) = ty.getattr(pyo3::intern!(py, "__eq__")) else {
+        return false;
+    };
+    let Ok(base_eq) = base_obj.getattr(pyo3::intern!(py, "__eq__")) else {
+        return false;
+    };
+    if !ty_eq.is(&base_eq) {
+        return false;
+    }
+    let Ok(ty_hash) = ty.getattr(pyo3::intern!(py, "__hash__")) else {
+        return false;
+    };
+    let Ok(base_hash) = base_obj.getattr(pyo3::intern!(py, "__hash__")) else {
+        return false;
+    };
+    ty_hash.is(&base_hash)
+}
+
+fn tuple_subclass_uses_tuple_equality(py: Python<'_>, key: &Bound<'_, PyTuple>) -> bool {
+    let ty = key.get_type();
+    let base_tuple = py.get_type::<PyTuple>();
+    let Ok(ty_eq) = ty.getattr(pyo3::intern!(py, "__eq__")) else {
+        return false;
+    };
+    let Ok(base_eq) = base_tuple.getattr(pyo3::intern!(py, "__eq__")) else {
+        return false;
+    };
+    if !ty_eq.is(&base_eq) {
+        return false;
+    }
+    let Ok(ty_hash) = ty.getattr(pyo3::intern!(py, "__hash__")) else {
+        return false;
+    };
+    let Ok(base_hash) = base_tuple.getattr(pyo3::intern!(py, "__hash__")) else {
+        return false;
+    };
+    ty_hash.is(&base_hash)
+}
+
+fn structural_tuple_canonical_key(
+    py: Python<'_>,
+    t: &Bound<'_, PyTuple>,
+    prefix: &str,
+) -> PyResult<String> {
+    let mut out = String::with_capacity(prefix.len() + 16 + t.len() * 12);
+    out.push_str(prefix);
+    out.push_str("__fnx_tuple:");
+    push_usize_decimal(&mut out, t.len());
+    out.push(':');
+    for item in t.iter() {
+        let elem_canonical = node_key_to_string(py, &item)?;
+        push_usize_decimal(&mut out, elem_canonical.len());
+        out.push(':');
+        out.push_str(&elem_canonical);
+        out.push(';');
+    }
+    Ok(out)
+}
 
 fn custom_object_canonical_key(
     py: Python<'_>,
@@ -980,6 +1060,14 @@ fn custom_object_canonical_key(
     prefix: &str,
 ) -> PyResult<String> {
     let h = key.hash()?;
+    if object_uses_identity_equality(py, key) {
+        let addr = key.as_ptr() as usize;
+        return if prefix.is_empty() {
+            Ok(format!("__fnx_id:{addr:x}"))
+        } else {
+            Ok(format!("{prefix}__fnx_id:{addr:x}"))
+        };
+    }
     let cand_i64 = h as i64;
     if let Ok(cand_py) = cand_i64.into_pyobject(py)
         && key.eq(&cand_py).unwrap_or(false)
@@ -1000,31 +1088,105 @@ fn custom_object_canonical_key(
             Ok("int:-1".to_owned())
         };
     }
-    let mut guard = CUSTOM_KEY_INTERNER
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let dict_py = guard
-        .map
-        .get_or_insert_with(|| PyDict::new(py).unbind())
-        .clone_ref(py);
-    let dict = dict_py.bind(py);
-    if let Some(existing) = dict.get_item(key)? {
-        let base = existing.extract::<String>()?;
+    let snapshot: Vec<(CustomKeyRef, String)> = {
+        let guard = CUSTOM_KEY_INTERNER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard
+            .buckets
+            .as_ref()
+            .and_then(|buckets| buckets.get(&h))
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|(kref, base)| (kref.clone_ref(py), base.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut alive_mask = Vec::with_capacity(snapshot.len());
+    let mut matched_base: Option<String> = None;
+    for (kref, base) in &snapshot {
+        match kref {
+            CustomKeyRef::Weak(wref) => {
+                let referent = wref.bind(py).call0()?;
+                if referent.is_none() {
+                    alive_mask.push(false);
+                    continue;
+                }
+                alive_mask.push(true);
+                if matched_base.is_none() && (referent.is(key) || referent.eq(key)?) {
+                    matched_base = Some(base.clone());
+                }
+            }
+            CustomKeyRef::Strong(obj) => {
+                alive_mask.push(true);
+                if matched_base.is_none() && (obj.is(key) || obj.bind(py).eq(key)?) {
+                    matched_base = Some(base.clone());
+                }
+            }
+        }
+    }
+    let has_dead = alive_mask.iter().any(|&alive| !alive);
+    if let Some(base) = matched_base {
+        if has_dead {
+            let mut guard = CUSTOM_KEY_INTERNER
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(buckets) = guard.buckets.as_mut()
+                && let Some(bucket) = buckets.get_mut(&h)
+            {
+                let mut idx = 0;
+                bucket.retain(|_| {
+                    let keep = alive_mask.get(idx).copied().unwrap_or(true);
+                    idx += 1;
+                    keep
+                });
+                if bucket.is_empty() {
+                    buckets.remove(&h);
+                }
+            }
+        }
         return if prefix.is_empty() {
             Ok(base)
         } else {
             Ok(format!("{prefix}{base}"))
         };
     }
-    if dict.len() >= CUSTOM_KEY_INTERNER_MAX_ENTRIES
-        && let Some(oldest_key) = dict.keys().iter().next()
-    {
-        let _ = dict.del_item(oldest_key);
-    }
-    let id = guard.next_id;
-    guard.next_id = guard.next_id.wrapping_add(1);
-    let base = format!("__fnx_obj:{id}");
-    dict.set_item(key, &base)?;
+
+    let weakref_ctor = py
+        .import(pyo3::intern!(py, "weakref"))?
+        .getattr(pyo3::intern!(py, "ref"))?;
+    let key_ref = match weakref_ctor.call1((key,)) {
+        Ok(wref) => CustomKeyRef::Weak(wref.unbind()),
+        Err(_) => CustomKeyRef::Strong(key.clone().unbind()),
+    };
+
+    let base = {
+        let mut guard = CUSTOM_KEY_INTERNER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let id = guard.next_id;
+        guard.next_id = guard.next_id.wrapping_add(1);
+        let base = format!("__fnx_obj:{id}");
+        let buckets = guard.buckets.get_or_insert_with(Default::default);
+        if buckets.len() >= CUSTOM_KEY_INTERNER_MAX_BUCKETS && !buckets.contains_key(&h) {
+            if let Some(&arbitrary_hash) = buckets.keys().next() {
+                buckets.remove(&arbitrary_hash);
+            }
+        }
+        let bucket = buckets.entry(h).or_default();
+        if has_dead {
+            let mut idx = 0;
+            bucket.retain(|_| {
+                let keep = alive_mask.get(idx).copied().unwrap_or(true);
+                idx += 1;
+                keep
+            });
+        }
+        bucket.push((key_ref, base.clone()));
+        base
+    };
     if prefix.is_empty() {
         Ok(base)
     } else {
@@ -2428,10 +2590,17 @@ impl NodeIndexLookupCache {
     ) -> PyResult<Option<usize>> {
         self.invalidate_if_stale(py, nodes_seq);
         let hash = key.hash()?;
-        if let Some((stored, position)) = self.exact_str_positions().get(&hash)
-            && (stored.is(key) || stored.bind(py).as_any().eq(key)?)
         {
-            return Ok(Some(*position));
+            let mut map = self.exact_str_positions();
+            if let Some((stored, position)) = map.get_mut(&hash) {
+                if stored.is(key) {
+                    return Ok(Some(*position));
+                }
+                if stored.bind(py).as_any().eq(key)? {
+                    *stored = key.clone().unbind();
+                    return Ok(Some(*position));
+                }
+            }
         }
         let Some(position) = resolve()? else {
             return Ok(None);
@@ -2663,7 +2832,10 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
         if tuple_is_pure_primitive(effective) {
             return Ok(format!("tuple:{}", tuple_value_repr(py, effective)?));
         }
-        return custom_object_canonical_key(py, effective.as_any(), "tuple:");
+        if key.is_exact_instance_of::<PyTuple>() || tuple_subclass_uses_tuple_equality(py, t) {
+            return structural_tuple_canonical_key(py, effective, "tuple:");
+        }
+        return custom_object_canonical_key(py, key, "tuple:");
     }
     custom_object_canonical_key(py, key, "obj:")
 }
@@ -3421,6 +3593,10 @@ pub(crate) struct InstanceDictGc {
     /// private-store routing and owns the public cached-property behavior; this
     /// holder only prevents the PyO3 descriptor from rebuilding its native view.
     adj_view_cache: std::sync::Mutex<Option<Py<views::AdjacencyView>>>,
+    /// br-r37-c1-ey6ob: cached `(nodes_seq, _fnx_getitem_atlas_cache[1])` so
+    /// `MultiGraph.__getitem__` and `MultiDiGraph.__getitem__` can serve warm
+    /// `G[u]` row lookups directly from the native C `mp_subscript` slot.
+    getitem_row_cache: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
     private_node_override: bool,
     /// br-r37-c1-ef8rt: the `_adj` twin of `private_node_override`.
     ///
@@ -3469,6 +3645,7 @@ impl InstanceDictGc {
             dict: None,
             dict_slot: None,
             adj_view_cache: std::sync::Mutex::new(None),
+            getitem_row_cache: std::sync::Mutex::new(None),
             private_node_override: false,
             private_adj_override: false,
             private_dir_override: false,
@@ -3508,7 +3685,9 @@ impl InstanceDictGc {
         visit.call(&self.dict)?;
         visit.call(&self.dict)?;
         let cache = self.adj_view_cache.lock().unwrap();
-        visit.call(cache.as_ref())
+        visit.call(cache.as_ref())?;
+        let row_cache = self.getitem_row_cache.lock().unwrap();
+        visit.call(row_cache.as_ref().map(|(_, dict)| dict))
     }
 
     pub(crate) fn clear(&mut self, py: Python<'_>) {
@@ -3516,6 +3695,27 @@ impl InstanceDictGc {
             dict.bind(py).clear();
         }
         *self.adj_view_cache.get_mut().unwrap() = None;
+        *self.getitem_row_cache.get_mut().unwrap() = None;
+    }
+
+    pub(crate) fn set_getitem_row_cache(&self, nodes_seq: u64, cache: &Bound<'_, PyDict>) {
+        *self.getitem_row_cache.lock().unwrap() = Some((nodes_seq, cache.clone().unbind()));
+    }
+
+    pub(crate) fn clear_getitem_row_cache(&self) {
+        *self.getitem_row_cache.lock().unwrap() = None;
+    }
+
+    pub(crate) fn warm_getitem_row_cache(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+    ) -> Option<Py<PyDict>> {
+        let guard = self.getitem_row_cache.lock().unwrap();
+        match guard.as_ref() {
+            Some((seq, dict)) if *seq == nodes_seq => Some(dict.clone_ref(py)),
+            _ => None,
+        }
     }
 
     fn cached_adj_view(&self, py: Python<'_>) -> Option<Py<views::AdjacencyView>> {
@@ -3539,15 +3739,18 @@ impl InstanceDictGc {
 
     pub(crate) fn set_private_node_override(&mut self) {
         self.private_node_override = true;
+        self.clear_getitem_row_cache();
     }
 
     pub(crate) fn set_private_adj_override(&mut self) {
         self.private_adj_override = true;
+        self.clear_getitem_row_cache();
     }
 
     /// br-r37-c1-pauth: mark an assigned `_succ` or `_pred`.
     pub(crate) fn set_private_dir_override(&mut self) {
         self.private_dir_override = true;
+        self.clear_getitem_row_cache();
     }
 
     /// Does this graph carry networkx private storage at all?
@@ -3670,6 +3873,21 @@ static EDGE_ATTR_DICT_CLASS: pyo3::sync::PyOnceLock<Py<pyo3::types::PyType>> =
     pyo3::sync::PyOnceLock::new();
 static SLOTTED_EDGE_ATTR_DICT_CLASS: pyo3::sync::PyOnceLock<Py<pyo3::types::PyType>> =
     pyo3::sync::PyOnceLock::new();
+pub(crate) static MULTIGRAPH_GETITEM_FALLBACK: pyo3::sync::PyOnceLock<PyObject> =
+    pyo3::sync::PyOnceLock::new();
+pub(crate) static MULTIDIGRAPH_GETITEM_FALLBACK: pyo3::sync::PyOnceLock<PyObject> =
+    pyo3::sync::PyOnceLock::new();
+
+#[pyfunction]
+pub(crate) fn _set_multigraph_getitem_fallbacks(
+    py: Python<'_>,
+    mg_fn: PyObject,
+    mdg_fn: PyObject,
+) -> PyResult<()> {
+    let _ = MULTIGRAPH_GETITEM_FALLBACK.set(py, mg_fn);
+    let _ = MULTIDIGRAPH_GETITEM_FALLBACK.set(py, mdg_fn);
+    Ok(())
+}
 
 /// br-r37-c1-urjxk: register the package's ``dict`` subclass for edge attr
 /// dicts (``_EdgeAttrDict``). Called once at import, right after the class is
@@ -7300,6 +7518,14 @@ impl PyMultiGraph {
         self.instance_dict_gc.set_private_adj_override();
     }
 
+    #[pyo3(signature = (nodes_seq, cache=None))]
+    fn _fnx_set_getitem_row_cache(&self, nodes_seq: u64, cache: Option<&Bound<'_, PyDict>>) {
+        match cache {
+            Some(dict) => self.instance_dict_gc.set_getitem_row_cache(nodes_seq, dict),
+            None => self.instance_dict_gc.clear_getitem_row_cache(),
+        }
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.instance_dict_gc.traverse(visit.clone())?;
         self.traverse_python_refs(&visit)
@@ -9081,6 +9307,10 @@ struct MultiAtlasView {
     /// falls back to the string path rather than trusting it. `None` is the
     /// same fallback, used where the view is built without a graph borrow.
     node_pos: Option<(u64, usize)>,
+    cell_cache: std::sync::Mutex<rustc_hash::FxHashMap<usize, Py<MultiKeyDictView>>>,
+    hit_nodes_seq: std::sync::atomic::AtomicU64,
+    hit_edges_seq: std::sync::atomic::AtomicU64,
+    hit_key_ptr: std::sync::atomic::AtomicUsize,
 }
 
 impl MultiAtlasView {
@@ -9093,6 +9323,10 @@ impl MultiAtlasView {
             graph,
             node,
             node_pos,
+            cell_cache: std::sync::Mutex::new(rustc_hash::FxHashMap::default()),
+            hit_nodes_seq: std::sync::atomic::AtomicU64::new(u64::MAX),
+            hit_edges_seq: std::sync::atomic::AtomicU64::new(u64::MAX),
+            hit_key_ptr: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -9152,11 +9386,45 @@ impl MultiAtlasView {
     /// edge-attr mirrors. The graph itself implements `__clear__`, so making
     /// the edge visible here is enough for the cycle to be broken.
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.graph)
+        visit.call(&self.graph)?;
+        let cache = self.cell_cache.lock().unwrap();
+        for view in cache.values() {
+            visit.call(view)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.cell_cache.get_mut().unwrap().clear();
     }
 
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<MultiKeyDictView>> {
         let g = self.graph.borrow(py);
+        if let Some((seq, u_index)) = self.node_pos
+            && seq == g.nodes_seq
+            && node_key_can_use_index_lookaside(v)
+            && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+            && g.inner.has_edge_by_indices(u_index, v_index)
+        {
+            if let Some(cached) = self.cell_cache.lock().unwrap().get(&v_index) {
+                return Ok(cached.clone_ref(py));
+            }
+            let v_canon = node_key_to_string(py, v)?;
+            let view = Py::new(
+                py,
+                MultiKeyDictView::new(
+                    self.graph.clone_ref(py),
+                    self.node.clone(),
+                    v_canon,
+                    Some((seq, u_index, v_index)),
+                ),
+            )?;
+            self.cell_cache
+                .lock()
+                .unwrap()
+                .insert(v_index, view.clone_ref(py));
+            return Ok(view);
+        }
         let v_canon = node_key_to_string(py, v)?;
         if !g.inner.has_edge(&self.node, &v_canon)
             && !g.has_live_edge_key_view(&self.node, &v_canon)
@@ -9195,6 +9463,14 @@ impl MultiAtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let g = self.graph.borrow(py);
+        let key_ptr = v.as_ptr() as usize;
+        if self.hit_key_ptr.load(Ordering::Relaxed) == key_ptr
+            && self.hit_nodes_seq.load(Ordering::Relaxed) == g.nodes_seq
+            && self.hit_edges_seq.load(Ordering::Relaxed) == g.edges_seq
+        {
+            return Ok(true);
+        }
         // br-r37-c1-mh4sg: networkx answers this with a dict probe, which
         // HASHES v, so an unhashable key is a TypeError and not False.
         // `node_key_to_string` canonicalises by VALUE and never hashes, so
@@ -9207,7 +9483,6 @@ impl MultiAtlasView {
         // str/int/float/bool, which are always hashable, so the common shape
         // pays one type check and never hashes.
         require_hashable_node_key(v)?;
-        let g = self.graph.borrow(py);
         // br-r37-c1-2ndmw: INDEX PATH. The string path below builds a canonical
         // for `v` and then hashes BOTH node keys inside `has_edge` — three
         // O(node key length) operations for a question that is O(1) once both
@@ -9232,6 +9507,11 @@ impl MultiAtlasView {
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
             && g.inner.has_edge_by_indices(u_index, v_index)
         {
+            if v.is_exact_instance_of::<PyString>() {
+                self.hit_nodes_seq.store(g.nodes_seq, Ordering::Relaxed);
+                self.hit_edges_seq.store(g.edges_seq, Ordering::Relaxed);
+                self.hit_key_ptr.store(key_ptr, Ordering::Relaxed);
+            }
             return Ok(true);
         }
         let v_canon = node_key_to_string(py, v)?;
@@ -13713,8 +13993,28 @@ impl PyMultiGraph {
         Ok(result.unbind())
     }
 
-    fn __getitem__(slf: PyRef<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<Py<MultiAtlasView>> {
-        Self::_native_adjacency_row(slf, n)
+    fn __getitem__(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let py = slf.py();
+        if slf.is_exact_instance_of::<Self>() {
+            let cache = {
+                let this = slf.borrow();
+                if !this.instance_dict_gc.has_private_override() {
+                    this.instance_dict_gc
+                        .warm_getitem_row_cache(py, this.nodes_seq)
+                } else {
+                    None
+                }
+            };
+            if let Some(cache_dict) = cache
+                && let Some(view) = cache_dict.bind(py).get_item(n)?
+            {
+                return Ok(view.unbind());
+            }
+        }
+        let Some(fallback) = MULTIGRAPH_GETITEM_FALLBACK.get(py) else {
+            return Ok(Self::_native_adjacency_row(slf.borrow(), n)?.into_any());
+        };
+        Ok(fallback.bind(py).call1((slf, n))?.unbind())
     }
 
     fn __str__(&self) -> String {
@@ -23854,6 +24154,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     // br-r37-c1-urjxk: edge attr dicts that report their writes.
     m.add_function(wrap_pyfunction!(_set_edge_attr_dict_class, m)?)?;
+    m.add_function(wrap_pyfunction!(_set_multigraph_getitem_fallbacks, m)?)?;
     m.add_class::<EdgeAttrWatch>()?;
     m.add_class::<NodeIterator>()?;
     m.add_class::<GuardedEdgeIter>()?;

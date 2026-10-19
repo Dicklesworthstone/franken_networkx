@@ -2777,10 +2777,17 @@ def _adjacency_view_values(self):
     return _AdjValuesView(self)
 
 
+_OBJECT_NEW = object.__new__
+
+
 class AtlasView(_Mapping):
     # br-r37-c1-rgmef: True only on a private twin, which makes the
     # shared __getitem__ below build writable rows.
     _fnx_private_rows = False
+    # br-r37-c1-ey6ob: class-level defaults for multigraph cells constructed
+    # via `_OBJECT_NEW(AtlasView)` in `AdjacencyView.__getitem__`.
+    _fnx_owner = None
+    _fnx_row_kind = "adj"
 
     # br-r37-c1-2ndmw: CLASS-LEVEL DEFAULTS for the three fields whose only
     # constructor value is None. An instance attribute that is written solely by
@@ -2913,10 +2920,19 @@ class AtlasView(_Mapping):
         if self._fnx_multi_edge_owner is not None:
             atlas = self._fnx_captured_atlas
             if atlas is None:
-                atlas = self._atlas_getter()
+                getter = self._atlas_getter
+                if type(getter) is AdjacencyView:
+                    row = getter._fnx_captured_row
+                    atlas = (getter._atlas() if row is None else row)[self._fnx_row_node]
+                else:
+                    atlas = getter()
                 self._fnx_captured_atlas = atlas
             return atlas
-        return self._atlas_getter()
+        getter = self._atlas_getter
+        if type(getter) is AdjacencyView:
+            row = getter._fnx_captured_row
+            return (getter._atlas() if row is None else row)[self._fnx_row_node]
+        return getter()
 
     def _multi_edge_keydict(self, materialize):
         # br-r37-c1-2ndmw: WARM PATH FIRST, and `materialize` is positional now.
@@ -3065,7 +3081,10 @@ class AtlasView(_Mapping):
         # attribute dict object.
         if self._fnx_multi_edge_owner is not None:
             try:
-                return self._atlas()[node]
+                atlas = self._fnx_captured_atlas
+                if atlas is None:
+                    atlas = self._atlas()
+                return atlas[node]
             except KeyError:
                 _HASH_PROBE.get(node)  # br-r37-c1-ex1s6: as __contains__
                 raise
@@ -3165,6 +3184,12 @@ class AtlasView(_Mapping):
         # via a module-level factory that wraps the snapshot.
         return (_reconstruct_atlas_view, (self.copy(),))
 
+
+# br-r37-c1-ey6ob: warm `AtlasView`'s PEP 412 `ht_cached_keys` via `__init__`
+# once at import so `_OBJECT_NEW(AtlasView)` in `AdjacencyView.__getitem__`
+# writes into inline values (`STORE_ATTR_INSTANCE_VALUE`) instead of de-sharing
+# the class keys table.
+AtlasView(None, None, None, "adj", True)
 
 # The native Graph-row route below implements the full mapping protocol in
 # Rust. ``#[pyclass(mapping)]`` sets CPython's mapping flag, but does not make
@@ -3592,6 +3617,23 @@ class AdjacencyView(_Mapping):
         return node in self._atlas()
 
     def __getitem__(self, node):
+        # br-r37-c1-ey6ob: on a captured public multigraph row (where
+        # `_fnx_captured_row` is set and `_fnx_owner` / `_fnx_private_rows` are
+        # None / False), check membership directly against the captured row and
+        # construct the fresh `AtlasView` cell via `_OBJECT_NEW(AtlasView)` + 3
+        # inline-value attribute stores without allocating a closure per call.
+        atlas = self._fnx_captured_row
+        if atlas is not None:
+            if node not in atlas:
+                try:
+                    atlas[node]
+                except KeyError as exc:
+                    raise _missing_node_key_error(self._fnx_owner, node, atlas=atlas) from exc
+            view = _OBJECT_NEW(AtlasView)
+            view._atlas_getter = self
+            view._fnx_row_node = node
+            view._fnx_multi_edge_owner = self._fnx_multi_edge_owner
+            return view
         # br-r37-c1-spg9n: warm fast-path — a token-valid cached AtlasView for
         # this row is returned directly (the view live-reads its row from Rust,
         # so it reflects later edge changes; the nodes_seq token only drops it on
@@ -3615,26 +3657,8 @@ class AdjacencyView(_Mapping):
         # been established one by one cannot be trusted to raise, and a contract
         # that holds only for the paths someone happened to check is not a
         # contract. So the getter path keeps it.
-        #
-        # br-r37-c1-2ndmw (cc): on a CAPTURED row it is redundant, exactly as
-        # `__contains__` above already concluded for itself. The captured row is
-        # either a native `MultiAtlasView`/`MultiDiAtlasView` — whose
-        # `__contains__` and `__getitem__` both run `require_hashable_node_key`
-        # since br-r37-c1-mh4sg, so an unhashable key is a TypeError with the
-        # same "unhashable type: 'list'" message networkx produces — or the
-        # plain dict snapshot `_detach_row` installs, where `in` hashes by
-        # definition. Both probes below therefore raise nx's TypeError on their
-        # own. The stale claim this comment used to make (that the native multi
-        # atlas answers False for an unhashable key) predates br-r37-c1-mh4sg
-        # and is pinned as false by
-        # test_multigraph_cell_view_construction.py::test_unhashable_cell_key_raises_typeerror_on_the_captured_row.
-        #
-        # Also skips the `_atlas()` frame plus its lambda, the same two frames
-        # br-r37-c1-fr4me removed from `__contains__` and left here.
-        atlas = self._fnx_captured_row
-        if atlas is None:
-            _HASH_PROBE.get(node)
-            atlas = self._atlas()
+        _HASH_PROBE.get(node)
+        atlas = self._atlas()
         # br-r37-c1-2ndmw: ask for EXISTENCE, do not build a value to throw away.
         #
         # This was `atlas[node]` inside a bare try, used purely as a presence
@@ -4003,10 +4027,11 @@ class MultiAdjacencyView(_Mapping):
                         _private_mark_writable(
                             view, owner, node, _private_parent_kind(self)
                         )
-                    # br-r37-c1-fr4me: the getter above is a closure over a
-                    # FIXED object, so hand the row itself to the view and let
-                    # membership skip both _atlas() and the lambda.
-                    view._fnx_captured_row = captured
+                    else:
+                        # br-r37-c1-fr4me: the getter above is a closure over a
+                        # FIXED object, so hand the row itself to the view and let
+                        # membership skip both _atlas() and the lambda.
+                        view._fnx_captured_row = captured
                     cache[1][node] = view
                     _register_held_multigraph_row(owner, node, view)
                 return view
@@ -4507,6 +4532,7 @@ def _multigraph_getitem_from_native_row(self, node):
         cache = (seq, {})
         storage["_fnx_getitem_atlas_cache"] = cache
         self._fnx_register_gc_dict(storage)
+        self._fnx_set_getitem_row_cache(seq, cache[1])
     view = cache[1].get(node)
     if view is not None:
         return view
@@ -4587,6 +4613,7 @@ def _multidigraph_getitem_from_native_row(self, node):
         cache = (seq, {})
         storage["_fnx_getitem_atlas_cache"] = cache
         self._fnx_register_gc_dict(storage)
+        self._fnx_set_getitem_row_cache(seq, cache[1])
     view = cache[1].get(node)
     if view is not None:
         return view
@@ -4619,6 +4646,12 @@ def _multidigraph_getitem_from_native_row(self, node):
     cache[1][node] = view
     _register_held_multigraph_row(self, node, view)
     return view
+
+
+_fnx._set_multigraph_getitem_fallbacks(
+    _multigraph_getitem_from_native_row,
+    _multidigraph_getitem_from_native_row,
+)
 
 
 def _to_directed_class(self):
@@ -7367,7 +7400,8 @@ def _simple_add_edges_from_touches_existing_plain_edge(graph, edges):
 
 def _invalidate_adjacency_row_caches(graph):
     cache = vars(graph)
-    cache.pop("_fnx_getitem_atlas_cache", None)
+    if not graph.is_multigraph():
+        cache.pop("_fnx_getitem_atlas_cache", None)
     cache.pop("_fnx_adj_row_keydict_cache", None)
     cache.pop("_fnx_adj_row_keydict_cache_state", None)
     for slot in ("_fnx_view_adj", "_fnx_view_succ", "_fnx_view_pred"):
@@ -11816,7 +11850,6 @@ Graph.edge_subgraph = _multigraph_edge_subgraph
 DiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.adj = property(_multigraph_adj_view)
-MultiGraph.__getitem__ = _multigraph_getitem_from_native_row
 MultiGraph.edges = property(_multigraph_edges)
 MultiDiGraph.edges = property(_multidigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
@@ -11855,7 +11888,6 @@ MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiDiGraph.succ = property(_multidigraph_succ_view)
 MultiDiGraph.pred = property(_multidigraph_pred_view)
 MultiDiGraph.adj = property(_multidigraph_adj_view)
-MultiDiGraph.__getitem__ = _multidigraph_getitem_from_native_row
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
 # br-r37-c1-b3cnf follow-up: cache MultiDiGraph in/out_degree wrappers
 # (Graph.degree + DiGraph.in/out_degree already cache via their

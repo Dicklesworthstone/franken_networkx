@@ -592,3 +592,25 @@ def test_multi_edge_keydict_accepts_positional_materialize():
     warm = cell._multi_edge_keydict(True)
     assert warm is not None
     assert cell._multi_edge_keydict(materialize=False) is warm
+
+
+@pytest.mark.parametrize("cls_name", MULTI_CLASSES)
+def test_warm_c_slot_row_cache_stays_synced_across_remove_edges_from_and_clear(cls_name):
+    """`remove_edges_from` must not desynchronize `vars(G)['_fnx_getitem_atlas_cache']`
+    from the C `mp_subscript` row cache before `G.clear()` detaches held rows."""
+    graph_nx, graph_fnx, u, v = _pair(cls_name)
+    row_nx = graph_nx[u]
+    row_fnx = graph_fnx[u]
+    # Second lookup hits the C mp_subscript warm cache.
+    assert graph_fnx[u] is row_fnx
+
+    graph_nx.remove_edges_from([("a0", "b0")])
+    graph_fnx.remove_edges_from([("a0", "b0")])
+    assert graph_fnx[u] is row_fnx
+
+    before = dict(row_nx[v])
+    assert dict(row_fnx[v]) == before
+
+    graph_fnx.clear()
+    assert dict(row_fnx[v]) == before
+

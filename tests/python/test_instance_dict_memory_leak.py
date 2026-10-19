@@ -157,3 +157,36 @@ def test_graph_attr_dict_held_by_the_caller_survives_collection(cls, touch):
         gc.collect()
         gc.collect()
         assert probe() is None
+
+
+@pytest.mark.parametrize("graph_cls", [fnx.MultiGraph, fnx.MultiDiGraph])
+def test_warm_multigraph_row_and_cell_caches_zero_leaks(graph_cls):
+    """Warming C-level getitem_row_cache and MultiAtlasView.cell_cache must not leak graphs or dicts."""
+    gc.collect()
+    gc.collect()
+    before_graphs = sum(1 for obj in gc.get_objects() if isinstance(obj, graph_cls))
+    before_dicts = set(id(obj) for obj in gc.get_objects() if isinstance(obj, dict))
+
+    for _ in range(300):
+        g = graph_cls()
+        g.add_edge("u", "v", weight=1.0)
+        row = g["u"]
+        cell = g["u"]["v"]
+        attr = g["u"]["v"][0]
+
+    del g, row, cell, attr
+    gc.collect()
+    gc.collect()
+
+    after_graphs = sum(1 for obj in gc.get_objects() if isinstance(obj, graph_cls))
+    after_dicts = [
+        obj for obj in gc.get_objects()
+        if isinstance(obj, dict) and id(obj) not in before_dicts
+    ]
+    assert after_graphs == before_graphs, (
+        f"Leaked {after_graphs - before_graphs} {graph_cls.__name__} instances"
+    )
+    assert len(after_dicts) <= 10, (
+        f"Leaked {len(after_dicts)} dicts for warm {graph_cls.__name__}"
+    )
+
