@@ -3668,19 +3668,31 @@ impl InstanceDictGc {
 
 static EDGE_ATTR_DICT_CLASS: pyo3::sync::PyOnceLock<Py<pyo3::types::PyType>> =
     pyo3::sync::PyOnceLock::new();
+static SLOTTED_EDGE_ATTR_DICT_CLASS: pyo3::sync::PyOnceLock<Py<pyo3::types::PyType>> =
+    pyo3::sync::PyOnceLock::new();
 
 /// br-r37-c1-urjxk: register the package's ``dict`` subclass for edge attr
 /// dicts (``_EdgeAttrDict``). Called once at import, right after the class is
 /// defined.
 #[pyfunction]
+#[pyo3(signature = (cls, slotted_cls=None))]
 pub(crate) fn _set_edge_attr_dict_class(
     py: Python<'_>,
     cls: Bound<'_, pyo3::types::PyType>,
+    slotted_cls: Option<Bound<'_, pyo3::types::PyType>>,
 ) -> PyResult<()> {
     if !cls.is_subclass_of::<PyDict>()? {
         return Err(PyTypeError::new_err(
             "the edge attr dict class must subclass dict",
         ));
+    }
+    if let Some(slotted) = slotted_cls {
+        if !slotted.is_subclass_of::<PyDict>()? {
+            return Err(PyTypeError::new_err(
+                "the slotted edge attr dict class must subclass dict",
+            ));
+        }
+        let _ = SLOTTED_EDGE_ATTR_DICT_CLASS.set(py, slotted.unbind());
     }
     let _ = EDGE_ATTR_DICT_CLASS.set(py, cls.unbind());
     Ok(())
@@ -3714,20 +3726,43 @@ impl EdgeAttrWatch {
 /// caller's - instead of a new `str` per key per edge (br-r37-c1-1rouu). A
 /// walk meets a handful of names; past `MAX` a name is made fresh each time.
 #[derive(Default)]
-pub(crate) struct AttrKeyStrings(Vec<(String, Py<PyString>)>);
+pub(crate) struct AttrKeyStrings<'py> {
+    keys: Vec<(String, Bound<'py, PyString>)>,
+    bulk_cls: Option<Bound<'py, PyAny>>,
+    fallback_key: Option<Bound<'py, PyString>>,
+}
 
-impl AttrKeyStrings {
+impl<'py> AttrKeyStrings<'py> {
     const MAX: usize = 64;
 
-    fn get<'py>(&mut self, py: Python<'py>, key: &str) -> Bound<'py, PyString> {
-        if let Some((_, name)) = self.0.iter().find(|(k, _)| k == key) {
-            return name.bind(py).clone();
+    fn get<'a>(&'a mut self, py: Python<'py>, key: &str) -> &'a Bound<'py, PyString> {
+        if let Some(pos) = self.keys.iter().position(|(k, _)| k == key) {
+            return &self.keys[pos].1;
         }
         let name = PyString::new(py, key);
-        if self.0.len() < Self::MAX {
-            self.0.push((key.to_owned(), name.clone().unbind()));
+        if self.keys.len() < Self::MAX {
+            self.keys.push((key.to_owned(), name));
+            return &self.keys.last().expect("just pushed").1;
         }
-        name
+        self.fallback_key = Some(name);
+        self.fallback_key.as_ref().expect("just set")
+    }
+
+    fn new_dict(
+        &mut self,
+        py: Python<'py>,
+        writes: &EdgeAttrWrites,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        if let Some(cls) = &self.bulk_cls {
+            return cls.call0()?.cast_into::<PyDict>().map_err(Into::into);
+        }
+        if EDGE_ATTR_DICT_CLASS.get(py).is_none() {
+            return Ok(PyDict::new(py));
+        }
+        let cls = writes.bulk_cls(py)?.bind(py).clone();
+        let dict = cls.call0()?.cast_into::<PyDict>()?;
+        self.bulk_cls = Some(cls);
+        Ok(dict)
     }
 }
 
@@ -3749,6 +3784,13 @@ impl AttrKeyStrings {
 /// edges went 8 ms -> 42 ms.)
 pub(crate) struct EdgeAttrWrites {
     watch: pyo3::sync::PyOnceLock<Py<EdgeAttrWatch>>,
+    /// br-r37-c1-1rouu: per-graph slotless `_EdgeAttrDict` subclass with
+    /// `_fnx_watch` bound on the class and C-level `dict.__new__`/`dict.__init__`.
+    /// Bulk walks (`edges(data=True)`) and graphs that materialize >= 4 edge
+    /// dicts create each dict via `cls.call0()` — zero slots, zero per-dict
+    /// `PyTuple` allocation, and zero per-dict `setattr` calls.
+    bulk_cls: pyo3::sync::PyOnceLock<Py<PyAny>>,
+    created_count: AtomicUsize,
     /// How many times the store has been rewritten from the escaped dicts. A
     /// cache keyed on (nodes_seq, edges_seq) and a clean flag comes back to the
     /// same key after a written dict is synced; this is what moves.
@@ -3763,6 +3805,8 @@ impl Default for EdgeAttrWrites {
     fn default() -> Self {
         Self {
             watch: pyo3::sync::PyOnceLock::new(),
+            bulk_cls: pyo3::sync::PyOnceLock::new(),
+            created_count: AtomicUsize::new(0),
             rewrites: 0,
             native_writes: 0,
         }
@@ -3779,6 +3823,36 @@ impl EdgeAttrWrites {
                     writes: std::sync::atomic::AtomicU64::new(0),
                 },
             )
+        })
+    }
+
+    fn dict_new<'py>(py: Python<'py>) -> PyResult<&'py Py<PyAny>> {
+        static DICT_NEW: pyo3::sync::PyOnceLock<Py<PyAny>> = pyo3::sync::PyOnceLock::new();
+        DICT_NEW.get_or_try_init(py, || {
+            py.get_type::<PyDict>()
+                .getattr(intern!(py, "__new__"))
+                .map(Bound::unbind)
+        })
+    }
+
+    fn bulk_cls<'py>(&self, py: Python<'py>) -> PyResult<&Py<PyAny>> {
+        self.bulk_cls.get_or_try_init(py, || {
+            let Some(base_cls) = EDGE_ATTR_DICT_CLASS.get(py) else {
+                return Ok(py.get_type::<PyDict>().into_any().unbind());
+            };
+            let watch = self.watch(py)?;
+            let namespace = PyDict::new(py);
+            namespace.set_item(intern!(py, "__slots__"), PyTuple::empty(py))?;
+            namespace.set_item(intern!(py, "_fnx_watch"), watch.bind(py))?;
+            namespace.set_item(intern!(py, "__qualname__"), intern!(py, "dict"))?;
+            namespace.set_item(
+                intern!(py, "__module__"),
+                intern!(py, "franken_networkx"),
+            )?;
+            let bases = PyTuple::new(py, [base_cls.bind(py).as_any()])?;
+            py.get_type::<pyo3::types::PyType>()
+                .call1((intern!(py, "dict"), bases, namespace))
+                .map(Bound::unbind)
         })
     }
 
@@ -3803,22 +3877,38 @@ impl EdgeAttrWrites {
     /// A new, empty attr dict for an edge of this graph that reports its writes
     /// here - or a plain ``dict`` before the class is registered (import time).
     pub(crate) fn new_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        static DICT_NEW: pyo3::sync::PyOnceLock<Py<PyAny>> = pyo3::sync::PyOnceLock::new();
-        let Some(cls) = EDGE_ATTR_DICT_CLASS.get(py) else {
+        static BASE_CLS_ARGS: pyo3::sync::PyOnceLock<Py<PyTuple>> = pyo3::sync::PyOnceLock::new();
+        static WATCH_SETTER: pyo3::sync::PyOnceLock<Py<PyAny>> = pyo3::sync::PyOnceLock::new();
+        if let Some(cls) = self.bulk_cls.get(py) {
+            return cls.bind(py).call0()?.cast_into::<PyDict>().map_err(Into::into);
+        }
+        if self.created_count.fetch_add(1, Ordering::Relaxed) >= 3 {
+            let cls = self.bulk_cls(py)?;
+            return cls.bind(py).call0()?.cast_into::<PyDict>().map_err(Into::into);
+        }
+        let Some(cls) = SLOTTED_EDGE_ATTR_DICT_CLASS
+            .get(py)
+            .or_else(|| EDGE_ATTR_DICT_CLASS.get(py))
+        else {
             return Ok(PyDict::new(py));
         };
-        // dict.__new__(cls): no Python __init__ frame; the one slot is set here.
-        // br-r37-c1-u9a13: the bound __new__ is looked up once, not per dict.
-        let dict_new = DICT_NEW.get_or_try_init(py, || {
-            py.get_type::<PyDict>()
-                .getattr(intern!(py, "__new__"))
+        let dict_new = Self::dict_new(py)?;
+        let base_args = BASE_CLS_ARGS.get_or_try_init(py, || {
+            PyTuple::new(py, [cls.bind(py).as_any()]).map(Bound::unbind)
+        })?;
+        let setter = WATCH_SETTER.get_or_try_init(py, || {
+            cls.bind(py)
+                .getattr(intern!(py, "_fnx_watch"))?
+                .getattr(intern!(py, "__set__"))
                 .map(Bound::unbind)
         })?;
         let dict = dict_new
             .bind(py)
-            .call1((cls.bind(py),))?
+            .call(base_args.bind(py), None)?
             .cast_into::<PyDict>()?;
-        dict.setattr(intern!(py, "_fnx_watch"), self.watch(py)?.clone_ref(py))?;
+        setter
+            .bind(py)
+            .call1((&dict, self.watch(py)?.bind(py)))?;
         Ok(dict)
     }
 
@@ -3868,19 +3958,30 @@ impl EdgeAttrWrites {
     /// `dict_from_attr_map` for a walk that makes many dicts: each key's
     /// `str` comes from `keys`, so the dicts share one object per name
     /// (br-r37-c1-1rouu).
-    pub(crate) fn dict_from_attr_map_with_keys(
+    pub(crate) fn dict_from_attr_map_with_keys<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         attrs: Option<&AttrMap>,
-        keys: &mut AttrKeyStrings,
+        keys: &mut AttrKeyStrings<'py>,
     ) -> PyResult<Py<PyDict>> {
-        let dict = self.new_dict(py)?;
+        Ok(self
+            .dict_from_attr_map_with_keys_bound(py, attrs, keys)?
+            .unbind())
+    }
+
+    pub(crate) fn dict_from_attr_map_with_keys_bound<'py>(
+        &self,
+        py: Python<'py>,
+        attrs: Option<&AttrMap>,
+        keys: &mut AttrKeyStrings<'py>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let dict = keys.new_dict(py, self)?;
         if let Some(attrs) = attrs {
             for (key, value) in attrs {
                 dict.set_item(keys.get(py, key), cgse_value_to_py(py, value)?)?;
             }
         }
-        Ok(dict.unbind())
+        Ok(dict)
     }
 
     /// `new_dict` holding `source`'s items, for a site that built a plain dict
@@ -3959,7 +4060,7 @@ pub(crate) struct PyGraph {
     /// also the case that passes whether or not the stamps work. The stamps
     /// exist for structural change: `add_edge`/`remove_edge` move `edges_seq`
     /// and node mutations move `nodes_seq`.
-    pub(crate) edges_alldata_cache: Option<(u64, u64, Py<PyDict>)>,
+    pub(crate) edges_alldata_cache: Option<(u64, u64, Py<PyTuple>)>,
     /// br-r37-c1-z6uka: per-adjacency-ROW display objects. nx's `_adj[u]`
     /// dict keeps the py object passed in the call that CREATED that cell,
     /// which can differ from the `_node` (first-wins) object when
@@ -4949,14 +5050,7 @@ impl PyGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
-        // The cached edge tuples are stored as dict values so whole-graph
-        // `edges(data=True)` can use CPython's C-level dict-value iterator.
-        // Clearing that dict in place, rather than merely dropping our handle,
-        // preserves NetworkX's fail-fast contract for an iterator that was
-        // obtained before the node-set mutation.
-        if let Some((_, _, cached)) = &self.edges_alldata_cache {
-            Python::attach(|py| cached.bind(py).clear());
-        }
+        self.edges_alldata_cache = None;
         // br-r37-c1-igdzi: a node add or remove RENUMBERS positions, so the
         // recorded pairs may now name different edges. Dropping individual
         // entries would lose the fact that those dicts escaped and let a later
@@ -13914,66 +14008,95 @@ impl PyMultiGraph {
         // (current-node-first), node->neighbor->key order, and self-loop-once are all
         // unchanged: a self-loop's `node` is not yet in `processed`, and a neighbor
         // already processed (earlier in node order) had this edge emitted from its side.
-        let mut processed: HashSet<String> = HashSet::new();
-        let mut result: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
-        let nodes: Vec<String> = self
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        for node in &nodes {
-            let neighbors: Vec<String> = self
-                .inner
-                .neighbors(node)
-                .unwrap_or_default()
-                .into_iter()
-                .map(str::to_owned)
-                .collect();
-            for neighbor in &neighbors {
-                if processed.contains(neighbor.as_str()) {
-                    continue;
-                }
-                let edge_keys = self.inner.edge_keys(node, neighbor).unwrap_or_default();
-                for key in edge_keys {
-                    let mut elems: Vec<PyObject> = Vec::with_capacity(4);
-                    elems.push(self.py_node_key(py, node));
-                    elems.push(
-                        self.py_adj_key(py, node, neighbor), /* br-r37-c1-z6uka */
-                    );
-                    if keys {
-                        elems.push(self.py_edge_key(py, node, neighbor, key));
-                    }
-                    if want_dict {
-                        let attrs = self
-                            .ensure_edge_py_attrs(py, node, neighbor, key)
-                            .clone_ref(py)
-                            .into_any();
-                        elems.push(attrs);
-                    } else if want_value {
-                        let ek = Self::edge_key(node, neighbor, key);
-                        let val = match self.edge_py_attrs.get(&ek) {
-                            Some(d) => d
-                                .bind(py)
-                                .get_item(data)
-                                .ok()
-                                .flatten()
-                                .map_or_else(|| default.clone_ref(py), |v| v.unbind()),
-                            None => data.extract::<String>().map_or_else(
-                                |_| Ok(default.clone_ref(py)),
-                                |attr| {
-                                    self.edge_attr_py_value(py, node, neighbor, key, &attr)
-                                        .map(|value| value.unwrap_or_else(|| default.clone_ref(py)))
-                                },
-                            )?,
-                        };
-                        elems.push(val);
-                    }
-                    result.push(PyTuple::new(py, &elems)?.into_any().unbind());
-                }
-            }
-            processed.insert(node.clone());
+        let node_keys = self.cached_node_key_vec(py);
+        let edge_count = self.inner.edge_count();
+        if want_dict {
+            self.edge_py_attrs
+                .reserve(edge_count.saturating_sub(self.edge_py_attrs.len()));
         }
+        let want_attr_name = if want_value {
+            data.extract::<String>().ok()
+        } else {
+            None
+        };
+        let inner = &self.inner;
+        let edge_py_attrs = &mut self.edge_py_attrs;
+        let edge_attr_writes = &self.edge_attr_writes;
+        let edge_py_keys = &self.edge_py_keys;
+        let adj_py_keys = &self.adj_py_keys;
+        let mut attr_keys = AttrKeyStrings::default();
+        let mut result: Vec<PyObject> = Vec::with_capacity(edge_count);
+        inner.try_for_each_indexed_edge_view_ordered_borrowed(
+            |u_pos, v_pos, node, neighbor, key, attrs| -> PyResult<()> {
+                let py_u = node_keys[u_pos].clone_ref(py);
+                let py_v = if !adj_py_keys.is_empty()
+                    && let Some(obj) = adj_py_keys.get(&(node.to_owned(), neighbor.to_owned()))
+                {
+                    obj.clone_ref(py)
+                } else {
+                    node_keys[v_pos].clone_ref(py)
+                };
+                let py_k = if keys {
+                    Some(if edge_py_keys.is_empty() {
+                        unwrap_infallible(key.into_pyobject(py)).into_any().unbind()
+                    } else {
+                        edge_py_keys
+                            .get(&Self::edge_key(node, neighbor, key))
+                            .map_or_else(
+                                || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
+                                |obj| obj.clone_ref(py),
+                            )
+                    })
+                } else {
+                    None
+                };
+                let tail = if want_dict {
+                    let dict = match edge_py_attrs.entry(Self::edge_key(node, neighbor, key)) {
+                        std::collections::hash_map::Entry::Occupied(entry) => {
+                            entry.get().clone_ref(py)
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => entry
+                            .insert(edge_attr_writes.dict_from_attr_map_with_keys(
+                                py,
+                                Some(attrs),
+                                &mut attr_keys,
+                            )?)
+                            .clone_ref(py),
+                    };
+                    Some(dict.into_any())
+                } else if want_value {
+                    let val = if !edge_py_attrs.is_empty()
+                        && let Some(d) = edge_py_attrs.get(&Self::edge_key(node, neighbor, key))
+                    {
+                        d.bind(py)
+                            .get_item(data)
+                            .ok()
+                            .flatten()
+                            .map_or_else(|| default.clone_ref(py), |v| v.unbind())
+                    } else if let Some(attr) = &want_attr_name {
+                        match attrs.get(attr.as_str()) {
+                            Some(value) => cgse_value_to_py(py, value)?,
+                            None => default.clone_ref(py),
+                        }
+                    } else {
+                        default.clone_ref(py)
+                    };
+                    Some(val)
+                } else {
+                    None
+                };
+                let tup = match (py_k, tail) {
+                    (None, None) => PyTuple::new(py, &[py_u, py_v])?.into_any().unbind(),
+                    (Some(k), None) => PyTuple::new(py, &[py_u, py_v, k])?.into_any().unbind(),
+                    (None, Some(d)) => PyTuple::new(py, &[py_u, py_v, d])?.into_any().unbind(),
+                    (Some(k), Some(d)) => {
+                        PyTuple::new(py, &[py_u, py_v, k, d])?.into_any().unbind()
+                    }
+                };
+                result.push(tup);
+                Ok(())
+            },
+        )?;
         if cacheable {
             let cached: Vec<PyObject> = result.iter().map(|t| t.clone_ref(py)).collect();
             self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, keys, cached));
@@ -23572,8 +23695,10 @@ impl GuardedEdgeIter {
                     continue;
                 }
             }
-            self.previous = Some(item.clone_ref(py));
-            self.emitted += 1;
+            if self.on_move.is_some() {
+                self.previous = Some(item.clone_ref(py));
+                self.emitted += 1;
+            }
             return Ok(Some(item));
         }
     }

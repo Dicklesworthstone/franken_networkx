@@ -2093,6 +2093,41 @@ impl DiGraph {
         ordered
     }
 
+    pub fn try_for_each_indexed_edge_ordered_borrowed<E>(
+        &self,
+        mut visit: impl FnMut(usize, usize, &str, &str, &AttrMap) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if self.node_order.is_dense() {
+            for (u_name, u) in self.node_order.iter() {
+                for &t in &self.succ_indices[u] {
+                    if let Some(attrs) = self.edges.get(&(u, t)) {
+                        let t_name = self.node_order.names[t]
+                            .as_deref()
+                            .expect("valid target slot");
+                        visit(u, t, u_name.as_str(), t_name, attrs)?;
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let mut slot_to_pos = vec![0; self.node_order.slot_count()];
+        for (pos, (_, slot)) in self.node_order.iter().enumerate() {
+            slot_to_pos[slot] = pos;
+        }
+        for (u_pos, (u_name, u)) in self.node_order.iter().enumerate() {
+            for &t in &self.succ_indices[u] {
+                if let Some(attrs) = self.edges.get(&(u, t)) {
+                    let t_pos = slot_to_pos[t];
+                    let t_name = self.node_order.names[t]
+                        .as_deref()
+                        .expect("valid target slot");
+                    visit(u_pos, t_pos, u_name.as_str(), t_name, attrs)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edges.len());

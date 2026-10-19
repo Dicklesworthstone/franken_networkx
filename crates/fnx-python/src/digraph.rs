@@ -1047,35 +1047,85 @@ impl PyMultiDiGraph {
         Ok(cached.iter().map(|tuple| tuple.clone_ref(py)).collect())
     }
 
-    /// br-r37-c1-o07ax: build (and cache) the node-major (u, v, live_attr) tuples
-    /// for edges(data=True, keys=False) — the same AllData/!keys branch as
-    /// MultiDiGraphEdgeView.__call__, served from a (nodes_seq, edges_seq) cache.
-    pub(crate) fn edges_alldata_tuples(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    /// br-r37-c1-o07ax / br-r37-c1-1rouu: build (and cache) the node-major
+    /// (u, v[, key], live_attr) tuples for edges(data=True, keys=...) — served
+    /// from a (nodes_seq, edges_seq, keys) cache.
+    pub(crate) fn edges_alldata_tuples_with_keys(
+        &mut self,
+        py: Python<'_>,
+        keys: bool,
+    ) -> PyResult<Vec<PyObject>> {
         let valid = matches!(
             &self.edges_with_data_cache,
-            Some((ns, es, keys, _)) if *ns == self.nodes_seq && *es == self.edges_seq && !*keys
+            Some((ns, es, k, _)) if *ns == self.nodes_seq && *es == self.edges_seq && *k == keys
         );
         if !valid {
-            let edges: Vec<(String, String, usize)> = self
-                .inner
-                .edges_ordered_borrowed()
-                .into_iter()
-                .map(|(source, target, key, _)| (source.to_owned(), target.to_owned(), key))
-                .collect();
-            let mut result: Vec<PyObject> = Vec::with_capacity(edges.len());
-            for (source, target, key) in &edges {
-                let py_u = self.py_node_key(py, source);
-                let py_v = self.py_succ_key(py, source, target);
-                let attrs = self
-                    .ensure_edge_py_attrs(py, source, target, *key)
-                    .clone_ref(py)
-                    .into_any();
-                result.push(tuple_object(py, &[py_u, py_v, attrs])?);
-            }
-            self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, false, result));
+            let key_vec = self.cached_node_key_vec(py);
+            let edge_count = self.inner.edge_count();
+            self.edge_py_attrs
+                .reserve(edge_count.saturating_sub(self.edge_py_attrs.len()));
+            let inner = &self.inner;
+            let edge_py_attrs = &mut self.edge_py_attrs;
+            let edge_attr_writes = &self.edge_attr_writes;
+            let edge_py_keys = &self.edge_py_keys;
+            let succ_py_keys = &self.succ_py_keys;
+            let mut attr_keys = crate::AttrKeyStrings::default();
+            let mut result: Vec<PyObject> = Vec::with_capacity(edge_count);
+            inner.try_for_each_indexed_edge_ordered_borrowed(
+                |ui, vi, source, target, key, attrs| -> PyResult<()> {
+                    let py_u = key_vec[ui].clone_ref(py);
+                    let py_v = if !succ_py_keys.is_empty()
+                        && let Some(obj) = succ_py_keys.get(&(source.to_owned(), target.to_owned()))
+                    {
+                        obj.clone_ref(py)
+                    } else {
+                        key_vec[vi].clone_ref(py)
+                    };
+                    let dict = match edge_py_attrs.entry(Self::edge_key(source, target, key)) {
+                        std::collections::hash_map::Entry::Occupied(entry) => {
+                            entry.get().clone_ref(py)
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => entry
+                            .insert(edge_attr_writes.dict_from_attr_map_with_keys(
+                                py,
+                                Some(attrs),
+                                &mut attr_keys,
+                            )?)
+                            .clone_ref(py),
+                    };
+                    let tup = if keys {
+                        let py_k = if edge_py_keys.is_empty() {
+                            crate::unwrap_infallible(key.into_pyobject(py))
+                                .into_any()
+                                .unbind()
+                        } else {
+                            edge_py_keys
+                                .get(&Self::edge_key(source, target, key))
+                                .map_or_else(
+                                    || {
+                                        crate::unwrap_infallible(key.into_pyobject(py))
+                                            .into_any()
+                                            .unbind()
+                                    },
+                                    |obj| obj.clone_ref(py),
+                                )
+                        };
+                        tuple_object(py, &[py_u, py_v, py_k, dict.into_any()])?
+                    } else {
+                        tuple_object(py, &[py_u, py_v, dict.into_any()])?
+                    };
+                    result.push(tup);
+                    Ok(())
+                },
+            )?;
+            self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, keys, result));
         }
         let cached = &self.edges_with_data_cache.as_ref().unwrap().3;
         Ok(cached.iter().map(|t| t.clone_ref(py)).collect())
+    }
+
+    pub(crate) fn edges_alldata_tuples(&mut self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        self.edges_alldata_tuples_with_keys(py, false)
     }
 
     /// Build the all-edge ``edges(keys=True, data=True)`` result in one pass when
@@ -1116,30 +1166,8 @@ impl PyMultiDiGraph {
         if keys && !want_dict && !want_value {
             return self.edges_key_tuples(py);
         }
-        if want_dict && !keys {
-            return self.edges_alldata_tuples(py);
-        }
-        if want_dict && keys {
-            // br-r37-c1-mdgkd (cc): serve/repopulate the keys+data variant from the
-            // shared edges_with_data_cache (flag=true). Previously this combo had no
-            // cache and rebuilt every call (materializing empty mirrors) -> 0.78x.
-            let valid = matches!(
-                &self.edges_with_data_cache,
-                Some((ns, es, k, _)) if *ns == self.nodes_seq && *es == self.edges_seq && *k
-            );
-            if valid {
-                let cached = &self.edges_with_data_cache.as_ref().unwrap().3;
-                return Ok(cached.iter().map(|t| t.clone_ref(py)).collect());
-            }
-            if let Some(result) = self.edges_key_alldata_existing_mirrors(py)? {
-                self.edges_with_data_cache = Some((
-                    self.nodes_seq,
-                    self.edges_seq,
-                    true,
-                    result.iter().map(|t| t.clone_ref(py)).collect(),
-                ));
-                return Ok(result);
-            }
+        if want_dict {
+            return self.edges_alldata_tuples_with_keys(py, keys);
         }
 
         // br-inedges-attrcache (bt): whole-graph edges(data=<attr>) scalar snapshot
@@ -13641,12 +13669,12 @@ impl PyDiGraph {
     /// `materialize_edge_py_attrs` for a walk over many edges: a dict it makes
     /// takes its key strs from `keys`, shared across the walk
     /// (br-r37-c1-1rouu).
-    fn materialize_edge_py_attrs_with_keys(
+    fn materialize_edge_py_attrs_with_keys<'py>(
         &mut self,
-        py: Python<'_>,
+        py: Python<'py>,
         u: &str,
         v: &str,
-        keys: &mut crate::AttrKeyStrings,
+        keys: &mut crate::AttrKeyStrings<'py>,
     ) -> PyResult<Py<PyDict>> {
         Ok(match self.edge_py_attrs.entry(Self::edge_key(u, v)) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone_ref(py),
@@ -17219,23 +17247,42 @@ impl PyDiGraph {
             Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
         );
         if !valid {
-            let mut items: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
-            let edges: Vec<(String, String)> = self
-                .inner
-                .edges_ordered_borrowed()
-                .into_iter()
-                .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
-                .collect();
-            // br-r37-c1-1rouu: sized for the walk, one key str per name.
+            let node_keys = self.cached_node_key_vec(py);
+            let edge_count = self.inner.edge_count();
             self.edge_py_attrs
-                .reserve(edges.len().saturating_sub(self.edge_py_attrs.len()));
+                .reserve(edge_count.saturating_sub(self.edge_py_attrs.len()));
+            let inner = &self.inner;
+            let edge_py_attrs = &mut self.edge_py_attrs;
+            let edge_attr_writes = &self.edge_attr_writes;
+            let succ_py_keys = &self.succ_py_keys;
+            let mut items: Vec<PyObject> = Vec::with_capacity(edge_count);
             let mut keys = crate::AttrKeyStrings::default();
-            for (u, v) in edges {
-                let py_u = self.py_node_key(py, &u);
-                let py_v = self.py_succ_key(py, &u, &v) /* br-r37-c1-z6uka */;
-                let attrs = self.materialize_edge_py_attrs_with_keys(py, &u, &v, &mut keys)?;
-                items.push(tuple_object(py, &[py_u, py_v, attrs.into_any()])?);
-            }
+            inner.try_for_each_indexed_edge_ordered_borrowed(
+                |u, v, left, right, attrs| -> PyResult<()> {
+                    let py_u = node_keys[u].clone_ref(py);
+                    let py_v = if !succ_py_keys.is_empty()
+                        && let Some(obj) = succ_py_keys.get(&(left.to_owned(), right.to_owned()))
+                    {
+                        obj.clone_ref(py)
+                    } else {
+                        node_keys[v].clone_ref(py)
+                    };
+                    let dict = match edge_py_attrs.entry(Self::edge_key(left, right)) {
+                        std::collections::hash_map::Entry::Occupied(entry) => {
+                            entry.get().clone_ref(py)
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => entry
+                            .insert(edge_attr_writes.dict_from_attr_map_with_keys(
+                                py,
+                                Some(attrs),
+                                &mut keys,
+                            )?)
+                            .clone_ref(py),
+                    };
+                    items.push(tuple_object(py, &[py_u, py_v, dict.into_any()])?);
+                    Ok(())
+                },
+            )?;
             self.edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, items));
         }
         let cached = &self.edges_with_data_cache.as_ref().unwrap().2;
@@ -17249,21 +17296,26 @@ impl PyDiGraph {
             Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
         );
         if !valid {
-            let mut dicts = Vec::with_capacity(self.inner.edge_count());
-            let edges: Vec<(String, String)> = self
-                .inner
-                .edges_ordered_borrowed()
-                .into_iter()
-                .map(|(u, v, _)| (u.to_owned(), v.to_owned()))
-                .collect();
+            let edge_count = self.inner.edge_count();
             self.edge_py_attrs
-                .reserve(edges.len().saturating_sub(self.edge_py_attrs.len()));
+                .reserve(edge_count.saturating_sub(self.edge_py_attrs.len()));
+            let inner = &self.inner;
+            let edge_py_attrs = &mut self.edge_py_attrs;
+            let edge_attr_writes = &self.edge_attr_writes;
+            let mut dicts = Vec::with_capacity(edge_count);
             let mut keys = crate::AttrKeyStrings::default();
-            for (u, v) in edges {
-                let attrs = self
-                    .materialize_edge_py_attrs_with_keys(py, &u, &v, &mut keys)
-                    .ok()?;
-                dicts.push(attrs);
+            for (u, v, attrs) in inner.edges_ordered_borrowed() {
+                let dict = match edge_py_attrs.entry(Self::edge_key(u, v)) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone_ref(py),
+                    std::collections::hash_map::Entry::Vacant(entry) => entry
+                        .insert(
+                            edge_attr_writes
+                                .dict_from_attr_map_with_keys(py, Some(attrs), &mut keys)
+                                .ok()?,
+                        )
+                        .clone_ref(py),
+                };
+                dicts.push(dict);
             }
             self.edges_attr_dicts_cache = Some((self.nodes_seq, self.edges_seq, dicts));
         }
@@ -17524,11 +17576,15 @@ impl PyDiGraph {
                 }
                 v
             };
+            self.edge_py_attrs
+                .reserve(pairs.len().saturating_sub(self.edge_py_attrs.len()));
+            let mut keys = crate::AttrKeyStrings::default();
             let mut items: Vec<PyObject> = Vec::with_capacity(pairs.len());
             for (source, target) in pairs {
                 let py_s = self.py_pred_key(py, &target, &source) /* br-r37-c1-z6uka */;
                 let py_t = self.py_node_key(py, &target);
-                let attrs = self.materialize_edge_py_attrs(py, &source, &target);
+                let attrs =
+                    self.materialize_edge_py_attrs_with_keys(py, &source, &target, &mut keys)?;
                 items.push(tuple_object(py, &[py_s, py_t, attrs.into_any()])?);
             }
             self.in_edges_with_data_cache = Some((self.nodes_seq, self.edges_seq, items));

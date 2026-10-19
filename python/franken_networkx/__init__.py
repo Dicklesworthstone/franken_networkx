@@ -2047,7 +2047,19 @@ class EdgeDataView:
             )
             if lazy is not None:
                 return lazy
-        rows = self._materialize()
+        if (
+            self._nbunch_list is None
+            and self._data is not None
+            and isinstance(self._data, (bool, str))
+        ):
+            rows = self._call(
+                self._view,
+                data=self._data,
+                nbunch=None,
+                default=self._default,
+            )
+        else:
+            rows = self._materialize()
         if self._graph is None:
             return iter(rows)
         # br-r37-c1-hihrf: a native nbunch result is materialised, but NetworkX
@@ -2241,6 +2253,20 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
         # unhashable), so every one of those questions has a known answer here.
         # Everything the fast path skips is a CHECK, not work: the resulting
         # EdgeDataView is constructed with exactly the same arguments.
+        if type(args) is tuple and not args:
+            if not kwargs:
+                return edge_view_call(self, data=False, nbunch=None, default=None)
+            if len(kwargs) == 1 and "data" in kwargs:
+                data_kw = kwargs["data"]
+                if data_kw is False:
+                    return edge_view_call(self, data=False, nbunch=None, default=None)
+                return EdgeDataView(
+                    edge_view_call,
+                    self,
+                    data=data_kw,
+                    default=None,
+                    nbunch_list=None,
+                )
         if type(args) is tuple and len(args) == 1 and type(args[0]) is list:
             if not kwargs:
                 return EdgeDataView(
@@ -3245,11 +3271,8 @@ class _EdgeAttrDict(dict):
     is False, as it already is for the multigraph keydict.
     """
 
-    __slots__ = ("_fnx_watch",)
-
-    def __init__(self, *args, **kwargs):
-        self._fnx_watch = None
-        dict.__init__(self, *args, **kwargs)
+    __slots__ = ()
+    _fnx_watch = None
 
     def __setitem__(self, key, value):
         dict.__setitem__(self, key, value)
@@ -3312,12 +3335,21 @@ class _EdgeAttrDict(dict):
         return copied
 
 
+class _SlottedEdgeAttrDict(_EdgeAttrDict):
+    __slots__ = ("_fnx_watch",)
+
+    def __init__(self, *args, **kwargs):
+        self._fnx_watch = None
+        dict.__init__(self, *args, **kwargs)
+
+
 # networkx's edge attr dict is a dict, and type(G[u][v]).__name__ says so -
 # code that reports a value's type (and the held-row parity locks) reads the
 # name. Pickle and copy never look the class up by name: __reduce__ hands
 # them a plain dict.
 _EdgeAttrDict.__name__ = _EdgeAttrDict.__qualname__ = "dict"
-_fnx._set_edge_attr_dict_class(_EdgeAttrDict)
+_SlottedEdgeAttrDict.__name__ = _SlottedEdgeAttrDict.__qualname__ = "dict"
+_fnx._set_edge_attr_dict_class(_EdgeAttrDict, _SlottedEdgeAttrDict)
 
 
 def _graph_is_filtered(graph, _depth=0):

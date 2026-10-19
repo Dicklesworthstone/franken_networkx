@@ -649,9 +649,14 @@ fn edge_alldata_items(
     g: &mut PyGraph,
     node_filter: Option<&std::collections::HashSet<String>>,
 ) -> PyResult<Vec<PyObject>> {
-    // br-r37-c1-ml7s5: read the generation BEFORE the field borrows below — the
-    // accessor methods take `&self` and would conflict with them.
+    // br-r37-c1-ml7s5: read the generation and cached node keys BEFORE the field
+    // borrows below — the accessor methods take `&self` and would conflict with them.
     let nodes_seq = g.nodes_seq;
+    let key_vec = if g.adj_py_keys.is_empty() {
+        Some(g.cached_node_key_vec(py))
+    } else {
+        None
+    };
     let inner = &g.inner;
     let edge_py_attrs = &mut g.edge_py_attrs;
     let edge_py_attrs_by_index = &mut g.edge_py_attrs_by_index;
@@ -668,28 +673,41 @@ fn edge_alldata_items(
     // owned Strings and a SipHash per edge here.
     if node_filter.is_none() {
         edge_py_attrs.reserve(inner.edge_count().saturating_sub(edge_py_attrs.len()));
-        edge_py_attrs_by_index.reserve(
-            inner
-                .edge_count()
-                .saturating_sub(edge_py_attrs_by_index.len()),
-        );
     }
     let mut keys = crate::AttrKeyStrings::default();
-    // br-r37-c1-2a00r: index fast path — build the node-index -> Python key
-    // object Vec ONCE (a node of degree d was hashed via edgeview_py_node_key
-    // ~d times across its incident edges) and walk edges by index, so each
-    // endpoint is an O(1) Vec index + incref with no canonical-String hash.
-    // Gated on adj_py_keys being empty: when non-empty (non-uniform
-    // adjacency-row key objects, br-r37-c1-z6uka) the neighbor's display object
-    // can differ from the node's own key, so fall through to the exact
-    // per-edge path below. (The edge_py_attrs `edge_key` String probe is
-    // unchanged — re-keying that map by index is a separate, larger lever.)
-    if adj_py_keys.is_empty() {
+    if let Some(key_vec) = key_vec {
+        if edge_py_attrs.is_empty() {
+            inner.try_for_each_indexed_edge_ordered_borrowed(
+                |u, v, left, right, attrs| -> PyResult<()> {
+                    if let Some(ns) = node_filter
+                        && !(ns.contains(left) || ns.contains(right))
+                    {
+                        return Ok(());
+                    }
+                    let live = edge_attr_writes.dict_from_attr_map_with_keys(
+                        py,
+                        Some(attrs),
+                        &mut keys,
+                    )?;
+                    edge_py_attrs.insert(PyGraph::edge_key(left, right), live.clone_ref(py));
+                    if node_filter.is_some() {
+                        let index_key = if u <= v { (u, v) } else { (v, u) };
+                        edge_py_attrs_by_index.insert(index_key, (nodes_seq, live.clone_ref(py)));
+                    }
+                    items.push(tuple_object(
+                        py,
+                        &[
+                            key_vec[u].clone_ref(py),
+                            key_vec[v].clone_ref(py),
+                            live.into_any(),
+                        ],
+                    )?);
+                    Ok(())
+                },
+            )?;
+            return Ok(items);
+        }
         let nodes: Vec<&str> = inner.nodes_ordered();
-        let key_vec: Vec<PyObject> = nodes
-            .iter()
-            .map(|n| edgeview_py_node_key(py, node_key_map, lazy_stop, n))
-            .collect();
         for (u, v) in inner.edges_ordered_indices() {
             let left = nodes[u];
             let right = nodes[v];
@@ -698,29 +716,6 @@ fn edge_alldata_items(
             {
                 continue;
             }
-            // br-r37-c1-ml7s5: probe the INDEX lookaside before building a
-            // canonical key.
-            //
-            // `PyGraph::edge_key(left, right)` returns `(String, String)` — two
-            // owned allocations of full node-key length, per edge, purely to
-            // build a probe key. That is why this call grew with node-key length
-            // while the directed twin stayed flat: 114.9us at 3-character keys
-            // against 713.5us at 2000, where networkx is flat at ~322us. At 300
-            // edges and 2000-character keys it is 600 allocations and ~1.2MB
-            // hashed per call.
-            //
-            // br-r37-c1-2a00r removed the ENDPOINT hashing here with the
-            // `key_vec` index walk above and recorded that this probe was left:
-            // "re-keying that map by index is a separate, larger lever". It is
-            // not a larger lever any more — that walk already yields `(u, v)`
-            // INDICES at exactly this point, and `edge_py_attrs_by_index`
-            // already exists (br-r37-c1-ptiz2), stamped with `nodes_seq` and
-            // cleared by `bump_edges_seq`.
-            //
-            // The entry is filled from the SAME dict the string-keyed mirror
-            // holds, never a fresh one, so the two maps cannot disagree about
-            // identity — `edges(data=True)` must keep handing out the graph's
-            // live dicts, which `test_edges_data_attr_dict_liveness.py` pins.
             let index_key = if u <= v { (u, v) } else { (v, u) };
             let dict = match edge_py_attrs_by_index.get(&index_key) {
                 Some((seq, cached)) if *seq == nodes_seq => cached.clone_ref(py),
@@ -1147,20 +1142,12 @@ impl EdgeView {
                 }
                 _ => {
                     let items = edge_alldata_items(py, &mut g, None)?;
-                    let cached = PyDict::new(py);
-                    for (index, item) in items.iter().enumerate() {
-                        cached.set_item(index, item)?;
-                    }
-                    let cached = cached.unbind();
+                    let cached = PyTuple::new(py, &items)?.unbind();
                     g.edges_alldata_cache = Some((nodes_seq, edges_seq, cached.clone_ref(py)));
                     cached
                 }
             };
-            return cached
-                .bind(py)
-                .call_method0("values")?
-                .call_method0("__iter__")
-                .map(Bound::unbind);
+            return cached.bind(py).call_method0("__iter__").map(Bound::unbind);
         }
         let (items, node_count, nodes_seq) = match &self.data {
             NodeViewData::AllData => {

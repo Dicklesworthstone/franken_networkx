@@ -3101,6 +3101,46 @@ impl Graph {
         ordered
     }
 
+    pub fn try_for_each_indexed_edge_ordered_borrowed<E>(
+        &self,
+        mut visit: impl FnMut(usize, usize, &str, &str, &AttrMap) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut seen = vec![false; self.node_order.slot_count()];
+        if self.node_order.is_dense() {
+            for (u_name, u) in self.node_order.iter() {
+                for &v in &self.adj_indices[u] {
+                    if !seen[v] {
+                        let pair = Self::canon_pair(u, v);
+                        if let Some(attrs) = self.edges.get(&pair) {
+                            let v_name = self.node_order.name(v).expect("valid node slot");
+                            visit(u, v, u_name.as_str(), v_name, attrs)?;
+                        }
+                    }
+                }
+                seen[u] = true;
+            }
+            return Ok(());
+        }
+        let mut slot_to_pos = vec![0; self.node_order.slot_count()];
+        for (pos, (_, slot)) in self.node_order.iter().enumerate() {
+            slot_to_pos[slot] = pos;
+        }
+        for (u_pos, (u_name, u)) in self.node_order.iter().enumerate() {
+            for &v in &self.adj_indices[u] {
+                if !seen[v] {
+                    let pair = Self::canon_pair(u, v);
+                    if let Some(attrs) = self.edges.get(&pair) {
+                        let v_pos = slot_to_pos[v];
+                        let v_name = self.node_order.name(v).expect("valid node slot");
+                        visit(u_pos, v_pos, u_name.as_str(), v_name, attrs)?;
+                    }
+                }
+            }
+            seen[u] = true;
+        }
+        Ok(())
+    }
+
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edges.len());
@@ -4697,6 +4737,55 @@ mod multigraph_storage {
             ordered
         }
 
+        pub fn try_for_each_indexed_edge_view_ordered_borrowed<E>(
+            &self,
+            mut visit: impl FnMut(usize, usize, &str, &str, usize, &AttrMap) -> Result<(), E>,
+        ) -> Result<(), E> {
+            let mut processed = vec![false; self.node_order.slot_count()];
+            if self.node_order.is_dense() {
+                for (u_name, u_slot) in self.node_order.iter() {
+                    for &v_slot in self.rows[u_slot].keys() {
+                        if processed[v_slot] {
+                            continue;
+                        }
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
+                            .expect("row references a live slot");
+                        let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                        if let Some(bucket) = self.edges.get(&pair) {
+                            for (key, attrs) in bucket.iter() {
+                                visit(u_slot, v_slot, u_name.as_str(), v_name, key, attrs)?;
+                            }
+                        }
+                    }
+                    processed[u_slot] = true;
+                }
+                return Ok(());
+            }
+            let slot_to_pos = self.slot_positions();
+            for (u_pos, (u_name, u_slot)) in self.node_order.iter().enumerate() {
+                for &v_slot in self.rows[u_slot].keys() {
+                    if processed[v_slot] {
+                        continue;
+                    }
+                    let v_pos = slot_to_pos[v_slot];
+                    let v_name = self
+                        .node_order
+                        .name(v_slot)
+                        .expect("row references a live slot");
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    if let Some(bucket) = self.edges.get(&pair) {
+                        for (key, attrs) in bucket.iter() {
+                            visit(u_pos, v_pos, u_name.as_str(), v_name, key, attrs)?;
+                        }
+                    }
+                }
+                processed[u_slot] = true;
+            }
+            Ok(())
+        }
+
         /// br-r37-c1-thp6w S10: `edges_ordered_borrowed` analog — the ONLY
         /// observed edge order. Walk = node insertion order, row order, bucket
         /// key order; each (pair, key) emitted once (first touch); emitted
@@ -6285,6 +6374,14 @@ impl MultiGraph {
     #[must_use]
     pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
         self.slab_store().edges_ordered_indices_borrowed()
+    }
+
+    pub fn try_for_each_indexed_edge_view_ordered_borrowed<E>(
+        &self,
+        visit: impl FnMut(usize, usize, &str, &str, usize, &AttrMap) -> Result<(), E>,
+    ) -> Result<(), E> {
+        self.slab_store()
+            .try_for_each_indexed_edge_view_ordered_borrowed(visit)
     }
 
     #[must_use]
