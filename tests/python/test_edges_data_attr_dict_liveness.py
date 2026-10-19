@@ -145,27 +145,38 @@ def test_values_match_networkx(cls_name):
 # the one G[u][v] serves in either direction afterwards (the lookaside G[u][v]
 # probes is filled on use now, not by the walk).
 
-def _batch_graph(lib, directed):
-    graph = (lib.DiGraph if directed else lib.Graph)()
-    graph.add_edges_from((i, (i * 5 + 2) % 30, {"weight": i % 7, "kind": "k"}) for i in range(30))
+def _batch_graph(lib, cls_name: str):
+    graph = getattr(lib, cls_name)()
+    graph.add_edges_from(
+        (i, (i * 5 + 2) % 30, {"weight": i % 7, "kind": "k"}) for i in range(30)
+    )
     return graph
 
 
-@pytest.mark.parametrize("directed", [False, True], ids=["Graph", "DiGraph"])
-def test_first_walk_dicts_share_key_objects_as_networkx(directed):
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_first_walk_dicts_share_key_objects_as_networkx(cls_name):
     for lib in (nx, fnx):
-        dicts = [d for _, _, d in _batch_graph(lib, directed).edges(data=True)]
+        dicts = [d for _, _, d in _batch_graph(lib, cls_name).edges(data=True)]
         firsts = [next(iter(d)) for d in dicts]
-        assert all(key is firsts[0] for key in firsts), lib.__name__
+        assert all(key is firsts[0] for key in firsts), f"{lib.__name__} {cls_name}"
 
 
-@pytest.mark.parametrize("directed", [False, True], ids=["Graph", "DiGraph"])
-def test_first_walk_dicts_are_the_graphs_in_both_directions(directed):
-    graph = _batch_graph(fnx, directed)
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_first_walk_dicts_are_the_graphs_in_both_directions(cls_name):
+    graph = _batch_graph(fnx, cls_name)
     walked = list(graph.edges(data=True))
     for u, v, d in walked:
-        assert graph[u][v] is d
-        if not directed:
-            assert graph[v][u] is d
+        if graph.is_multigraph():
+            assert any(cand is d for cand in graph[u][v].values())
+            if not graph.is_directed():
+                assert any(cand is d for cand in graph[v][u].values())
+        else:
+            assert graph[u][v] is d
+            if not graph.is_directed():
+                assert graph[v][u] is d
+        # Both slotted single-edge and slotless bulk-materialised edge attr
+        # dicts must remain directly instantiable via type(d)().
+        assert type(d)() == {}
         d["weight"] = -1
     assert all(w == -1 for _, _, w in graph.edges(data="weight"))
+

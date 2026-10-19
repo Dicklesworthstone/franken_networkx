@@ -3845,10 +3845,7 @@ impl EdgeAttrWrites {
             namespace.set_item(intern!(py, "__slots__"), PyTuple::empty(py))?;
             namespace.set_item(intern!(py, "_fnx_watch"), watch.bind(py))?;
             namespace.set_item(intern!(py, "__qualname__"), intern!(py, "dict"))?;
-            namespace.set_item(
-                intern!(py, "__module__"),
-                intern!(py, "franken_networkx"),
-            )?;
+            namespace.set_item(intern!(py, "__module__"), intern!(py, "franken_networkx"))?;
             let bases = PyTuple::new(py, [base_cls.bind(py).as_any()])?;
             py.get_type::<pyo3::types::PyType>()
                 .call1((intern!(py, "dict"), bases, namespace))
@@ -3880,11 +3877,19 @@ impl EdgeAttrWrites {
         static BASE_CLS_ARGS: pyo3::sync::PyOnceLock<Py<PyTuple>> = pyo3::sync::PyOnceLock::new();
         static WATCH_SETTER: pyo3::sync::PyOnceLock<Py<PyAny>> = pyo3::sync::PyOnceLock::new();
         if let Some(cls) = self.bulk_cls.get(py) {
-            return cls.bind(py).call0()?.cast_into::<PyDict>().map_err(Into::into);
+            return cls
+                .bind(py)
+                .call0()?
+                .cast_into::<PyDict>()
+                .map_err(Into::into);
         }
         if self.created_count.fetch_add(1, Ordering::Relaxed) >= 3 {
             let cls = self.bulk_cls(py)?;
-            return cls.bind(py).call0()?.cast_into::<PyDict>().map_err(Into::into);
+            return cls
+                .bind(py)
+                .call0()?
+                .cast_into::<PyDict>()
+                .map_err(Into::into);
         }
         let Some(cls) = SLOTTED_EDGE_ATTR_DICT_CLASS
             .get(py)
@@ -3906,9 +3911,7 @@ impl EdgeAttrWrites {
             .bind(py)
             .call(base_args.bind(py), None)?
             .cast_into::<PyDict>()?;
-        setter
-            .bind(py)
-            .call1((&dict, self.watch(py)?.bind(py)))?;
+        setter.bind(py).call1((&dict, self.watch(py)?.bind(py)))?;
         Ok(dict)
     }
 
