@@ -226,6 +226,35 @@ impl CPythonSet {
         }
     }
 
+    /// `key in s`: whether `key` is present in the set.
+    #[must_use]
+    pub fn contains(&self, key: u32, hash: usize) -> bool {
+        if self.used == 0 {
+            return false;
+        }
+        let mask = self.table.len() - 1;
+        let mut perturb = hash;
+        let mut i = hash & mask;
+        loop {
+            let probes = if i + LINEAR_PROBES <= mask {
+                LINEAR_PROBES
+            } else {
+                0
+            };
+            for j in i..=i + probes {
+                let entry = self.table[j];
+                if entry.key == SLOT_EMPTY {
+                    return false;
+                }
+                if entry.key == key {
+                    return true;
+                }
+            }
+            perturb >>= PERTURB_SHIFT;
+            i = i.wrapping_mul(5).wrapping_add(1).wrapping_add(perturb) & mask;
+        }
+    }
+
     /// `set.remove` / `set.discard`: the slot becomes a dummy. Returns whether
     /// the key was present.
     pub fn remove(&mut self, key: u32, hash: usize) -> bool {

@@ -9580,17 +9580,217 @@ pub fn hits(
     Ok((hubs, auths))
 }
 
+#[inline]
+fn add_comp_f64(sum: &mut f64, comp: &mut f64, x: f64) {
+    let t = *sum + x;
+    if sum.abs() >= x.abs() {
+        *comp += (*sum - t) + x;
+    } else {
+        *comp += (x - t) + *sum;
+    }
+    *sum = t;
+}
+
 /// Return the average neighbor degree for each node.
 #[pyfunction]
-pub fn average_neighbor_degree(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+#[pyo3(signature = (g, source="out", target="out", weight=None))]
+pub fn average_neighbor_degree(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &str,
+    target: &str,
+    weight: Option<&str>,
+) -> PyResult<Option<Py<PyDict>>> {
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::average_neighbor_degree(inner));
-    let dict = PyDict::new(py);
-    for s in &result.scores {
-        dict.set_item(gr.py_node_key(py, &s.node), s.avg_neighbor_degree)?;
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            if source != "out" || target != "out" {
+                return Ok(None);
+            }
+            if let Some(w_attr) = weight {
+                if !louvain_mirror_weights_exact(py, pg.edge_py_attrs.values(), w_attr)? {
+                    return Ok(None);
+                }
+                let inner = &pg.inner;
+                let scores_opt = py.allow_threads(|| {
+                    let n = inner.node_count();
+                    let degrees: Vec<f64> =
+                        (0..n).map(|i| inner.degree_by_index(i) as f64).collect();
+                    let mut out = Vec::with_capacity(n);
+                    for u in 0..n {
+                        let Some(neighbors) = inner.neighbors_indices(u) else {
+                            out.push(0.0);
+                            continue;
+                        };
+                        if neighbors.is_empty() {
+                            out.push(0.0);
+                            continue;
+                        }
+                        let mut deg_sum = 0.0_f64;
+                        let mut deg_comp = 0.0_f64;
+                        let mut self_loop_w = 0.0_f64;
+                        let mut num_sum = 0.0_f64;
+                        let mut num_comp = 0.0_f64;
+                        for &v in neighbors {
+                            let w = coo_edge_weight(
+                                inner.edge_attrs_by_indices(u, v),
+                                Some(w_attr),
+                                1.0,
+                            )?;
+                            add_comp_f64(&mut deg_sum, &mut deg_comp, w);
+                            if u == v {
+                                self_loop_w = w;
+                            }
+                            add_comp_f64(&mut num_sum, &mut num_comp, w * degrees[v]);
+                        }
+                        let deg = (deg_sum + deg_comp) + self_loop_w;
+                        let avg = if deg == 0.0 {
+                            0.0
+                        } else {
+                            (num_sum + num_comp) / deg
+                        };
+                        out.push(avg);
+                    }
+                    Some(out)
+                });
+                let Some(scores) = scores_opt else {
+                    return Ok(None);
+                };
+                let dict = PyDict::new(py);
+                for (node, val) in inner.nodes_ordered().into_iter().zip(scores) {
+                    dict.set_item(gr.py_node_key(py, node), val)?;
+                }
+                Ok(Some(dict.unbind()))
+            } else {
+                let inner = &pg.inner;
+                let result = py.allow_threads(|| fnx_algorithms::average_neighbor_degree(inner));
+                let dict = PyDict::new(py);
+                for s in &result.scores {
+                    dict.set_item(gr.py_node_key(py, &s.node), s.avg_neighbor_degree)?;
+                }
+                Ok(Some(dict.unbind()))
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            if let Some(w_attr) = weight
+                && !louvain_mirror_weights_exact(py, dg.edge_py_attrs.values(), w_attr)?
+            {
+                return Ok(None);
+            }
+            let inner = &dg.inner;
+            let use_out = source == "out" || source == "in+out";
+            let use_in = source == "in" || source == "in+out";
+            if !use_out && !use_in {
+                return Ok(None);
+            }
+            let scores_opt = py.allow_threads(|| {
+                let n = inner.node_count();
+                let target_deg_usize: Vec<usize> = (0..n)
+                    .map(|i| match target {
+                        "in" => inner.in_degree_by_index(i),
+                        "out" => inner.out_degree_by_index(i),
+                        _ => inner.in_degree_by_index(i) + inner.out_degree_by_index(i),
+                    })
+                    .collect();
+                let mut out = Vec::with_capacity(n);
+                if let Some(w_attr) = weight {
+                    let target_deg_f64: Vec<f64> =
+                        target_deg_usize.iter().map(|&d| d as f64).collect();
+                    for u in 0..n {
+                        let mut out_deg_sum = 0.0_f64;
+                        let mut out_deg_comp = 0.0_f64;
+                        let mut out_num_sum = 0.0_f64;
+                        let mut out_num_comp = 0.0_f64;
+                        if use_out && let Some(succs) = inner.successors_indices(u) {
+                            for &v in succs {
+                                let w = coo_edge_weight(
+                                    inner.edge_attrs_by_indices(u, v),
+                                    Some(w_attr),
+                                    1.0,
+                                )?;
+                                add_comp_f64(&mut out_deg_sum, &mut out_deg_comp, w);
+                                add_comp_f64(
+                                    &mut out_num_sum,
+                                    &mut out_num_comp,
+                                    w * target_deg_f64[v],
+                                );
+                            }
+                        }
+                        let mut in_deg_sum = 0.0_f64;
+                        let mut in_deg_comp = 0.0_f64;
+                        let mut in_num_sum = 0.0_f64;
+                        let mut in_num_comp = 0.0_f64;
+                        if use_in && let Some(preds) = inner.predecessors_indices(u) {
+                            for &v in preds {
+                                let w = coo_edge_weight(
+                                    inner.edge_attrs_by_indices(v, u),
+                                    Some(w_attr),
+                                    1.0,
+                                )?;
+                                add_comp_f64(&mut in_deg_sum, &mut in_deg_comp, w);
+                                add_comp_f64(
+                                    &mut in_num_sum,
+                                    &mut in_num_comp,
+                                    w * target_deg_f64[v],
+                                );
+                            }
+                        }
+                        let deg = if use_out && use_in {
+                            (out_deg_sum + out_deg_comp) + (in_deg_sum + in_deg_comp)
+                        } else if use_out {
+                            out_deg_sum + out_deg_comp
+                        } else {
+                            in_deg_sum + in_deg_comp
+                        };
+                        if deg == 0.0 {
+                            out.push(0.0);
+                        } else {
+                            let num = (out_num_sum + out_num_comp) + (in_num_sum + in_num_comp);
+                            out.push(num / deg);
+                        }
+                    }
+                } else {
+                    for u in 0..n {
+                        let deg = (if use_out {
+                            inner.out_degree_by_index(u)
+                        } else {
+                            0
+                        }) + (if use_in {
+                            inner.in_degree_by_index(u)
+                        } else {
+                            0
+                        });
+                        if deg == 0 {
+                            out.push(0.0);
+                            continue;
+                        }
+                        let mut sum_deg = 0usize;
+                        if use_out && let Some(succs) = inner.successors_indices(u) {
+                            for &v in succs {
+                                sum_deg += target_deg_usize[v];
+                            }
+                        }
+                        if use_in && let Some(preds) = inner.predecessors_indices(u) {
+                            for &v in preds {
+                                sum_deg += target_deg_usize[v];
+                            }
+                        }
+                        out.push(sum_deg as f64 / deg as f64);
+                    }
+                }
+                Some(out)
+            });
+            let Some(scores) = scores_opt else {
+                return Ok(None);
+            };
+            let dict = PyDict::new(py);
+            for (node, val) in inner.nodes_ordered().into_iter().zip(scores) {
+                dict.set_item(gr.py_node_key(py, node), val)?;
+            }
+            Ok(Some(dict.unbind()))
+        }
+        _ => Ok(None),
     }
-    Ok(dict.unbind())
 }
 
 /// Return the degree assortativity coefficient.
@@ -30038,6 +30238,203 @@ pub fn k_clique_communities_rust(
         .collect()
 }
 
+#[inline]
+fn cpython_set_insert_clean(table: &mut [(u32, usize)], mask: usize, key: u32, hash: usize) {
+    const LINEAR_PROBES: usize = 9;
+    const PERTURB_SHIFT: u32 = 5;
+    let mut perturb = hash;
+    let mut i = hash & mask;
+    loop {
+        if table[i].0 == u32::MAX {
+            table[i] = (key, hash);
+            return;
+        }
+        if i + LINEAR_PROBES <= mask {
+            for entry in &mut table[i + 1..=i + LINEAR_PROBES] {
+                if entry.0 == u32::MAX {
+                    *entry = (key, hash);
+                    return;
+                }
+            }
+        }
+        perturb >>= PERTURB_SHIFT;
+        i = i.wrapping_mul(5).wrapping_add(1).wrapping_add(perturb) & mask;
+    }
+}
+
+/// br-r37-c1-0pe1b: native k-clique percolation + BFS kernel reproducing
+/// NetworkX's `k_clique_communities` `_get_adjacent_cliques` set table order
+/// and `_plain_bfs` component set table order.
+#[pyfunction]
+#[pyo3(signature = (clique_nodes, clique_hashes, k))]
+pub fn k_clique_percolation_components(
+    py: Python<'_>,
+    clique_nodes: Vec<Vec<u32>>,
+    clique_hashes: Vec<isize>,
+    k: usize,
+) -> Vec<Vec<usize>> {
+    py.allow_threads(|| {
+        let m = clique_nodes.len();
+        if m == 0 {
+            return Vec::new();
+        }
+        let hashes: Vec<usize> = clique_hashes.iter().map(|&h| h as usize).collect();
+        let max_node = clique_nodes
+            .iter()
+            .flat_map(|c| c.iter().copied())
+            .max()
+            .map_or(0, |v| (v as usize) + 1);
+        let mut membership: Vec<Vec<u32>> = vec![Vec::new(); max_node];
+        for (i, nodes) in clique_nodes.iter().enumerate() {
+            let idx = i as u32;
+            for &u in nodes {
+                membership[u as usize].push(idx);
+            }
+        }
+
+        let km1 = k.saturating_sub(1) as u32;
+        let mut stamp_count: Vec<(u32, u32)> = vec![(0, 0); m];
+        let mut cur_stamp = 0u32;
+        let mut touched: Vec<u32> = Vec::new();
+        let mut unseen_lt: Vec<u32> = Vec::new();
+        let mut table: Vec<(u32, usize)> = vec![(u32::MAX, 0); 8];
+        let mut scratch: Vec<(u32, usize)> = Vec::new();
+
+        let mut global_seen = vec![false; m];
+        let mut seen_total = 0usize;
+        let mut components = Vec::new();
+        let mut nextlevel = Vec::new();
+
+        for source in 0..m {
+            if global_seen[source] {
+                continue;
+            }
+            global_seen[source] = true;
+            seen_total += 1;
+            let mut comp_set = fnx_algorithms::preflow_push::CPythonSet::default();
+            comp_set.add(source as u32, hashes[source]);
+            nextlevel.clear();
+            if seen_total < m {
+                nextlevel.push(source as u32);
+            }
+            while !nextlevel.is_empty() {
+                let thislevel = std::mem::take(&mut nextlevel);
+                for v in thislevel {
+                    let v_idx = v as usize;
+                    cur_stamp += 1;
+                    touched.clear();
+                    unseen_lt.clear();
+                    let mut unseen_gt_count = 0usize;
+                    let mut last_unseen_gt = 0u32;
+
+                    for &u in &clique_nodes[v_idx] {
+                        for &adj_c in &membership[u as usize] {
+                            if adj_c != v {
+                                let adj_idx = adj_c as usize;
+                                let entry = &mut stamp_count[adj_idx];
+                                let count = if entry.0 != cur_stamp {
+                                    entry.0 = cur_stamp;
+                                    entry.1 = 1;
+                                    touched.push(adj_c);
+                                    1
+                                } else {
+                                    let next = entry.1 + 1;
+                                    entry.1 = next;
+                                    next
+                                };
+                                if count == km1 && !global_seen[adj_idx] {
+                                    if adj_idx < v_idx {
+                                        unseen_lt.push(adj_c);
+                                    } else {
+                                        unseen_gt_count += 1;
+                                        last_unseen_gt = adj_c;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !unseen_lt.is_empty() {
+                        unseen_lt.sort_unstable();
+                        for &w in &unseen_lt {
+                            let w_idx = w as usize;
+                            global_seen[w_idx] = true;
+                            seen_total += 1;
+                            comp_set.add(w, hashes[w_idx]);
+                            nextlevel.push(w);
+                        }
+                    }
+
+                    if unseen_gt_count == 1 {
+                        let w_idx = last_unseen_gt as usize;
+                        global_seen[w_idx] = true;
+                        seen_total += 1;
+                        comp_set.add(last_unseen_gt, hashes[w_idx]);
+                        nextlevel.push(last_unseen_gt);
+                    } else if unseen_gt_count >= 2 {
+                        let mut size = 8usize;
+                        table[..8].fill((u32::MAX, 0));
+                        let mut mask = 7usize;
+                        for (used_before, &adj_c) in touched.iter().enumerate() {
+                            let h = hashes[adj_c as usize];
+                            cpython_set_insert_clean(&mut table[..size], mask, adj_c, h);
+                            let used = used_before + 1;
+                            if used * 5 >= mask * 3 {
+                                let minused = if used > 50_000 { used * 2 } else { used * 4 };
+                                let mut new_size = 8usize;
+                                while new_size <= minused {
+                                    new_size <<= 1;
+                                }
+                                if scratch.len() < new_size {
+                                    scratch.resize(new_size, (u32::MAX, 0));
+                                } else {
+                                    scratch[..new_size].fill((u32::MAX, 0));
+                                }
+                                let new_mask = new_size - 1;
+                                for &(k_entry, h_entry) in &table[..size] {
+                                    if k_entry != u32::MAX {
+                                        cpython_set_insert_clean(
+                                            &mut scratch[..new_size],
+                                            new_mask,
+                                            k_entry,
+                                            h_entry,
+                                        );
+                                    }
+                                }
+                                std::mem::swap(&mut table, &mut scratch);
+                                size = new_size;
+                                mask = new_mask;
+                            }
+                        }
+                        for &(w, _) in &table[..size] {
+                            if w != u32::MAX {
+                                let w_idx = w as usize;
+                                if w_idx > v_idx
+                                    && stamp_count[w_idx].1 >= km1
+                                    && !global_seen[w_idx]
+                                {
+                                    global_seen[w_idx] = true;
+                                    seen_total += 1;
+                                    comp_set.add(w, hashes[w_idx]);
+                                    nextlevel.push(w);
+                                }
+                            }
+                        }
+                    }
+
+                    if seen_total == m {
+                        nextlevel.clear();
+                        break;
+                    }
+                }
+            }
+            components.push(comp_set.iter().map(|c| c as usize).collect());
+        }
+
+        components
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Edge current-flow betweenness centrality
 // ---------------------------------------------------------------------------
@@ -30760,6 +31157,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(current_flow_closeness_centrality_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_clique_communities_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(k_clique_percolation_components, m)?)?;
     m.add_function(wrap_pyfunction!(
         edge_current_flow_betweenness_centrality_rust,
         m

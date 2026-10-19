@@ -818,69 +818,26 @@ def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
         return _nx_community.k_clique_communities(G, k, cliques=cliques)
 
     import networkx as _nx
-    from collections import Counter, defaultdict
-    from itertools import chain, compress, filterfalse, repeat
-    from operator import le
+    from collections import defaultdict
+    from itertools import count
 
     def _gen():
         if k < 2:
             raise _nx.NetworkXError(f"k={k}, k must be greater than 1.")
         nonlocal cliques
         if cliques is None:
-            cliques = _fnx.find_cliques(G)
-        # A repeated clique is one percolation-graph node, and networkx's pass
-        # over the repeat adds no edge the first pass did not.
-        unique = list(dict.fromkeys(frozenset(c) for c in cliques if len(c) >= k))
-
-        membership = defaultdict(list)
-        for clique in unique:
-            for node in clique:
-                membership[node].append(clique)
-
-        rows = {clique: {} for clique in unique}
-        km1 = k - 1
-        members_of = membership.__getitem__
-        done = set()
-        for clique in unique:
-            done.add(clique)
-            # An adjacent clique appears in the rows of every node it shares
-            # with this one: the count is networkx's len(intersection), in C.
-            shared = Counter(filter(clique.__ne__, chain.from_iterable(map(members_of, clique))))
-            # An edge to a clique already walked exists if it percolates, and
-            # nx.Graph.add_edge on it moves nothing: only new ones count.
-            new = set(compress(shared, map(le, repeat(km1), shared.values()))) - done
-            if not new:
-                continue
-            if len(new) > 1:
-                # They join the row in the order of networkx's
-                # _get_adjacent_cliques set, grown by adds in the same order.
-                new = list(filter(new.__contains__, set(iter(shared))))
-            rows[clique].update(dict.fromkeys(new))
-            for adj in new:
-                rows[adj][clique] = None
-
-        seen = set()
-        n = len(rows)
-        for source in rows:
-            if source in seen:
-                continue
-            reach = n - len(seen)
-            component = {source}
-            nextlevel = [source]
-            while nextlevel:
-                thislevel = nextlevel
-                nextlevel = []
-                for v in thislevel:
-                    # A row holds each clique once, so filtering it before
-                    # adding any is networkx's test-then-add, one by one.
-                    fresh = list(filterfalse(component.__contains__, rows[v]))
-                    component.update(fresh)
-                    nextlevel += fresh
-                    if len(component) == reach:
-                        nextlevel = []
-                        break
-            seen.update(component)
-            yield frozenset.union(*component)
+            unique = [frozenset(c) for c in _fnx.find_cliques(G) if len(c) >= k]
+        else:
+            # A repeated clique is one percolation-graph node, and networkx's pass
+            # over the repeat adds no edge the first pass did not.
+            unique = list(dict.fromkeys(frozenset(c) for c in cliques if len(c) >= k))
+        if not unique:
+            return
+        node_id = defaultdict(count().__next__).__getitem__
+        clique_nodes = [[node_id(u) for u in c] for c in unique]
+        clique_hashes = [hash(c) for c in unique]
+        for comp in _fnx._fnx.k_clique_percolation_components(clique_nodes, clique_hashes, k):
+            yield frozenset.union(*(unique[i] for i in comp))
 
     return _gen()
 

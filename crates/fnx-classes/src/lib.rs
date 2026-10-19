@@ -4046,7 +4046,7 @@ mod multigraph_storage {
             Self::default()
         }
 
-        fn ensure_node(&mut self, name: &str) -> usize {
+        pub(crate) fn ensure_node(&mut self, name: &str) -> usize {
             if let Some(&slot) = self.node_order.get(name) {
                 return slot;
             }
@@ -5380,7 +5380,8 @@ impl MultiGraph {
     pub fn neighbor_edge_attr_values_by_index(
         &self,
         node_index: usize,
-    ) -> Option<impl Iterator<Item = (usize, multigraph_storage::CompactBucketValues<'_>)> + '_> {
+    ) -> Option<impl Iterator<Item = (usize, multigraph_storage::CompactBucketValues<'_>)> + '_>
+    {
         let slab = self.slab_store();
         let u_slot = slab.slot_at_position(node_index)?;
         let row = slab.rows.get(u_slot)?;
@@ -5680,6 +5681,62 @@ impl MultiGraph {
         let mut inserted = 0usize;
         for (left, right, key, attrs) in edges {
             if self.storage.add_keyed_edge(&left, &right, key, attrs) {
+                self.edge_count += 1;
+                inserted += 1;
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-lesqm: bulk attribute-free keyed edge insert from a deduplicated
+    /// batch node-name table `names` and `(u_id, v_id, key)` triples, resolving
+    /// each unique batch node to its `MgSlabStorage` slot once instead of
+    /// hashing both endpoint strings on every edge.
+    pub fn extend_indexed_keyed_edges_unrecorded(
+        &mut self,
+        names: &[String],
+        edges: &[(u32, u32, usize)],
+    ) -> usize {
+        let mut slots = vec![usize::MAX; names.len()];
+        let mut inserted = 0usize;
+        for &(u_id, v_id, key) in edges {
+            let u_idx = u_id as usize;
+            let l = if slots[u_idx] != usize::MAX {
+                slots[u_idx]
+            } else {
+                let s = self.storage.ensure_node(&names[u_idx]);
+                slots[u_idx] = s;
+                s
+            };
+            let v_idx = v_id as usize;
+            let r = if u_idx == v_idx {
+                l
+            } else if slots[v_idx] != usize::MAX {
+                slots[v_idx]
+            } else {
+                let s = self.storage.ensure_node(&names[v_idx]);
+                slots[v_idx] = s;
+                s
+            };
+            if self
+                .storage
+                .add_keyed_edge_by_pair(l, r, key, AttrMap::new())
+            {
                 self.edge_count += 1;
                 inserted += 1;
             }

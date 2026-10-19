@@ -22874,6 +22874,7 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
     }
 
     let mut total_eff = 0.0f64;
+    let mut total_eff_comp = 0.0f64;
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
 
@@ -22951,10 +22952,19 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
             in_ego[neighbor] = false;
         }
 
-        total_eff += sub_eff / denom as f64;
+        // br-r37-c1-vbjbk: NetworkX computes `sum(efficiency_list) / len(G)`
+        // where CPython 3.12+ `sum` uses Neumaier compensated summation.
+        let ego_eff = sub_eff / denom as f64;
+        let t = total_eff + ego_eff;
+        if total_eff.abs() >= ego_eff.abs() {
+            total_eff_comp += (total_eff - t) + ego_eff;
+        } else {
+            total_eff_comp += (ego_eff - t) + total_eff;
+        }
+        total_eff = t;
     }
 
-    let efficiency = total_eff / n as f64;
+    let efficiency = (total_eff + total_eff_comp) / n as f64;
 
     LocalEfficiencyResult {
         efficiency,

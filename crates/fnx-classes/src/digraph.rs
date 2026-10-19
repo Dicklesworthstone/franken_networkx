@@ -2719,9 +2719,8 @@ impl MultiDiGraph {
     pub fn successor_edge_buckets<'a>(
         &'a self,
         source: &str,
-    ) -> Option<
-        impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a,
-    > {
+    ) -> Option<impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a>
+    {
         let row = self.successors.get(source)?;
         let source_name = self.nodes.order.slots.get_key_value(source)?.0.as_str();
         Some(row.keys().filter_map(move |target| {
@@ -2740,9 +2739,8 @@ impl MultiDiGraph {
     pub fn predecessor_edge_buckets<'a>(
         &'a self,
         target: &str,
-    ) -> Option<
-        impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a,
-    > {
+    ) -> Option<impl Iterator<Item = (&'a str, impl Iterator<Item = (usize, &'a AttrMap)> + 'a)> + 'a>
+    {
         let row = self.predecessors.get(target)?;
         let target_name = self.nodes.order.slots.get_key_value(target)?.0.as_str();
         Some(row.keys().filter_map(move |source| {
@@ -3463,8 +3461,11 @@ impl MultiDiGraph {
     where
         I: IntoIterator<Item = (String, String, usize, AttrMap)>,
     {
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.edges.reserve(lower_bound);
         let mut inserted = 0usize;
-        for (source, target, key, attrs) in edges {
+        for (source, target, key, attrs) in iterator {
             if !self.nodes.contains_key(&source) {
                 self.nodes.insert(source.clone(), AttrMap::new());
                 self.successors.entry(source.clone()).or_default();
@@ -3477,23 +3478,123 @@ impl MultiDiGraph {
             }
             let edge_key = DirectedEdgeKey::new(&source, &target);
             let bucket = self.edges.entry(edge_key).or_default();
-            if !bucket.contains_key(&key) {
+            match bucket.entry(key) {
+                indexmap::map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().extend(attrs);
+                }
+                indexmap::map::Entry::Vacant(entry) => {
+                    self.edge_count += 1;
+                    inserted += 1;
+                    entry.insert(attrs);
+                }
+            }
+            if let Some(succ_row) = self.successors.get_mut(&source) {
+                if let Some(keys) = succ_row.get_mut(&target) {
+                    keys.insert(key);
+                } else {
+                    let mut keys = IndexSet::default();
+                    keys.insert(key);
+                    succ_row.insert(target.clone(), keys);
+                }
+            }
+            if let Some(pred_row) = self.predecessors.get_mut(&target) {
+                if let Some(keys) = pred_row.get_mut(&source) {
+                    keys.insert(key);
+                } else {
+                    let mut keys = IndexSet::default();
+                    keys.insert(key);
+                    pred_row.insert(source, keys);
+                }
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-lesqm: bulk attribute-free keyed edge insert from a deduplicated
+    /// batch node-name table `names` and `(u_id, v_id, key)` triples. Avoids
+    /// cloning endpoint `String`s per edge and pre-reserves `nodes`,
+    /// `successors`, `predecessors`, and `edges` capacity up front.
+    pub fn extend_indexed_keyed_edges_unrecorded(
+        &mut self,
+        names: &[String],
+        edges: &[(u32, u32, usize)],
+    ) -> usize {
+        self.nodes.reserve(names.len());
+        self.successors.reserve(names.len());
+        self.predecessors.reserve(names.len());
+        self.edges.reserve(edges.len());
+        let mut node_present: Vec<bool> = names
+            .iter()
+            .map(|name| self.nodes.contains_key(name.as_str()))
+            .collect();
+        let mut inserted = 0usize;
+        for &(u_id, v_id, key) in edges {
+            let u_idx = u_id as usize;
+            let v_idx = v_id as usize;
+            let source = &names[u_idx];
+            let target = &names[v_idx];
+            if !node_present[u_idx] {
+                node_present[u_idx] = true;
+                self.nodes.insert(source.clone(), AttrMap::new());
+                self.successors.entry(source.clone()).or_default();
+                self.predecessors.entry(source.clone()).or_default();
+            }
+            if !node_present[v_idx] {
+                node_present[v_idx] = true;
+                self.nodes.insert(target.clone(), AttrMap::new());
+                self.successors.entry(target.clone()).or_default();
+                self.predecessors.entry(target.clone()).or_default();
+            }
+            if let Some(bucket) = self
+                .edges
+                .get_mut(&DirectedEdgeKeyRef::new(source.as_str(), target.as_str()))
+            {
+                if let indexmap::map::Entry::Vacant(entry) = bucket.entry(key) {
+                    self.edge_count += 1;
+                    inserted += 1;
+                    entry.insert(AttrMap::new());
+                }
+            } else {
+                let mut bucket = crate::FxIndexMap::default();
+                bucket.insert(key, AttrMap::new());
+                self.edges
+                    .insert(DirectedEdgeKey::new(source, target), bucket);
                 self.edge_count += 1;
                 inserted += 1;
             }
-            bucket.entry(key).or_default().extend(attrs);
-            self.successors
-                .entry(source.clone())
-                .or_default()
-                .entry(target.clone())
-                .or_default()
-                .insert(key);
-            self.predecessors
-                .entry(target)
-                .or_default()
-                .entry(source)
-                .or_default()
-                .insert(key);
+            if let Some(succ_row) = self.successors.get_mut(source.as_str()) {
+                if let Some(keys) = succ_row.get_mut(target.as_str()) {
+                    keys.insert(key);
+                } else {
+                    let mut keys = IndexSet::default();
+                    keys.insert(key);
+                    succ_row.insert(target.clone(), keys);
+                }
+            }
+            if let Some(pred_row) = self.predecessors.get_mut(target.as_str()) {
+                if let Some(keys) = pred_row.get_mut(source.as_str()) {
+                    keys.insert(key);
+                } else {
+                    let mut keys = IndexSet::default();
+                    keys.insert(key);
+                    pred_row.insert(source.clone(), keys);
+                }
+            }
         }
         if inserted > 0 {
             self.revision = self

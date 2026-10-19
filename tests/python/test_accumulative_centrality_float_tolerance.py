@@ -259,3 +259,157 @@ def test_closeness_centrality_wf_improved_is_native_and_bit_exact(wf_improved):
     assert fnx.closeness_centrality(fnx_multi, wf_improved=wf_improved) == nx.closeness_centrality(
         nx_multi, wf_improved=wf_improved
     )
+
+
+def _weighted_twins(nx_g):
+    cls_nx, cls_fnx = (nx.DiGraph, fnx.DiGraph) if nx_g.is_directed() else (nx.Graph, fnx.Graph)
+    g1, g2 = cls_nx(), cls_fnx()
+    for n, d in nx_g.nodes(data=True):
+        g1.add_node(n, **d)
+        g2.add_node(n, **d)
+    for u, v, d in nx_g.edges(data=True):
+        g1.add_edge(u, v, **d)
+        g2.add_edge(u, v, **d)
+    return g1, g2
+
+
+def test_combinatorial_float_algorithms_are_bit_exact_on_twins():
+    """br-r37-c1-vbjbk: combinatorial float-valued algorithms on identical twins
+    must match networkx to the last IEEE-754 bit (==)."""
+    import random
+
+    rng = random.Random(7)
+    ba300 = nx.barabasi_albert_graph(300, 3, seed=7)
+    for u, v in ba300.edges():
+        ba300[u][v]["w"] = round(rng.uniform(0.1, 5.0), 4)
+    gnp200d = nx.gnp_random_graph(200, 0.04, seed=7, directed=True)
+    for u, v in gnp200d.edges():
+        gnp200d[u][v]["w"] = round(rng.uniform(0.1, 5.0), 4)
+    karate = nx.karate_club_graph()
+    for u, v in karate.edges():
+        karate[u][v]["w"] = round(rng.uniform(0.1, 5.0), 4)
+
+    ba_nx, ba_fnx = _weighted_twins(ba300)
+    dg_nx, dg_fnx = _weighted_twins(gnp200d)
+    ka_nx, ka_fnx = _weighted_twins(karate)
+
+    for gname, (g1, g2), is_dir in [
+        ("BA300", (ba_nx, ba_fnx), False),
+        ("GNP200D", (dg_nx, dg_fnx), True),
+        ("Karate", (ka_nx, ka_fnx), False),
+    ]:
+        assert fnx.clustering(g2) == nx.clustering(g1), (gname, "clustering")
+        assert fnx.clustering(g2, weight="w") == nx.clustering(g1, weight="w"), (
+            gname,
+            "clustering(w)",
+        )
+        assert fnx.average_neighbor_degree(g2) == nx.average_neighbor_degree(g1), (
+            gname,
+            "average_neighbor_degree",
+        )
+        assert fnx.average_neighbor_degree(g2, weight="w") == nx.average_neighbor_degree(
+            g1, weight="w"
+        ), (gname, "average_neighbor_degree(w)")
+        if is_dir:
+            for src in ("in", "out", "in+out"):
+                for tgt in ("in", "out", "in+out"):
+                    assert fnx.average_neighbor_degree(
+                        g2, source=src, target=tgt, weight="w"
+                    ) == nx.average_neighbor_degree(
+                        g1, source=src, target=tgt, weight="w"
+                    ), (gname, src, tgt)
+        assert fnx.degree_assortativity_coefficient(g2) == nx.degree_assortativity_coefficient(
+            g1
+        ), (gname, "degree_assortativity")
+        assert fnx.degree_assortativity_coefficient(
+            g2, weight="w"
+        ) == nx.degree_assortativity_coefficient(g1, weight="w"), (
+            gname,
+            "degree_assortativity(w)",
+        )
+        assert fnx.constraint(g2) == nx.constraint(g1), (gname, "constraint")
+        assert fnx.constraint(g2, weight="w") == nx.constraint(g1, weight="w"), (
+            gname,
+            "constraint(w)",
+        )
+        e_nx = nx.effective_size(g1)
+        e_fnx = fnx.effective_size(g2)
+        assert [k for k in e_nx if e_nx[k] == e_nx[k] and e_fnx[k] != e_nx[k]] == [], (
+            gname,
+            "effective_size",
+        )
+        ew_nx = nx.effective_size(g1, weight="w")
+        ew_fnx = fnx.effective_size(g2, weight="w")
+        assert [k for k in ew_nx if ew_nx[k] == ew_nx[k] and ew_fnx[k] != ew_nx[k]] == [], (
+            gname,
+            "effective_size(w)",
+        )
+        if not is_dir:
+            assert fnx.global_efficiency(g2) == nx.global_efficiency(g1), (
+                gname,
+                "global_efficiency",
+            )
+            assert fnx.local_efficiency(g2) == nx.local_efficiency(g1), (
+                gname,
+                "local_efficiency",
+            )
+
+
+def test_k_clique_communities_native_slot_order_parity():
+    """br-r37-c1-0pe1b: k_clique_communities native percolation + BFS kernel
+    matches networkx's yielded communities and each frozenset's iteration order."""
+    for n, p in [(25, 0.25), (45, 0.25), (70, 0.25), (120, 0.3)]:
+        for seed in (0, 1, 42):
+            g_nx = nx.gnp_random_graph(n, p, seed=seed)
+            _, g_fnx = _twins(g_nx)
+            for k in (2, 3, 4):
+                want = [(c, list(c)) for c in nx.community.k_clique_communities(g_nx, k)]
+                got = [(c, list(c)) for c in fnx.community.k_clique_communities(g_fnx, k)]
+                assert got == want, (n, p, seed, k)
+            if n == 25:
+                cliques = [frozenset(c) for c in nx.find_cliques(g_nx)]
+                dup_cliques = cliques + cliques[:3]
+                want_dup = [
+                    (c, list(c))
+                    for c in nx.community.k_clique_communities(g_nx, 3, cliques=dup_cliques)
+                ]
+                got_dup = [
+                    (c, list(c))
+                    for c in fnx.community.k_clique_communities(g_fnx, 3, cliques=dup_cliques)
+                ]
+                assert got_dup == want_dup
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_multigraph_add_edges_from_non_empty_parity(cls_name):
+    """br-r37-c1-lesqm: add_edges_from(pairs) onto a non-empty MultiGraph or
+    MultiDiGraph (including removed keys and string keys) matches networkx."""
+    nx_cls = getattr(nx, cls_name)
+    fnx_cls = getattr(fnx, cls_name)
+    g_nx, g_fnx = nx_cls(), fnx_cls()
+    for g in (g_nx, g_fnx):
+        g.add_edge(0, 1, key=0)
+        g.add_edge(0, 1, key=1)
+        g.add_edge(0, 1, key=2)
+        g.remove_edge(0, 1, key=1)
+        g.add_edge(1, 2, key="custom")
+        g.add_edge(2, 0)
+    sf = nx.scale_free_graph(400, seed=3)
+    pairs = [(u, v) for u, v, _ in sf.edges(keys=True)]
+    ret_nx = g_nx.add_edges_from(pairs)
+    ret_fnx = g_fnx.add_edges_from(pairs)
+    assert ret_fnx == ret_nx
+    assert list(g_fnx.nodes()) == list(g_nx.nodes())
+    assert list(g_fnx.edges(keys=True)) == list(g_nx.edges(keys=True))
+    for u in g_nx:
+        assert list(g_fnx[u]) == list(g_nx[u])
+        for v in g_nx[u]:
+            assert list(g_fnx[u][v]) == list(g_nx[u][v])
+
+    h_nx = nx.MultiDiGraph([(0, 1), (1, 2), (2, 0)])
+    h_fnx = fnx.MultiDiGraph([(0, 1), (1, 2), (2, 0)])
+    s_nx = nx.scale_free_graph(500, seed=3, initial_graph=h_nx)
+    s_fnx = fnx.scale_free_graph(500, seed=3, initial_graph=h_fnx)
+    assert s_fnx is h_fnx
+    assert list(s_fnx.edges(keys=True)) == list(s_nx.edges(keys=True))
+

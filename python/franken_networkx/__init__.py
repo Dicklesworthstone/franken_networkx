@@ -15531,7 +15531,7 @@ def _multigraph_degree_assortativity_coefficient(G, weight):
     if G.is_directed():
         outdeg = dict(G.out_degree(weight=weight))
         indeg = dict(G.in_degree(weight=weight))
-        degrees = set(outdeg.values()) | set(indeg.values())
+        degrees = set.union(set(indeg.values()), set(outdeg.values()))
 
         def _xy():
             # nx node_degree_xy (x="out", y="in"): one (out_src, in_tgt) pair
@@ -15562,8 +15562,9 @@ def _multigraph_degree_assortativity_coefficient(G, weight):
     total = matrix.sum()
     if total == 0.0:
         return float("nan")
-    if total != 1.0:
-        matrix = matrix / total
+    matrix = matrix / total
+    if matrix.sum() != 1.0:
+        matrix = matrix / matrix.sum()
     x_arr = _np.array(list(mapping.keys()))
     y_arr = x_arr
     idx = list(mapping.values())
@@ -15592,110 +15593,21 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     """Compute degree assortativity of graph.
 
     br-assortkw: accepts nx's full parameter surface (``x``, ``y``,
-    ``weight``, ``nodes``). The Rust fast-path only honours the
-    default (unweighted, all-nodes, out-in for directed) — delegate
-    to nx whenever any kwarg is non-default.
+    ``weight``, ``nodes``).
+    br-r37-c1-vbjbk: route the default ``(x="out", y="in", nodes=None)``
+    contract through ``_multigraph_degree_assortativity_coefficient`` so the
+    mixing-matrix evaluation is bit-for-bit identical (``==``) to NetworkX's
+    ``numeric_assortativity_coefficient`` pipeline with zero NetworkX frames.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # br-mgdegassort: the Rust fast path returned nan for MultiGraph
-    # inputs (it did not sum parallel-edge contributions). Route
-    # multigraphs through nx for a correct non-nan value.
-    #
-    # br-dirassort: nx's directed contract considers ONLY the (out_src,
-    # in_tgt) pair per directed edge. The Rust fast path computed the
-    # coefficient over the undirected projection's degrees, so on a
-    # directed P_3 every edge collapses to (deg_src, deg_tgt) = (1, 2)
-    # / (2, 1) and Pearson reports -1.0 — but nx sees (out, in) =
-    # (1, 1) / (1, 1) on both edges, zero variance, NaN. Delegate the
-    # directed case so the (out, in) pair extraction matches.
-    # br-r37-c1-tqcpg: the Rust fast path also miscomputes the degree-mixing
-    # statistic when self-loops are present (a self-loop adds 2 to a node's
-    # degree and contributes a (d, d) pair to nx's mixing matrix). Delegate
-    # self-loop graphs to nx, like the multigraph/directed cases above.
     if (
-        x == "out" and y == "in" and nodes is None
-        and not G.is_multigraph() and not G.is_directed()
-    ):
-        # br-r37-c1-asrt-edgeless: the Rust fast path returned
-        # 0.0 on graphs with no edges (empty graph, isolated
-        # nodes only).  nx's reference computes a Pearson
-        # correlation over the per-edge degree pairs and yields
-        # ``nan`` when the input is degenerate (0/0 division on
-        # an empty mixing matrix).  ``0.0`` is a *meaningful*
-        # statistic ("no correlation") and silently coercing
-        # nan→0.0 erases the "input is undefined" signal.
-        if G.number_of_edges() == 0:
-            return float("nan")
-        if weight is None and number_of_selfloops(G) == 0:
-            return _raw_degree_assortativity_coefficient(G)
-        # br-r37-c1-degxyloop/degxywt: undirected self-loop OR weighted graphs used
-        # to delegate to nx (the Rust kernel miscounts a self-loop's +2 degree and
-        # has no weighted path) — ~2.7x / ~1.2x slower. nx's degree assortativity
-        # equals the degree-degree Pearson r over the (weighted) degree pairs
-        # (verified to ~1e-15), and degree_pearson now has a self-loop- AND
-        # weight-aware vectorized fast path, so route here instead of the fnx->nx
-        # conversion. Degenerate inputs (fewer than two degree pairs) make scipy's
-        # pearsonr raise where nx's mixing-matrix path returns nan — delegate just
-        # those to nx for parity.
-        try:
-            return degree_pearson_correlation_coefficient(G, weight=weight)
-        except ValueError:
-            return _degree_assortativity_inproc(
-                G,
-                x=x,
-                y=y,
-                weight=weight,
-                nodes=nodes,
-            )
-    # br-r37-c1-d7etr: native directed degree assortativity for the default
-    # (out, in) contract on a simple DiGraph — nx pairs (out_deg(src),
-    # in_deg(tgt)) per directed edge. Self-loops are fine for directed (a loop
-    # adds 1 to BOTH out- and in-degree, exactly nx's mixing-matrix accounting),
-    # unlike the undirected case. Replaces the ~5x fnx->nx delegation.
-    if (
-        x == "out" and y == "in" and weight is None and nodes is None
-        and not G.is_multigraph() and G.is_directed()
+        x == "out"
+        and y == "in"
+        and nodes is None
+        and (not G.is_multigraph() or weight is None)
     ):
         if G.number_of_edges() == 0:
             return float("nan")
-        _directed = _raw_degree_assortativity_coefficient_directed(G)
-        # Degenerate inputs (one degree column constant) make the native kernel
-        # return nan (covariance is exactly 0). nx's mixing-matrix path divides a
-        # float-rounded near-zero covariance by a zero variance and can yield
-        # ±inf — compute that exact mixing-matrix float path directly on G with
-        # 0 NetworkX frames.
-        if _directed is not None and _math.isfinite(_directed):
-            return _directed
-        return _multigraph_degree_assortativity_coefficient(G, None)
-    # br-r37-c1-degxywt: directed WEIGHTED simple-graph assortativity used to
-    # delegate to nx (the native directed kernel has no weighted path) — ~180ms,
-    # because nx's float-weighted-degree mixing matrix is pathologically slow.
-    # nx's directed assortativity equals the (out, in) degree-degree Pearson r
-    # over the weighted degree pairs (verified), and degree_pearson now has a
-    # weight-aware vectorized fast path, so route here. Degenerate inputs (fewer
-    # than two degree pairs) make scipy's pearsonr raise where nx returns nan —
-    # let those fall through to the nx delegation below for parity.
-    if (
-        x == "out" and y == "in" and weight is not None and nodes is None
-        and not G.is_multigraph() and G.is_directed()
-    ):
-        if G.number_of_edges() == 0:
-            return float("nan")
-        try:
-            return degree_pearson_correlation_coefficient(G, x=x, y=y, weight=weight)
-        except ValueError:
-            pass
-    # br-r37-c1-6pdq6: multigraph UNWEIGHTED default contract — compute
-    # in-process (byte-exact) instead of the ~239x-slower fnx->nx multigraph
-    # conversion. Weighted multigraphs stay delegated: the weighted degree is a
-    # float sum whose accumulation order (fnx adj order vs nx's) differs, so the
-    # directed weighted result diverges in the last ULPs — not byte-exact.
-    # Unweighted degrees are exact integers, so the in-process result matches nx
-    # bit-for-bit.
-    if (
-        x == "out" and y == "in" and nodes is None and weight is None
-        and G.is_multigraph()
-    ):
         return _multigraph_degree_assortativity_coefficient(G, weight)
     return _degree_assortativity_inproc(
         G,
@@ -15774,47 +15686,16 @@ def average_neighbor_degree(
             )
         source_degree = target_degree = G.degree
 
-    target_degrees = dict(target_degree())
-
-    # br-r37-c1-wqhqr-and: weighted fast path. The fallback walks
-    # ``G.adj[n].items()`` / ``G.succ``/``G.pred`` AtlasViews per node AND uses
-    # the slow ``source_degree(weight=...)`` view as the divisor (undir/dir
-    # weighted measured 0.51x / 0.47x vs nx). Vectorize: k_{nn,i}^w =
-    # (1/s_i) Σ_j w_ij k_j is a sparse mat-vec. Build the weighted adjacency
-    # ONCE (``to_scipy_sparse_array``); the numerator is ``A @ k`` (successor
-    # side) and/or ``Aᵀ @ k`` (predecessor side), the weighted source degree is
-    # the matching row/col sum. Undirected self-loops sit once on the diagonal
-    # but count twice in the weighted degree, so add the diagonal back. Validation
-    # already ran above (undirected => source==target=="out"). Byte-identical.
     if (
-        weight is not None
-        and nodes is None
-        and type(G) in (Graph, DiGraph)
-        and G.number_of_edges() > 0
+        nodes is None
+        and not G.is_multigraph()
+        and (weight is None or isinstance(weight, str))
     ):
-        import numpy as _np
+        res = _raw_average_neighbor_degree(G, source, target, weight)
+        if res is not None:
+            return res
 
-        nodelist = list(G)
-        A = to_scipy_sparse_array(
-            G, nodelist=nodelist, weight=weight, dtype=float
-        ).tocsr()
-        kvec = _np.array([target_degrees[n] for n in nodelist], dtype=float)
-        num = _np.zeros(len(nodelist), dtype=float)
-        sw = _np.zeros(len(nodelist), dtype=float)
-        if G.is_directed():
-            if "out" in source:
-                num += A @ kvec
-                sw += _np.asarray(A.sum(axis=1)).ravel()
-            if "in" in source:
-                a_t = A.T.tocsr()
-                num += a_t @ kvec
-                sw += _np.asarray(a_t.sum(axis=1)).ravel()
-        else:
-            num = A @ kvec
-            sw = _np.asarray(A.sum(axis=1)).ravel() + A.diagonal()
-        with _np.errstate(divide="ignore", invalid="ignore"):
-            avg_arr = _np.where(sw == 0, 0.0, num / sw)
-        return {n: float(avg_arr[i]) for i, n in enumerate(nodelist)}
+    target_degrees = dict(target_degree())
 
     pred_neighbors = succ_neighbors = {n: {} for n in G}
     if G.is_directed():
@@ -19164,14 +19045,62 @@ def local_efficiency(G):
     (mean of an empty per-node efficiency dict). The Rust impl silently
     returned 0.0; surface the same exception so drop-in code that
     catches ZeroDivisionError on empty inputs keeps working.
+
+    br-r37-c1-vbjbk: snapshot adjacency lists and CPython set order once and
+    evaluate induced-subgraph BFS with NetworkX's FilterAtlas branch condition
+    (``2 * len(induced) < len(atlas)``) and builtin ``sum()``, matching
+    ``nx.local_efficiency`` bit-for-bit (``==``) at ~7x speedup.
     """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if len(G) == 0:
+    n_total = len(G)
+    if n_total == 0:
         raise ZeroDivisionError("division by zero")
-    return _raw_local_efficiency(G)
+    nodes = list(G)
+    adj_lists = {u: list(G[u]) for u in nodes}
+    adj_sets = {u: set(iter(adj_lists[u])) for u in nodes}
+
+    def _ego_eff(v):
+        induced = adj_sets[v]
+        m = len(induced)
+        if m < 2:
+            return 0
+        denom = m * (m - 1)
+        sources = (
+            list(induced)
+            if 2 * m < n_total
+            else [n for n in nodes if n in induced]
+        )
+        g_eff = 0
+        for src in sources:
+            seen = {src}
+            nextlevel = [src]
+            level = 0
+            while nextlevel:
+                level += 1
+                inv_level = 1.0 / level
+                thislevel = nextlevel
+                nextlevel = []
+                for cur in thislevel:
+                    adj_cur = adj_lists[cur]
+                    if 2 * m < len(adj_cur):
+                        cur_set = adj_sets[cur]
+                        nbrs = (w for w in induced if w in cur_set)
+                    else:
+                        nbrs = (w for w in adj_cur if w in induced)
+                    for w in nbrs:
+                        if w not in seen:
+                            seen.add(w)
+                            nextlevel.append(w)
+                            g_eff += inv_level
+                    if len(seen) == m:
+                        nextlevel = []
+                        break
+        return g_eff / denom
+
+    return sum(_ego_eff(v) for v in nodes) / n_total
 
 # Algorithm functions — broadcasting
 from franken_networkx._fnx import (
@@ -36928,6 +36857,16 @@ def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
         raise NetworkXError("Graph has no nodes or edges")
 
     if nodes is None:
+        # br-r37-c1-vbjbk: when nodes is None and SciPy is available, NetworkX
+        # always executes its sparse matrix path (even for unweighted simple
+        # undirected graphs), whose CSR minor-axis reduction differs by 1 ULP
+        # from the per-node scalar formulas in constraint_rust.
+        try:
+            import scipy as _scipy
+        except ImportError:
+            pass
+        else:
+            return _structural_holes_constraint_matrix(G, weight)
         requested_nodes = list(G)
     else:
         requested_nodes = list(nodes)
@@ -37056,6 +36995,14 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
         raise NetworkXError("Graph has no nodes or edges")
 
     if nodes is None:
+        # br-r37-c1-vbjbk: match NetworkX's default SciPy matrix path bit-for-bit
+        # when nodes is None and SciPy is available.
+        try:
+            import scipy as _scipy
+        except ImportError:
+            pass
+        else:
+            return _structural_holes_effective_size_matrix(G, weight)
         requested_nodes = list(G.nodes())
     else:
         requested_nodes = list(nodes)
@@ -60140,6 +60087,8 @@ def _triangles_and_degree_iter_local(G, nodes=None):
 
 
 def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
+    import numpy as _np
+
     if weight is None or G.number_of_edges() == 0:
         max_weight = 1
     else:
@@ -60163,7 +60112,7 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
             # Nearly every row is needed: one bulk pass reads them cheaper
             # than a row-by-row walk does.
             universe = G
-    adj_snapshot = {u: set(G[u]) - {u} for u in universe}
+    raw_adj_snapshot = {u: set(dict.fromkeys(G[u])) for u in universe}
     # Symmetric weight cache for undirected.
     weight_cache = {}
     if universe is G:
@@ -60181,20 +60130,26 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
         return G[u][v].get(weight, 1) / max_weight
 
     for node in node_iter:
-        neighbor_set = adj_snapshot.get(node, set())
+        neighbor_set = raw_adj_snapshot.get(node, set()) - {node}
         weighted_triangle_sum = 0.0
         seen_neighbors = set()
         for neighbor in neighbor_set:
             seen_neighbors.add(neighbor)
-            neighbor_neighbors = adj_snapshot.get(neighbor, set()) - seen_neighbors
+            neighbor_neighbors = raw_adj_snapshot.get(neighbor, set()) - seen_neighbors
             edge_weight = normalized_weight(node, neighbor)
-            for shared_neighbor in neighbor_set & neighbor_neighbors:
-                weighted_triangle_sum += _math.cbrt(
-                    edge_weight
-                    * normalized_weight(neighbor, shared_neighbor)
-                    * normalized_weight(shared_neighbor, node)
-                )
-        yield (node, len(neighbor_set), 2.0 * weighted_triangle_sum)
+            shared = neighbor_set & neighbor_neighbors
+            if shared:
+                weighted_triangle_sum += _np.cbrt(
+                    [
+                        (
+                            edge_weight
+                            * normalized_weight(neighbor, shared_neighbor)
+                            * normalized_weight(shared_neighbor, node)
+                        )
+                        for shared_neighbor in shared
+                    ]
+                ).sum()
+        yield (node, len(neighbor_set), 2 * float(weighted_triangle_sum))
 
 
 def _directed_triangles_and_degree_iter_local(G, nodes=None):
@@ -60244,6 +60199,8 @@ def _directed_triangles_and_degree_iter_local(G, nodes=None):
 
 
 def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
+    import numpy as _np
+
     if weight is None or G.number_of_edges() == 0:
         max_weight = 1
     else:
@@ -60272,8 +60229,12 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             # Nearly every row is needed: one bulk pass reads them cheaper
             # than a row-by-row walk does.
             universe = G
-    pred_snapshot = {u: set(G.pred[u]) - {u} for u in universe}
-    succ_snapshot = {u: set(G.succ[u]) - {u} for u in universe}
+    # br-r37-c1-vbjbk: NetworkX passes G._pred[u] / G._succ[u] (exact Python
+    # dicts) into set(...), which pre-sizes the set hash table via
+    # set_update_dict. Passing dict.fromkeys(G.pred[u]) produces the identical
+    # set slot layout and intersection iteration order.
+    pred_snapshot = {u: set(dict.fromkeys(G.pred[u])) - {u} for u in universe}
+    succ_snapshot = {u: set(dict.fromkeys(G.succ[u])) - {u} for u in universe}
     # Directed weight cache: (u, v) ordered tuple.
     if universe is G:
         weight_cache = {
@@ -60300,62 +60261,80 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
         for neighbor in predecessor_set:
             neighbor_predecessors = pred_snapshot.get(neighbor, set())
             neighbor_successors = succ_snapshot.get(neighbor, set())
-            for third_node in predecessor_set & neighbor_predecessors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(neighbor, node)
-                    * normalized_weight(third_node, node)
-                    * normalized_weight(third_node, neighbor)
-                )
-            for third_node in predecessor_set & neighbor_successors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(neighbor, node)
-                    * normalized_weight(third_node, node)
-                    * normalized_weight(neighbor, third_node)
-                )
-            for third_node in successor_set & neighbor_predecessors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(neighbor, node)
-                    * normalized_weight(node, third_node)
-                    * normalized_weight(third_node, neighbor)
-                )
-            for third_node in successor_set & neighbor_successors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(neighbor, node)
-                    * normalized_weight(node, third_node)
-                    * normalized_weight(neighbor, third_node)
-                )
+            w_jn = normalized_weight(neighbor, node)
+            c1 = predecessor_set & neighbor_predecessors
+            if c1:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_jn * normalized_weight(third_node, node) * normalized_weight(third_node, neighbor))
+                        for third_node in c1
+                    ]
+                ).sum()
+            c2 = predecessor_set & neighbor_successors
+            if c2:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_jn * normalized_weight(third_node, node) * normalized_weight(neighbor, third_node))
+                        for third_node in c2
+                    ]
+                ).sum()
+            c3 = successor_set & neighbor_predecessors
+            if c3:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_jn * normalized_weight(node, third_node) * normalized_weight(third_node, neighbor))
+                        for third_node in c3
+                    ]
+                ).sum()
+            c4 = successor_set & neighbor_successors
+            if c4:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_jn * normalized_weight(node, third_node) * normalized_weight(neighbor, third_node))
+                        for third_node in c4
+                    ]
+                ).sum()
 
         for neighbor in successor_set:
             neighbor_predecessors = pred_snapshot.get(neighbor, set())
             neighbor_successors = succ_snapshot.get(neighbor, set())
-            for third_node in predecessor_set & neighbor_predecessors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(node, neighbor)
-                    * normalized_weight(third_node, node)
-                    * normalized_weight(third_node, neighbor)
-                )
-            for third_node in predecessor_set & neighbor_successors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(node, neighbor)
-                    * normalized_weight(third_node, node)
-                    * normalized_weight(neighbor, third_node)
-                )
-            for third_node in successor_set & neighbor_predecessors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(node, neighbor)
-                    * normalized_weight(node, third_node)
-                    * normalized_weight(third_node, neighbor)
-                )
-            for third_node in successor_set & neighbor_successors:
-                directed_triangle_sum += _math.cbrt(
-                    normalized_weight(node, neighbor)
-                    * normalized_weight(node, third_node)
-                    * normalized_weight(neighbor, third_node)
-                )
+            w_nj = normalized_weight(node, neighbor)
+            c1 = predecessor_set & neighbor_predecessors
+            if c1:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_nj * normalized_weight(third_node, node) * normalized_weight(third_node, neighbor))
+                        for third_node in c1
+                    ]
+                ).sum()
+            c2 = predecessor_set & neighbor_successors
+            if c2:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_nj * normalized_weight(third_node, node) * normalized_weight(neighbor, third_node))
+                        for third_node in c2
+                    ]
+                ).sum()
+            c3 = successor_set & neighbor_predecessors
+            if c3:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_nj * normalized_weight(node, third_node) * normalized_weight(third_node, neighbor))
+                        for third_node in c3
+                    ]
+                ).sum()
+            c4 = successor_set & neighbor_successors
+            if c4:
+                directed_triangle_sum += _np.cbrt(
+                    [
+                        (w_nj * normalized_weight(node, third_node) * normalized_weight(neighbor, third_node))
+                        for third_node in c4
+                    ]
+                ).sum()
 
         total_degree = len(predecessor_set) + len(successor_set)
         reciprocal_degree = len(predecessor_set & successor_set)
-        yield (node, total_degree, reciprocal_degree, directed_triangle_sum)
+        yield (node, total_degree, reciprocal_degree, float(directed_triangle_sum))
 
 
 # A whole-graph triangle census is sufficient for the unweighted undirected
@@ -73436,7 +73415,10 @@ def _scale_free_graph_python(n, alpha, beta, gamma, delta_in, delta_out, seed, i
                 return seed.choice(node_list)
         return seed.choice(candidates)
 
-    if initial_graph is not None and hasattr(initial_graph, "_adj"):
+    if initial_graph is not None and (
+        isinstance(initial_graph, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+        or hasattr(initial_graph, "_adj")
+    ):
         if not isinstance(initial_graph, (MultiDiGraph, _nx.MultiDiGraph)):
             raise NetworkXError("initial_graph must be a MultiDiGraph.")
         G = initial_graph
