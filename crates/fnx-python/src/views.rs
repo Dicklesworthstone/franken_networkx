@@ -51,7 +51,7 @@ fn endpoint_not_a_node(item: &Bound<'_, PyAny>, canonical_err: PyErr) -> PyResul
 /// reads `The edge xy is not in the graph.` and not `The edge 'xy' ...`. A
 /// tuple renders identically either way, which is why only the string spec
 /// catches this — `test_edges_subscript_message_and_typeerror_match_nx` does.
-fn missing_edge_key_error(edge: &Bound<'_, PyAny>) -> PyErr {
+pub(crate) fn missing_edge_key_error(edge: &Bound<'_, PyAny>) -> PyErr {
     match edge.str() {
         Ok(text) => PyKeyError::new_err(format!("The edge {text} is not in the graph.")),
         Err(err) => err,
@@ -69,7 +69,7 @@ fn missing_edge_key_error(edge: &Bound<'_, PyAny>) -> PyErr {
 /// omits it for `str`, `bytes`, `bytearray`, `range`, `set`, `frozenset`,
 /// `deque`, a `collections.abc.Sequence` and any plain iterator. Reporting it
 /// everywhere would trade one divergence for nine.
-fn too_many_values_to_unpack(source: &Bound<'_, PyAny>, expected: usize) -> PyErr {
+pub(crate) fn too_many_values_to_unpack(source: &Bound<'_, PyAny>, expected: usize) -> PyErr {
     let py = source.py();
     let version = py.version_info();
     let cpython_counts = (version.major > 3 || (version.major == 3 && version.minor >= 14))
@@ -90,9 +90,14 @@ fn too_many_values_to_unpack(source: &Bound<'_, PyAny>, expected: usize) -> PyEr
 /// from the interpreter's unpack. A non-iterable is a TypeError, and any length
 /// other than two is a ValueError — which `EdgeView.__getitem__` does NOT catch,
 /// unlike `__contains__`.
-fn unpack_two_endpoints<'py>(
+pub(crate) fn unpack_two_endpoints<'py>(
     edge: &Bound<'py, PyAny>,
 ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    if let Ok(tuple) = edge.downcast_exact::<PyTuple>()
+        && tuple.len() == 2
+    {
+        return Ok((tuple.get_item(0)?, tuple.get_item(1)?));
+    }
     let mut items = edge.try_iter().map_err(|err| {
         if err.is_instance_of::<PyTypeError>(edge.py()) {
             let name = edge
@@ -117,6 +122,43 @@ fn unpack_two_endpoints<'py>(
         return Err(too_many_values_to_unpack(edge, 2));
     }
     Ok((first, second))
+}
+
+/// `u, v, k = e`, with CPython's own wording on both failure modes (br-r37-c1-bc7r4).
+pub(crate) fn unpack_three_endpoints<'py>(
+    edge: &Bound<'py, PyAny>,
+) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    if let Ok(tuple) = edge.downcast_exact::<PyTuple>()
+        && tuple.len() == 3
+    {
+        return Ok((tuple.get_item(0)?, tuple.get_item(1)?, tuple.get_item(2)?));
+    }
+    let mut items = edge.try_iter().map_err(|err| {
+        if err.is_instance_of::<PyTypeError>(edge.py()) {
+            let name = edge
+                .get_type()
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| "object".to_owned());
+            PyTypeError::new_err(format!("cannot unpack non-iterable {name} object"))
+        } else {
+            err
+        }
+    })?;
+    let first = items.next().transpose()?;
+    let second = items.next().transpose()?;
+    let third = items.next().transpose()?;
+    let got =
+        usize::from(first.is_some()) + usize::from(second.is_some()) + usize::from(third.is_some());
+    let (Some(first), Some(second), Some(third)) = (first, second, third) else {
+        return Err(PyValueError::new_err(format!(
+            "not enough values to unpack (expected 3, got {got})"
+        )));
+    };
+    if items.next().transpose()?.is_some() {
+        return Err(too_many_values_to_unpack(edge, 3));
+    }
+    Ok((first, second, third))
 }
 
 // ---------------------------------------------------------------------------
@@ -1305,22 +1347,14 @@ impl EdgeView {
             )));
         }
         let (u_item, v_item) = unpack_two_endpoints(edge)?;
-        // br-r37-c1-lvlu7: nx hashes `u` inside `self._adjdict[u]`, so an
-        // unhashable `u` raises TypeError and an ABSENT `u` becomes the KeyError
-        // below without `v` ever being hashed.
-        crate::require_hashable_node_key(&u_item)?;
         // br-r37-c1-ef8rt: a graph carrying networkx private storage reads the
         // ASSIGNED adjacency, not the native store — `G._adj = {...}` replaces
         // exactly what this subscript returns. One bool test for every ordinary
         // graph; the Python wrapper this slot replaced owned the same branch.
         // br-r37-c1-hvw2e-8smdi: read the mapping THIS VIEW CAPTURED, never the
-        // graph's current one. The previous version re-probed private storage on
-        // every subscript, so a held view noticed a `G._adj` assigned after it
-        // was built - the inverse of networkx, which binds `_adjdict` in
-        // `__init__` and cannot see a later reassignment. That made fnx raise
-        // KeyError where networkx returns the edge. It also cost a probe per
-        // call; this costs one `Option` test.
+        // graph's current one.
         if let Some(mapping) = self.private_adj.as_ref() {
+            crate::require_hashable_node_key(&u_item)?;
             let mapping = mapping.bind(py);
             let row = match mapping.get_item(&u_item) {
                 Ok(row) => row,
@@ -1341,25 +1375,10 @@ impl EdgeView {
                 Err(err) => Err(err),
             };
         }
-        // br-r37-c1-ptiz2: INDEX-keyed lookaside first, before any canonical is
-        // built at all. This is the whole lever: the string-keyed probe below
-        // hashes BOTH full-length canonical endpoints on every read, and above
-        // the 128-byte ArrayString the canonical itself becomes an owned heap
-        // String. Measured on `G.edges[u,v]` against node-key length — 1.17x
-        // growth below the buffer (hashing), a 2.03x STEP across it at canon
-        // bytes 128 -> 133 (allocation), linear above — while networkx stays
-        // flat at 92.6-92.7ns because CPython caches the str hash.
-        //
-        // Exact `str` only, mirroring `has_edge`, which is FLAT in key length
-        // for exactly this reason. `cached_exact_string_node_index` is itself
-        // `nodes_seq`-guarded, and the lookaside entry carries its own
-        // `nodes_seq`, so a node removal that renumbers indices makes this a
-        // MISS rather than a wrong hit.
-        //
-        // ORDER: the hit is existence proof (entries only exist for edges that
-        // were present), so `v`'s hashability is checked here exactly as it is
-        // on the string-keyed hit path below — networkx hashes `v` only once
-        // `u` resolves.
+        // br-r37-c1-ptiz2 / br-r37-c1-bc7r4: INDEX-keyed lookaside first, before
+        // any canonical is built at all. Exact `str` and exact `int` endpoints
+        // are always hashable and non-None, so a lookaside hit skips both
+        // `require_hashable_node_key` calls as well as canonicalization.
         if node_key_can_use_index_lookaside(&u_item) && node_key_can_use_index_lookaside(&v_item) {
             let g = self.graph.borrow(py);
             let indices = (
@@ -1369,46 +1388,50 @@ impl EdgeView {
             if let (Some(ui), Some(vi)) = indices
                 && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, ui, vi)
             {
-                crate::require_hashable_node_key(&v_item)?;
                 return Ok(attrs);
             }
+        }
+        // br-r37-c1-lvlu7: nx hashes `u` inside `self._adjdict[u]`, so an
+        // unhashable `u` raises TypeError and an ABSENT `u` becomes the KeyError
+        // below without `v` ever being hashed.
+        crate::require_hashable_node_key(&u_item)?;
+        if u_item.is_none() {
+            return Err(missing_edge_key_error(edge));
         }
         // br-r37-c1-ey6ob: borrowed endpoint canonicals (see `__contains__`).
         // `materialize_edge_py_attrs` already takes `&str`.
         let mut u_buf = ArrayString::new();
-        let mut v_buf = ArrayString::new();
         let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
+        if v_item.is_none() || !crate::node_key_hash_cannot_raise(&v_item) {
+            {
+                let g = self.graph.borrow(py);
+                if !g.inner.has_node(u.as_str()) {
+                    return Err(missing_edge_key_error(edge));
+                }
+            }
+            crate::require_hashable_node_key(&v_item)?;
+            if v_item.is_none() {
+                return Err(missing_edge_key_error(edge));
+            }
+        }
+        let mut v_buf = ArrayString::new();
         let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
         let (u, v) = (u.as_str(), v.as_str());
         let mut g = self.graph.borrow_mut(py);
         // br-r37-c1-y2ww1: consult the endpoint lookaside BEFORE probing the
         // graph for `u`. A hit is existence proof — the entry exists only for
         // an edge that was present, and `bump_edges_seq` clears it on any
-        // structural mutation (br-r37-c1-ef8rt) — so the `has_node(u)` probe
-        // that used to run first was duplicate work on the common path. Same
-        // shape as br-r37-c1-dlqkq and br-r37-c1-do7g5.
-        //
-        // ORDER MATTERS and canonicalization does not hash. networkx evaluates
-        // `self._adjdict[u][v]`: `u` is hashed, and if `u` is ABSENT it raises
-        // KeyError WITHOUT ever hashing `v`. So `v`'s hashability is only
-        // checked once `u`'s presence is established — by the lookaside hit
-        // here, or by `has_node(u)` on the miss path below.
+        // structural mutation (br-r37-c1-ef8rt).
         if let Some(attrs) = g.cached_edge_py_attrs(py, u, v) {
-            crate::require_hashable_node_key(&v_item)?;
             return Ok(attrs);
         }
-        if !g.inner.has_node(u) {
-            return Err(missing_edge_key_error(edge));
-        }
-        crate::require_hashable_node_key(&v_item)?;
-        if !g.inner.has_edge(u, v) {
+        if !g.inner.has_node(u) || !g.inner.has_edge(u, v) {
             return Err(missing_edge_key_error(edge));
         }
         let attrs = g.materialize_edge_py_attrs(py, u, v);
         // br-r37-c1-ptiz2: fill the index lookaside on the miss path, with the
         // SAME dict the string-keyed mirror just recorded, so the two can never
-        // disagree about identity. The same exact scalar gate as the probe
-        // above keeps unsupported key types on the canonical route.
+        // disagree about identity.
         if node_key_can_use_index_lookaside(&u_item) && node_key_can_use_index_lookaside(&v_item) {
             let indices = (
                 g.cached_exact_string_node_index(py, &u_item)?,

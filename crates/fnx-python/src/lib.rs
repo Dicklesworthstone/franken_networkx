@@ -1170,10 +1170,11 @@ fn custom_object_canonical_key(
         guard.next_id = guard.next_id.wrapping_add(1);
         let base = format!("__fnx_obj:{id}");
         let buckets = guard.buckets.get_or_insert_with(Default::default);
-        if buckets.len() >= CUSTOM_KEY_INTERNER_MAX_BUCKETS && !buckets.contains_key(&h) {
-            if let Some(&arbitrary_hash) = buckets.keys().next() {
-                buckets.remove(&arbitrary_hash);
-            }
+        if buckets.len() >= CUSTOM_KEY_INTERNER_MAX_BUCKETS
+            && !buckets.contains_key(&h)
+            && let Some(&arbitrary_hash) = buckets.keys().next()
+        {
+            buckets.remove(&arbitrary_hash);
         }
         let bucket = buckets.entry(h).or_default();
         if has_dead {
@@ -13534,7 +13535,7 @@ impl PyMultiGraph {
             if !self.has_remapped_int_key
                 && let Some(edge_key) = key
                 && edge_key.is_exact_instance_of::<PyInt>()
-                && let Ok(internal_key) = edge_key.extract::<usize>()
+                && let Some(internal_key) = exact_int_node_index(edge_key)
             {
                 return Ok(iu < n
                     && iv < n
@@ -13559,41 +13560,13 @@ impl PyMultiGraph {
                 .zip(v_index)
                 .is_some_and(|(ui, vi)| self.inner.has_edge_by_indices(ui, vi)));
         }
-        // br-r37-c1-s8dj1: the KEYED exact-string path, which had no index route
-        // at all because both fast paths above are gated on `key.is_none()`.
-        //
-        // Measured on this function: the 2-arg form is FLAT in node key length
-        // (181.2ns at K=2, 175.6ns at K=2000) while the 3-arg form grew 3.6x
-        // (360.5ns to 1303.2ns). That slope is the whole of `(u, v) in G.edges`,
-        // the worst cell on the surface at 0.1322x against networkx, because the
-        // shim's `_MultiGraphEdgeView.__contains__` routes here with key 0.
-        //
-        // WHY THE CANONICALS CAN BE SKIPPED. `resolve_internal_edge_key`
-        // short-circuits when the display-key space is pristine and the key is
-        // an exact int: the public integer key IS the internal usize key, so no
-        // string is needed to derive it, and the canonicals below were used only
-        // to reach `edge_attrs`. `edge_attrs_by_indices` reaches the same entry
-        // by position. Remapped, float and string keys are excluded here and
-        // keep the existing scan untouched.
-        //
-        // ORDERING IS PRESERVED. br-r37-c1-lvlu7 requires an absent `u` to
-        // answer False without hashing `v`, which is why the string path below
-        // interleaves the checks. That concern cannot arise here: this path is
-        // gated on both endpoints being exact `str` and the key an exact `int`,
-        // all of which are always hashable, so no user `__hash__` can run and
-        // the resolution order is unobservable. An absent endpoint still returns
-        // False without touching the other.
-        //
-        // br-r37-c1-qaqog: exact-int endpoints take it too (always hashable
-        // the same way) - they had no keyed route and paid two canonical
-        // Strings, two String-keyed lookups and the key scan: 0.62-0.70x
-        // networkx on has_edge(u, v, 0), 0.57-0.60x on (u, v, 0) in G.edges.
+        // br-r37-c1-s8dj1 / br-r37-c1-qaqog: the KEYED exact-str / exact-int path.
         if !self.has_remapped_int_key
             && exact_int_or_str_node(u)
             && exact_int_or_str_node(v)
             && let Some(edge_key) = key
             && edge_key.is_exact_instance_of::<PyInt>()
-            && let Ok(internal_key) = edge_key.extract::<usize>()
+            && let Some(internal_key) = exact_int_node_index(edge_key)
         {
             let Some(u_index) = self.cached_exact_string_node_index(py, u)? else {
                 return Ok(false);
@@ -13606,28 +13579,35 @@ impl PyMultiGraph {
                 .edge_attrs_by_indices(u_index, v_index, internal_key)
                 .is_some());
         }
-        let u_c = node_key_to_string(py, u)?;
-        // br-r37-c1-lvlu7: absent `u` short-circuits before `v` is hashed.
-        if !self.inner.has_node(&u_c) {
-            return Ok(false);
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let u_c = u_key.as_str();
+        // br-r37-c1-lvlu7 / br-r37-c1-n4c8l: absent `u` short-circuits before
+        // `v` is hashed when `v`'s hash could raise.
+        if !node_key_hash_cannot_raise(v) {
+            if !self.inner.has_node(u_c) {
+                return Ok(false);
+            }
+            require_hashable_node_key(v)?;
         }
-        require_hashable_node_key(v)?;
-        let v_c = node_key_to_string(py, v)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let v_c = v_key.as_str();
         Ok(match key {
             Some(edge_key) => {
                 // br-r37-c1-qaqog: networkx's `key in self._adj[u][v]` hashes
                 // the key only once the pair's keydict is reached - an absent
                 // pair answers False first, even for an unhashable key.
-                if !self.inner.has_edge(&u_c, &v_c) {
+                if !self.inner.has_edge(u_c, v_c) {
                     return Ok(false);
                 }
                 hash_key_as_dict_would(edge_key)?;
-                self.resolve_internal_edge_key(py, &u_c, &v_c, edge_key)?
+                self.resolve_internal_edge_key(py, u_c, v_c, edge_key)?
                     .is_some_and(|internal_key| {
-                        self.inner.edge_attrs(&u_c, &v_c, internal_key).is_some()
+                        self.inner.edge_attrs(u_c, v_c, internal_key).is_some()
                     })
             }
-            None => self.inner.has_edge(&u_c, &v_c),
+            None => self.inner.has_edge(u_c, v_c),
         })
     }
 
@@ -14074,8 +14054,15 @@ impl PyMultiGraph {
     #[getter]
     fn edges(slf: PyRef<'_, Self>) -> PyResult<Py<MultiGraphEdgeView>> {
         let py = slf.py();
+        let use_native_store = !slf.instance_dict_gc.has_private_override();
         let graph_py: Py<PyMultiGraph> = Py::from(slf);
-        Py::new(py, MultiGraphEdgeView { graph: graph_py })
+        Py::new(
+            py,
+            MultiGraphEdgeView {
+                graph: Some(graph_py),
+                use_native_store,
+            },
+        )
     }
 
     /// ``G.degree`` — returns a DegreeView-like object.
@@ -16521,16 +16508,195 @@ impl MultiGraphNodeView {
     }
 }
 
-/// EdgeView for MultiGraph — supports ``len``, iteration, and ``G.edges(data=True, keys=True)``.
-#[pyclass]
+/// EdgeView for MultiGraph — supports ``len``, iteration, ``[]``, and ``G.edges(data=True, keys=True)``.
+#[pyclass(module = "franken_networkx", subclass)]
 pub(crate) struct MultiGraphEdgeView {
-    graph: Py<PyMultiGraph>,
+    graph: Option<Py<PyMultiGraph>>,
+    use_native_store: bool,
+}
+
+impl MultiGraphEdgeView {
+    #[inline]
+    fn graph(&self) -> PyResult<&Py<PyMultiGraph>> {
+        self.graph
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("MultiGraphEdgeView cleared by GC"))
+    }
 }
 
 #[pymethods]
 impl MultiGraphEdgeView {
-    fn __len__(&self, py: Python<'_>) -> usize {
-        self.graph.borrow(py).inner.edge_count()
+    #[new]
+    #[pyo3(signature = (graph=None, *_args, **_kwargs))]
+    fn py_new(
+        graph: Option<&Bound<'_, PyAny>>,
+        _args: &Bound<'_, PyTuple>,
+        _kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        let (graph_py, use_native_store) = match graph {
+            Some(g) => {
+                if let Ok(mg) = g.downcast::<PyMultiGraph>() {
+                    let use_native = g.is_exact_instance_of::<PyMultiGraph>()
+                        && !mg.borrow().instance_dict_gc.has_private_override();
+                    (Some(mg.clone().unbind()), use_native)
+                } else {
+                    (None, false)
+                }
+            }
+            None => (None, false),
+        };
+        Ok(Self {
+            graph: graph_py,
+            use_native_store,
+        })
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(ref g) = self.graph {
+            visit.call(g)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+        self.use_native_store = false;
+    }
+
+    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
+        Ok(self.graph()?.borrow(py).inner.edge_count())
+    }
+
+    /// br-r37-c1-bc7r4: C-slot `MultiGraph.edges[u, v, k]`, inherited by
+    /// `_MultiGraphEdgeView` so `type(MG.edges).__getitem__` is a native
+    /// `wrapper_descriptor` instead of a Python function.
+    fn __getitem__(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        edge: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        if edge.is_instance_of::<pyo3::types::PySlice>() {
+            let (start, stop, step) = (
+                edge.getattr(intern!(py, "start"))?,
+                edge.getattr(intern!(py, "stop"))?,
+                edge.getattr(intern!(py, "step"))?,
+            );
+            let cls_name = slf
+                .get_type()
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| "MultiEdgeView".to_owned());
+            return Err(NetworkXError::new_err(format!(
+                "{cls_name} does not support slicing, try list(G.edges)[{start}:{stop}:{step}]"
+            )));
+        }
+        let (u_item, v_item, k_item) = views::unpack_three_endpoints(edge)?;
+        let this = slf.borrow();
+        if this.use_native_store
+            && let Some(ref graph_py) = this.graph
+        {
+            {
+                let g = graph_py.borrow(py);
+                if !g.has_remapped_int_key
+                    && k_item.is_exact_instance_of::<PyInt>()
+                    && node_key_can_use_index_lookaside(&u_item)
+                    && node_key_can_use_index_lookaside(&v_item)
+                    && let Some(internal_key) = exact_int_node_index(&k_item)
+                    && let Some(ui) = g.cached_exact_string_node_index(py, &u_item)?
+                    && let Some(vi) = g.cached_exact_string_node_index(py, &v_item)?
+                    && let Some(attrs) =
+                        g.cached_keyed_edge_attrs_by_index(py, ui, vi, internal_key)
+                {
+                    return Ok(attrs.into_any());
+                }
+            }
+            let graph_py = graph_py.clone_ref(py);
+            drop(this);
+            require_hashable_node_key(&u_item)?;
+            if u_item.is_none() {
+                return Err(missing_key_error(&u_item));
+            }
+            let mut u_buf = ArrayString::new();
+            let u_key = canonical_node_key_in(py, &u_item, &mut u_buf)?;
+            if v_item.is_none() || !node_key_hash_cannot_raise(&v_item) {
+                {
+                    let g = graph_py.borrow(py);
+                    if !g.inner.has_node(u_key.as_str()) {
+                        return Err(missing_key_error(&u_item));
+                    }
+                }
+                require_hashable_node_key(&v_item)?;
+                if v_item.is_none() {
+                    return Err(missing_key_error(&v_item));
+                }
+            }
+            let mut v_buf = ArrayString::new();
+            let v_key = canonical_node_key_in(py, &v_item, &mut v_buf)?;
+            let (u_c, v_c) = (u_key.as_str(), v_key.as_str());
+            {
+                let g = graph_py.borrow(py);
+                if !g.inner.has_node(u_c) {
+                    return Err(missing_key_error(&u_item));
+                }
+                if !g.inner.has_edge(u_c, v_c) {
+                    require_hashable_node_key(&v_item)?;
+                    return Err(missing_key_error(&v_item));
+                }
+            }
+            require_hashable_node_key(&k_item)?;
+            if k_item.is_none() {
+                return Err(missing_key_error(&k_item));
+            }
+            let mut g = graph_py.borrow_mut(py);
+            let Some(internal_key) = g.resolve_internal_edge_key(py, u_c, v_c, &k_item)? else {
+                return Err(missing_key_error(&k_item));
+            };
+            let attrs = g
+                .ensure_edge_py_attrs(py, u_c, v_c, internal_key)
+                .clone_ref(py);
+            if !g.has_remapped_int_key
+                && node_key_can_use_index_lookaside(&u_item)
+                && node_key_can_use_index_lookaside(&v_item)
+                && let Some(ui) = g.cached_exact_string_node_index(py, &u_item)?
+                && let Some(vi) = g.cached_exact_string_node_index(py, &v_item)?
+            {
+                g.remember_keyed_edge_attrs_by_index(py, ui, vi, internal_key, &attrs);
+            }
+            return Ok(attrs.into_any());
+        }
+        drop(this);
+        require_hashable_node_key(&u_item)?;
+        require_hashable_node_key(&v_item)?;
+        require_hashable_node_key(&k_item)?;
+        let graph = slf.getattr(intern!(py, "_graph"))?;
+        let adj = graph.getattr(intern!(py, "adj"))?;
+        let try_3 =
+            |first: &Bound<'_, PyAny>, second: &Bound<'_, PyAny>| -> PyResult<Option<PyObject>> {
+                let row = match adj.get_item(first) {
+                    Ok(r) => r,
+                    Err(err) if err.is_instance_of::<PyKeyError>(py) => return Ok(None),
+                    Err(err) => return Err(err),
+                };
+                let cell = match row.get_item(second) {
+                    Ok(c) => c,
+                    Err(err) if err.is_instance_of::<PyKeyError>(py) => return Ok(None),
+                    Err(err) => return Err(err),
+                };
+                match cell.get_item(&k_item) {
+                    Ok(attrs) => Ok(Some(attrs.unbind())),
+                    Err(err) if err.is_instance_of::<PyKeyError>(py) => Ok(None),
+                    Err(err) => Err(err),
+                }
+            };
+        if let Some(attrs) = try_3(&u_item, &v_item)? {
+            return Ok(attrs);
+        }
+        if let Some(attrs) = try_3(&v_item, &u_item)? {
+            return Ok(attrs);
+        }
+        let row = adj.get_item(&u_item)?;
+        let cell = row.get_item(&v_item)?;
+        Ok(cell.get_item(&k_item)?.unbind())
     }
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -16543,7 +16709,7 @@ impl MultiGraphEdgeView {
         }
         let u = node_key_to_string(py, &tuple.get_item(0)?)?;
         let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         // Undirected graph: check both orientations
         let has = g.inner.has_edge(&u, &v) || g.inner.has_edge(&v, &u);
         if !has {
@@ -16581,7 +16747,8 @@ impl MultiGraphEdgeView {
         default: Option<PyObject>,
     ) -> PyResult<Py<NodeIterator>> {
         let _ = default;
-        let mut g = self.graph.borrow_mut(py);
+        let graph_py = self.graph()?;
+        let mut g = graph_py.borrow_mut(py);
         let expected_nodes: Vec<String> = g
             .inner
             .nodes_ordered()
@@ -16627,7 +16794,7 @@ impl MultiGraphEdgeView {
             NodeIterator::with_graph_guard(
                 py,
                 result,
-                NodeIteratorGuard::MultiGraph(self.graph.clone_ref(py)),
+                NodeIteratorGuard::MultiGraph(graph_py.clone_ref(py)),
                 expected_nodes.len(),
             ),
         )

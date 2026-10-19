@@ -3241,7 +3241,7 @@ impl PyMultiDiGraph {
     ///
     /// `nodes_seq`-guarded inside `NodeIndexLookupCache::get`, so a node
     /// add/remove makes this a MISS rather than a stale index.
-    fn cached_exact_string_node_index(
+    pub(crate) fn cached_exact_string_node_index(
         &self,
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
@@ -3261,16 +3261,7 @@ impl PyMultiDiGraph {
         if key.is_exact_instance_of::<PyInt>()
             && let Ok(value) = key.extract::<i64>()
         {
-            let [index] = self.has_edge_node_index_cache.exact_int_positions_of(
-                py,
-                self.nodes_seq,
-                [value],
-                |value| {
-                    let mut buf = ArrayString::<{ crate::CANONICAL_KEY_STACK_BUF }>::new();
-                    self.inner
-                        .get_node_index(crate::write_int_decimal(&mut buf, value))
-                },
-            );
+            let [index] = self.cached_exact_int_node_indices(py, [value]);
             return Ok(index);
         }
         if let Some(index) = self
@@ -3287,6 +3278,20 @@ impl PyMultiDiGraph {
         self.has_edge_node_index_cache
             .insert(py, public_key.bind(py), index)?;
         Ok(Some(index))
+    }
+
+    /// br-r37-c1-pvl3v: see `PyGraph::cached_exact_int_node_indices`.
+    fn cached_exact_int_node_indices<const N: usize>(
+        &self,
+        py: Python<'_>,
+        keys: [i64; N],
+    ) -> [Option<usize>; N] {
+        self.has_edge_node_index_cache
+            .exact_int_positions_of(py, self.nodes_seq, keys, |value| {
+                let mut buf = ArrayString::<{ crate::CANONICAL_KEY_STACK_BUF }>::new();
+                self.inner
+                    .get_node_index(crate::write_int_decimal(&mut buf, value))
+            })
     }
 
     /// br-r37-c1-7qqr8: probe the index lookaside. `&self`, like its ptiz2
@@ -7255,50 +7260,48 @@ impl PyMultiDiGraph {
         // once `u` resolves, because `self._succ[u]` raises KeyError first for
         // an absent source and the caller turns that into False.
         require_hashable_node_key(u)?;
-        // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
-        // cc-hasedgeintidx) for the keyless directed `has_edge(u, v)` — exact
-        // int u,v at their own index resolve straight by index, skipping 2
-        // `i.to_string()` heap allocs. Any key argument falls through.
+        // br-r37-c1-04z53 / br-r37-c1-pvl3v: identity-int fast path (mirror
+        // PyMultiGraph::has_edge). `node_names_are_positions` proves every
+        // node's name is the decimal of its position in O(1) after first use,
+        // so `iu < n && iv < n` replaces two `str::parse::<usize>()` calls per
+        // probe, and the keyed form with a pristine int key resolves straight
+        // through `edge_attrs_by_indices`.
+        if u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Some(iu) = crate::exact_int_node_index(u)
+            && let Some(iv) = crate::exact_int_node_index(v)
+            && self.inner.node_names_are_positions()
+        {
+            let n = self.inner.node_count();
+            if key.is_none() {
+                return Ok(iu < n && iv < n && self.inner.has_edge_by_indices(iu, iv));
+            }
+            if !self.has_remapped_int_key
+                && let Some(edge_key) = key
+                && edge_key.is_exact_instance_of::<PyInt>()
+                && let Some(internal_key) = crate::exact_int_node_index(edge_key)
+            {
+                return Ok(iu < n
+                    && iv < n
+                    && self
+                        .inner
+                        .edge_attrs_by_indices(iu, iv, internal_key)
+                        .is_some());
+            }
+        }
         if key.is_none()
             && u.is_exact_instance_of::<PyInt>()
             && v.is_exact_instance_of::<PyInt>()
-            && let Ok(iu) = u.extract::<usize>()
-            && let Ok(iv) = v.extract::<usize>()
-            && self.inner.node_index_matches_int(iu)
-            && self.inner.node_index_matches_int(iv)
+            && let Ok(u_int) = u.extract::<i64>()
+            && let Ok(v_int) = v.extract::<i64>()
         {
-            return Ok(self.inner.has_edge_by_indices(iu, iv));
+            let [u_index, v_index] = self.cached_exact_int_node_indices(py, [u_int, v_int]);
+            return Ok(u_index
+                .zip(v_index)
+                .is_some_and(|(ui, vi)| self.inner.has_edge_by_indices(ui, vi)));
         }
-        // br-r37-c1-ptiz2: exact-`str` endpoints resolve by CACHED INDEX, O(1) in
-        // key length, instead of two owned `node_key_to_string` allocations and
-        // three full-length hashes (`has_node`, then both endpoints again in
-        // `has_edge`).
-        //
-        // Measured at 2000-character nodes: `has_edge(u,v,0)` 546.1ns and
-        // `has_edge(u,v)` 484.9ns against `has_node(u)` on the SAME key at
-        // 58.0ns and flat — roughly 9x for what is the same node resolution
-        // twice over, because `has_node` already takes the index path.
-        //
-        // WAS KEYLESS ONLY, and the reason is worth keeping: running this path
-        // for the keyed form too once REGRESSED the keyed row from 0.1726x to
-        // 0.1404x at 2000-character keys, because `resolve_internal_edge_key`
-        // and `edge_attrs` are keyed by canonical STRINGS and fnx-classes had no
-        // by-index equivalent taking an edge key — so a PRESENT keyed pair paid
-        // two index lookups and then fell through to the whole string path
-        // anyway. Extra work, nothing removed.
-        //
-        // br-r37-c1-s8dj1: that primitive now exists
-        // (`MultiDiGraph::edge_attrs_by_indices`), and the keyed branch below
-        // uses it. `has_edge_by_indices` is a real index path now rather than a
-        // name round-trip, so THIS branch finally buys what it was written to
-        // buy as well.
-        //
-        // ORDER IS PRESERVED: nx raises KeyError from `self._succ[u]` for an
-        // absent source and answers False WITHOUT hashing `v`, which is what the
-        // absent branch does. Hashing an exact `str` cannot raise, so resolving
-        // `v`'s index before that point is unobservable.
-        // br-r37-c1-qaqog: exact ints off their own index take it too, through
-        // the lookaside's int map.
+        // br-r37-c1-ptiz2 / br-r37-c1-qaqog: exact-`str` and exact-`int`
+        // endpoints resolve by CACHED INDEX, O(1) in key length.
         if key.is_none() && crate::exact_int_or_str_node(u) && crate::exact_int_or_str_node(v) {
             let Some(u_index) = self.cached_exact_string_node_index(py, u)? else {
                 return Ok(false);
@@ -7308,28 +7311,13 @@ impl PyMultiDiGraph {
                 None => false,
             });
         }
-        // br-r37-c1-s8dj1: the KEYED exact-string path, mirroring the one
-        // PyMultiGraph carries. `resolve_internal_edge_key` short-circuits when
-        // the display-key space is pristine and the key is an exact int -- the
-        // public integer key IS the internal usize key -- so the canonicals were
-        // needed only to reach `edge_attrs`, and `edge_attrs_by_indices` reaches
-        // the same entry by position. Remapped, float and string keys are
-        // excluded and keep the existing scan.
-        //
-        // ORDERING: br-r37-c1-lvlu7 requires an absent source to answer False
-        // without hashing `v`. That cannot be observed here -- both endpoints are
-        // exact `str` and the key an exact `int`, all always hashable, so no user
-        // `__hash__` can run and the resolution order is invisible.
-        //
-        // br-r37-c1-qaqog: exact-int endpoints take it too (always hashable
-        // the same way) - they had no keyed route: 0.62-0.63x networkx on
-        // has_edge(u, v, 0), 0.57x on (u, v, 0) in G.edges.
+        // br-r37-c1-s8dj1 / br-r37-c1-qaqog: the KEYED exact-str / exact-int path.
         if !self.has_remapped_int_key
             && crate::exact_int_or_str_node(u)
             && crate::exact_int_or_str_node(v)
             && let Some(edge_key) = key
             && edge_key.is_exact_instance_of::<PyInt>()
-            && let Ok(internal_key) = edge_key.extract::<usize>()
+            && let Some(internal_key) = crate::exact_int_node_index(edge_key)
         {
             let Some(u_index) = self.cached_exact_string_node_index(py, u)? else {
                 return Ok(false);
@@ -7342,28 +7330,35 @@ impl PyMultiDiGraph {
                 .edge_attrs_by_indices(u_index, v_index, internal_key)
                 .is_some());
         }
-        let u_c = node_key_to_string(py, u)?;
-        // br-r37-c1-lvlu7: absent source short-circuits before `v` is hashed.
-        if !self.inner.has_node(&u_c) {
-            return Ok(false);
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let u_c = u_key.as_str();
+        // br-r37-c1-lvlu7 / br-r37-c1-n4c8l: absent source short-circuits
+        // before `v` is hashed when `v`'s hash could raise.
+        if !crate::node_key_hash_cannot_raise(v) {
+            if !self.inner.has_node(u_c) {
+                return Ok(false);
+            }
+            require_hashable_node_key(v)?;
         }
-        require_hashable_node_key(v)?;
-        let v_c = node_key_to_string(py, v)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let v_c = v_key.as_str();
         Ok(match key {
             Some(edge_key) => {
                 // br-r37-c1-qaqog: networkx's `key in self._succ[u][v]` hashes
                 // the key only once the pair's keydict is reached - an absent
                 // pair answers False first, even for an unhashable key.
-                if !self.inner.has_edge(&u_c, &v_c) {
+                if !self.inner.has_edge(u_c, v_c) {
                     return Ok(false);
                 }
                 crate::hash_key_as_dict_would(edge_key)?;
-                self.resolve_internal_edge_key(py, &u_c, &v_c, edge_key)?
+                self.resolve_internal_edge_key(py, u_c, v_c, edge_key)?
                     .is_some_and(|internal_key| {
-                        self.inner.edge_attrs(&u_c, &v_c, internal_key).is_some()
+                        self.inner.edge_attrs(u_c, v_c, internal_key).is_some()
                     })
             }
-            None => self.inner.has_edge(&u_c, &v_c),
+            None => self.inner.has_edge(u_c, v_c),
         })
     }
 
@@ -8026,8 +8021,15 @@ impl PyMultiDiGraph {
     #[getter]
     fn edges(slf: PyRef<'_, Self>) -> PyResult<Py<MultiDiGraphEdgeView>> {
         let py = slf.py();
+        let use_native_store = !slf.instance_dict_gc.has_private_override();
         let graph_py: Py<PyMultiDiGraph> = Py::from(slf);
-        Py::new(py, MultiDiGraphEdgeView { graph: graph_py })
+        Py::new(
+            py,
+            MultiDiGraphEdgeView {
+                graph: Some(graph_py),
+                use_native_store,
+            },
+        )
     }
 
     /// br-r37-c1-tmuly: non-shadowed accessor for the native edge view. The
@@ -8038,8 +8040,15 @@ impl PyMultiDiGraph {
     /// from inner.edges_ordered() in nx order, reusing the live edge dicts).
     fn _native_edge_view(slf: PyRef<'_, Self>) -> PyResult<Py<MultiDiGraphEdgeView>> {
         let py = slf.py();
+        let use_native_store = !slf.instance_dict_gc.has_private_override();
         let graph_py: Py<PyMultiDiGraph> = Py::from(slf);
-        Py::new(py, MultiDiGraphEdgeView { graph: graph_py })
+        Py::new(
+            py,
+            MultiDiGraphEdgeView {
+                graph: Some(graph_py),
+                use_native_store,
+            },
+        )
     }
 
     fn _native_edge_view_list(
@@ -10816,15 +10825,19 @@ impl PyMultiDiGraph {
             {
                 return Ok(attrs.into_any());
             }
-            let u_canonical = node_key_to_string(py, u)?;
-            let v_canonical = node_key_to_string(py, v)?;
+            let mut u_buf = ArrayString::new();
+            let mut v_buf = ArrayString::new();
+            let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+            let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+            let u_canonical = u_key.as_str();
+            let v_canonical = v_key.as_str();
             let Some(internal_key) =
-                this.resolve_internal_edge_key(py, &u_canonical, &v_canonical, key_obj)?
+                this.resolve_internal_edge_key(py, u_canonical, v_canonical, key_obj)?
             else {
                 return Ok(default.unwrap_or_else(|| py.None()));
             };
             let attrs = this
-                .ensure_edge_py_attrs(py, &u_canonical, &v_canonical, internal_key)
+                .ensure_edge_py_attrs(py, u_canonical, v_canonical, internal_key)
                 .clone_ref(py);
             if !this.has_remapped_int_key
                 && crate::node_key_can_use_index_lookaside(u)
@@ -11326,15 +11339,169 @@ impl MultiDiGraphNodeView {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "franken_networkx", subclass)]
 pub struct MultiDiGraphEdgeView {
-    graph: Py<PyMultiDiGraph>,
+    graph: Option<Py<PyMultiDiGraph>>,
+    use_native_store: bool,
+}
+
+impl MultiDiGraphEdgeView {
+    #[inline]
+    fn graph(&self) -> PyResult<&Py<PyMultiDiGraph>> {
+        self.graph
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("MultiDiGraphEdgeView cleared by GC"))
+    }
 }
 
 #[pymethods]
 impl MultiDiGraphEdgeView {
-    fn __len__(&self, py: Python<'_>) -> usize {
-        self.graph.borrow(py).inner.edge_count()
+    #[new]
+    #[pyo3(signature = (graph=None, *_args, **_kwargs))]
+    fn py_new(
+        graph: Option<&Bound<'_, PyAny>>,
+        _args: &Bound<'_, PyTuple>,
+        _kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        let (graph_py, use_native_store) = match graph {
+            Some(g) => {
+                if let Ok(mdg) = g.downcast::<PyMultiDiGraph>() {
+                    let use_native = g.is_exact_instance_of::<PyMultiDiGraph>()
+                        && !mdg.borrow().instance_dict_gc.has_private_override();
+                    (Some(mdg.clone().unbind()), use_native)
+                } else {
+                    (None, false)
+                }
+            }
+            None => (None, false),
+        };
+        Ok(Self {
+            graph: graph_py,
+            use_native_store,
+        })
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        if let Some(ref g) = self.graph {
+            visit.call(g)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+        self.use_native_store = false;
+    }
+
+    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
+        Ok(self.graph()?.borrow(py).inner.edge_count())
+    }
+
+    /// br-r37-c1-bc7r4: C-slot `MultiDiGraph.edges[u, v, k]`, inherited by
+    /// `_MultiDiGraphEdgeView` so `type(MDG.edges).__getitem__` is a native
+    /// `wrapper_descriptor` instead of a Python function.
+    fn __getitem__(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        edge: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        if edge.is_instance_of::<pyo3::types::PySlice>() {
+            let (start, stop, step) = (
+                edge.getattr(pyo3::intern!(py, "start"))?,
+                edge.getattr(pyo3::intern!(py, "stop"))?,
+                edge.getattr(pyo3::intern!(py, "step"))?,
+            );
+            let cls_name = slf
+                .get_type()
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| "OutMultiEdgeView".to_owned());
+            return Err(NetworkXError::new_err(format!(
+                "{cls_name} does not support slicing, try list(G.edges)[{start}:{stop}:{step}]"
+            )));
+        }
+        let (u_item, v_item, k_item) = crate::views::unpack_three_endpoints(edge)?;
+        let this = slf.borrow();
+        if this.use_native_store
+            && let Some(ref graph_py) = this.graph
+        {
+            {
+                let g = graph_py.borrow(py);
+                if !g.has_remapped_int_key
+                    && k_item.is_exact_instance_of::<PyInt>()
+                    && crate::node_key_can_use_index_lookaside(&u_item)
+                    && crate::node_key_can_use_index_lookaside(&v_item)
+                    && let Some(internal_key) = crate::exact_int_node_index(&k_item)
+                    && let Some(ui) = g.cached_exact_string_node_index(py, &u_item)?
+                    && let Some(vi) = g.cached_exact_string_node_index(py, &v_item)?
+                    && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, ui, vi, internal_key)
+                {
+                    return Ok(attrs.into_any());
+                }
+            }
+            let graph_py = graph_py.clone_ref(py);
+            drop(this);
+            require_hashable_node_key(&u_item)?;
+            if u_item.is_none() {
+                return Err(crate::missing_key_error(&u_item));
+            }
+            let mut u_buf = ArrayString::new();
+            let u_key = canonical_node_key_in(py, &u_item, &mut u_buf)?;
+            if v_item.is_none() || !crate::node_key_hash_cannot_raise(&v_item) {
+                {
+                    let g = graph_py.borrow(py);
+                    if !g.inner.has_node(u_key.as_str()) {
+                        return Err(crate::missing_key_error(&u_item));
+                    }
+                }
+                require_hashable_node_key(&v_item)?;
+                if v_item.is_none() {
+                    return Err(crate::missing_key_error(&v_item));
+                }
+            }
+            let mut v_buf = ArrayString::new();
+            let v_key = canonical_node_key_in(py, &v_item, &mut v_buf)?;
+            let (u_c, v_c) = (u_key.as_str(), v_key.as_str());
+            {
+                let g = graph_py.borrow(py);
+                if !g.inner.has_node(u_c) {
+                    return Err(crate::missing_key_error(&u_item));
+                }
+                if !g.inner.has_edge(u_c, v_c) {
+                    require_hashable_node_key(&v_item)?;
+                    return Err(crate::missing_key_error(&v_item));
+                }
+            }
+            require_hashable_node_key(&k_item)?;
+            if k_item.is_none() {
+                return Err(crate::missing_key_error(&k_item));
+            }
+            let mut g = graph_py.borrow_mut(py);
+            let Some(internal_key) = g.resolve_internal_edge_key(py, u_c, v_c, &k_item)? else {
+                return Err(crate::missing_key_error(&k_item));
+            };
+            let attrs = g
+                .ensure_edge_py_attrs(py, u_c, v_c, internal_key)
+                .clone_ref(py);
+            if !g.has_remapped_int_key
+                && crate::node_key_can_use_index_lookaside(&u_item)
+                && crate::node_key_can_use_index_lookaside(&v_item)
+                && let Some(ui) = g.cached_exact_string_node_index(py, &u_item)?
+                && let Some(vi) = g.cached_exact_string_node_index(py, &v_item)?
+            {
+                g.remember_edge_py_attrs_by_index(py, ui, vi, internal_key, &attrs);
+            }
+            return Ok(attrs.into_any());
+        }
+        drop(this);
+        require_hashable_node_key(&u_item)?;
+        require_hashable_node_key(&v_item)?;
+        require_hashable_node_key(&k_item)?;
+        let graph = slf.getattr(pyo3::intern!(py, "_graph"))?;
+        let succ = graph.getattr(pyo3::intern!(py, "succ"))?;
+        let row = succ.get_item(&u_item)?;
+        let cell = row.get_item(&v_item)?;
+        Ok(cell.get_item(&k_item)?.unbind())
     }
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -11347,7 +11514,7 @@ impl MultiDiGraphEdgeView {
         }
         let u = node_key_to_string(py, &tuple.get_item(0)?)?;
         let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         if !g.inner.has_edge(&u, &v) {
             return Ok(false);
         }
@@ -11380,7 +11547,8 @@ impl MultiDiGraphEdgeView {
         keys: bool,
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<crate::NodeIterator>> {
-        let mut g = self.graph.borrow_mut(py);
+        let graph_py = self.graph()?.clone_ref(py);
+        let mut g = graph_py.borrow_mut(py);
         // Only the node COUNT is needed (NodeIterator mutation guard); avoid
         // cloning every node key into a Vec<String> per call.
         let node_count = g.inner.node_count();
@@ -11394,26 +11562,26 @@ impl MultiDiGraphEdgeView {
         // serve them from the (nodes_seq, edges_seq) cache via a borrow_mut.
         if source_nodes.is_none() && matches!(&view_data, ViewData::AllData) && !keys {
             drop(g);
-            let result = self.graph.borrow_mut(py).edges_alldata_tuples(py)?;
+            let result = graph_py.borrow_mut(py).edges_alldata_tuples(py)?;
             return Py::new(
                 py,
                 crate::NodeIterator::with_graph_guard(
                     py,
                     result,
-                    crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                    crate::NodeIteratorGuard::MultiDiGraph(graph_py),
                     node_count,
                 ),
             );
         }
         if source_nodes.is_none() && matches!(&view_data, ViewData::NoData) && keys {
             drop(g);
-            let result = self.graph.borrow_mut(py).edges_key_tuples(py)?;
+            let result = graph_py.borrow_mut(py).edges_key_tuples(py)?;
             return Py::new(
                 py,
                 crate::NodeIterator::with_graph_guard(
                     py,
                     result,
-                    crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                    crate::NodeIteratorGuard::MultiDiGraph(graph_py),
                     node_count,
                 ),
             );
@@ -11429,21 +11597,12 @@ impl MultiDiGraphEdgeView {
                 crate::NodeIterator::with_graph_guard(
                     py,
                     result,
-                    crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                    crate::NodeIteratorGuard::MultiDiGraph(graph_py),
                     node_count,
                 ),
             );
         }
         let mut result = Vec::new();
-        // br-r37-c1-edgesnbunch: walk only the requested sources' out-edges
-        // (in nbunch order) instead of cloning + scanning EVERY edge via the
-        // owned edges_ordered(). edges_ordered() clones each edge's AttrMap
-        // (unused here — attrs come from edge_py_attrs), so the old path was
-        // O(E) clones per call even for a single-node nbunch (~295x slower
-        // than nx). The borrowed per-source walk is O(sum out-deg) with zero
-        // clones, and emitting sources in nbunch order matches nx's
-        // OutMultiEdgeView (the old filter-by-membership path yielded
-        // node-iteration order — a latent divergence for multi-node nbunch).
         let edge_keys: Vec<(String, String, usize)> = match source_nodes.as_ref() {
             Some(sources) => {
                 let mut v = Vec::new();
@@ -11524,7 +11683,7 @@ impl MultiDiGraphEdgeView {
             crate::NodeIterator::with_graph_guard(
                 py,
                 result,
-                crate::NodeIteratorGuard::MultiDiGraph(self.graph.clone_ref(py)),
+                crate::NodeIteratorGuard::MultiDiGraph(graph_py),
                 node_count,
             ),
         )
@@ -17273,12 +17432,14 @@ impl PyDiGraph {
     #[getter]
     fn edges(slf: PyRef<'_, Self>) -> PyResult<Py<DiEdgeView>> {
         let py = slf.py();
+        let use_native_store = !slf.instance_dict_gc.has_private_override();
         let graph_py: Py<PyDiGraph> = Py::from(slf);
         Py::new(
             py,
             DiEdgeView {
-                graph: graph_py,
+                graph: Some(graph_py),
                 data: ViewData::NoData,
+                use_native_store,
             },
         )
     }
@@ -20012,16 +20173,54 @@ impl DiNodeView {
 // DiEdgeView
 // ---------------------------------------------------------------------------
 
-#[pyclass(module = "franken_networkx")]
+#[pyclass(module = "franken_networkx", subclass)]
 pub struct DiEdgeView {
-    graph: Py<PyDiGraph>,
+    graph: Option<Py<PyDiGraph>>,
     data: ViewData,
+    use_native_store: bool,
+}
+
+impl DiEdgeView {
+    fn graph_ref<'a>(&'a self, py: Python<'a>) -> PyResult<&'a Py<PyDiGraph>> {
+        let _ = py;
+        self.graph
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("DiEdgeView has been cleared by GC"))
+    }
 }
 
 #[pymethods]
 impl DiEdgeView {
-    fn __len__(&self, py: Python<'_>) -> usize {
-        self.graph.borrow(py).inner.edge_count()
+    #[new]
+    fn new(graph: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let py = graph.py();
+        let (graph_py, use_native_store) = if let Ok(py_graph) = graph.extract::<Py<PyDiGraph>>() {
+            let exact_digraph = graph.get_type().name().is_ok_and(|name| name == "DiGraph");
+            let has_override = py_graph.borrow(py).instance_dict_gc.has_private_override();
+            (Some(py_graph), exact_digraph && !has_override)
+        } else {
+            (None, false)
+        };
+        Ok(Self {
+            graph: graph_py,
+            data: ViewData::NoData,
+            use_native_store,
+        })
+    }
+
+    fn __traverse__(&self, visit: pyo3::PyVisit<'_>) -> Result<(), pyo3::PyTraverseError> {
+        if let Some(g) = &self.graph {
+            visit.call(g)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+    }
+
+    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
+        Ok(self.graph_ref(py)?.borrow(py).inner.edge_count())
     }
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -20033,11 +20232,12 @@ impl DiEdgeView {
         }
         let u = node_key_to_string(py, &tuple.get_item(0)?)?;
         let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        Ok(self.graph.borrow(py).inner.has_edge(&u, &v))
+        Ok(self.graph_ref(py)?.borrow(py).inner.has_edge(&u, &v))
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<DiViewIterator>> {
-        let mut g = self.graph.borrow_mut(py);
+        let graph_py = self.graph_ref(py)?.clone_ref(py);
+        let mut g = graph_py.borrow_mut(py);
         // br-r37-c1-divit: only the node_count + nodes_seq are needed for the
         // O(1) per-next staleness check, not a full nodes_ordered() Vec.
         let node_count = g.inner.node_count();
@@ -20081,34 +20281,98 @@ impl DiEdgeView {
             }?;
             items.push(item);
         }
+        drop(g);
         Py::new(
             py,
             DiViewIterator {
                 inner: items.into_iter(),
-                graph: Some(self.graph.clone_ref(py)),
+                graph: Some(graph_py),
                 expected_count: Some(node_count),
                 expected_seq: Some(nodes_seq),
             },
         )
     }
 
-    fn __getitem__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let tuple = edge
-            .downcast::<PyTuple>()
-            .map_err(|_| PyTypeError::new_err("edge key must be a (u, v) tuple"))?;
-        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
-        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
-        let g = self.graph.borrow(py);
-        if !g.inner.has_edge(&u, &v) {
-            return Err(PyKeyError::new_err(format!("({}, {})", u, v)));
+    /// br-r37-c1-bc7r4: C-slot `mp_subscript` (`__getitem__`) for `DiGraph.edges[u, v]`,
+    /// eliminating the Python `_DiGraphEdgeView.__getitem__` frame while preserving:
+    ///   - slice rejection with NetworkXError naming the view class
+    ///   - 2-element iterable unpacking (`ValueError` on wrong arity, `TypeError` on non-iterable)
+    ///   - construction-time `use_native_store` capture (`br-r37-c1-hvw2e-8smdi`)
+    ///   - ordered endpoint hashability & presence check (`u` hashed & checked before `v`)
+    ///   - exact `KeyError(f"The edge {edge} is not in the graph.")` message shape
+    fn __getitem__(slf: &Bound<'_, Self>, edge: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let py = slf.py();
+        if edge.is_instance_of::<pyo3::types::PySlice>() {
+            let type_name = slf
+                .get_type()
+                .name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "OutEdgeView".to_owned());
+            let start = edge.getattr("start")?.repr()?;
+            let stop = edge.getattr("stop")?.repr()?;
+            let step = edge.getattr("step")?.repr()?;
+            return Err(NetworkXError::new_err(format!(
+                "{type_name} does not support slicing, try list(G.edges)[{start}:{stop}:{step}]"
+            )));
         }
-        drop(g);
-        let mut g = self.graph.borrow_mut(py);
-        Ok(g.materialize_edge_py_attrs(py, &u, &v))
+        let (u, v) = crate::views::unpack_two_endpoints(edge)?;
+        let use_native_store = slf.borrow().use_native_store;
+        if use_native_store {
+            let graph_py = slf.borrow().graph_ref(py)?.clone_ref(py);
+            if crate::node_key_can_use_index_lookaside(&u)
+                && crate::node_key_can_use_index_lookaside(&v)
+            {
+                let g = graph_py.borrow(py);
+                if let Some(u_index) = g.cached_exact_string_node_index(py, &u)?
+                    && let Some(v_index) = g.cached_exact_string_node_index(py, &v)?
+                    && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, u_index, v_index)
+                {
+                    return Ok(attrs.into_any());
+                }
+            }
+            require_hashable_node_key(&u)?;
+            let mut u_buf = ArrayString::new();
+            let u_key = canonical_node_key_in(py, &u, &mut u_buf)?;
+            let u_c = u_key.as_str();
+            if !graph_py.borrow(py).inner.has_node(u_c) {
+                return Err(crate::views::missing_edge_key_error(edge));
+            }
+            require_hashable_node_key(&v)?;
+            let mut v_buf = ArrayString::new();
+            let v_key = canonical_node_key_in(py, &v, &mut v_buf)?;
+            let v_c = v_key.as_str();
+            let mut g = graph_py.borrow_mut(py);
+            if !g.inner.has_edge(u_c, v_c) {
+                return Err(crate::views::missing_edge_key_error(edge));
+            }
+            let attrs = g.materialize_edge_py_attrs(py, u_c, v_c);
+            if crate::node_key_can_use_index_lookaside(&u)
+                && crate::node_key_can_use_index_lookaside(&v)
+                && let Some(u_index) = g.cached_exact_string_node_index(py, &u)?
+                && let Some(v_index) = g.cached_exact_string_node_index(py, &v)?
+            {
+                g.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
+            }
+            return Ok(attrs.into_any());
+        }
+        require_hashable_node_key(&u)?;
+        let graph_obj = slf.getattr(pyo3::intern!(py, "_graph"))?;
+        if !graph_obj.contains(&u)? {
+            return Err(crate::views::missing_edge_key_error(edge));
+        }
+        require_hashable_node_key(&v)?;
+        let has_edge = graph_obj
+            .call_method1(pyo3::intern!(py, "has_edge"), (&u, &v))?
+            .is_truthy()?;
+        if !has_edge {
+            return Err(crate::views::missing_edge_key_error(edge));
+        }
+        let succ = graph_obj.getattr(pyo3::intern!(py, "succ"))?;
+        Ok(succ.get_item(&u)?.get_item(&v)?.unbind())
     }
 
-    fn __bool__(&self, py: Python<'_>) -> bool {
-        self.graph.borrow(py).inner.edge_count() > 0
+    fn __bool__(&self, py: Python<'_>) -> PyResult<bool> {
+        Ok(self.graph_ref(py)?.borrow(py).inner.edge_count() > 0)
     }
 
     #[pyo3(signature = (data=None, nbunch=None, default=None))]
@@ -20119,9 +20383,10 @@ impl DiEdgeView {
         nbunch: Option<&Bound<'_, PyAny>>,
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyObject> {
+        let graph_py = self.graph_ref(py)?.clone_ref(py);
         if let Some(nb) = nbunch {
             let iter = PyIterator::from_object(nb)?;
-            let g = self.graph.borrow(py);
+            let g = graph_py.borrow(py);
             let mut node_set: std::collections::HashSet<String> = std::collections::HashSet::new();
             for item in iter {
                 let item = item?;
@@ -20174,8 +20439,9 @@ impl DiEdgeView {
             let view = Py::new(
                 py,
                 DiEdgeView {
-                    graph: self.graph.clone_ref(py),
+                    graph: Some(graph_py),
                     data: view_data,
+                    use_native_store: self.use_native_store,
                 },
             )?;
             Ok(view.into_any())

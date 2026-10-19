@@ -4718,30 +4718,14 @@ def _direct_multi_edge_iter(view, exact_graph_type):
     )
 
 
-class _DiGraphEdgeView:
+class _DiGraphEdgeView(_fnx.DiEdgeView):
     _fnx_edge_kind = "out"  # br-r37-c1-ex1s6: see _nx_edge_view_contains
 
     def __init__(self, graph):
         self._graph = graph
-        # br-r37-c1-sivs2: scalar ``DiGraph.edges[u, v]`` used to cross
-        # OutEdgeView -> MultiAdjacencyView -> AdjacencyView -> AtlasView
-        # after a redundant has_edge probe. Bind the raw exact-type descriptor
-        # once, as the keyed multigraph views already do. Subclasses and
-        # NetworkX-private storage retain the generic mapping path.
-        # br-r37-c1-hvw2e-8smdi: this construction-time decision is the ONLY one; the
-        # subscript does not re-check. networkx captures `_adjdict` in its own
-        # __init__ and never re-reads it, so a view built before an override
-        # must not see that override.
-        raw_get_edge_data = globals().get(
-            "_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA"
-        )
-        self._fnx_native_get_edge_data = (
-            raw_get_edge_data.__get__(graph, DiGraph)
-            if raw_get_edge_data is not None
-            and type(graph) is DiGraph
-            and not _has_networkx_private_storage(graph)
-            else None
-        )
+
+    def __getnewargs__(self):
+        return (self._graph,)
 
     def _materialize(self):
         # br-r37-c1-acuub: native ordered no-data edge materialization. The
@@ -4786,72 +4770,6 @@ class _DiGraphEdgeView:
             return self._graph.has_edge(u, v)
         except KeyError:
             return False
-
-    def __getitem__(self, edge):
-        # br-r37-c1-eg-msg: match nx's exact error message shape
-        # ``KeyError(f"The edge {e} is not in the graph.")``.
-        # has_edge already raises TypeError on unhashable u/v
-        # (br-r37-c1-cvtv6) so unpack into has_edge handles both
-        # the missing and unhashable cases correctly.
-        # br-r37-c1-60627: a SLICE must produce nx's typed, actionable error.
-        # Falling through to the unpack below gave a bare
-        # ``TypeError: cannot unpack non-iterable slice object`` — a different
-        # exception type AND no guidance, where nx names the view class and
-        # tells you to use ``list(G.edges)[...]``.
-        if isinstance(edge, slice):
-            raise NetworkXError(
-                f"{type(self).__name__} does not support slicing, try "
-                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
-            )
-        u, v = edge
-        native_get_edge_data = self._fnx_native_get_edge_data
-        if native_get_edge_data is not None:
-            # br-r37-c1-hvw2e-8smdi: NO per-call private-storage re-check. This
-            # slot used to re-run `_has_networkx_private_storage(self._graph)`
-            # on every subscript so a HELD view would notice an override that
-            # landed after it was built. That is a parity DEFECT, not a
-            # requirement: networkx's OutEdgeView.__init__ does
-            # `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` and
-            # `__getitem__` reads only that captured mapping, so reassigning
-            # `G._adj` / `G._succ` CANNOT affect a view that already exists.
-            # The re-check made fnx raise KeyError where nx returns the edge,
-            # on all four classes (6 divergent cells; see the parity matrix in
-            # tests/python/test_held_edge_view_private_storage_parity.py).
-            # The construction-time decision in __init__ is the correct and
-            # sufficient one, and it is what nx's captured `_adjdict` means.
-            # br-r37-c1-q4wzt: on a HIT the native lookup already established
-            # both endpoints, so the explicit `hash(u)`, the `u in self._graph`
-            # membership probe and `hash(v)` below are duplicate work -- measured
-            # at 41.7ns for the membership probe alone on a call whose whole
-            # networkx equivalent is 115.2ns. Try the lookup FIRST and keep the
-            # careful ordering for everything that is not a hit.
-            try:
-                data = native_get_edge_data(u, v, _PRIVATE_MISSING)
-            except TypeError:
-                # An unhashable endpoint. Fall through to the ordered path so
-                # the exception TYPE and ORDER stay nx's rather than whatever
-                # the native canonicaliser raised.
-                pass
-            else:
-                if data is not _PRIVATE_MISSING:
-                    return data
-                # Absent: reproduce nx's ordering exactly before raising.
-                _HASH_PROBE.get(u)
-                if u not in self._graph:
-                    raise KeyError(f"The edge {edge} is not in the graph.")
-                _HASH_PROBE.get(v)
-                raise KeyError(f"The edge {edge} is not in the graph.")
-        _HASH_PROBE.get(u)
-        # br-r37-c1-60627: `v` is hashed only AFTER `u`'s presence is
-        # established. nx evaluates `self._adjdict[u][v]`, so an absent `u`
-        # raises KeyError without `v` ever being hashed — hashing both up front
-        # turned that KeyError into a TypeError for an unhashable `v`.
-        if u not in self._graph:
-            raise KeyError(f"The edge {edge} is not in the graph.")
-        _HASH_PROBE.get(v)
-        if not self._graph.has_edge(u, v):
-            raise KeyError(f"The edge {edge} is not in the graph.")
-        return self._graph.succ[u][v]
 
     def __call__(self, nbunch=None, data=False, default=None):
         # br-r37-c1-msf5j: when called with default args, return self
@@ -5275,25 +5193,14 @@ _OutMultiEdgeDataCallView.__qualname__ = "OutMultiEdgeDataView"
 
 
 
-class _MultiGraphEdgeView:
+class _MultiGraphEdgeView(_fnx.MultiGraphEdgeView):
     _fnx_edge_kind = "undirected"  # br-r37-c1-ex1s6: see _nx_edge_view_contains
 
     def __init__(self, graph):
         self._graph = graph
-        # br-r37-c1-8l96z: a scalar ``G.edges[u, v, key]`` lookup used to
-        # allocate/traverse four Python view layers before reaching the native
-        # edge store.  Bind the raw PyO3 descriptor once for ordinary exact-type
-        # graphs; subclasses and NetworkX-private storage retain the generic
-        # mapping chain below.  br-r37-c1-hvw2e-8smdi: this is the ONLY private-storage
-        # decision the view makes. It used to be re-checked on every subscript so
-        # a held view would notice a late ``graph._adj``; networkx's MultiEdgeView
-        # binds ``self._adjdict = G._adj`` in __init__ and never re-reads it, so
-        # that re-check inverted the contract rather than upholding it.
-        self._fnx_native_get_edge_data = (
-            _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(graph, MultiGraph)
-            if type(graph) is MultiGraph and not _has_networkx_private_storage(graph)
-            else None
-        )
+
+    def __getnewargs__(self):
+        return (self._graph,)
 
     def __iter__(self):
         # br-multiiterkeys: nx.MultiEdgeView default iteration yields
@@ -5310,102 +5217,6 @@ class _MultiGraphEdgeView:
 
     def __len__(self):
         return self._graph.number_of_edges()
-
-    def __getitem__(self, edge):
-        # br-r37-c1-meg-msg: nx's MultiEdgeView does
-        # ``u, v, k = e; return self._adjdict[u][v][k]`` so:
-        #   * 2-tuple → ValueError unpack
-        #   * unhashable u/v/k → TypeError
-        #   * missing u → KeyError(u)
-        #   * missing v → KeyError(v)
-        #   * missing key → KeyError(k)
-        # fnx previously rejected non-3-tuple subscripts with a
-        # type-check and emitted ``KeyError(edge_tuple)`` on every
-        # missing case, masking which element was missing and
-        # silently swallowing TypeError on unhashable.  Mirror nx
-        # exactly via the unpack + chained dict lookup.
-        # br-r37-c1-60627: a SLICE must produce nx's typed, actionable error
-        # naming the view class, not the bare ``TypeError: cannot unpack
-        # non-iterable slice object`` the unpack below would raise.
-        if isinstance(edge, slice):
-            raise NetworkXError(
-                f"{type(self).__name__} does not support slicing, try "
-                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
-            )
-        u, v, key = edge
-        native_get_edge_data = self._fnx_native_get_edge_data
-        if key is not None and native_get_edge_data is not None:
-            # br-r37-c1-hvw2e-8smdi: NO per-call private-storage re-check. This
-            # slot used to re-run `_has_networkx_private_storage(self._graph)`
-            # on every subscript so a HELD view would notice an override that
-            # landed after it was built. That is a parity DEFECT, not a
-            # requirement: networkx's OutEdgeView.__init__ does
-            # `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` and
-            # `__getitem__` reads only that captured mapping, so reassigning
-            # `G._adj` / `G._succ` CANNOT affect a view that already exists.
-            # The re-check made fnx raise KeyError where nx returns the edge,
-            # on all four classes (6 divergent cells; see the parity matrix in
-            # tests/python/test_held_edge_view_private_storage_parity.py).
-            # The construction-time decision in __init__ is the correct and
-            # sufficient one, and it is what nx's captured `_adjdict` means.
-            # br-r37-c1-vv3sd: multigraph twin of br-r37-c1-q4wzt. On a HIT the
-            # native lookup hashes and resolves all three components itself, so
-            # the explicit hashes in front of it are duplicate work. Anything
-            # that is not a hit falls through to the ordered path below, which
-            # still hashes u, v, key in nx's order before the chained lookup, so
-            # the exception TYPE and ORDER are unchanged.
-            try:
-                data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
-            except TypeError:
-                pass
-            else:
-                if data is not _PRIVATE_MISSING:
-                    return data
-                # br-r37-c1-hvw2e-8smdi: a MISS on a view that captured the NATIVE
-                # store must be shaped from that store, not from `self._graph.adj`.
-                # The generic tail below re-reads the graph's CURRENT adjacency,
-                # which is private-storage-aware, so a `G._adj` assigned after
-                # this view was built would answer a lookup the incumbent
-                # resolves against its captured `_adjdict` (networkx's
-                # MultiEdgeView binds `self._adjdict = G._adj` in __init__ and
-                # never re-reads it). Probing natively keeps nx's KeyError shape
-                # -- first missing element of u, v, key -- without materialising
-                # an AdjacencyView, which would also dirty the edge store.
-                _HASH_PROBE.get(u)
-                _HASH_PROBE.get(v)
-                _HASH_PROBE.get(key)
-                graph = self._graph
-                if not graph.has_node(u):
-                    raise KeyError(u)
-                if not graph.has_edge(u, v):
-                    raise KeyError(v)
-                raise KeyError(key)
-        _HASH_PROBE.get(u)
-        _HASH_PROBE.get(v)
-        _HASH_PROBE.get(key)
-        adj = self._graph.adj
-        try:
-            return adj[u][v][key]
-        except KeyError:
-            pass
-        # Undirected fallback (br-multiedgeview-rev): if the edge
-        # was supplied in reverse orientation it should still
-        # resolve.  Fire the second lookup only on KeyError so
-        # the original missing-element KeyError is preserved
-        # otherwise.
-        try:
-            return adj[v][u][key]
-        except KeyError:
-            # Re-emit nx's most specific missing element.  nx
-            # surfaces the first KeyError from the chained lookup
-            # at adj[u][v][k]; recompute to figure out which
-            # element is the first one missing in the original
-            # u→v→key direction.
-            if u not in adj:
-                raise KeyError(u)
-            if v not in adj[u]:
-                raise KeyError(v)
-            raise KeyError(key)
 
     keys = _multi_edge_keys
     items = _multi_edge_items
@@ -6175,22 +5986,14 @@ def _multigraph_edges(self):
     return _MultiGraphEdgeView(self)
 
 
-class _MultiDiGraphEdgeView:
+class _MultiDiGraphEdgeView(_fnx.MultiDiGraphEdgeView):
     _fnx_edge_kind = "out"  # br-r37-c1-ex1s6: see _nx_edge_view_contains
 
     def __init__(self, graph):
         self._graph = graph
-        # br-r37-c1-8l96z: directed sibling of the exact-type keyed-edge fast
-        # path above.  Missing edges deliberately fall through so the established
-        # element-specific KeyError contract remains byte-for-byte unchanged.
-        self._fnx_native_get_edge_data = (
-            _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(
-                graph, MultiDiGraph
-            )
-            if type(graph) is MultiDiGraph
-            and not _has_networkx_private_storage(graph)
-            else None
-        )
+
+    def __getnewargs__(self):
+        return (self._graph,)
 
     def __iter__(self):
         # br-multiiterkeys: see _MultiGraphEdgeView — default iteration
@@ -6249,80 +6052,6 @@ class _MultiDiGraphEdgeView:
             if self._graph.has_edge(u, v):
                 raise
             return False
-
-    def __getitem__(self, edge):
-        # br-r37-c1-meg-msg: see _MultiGraphEdgeView.__getitem__.
-        # nx unpacks via ``u, v, k = e`` and chains
-        # ``self._adjdict[u][v][k]``; mirror that contract for
-        # nx-shape KeyError on missing element + TypeError on
-        # unhashable.  Directed: no undirected fallback.
-        # br-r37-c1-60627: a SLICE must produce nx's typed, actionable error
-        # naming the view class, not the bare ``TypeError: cannot unpack
-        # non-iterable slice object`` the unpack below would raise.
-        if isinstance(edge, slice):
-            raise NetworkXError(
-                f"{type(self).__name__} does not support slicing, try "
-                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
-            )
-        u, v, key = edge
-        native_get_edge_data = self._fnx_native_get_edge_data
-        if key is not None and native_get_edge_data is not None:
-            # br-r37-c1-hvw2e-8smdi: NO per-call private-storage re-check. This
-            # slot used to re-run `_has_networkx_private_storage(self._graph)`
-            # on every subscript so a HELD view would notice an override that
-            # landed after it was built. That is a parity DEFECT, not a
-            # requirement: networkx's OutEdgeView.__init__ does
-            # `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` and
-            # `__getitem__` reads only that captured mapping, so reassigning
-            # `G._adj` / `G._succ` CANNOT affect a view that already exists.
-            # The re-check made fnx raise KeyError where nx returns the edge,
-            # on all four classes (6 divergent cells; see the parity matrix in
-            # tests/python/test_held_edge_view_private_storage_parity.py).
-            # The construction-time decision in __init__ is the correct and
-            # sufficient one, and it is what nx's captured `_adjdict` means.
-            # br-r37-c1-vv3sd: multigraph twin of br-r37-c1-q4wzt. On a HIT the
-            # native lookup hashes and resolves all three components itself, so
-            # the explicit hashes in front of it are duplicate work. Anything
-            # that is not a hit falls through to the ordered path below, which
-            # still hashes u, v, key in nx's order before the chained lookup, so
-            # the exception TYPE and ORDER are unchanged.
-            try:
-                data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
-            except TypeError:
-                pass
-            else:
-                if data is not _PRIVATE_MISSING:
-                    return data
-                # br-r37-c1-hvw2e-8smdi: a MISS on a view that captured the NATIVE
-                # store must be shaped from that store, not from `self._graph.adj`.
-                # The generic tail below re-reads the graph's CURRENT adjacency,
-                # which is private-storage-aware, so a `G._adj` assigned after
-                # this view was built would answer a lookup the incumbent
-                # resolves against its captured `_adjdict` (networkx's
-                # MultiEdgeView binds `self._adjdict = G._adj` in __init__ and
-                # never re-reads it). Probing natively keeps nx's KeyError shape
-                # -- first missing element of u, v, key -- without materialising
-                # an AdjacencyView, which would also dirty the edge store.
-                _HASH_PROBE.get(u)
-                _HASH_PROBE.get(v)
-                _HASH_PROBE.get(key)
-                graph = self._graph
-                if not graph.has_node(u):
-                    raise KeyError(u)
-                if not graph.has_edge(u, v):
-                    raise KeyError(v)
-                raise KeyError(key)
-        _HASH_PROBE.get(u)
-        _HASH_PROBE.get(v)
-        _HASH_PROBE.get(key)
-        succ = self._graph.succ
-        if u not in succ:
-            raise KeyError(u)
-        if v not in succ[u]:
-            raise KeyError(v)
-        if key not in succ[u][v]:
-            raise KeyError(key)
-        return succ[u][v][key]
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
         # br-r37-c1-msf5j: live wrapper for default args (see

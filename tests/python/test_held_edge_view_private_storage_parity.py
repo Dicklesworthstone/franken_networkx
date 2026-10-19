@@ -95,16 +95,18 @@ def test_held_edge_view_matches_networkx(class_name, private_attr, order):
     )
 
 
-@pytest.mark.parametrize("class_name", ["DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+)
 def test_held_view_subscript_costs_one_python_frame(class_name):
-    """The fix is also the perf lever, so pin the frame count it bought.
+    """br-r37-c1-bc7r4: all four edge views implement __getitem__ in the C
+    mp_subscript slot, so subscripting costs ZERO Python call frames.
 
-    The per-call guard was a second Python call frame on every subscript, where
-    networkx pays exactly one (`reportviews.__getitem__`). Counting frames rather
-    than timing them is deliberate: it is load-independent, so this assertion
-    means the same thing on a quiet host and a host at loadavg 40, where a timing
-    assertion would be flaky. If a future change reintroduces a per-call helper
-    this fails with the helper named.
+    Counting frames rather than timing them is deliberate: it is
+    load-independent, so this assertion means the same thing on a quiet host
+    and a host at loadavg 40, where a timing assertion would be flaky. If a
+    future change reintroduces a Python __getitem__ wrapper or per-call helper,
+    this fails with the frame named.
     """
     import sys
 
@@ -112,6 +114,7 @@ def test_held_view_subscript_costs_one_python_frame(class_name):
     key = graph.add_edge("a", "b", w=1)
     subscript = ("a", "b", key) if class_name.startswith("Multi") else ("a", "b")
     view = graph.edges
+    assert type(type(view).__getitem__).__name__ == "wrapper_descriptor"
     view[subscript]  # warm any accessor caches so they are not counted
 
     seen = []
@@ -126,7 +129,7 @@ def test_held_view_subscript_costs_one_python_frame(class_name):
     finally:
         sys.setprofile(None)
 
-    assert seen == ["__getitem__"], (
-        f"{class_name}.edges[u,v] should cost exactly one Python frame — the "
-        f"view's own __getitem__, matching networkx — but called {seen}."
+    assert seen == [], (
+        f"{class_name}.edges[u,v] should cost zero Python frames via its C "
+        f"mp_subscript slot, but called {seen}."
     )

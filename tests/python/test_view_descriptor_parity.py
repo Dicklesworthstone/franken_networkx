@@ -766,15 +766,22 @@ def test_held_simple_edge_view_matches_networkx_after_private_assignment(
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
 def test_simple_edge_view_subclasses_keep_generic_lookup(cls_name):
     base = getattr(fnx, cls_name)
+    calls = 0
 
     class Subclass(base):
-        pass
+        if cls_name == "DiGraph":
+            @property
+            def succ(self):
+                nonlocal calls
+                calls += 1
+                return super().succ
 
     graph = Subclass()
     graph.add_edge("left", "right", weight=7)
+    calls = 0
     assert graph.edges["left", "right"] == {"weight": 7}
     if cls_name == "DiGraph":
-        assert graph.edges._fnx_native_get_edge_data is None
+        assert calls >= 1
 
 
 @pytest.mark.parametrize(
@@ -1622,33 +1629,26 @@ def test_multidigraph_public_adjacency_descriptors_are_cached_and_live():
 def test_multiedge_keyed_getitem_uses_one_native_lookup(
     cls_name, native_attr, monkeypatch
 ):
-    """br-r37-c1-8l96z: successful scalar lookup bypasses four view layers."""
+    """br-r37-c1-8l96z / br-r37-c1-bc7r4: successful scalar lookup uses the
+    C-slot wrapper_descriptor directly, bypassing Python view layers."""
     gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
     for graph in (gnx, gfx):
         graph.add_edge("left", "right", key=0, weight=7)
 
     fnx_edges = gfx.edges
-    native = fnx_edges._fnx_native_get_edge_data
-    raw_descriptor = getattr(fnx, native_attr)
-    assert native is not None
-    assert native.__self__ is gfx
-    assert native == raw_descriptor.__get__(gfx, type(gfx))
+    assert type(type(fnx_edges).__getitem__).__name__ == "wrapper_descriptor"
 
-    calls = 0
+    def forbid_adj(_self):
+        raise AssertionError("native C-slot lookup must not traverse .adj/.succ")
 
-    def counted_native(*args):
-        nonlocal calls
-        calls += 1
-        return native(*args)
+    monkeypatch.setattr(type(gfx), "adj", property(forbid_adj))
+    if cls_name == "MultiDiGraph":
+        monkeypatch.setattr(type(gfx), "succ", property(forbid_adj))
 
-    monkeypatch.setattr(
-        fnx_edges, "_fnx_native_get_edge_data", counted_native
-    )
     for _ in range(64):
         attrs = fnx_edges["left", "right", 0]
         assert attrs == gnx.edges["left", "right", 0]
         assert attrs is fnx_edges["left", "right", 0]
-    assert calls == 128
 
     attrs["live"] = True
     assert gfx.get_edge_data("left", "right", 0)["live"]
@@ -1714,14 +1714,27 @@ def test_held_multiedge_view_matches_networkx_after_private_assignment():
 @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
 def test_multiedge_subclasses_keep_generic_keyed_lookup(cls_name):
     base = getattr(fnx, cls_name)
+    calls = 0
 
     class Subclass(base):
-        pass
+        if cls_name == "MultiDiGraph":
+            @property
+            def succ(self):
+                nonlocal calls
+                calls += 1
+                return super().succ
+        else:
+            @property
+            def adj(self):
+                nonlocal calls
+                calls += 1
+                return super().adj
 
     graph = Subclass()
     graph.add_edge("left", "right", key=0, weight=7)
-    assert graph.edges._fnx_native_get_edge_data is None
+    calls = 0
     assert graph.edges["left", "right", 0] == {"weight": 7}
+    assert calls >= 1
 
 
 @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])

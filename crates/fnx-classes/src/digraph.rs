@@ -3154,6 +3154,12 @@ impl MultiDiGraph {
             .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
     }
 
+    /// br-r37-c1-pvl3v: see `Graph::node_names_are_positions`.
+    #[must_use]
+    pub fn node_names_are_positions(&self) -> bool {
+        self.nodes.order.names_are_positions()
+    }
+
     #[must_use]
     pub fn successors(&self, node: &str) -> Option<Vec<&str>> {
         self.successors
