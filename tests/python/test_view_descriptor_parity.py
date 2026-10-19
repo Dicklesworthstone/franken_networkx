@@ -1246,10 +1246,25 @@ def test_private_storage_install_preserves_user_has_edge_method():
 
 
 def test_private_override_state_is_never_memoised():
-    graph = _build(fnx, "Graph")
-    graph._node = {"z9": {}}
-    assert sorted(graph.nodes) == ["z9"]
-    assert "nodes" not in vars(graph)
+    """br-r37-c1-2nrff: private-storage accessors match NetworkX's cached_property
+    and _CachedPropertyResetter* cycle (evicted on _node/_adj assignment, memoized
+    on access, and re-evicted on subsequent reassignment)."""
+    gnx, gfx = _pair("Graph")
+    _ = gnx.nodes, gfx.nodes
+    assert ("nodes" in vars(gfx)) == ("nodes" in vars(gnx)) is True
+
+    gnx._node = {"z9": {}}
+    gfx._node = {"z9": {}}
+    assert ("nodes" in vars(gfx)) == ("nodes" in vars(gnx)) is False
+    assert sorted(gfx.nodes) == sorted(gnx.nodes) == ["z9"]
+    assert ("nodes" in vars(gfx)) == ("nodes" in vars(gnx)) is True
+    assert (gfx.nodes is gfx.nodes) == (gnx.nodes is gnx.nodes) is True
+
+    gnx._node = {"a1": {}}
+    gfx._node = {"a1": {}}
+    assert ("nodes" in vars(gfx)) == ("nodes" in vars(gnx)) is False
+    assert sorted(gfx.nodes) == sorted(gnx.nodes) == ["a1"]
+
 
 
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)

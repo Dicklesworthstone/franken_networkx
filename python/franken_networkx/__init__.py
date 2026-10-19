@@ -54411,8 +54411,10 @@ def _set_private_override(self, attr_name, value):
     _drop.pop("_fnx_view_out_degree", None)
     _drop.pop("_fnx_view_in_degree", None)
     _drop.pop("_fnx_view_degree", None)
-    # br-r37-c1-degprop: the assigned twin of the line above.
+    # br-r37-c1-degprop / br-r37-c1-2nrff: drop assigned view caches on override reset.
     _drop.pop("_fnx_view_degree_assigned", None)
+    _drop.pop("_fnx_view_nodes_assigned", None)
+    _drop.pop("_fnx_view_edges_assigned", None)
     # br-r37-c1-2r06n: and the G[node] row cache, so a row cached BEFORE this
     # assignment cannot be served after it. The multigraph `__getitem__` paths
     # consult private storage only on a cache MISS, which is what keeps the warm
@@ -54449,95 +54451,40 @@ def _discard_public_views_for_private_adj_reset(self):
 
 
 class _CachedViewDescriptor:
-    """br-r37-c1-wbwkb (cc): nx's ``@cached_property`` mechanism for fnx's
-    private-override-aware accessors.
+    """br-r37-c1-wbwkb / br-r37-c1-2nrff: nx's ``@cached_property`` mechanism
+    for fnx's private-override-aware accessors.
 
-    networkx installs ``nodes`` / ``edges`` / ``degree`` as ``@cached_property``
-    — a NON-data descriptor — so after the first access the view lives in the
-    instance ``__dict__`` and every later ``G.nodes`` is a C-level dict hit with
-    no Python frame at all. fnx installed the same accessors as ``property``, a
-    DATA descriptor, which always wins over the instance dict; its Python body
-    (a ``vars(self)`` snapshot, an override probe, and a cache ``get``) therefore
-    re-ran on EVERY access. Measured on the bare accessor, 2026-07-25:
-    ``G.nodes`` 163.5ns vs nx 31.6ns (0.133x), ``G.degree`` 0.110x, ``G.edges``
-    ~575ns vs ~20ns (0.035x). This restores nx's own mechanism: build once,
-    then get out of the way.
-
-    The returned object is unchanged — ``_build`` is the previous property body,
-    which already memoised its wrapper in ``_fnx_view_*`` so ``g.nodes is
-    g.nodes`` held. Two contracts are preserved explicitly:
-
-    * a graph carrying networkx private storage (``_node`` / ``_adj`` / ``_succ``
-      / ``_pred`` assigned) is never memoised under the public name, so the
-      assigned-view dispatch keeps running per access exactly as before;
-    * ``_set_private_override`` drops the memoised entry before an override
-      lands, so a later access re-selects the assigned view.
-
-    Assignment (``G.nodes = x``) now writes the instance dict instead of raising
-    ``AttributeError`` — that matches networkx, whose ``cached_property`` is
-    likewise assignable, and removes a pre-existing parity divergence.
+    networkx installs ``nodes`` / ``edges`` / ``degree`` / ``adj`` / ``succ`` /
+    ``pred`` / ``in_edges`` / ``out_edges`` / ``in_degree`` / ``out_degree`` as
+    ``@cached_property`` — a NON-data descriptor — so after the first access the
+    view lives in the instance ``__dict__`` and every later access is a C-level
+    dict hit with no Python frame at all, for both ordinary and private-storage
+    graphs. ``_set_private_override`` and ``_set_private_overrides`` drop all
+    entries recorded in ``_DESCRIPTOR_CACHED_VIEWS`` whenever ``_node`` /
+    ``_adj`` / ``_succ`` / ``_pred`` is assigned or reassigned, matching
+    networkx's ``_CachedPropertyResetter*`` descriptors.
     """
-
-    # No ``__slots__``: one descriptor instance exists per (class, attribute), so
-    # the dict costs nothing measurable, and it lets ``__doc__`` carry the
-    # builder's docstring the way ``property``/``cached_property`` do.
 
     def __init__(self, build, name, assigned_key=None):
         self._build = build
         self._name = name
-        # br-r37-c1-descwarm: the instance-dict key the BUILDER memoises its
-        # assigned-storage view under, for the accessors that have one
-        # (`nodes`/`edges`/`degree`). None for every other accessor, which keeps
-        # their behaviour bit-identical.
         self._assigned_key = assigned_key
         self.__doc__ = getattr(build, "__doc__", None)
 
     def __get__(self, obj, objtype=None):
         if obj is None:
             return self
-        # br-r37-c1-descwarm: a graph carrying private storage is never memoised
-        # under the public name -- that is the contract
-        # `test_private_override_state_is_never_memoised` guards, and it is NOT
-        # relaxed here. What it cost was THREE Python frames on every access
-        # (`__get__` -> the builder closure -> `_has_networkx_private_storage`)
-        # where an ordinary graph pays none: measured 256 accesses of assigned
-        # `G.degree` at `60.29us` against networkx's `5.09us`, of which the
-        # predicate call alone was `13.87us`.
-        #
-        # So collapse the WARM assigned lookup into this one frame: inline the
-        # predicate's four membership tests and read the builder's own cache key
-        # directly. On a miss it falls straight through to the builder, so the
-        # answer is whatever the builder would have returned -- this reorders no
-        # decision and caches nothing new. `nodes` gates on the NODE override
-        # alone while `edges`/`degree` gate on all four, and that difference is
-        # preserved for free: a graph whose only override is `_adj` has never
-        # populated `_fnx_view_nodes_assigned`, so the `get` misses and the
-        # builder decides, exactly as before.
-        assigned_key = self._assigned_key
-        if assigned_key is not None:
-            storage = vars(obj)
-            if (
-                _PRIVATE_NODE_OVERRIDE in storage
-                or _PRIVATE_ADJ_OVERRIDE in storage
-                or _PRIVATE_SUCC_OVERRIDE in storage
-                or _PRIVATE_PRED_OVERRIDE in storage
-            ):
-                view = storage.get(assigned_key)
-                if view is not None:
-                    return view
-                return self._build(obj)
         view = self._build(obj)
-        if not _has_networkx_private_storage(obj):
-            storage = vars(obj)
-            register_gc_dict = getattr(obj, "_fnx_register_gc_dict", None)
-            if register_gc_dict is not None:
-                register_gc_dict(storage)
-            storage[self._name] = view
-            cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
-            if cached is None:
-                storage[_DESCRIPTOR_CACHED_VIEWS] = {self._name}
-            else:
-                cached.add(self._name)
+        storage = vars(obj)
+        register_gc_dict = getattr(obj, "_fnx_register_gc_dict", None)
+        if register_gc_dict is not None:
+            register_gc_dict(storage)
+        storage[self._name] = view
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+        if cached is None:
+            storage[_DESCRIPTOR_CACHED_VIEWS] = {self._name}
+        else:
+            cached.add(self._name)
         return view
 
 
@@ -54593,6 +54540,8 @@ def _set_private_overrides(self, pairs):
     storage.pop("_fnx_view_in_degree", None)
     storage.pop("_fnx_view_degree", None)
     storage.pop("_fnx_view_degree_assigned", None)
+    storage.pop("_fnx_view_nodes_assigned", None)
+    storage.pop("_fnx_view_edges_assigned", None)
     storage.pop("_fnx_getitem_atlas_cache", None)
     _install_private_method_shadows(self, storage)
 
