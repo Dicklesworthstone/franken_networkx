@@ -80,25 +80,27 @@ import pytest
 
 import franken_networkx as fnx
 
-CONTAMINATING = {
+CONTAMINATING_WRITES = {
+    "getitem_edge": lambda g: g["n0"]["n1"].__setitem__("w", 99),
+    "adj_edge": lambda g: g.adj["n0"]["n1"].__setitem__("w", 99),
+    "get_edge_data": lambda g: g.get_edge_data("n0", "n1").__setitem__("w", 99),
+    "edges_subscript": lambda g: g.edges[("n0", "n1")].__setitem__("w", 99),
+    "edges_data_true": lambda g: list(g.edges(data=True))[0][2].__setitem__("w", 99),
+    "row_items": lambda g: list(g["n0"].items())[0][1].__setitem__("w", 99),
+}
+
+SAFE = {
+    # br-r37-c1-9iii7: all six dict-returning reads moved from CONTAMINATING to
+    # SAFE now that every edge attr dict is a watched _EdgeAttrDict and reading
+    # edge data no longer marks edges_dirty on handout.
     "getitem_edge": lambda g: g["n0"]["n1"],
     "adj_edge": lambda g: g.adj["n0"]["n1"],
     "get_edge_data": lambda g: g.get_edge_data("n0", "n1"),
     "edges_subscript": lambda g: g.edges[("n0", "n1")],
     "edges_data_true": lambda g: list(g.edges(data=True)),
     "row_items": lambda g: list(g["n0"].items()),
-}
-
-SAFE = {
     # br-r37-c1-3rtyk: MOVED HERE FROM ``CONTAMINATING`` when the fix was built
-    # (2026-08-18). `native_adjacency_row_dict` was split so the row builder no
-    # longer marks the store dirty; the mark moved to the pymethod that actually
-    # hands the dict to Python, which `neighbors` never calls. This file said the
-    # two cases would fail the moment that Rust compiled, and they did - that
-    # failure was the intended signal and this is the follow-through it asked
-    # for. Verified against the built extension: both spellings now leave the
-    # weighted-store fast path live, while `G[u][v]` and `edges(data=True)`
-    # still contaminate, so the gate moved for these two only.
+    # (2026-08-18).
     "neighbors": lambda g: list(g.neighbors("n0")),
     "neighbors_uniterated": lambda g: g.neighbors("n0"),
     "edges": lambda g: list(g.edges()),
@@ -145,53 +147,46 @@ def test_probing_does_not_itself_contaminate():
 
 @pytest.mark.parametrize("label", sorted(SAFE))
 def test_safe_reads_keep_the_fast_path(label):
-    """The actionable half: these are what callers should prefer today."""
+    """Pure reads — including dict-returning edge reads (br-r37-c1-9iii7) — keep the store clean."""
     g = _graph()
     assert _store_fast_path_live(g)
     SAFE[label](g)
     assert _store_fast_path_live(g), (
         f"{label} has STARTED contaminating the weighted store. That is a "
-        "regression: it is on the safe list, and callers are told to prefer it."
+        "regression: pure reads must not mark edges_dirty."
     )
 
 
-@pytest.mark.parametrize("label", sorted(CONTAMINATING))
-def test_contaminating_reads_are_still_the_known_set(label):
-    """Pins the DEFECT (br-r37-c1-igdzi), so a fix has an exact baseline.
-
-    When the write barrier lands these assertions must be inverted deliberately,
-    one line at a time - which is the point. A silent flip in either direction is
-    a change in a documented, measured 6.0x behaviour.
-    """
+@pytest.mark.parametrize("label", sorted(CONTAMINATING_WRITES))
+def test_writes_through_escaped_dicts_mark_dirty_until_synced(label):
+    """br-r37-c1-9iii7: actual mutations through escaped dicts flip the write barrier."""
     g = _graph()
     assert _store_fast_path_live(g)
-    CONTAMINATING[label](g)
+    CONTAMINATING_WRITES[label](g)
     assert not _store_fast_path_live(g), (
-        f"{label} no longer contaminates - if the write barrier landed, invert "
-        "this case and update br-r37-c1-igdzi and the ledger row"
+        f"writing through {label} failed to mark the weighted store dirty"
+    )
+    g._fnx_sync_edge_attrs_to_inner()
+    assert _store_fast_path_live(g), (
+        f"syncing after {label} should clear edges_dirty for lossless attrs"
     )
 
 
-def test_contamination_is_permanent():
-    """Nothing recovers it, which is what makes the defect expensive."""
+def test_pure_read_then_structural_edits_keep_fast_path():
+    """br-r37-c1-9iii7: reading edges(data=True) no longer permanently poisons the graph."""
     g = _graph()
-    # br-r37-c1-3rtyk: contaminate via edges(data=True), NOT neighbors. The
-    # neighbors half is fixed-but-unbuilt, so using it here would make this test
-    # fail after the rebuild for a reason that has nothing to do with permanence.
     list(g.edges(data=True))
-    assert not _store_fast_path_live(g)
+    assert _store_fast_path_live(g)
     g.add_edge("fresh_a", "fresh_b", w=1)
-    assert not _store_fast_path_live(g)
+    assert _store_fast_path_live(g)
     g.remove_edge("fresh_a", "fresh_b")
-    assert not _store_fast_path_live(g)
+    assert _store_fast_path_live(g)
     g.add_node("lonely")
-    assert not _store_fast_path_live(g)
-    # a brand new graph is the control: the defect is per-graph, not global
-    assert _store_fast_path_live(_graph())
+    assert _store_fast_path_live(g)
 
 
 def test_the_weighted_answers_stay_correct_either_way():
-    """The defect is PERFORMANCE only - parity must hold on both paths."""
+    """Parity holds across clean reads, dirty writes, and post-sync recovery."""
     import networkx as nx
 
     clean, reference = _graph(), nx.Graph()
@@ -200,10 +195,19 @@ def test_the_weighted_answers_stay_correct_either_way():
 
     before_size = clean.size(weight="w")
     before_degree = dict((str(k), v) for k, v in clean.degree(weight="w"))
-    list(clean.edges(data=True))  # contaminate (see br-r37-c1-3rtyk note above)
-    assert not _store_fast_path_live(clean)
+    list(clean.edges(data=True))
+    assert _store_fast_path_live(clean)
 
     assert clean.size(weight="w") == before_size == reference.size(weight="w")
     after_degree = dict((str(k), v) for k, v in clean.degree(weight="w"))
     assert after_degree == before_degree
     assert after_degree == dict((str(k), v) for k, v in reference.degree(weight="w"))
+
+    clean["n0"]["n1"]["w"] = 777
+    reference["n0"]["n1"]["w"] = 777
+    assert not _store_fast_path_live(clean)
+    assert clean.size(weight="w") == reference.size(weight="w")
+    assert dict((str(k), v) for k, v in clean.degree(weight="w")) == dict(
+        (str(k), v) for k, v in reference.degree(weight="w")
+    )
+

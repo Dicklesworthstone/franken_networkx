@@ -101,3 +101,77 @@ def test_missing_sync_is_detected(monkeypatch):
     stale = fnx.average_shortest_path_length(G, weight="weight")
     assert stale == pytest.approx(unweighted)
     assert stale != pytest.approx(ref)
+
+
+@pytest.mark.parametrize(
+    "cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+)
+def test_read_then_mutate_held_edge_dict_syncs_across_copy_relabel_and_dijkstra(
+    cls_name,
+):
+    """br-r37-c1-9iii7: reading edges(data=True) keeps stores clean; mutating a
+    held dict afterwards is still visible to dijkstra, copy, and relabel_nodes,
+    including a second mutation after an intermediate sync clears edges_dirty.
+    """
+    import copy
+
+    fnx_cls = getattr(fnx, cls_name)
+    nx_cls = getattr(nx, cls_name)
+    is_multi = "Multi" in cls_name
+
+    G = fnx_cls([("s", "m", {"weight": 10}), ("m", "t", {"weight": 10}), ("s", "t", {"weight": 5})])
+    R = nx_cls([("s", "m", {"weight": 10}), ("m", "t", {"weight": 10}), ("s", "t", {"weight": 5})])
+
+    # Pure read of all edge data dicts must preserve parity on copy, relabel, and dijkstra.
+    fnx_edges = list(G.edges(keys=True, data=True)) if is_multi else list(G.edges(data=True))
+    nx_edges = list(R.edges(keys=True, data=True)) if is_multi else list(R.edges(data=True))
+    assert len(fnx_edges) == len(nx_edges) == G.number_of_edges() == 3
+
+    assert fnx.dijkstra_path(G, "s", "t") == nx.dijkstra_path(R, "s", "t") == ["s", "t"]
+    assert fnx.single_source_dijkstra(G, "s") == nx.single_source_dijkstra(R, "s")
+
+    mapping = {"s": "S", "m": "M", "t": "T"}
+    G_copy = G.copy()
+    G_relabeled = fnx.relabel_nodes(G, mapping, copy=True)
+    R_relabeled = nx.relabel_nodes(R, mapping, copy=True)
+    assert fnx.dijkstra_path(G_copy, "s", "t") == ["s", "t"]
+    assert fnx.dijkstra_path(G_relabeled, "S", "T") == nx.dijkstra_path(R_relabeled, "S", "T")
+
+    # Mutate the ALREADY-HELD edge dicts from the earlier edges(data=True) read
+    # without calling G[u][v] again: s->m->t becomes cheaper (1+1=2 < 5).
+    for row in fnx_edges:
+        u, v, d = (row[0], row[1], row[3]) if is_multi else (row[0], row[1], row[2])
+        if {u, v} != {"s", "t"}:
+            d["weight"] = 1
+    for row in nx_edges:
+        u, v, d = (row[0], row[1], row[3]) if is_multi else (row[0], row[1], row[2])
+        if {u, v} != {"s", "t"}:
+            d["weight"] = 1
+
+    assert fnx.dijkstra_path(G, "s", "t") == nx.dijkstra_path(R, "s", "t") == ["s", "m", "t"]
+    assert fnx.single_source_dijkstra(G, "s") == nx.single_source_dijkstra(R, "s")
+    assert fnx.dijkstra_path(G.copy(), "s", "t") == ["s", "m", "t"]
+    assert fnx.dijkstra_path(copy.copy(G), "s", "t") == ["s", "m", "t"]
+    assert fnx.dijkstra_path(fnx.relabel_nodes(G, mapping, copy=True), "S", "T") == [
+        "S",
+        "M",
+        "T",
+    ]
+
+    # Second mutation on the same held dict AFTER the sync above cleared edges_dirty:
+    for row in fnx_edges:
+        u, v, d = (row[0], row[1], row[3]) if is_multi else (row[0], row[1], row[2])
+        if {u, v} == {"s", "t"}:
+            d["weight"] = 1
+        else:
+            d["weight"] = 10
+    for row in nx_edges:
+        u, v, d = (row[0], row[1], row[3]) if is_multi else (row[0], row[1], row[2])
+        if {u, v} == {"s", "t"}:
+            d["weight"] = 1
+        else:
+            d["weight"] = 10
+
+    assert fnx.dijkstra_path(G, "s", "t") == nx.dijkstra_path(R, "s", "t") == ["s", "t"]
+    assert fnx.single_source_dijkstra(G, "s") == nx.single_source_dijkstra(R, "s")
+

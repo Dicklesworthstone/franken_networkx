@@ -2240,8 +2240,6 @@ pub fn edges_nbunch_data(
                 attrs
             }
         };
-        // br-r37-c1-igdzi: the dict escapes, so name the edge as G[u][v] does.
-        pg_guard.mark_edge_exposed(u_idx, v_idx);
         row.2 = attrs.into_any();
     }
     Ok(Some(result))

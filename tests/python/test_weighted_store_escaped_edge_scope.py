@@ -190,20 +190,13 @@ def test_a_write_through_a_row_escaped_dict_is_visible():
 
 
 def test_the_single_edge_read_no_longer_disables_the_size_scalar():
-    """The behaviour change itself, stated once, on the kernel that carries it.
+    """The behaviour change itself, stated once, on the kernels that carry it.
 
-    `_weighted_size_fast` is the store scalar behind `size(weight)`. Before this
-    change one edge subscript returned it to None for the life of the graph and
-    `size(weight)` fell to the exact Python formula; now it corrects that one
-    edge and keeps the scalar.
-
-    THE DEGREE KERNEL IS DELIBERATELY NOT INCLUDED. A scope-aware version of
-    `_native_weighted_degree_int_values` was built and measured SLOWER than the
-    fallback it replaced (2468us clean -> 3058us with the per-edge probe, against
-    a 2189us fallback), so it kept its plain gate — which is why the assertion
-    below is that it still refuses. That is a real limit of this fix, not an
-    oversight, and a later change that makes it pay should flip this line
-    deliberately.
+    `_weighted_size_fast` is the store scalar behind `size(weight)`. With
+    br-r37-c1-9iii7, every edge attr dict is a watched `_EdgeAttrDict`, so
+    pure reads (`narrow["n0"]["n1"]`, `list(bulk.edges(data=True))`) leave BOTH
+    `_weighted_size_fast` and `_native_weighted_degree_int_values` live until an
+    actual write occurs.
     """
     narrow = _pair()[0]
     bulk, bulk_ref = _pair()
@@ -212,15 +205,25 @@ def test_the_single_edge_read_no_longer_disables_the_size_scalar():
     assert narrow._weighted_size_fast("w") is not None, (
         "a single-edge escape must leave the size scalar answering"
     )
+    assert narrow._native_weighted_degree_int_values("w") is not None, (
+        "br-r37-c1-9iii7: a pure single-edge read keeps the degree kernel live"
+    )
+
+    narrow["n0"]["n1"]["w"] = 999
+    assert narrow._weighted_size_fast("w") is not None, (
+        "a single-edge write still uses the live-dict-aware size scalar"
+    )
     assert narrow._native_weighted_degree_int_values("w") is None, (
-        "the degree kernel is measured-slower with the scope probe and keeps "
-        "its plain gate"
+        "an actual write through an escaped dict marks the degree kernel dirty until synced"
     )
 
     bulk_items = list(bulk.edges(data=True))
     bulk_ref_items = list(bulk_ref.edges(data=True))
     assert bulk._weighted_size_fast("w") is not None, (
         "a bulk edge-data read must retain the exact live-dict weighted scalar"
+    )
+    assert bulk._native_weighted_degree_int_values("w") is not None, (
+        "br-r37-c1-9iii7: a pure bulk edge-data read keeps the degree kernel live"
     )
 
     # Planted negative: this is the state change the old global dirty bit could
@@ -231,3 +234,4 @@ def test_the_single_edge_read_no_longer_disables_the_size_scalar():
     expected = bulk_ref.size(weight="w")
     assert bulk._weighted_size_fast("w") == expected
     assert bulk.size(weight="w") == expected
+

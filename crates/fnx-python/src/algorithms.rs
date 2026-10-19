@@ -5333,10 +5333,15 @@ pub fn dijkstra_weight_cache_token(
                 dg.edge_attr_writes.rewrites(),
             )))
         }
-        // PyMultiGraph has no refresh_edges_dirty or rewrite counter, so a write
-        // through a held attr dict would come back to the same key after a sync
-        // and a cached weight verdict would outlive it. No token: callers scan.
-        GraphRef::MultiUndirected { .. } => Ok(None),
+        GraphRef::MultiUndirected { mg, .. } => {
+            mg.refresh_edges_dirty(py);
+            Ok(Some((
+                mg.nodes_seq,
+                mg.edges_seq,
+                mg.edges_dirty.load(Ordering::Relaxed),
+                mg.edge_attr_writes.rewrites(),
+            )))
+        }
         GraphRef::MultiDirected { mdg, .. } => {
             mdg.refresh_edges_dirty(py);
             Ok(Some((

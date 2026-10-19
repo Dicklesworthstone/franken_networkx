@@ -783,32 +783,6 @@ fn edge_alldata_items(
     Ok(items)
 }
 
-/// Record every live edge-attribute dictionary an all-data edge view can hand
-/// out. Bulk `edges(data=True)` used to call `mark_edges_dirty`, which widened
-/// the escape scope to unknown and permanently disabled the weighted-store
-/// scalar even when the graph was only read. The store already supports a named
-/// escape scope: it keeps its native value for clean edges and consults the live
-/// Python dictionary for each named edge. Recording this exact set is therefore
-/// sound even if the caller mutates any returned raw `dict` later.
-///
-/// The filtered spelling must record only dictionaries it actually returns. An
-/// empty `nbunch` consequently leaves the store clean, matching its having
-/// exposed no mutable state at all.
-fn mark_alldata_edges_exposed(
-    g: &PyGraph,
-    node_filter: Option<&std::collections::HashSet<String>>,
-) {
-    let nodes = node_filter.map(|_| g.inner.nodes_ordered());
-    for (u, v) in g.inner.edges_ordered_indices() {
-        if let (Some(filter), Some(nodes)) = (node_filter, nodes.as_ref())
-            && !(filter.contains(nodes[u]) || filter.contains(nodes[v]))
-        {
-            continue;
-        }
-        g.mark_edge_exposed(u, v);
-    }
-}
-
 /// A view of the graph's edges. Supports ``len``, ``in``, iteration, and ``[]``.
 #[pyclass(module = "franken_networkx")]
 pub struct EdgeView {
@@ -1163,7 +1137,6 @@ impl EdgeView {
         }
         if matches!(self.data, NodeViewData::AllData) {
             let mut g = self.graph.borrow_mut(py);
-            mark_alldata_edges_exposed(&g, None);
             let nodes_seq = g.nodes_seq;
             let edges_seq = g.edges_seq;
             let cached = match &g.edges_alldata_cache {
@@ -1410,10 +1383,6 @@ impl EdgeView {
                 && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, ui, vi)
             {
                 crate::require_hashable_node_key(&v_item)?;
-                // br-r37-c1-igdzi: `G.edges[u, v]` escapes ONE edge's dict and
-                // both positions are already in hand, so record the edge rather
-                // than the whole graph.
-                g.mark_edge_exposed(ui, vi);
                 return Ok(attrs);
             }
         }
@@ -1439,8 +1408,6 @@ impl EdgeView {
         // here, or by `has_node(u)` on the miss path below.
         if let Some(attrs) = g.cached_edge_py_attrs(py, u, v) {
             crate::require_hashable_node_key(&v_item)?;
-            // br-r37-c1-igdzi: same single edge, reached by name.
-            g.mark_edge_exposed_by_name(u, v);
             return Ok(attrs);
         }
         if !g.inner.has_node(u) {
@@ -1450,8 +1417,6 @@ impl EdgeView {
         if !g.inner.has_edge(u, v) {
             return Err(missing_edge_key_error(edge));
         }
-        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
-        g.mark_edge_exposed_by_name(u, v);
         let attrs = g.materialize_edge_py_attrs(py, u, v);
         // br-r37-c1-ptiz2: fill the index lookaside on the miss path, with the
         // SAME dict the string-keyed mirror just recorded, so the two can never
@@ -1505,7 +1470,6 @@ impl EdgeView {
                 // br-r37-c1-2zudj: one-pass field-split materialization with the
                 // nbunch node filter (see edge_alldata_items).
                 let mut g = self.graph.borrow_mut(py);
-                mark_alldata_edges_exposed(&g, Some(&node_set));
                 edge_alldata_items(py, &mut g, Some(&node_set))?
             } else {
                 let g = self.graph.borrow(py);
@@ -2208,9 +2172,6 @@ impl AtlasView {
             .into_iter()
             .map(str::to_owned)
             .collect();
-        if !neighbors.is_empty() {
-            graph.mark_edges_dirty();
-        }
         for neighbor in neighbors {
             let py_neighbor = graph.py_adj_key(py, &self.node, &neighbor);
             let attrs = graph.materialize_edge_py_attrs(py, &self.node, &neighbor);
@@ -2228,9 +2189,9 @@ impl AtlasView {
     /// Graph path below it in `__getitem__` and as the directed single-edge
     /// accessor `_fnx_edge_attr_dict_fast`, oriented by the row's side. A
     /// successor row of `u` reads edge `(u, v)`; a predecessor row reads
-    /// `(v, u)`. The dict returned is the one the graph stores, so a write
-    /// through it is a live edge-attribute write, and the edge store is
-    /// marked dirty as that accessor marks it.
+    /// `(v, u)`. The dict returned is a watched `_EdgeAttrDict` (`br-r37-c1-9iii7`),
+    /// so writes through it notify `edge_attr_writes` while pure reads leave
+    /// the edge store clean.
     fn directed_getitem(
         &mut self,
         py: Python<'_>,
@@ -2257,7 +2218,6 @@ impl AtlasView {
         if let Some((source, target)) = pair
             && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, source, target)
         {
-            g.mark_edges_dirty();
             return Ok(attrs);
         }
         let mut v_buf = ArrayString::new();
@@ -2270,7 +2230,6 @@ impl AtlasView {
         if !g.inner.has_edge(source, target) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
-        g.mark_edges_dirty();
         let attrs = g.materialize_edge_py_attrs(py, source, target);
         if let Some((source, target)) = pair {
             g.remember_edge_py_attrs_by_index(py, source, target, &attrs);
@@ -2361,10 +2320,6 @@ impl AtlasView {
             let Some(attrs) = row.bind(py).get_item(v)? else {
                 return Err(PyKeyError::new_err((v.clone().unbind(),)));
             };
-            match self.owner()? {
-                RowGraph::Undirected(graph) => graph.borrow(py).mark_edges_dirty(),
-                RowGraph::Directed { graph, .. } => graph.borrow(py).mark_edges_dirty(),
-            }
             return Ok(attrs.downcast::<PyDict>()?.clone().unbind());
         }
         if let RowGraph::Directed { graph, pred } = self.owner()? {
@@ -2395,30 +2350,17 @@ impl AtlasView {
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
-            // br-r37-c1-igdzi: ONE edge escaped, and this path already knows
-            // both of its positions — so name it instead of condemning the whole
-            // graph. This is the row subscript `G[u][v]`, which measured as
-            // destructive as a full `edges(data=True)`: 6.12x to 0.73x.
-            g.mark_edge_exposed(u_index, v_index);
             return Ok(attrs);
         }
         let mut v_buf = ArrayString::new();
         let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
         let v_canon = v_key.as_str();
         if let Some(attrs) = g.cached_edge_py_attrs(py, &self.node, v_canon) {
-            // br-r37-c1-igdzi: same single edge, reached by name.
-            g.mark_edge_exposed_by_name(&self.node, v_canon);
             return Ok(attrs);
         }
         if !g.inner.has_edge(&self.node, v_canon) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
-        // The returned dict is the SAME shared Py<PyDict> the graph stores, so
-        // `G[u][v]['w'] = x` mutates the live edge attrs — flag the edge store
-        // dirty so a later native read reconciles it (matches the old eager
-        // `G[u]`, which marked dirty unconditionally).
-        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
-        g.mark_edge_exposed_by_name(&self.node, v_canon);
         let attrs = g.materialize_edge_py_attrs(py, &self.node, v_canon);
         // br-r37-c1-ptiz2: fill the index lookaside with the SAME dict the
         // string-keyed mirror just returned, so the two can never disagree
