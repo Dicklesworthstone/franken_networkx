@@ -454,12 +454,14 @@ def test_multigraph_has_edge_string_index_cache_does_not_alias_copies():
     graph.add_edge("left", "right")
     assert graph.has_edge("left", "right")  # warm the native-index cache
 
+    shallow = copy.copy(graph)
     copies = (
-        copy.copy(graph),
+        graph.copy(),
         copy.deepcopy(graph),
         pickle.loads(pickle.dumps(graph)),  # nosec B301  # ubs:ignore - trusted round trip
     )
     graph.remove_edge("left", "right")
+    assert not shallow.has_edge("left", "right")
     for other in copies:
         assert other.has_edge("left", "right")
         other.remove_node("left")

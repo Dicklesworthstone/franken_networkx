@@ -6480,6 +6480,8 @@ impl PyGraph {
             list.len()
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             tuple.len()
+        } else if let Ok(set) = ebunch_to_add.downcast::<PySet>() {
+            set.len()
         } else {
             0
         };
@@ -6494,6 +6496,8 @@ impl PyGraph {
             self.collect_existing_exact_int_edge_indices(list.iter(), list.len())?
         } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
             self.collect_existing_exact_int_edge_indices(tuple.iter(), tuple.len())?
+        } else if let Ok(set) = ebunch_to_add.downcast::<PySet>() {
+            self.collect_existing_exact_int_edge_indices(set.iter(), set.len())?
         } else {
             return Ok(false);
         };
@@ -6638,6 +6642,13 @@ impl PyGraph {
             && tuple.len() >= PLAIN_EDGE_BATCH_MIN
             && let Some((edges, new_nodes, node_bumps)) =
                 self.collect_plain_edge_batch(py, tuple.iter(), tuple.len())?
+        {
+            self.add_plain_edge_batch(py, edges, new_nodes, node_bumps)?;
+            return Ok(true);
+        } else if let Ok(set) = ebunch_to_add.downcast::<PySet>()
+            && set.len() >= PLAIN_EDGE_BATCH_MIN
+            && let Some((edges, new_nodes, node_bumps)) =
+                self.collect_plain_edge_batch(py, set.iter(), set.len())?
         {
             self.add_plain_edge_batch(py, edges, new_nodes, node_bumps)?;
             return Ok(true);
@@ -17940,12 +17951,21 @@ impl PyGraph {
         let mut canonicals = Vec::with_capacity(count);
         self.lazy_int_node_stop = self.lazy_int_node_stop.max(stop);
         for node in 0..stop {
-            let canonical = node.to_string();
-            canonicals.push(canonical);
-            self.bump_nodes_seq();
+            canonicals.push(node.to_string());
         }
-        for canonical in &canonicals {
-            self.node_iter_mirror_insert(py, canonical)?;
+        self.bump_nodes_seq();
+        if count > 1 {
+            self.nodes_seq = self.nodes_seq.wrapping_add((count - 1) as u64);
+        }
+        if self
+            .node_iter_mirror
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
+        {
+            for canonical in &canonicals {
+                self.node_iter_mirror_insert(py, canonical)?;
+            }
         }
         let _ = self.inner.extend_nodes_unrecorded(canonicals);
         Ok(())
@@ -18028,7 +18048,27 @@ impl PyGraph {
             }
             ints.push(item.extract::<i64>()?);
         }
-        let mut fresh_canonicals = Vec::with_capacity(ints.len());
+        if ints.is_empty() {
+            return Ok(());
+        }
+        if self.inner.node_count() == 0
+            && self.lazy_int_node_stop == 0
+            && self.node_key_map.is_empty()
+            && let Ok(stop) = i64::try_from(ints.len())
+            && ints
+                .iter()
+                .enumerate()
+                .all(|(idx, &val)| i64::try_from(idx).ok() == Some(val))
+        {
+            return self._fast_add_int_nodes_range_stop(py, stop);
+        }
+        let mirror_live = self
+            .node_iter_mirror
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some();
+        let count = ints.len();
+        let mut fresh_canonicals = Vec::with_capacity(count);
         for node in ints {
             let canonical = node.to_string();
             let was_absent =
@@ -18041,10 +18081,15 @@ impl PyGraph {
                         .unbind()
                 });
             if was_absent {
-                self.node_iter_mirror_insert(py, &canonical)?;
+                if mirror_live {
+                    self.node_iter_mirror_insert(py, &canonical)?;
+                }
                 fresh_canonicals.push(canonical);
             }
-            self.bump_nodes_seq();
+        }
+        self.bump_nodes_seq();
+        if count > 1 {
+            self.nodes_seq = self.nodes_seq.wrapping_add((count - 1) as u64);
         }
         let _ = self.inner.extend_nodes_unrecorded(fresh_canonicals);
         Ok(())

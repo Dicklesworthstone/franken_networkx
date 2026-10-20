@@ -1438,7 +1438,7 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
         _native_adjacency_index_arrays is not None
         and isinstance(G, (Graph, DiGraph))
         and not G.is_multigraph()
-        and weight is None
+        and (weight is None or isinstance(weight, str))
         and G.number_of_edges() > 0
     ):
         # br-r37-c1-04z53.13: for unit/default-absent weights, assemble

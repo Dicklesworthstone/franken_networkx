@@ -23,7 +23,7 @@ def _add_edges_from_materialized(raw, raw_add_edge):
         # the pass was the guard from when a native re-add reset the edge's
         # attributes, and it cost a Python walk of every pair against a
         # snapshot of every edge - most of an append onto a non-empty graph.
-        if not attr and isinstance(ebunch_to_add, (list, tuple)):
+        if not attr and isinstance(ebunch_to_add, (list, tuple, set)):
             native_batch = getattr(self, "_try_add_edges_from_batch", None)
             if native_batch is not None and native_batch(ebunch_to_add):
                 return None
@@ -39,7 +39,7 @@ def _add_edges_from_materialized(raw, raw_add_edge):
         # Preserve partial progress by iterating manually for
         # non-list/tuple inputs and capturing the iteration exception
         # to re-raise after the (possibly partial) edges are added.
-        if isinstance(ebunch_to_add, (list, tuple)):
+        if isinstance(ebunch_to_add, (list, tuple, set, frozenset)):
             materialized = list(ebunch_to_add)
             iteration_exc = None
         elif _ebunch_reads_graph(ebunch_to_add, self):

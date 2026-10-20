@@ -1107,7 +1107,10 @@ impl EdgeView {
                         nodes: None,
                         owner: None,
                         neighbors: Vec::new().into_iter(),
-                        seen: PySet::empty(py)?.unbind(),
+                        seen: None,
+                        fast_nodes_seq: None,
+                        node_keys: None,
+                        next_u_pos: 0,
                     }),
                 },
             )
@@ -2587,30 +2590,49 @@ struct GraphEdgeWalk {
     nodes: Option<Py<PyIterator>>,
     owner: Option<PyObject>,
     neighbors: std::vec::IntoIter<PyObject>,
-    seen: Py<PySet>,
+    seen: Option<Py<PySet>>,
+    fast_nodes_seq: Option<u64>,
+    node_keys: Option<Py<PyTuple>>,
+    next_u_pos: usize,
 }
 
 impl GraphEdgeWalk {
     fn next(&mut self, py: Python<'_>) -> PyResult<Option<PyObject>> {
         loop {
             for neighbor in self.neighbors.by_ref() {
-                if !self.seen.bind(py).contains(neighbor.bind(py))?
-                    && let Some(owner) = &self.owner
-                {
+                let unseen = match &self.seen {
+                    Some(seen) => !seen.bind(py).contains(neighbor.bind(py))?,
+                    None => true,
+                };
+                if unseen && let Some(owner) = &self.owner {
                     return tuple_object(py, &[owner.clone_ref(py), neighbor]).map(Some);
                 }
             }
-            if let Some(owner) = self.owner.take() {
-                self.seen.bind(py).add(owner.bind(py))?;
+            if let Some(owner) = self.owner.take()
+                && let Some(seen) = &self.seen
+            {
+                seen.bind(py).add(owner.bind(py))?;
             }
             if self.nodes.is_none() {
-                self.nodes = Some(
-                    self.graph
-                        .bind(py)
-                        .call_method0("_fnx_native_node_iter")?
-                        .downcast_into::<PyIterator>()?
-                        .unbind(),
-                );
+                let (mirror, fast_seq, node_keys) = {
+                    let graph = self.graph.borrow(py);
+                    let mirror = graph.node_iter_mirror_or_init(py)?;
+                    if graph.adj_py_keys.is_empty() {
+                        (
+                            mirror,
+                            Some(graph.nodes_seq),
+                            Some(graph.cached_node_key_tuple(py)),
+                        )
+                    } else {
+                        (mirror, None, None)
+                    }
+                };
+                self.nodes = Some(mirror.bind(py).try_iter()?.unbind());
+                self.fast_nodes_seq = fast_seq;
+                self.node_keys = node_keys;
+                if self.fast_nodes_seq.is_none() {
+                    self.seen = Some(PySet::empty(py)?.unbind());
+                }
             }
             let Some(nodes) = &self.nodes else {
                 return Ok(None);
@@ -2618,6 +2640,44 @@ impl GraphEdgeWalk {
             let Some(node) = nodes.bind(py).clone().next().transpose()? else {
                 return Ok(None);
             };
+            if let Some(expected_seq) = self.fast_nodes_seq {
+                let fast_neighbors = {
+                    let graph = self.graph.borrow(py);
+                    if graph.nodes_seq == expected_seq
+                        && graph.adj_py_keys.is_empty()
+                        && let Some(keys) = &self.node_keys
+                        && let Some(nbr_indices) = graph.inner.neighbors_indices(self.next_u_pos)
+                    {
+                        let u_pos = self.next_u_pos;
+                        let keys_bound = keys.bind(py);
+                        let mut row = Vec::with_capacity(nbr_indices.len());
+                        for &v_pos in nbr_indices {
+                            if v_pos >= u_pos {
+                                row.push(keys_bound.get_item(v_pos)?.unbind());
+                            }
+                        }
+                        Some(row)
+                    } else {
+                        None
+                    }
+                };
+                if let Some(neighbors) = fast_neighbors {
+                    self.next_u_pos += 1;
+                    self.owner = Some(node.unbind());
+                    self.neighbors = neighbors.into_iter();
+                    continue;
+                }
+                self.fast_nodes_seq = None;
+                let seen = PySet::empty(py)?;
+                if let Some(keys) = self.node_keys.take() {
+                    let keys_bound = keys.bind(py);
+                    let limit = self.next_u_pos.min(keys_bound.len());
+                    for idx in 0..limit {
+                        seen.add(keys_bound.get_borrowed_item(idx)?)?;
+                    }
+                }
+                self.seen = Some(seen.unbind());
+            }
             // Canonicalisation can execute Python: never hold a graph borrow
             // across it, or across the set membership/add calls above.
             let canonical = node_key_to_string(py, &node)?;
@@ -2667,6 +2727,7 @@ impl NodeViewIterator {
             visit.call(&walk.nodes)?;
             visit.call(&walk.owner)?;
             visit.call(&walk.seen)?;
+            visit.call(&walk.node_keys)?;
             for neighbor in walk.neighbors.as_slice() {
                 visit.call(neighbor)?;
             }

@@ -255,6 +255,83 @@ def closeness_vitality(
     }
 
 
+def _tracemin_fiedler_pcg(L, X, normalized, tol):
+    import numpy as np
+    import scipy as sp
+    from scipy.linalg.blas import dasum, daxpy, ddot
+    from scipy.sparse._sparsetools import csr_matvec
+
+    n = X.shape[0]
+    if normalized:
+        e = np.sqrt(L.diagonal())
+        D_norm = sp.sparse.dia_array((1 / e, 0), shape=(n, n)).tocsr()
+        L = D_norm @ L @ D_norm
+        e *= 1.0 / np.linalg.norm(e, 2)
+
+        def project(X_arr):
+            X_arr = np.asarray(X_arr)
+            for j in range(X_arr.shape[1]):
+                X_arr[:, j] -= (X_arr[:, j] @ e) * e
+    else:
+
+        def project(X_arr):
+            X_arr = np.asarray(X_arr)
+            for j in range(X_arr.shape[1]):
+                X_arr[:, j] -= X_arr[:, j].sum() / n
+
+    L_csr = L if sp.sparse.isspmatrix_csr(L) or isinstance(L, sp.sparse.csr_array) else L.tocsr()
+    indptr = L_csr.indptr
+    indices = L_csr.indices
+    data = L_csr.data.astype(float, copy=False)
+    D = L.diagonal().astype(float)
+    Ap = np.empty(n, dtype=float)
+
+    def solve_pcg(B, tol_outer):
+        B = np.asarray(B)
+        X_sol = np.ndarray(B.shape, order="F")
+        for j in range(B.shape[1]):
+            b = B[:, j]
+            tol_b = tol_outer * dasum(b)
+            x = np.zeros(b.shape)
+            r = b.copy()
+            z = D * r
+            rz = ddot(r, z)
+            p = z.copy()
+            while True:
+                Ap.fill(0.0)
+                csr_matvec(n, n, indptr, indices, data, p, Ap)
+                alpha = rz / ddot(p, Ap)
+                x = daxpy(p, x, a=alpha)
+                r = daxpy(Ap, r, a=-alpha)
+                if dasum(r) < tol_b:
+                    X_sol[:, j] = x
+                    break
+                z = D * r
+                beta = ddot(r, z)
+                beta, rz = beta / rz, beta
+                p = daxpy(p, z, a=beta)
+        return X_sol
+
+    Lnorm = abs(L).sum(axis=1).flatten().max()
+    project(X)
+    W = np.ndarray(X.shape, order="F")
+
+    while True:
+        X = np.linalg.qr(X)[0]
+        W[:, :] = L @ X
+        H = X.T @ W
+        sigma, Y = sp.linalg.eigh(H, overwrite_a=True)
+        X = X @ Y
+        res = dasum(W @ Y[:, 0] - sigma[0] * X[:, 0]) / Lnorm
+        if res < tol:
+            break
+        W[:, :] = solve_pcg(X, tol)
+        X = (sp.linalg.inv(W.T @ X) @ W.T).T
+        project(X)
+
+    return sigma[0], np.asarray(X)[:, 0]
+
+
 def _spectral_ordering_inproc(
     G,
     weight="weight",
@@ -263,18 +340,31 @@ def _spectral_ordering_inproc(
     method="tracemin_pcg",
     seed=None,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
     try:
-        return _nx.linalg.algebraicconnectivity.spectral_ordering(
-            H,
-            weight=weight,
-            normalized=normalized,
-            tol=tol,
-            method=method,
-            seed=seed,
-            backend="networkx",
-        )
+        seed = _numpy_random_state(seed)
+        if len(G) == 0:
+            raise NetworkXError("graph is empty.")
+        import numpy as np
+        import networkx.linalg.algebraicconnectivity as ac
+
+        G_prep = ac._preprocess_graph(G, weight)
+        find_fiedler = ac._get_fiedler_func(method)
+        order = []
+        for component in connected_components(G_prep):
+            size = len(component)
+            if size > 2:
+                L = laplacian_matrix(G_prep, component)
+                if method in ("tracemin_pcg", "tracemin"):
+                    X = np.asarray(seed.normal(size=(1, L.shape[0]))).T
+                    sigma, fiedler = _tracemin_fiedler_pcg(L, X, normalized, tol)
+                else:
+                    x = None if method != "lobpcg" else ac._rcm_estimate(G_prep, component)
+                    sigma, fiedler = find_fiedler(L, x, normalized, tol, seed)
+                sort_info = zip(fiedler, range(size), component)
+                order.extend(u for x, c, u in sorted(sort_info))
+            else:
+                order.extend(component)
+        return order
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
 

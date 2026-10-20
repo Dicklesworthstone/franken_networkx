@@ -563,14 +563,20 @@ def _simrank_impl(G, *, source, target, importance_factor, max_iterations, toler
     s = np.array(adjacency_matrix.sum(axis=0))
     s[s == 0] = 1
     adjacency_matrix /= s
+    AT = np.ascontiguousarray(adjacency_matrix.T)
 
-    newsim = np.eye(len(G), dtype=np.float64)
+    n = len(nodelist)
+    newsim = np.eye(n, dtype=np.float64)
+    prevsim = np.empty_like(newsim)
+    tmp = np.empty_like(newsim)
     its = 0
     for its in range(max_iterations):
-        prevsim = newsim.copy()
-        newsim = importance_factor * ((adjacency_matrix.T @ prevsim) @ adjacency_matrix)
+        prevsim, newsim = newsim, prevsim
+        np.matmul(AT, prevsim, out=tmp)
+        np.matmul(tmp, adjacency_matrix, out=newsim)
+        newsim *= importance_factor
         np.fill_diagonal(newsim, 1.0)
-        if np.allclose(prevsim, newsim, atol=tolerance):
+        if not (np.abs(prevsim - newsim) > (tolerance + 1e-05 * np.abs(newsim))).any():
             break
 
     if its + 1 == max_iterations:
@@ -587,8 +593,8 @@ def _simrank_impl(G, *, source, target, importance_factor, max_iterations, toler
     if s_indx is not None and t_indx is not None:
         return float(newsim[s_indx, t_indx])
     if s_indx is not None:
-        return dict(zip(G, newsim[s_indx].tolist()))
-    return {u: dict(zip(G, row)) for u, row in zip(G, newsim.tolist())}
+        return dict(zip(nodelist, newsim[s_indx].tolist()))
+    return {u: dict(zip(nodelist, row)) for u, row in zip(nodelist, newsim.tolist())}
 
 
 def _numpy_random_state(seed):
