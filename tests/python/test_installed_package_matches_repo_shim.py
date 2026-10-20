@@ -549,6 +549,9 @@ def test_dsr_loaded_verifier_refuses_a_different_selected_interpreter_before_imp
 def dsr_durability_binary():
     configured = os.environ.get("FNX_DURABILITY_BIN")
     if not configured:
+        default_bin = REPO_ROOT / "target" / "release" / "fnx-durability"
+        if default_bin.is_file():
+            return default_bin.resolve(strict=True)
         pytest.skip("this integration needs the native CLI built by DSR")
     return Path(configured).resolve(strict=True)
 
@@ -706,3 +709,90 @@ def test_dsr_release_evidence_rejects_corrupt_or_ambiguous_archive(release_recip
     with pytest.raises((ValueError, subprocess.CalledProcessError)):
         release_recipe.verify_release_evidence_archive(
             corrupt, record["candidate_id"], _sha256(corrupt), output / "corrupt-verification", binary)
+
+
+@pytest.fixture(scope="module")
+def e2e_acceptance_runner():
+    path = REPO_ROOT / "scripts" / "e2e_integration_test.py"
+    spec = importlib.util.spec_from_file_location("fnx_e2e_integration_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def v1_acceptance_manifest(e2e_acceptance_runner, tmp_path_factory):
+    out_dir = tmp_path_factory.mktemp("v1_acceptance")
+    manifest_path = out_dir / "v1_acceptance_manifest.json"
+    return e2e_acceptance_runner.run_v1_acceptance_suite(manifest_out=manifest_path)
+
+
+def test_v1_integration_acceptance_positive_journey_completes_all_layers(
+    e2e_acceptance_runner,
+    v1_acceptance_manifest,
+):
+    expected_so_sha = _sha256(REPO_PKG / "_fnx.abi3.so")
+    check = e2e_acceptance_runner.validate_v1_acceptance_manifest(
+        v1_acceptance_manifest,
+        expected_so_sha256=expected_so_sha,
+    )
+    assert check["valid"] is True
+    assert check["so_sha256"] == expected_so_sha
+    assert v1_acceptance_manifest["status"] == "COMPLETE-V1"
+    assert v1_acceptance_manifest["phase"] == "completed"
+    counts = v1_acceptance_manifest["terminal_counts"]
+    assert counts["passed_steps"] == 12
+    assert counts["failed_steps"] == 0
+    assert counts["skips"] == 0
+    assert counts["xfails"] == 0
+    assert counts["unknown_observations"] == []
+    assert counts["executed_command_count"] >= 16
+    assert counts["executed_test_count"] >= 190
+
+
+@pytest.mark.parametrize(
+    ("negative_kind", "match_pattern"),
+    [
+        ("stale_elf", "stale ELF"),
+        ("missing_public_witness", "missing.*public witness"),
+        ("alias_value_order_divergence", "alias/value/order"),
+        ("missing_durability_member", "missing durability member"),
+        ("expired_or_mismatched_perf_candidate", "expired or mismatched performance candidate"),
+        ("beyond_bound_decode_loss", "beyond-bound decode loss"),
+        ("nonzero_skip_or_unknown", "invalid terminal counts"),
+    ],
+)
+def test_v1_integration_acceptance_rejects_cross_layer_negative_defects(
+    e2e_acceptance_runner,
+    v1_acceptance_manifest,
+    negative_kind,
+    match_pattern,
+):
+    import copy
+
+    expected_so_sha = _sha256(REPO_PKG / "_fnx.abi3.so")
+    tampered = copy.deepcopy(v1_acceptance_manifest)
+
+    if negative_kind == "stale_elf":
+        tampered["candidate"]["installed_verification"]["so_sha256"] = "0" * 64
+    elif negative_kind == "missing_public_witness":
+        tampered["cgse"]["algorithms"].pop("prim")
+    elif negative_kind == "alias_value_order_divergence":
+        tampered["analytics_and_io"]["flow_dict_exact_parity"] = False
+    elif negative_kind == "missing_durability_member":
+        tampered["durability"]["durability_classes"] = [
+            c for c in tampered["durability"]["durability_classes"] if c != "long_lived_snapshots"
+        ]
+    elif negative_kind == "expired_or_mismatched_perf_candidate":
+        tampered["performance_receipts"]["slo_gate"]["so_sha256"] = "f" * 64
+    elif negative_kind == "beyond_bound_decode_loss":
+        tampered["durability"]["beyond_bound_loss_rejected"] = False
+    elif negative_kind == "nonzero_skip_or_unknown":
+        tampered["terminal_counts"]["unknown_observations"] = ["UNKNOWN_SUBSYSTEM_STATE"]
+
+    with pytest.raises(ValueError, match=match_pattern):
+        e2e_acceptance_runner.validate_v1_acceptance_manifest(
+            tampered,
+            expected_so_sha256=expected_so_sha,
+        )
+

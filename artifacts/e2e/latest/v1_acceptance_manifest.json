@@ -1,0 +1,350 @@
+{
+  "analytics_and_io": {
+    "assertions": 21,
+    "directed_modularity_exact": true,
+    "flow_dict_exact_parity": true,
+    "flow_value": 16,
+    "io_formats": [
+      "edgelist",
+      "adjlist",
+      "graphml",
+      "gml",
+      "node_link_json",
+      "pajek",
+      "gexf"
+    ],
+    "louvain_communities": 2,
+    "matching_edges": 3,
+    "min_cut_set_order_parity": true
+  },
+  "candidate": {
+    "candidate_id": "bd390c01f7a3d581953913cb88e08912f3cda8708359a496a320403c338bf6e0",
+    "fnx_version": "0.2.3",
+    "head": "8d7b65fb473add77fc06586acec57f63984df996",
+    "installed_verification": {
+      "candidate_id": "bd390c01f7a3d581953913cb88e08912f3cda8708359a496a320403c338bf6e0",
+      "extension": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv/lib/python3.14/site-packages/franken_networkx/_fnx.abi3.so",
+      "installed_journey_ok": true,
+      "installed_witness_hash": "d1bd7e1cb5986b8443f713305a384e80515a9aeef49adae47a053a10a00ddadb",
+      "oracle_version": "3.6.1",
+      "package": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv/lib/python3.14/site-packages/franken_networkx",
+      "prefix": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv",
+      "python": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv/bin/python",
+      "python_version": "3.14.3 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
+      "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc"
+    },
+    "native_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc",
+    "oracle_version": "3.6.1",
+    "python_version": "3.14.3",
+    "release_evidence_sha256": "0c6429437c09c47c4ec391c5ed96177b37fe2be7cf41c3a16381ce879014559b",
+    "sdist_sha256": "6dcf06c4859d291d3d2a5cbfa56c1290d06777f87917a1e20324926e70446f52",
+    "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc",
+    "wheel_sha256": "98fb5de0e70f2c3b775ebfc762ed3d6af5eac59c384304cc4d1a05e4ff8294e9"
+  },
+  "cgse": {
+    "algorithm_count": 12,
+    "algorithms": {
+      "bellman_ford": {
+        "decision_path_blake3": "4ba35b2de36565068442ff8d9d2aaa8d9d89e8a638f18b52e769d008916bafc4",
+        "dominant_term": "n_m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 2,
+        "policy": "insertion_order",
+        "registered_policy": "insertion_order",
+        "upper_bound": 18,
+        "within_bounds": true
+      },
+      "bfs": {
+        "decision_path_blake3": "4ba35b2de36565068442ff8d9d2aaa8d9d89e8a638f18b52e769d008916bafc4",
+        "dominant_term": "n_plus_m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 2,
+        "policy": "insertion_order",
+        "registered_policy": "insertion_order",
+        "upper_bound": 12,
+        "within_bounds": true
+      },
+      "connected_components": {
+        "decision_path_blake3": "738daa88ca6475664395c1bb3c46510321c9ac8ebf02dad9aaf61d465432f0e6",
+        "dominant_term": "n_plus_m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 3,
+        "policy": "lex_min",
+        "registered_policy": "lex_min",
+        "upper_bound": 12,
+        "within_bounds": true
+      },
+      "dfs": {
+        "decision_path_blake3": "9a284c2b4ede972e53db96c704658d9e833840dd0f4cd361533e782c89e4bf08",
+        "dominant_term": "n_plus_m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 2,
+        "policy": "insertion_order",
+        "registered_policy": "insertion_order",
+        "upper_bound": 12,
+        "within_bounds": true
+      },
+      "dijkstra": {
+        "decision_path_blake3": "da29c76cedf23d367f6c02e81051453800fd8eb51c9a6113454efd125e1e76ad",
+        "dominant_term": "n_plus_m_log_n",
+        "m": 3,
+        "n": 3,
+        "observed_count": 2,
+        "policy": "weight_then_insertion_order",
+        "registered_policy": "weight_then_insertion_order",
+        "upper_bound": 18,
+        "within_bounds": true
+      },
+      "eulerian_circuit": {
+        "decision_path_blake3": "98cccd164520134a82d0905f7ebf00af8da85fecb3b6f710cec30d66f26581f2",
+        "dominant_term": "m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 3,
+        "policy": "insertion_order",
+        "registered_policy": "insertion_order",
+        "upper_bound": 6,
+        "within_bounds": true
+      },
+      "kruskal": {
+        "decision_path_blake3": "fd6c86571ae5b05dfbc1cd006ad8616253cb89f1ac20a4ee3b60af2a80b79f94",
+        "dominant_term": "m_log_m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 2,
+        "policy": "weight_then_lex",
+        "registered_policy": "weight_then_lex",
+        "upper_bound": 12,
+        "within_bounds": true
+      },
+      "max_weight_matching": {
+        "decision_path_blake3": "cb2d4376da65fa7b5182b433a89561340500d8f0c8f0b4e131b0ded113d1d268",
+        "dominant_term": "n_m_alpha",
+        "m": 3,
+        "n": 3,
+        "observed_count": 2,
+        "policy": "weight_then_lex",
+        "registered_policy": "weight_then_lex",
+        "upper_bound": 18,
+        "within_bounds": true
+      },
+      "min_weight_matching": {
+        "decision_path_blake3": "198ff4989b67d66637353006ac43f76b7260b233d6534565e01277c691c2ad87",
+        "dominant_term": "n_m_alpha",
+        "m": 3,
+        "n": 3,
+        "observed_count": 2,
+        "policy": "weight_then_lex",
+        "registered_policy": "weight_then_lex",
+        "upper_bound": 18,
+        "within_bounds": true
+      },
+      "prim": {
+        "decision_path_blake3": "5dbc0e3460d2eaabbd74ced30806ea2b43172591ab1d05959b4f002f17ba5a6c",
+        "dominant_term": "m_log_n",
+        "m": 3,
+        "n": 3,
+        "observed_count": 5,
+        "policy": "weight_then_insertion_order",
+        "registered_policy": "weight_then_lex",
+        "upper_bound": 12,
+        "within_bounds": true
+      },
+      "strongly_connected_components": {
+        "decision_path_blake3": "d391339fa65eed7b96399fc5ad097a7caa19f0848e67fafe7cde74a01a92d46e",
+        "dominant_term": "n_plus_m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 6,
+        "policy": "insertion_order",
+        "registered_policy": "insertion_order",
+        "upper_bound": 12,
+        "within_bounds": true
+      },
+      "topological_sort": {
+        "decision_path_blake3": "b76b9985f55aa4758b4c7dc40ef8a2e82531c13a3c138b0cf951ab40075edd0e",
+        "dominant_term": "n_plus_m",
+        "m": 3,
+        "n": 3,
+        "observed_count": 3,
+        "policy": "insertion_order",
+        "registered_policy": "insertion_order",
+        "upper_bound": 12,
+        "within_bounds": true
+      }
+    },
+    "all_within_bounds": true,
+    "assertions": 62,
+    "ledger_sha256": "ce2a80588d012e452bcff69f250c2a0c7c5a1ffd5133b5030cc6888257a7c407",
+    "negative_bound_rejected": true,
+    "unknown_term_rejected": true
+  },
+  "durability": {
+    "assertions": 14,
+    "beyond_bound_loss_rejected": true,
+    "bounded_loss_recovery": {
+      "byte_exact": true,
+      "dropped_packets": 2,
+      "recovered_blocks": 1,
+      "semantic_replay_ok": true
+    },
+    "candidate_id": "bd390c01f7a3d581953913cb88e08912f3cda8708359a496a320403c338bf6e0",
+    "durability_binary_sha256": "08908781507152b99567a07e3404ce7f3d8811a43daf237a08dc9a950cb7c826",
+    "durability_classes": [
+      "conformance_fixtures",
+      "benchmark_baselines",
+      "migration_manifests",
+      "reproducibility_ledgers",
+      "long_lived_snapshots"
+    ],
+    "head": "8d7b65fb473add77fc06586acec57f63984df996",
+    "input_file_count": 546,
+    "installed_verification": {
+      "candidate_id": "bd390c01f7a3d581953913cb88e08912f3cda8708359a496a320403c338bf6e0",
+      "extension": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv/lib/python3.14/site-packages/franken_networkx/_fnx.abi3.so",
+      "installed_journey_ok": true,
+      "installed_witness_hash": "d1bd7e1cb5986b8443f713305a384e80515a9aeef49adae47a053a10a00ddadb",
+      "oracle_version": "3.6.1",
+      "package": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv/lib/python3.14/site-packages/franken_networkx",
+      "prefix": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv",
+      "python": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/retained_venv/bin/python",
+      "python_version": "3.14.3 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
+      "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc"
+    },
+    "native_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc",
+    "release_evidence_path": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/candidate/franken_networkx-0.2.3-release-evidence.tar.gz",
+    "release_evidence_sha256": "0c6429437c09c47c4ec391c5ed96177b37fe2be7cf41c3a16381ce879014559b",
+    "sdist_sha256": "6dcf06c4859d291d3d2a5cbfa56c1290d06777f87917a1e20324926e70446f52",
+    "wheel_path": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792473006929-832446/candidate/franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+    "wheel_sha256": "98fb5de0e70f2c3b775ebfc762ed3d6af5eac59c384304cc4d1a05e4ff8294e9"
+  },
+  "excluded_environments": [
+    {
+      "environment": "linux/arm64",
+      "reason": "cross-OS/arch wheel target; local host is x86_64-unknown-linux-gnu"
+    },
+    {
+      "environment": "darwin/amd64",
+      "reason": "cross-OS/arch wheel target; local host is x86_64-unknown-linux-gnu"
+    },
+    {
+      "environment": "darwin/arm64",
+      "reason": "cross-OS/arch wheel target; local host is x86_64-unknown-linux-gnu"
+    },
+    {
+      "environment": "windows/amd64",
+      "reason": "cross-OS/arch wheel target; local host is x86_64-unknown-linux-gnu"
+    }
+  ],
+  "generated_at_utc": "2026-10-20T05:10:08.953660+00:00",
+  "performance_receipts": {
+    "assertions": 11,
+    "attribute_store_rss": {
+      "rss_ratios": {
+        "DiGraph": 0.5489,
+        "Graph": 0.5955,
+        "MultiDiGraph": 1.0881,
+        "MultiGraph": 0.7844
+      },
+      "sha256": "45edeb4636bdccbdd79ffe4196a3c00b20017cc432686c4035f1e1f0ef14fc15",
+      "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc"
+    },
+    "backend_whole_job": {
+      "all_outputs_equal": true,
+      "cold_geomean_vs_nx": 2.1163,
+      "sha256": "8f01512aa1eac39475f6faa138c9eae3c6e286ca0562af8315604f5cf1e1e6f4",
+      "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc",
+      "total_jobs": 10,
+      "warm_geomean_vs_nx": 5.5926
+    },
+    "empirical_complexity": {
+      "allowlisted_debt": 0,
+      "failed": 0,
+      "passed_green": 54,
+      "sha256": "ff948a666399499b419aa7ee77ca3f9c46a70e0fb568d9bffb362acaa070dd2f",
+      "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc"
+    },
+    "slo_gate": {
+      "sha256": "02bf84cc25ce6623d7726ce946344b6f82bed2078dae8e600684a5fdf3fad084",
+      "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc",
+      "status": "pass",
+      "workload_count": 7
+    },
+    "so_sha256": "20f5b96e6be311a39cbe39444241e1010b6057d7d074d29ffb914958fe9d82bc"
+  },
+  "phase": "completed",
+  "replay_commands": [
+    "PYTHONPATH=python .venv/bin/python scripts/e2e_integration_test.py",
+    "FNX_DURABILITY_BIN=target/release/fnx-durability ./scripts/run_pytest_guarded.sh tests/python/test_installed_package_matches_repo_shim.py -v"
+  ],
+  "schema": "fnx-v1-acceptance-manifest-v1",
+  "security_and_capacity": {
+    "assertions": 12,
+    "generator_clamp_nodes": 2000,
+    "hardened_edgelist_recovered": true,
+    "hardened_graphml_recovered": true,
+    "incompatible_feature_failed_closed": true,
+    "snapshot_sha256": "6aafd39ed23f9832c36f04c2ca33dfd17fda45dd954d783ca4facb4fb0d7d294",
+    "strict_failed_closed": true
+  },
+  "semantics": {
+    "assertions": 34,
+    "classes": {
+      "DiGraph": {
+        "dense_index_post_delete_bfs": true,
+        "dod_json_sha256": "3ee670b8eaf08e631b8cb4104a1432b3ccdd6f9bdc18bbf1394c9d33b2be0db5",
+        "edges": 4,
+        "held_row_parity": true,
+        "nodes": 4,
+        "shallow_copy_shared": true,
+        "view_parity": true
+      },
+      "Graph": {
+        "dense_index_post_delete_bfs": true,
+        "dod_json_sha256": "eba77bb1206b744b135a2b613842e94130fdfa3f116dade41010d130859ce61e",
+        "edges": 4,
+        "held_row_parity": true,
+        "nodes": 4,
+        "shallow_copy_shared": true,
+        "view_parity": true
+      },
+      "MultiDiGraph": {
+        "dense_index_post_delete_bfs": true,
+        "dod_json_sha256": "d984bd6af2a1f0c607723fc607eb9903667c6bc85660fd31c20f310237f9db51",
+        "edges": 4,
+        "held_row_parity": true,
+        "nodes": 4,
+        "shallow_copy_shared": true,
+        "view_parity": true
+      },
+      "MultiGraph": {
+        "dense_index_post_delete_bfs": true,
+        "dod_json_sha256": "ebafcc6065ab117e61ed25edb18f114e6afac8d7112c3af13f9525ecd8912026",
+        "edges": 4,
+        "held_row_parity": true,
+        "nodes": 4,
+        "shallow_copy_shared": true,
+        "view_parity": true
+      }
+    },
+    "equal_label_identity": true,
+    "fixture_bundle_sha256": "8eba34a290ca6c69291eb5e66f816d6d2b7bc8bfae029b4c6bf93faf31879775",
+    "iterator_exhaustion_after_mutation": true,
+    "nbunch_mutation_legal": true
+  },
+  "status": "COMPLETE-V1",
+  "terminal_counts": {
+    "executed_command_count": 16,
+    "executed_test_count": 193,
+    "failed_steps": 0,
+    "passed_steps": 12,
+    "skips": 0,
+    "total_elapsed_s": 2.023,
+    "unknown_observations": [],
+    "xfails": 0
+  }
+}

@@ -207,9 +207,12 @@ def _measure_fresh_rss(mode: str, cls_name: str, edge_count: int) -> dict:
 
 
 def test_attribute_store_800k_rss_budget_and_emit_artifact() -> None:
+    import hashlib
+
     edge_count = 800_000
     records = []
     ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    so_sha256 = hashlib.sha256(Path(fnx._fnx.__file__).read_bytes()).hexdigest()
 
     for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
         fnx_meas = _measure_fresh_rss("fnx", cls_name, edge_count)
@@ -224,6 +227,7 @@ def test_attribute_store_800k_rss_budget_and_emit_artifact() -> None:
 
         record = {
             "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "so_sha256": so_sha256,
             "graph_type": cls_name,
             "node_count": fnx_meas["node_count"],
             "edge_count": fnx_meas["edge_count"],
