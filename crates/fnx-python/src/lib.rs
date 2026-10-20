@@ -2914,7 +2914,10 @@ pub(crate) fn extract_edge_attrs_with_lossless(
         (OptionalWeightKwarg::Provided(w), None) => {
             let (cgse_val, val_lossless) = py_value_to_cgse_with_lossless(w)?;
             Ok((
-                AttrMap::from_unique_entries(vec![("weight".to_owned(), cgse_val)]),
+                AttrMap::from_unique_interned_entries(vec![(
+                    fnx_runtime::weight_attr_key(),
+                    cgse_val,
+                )]),
                 val_lossless,
                 true,
             ))
@@ -2927,7 +2930,7 @@ pub(crate) fn extract_edge_attrs_with_lossless(
             let (w_cgse, w_lossless) = py_value_to_cgse_with_lossless(w)?;
             let (map, a_lossless) = py_dict_to_attr_map_with_lossless(a)?;
             let mut combined = AttrMap::with_capacity(map.len() + 1);
-            combined.insert("weight".to_owned(), w_cgse);
+            combined.insert_interned(fnx_runtime::weight_attr_key(), w_cgse);
             combined.extend(map);
             Ok((combined, w_lossless && a_lossless, true))
         }
@@ -2967,14 +2970,14 @@ pub(crate) fn py_dict_to_attr_map_with_lossless(
     let mut all_lossless = true;
     for (k, v) in attrs.iter() {
         let key = if let Ok(s) = k.downcast_exact::<PyString>() {
-            s.to_str()?.to_owned()
+            fnx_runtime::intern_attr_key(s.to_str()?)
         } else if let Ok(s) = k.downcast::<PyString>() {
             all_lossless = false;
-            s.to_str()?.to_owned()
+            fnx_runtime::intern_attr_key(s.to_str()?)
         } else {
             all_str_keys = false;
             all_lossless = false;
-            k.str()?.to_string_lossy().into_owned()
+            fnx_runtime::intern_attr_key_owned(k.str()?.to_string_lossy().into_owned())
         };
         let (cgse_val, val_lossless) = py_value_to_cgse_with_lossless(&v)?;
         if !val_lossless {
@@ -2983,11 +2986,11 @@ pub(crate) fn py_dict_to_attr_map_with_lossless(
         entries.push((key, cgse_val));
     }
     if all_str_keys {
-        Ok((AttrMap::from_unique_entries(entries), all_lossless))
+        Ok((AttrMap::from_unique_interned_entries(entries), all_lossless))
     } else {
         let mut rust_attrs = AttrMap::with_capacity(len);
         for (k, v) in entries {
-            rust_attrs.insert(k, v);
+            rust_attrs.insert_interned(k, v);
         }
         Ok((rust_attrs, false))
     }
@@ -3000,12 +3003,12 @@ pub(crate) fn py_dict_to_attr_map_with_mirror(
     let mut rust_attrs = AttrMap::with_capacity(attrs.len());
     let mirror = PyDict::new(py);
     for (k, v) in attrs.iter() {
-        let key: String = if let Ok(s) = k.downcast::<PyString>() {
-            s.to_str()?.to_owned()
+        let key = if let Ok(s) = k.downcast::<PyString>() {
+            fnx_runtime::intern_attr_key(s.to_str()?)
         } else {
-            k.str()?.to_string_lossy().into_owned()
+            fnx_runtime::intern_attr_key_owned(k.str()?.to_string_lossy().into_owned())
         };
-        rust_attrs.insert(key, py_value_to_cgse(&v)?);
+        rust_attrs.insert_interned(key, py_value_to_cgse(&v)?);
         mirror.set_item(&k, &v)?;
     }
     Ok((rust_attrs, mirror.unbind()))
@@ -4333,15 +4336,12 @@ impl EdgeAttrWrites {
         if source.is_empty() {
             return Ok((AttrMap::new(), None));
         }
+        let (rust_attrs, lossless) = py_dict_to_attr_map_with_lossless(source)?;
+        if lossless {
+            return Ok((rust_attrs, None));
+        }
         let mirror = self.new_dict(py)?;
-        let mut rust_attrs = AttrMap::new();
         for (k, v) in source.iter() {
-            let key: String = if let Ok(s) = k.extract::<String>() {
-                s
-            } else {
-                k.str()?.to_string_lossy().into_owned()
-            };
-            rust_attrs.insert(key, py_value_to_cgse(&v)?);
             mirror.set_item(&k, &v)?;
         }
         Ok((rust_attrs, Some(mirror.unbind())))
@@ -8654,6 +8654,7 @@ impl PyMultiGraph {
         v: &str,
         key: usize,
         external_key: Option<&Bound<'_, PyAny>>,
+        existing_key: bool,
     ) -> PyObject {
         let py_key = external_key.map_or_else(
             || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
@@ -8666,13 +8667,28 @@ impl PyMultiGraph {
         // ``add_edge`` calls with hash-equivalent keys are dedup at
         // the storage level (post-cycle-182 edge_key_lookup_string
         // fix) but echo back the user-provided Py-form as the return
-        // value (matching nx's add_edge contract). Use
-        // ``entry().or_insert_with`` here so re-adding ``key=0.0``
-        // after ``key=0`` doesn't overwrite the displayed Py-form.
-        self.edge_py_keys
-            .entry(Self::edge_key(u, v, key))
-            .or_insert_with(|| py_key.clone_ref(py));
-        self.note_public_key_value(key, py_key.bind(py));
+        // value (matching nx's add_edge contract).
+        //
+        // br-r37-c1-mgkeyidentity: when `!existing_key` and the public key is
+        // the exact non-negative `PyInt` equal to `key`, no `edge_py_keys`
+        // entry is needed (`py_edge_key` and `display_key_lookup` fall back to
+        // `key`). When `existing_key` is true, the first-winning key is already
+        // recorded (either in `edge_py_keys` or implicitly by absence).
+        if !existing_key {
+            let is_identity_int = external_key.is_none_or(|k| {
+                k.is_exact_instance_of::<PyInt>()
+                    && k.extract::<i64>()
+                        .ok()
+                        .and_then(|i| usize::try_from(i).ok())
+                        == Some(key)
+            });
+            if !is_identity_int {
+                self.edge_py_keys
+                    .entry(Self::edge_key(u, v, key))
+                    .or_insert_with(|| py_key.clone_ref(py));
+                self.note_public_key_value(key, py_key.bind(py));
+            }
+        }
         py_key
     }
 
@@ -10224,7 +10240,10 @@ impl MultiKeyDictView {
             let edge_key = PyMultiGraph::edge_key(&self.source, &self.target, key);
             let attrs = match g.edge_py_attrs.get(&edge_key) {
                 Some(attrs) => attrs.bind(py).copy()?.unbind(),
-                None => PyDict::new(py).unbind(),
+                None => match g.inner.edge_attrs(&self.source, &self.target, key) {
+                    Some(inner_attrs) => attr_map_to_pydict(py, inner_attrs)?,
+                    None => PyDict::new(py).unbind(),
+                },
             };
             result.set_item(g.py_edge_key(py, &self.source, &self.target, key), attrs)?;
         }
@@ -10447,7 +10466,7 @@ impl PyMultiGraph {
                         }
                     }
                 }
-                for (left, right, key, _) in other.inner.edges_ordered_borrowed() {
+                for (left, right, key, inner_attrs) in other.inner.edges_ordered_borrowed() {
                     let ek = Self::edge_key(left, right, key);
                     match other.edge_py_attrs.get(&ek) {
                         Some(attrs) => {
@@ -10464,14 +10483,14 @@ impl PyMultiGraph {
                                 left,
                                 right,
                                 key,
-                                AttrMap::new(),
+                                inner_attrs.clone(),
                             );
                         }
                     }
                     if let Some(py_key) = other.edge_py_keys.get(&ek) {
                         g.remember_edge_key_object(py, left, right, key, py_key);
                     } else {
-                        g.remember_edge_key(py, left, right, key, None);
+                        g.remember_edge_key(py, left, right, key, None, false);
                     }
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
@@ -10495,14 +10514,14 @@ impl PyMultiGraph {
                         }
                     }
                 }
-                for (left, right, _) in other.inner.edges_ordered_borrowed() {
+                for (left, right, inner_attrs) in other.inner.edges_ordered_borrowed() {
                     let ek = PyGraph::edge_key(left, right);
                     let (rust_attrs, mirror) = match other.edge_py_attrs.get(&ek) {
                         Some(attrs) => {
                             let (r, m) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
                             (r, Some(m))
                         }
-                        None => (AttrMap::new(), None),
+                        None => (inner_attrs.clone(), None),
                     };
                     let key = g
                         .inner
@@ -10513,7 +10532,7 @@ impl PyMultiGraph {
                         g.edge_py_attrs
                             .insert(Self::edge_key(left, right, key), mirror);
                     }
-                    g.remember_edge_key(py, left, right, key, None);
+                    g.remember_edge_key(py, left, right, key, None, false);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, edata)? {
@@ -11398,10 +11417,10 @@ impl PyMultiGraph {
             }
         }
 
-        let mut rust_attrs = AttrMap::new();
-        if let Some(a) = attr {
-            rust_attrs = py_dict_to_attr_map(a)?;
-        }
+        let (rust_attrs, attrs_lossless) = match attr {
+            Some(a) if !a.is_empty() => py_dict_to_attr_map_with_lossless(a)?,
+            _ => (AttrMap::new(), true),
+        };
 
         // br-r37-c1-mgkey: for an AUTO key (key=None), compute the PUBLIC key as
         // networkx does — `k = len(G[u][v]); while k in G[u][v]: k += 1` over the
@@ -11470,36 +11489,6 @@ impl PyMultiGraph {
                 .map_err(|e| NetworkXError::new_err(e.to_string()))?,
         };
 
-        let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
-        // Own a Python reference before mutating any other graph state below;
-        // `Entry` otherwise keeps `edge_py_attrs` mutably borrowed across the
-        // row-cache and stable-keydict updates.
-        //
-        // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (existing-edge
-        // merge): an existing key's attrs may live only in the core (lazy
-        // mirror, e.g. MultiGraph(karate_club_graph())); materialise them —
-        // the core already merged the new attrs — instead of starting an empty
-        // dict that would hide the old ones.
-        let py_dict = if existing_key {
-            self.ensure_edge_py_attrs_with_key(py, &u_canonical, &v_canonical, actual_key, &ek)
-                .clone_ref(py)
-        } else {
-            // br-r37-c1-u9a13: a dict that reports its writes to this graph.
-            match self.edge_py_attrs.entry(ek) {
-                std::collections::hash_map::Entry::Occupied(e) => e.get().clone_ref(py),
-                std::collections::hash_map::Entry::Vacant(e) => e
-                    .insert(self.edge_attr_writes.new_dict(py)?.unbind())
-                    .clone_ref(py),
-            }
-        };
-        if let Some(a) = attr {
-            // br-r37-c1-aefbatch: single C-level dict.update instead of N
-            // per-item set_item calls (see PyGraph::add_edge).
-            py_dict.bind(py).update(a.as_mapping())?;
-            if !attr_dict_is_batch_lossless(a) {
-                self.mark_edges_dirty();
-            }
-        }
         // br-r37-c1-dwy1n: maintain any live neighbour rows IN PLACE, then
         // re-stamp the cache, so an outstanding `G.neighbors(n)` iterator sees
         // the mutation and CPython raises the same RuntimeError networkx does.
@@ -11518,18 +11507,53 @@ impl PyMultiGraph {
         // Prefer the user's explicit key; otherwise echo the nx-computed public
         // auto key (NOT the internal usize key).
         let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
-        let public_key =
-            self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external);
+        let public_key = self.remember_edge_key(
+            py,
+            &u_canonical,
+            &v_canonical,
+            actual_key,
+            external,
+            existing_key,
+        );
         let (lo, hi) = if u_canonical <= v_canonical {
             (&u_canonical, &v_canonical)
         } else {
             (&v_canonical, &u_canonical)
         };
-        if let Some(row) = self.live_keydict_rows.get(py, lo, hi) {
-            // A held keydict (or a ghost pair's) sees the new edge, as the
-            // networkx keydict would; its attr dict is a watched _EdgeAttrDict.
-            row.bind(py)
-                .set_item(public_key.bind(py), py_dict.bind(py))?;
+        let live_row = self.live_keydict_rows.get(py, lo, hi);
+        let need_py_dict = !attrs_lossless
+            || live_row.is_some()
+            || (!self.edge_py_attrs.is_empty()
+                && self.edge_py_attrs.contains_key(&Self::edge_key(
+                    &u_canonical,
+                    &v_canonical,
+                    actual_key,
+                )));
+        if need_py_dict {
+            let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+            let py_dict = if existing_key {
+                self.ensure_edge_py_attrs_with_key(py, &u_canonical, &v_canonical, actual_key, &ek)
+                    .clone_ref(py)
+            } else {
+                match self.edge_py_attrs.entry(ek) {
+                    std::collections::hash_map::Entry::Occupied(e) => e.get().clone_ref(py),
+                    std::collections::hash_map::Entry::Vacant(e) => e
+                        .insert(self.edge_attr_writes.new_dict(py)?.unbind())
+                        .clone_ref(py),
+                }
+            };
+            if let Some(a) = attr
+                && !a.is_empty()
+            {
+                py_dict.bind(py).update(a.as_mapping())?;
+                if !attrs_lossless {
+                    self.mark_edges_dirty();
+                }
+            }
+            if let Some(row) = live_row {
+                row.bind(py)
+                    .set_item(public_key.bind(py), py_dict.bind(py))?;
+            }
         }
         Ok(public_key)
     }
@@ -11899,9 +11923,6 @@ impl PyMultiGraph {
             _ => AttrMap::new(),
         };
         let mut edges: Vec<(String, String, usize, AttrMap)> = Vec::with_capacity(items.len());
-        // Lazy mirrors: only NON-EMPTY edge dicts materialize here, keyed by the
-        // canonical (u, v, internal_key) exactly as per-edge `add_edge` stores them.
-        let mut mirrors: Vec<((String, String, usize), Py<PyDict>)> = Vec::new();
         let mut new_nodes: Vec<(String, PyObject)> = Vec::new();
         let mut seen_nodes: HashSet<String> = self
             .inner
@@ -11928,7 +11949,7 @@ impl PyMultiGraph {
             }
             // 3-tuple third element MUST be a dict (multigraph DATA). A non-dict
             // third is nx's "key" disambiguation path — bail to the per-edge loop.
-            let (rust_attrs, src): (AttrMap, Option<Bound<'_, PyDict>>) = if tlen == 3 {
+            let rust_attrs: AttrMap = if tlen == 3 {
                 let third = tuple.get_item(2)?;
                 let Ok(d) = third.downcast::<PyDict>() else {
                     return Ok(None);
@@ -11940,20 +11961,16 @@ impl PyMultiGraph {
                     return Ok(None);
                 }
                 if global_map.is_empty() {
-                    (attrs, Some(d.clone()))
+                    attrs
                 } else {
                     let mut merged_map = global_map.clone();
                     merged_map.extend(attrs);
-                    let merged = global_attr
-                        .expect("non-empty global_map implies global_attr")
-                        .copy()?;
-                    merged.update(d.as_mapping())?;
-                    (merged_map, Some(merged))
+                    merged_map
                 }
             } else if global_map.is_empty() {
-                (AttrMap::new(), None)
+                AttrMap::new()
             } else {
-                (global_map.clone(), None)
+                global_map.clone()
             };
 
             let Ok(uc) = node_key_to_string(py, &u) else {
@@ -11986,14 +12003,6 @@ impl PyMultiGraph {
             let counter = pair_count.entry(pair).or_insert(0);
             let key = *counter;
             *counter += 1;
-            if let Some(d) = src
-                && !d.is_empty()
-            {
-                // br-r37-c1-u9a13: a dict that reports its writes to this graph.
-                let mirror = self.edge_attr_writes.new_dict(py)?;
-                mirror.update(d.as_mapping())?;
-                mirrors.push((Self::edge_key(&uc, &vc, key), mirror.unbind()));
-            }
             edges.push((uc, vc, key, rust_attrs));
         }
 
@@ -12010,9 +12019,6 @@ impl PyMultiGraph {
             if let Some(c) = mk {
                 let _ = self.node_iter_mirror_insert(py, &c);
             }
-        }
-        for (ek, dict) in mirrors {
-            self.edge_py_attrs.entry(ek).or_insert(dict);
         }
         self.inner.extend_keyed_edges_with_attrs_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
@@ -15333,7 +15339,7 @@ impl PyMultiGraph {
             if let Some(py_key) = py_key_slot {
                 new_graph.remember_edge_key_object(py, u, v, key, py_key);
             } else {
-                new_graph.remember_edge_key(py, u, v, key, None);
+                new_graph.remember_edge_key(py, u, v, key, None, false);
             }
         }
         if !all_lossless {
@@ -15822,7 +15828,7 @@ impl PyMultiGraph {
             }
         }
 
-        for (left, right, key, _) in self.inner.edges_ordered_borrowed() {
+        for (left, right, key, stored_attrs) in self.inner.edges_ordered_borrowed() {
             if keep.contains(left) && keep.contains(right) {
                 let ek = Self::edge_key(left, right, key);
                 match self.edge_py_attrs.get(&ek) {
@@ -15840,14 +15846,14 @@ impl PyMultiGraph {
                             left,
                             right,
                             key,
-                            AttrMap::new(),
+                            stored_attrs.clone(),
                         );
                     }
                 }
                 if let Some(py_key) = self.edge_py_keys.get(&ek) {
                     new_graph.remember_edge_key_object(py, left, right, key, py_key);
                 } else {
-                    new_graph.remember_edge_key(py, left, right, key, None);
+                    new_graph.remember_edge_key(py, left, right, key, None, false);
                 }
             }
         }
@@ -15933,18 +15939,19 @@ impl PyMultiGraph {
                     );
                     let mirror = new_graph.edge_attr_writes.adopt(py, mirror.bind(py))?; // br-r37-c1-u9a13
                     new_graph.edge_py_attrs.insert(ek, mirror);
-                    if let Some(py_key) = self.edge_py_keys.get(&Self::edge_key(u, v, k)) {
-                        new_graph.remember_edge_key_object(py, u, v, k, py_key);
-                    } else {
-                        new_graph.remember_edge_key(py, u, v, k, None);
-                    }
                 } else {
+                    let stored_attrs = self.inner.edge_attrs(u, v, k).cloned().unwrap_or_default();
                     let _ = new_graph.inner.add_edge_with_key_and_attrs(
                         u.clone(),
                         v.clone(),
                         k,
-                        AttrMap::new(),
+                        stored_attrs,
                     );
+                }
+                if let Some(py_key) = self.edge_py_keys.get(&Self::edge_key(u, v, k)) {
+                    new_graph.remember_edge_key_object(py, u, v, k, py_key);
+                } else {
+                    new_graph.remember_edge_key(py, u, v, k, None, false);
                 }
             }
         }

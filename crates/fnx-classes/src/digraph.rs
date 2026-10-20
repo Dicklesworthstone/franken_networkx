@@ -10,7 +10,7 @@ use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
     RuntimePolicy, bool_evidence, count_evidence,
 };
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -2455,8 +2455,10 @@ impl NodePositions<'_> {
 /// A MultiDiGraph's successor or predecessor rows: node -> neighbour -> keys.
 /// The outer map is unordered (yr2oc.1): every ordered walk goes through the
 /// node table, so a removal drops a row in O(1) instead of shifting the map.
-type MultiDiRows =
-    rustc_hash::FxHashMap<String, crate::FxIndexMap<String, crate::FxIndexSet<usize>>>;
+type MultiDiRows = rustc_hash::FxHashMap<
+    String,
+    crate::FxIndexMap<String, crate::multigraph_storage::CompactKeys>,
+>;
 
 #[derive(Debug)]
 pub struct MultiDiGraph {
@@ -2467,7 +2469,7 @@ pub struct MultiDiGraph {
     predecessors: MultiDiRows,
     /// br-r37-c1-19ngg: the key -> attrs bucket is Fx-hashed too (it was the
     /// one map here left on SipHash); insertion-ordered, so order is unchanged.
-    edges: crate::FxIndexMap<DirectedEdgeKey, crate::FxIndexMap<usize, AttrMap>>,
+    edges: crate::FxIndexMap<DirectedEdgeKey, crate::multigraph_storage::CompactBucket>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
     csr_cache: MultiDiCsrCache,
@@ -2779,7 +2781,7 @@ impl MultiDiGraph {
             if bucket.is_empty() {
                 return None;
             }
-            Some((target.as_str(), bucket.iter().map(|(&k, a)| (k, a))))
+            Some((target.as_str(), bucket.iter()))
         }))
     }
 
@@ -2799,7 +2801,7 @@ impl MultiDiGraph {
             if bucket.is_empty() {
                 return None;
             }
-            Some((source.as_str(), bucket.iter().map(|(&k, a)| (k, a))))
+            Some((source.as_str(), bucket.iter()))
         }))
     }
 
@@ -3120,7 +3122,7 @@ impl MultiDiGraph {
             (Some(source), Some(target)) => self
                 .edges
                 .get(&DirectedEdgeKeyRef::new(source, target))
-                .map_or(0, IndexMap::len),
+                .map_or(0, crate::multigraph_storage::CompactBucket::len),
             _ => 0,
         }
     }
@@ -3283,17 +3285,23 @@ impl MultiDiGraph {
     /// Return the out-degree of a node (number of outgoing parallel edges).
     #[must_use]
     pub fn out_degree(&self, node: &str) -> usize {
-        self.successors
-            .get(node)
-            .map_or(0, |succs| succs.values().map(IndexSet::len).sum())
+        self.successors.get(node).map_or(0, |succs| {
+            succs
+                .values()
+                .map(crate::multigraph_storage::CompactKeys::len)
+                .sum()
+        })
     }
 
     /// Return the in-degree of a node (number of incoming parallel edges).
     #[must_use]
     pub fn in_degree(&self, node: &str) -> usize {
-        self.predecessors
-            .get(node)
-            .map_or(0, |preds| preds.values().map(IndexSet::len).sum())
+        self.predecessors.get(node).map_or(0, |preds| {
+            preds
+                .values()
+                .map(crate::multigraph_storage::CompactKeys::len)
+                .sum()
+        })
     }
 
     /// Return the degree of a node (in-degree + out-degree).
@@ -3532,33 +3540,34 @@ impl MultiDiGraph {
                 self.predecessors.entry(target.clone()).or_default();
             }
             let edge_key = DirectedEdgeKey::new(&source, &target);
-            let bucket = self.edges.entry(edge_key).or_default();
-            match bucket.entry(key) {
+            match self.edges.entry(edge_key) {
                 indexmap::map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().extend(attrs);
+                    if entry.get_mut().merge(key, attrs) {
+                        self.edge_count += 1;
+                        inserted += 1;
+                    }
                 }
                 indexmap::map::Entry::Vacant(entry) => {
                     self.edge_count += 1;
                     inserted += 1;
-                    entry.insert(attrs);
+                    entry.insert(crate::multigraph_storage::CompactBucket::One(key, attrs));
                 }
             }
             if let Some(succ_row) = self.successors.get_mut(&source) {
                 if let Some(keys) = succ_row.get_mut(&target) {
                     keys.insert(key);
                 } else {
-                    let mut keys = IndexSet::default();
-                    keys.insert(key);
-                    succ_row.insert(target.clone(), keys);
+                    succ_row.insert(
+                        target.clone(),
+                        crate::multigraph_storage::CompactKeys::One(key),
+                    );
                 }
             }
             if let Some(pred_row) = self.predecessors.get_mut(&target) {
                 if let Some(keys) = pred_row.get_mut(&source) {
                     keys.insert(key);
                 } else {
-                    let mut keys = IndexSet::default();
-                    keys.insert(key);
-                    pred_row.insert(source, keys);
+                    pred_row.insert(source, crate::multigraph_storage::CompactKeys::One(key));
                 }
             }
         }
@@ -3619,16 +3628,15 @@ impl MultiDiGraph {
                 .edges
                 .get_mut(&DirectedEdgeKeyRef::new(source.as_str(), target.as_str()))
             {
-                if let indexmap::map::Entry::Vacant(entry) = bucket.entry(key) {
+                if bucket.merge(key, AttrMap::new()) {
                     self.edge_count += 1;
                     inserted += 1;
-                    entry.insert(AttrMap::new());
                 }
             } else {
-                let mut bucket = crate::FxIndexMap::default();
-                bucket.insert(key, AttrMap::new());
-                self.edges
-                    .insert(DirectedEdgeKey::new(source, target), bucket);
+                self.edges.insert(
+                    DirectedEdgeKey::new(source, target),
+                    crate::multigraph_storage::CompactBucket::One(key, AttrMap::new()),
+                );
                 self.edge_count += 1;
                 inserted += 1;
             }
@@ -3636,18 +3644,20 @@ impl MultiDiGraph {
                 if let Some(keys) = succ_row.get_mut(target.as_str()) {
                     keys.insert(key);
                 } else {
-                    let mut keys = IndexSet::default();
-                    keys.insert(key);
-                    succ_row.insert(target.clone(), keys);
+                    succ_row.insert(
+                        target.clone(),
+                        crate::multigraph_storage::CompactKeys::One(key),
+                    );
                 }
             }
             if let Some(pred_row) = self.predecessors.get_mut(target.as_str()) {
                 if let Some(keys) = pred_row.get_mut(source.as_str()) {
                     keys.insert(key);
                 } else {
-                    let mut keys = IndexSet::default();
-                    keys.insert(key);
-                    pred_row.insert(source.clone(), keys);
+                    pred_row.insert(
+                        source.clone(),
+                        crate::multigraph_storage::CompactKeys::One(key),
+                    );
                 }
             }
         }
@@ -3711,32 +3721,56 @@ impl MultiDiGraph {
                 continue;
             };
             let edge_key = DirectedEdgeKey::new(source, target);
-            let bucket = self.edges.entry(edge_key).or_default();
-            if !bucket.contains_key(&key) {
-                self.edge_count += 1;
-                inserted += 1;
+            match self.edges.entry(edge_key) {
+                indexmap::map::Entry::Occupied(mut entry) => {
+                    let bucket = entry.get_mut();
+                    if let Some(edge_attrs) = bucket.get_mut(&key) {
+                        if !attrs.is_empty()
+                            && attrs
+                                .iter()
+                                .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
+                        {
+                            merged_changed = true;
+                        }
+                        edge_attrs.extend(attrs);
+                    } else {
+                        self.edge_count += 1;
+                        inserted += 1;
+                        let _ = bucket.merge(key, attrs);
+                    }
+                }
+                indexmap::map::Entry::Vacant(entry) => {
+                    self.edge_count += 1;
+                    inserted += 1;
+                    entry.insert(crate::multigraph_storage::CompactBucket::One(key, attrs));
+                }
             }
-            let edge_attrs = bucket.entry(key).or_default();
-            if !attrs.is_empty()
-                && attrs
-                    .iter()
-                    .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
-            {
-                merged_changed = true;
-            }
-            edge_attrs.extend(attrs);
-            self.successors
+            match self
+                .successors
                 .get_mut(source.as_str())
                 .expect("fresh node row exists")
                 .entry(target.clone())
-                .or_default()
-                .insert(key);
-            self.predecessors
+            {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(crate::multigraph_storage::CompactKeys::One(key));
+                }
+            }
+            match self
+                .predecessors
                 .get_mut(target.as_str())
                 .expect("fresh node row exists")
                 .entry(source.clone())
-                .or_default()
-                .insert(key);
+            {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(crate::multigraph_storage::CompactKeys::One(key));
+                }
+            }
         }
 
         if node_count > 0 || inserted > 0 || merged_changed {
@@ -3861,7 +3895,7 @@ impl MultiDiGraph {
             let edge_bucket = self.edges.get(&edge_key);
             let mut k = edge_bucket.map_or(0, |b| b.len());
             if let Some(b) = edge_bucket {
-                while b.contains_key(&k) {
+                while b.contains_key(k) {
                     k += 1;
                 }
             }
@@ -3872,48 +3906,71 @@ impl MultiDiGraph {
         // a second hash of the pair.
         let edges_len_before = self.edges.len();
         let mut changed;
-        let edge_attr_count = {
-            let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
-            let is_new = !edge_bucket.contains_key(&key);
-            if is_new {
+        let edge_attr_count = match self.edges.entry(edge_key.clone()) {
+            indexmap::map::Entry::Occupied(mut entry) => {
+                let edge_bucket = entry.get_mut();
+                if let Some(edge_attrs) = edge_bucket.get_mut(&key) {
+                    changed = false;
+                    if edge_attrs.is_empty() {
+                        // br-r37-c1-jc9e4: a fresh keyed bucket TAKES the caller's map
+                        // whole. Same lever and same byte-identity argument as the
+                        // `Graph` sibling; `attrs` here is the function's own owned
+                        // parameter, so the move is unambiguous.
+                        if !attrs.is_empty() {
+                            changed = true;
+                        }
+                        *edge_attrs = attrs;
+                    } else {
+                        if !attrs.is_empty()
+                            && attrs
+                                .iter()
+                                .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
+                        {
+                            changed = true;
+                        }
+                        edge_attrs.extend(attrs);
+                    }
+                } else {
+                    self.edge_count += 1;
+                    changed = true;
+                    let _ = edge_bucket.merge(key, attrs);
+                }
+                edge_bucket.len()
+            }
+            indexmap::map::Entry::Vacant(entry) => {
                 self.edge_count += 1;
+                changed = true;
+                entry.insert(crate::multigraph_storage::CompactBucket::One(key, attrs));
+                1
             }
-            changed = is_new;
-            let edge_attrs = edge_bucket.entry(key).or_default();
-            if edge_attrs.is_empty() {
-                // br-r37-c1-jc9e4: a fresh keyed bucket TAKES the caller's map
-                // whole. Same lever and same byte-identity argument as the
-                // `Graph` sibling; `attrs` here is the function's own owned
-                // parameter, so the move is unambiguous.
-                if !attrs.is_empty() {
-                    changed = true;
-                }
-                *edge_attrs = attrs;
-            } else {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
-                {
-                    changed = true;
-                }
-                edge_attrs.extend(attrs);
-            }
-            edge_bucket.len()
         };
 
-        self.successors
+        match self
+            .successors
             .entry(source.clone())
             .or_default()
             .entry(target.clone())
-            .or_default()
-            .insert(key);
-        self.predecessors
+        {
+            indexmap::map::Entry::Occupied(mut cell) => {
+                let _ = cell.get_mut().insert(key);
+            }
+            indexmap::map::Entry::Vacant(slot) => {
+                slot.insert(crate::multigraph_storage::CompactKeys::One(key));
+            }
+        }
+        match self
+            .predecessors
             .entry(target.clone())
             .or_default()
             .entry(source.clone())
-            .or_default()
-            .insert(key);
+        {
+            indexmap::map::Entry::Occupied(mut cell) => {
+                let _ = cell.get_mut().insert(key);
+            }
+            indexmap::map::Entry::Vacant(slot) => {
+                slot.insert(crate::multigraph_storage::CompactKeys::One(key));
+            }
+        }
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -4078,25 +4135,28 @@ impl MultiDiGraph {
         let removal_key = key.or_else(|| {
             self.edges
                 .get(&edge_key)
-                .and_then(|edge_bucket| edge_bucket.keys().next_back().copied())
+                .and_then(crate::multigraph_storage::CompactBucket::last_key)
         });
 
         let Some(removal_key) = removal_key else {
             return false;
         };
 
-        let removed = self
-            .edges
-            .get_mut(&edge_key)
-            .is_some_and(|edge_bucket| edge_bucket.shift_remove(&removal_key).is_some());
+        let Some(edge_bucket) = self.edges.get_mut(&edge_key) else {
+            return false;
+        };
+        let (removed, bucket_empty) = edge_bucket.shift_remove(removal_key);
         if !removed {
             return false;
+        }
+        if bucket_empty && preserve_pair {
+            *edge_bucket =
+                crate::multigraph_storage::CompactBucket::Many(crate::FxIndexMap::default());
         }
 
         self.edge_count -= 1;
 
-        let should_drop_bucket =
-            !preserve_pair && self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
+        let should_drop_bucket = !preserve_pair && bucket_empty;
         // br-r37-c1-s8dj1: the position the bucket occupies BEFORE swap_remove
         // frees it. Resolved only when a live pair index will actually use it.
         let dropped_position =
@@ -4121,14 +4181,22 @@ impl MultiDiGraph {
                 .get_mut(source)
                 .and_then(|row| row.get_mut(target))
             {
-                keys.shift_remove(&removal_key);
+                let (_, now_empty) = keys.shift_remove(removal_key);
+                if now_empty {
+                    *keys =
+                        crate::multigraph_storage::CompactKeys::Many(crate::FxIndexSet::default());
+                }
             }
             if let Some(keys) = self
                 .predecessors
                 .get_mut(target)
                 .and_then(|row| row.get_mut(source))
             {
-                keys.shift_remove(&removal_key);
+                let (_, now_empty) = keys.shift_remove(removal_key);
+                if now_empty {
+                    *keys =
+                        crate::multigraph_storage::CompactKeys::Many(crate::FxIndexSet::default());
+                }
             }
         } else {
             self.remove_successor_key(source, target, removal_key);
@@ -4340,7 +4408,7 @@ impl MultiDiGraph {
                             ordered.push(MultiDiEdgeSnapshot {
                                 source: node.clone(),
                                 target: target.clone(),
-                                key: *key,
+                                key,
                                 attrs: attrs.clone(),
                             });
                         }
@@ -4362,7 +4430,7 @@ impl MultiDiGraph {
                     let pair = DirectedEdgeKeyRef::new(node, target);
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
-                            ordered.push((node.as_str(), target.as_str(), *key, attrs));
+                            ordered.push((node.as_str(), target.as_str(), key, attrs));
                         }
                     }
                 }
@@ -4403,7 +4471,7 @@ impl MultiDiGraph {
                     let pair = DirectedEdgeKeyRef::new(node, target);
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
-                            visit(node.as_str(), target.as_str(), *key, attrs)?;
+                            visit(node.as_str(), target.as_str(), key, attrs)?;
                         }
                     }
                 }
@@ -4432,7 +4500,7 @@ impl MultiDiGraph {
                                 target_index,
                                 node.as_str(),
                                 target.as_str(),
-                                *key,
+                                key,
                                 attrs,
                             )?;
                         }
@@ -4465,11 +4533,13 @@ impl MultiDiGraph {
             predecessors.insert(node.clone(), crate::FxIndexMap::default());
         }
 
-        let mut edges: crate::FxIndexMap<DirectedEdgeKey, crate::FxIndexMap<usize, AttrMap>> =
-            crate::FxIndexMap::with_capacity_and_hasher(
-                self.edges.len(),
-                rustc_hash::FxBuildHasher,
-            );
+        let mut edges: crate::FxIndexMap<
+            DirectedEdgeKey,
+            crate::multigraph_storage::CompactBucket,
+        > = crate::FxIndexMap::with_capacity_and_hasher(
+            self.edges.len(),
+            rustc_hash::FxBuildHasher,
+        );
         let mut edge_count = 0usize;
         for source in self.nodes.keys() {
             let Some(neighbors) = self.successors.get(source) else {
@@ -4484,21 +4554,42 @@ impl MultiDiGraph {
                     continue;
                 }
                 let reversed_pair = DirectedEdgeKey::new(target, source);
-                let reversed_bucket = edges.entry(reversed_pair).or_default();
-                let reversed_succ_keys = successors
-                    .get_mut(target.as_str())
-                    .expect("target row exists")
-                    .entry(source.clone())
-                    .or_default();
-                let reversed_pred_keys = predecessors
-                    .get_mut(source.as_str())
-                    .expect("source row exists")
-                    .entry(target.clone())
-                    .or_default();
                 for (key, attrs) in edge_bucket {
-                    reversed_bucket.insert(*key, attrs.clone());
-                    reversed_succ_keys.insert(*key);
-                    reversed_pred_keys.insert(*key);
+                    match edges.entry(reversed_pair.clone()) {
+                        indexmap::map::Entry::Occupied(mut entry) => {
+                            let _ = entry.get_mut().merge(key, attrs.clone());
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(crate::multigraph_storage::CompactBucket::One(
+                                key,
+                                attrs.clone(),
+                            ));
+                        }
+                    }
+                    match successors
+                        .get_mut(target.as_str())
+                        .expect("target row exists")
+                        .entry(source.clone())
+                    {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(crate::multigraph_storage::CompactKeys::One(key));
+                        }
+                    }
+                    match predecessors
+                        .get_mut(source.as_str())
+                        .expect("source row exists")
+                        .entry(target.clone())
+                    {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(crate::multigraph_storage::CompactKeys::One(key));
+                        }
+                    }
                     edge_count += 1;
                 }
             }
@@ -4536,7 +4627,7 @@ impl MultiDiGraph {
                 let pair = DirectedEdgeKeyRef::new(src, target);
                 if let Some(edge_bucket) = self.edges.get(&pair) {
                     for (key, attrs) in edge_bucket {
-                        ordered.push((src.as_str(), target.as_str(), *key, attrs));
+                        ordered.push((src.as_str(), target.as_str(), key, attrs));
                     }
                 }
             }
@@ -4565,8 +4656,8 @@ impl MultiDiGraph {
         if let Some(neighbors) = self.successors.get_mut(source)
             && let Some(keys) = neighbors.get_mut(target)
         {
-            keys.shift_remove(&key);
-            drop_neighbor = keys.is_empty();
+            let (_, now_empty) = keys.shift_remove(key);
+            drop_neighbor = now_empty;
         }
         if drop_neighbor && let Some(neighbors) = self.successors.get_mut(source) {
             neighbors.shift_remove(target);
@@ -4578,8 +4669,8 @@ impl MultiDiGraph {
         if let Some(neighbors) = self.predecessors.get_mut(target)
             && let Some(keys) = neighbors.get_mut(source)
         {
-            keys.shift_remove(&key);
-            drop_neighbor = keys.is_empty();
+            let (_, now_empty) = keys.shift_remove(key);
+            drop_neighbor = now_empty;
         }
         if drop_neighbor && let Some(neighbors) = self.predecessors.get_mut(target) {
             neighbors.shift_remove(source);

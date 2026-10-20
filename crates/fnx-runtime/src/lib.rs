@@ -52,6 +52,137 @@ pub enum CgseValue {
 
 impl Eq for CgseValue {}
 
+#[derive(Clone, Copy)]
+struct InternedAttrKey(&'static String);
+
+impl PartialEq for InternedAttrKey {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.0, other.0) || self.0.as_str() == other.0.as_str()
+    }
+}
+
+impl Eq for InternedAttrKey {}
+
+impl std::hash::Hash for InternedAttrKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.as_str().hash(state);
+    }
+}
+
+impl std::borrow::Borrow<str> for InternedAttrKey {
+    fn borrow(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl std::fmt::Debug for InternedAttrKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.0, f)
+    }
+}
+
+static GLOBAL_ATTR_KEYS: std::sync::LazyLock<
+    std::sync::RwLock<std::collections::HashSet<InternedAttrKey, rustc_hash::FxBuildHasher>>,
+> = std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashSet::default()));
+
+static WEIGHT_ATTR_KEY: std::sync::LazyLock<&'static String> =
+    std::sync::LazyLock::new(|| Box::leak(Box::new("weight".to_owned())));
+
+thread_local! {
+    static LOCAL_ATTR_KEYS: std::cell::RefCell<
+        std::collections::HashSet<InternedAttrKey, rustc_hash::FxBuildHasher>,
+    > = std::cell::RefCell::new(std::collections::HashSet::default());
+}
+
+#[must_use]
+#[inline]
+pub fn weight_attr_key() -> &'static String {
+    *WEIGHT_ATTR_KEY
+}
+
+#[must_use]
+pub fn intern_attr_key(key: &str) -> &'static String {
+    if key == "weight" {
+        return *WEIGHT_ATTR_KEY;
+    }
+    if let Some(found) = LOCAL_ATTR_KEYS.with(|local| local.borrow().get(key).map(|k| k.0)) {
+        return found;
+    }
+    if let Ok(guard) = GLOBAL_ATTR_KEYS.read()
+        && let Some(found) = guard.get(key)
+    {
+        let interned = found.0;
+        LOCAL_ATTR_KEYS.with(|local| {
+            let mut set = local.borrow_mut();
+            if set.len() < 4096 {
+                set.insert(InternedAttrKey(interned));
+            }
+        });
+        return interned;
+    }
+    let interned = match GLOBAL_ATTR_KEYS.write() {
+        Ok(mut guard) => {
+            if let Some(found) = guard.get(key) {
+                found.0
+            } else {
+                let leaked: &'static String = Box::leak(Box::new(key.to_owned()));
+                guard.insert(InternedAttrKey(leaked));
+                leaked
+            }
+        }
+        Err(_) => Box::leak(Box::new(key.to_owned())),
+    };
+    LOCAL_ATTR_KEYS.with(|local| {
+        let mut set = local.borrow_mut();
+        if set.len() < 4096 {
+            set.insert(InternedAttrKey(interned));
+        }
+    });
+    interned
+}
+
+#[must_use]
+pub fn intern_attr_key_owned(key: String) -> &'static String {
+    if key == "weight" {
+        return *WEIGHT_ATTR_KEY;
+    }
+    if let Some(found) = LOCAL_ATTR_KEYS.with(|local| local.borrow().get(key.as_str()).map(|k| k.0))
+    {
+        return found;
+    }
+    if let Ok(guard) = GLOBAL_ATTR_KEYS.read()
+        && let Some(found) = guard.get(key.as_str())
+    {
+        let interned = found.0;
+        LOCAL_ATTR_KEYS.with(|local| {
+            let mut set = local.borrow_mut();
+            if set.len() < 4096 {
+                set.insert(InternedAttrKey(interned));
+            }
+        });
+        return interned;
+    }
+    let interned = match GLOBAL_ATTR_KEYS.write() {
+        Ok(mut guard) => {
+            if let Some(found) = guard.get(key.as_str()) {
+                found.0
+            } else {
+                let leaked: &'static String = Box::leak(Box::new(key));
+                guard.insert(InternedAttrKey(leaked));
+                leaked
+            }
+        }
+        Err(_) => Box::leak(Box::new(key)),
+    };
+    LOCAL_ATTR_KEYS.with(|local| {
+        let mut set = local.borrow_mut();
+        if set.len() < 4096 {
+            set.insert(InternedAttrKey(interned));
+        }
+    });
+    interned
+}
+
 /// An attribute map that keeps its keys in INSERTION order, as the Python dict
 /// it stands for does (br-r37-c1-6hyf1).
 ///
@@ -72,15 +203,20 @@ impl Eq for CgseValue {}
 /// hash index is kept beside the entries, so a map with thousands of keys -
 /// an adversarial graph - still finds one in O(1) rather than O(keys).
 ///
+/// Attribute keys are interned as `&'static String` so each entry stores an
+/// 8-byte reference rather than a 24-byte `String` header plus a per-edge heap
+/// allocation.
+///
 /// Removal keeps the other keys in order (a dict's `del`). Equality ignores
 /// order, as a dict's does.
 #[derive(Clone, Default)]
 pub struct AttrMap {
-    entries: Vec<(String, CgseValue)>,
+    entries: Vec<(&'static String, CgseValue)>,
     // Boxed so a map is 32 bytes, not 56: the index is absent from nearly every
     // map, and `CgseValue::Map` holds an `AttrMap` inline.
     #[allow(clippy::box_collection)]
-    index: Option<Box<std::collections::HashMap<String, usize, rustc_hash::FxBuildHasher>>>,
+    index:
+        Option<Box<std::collections::HashMap<InternedAttrKey, usize, rustc_hash::FxBuildHasher>>>,
 }
 
 impl AttrMap {
@@ -101,7 +237,7 @@ impl AttrMap {
     }
 
     #[must_use]
-    pub fn from_unique_entries(entries: Vec<(String, CgseValue)>) -> Self {
+    pub fn from_unique_interned_entries(entries: Vec<(&'static String, CgseValue)>) -> Self {
         let mut map = Self {
             entries,
             index: None,
@@ -110,6 +246,15 @@ impl AttrMap {
             map.rebuild_index();
         }
         map
+    }
+
+    #[must_use]
+    pub fn from_unique_entries(entries: Vec<(String, CgseValue)>) -> Self {
+        let interned = entries
+            .into_iter()
+            .map(|(k, v)| (intern_attr_key_owned(k), v))
+            .collect();
+        Self::from_unique_interned_entries(interned)
     }
 
     #[must_use]
@@ -125,7 +270,17 @@ impl AttrMap {
     fn position(&self, key: &str) -> Option<usize> {
         match &self.index {
             Some(index) => index.get(key).copied(),
-            None => self.entries.iter().position(|(k, _)| k == key),
+            None => self.entries.iter().position(|(k, _)| k.as_str() == key),
+        }
+    }
+
+    fn position_interned(&self, key: &'static String) -> Option<usize> {
+        match &self.index {
+            Some(index) => index.get(key.as_str()).copied(),
+            None => self
+                .entries
+                .iter()
+                .position(|(k, _)| std::ptr::eq(*k, key) || k.as_str() == key.as_str()),
         }
     }
 
@@ -135,7 +290,7 @@ impl AttrMap {
                 self.entries
                     .iter()
                     .enumerate()
-                    .map(|(i, (k, _))| (k.clone(), i))
+                    .map(|(i, (k, _))| (InternedAttrKey(k), i))
                     .collect(),
             )
         });
@@ -150,7 +305,7 @@ impl AttrMap {
     pub fn get_key_value(&self, key: &str) -> Option<(&String, &CgseValue)> {
         self.position(key).map(|i| {
             let (k, v) = &self.entries[i];
-            (k, v)
+            (*k, v)
         })
     }
 
@@ -163,16 +318,16 @@ impl AttrMap {
         self.position(key).is_some()
     }
 
-    /// Set `key`: an existing key keeps its place, a new one goes last (a
-    /// dict's `d[k] = v`). Returns the value it replaced.
-    pub fn insert(&mut self, key: String, value: CgseValue) -> Option<CgseValue> {
-        if let Some(i) = self.position(&key) {
+    /// Set an already-interned `key`: an existing key keeps its place, a new
+    /// one goes last (a dict's `d[k] = v`). Returns the value it replaced.
+    pub fn insert_interned(&mut self, key: &'static String, value: CgseValue) -> Option<CgseValue> {
+        if let Some(i) = self.position_interned(key) {
             return Some(std::mem::replace(&mut self.entries[i].1, value));
         }
         let position = self.entries.len();
         match &mut self.index {
             Some(index) => {
-                index.insert(key.clone(), position);
+                index.insert(InternedAttrKey(key), position);
                 self.entries.push((key, value));
             }
             None => {
@@ -183,6 +338,18 @@ impl AttrMap {
             }
         }
         None
+    }
+
+    /// Set `key` from a borrowed `&str` without allocating an owned `String`
+    /// when the key is already interned.
+    pub fn insert_str(&mut self, key: &str, value: CgseValue) -> Option<CgseValue> {
+        self.insert_interned(intern_attr_key(key), value)
+    }
+
+    /// Set `key`: an existing key keeps its place, a new one goes last (a
+    /// dict's `d[k] = v`). Returns the value it replaced.
+    pub fn insert(&mut self, key: String, value: CgseValue) -> Option<CgseValue> {
+        self.insert_interned(intern_attr_key_owned(key), value)
     }
 
     /// Remove `key`, keeping every other key where it was (a dict's `del`).
@@ -216,7 +383,7 @@ impl AttrMap {
     }
 
     pub fn keys(&self) -> impl DoubleEndedIterator<Item = &String> + ExactSizeIterator + Clone {
-        self.entries.iter().map(|(k, _)| k)
+        self.entries.iter().map(|(k, _)| *k)
     }
 
     pub fn values(
@@ -238,13 +405,13 @@ impl AttrMap {
 
 /// `AttrMap::iter`: `(key, value)` pairs in insertion order.
 #[derive(Clone)]
-pub struct AttrMapIter<'a>(std::slice::Iter<'a, (String, CgseValue)>);
+pub struct AttrMapIter<'a>(std::slice::Iter<'a, (&'static String, CgseValue)>);
 
 impl<'a> Iterator for AttrMapIter<'a> {
     type Item = (&'a String, &'a CgseValue);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (k, v))
+        self.0.next().map(|(k, v)| (*k, v))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -254,20 +421,20 @@ impl<'a> Iterator for AttrMapIter<'a> {
 
 impl DoubleEndedIterator for AttrMapIter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.0.next_back().map(|(k, v)| (k, v))
+        self.0.next_back().map(|(k, v)| (*k, v))
     }
 }
 
 impl ExactSizeIterator for AttrMapIter<'_> {}
 
 /// `AttrMap::iter_mut`: `(key, value)` pairs in insertion order.
-pub struct AttrMapIterMut<'a>(std::slice::IterMut<'a, (String, CgseValue)>);
+pub struct AttrMapIterMut<'a>(std::slice::IterMut<'a, (&'static String, CgseValue)>);
 
 impl<'a> Iterator for AttrMapIterMut<'a> {
     type Item = (&'a String, &'a mut CgseValue);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (&*k, v))
+        self.0.next().map(|(k, v)| (*k, v))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -277,7 +444,7 @@ impl<'a> Iterator for AttrMapIterMut<'a> {
 
 impl DoubleEndedIterator for AttrMapIterMut<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.0.next_back().map(|(k, v)| (&*k, v))
+        self.0.next_back().map(|(k, v)| (*k, v))
     }
 }
 
@@ -347,6 +514,14 @@ impl FromIterator<(String, CgseValue)> for AttrMap {
     }
 }
 
+impl FromIterator<(&'static String, CgseValue)> for AttrMap {
+    fn from_iter<I: IntoIterator<Item = (&'static String, CgseValue)>>(iter: I) -> Self {
+        let mut map = Self::new();
+        map.extend(iter);
+        map
+    }
+}
+
 impl<const N: usize> From<[(String, CgseValue); N]> for AttrMap {
     fn from(entries: [(String, CgseValue); N]) -> Self {
         entries.into_iter().collect()
@@ -361,9 +536,17 @@ impl Extend<(String, CgseValue)> for AttrMap {
     }
 }
 
+impl Extend<(&'static String, CgseValue)> for AttrMap {
+    fn extend<I: IntoIterator<Item = (&'static String, CgseValue)>>(&mut self, iter: I) {
+        for (key, value) in iter {
+            self.insert_interned(key, value);
+        }
+    }
+}
+
 impl IntoIterator for AttrMap {
-    type Item = (String, CgseValue);
-    type IntoIter = std::vec::IntoIter<(String, CgseValue)>;
+    type Item = (&'static String, CgseValue);
+    type IntoIter = std::vec::IntoIter<(&'static String, CgseValue)>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.entries.into_iter()

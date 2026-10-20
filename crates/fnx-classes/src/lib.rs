@@ -2468,9 +2468,7 @@ impl Graph {
             let edge_key = Self::canon_pair(left_slot, right_slot);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
                 // Duplicate edge within the batch: merge attrs (last wins).
-                for (key, value) in attrs {
-                    existing.insert(key, value);
-                }
+                existing.extend(attrs);
                 continue;
             }
 
@@ -3410,7 +3408,7 @@ enum IntAdjEdgeDelta<'a> {
 
 /// Stable-slot storage for `MultiGraph`. Test-only positional prototypes stay
 /// alongside it as parity and benchmark comparators for the storage cutover.
-mod multigraph_storage {
+pub(crate) mod multigraph_storage {
     use super::{AttrMap, CompatibilityMode, MultiEdgeSnapshot, MultiGraphSnapshot, SlotOrder};
     use indexmap::IndexMap;
     #[cfg(test)]
@@ -3686,6 +3684,18 @@ mod multigraph_storage {
             }
         }
 
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        pub fn iter(&self) -> CompactKeysIter<'_> {
+            match self {
+                Self::One(key) => CompactKeysIter::One(Some(key)),
+                Self::Many(set) => CompactKeysIter::Many(set.iter()),
+            }
+        }
+
         /// br-r37-c1-thp6w S9: order-preserving key removal; returns
         /// (removed, cell_now_empty). A `Many` that shrinks to one entry stays
         /// `Many` — only iteration order is observable, not the variant.
@@ -3699,6 +3709,22 @@ mod multigraph_storage {
                     let removed = set.shift_remove(&key);
                     (removed, set.is_empty())
                 }
+            }
+        }
+    }
+
+    pub enum CompactKeysIter<'a> {
+        One(Option<&'a usize>),
+        Many(indexmap::set::Iter<'a, usize>),
+    }
+
+    impl<'a> Iterator for CompactKeysIter<'a> {
+        type Item = &'a usize;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(it) => it.next(),
             }
         }
     }
@@ -3758,6 +3784,18 @@ mod multigraph_storage {
             match self {
                 Self::One(existing, attrs) => (*existing == key).then_some(attrs),
                 Self::Many(map) => map.get(&key),
+            }
+        }
+
+        #[must_use]
+        pub fn get(&self, key: &usize) -> Option<&AttrMap> {
+            self.attrs_for(*key)
+        }
+
+        pub fn get_mut(&mut self, key: &usize) -> Option<&mut AttrMap> {
+            match self {
+                Self::One(existing, attrs) => (*existing == *key).then_some(attrs),
+                Self::Many(map) => map.get_mut(key),
             }
         }
 
@@ -3854,6 +3892,22 @@ mod multigraph_storage {
                 Self::Many(map) => CompactBucketValues::Many(map.values()),
             }
         }
+
+        pub fn values_mut(&mut self) -> CompactBucketValuesMut<'_> {
+            match self {
+                Self::One(_, attrs) => CompactBucketValuesMut::One(Some(attrs)),
+                Self::Many(map) => CompactBucketValuesMut::Many(map.values_mut()),
+            }
+        }
+    }
+
+    impl<'a> IntoIterator for &'a CompactBucket {
+        type Item = (usize, &'a AttrMap);
+        type IntoIter = CompactBucketIter<'a>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter()
+        }
     }
 
     /// br-r37-c1-thp6w S12: enum iterator for `CompactBucket::iter` (no Box,
@@ -3900,6 +3954,22 @@ mod multigraph_storage {
 
     impl<'a> Iterator for CompactBucketValues<'a> {
         type Item = &'a AttrMap;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(values) => values.next(),
+            }
+        }
+    }
+
+    pub enum CompactBucketValuesMut<'a> {
+        One(Option<&'a mut AttrMap>),
+        Many(indexmap::map::ValuesMut<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketValuesMut<'a> {
+        type Item = &'a mut AttrMap;
 
         fn next(&mut self) -> Option<Self::Item> {
             match self {
@@ -4897,7 +4967,7 @@ mod multigraph_storage {
                 for (&v_slot, keys) in &self.rows[u_slot] {
                     // NetworkX copies edges, not empty adjacency cells left by
                     // a held keydict.clear(). The source still keeps its cell.
-                    if keys.len() == 0 {
+                    if keys.is_empty() {
                         dropped_empty_pairs = true;
                         continue;
                     }
@@ -4919,7 +4989,7 @@ mod multigraph_storage {
             for (u_slot, order) in new_orders {
                 let mut old = std::mem::take(&mut self.rows[u_slot]);
                 if dropped_empty_pairs {
-                    old.retain(|_, keys| keys.len() != 0);
+                    old.retain(|_, keys| !keys.is_empty());
                 }
                 let mut rebuilt = crate::FxIndexMap::with_capacity_and_hasher(
                     old.len(),
