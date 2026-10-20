@@ -101,6 +101,18 @@ impl AttrMap {
     }
 
     #[must_use]
+    pub fn from_unique_entries(entries: Vec<(String, CgseValue)>) -> Self {
+        let mut map = Self {
+            entries,
+            index: None,
+        };
+        if map.entries.len() >= Self::INDEXED_LEN {
+            map.rebuild_index();
+        }
+        map
+    }
+
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }

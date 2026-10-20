@@ -2707,6 +2707,16 @@ impl Graph {
         right: impl AsRef<str>,
         attrs: AttrMap,
     ) -> Result<(), GraphError> {
+        self.add_edge_with_attrs_outcome(left, right, attrs)
+            .map(|_| ())
+    }
+
+    pub fn add_edge_with_attrs_outcome(
+        &mut self,
+        left: impl AsRef<str>,
+        right: impl AsRef<str>,
+        attrs: AttrMap,
+    ) -> Result<(bool, bool, bool), GraphError> {
         self.compact_before_growth();
         let left = left.as_ref();
         let right = right.as_ref();
@@ -2863,7 +2873,7 @@ impl Graph {
             ],
         );
 
-        Ok(())
+        Ok((left_autocreated, !self_loop && right_autocreated, new_edge))
     }
 
     pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {

@@ -211,3 +211,34 @@ def test_positional_calls_unchanged():
     G.add_edges_from([(3, 4), (4, 5)])
     G.remove_nodes_from([3])
     assert sorted(G.nodes()) == [0, 1, 4, 5]
+
+
+@needs_nx
+@pytest.mark.parametrize("fnx_cls,nx_cls", SIMPLE_PAIRS, ids=["Graph", "DiGraph"])
+def test_simple_add_edge_weight_fast_path_parity(fnx_cls, nx_cls):
+    g, ng = fnx_cls(), nx_cls()
+    for target in (g, ng):
+        target.add_edge(0, 1, weight=None)
+        target.add_edge(1, 2, weight=1.5, color="red")
+        target.add_edge(1, 2, weight=2.5)
+        target.add_edge(2, 3, color="blue")
+        target.add_edge(2, 3, weight=4.0)
+
+    assert dict(g[0][1]) == dict(ng[0][1]) == {"weight": None}
+    assert dict(g[1][2]) == dict(ng[1][2]) == {"weight": 2.5, "color": "red"}
+    assert dict(g[2][3]) == dict(ng[2][3]) == {"color": "blue", "weight": 4.0}
+    assert list(g.edges(data=True)) == list(ng.edges(data=True))
+
+
+@needs_nx
+@pytest.mark.parametrize("fnx_cls,nx_cls", SIMPLE_PAIRS, ids=["Graph", "DiGraph"])
+def test_simple_add_edge_mixed_int_float_after_exact_ints_parity(fnx_cls, nx_cls):
+    g, ng = fnx_cls(), nx_cls()
+    for target in (g, ng):
+        target.add_edge(1, 2)
+        target.add_edge(1.0, 3)
+
+    g_adj_keys = {u: [(v, type(v)) for v in g[u]] for u in g}
+    ng_adj_keys = {u: [(v, type(v)) for v in ng[u]] for u in ng}
+    assert g_adj_keys == ng_adj_keys
+

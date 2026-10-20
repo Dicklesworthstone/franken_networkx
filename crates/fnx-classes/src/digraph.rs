@@ -1203,6 +1203,16 @@ impl DiGraph {
         target: impl AsRef<str>,
         attrs: AttrMap,
     ) -> Result<(), GraphError> {
+        self.add_edge_with_attrs_outcome(source, target, attrs)
+            .map(|_| ())
+    }
+
+    pub fn add_edge_with_attrs_outcome(
+        &mut self,
+        source: impl AsRef<str>,
+        target: impl AsRef<str>,
+        attrs: AttrMap,
+    ) -> Result<(bool, bool, bool), GraphError> {
         self.compact_before_growth();
         let source = source.as_ref();
         let target = target.as_ref();
@@ -1310,7 +1320,11 @@ impl DiGraph {
             ],
         );
 
-        Ok(())
+        Ok((
+            source_autocreated,
+            !self_loop && target_autocreated,
+            new_edge,
+        ))
     }
 
     /// Bulk-add a sequence of attribute-free directed edges. Bypasses

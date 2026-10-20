@@ -12245,9 +12245,10 @@ impl PyDiGraph {
         v: &Bound<'_, PyAny>,
     ) {
         let differs = |canonical: &str, passed: &Bound<'_, PyAny>| -> bool {
-            self.node_key_map.get(canonical).is_some_and(|stored| {
-                crate::PyGraph::display_objs_conflict(stored.bind(py), passed)
-            })
+            !passed.is_exact_instance_of::<PyString>()
+                && self.node_key_map.get(canonical).is_some_and(|stored| {
+                    crate::PyGraph::display_objs_conflict(stored.bind(py), passed)
+                })
         };
         if differs(v_canonical, v) {
             self.succ_py_keys
@@ -12259,6 +12260,155 @@ impl PyDiGraph {
                 .entry((v_canonical.to_owned(), u_canonical.to_owned()))
                 .or_insert_with(|| u.clone().unbind());
         }
+    }
+
+    pub(crate) fn add_edge(
+        &mut self,
+        py: Python<'_>,
+        u_of_edge: &Bound<'_, PyAny>,
+        v_of_edge: &Bound<'_, PyAny>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        self.add_edge_with_optional_weight(
+            py,
+            u_of_edge,
+            v_of_edge,
+            crate::OptionalWeightKwarg::Omitted,
+            attr,
+        )
+    }
+
+    pub(crate) fn add_edge_with_optional_weight(
+        &mut self,
+        py: Python<'_>,
+        u_of_edge: &Bound<'_, PyAny>,
+        v_of_edge: &Bound<'_, PyAny>,
+        weight: crate::OptionalWeightKwarg<'_, '_>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let u = u_of_edge;
+        let v = v_of_edge;
+        let u_exact_str = u.is_exact_instance_of::<PyString>();
+        let u_exact_fast = u_exact_str || u.is_exact_instance_of::<PyInt>();
+        if !u_exact_fast && !crate::node_key_hash_cannot_raise(u) {
+            if u.is_none() {
+                return Err(PyValueError::new_err("None cannot be a node"));
+            }
+            crate::hash_key_as_dict_would(u)?;
+        }
+        let v_exact_str = v.is_exact_instance_of::<PyString>();
+        let v_exact_fast = v_exact_str || v.is_exact_instance_of::<PyInt>();
+        if !v_exact_fast && !crate::node_key_hash_cannot_raise(v) {
+            if v.is_none() {
+                self.add_node(py, u, None)?;
+                return Err(PyValueError::new_err("None cannot be a node"));
+            }
+            if v.hash().is_err() {
+                self.add_node(py, u, None)?;
+                crate::hash_key_as_dict_would(v)?;
+            }
+        }
+        let mut u_buf = crate::ArrayString::<{ crate::CANONICAL_KEY_STACK_BUF }>::new();
+        let mut v_buf = crate::ArrayString::<{ crate::CANONICAL_KEY_STACK_BUF }>::new();
+        let u_canonical_key = crate::canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_canonical_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
+        let u_canonical = u_canonical_key.as_str();
+        let v_canonical = v_canonical_key.as_str();
+
+        let (rust_attrs, attrs_lossless, has_attrs) =
+            crate::extract_edge_attrs_with_lossless(&weight, attr)?;
+
+        let pre_existing_mirror =
+            if !attrs_lossless && self.inner.has_edge(u_canonical, v_canonical) {
+                Some(self.materialize_edge_py_attrs(py, u_canonical, v_canonical))
+            } else {
+                None
+            };
+
+        let node_count_before = self.inner.node_count();
+        let had_full_node_key_map = self.node_key_map.len() == node_count_before;
+        let was_all_exact = self.edge_attr_writes.exact_int_or_str_nodes_seq == self.nodes_seq
+            && (self.nodes_seq != 0 || node_count_before == 0);
+        let (u_was_new, v_was_new, was_new_edge) = self
+            .inner
+            .add_edge_with_attrs_outcome(u_canonical, v_canonical, rust_attrs)
+            .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+
+        if u_was_new || (!had_full_node_key_map && !self.node_key_map.contains_key(u_canonical)) {
+            self.node_key_map
+                .insert(u_canonical.to_owned(), u.clone().unbind());
+        }
+        if v_was_new
+            || (!had_full_node_key_map
+                && v_canonical != u_canonical
+                && !self.node_key_map.contains_key(v_canonical))
+        {
+            self.node_key_map
+                .insert(v_canonical.to_owned(), v.clone().unbind());
+        }
+        let all_nodes_exact = if u_was_new || v_was_new {
+            self.bump_nodes_seq();
+            if was_all_exact && (!u_was_new || u_exact_fast) && (!v_was_new || v_exact_fast) {
+                self.edge_attr_writes.exact_int_or_str_nodes_seq = self.nodes_seq;
+                true
+            } else {
+                false
+            }
+        } else {
+            was_all_exact
+        };
+        if was_new_edge
+            && !(all_nodes_exact && u_exact_fast && v_exact_fast)
+            && ((!v_was_new && !v_exact_str) || (!u_was_new && !u_exact_str))
+        {
+            self.maybe_store_row_keys(py, u_canonical, v_canonical, u, v);
+        }
+        if has_attrs {
+            let edge_existed = !was_new_edge;
+            if edge_existed || !attrs_lossless {
+                let py_dict = if let Some(m) = pre_existing_mirror {
+                    m
+                } else if edge_existed {
+                    self.materialize_edge_py_attrs(py, u_canonical, v_canonical)
+                } else {
+                    match self
+                        .edge_py_attrs
+                        .entry(Self::edge_key(u_canonical, v_canonical))
+                    {
+                        std::collections::hash_map::Entry::Occupied(e) => e.get().clone_ref(py),
+                        std::collections::hash_map::Entry::Vacant(e) => e
+                            .insert(self.edge_attr_writes.new_dict(py)?.unbind())
+                            .clone_ref(py),
+                    }
+                };
+                crate::update_edge_mirror_with_optional_weight(
+                    py,
+                    py_dict.bind(py),
+                    &weight,
+                    attr,
+                )?;
+            }
+            if !attrs_lossless {
+                self.mark_edges_dirty();
+            }
+        }
+
+        if (u_was_new || v_was_new) && self.node_iter_mirror_active() {
+            if u_was_new {
+                self.node_iter_mirror_insert(py, u_canonical)?;
+            }
+            if v_was_new {
+                self.node_iter_mirror_insert(py, v_canonical)?;
+            }
+        }
+        if !self.succ_row_py.is_empty() {
+            self.cached_succ_set_edge(py, u_canonical, v_canonical)?;
+        }
+        if !self.pred_row_py.is_empty() {
+            self.cached_pred_set_edge(py, v_canonical, u_canonical)?;
+        }
+        self.bump_edges_seq();
+        Ok(())
     }
 
     fn is_plain_batch_node(key: &Bound<'_, PyAny>) -> bool {
@@ -15340,139 +15490,20 @@ impl PyDiGraph {
     // br-r37-c1-addnoden follow-up: nx names these u_of_edge/v_of_edge;
     // a bare u/v collides with an edge attr keyed 'u' or 'v'
     // (add_edge(0, 1, u=5)). Match nx's names; alias to u/v for the body.
-    #[pyo3(signature = (u_of_edge, v_of_edge, **attr))]
-    fn add_edge(
+    #[pyo3(
+        name = "add_edge",
+        signature = (u_of_edge, v_of_edge, *, weight=crate::OptionalWeightKwarg::Omitted, **attr),
+        text_signature = "($self, u_of_edge, v_of_edge, **attr)"
+    )]
+    fn py_add_edge(
         &mut self,
         py: Python<'_>,
         u_of_edge: &Bound<'_, PyAny>,
         v_of_edge: &Bound<'_, PyAny>,
+        weight: crate::OptionalWeightKwarg<'_, '_>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
-        let u = u_of_edge;
-        let v = v_of_edge;
-        // br-r37-c1-aeshim: reject None and unhashable endpoints HERE. Of the
-        // four native `add_edge` kernels only `PyMultiGraph::add_edge` did, and
-        // this is a copy of its block. Measured against networkx by exception
-        // TYPE, ARGS and resulting node list, the unvalidated kernels diverged in
-        // 10 of 10 cases - and the unhashable ones did worse than raise wrongly:
-        // the object was STORED as a node and the graph became permanently
-        // unreadable, `G.nodes()` raising `TypeError: unhashable type` from a
-        // call site unrelated to the add. That is invisible through the public
-        // API only because the Python `add_edge` shim validates first; anything
-        // reaching the kernel directly got the corruption.
-        //
-        // Ordering matches networkx: u is created BEFORE v is examined, so a bad
-        // v leaves u on the graph.
-        if u.is_none() {
-            return Err(PyValueError::new_err("None cannot be a node"));
-        }
-        crate::hash_key_as_dict_would(u)?;
-        if v.is_none() {
-            self.add_node(py, u, None)?;
-            return Err(PyValueError::new_err("None cannot be a node"));
-        }
-        if v.hash().is_err() {
-            self.add_node(py, u, None)?;
-            crate::hash_key_as_dict_would(v)?;
-        }
-        let u_canonical = node_key_to_string(py, u)?;
-        let v_canonical = node_key_to_string(py, v)?;
-
-        // br-r37-c1-39d82: track new-node creation to bump
-        // nodes_seq for iterator staleness detection.
-        let u_was_new = !self.node_key_map.contains_key(&u_canonical);
-        let v_was_new = !self.node_key_map.contains_key(&v_canonical);
-
-        // Insert only what is new. `entry()` takes an OWNED key, so the former
-        // `entry(canonical.clone()).or_insert_with(..)` cloned both canonicals
-        // on every call to reach an insert that fires once per node (the
-        // multigraph's br-r37-c1-aeclone). The `v != u` guard keeps
-        // `or_insert_with` semantics for a self-loop, where both endpoints are
-        // new before either insert runs and u's display object must win.
-        if u_was_new {
-            self.node_key_map
-                .insert(u_canonical.clone(), u.clone().unbind());
-        }
-        if v_was_new && v_canonical != u_canonical {
-            self.node_key_map
-                .insert(v_canonical.clone(), v.clone().unbind());
-        }
-        if u_was_new || v_was_new {
-            self.bump_nodes_seq();
-        }
-        // br-r37-c1-z6uka: NEW directed edges record per-row display
-        // objects (succ gets v, pred gets u).
-        let edge_existed = self.inner.has_edge(&u_canonical, &v_canonical);
-        if !edge_existed {
-            self.maybe_store_row_keys(py, &u_canonical, &v_canonical, u, v);
-        }
-        // Attribute dicts stay lazy here, as add_node leaves node dicts
-        // (br-r37-c1-jc9e4) and the plain-edge batch leaves both
-        // (br-r37-c1-y0xps): every reader materialises a missing dict from the
-        // core, and a new node or edge materialises to `{}`, which is all
-        // networkx creates for one. So a node gets no dict here at all, and a
-        // NEW edge gets one only when its dict would not round-trip through
-        // the native store (attr_dict_is_batch_lossless: str keys, bool /
-        // float / str / i64 int values; the store keeps key order);
-        // otherwise the store is authoritative and the first read
-        // materialises the dict. An EXISTING edge's dict is seeded from the
-        // core before the update
-        // (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2), so attributes
-        // held only there survive the merge.
-        let mut rust_attrs = AttrMap::new();
-        if let Some(a) = attr
-            && !a.is_empty()
-        {
-            rust_attrs = py_dict_to_attr_map(a)?;
-            if edge_existed || !crate::attr_dict_is_batch_lossless(a) {
-                // Directed: edge key is (source, target) — NOT canonicalized.
-                let py_dict = if edge_existed {
-                    self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
-                } else {
-                    match self
-                        .edge_py_attrs
-                        .entry(Self::edge_key(&u_canonical, &v_canonical))
-                    {
-                        std::collections::hash_map::Entry::Occupied(e) => e.get().clone_ref(py),
-                        std::collections::hash_map::Entry::Vacant(e) => e
-                            .insert(self.edge_attr_writes.new_dict(py)?.unbind())
-                            .clone_ref(py),
-                    }
-                };
-                // One C-level update, in the caller's order, as Graph does
-                // (br-r37-c1-aefbatch).
-                py_dict.bind(py).update(a.as_mapping())?;
-            }
-            // A numeric projection cannot preserve subclass addition or the
-            // interpreter's exact-type sum dispatch. Keep the mirror live.
-            if !crate::attr_dict_is_batch_lossless(a) {
-                self.mark_edges_dirty();
-            }
-        }
-
-        // The core borrows its endpoint keys (br-r37-c1-jc9e4); handing it
-        // clones cost two allocations per call for nothing.
-        self.inner
-            .add_edge_with_attrs(&u_canonical, &v_canonical, rust_attrs)
-            .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-        // Keep the node-iteration mirror live (nx order: u before v).
-        if (u_was_new || v_was_new) && self.node_iter_mirror_active() {
-            if u_was_new {
-                self.node_iter_mirror_insert(py, &u_canonical)?;
-            }
-            if v_was_new {
-                self.node_iter_mirror_insert(py, &v_canonical)?;
-            }
-        }
-        if !self.succ_row_py.is_empty() {
-            self.cached_succ_set_edge(py, &u_canonical, &v_canonical)?;
-        }
-        if !self.pred_row_py.is_empty() {
-            self.cached_pred_set_edge(py, &v_canonical, &u_canonical)?;
-        }
-        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
-        self.bump_edges_seq();
-        Ok(())
+        self.add_edge_with_optional_weight(py, u_of_edge, v_of_edge, weight, attr)
     }
 
     #[pyo3(signature = (ebunch_to_add, **attr))]

@@ -2889,28 +2889,119 @@ pub(crate) fn weighted_edge_triplet<'py>(
     Ok((u?, v?, w?))
 }
 
+#[derive(Copy, Clone)]
+pub(crate) enum OptionalWeightKwarg<'a, 'py> {
+    Omitted,
+    Provided(pyo3::Borrowed<'a, 'py, PyAny>),
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for OptionalWeightKwarg<'a, 'py> {
+    type Error = std::convert::Infallible;
+
+    #[inline]
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        Ok(Self::Provided(obj))
+    }
+}
+
+pub(crate) fn extract_edge_attrs_with_lossless(
+    weight: &OptionalWeightKwarg<'_, '_>,
+    attr: Option<&Bound<'_, PyDict>>,
+) -> PyResult<(AttrMap, bool, bool)> {
+    let non_empty_attr = attr.filter(|a| !a.is_empty());
+    match (weight, non_empty_attr) {
+        (OptionalWeightKwarg::Omitted, None) => Ok((AttrMap::new(), true, false)),
+        (OptionalWeightKwarg::Provided(w), None) => {
+            let (cgse_val, val_lossless) = py_value_to_cgse_with_lossless(w)?;
+            Ok((
+                AttrMap::from_unique_entries(vec![("weight".to_owned(), cgse_val)]),
+                val_lossless,
+                true,
+            ))
+        }
+        (OptionalWeightKwarg::Omitted, Some(a)) => {
+            let (map, lossless) = py_dict_to_attr_map_with_lossless(a)?;
+            Ok((map, lossless, true))
+        }
+        (OptionalWeightKwarg::Provided(w), Some(a)) => {
+            let (w_cgse, w_lossless) = py_value_to_cgse_with_lossless(w)?;
+            let (map, a_lossless) = py_dict_to_attr_map_with_lossless(a)?;
+            let mut combined = AttrMap::with_capacity(map.len() + 1);
+            combined.insert("weight".to_owned(), w_cgse);
+            combined.extend(map);
+            Ok((combined, w_lossless && a_lossless, true))
+        }
+    }
+}
+
+pub(crate) fn update_edge_mirror_with_optional_weight(
+    py: Python<'_>,
+    mirror: &Bound<'_, PyDict>,
+    weight: &OptionalWeightKwarg<'_, '_>,
+    attr: Option<&Bound<'_, PyDict>>,
+) -> PyResult<()> {
+    if let OptionalWeightKwarg::Provided(w) = weight {
+        mirror.set_item(pyo3::intern!(py, "weight"), *w)?;
+    }
+    if let Some(a) = attr
+        && !a.is_empty()
+    {
+        mirror.update(a.as_mapping())?;
+    }
+    Ok(())
+}
+
 pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap> {
-    let mut rust_attrs = AttrMap::new();
+    Ok(py_dict_to_attr_map_with_lossless(attrs)?.0)
+}
+
+pub(crate) fn py_dict_to_attr_map_with_lossless(
+    attrs: &Bound<'_, PyDict>,
+) -> PyResult<(AttrMap, bool)> {
+    let len = attrs.len();
+    if len == 0 {
+        return Ok((AttrMap::new(), true));
+    }
+    let mut entries = Vec::with_capacity(len);
+    let mut all_str_keys = true;
+    let mut all_lossless = true;
     for (k, v) in attrs.iter() {
-        let key: String = if let Ok(s) = k.extract::<String>() {
-            s
+        let key = if let Ok(s) = k.downcast_exact::<PyString>() {
+            s.to_str()?.to_owned()
+        } else if let Ok(s) = k.downcast::<PyString>() {
+            all_lossless = false;
+            s.to_str()?.to_owned()
         } else {
+            all_str_keys = false;
+            all_lossless = false;
             k.str()?.to_string_lossy().into_owned()
         };
-        rust_attrs.insert(key, py_value_to_cgse(&v)?);
+        let (cgse_val, val_lossless) = py_value_to_cgse_with_lossless(&v)?;
+        if !val_lossless {
+            all_lossless = false;
+        }
+        entries.push((key, cgse_val));
     }
-    Ok(rust_attrs)
+    if all_str_keys {
+        Ok((AttrMap::from_unique_entries(entries), all_lossless))
+    } else {
+        let mut rust_attrs = AttrMap::with_capacity(len);
+        for (k, v) in entries {
+            rust_attrs.insert(k, v);
+        }
+        Ok((rust_attrs, false))
+    }
 }
 
 pub(crate) fn py_dict_to_attr_map_with_mirror(
     py: Python<'_>,
     attrs: &Bound<'_, PyDict>,
 ) -> PyResult<(AttrMap, Py<PyDict>)> {
-    let mut rust_attrs = AttrMap::new();
+    let mut rust_attrs = AttrMap::with_capacity(attrs.len());
     let mirror = PyDict::new(py);
     for (k, v) in attrs.iter() {
-        let key: String = if let Ok(s) = k.extract::<String>() {
-            s
+        let key: String = if let Ok(s) = k.downcast::<PyString>() {
+            s.to_str()?.to_owned()
         } else {
             k.str()?.to_string_lossy().into_owned()
         };
@@ -2926,6 +3017,26 @@ pub(crate) fn attr_map_to_pydict(py: Python<'_>, attrs: &AttrMap) -> PyResult<Py
         dict.set_item(key, cgse_value_to_py(py, value)?)?;
     }
     Ok(dict.unbind())
+}
+
+fn py_value_to_cgse_with_lossless(v: &Bound<'_, PyAny>) -> PyResult<(CgseValue, bool)> {
+    if v.is_exact_instance_of::<PyFloat>() {
+        let f = v.extract::<f64>()?;
+        return Ok((CgseValue::Float(f), !f.is_nan()));
+    }
+    if v.is_exact_instance_of::<PyInt>() {
+        if let Ok(i) = v.extract::<i64>() {
+            return Ok((CgseValue::Int(i), true));
+        }
+        return Ok((CgseValue::String(v.str()?.to_string()), false));
+    }
+    if let Ok(s) = v.downcast_exact::<PyString>() {
+        return Ok((CgseValue::String(s.to_str()?.to_owned()), true));
+    }
+    if v.is_exact_instance_of::<PyBool>() {
+        return Ok((CgseValue::Bool(v.extract::<bool>()?), true));
+    }
+    Ok((py_value_to_cgse(v)?, false))
 }
 
 /// Convert a Python attribute value to a `CgseValue`.
@@ -2958,8 +3069,8 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
         // batch-lossless), so the store needs only an opaque stand-in, as for
         // a tuple or None - which every numeric reader declines on.
         return Ok(CgseValue::String(v.str()?.to_string()));
-    } else if v.is_exact_instance_of::<PyString>() {
-        return Ok(CgseValue::String(v.extract::<String>()?));
+    } else if let Ok(s) = v.downcast_exact::<PyString>() {
+        return Ok(CgseValue::String(s.to_str()?.to_owned()));
     } else if v.is_none()
         || v.is_exact_instance_of::<PyList>()
         || v.is_exact_instance_of::<PyTuple>()
@@ -4018,6 +4129,9 @@ pub(crate) struct EdgeAttrWrites {
     /// bulk paths), which set items through the C-level dict API and so run
     /// no `_EdgeAttrDict` mutator.
     native_writes: u64,
+    /// Tracks `nodes_seq` when every node ever added to this graph was an exact
+    /// Python `int` or `str`.
+    pub(crate) exact_int_or_str_nodes_seq: u64,
 }
 
 impl Default for EdgeAttrWrites {
@@ -4028,6 +4142,7 @@ impl Default for EdgeAttrWrites {
             created_count: AtomicUsize::new(0),
             rewrites: 0,
             native_writes: 0,
+            exact_int_or_str_nodes_seq: 0,
         }
     }
 }
@@ -4960,12 +5075,16 @@ impl PyGraph {
         nbr_canonical: &str,
         passed: &Bound<'_, PyAny>,
     ) {
+        if passed.is_exact_instance_of::<PyString>() {
+            return;
+        }
         let differs = match self.node_key_map.get(nbr_canonical) {
             Some(stored) => {
                 let stored = stored.bind(py);
                 !(stored.is(passed)
                     || stored.get_type().is(passed.get_type())
-                        && stored.eq(passed).unwrap_or(false))
+                        && (passed.is_exact_instance_of::<PyInt>()
+                            || stored.eq(passed).unwrap_or(false)))
             }
             None => {
                 // canonical renders via lazy-int (an exact int) or the
@@ -5029,11 +5148,17 @@ impl PyGraph {
         if a.is(b) {
             return false;
         }
-        let exact_builtin = a.is_exact_instance_of::<PyInt>()
-            || a.is_exact_instance_of::<PyString>()
-            || a.is_exact_instance_of::<PyFloat>()
-            || a.is_exact_instance_of::<PyTuple>();
-        !(exact_builtin && a.get_type().is(b.get_type()) && a.eq(b).unwrap_or(false))
+        if a.get_type().is(b.get_type()) {
+            if a.is_exact_instance_of::<PyInt>() || a.is_exact_instance_of::<PyString>() {
+                return false;
+            }
+            if (a.is_exact_instance_of::<PyFloat>() || a.is_exact_instance_of::<PyTuple>())
+                && a.eq(b).unwrap_or(false)
+            {
+                return false;
+            }
+        }
+        true
     }
 
     /// br-r37-c1-z6uka: batch-bail probe — true when adding `passed` under
@@ -5079,6 +5204,168 @@ impl PyGraph {
     #[inline]
     fn should_store_node_key(&self, canonical: &str, was_new: bool) -> bool {
         was_new || self.lazy_int_node_value(canonical).is_none()
+    }
+
+    pub(crate) fn add_edge(
+        &mut self,
+        py: Python<'_>,
+        u_of_edge: &Bound<'_, PyAny>,
+        v_of_edge: &Bound<'_, PyAny>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        self.add_edge_with_optional_weight(
+            py,
+            u_of_edge,
+            v_of_edge,
+            OptionalWeightKwarg::Omitted,
+            attr,
+        )
+    }
+
+    pub(crate) fn add_edge_with_optional_weight(
+        &mut self,
+        py: Python<'_>,
+        u_of_edge: &Bound<'_, PyAny>,
+        v_of_edge: &Bound<'_, PyAny>,
+        weight: OptionalWeightKwarg<'_, '_>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let u = u_of_edge;
+        let v = v_of_edge;
+        let u_exact_str = u.is_exact_instance_of::<PyString>();
+        let u_exact_fast = u_exact_str || u.is_exact_instance_of::<PyInt>();
+        if !u_exact_fast && !node_key_hash_cannot_raise(u) {
+            if u.is_none() {
+                return Err(PyValueError::new_err("None cannot be a node"));
+            }
+            hash_key_as_dict_would(u)?;
+        }
+        let v_exact_str = v.is_exact_instance_of::<PyString>();
+        let v_exact_fast = v_exact_str || v.is_exact_instance_of::<PyInt>();
+        if !v_exact_fast && !node_key_hash_cannot_raise(v) {
+            if v.is_none() {
+                self.add_node(py, u, None)?;
+                return Err(PyValueError::new_err("None cannot be a node"));
+            }
+            if v.hash().is_err() {
+                self.add_node(py, u, None)?;
+                hash_key_as_dict_would(v)?;
+            }
+        }
+        let mut u_buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+        let mut v_buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+        let u_canonical_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_canonical_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let u_canonical = u_canonical_key.as_str();
+        let v_canonical = v_canonical_key.as_str();
+
+        let (rust_attrs, attrs_lossless, has_attrs) =
+            extract_edge_attrs_with_lossless(&weight, attr)?;
+
+        let pre_existing_mirror =
+            if !attrs_lossless && self.inner.has_edge(u_canonical, v_canonical) {
+                Some(self.materialize_edge_py_attrs(py, u_canonical, v_canonical))
+            } else {
+                None
+            };
+
+        let node_count_before = self.inner.node_count();
+        let had_full_node_key_map = self.node_key_map.len() == node_count_before;
+        let was_all_exact = self.edge_attr_writes.exact_int_or_str_nodes_seq == self.nodes_seq
+            && (self.nodes_seq != 0
+                || node_count_before == 0
+                || self.lazy_int_node_stop as usize == node_count_before);
+        let (u_was_new, v_was_new, was_new_edge) = self
+            .inner
+            .add_edge_with_attrs_outcome(u_canonical, v_canonical, rust_attrs)
+            .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+
+        // Ensure nodes exist in our maps. `add_edge_with_attrs_outcome` reports
+        // `v_was_new = false` on a self-loop (`u_canonical == v_canonical`), so u's
+        // display object always wins on a self-loop.
+        if u_was_new
+            || (!had_full_node_key_map
+                && !self.node_key_map.contains_key(u_canonical)
+                && self.should_store_node_key(u_canonical, false))
+        {
+            self.node_key_map
+                .insert(u_canonical.to_owned(), u.clone().unbind());
+        }
+        if v_was_new
+            || (!had_full_node_key_map
+                && v_canonical != u_canonical
+                && !self.node_key_map.contains_key(v_canonical)
+                && self.should_store_node_key(v_canonical, false))
+        {
+            self.node_key_map
+                .insert(v_canonical.to_owned(), v.clone().unbind());
+        }
+        let all_nodes_exact = if u_was_new || v_was_new {
+            if u_was_new {
+                self.node_iter_mirror_insert(py, u_canonical)?;
+            }
+            if v_was_new {
+                self.node_iter_mirror_insert(py, v_canonical)?;
+            }
+            self.bump_nodes_seq();
+            if was_all_exact && (!u_was_new || u_exact_fast) && (!v_was_new || v_exact_fast) {
+                self.edge_attr_writes.exact_int_or_str_nodes_seq = self.nodes_seq;
+                true
+            } else {
+                false
+            }
+        } else {
+            was_all_exact
+        };
+        // br-r37-c1-z6uka: a NEW edge creates both adjacency cells with
+        // the objects passed in THIS call (nx `_adj[u][v] = ...` /
+        // `_adj[v][u] = ...`); existing cells keep their original object.
+        // For a SELF-LOOP both nx assignments hit the same dict cell and
+        // the second cannot replace the hash-equal key — only v's object
+        // applies (shrunk repro: add_edge(12.0, 12) renders (12, 12)).
+        if was_new_edge && !(all_nodes_exact && u_exact_fast && v_exact_fast) {
+            if !v_was_new && !v_exact_str {
+                self.maybe_store_adj_key(py, u_canonical, v_canonical, v);
+            }
+            if u_canonical != v_canonical && !u_was_new && !u_exact_str {
+                self.maybe_store_adj_key(py, v_canonical, u_canonical, u);
+            }
+        }
+        if has_attrs {
+            if !was_new_edge || !attrs_lossless {
+                let mirror = if let Some(m) = pre_existing_mirror {
+                    m
+                } else if was_new_edge {
+                    self.edge_py_attrs
+                        .entry(Self::edge_key(u_canonical, v_canonical))
+                        .or_insert_with(|| {
+                            self.edge_attr_writes
+                                .new_dict(py)
+                                .expect("creating an edge attr dict")
+                                .unbind()
+                        })
+                        .clone_ref(py)
+                } else {
+                    self.materialize_edge_py_attrs(py, u_canonical, v_canonical)
+                };
+                update_edge_mirror_with_optional_weight(py, mirror.bind(py), &weight, attr)?;
+            }
+            // Numeric subclasses can change sum's type dispatch or override
+            // addition even when their projected native value compares equal.
+            if !attrs_lossless {
+                self.mark_edges_dirty();
+            }
+        }
+
+        if was_new_edge && self.py_adj_rows_live() {
+            self.cached_adj_set_edge(py, u_canonical, v_canonical)?;
+            if u_canonical != v_canonical {
+                self.cached_adj_set_edge(py, v_canonical, u_canonical)?;
+            }
+        }
+        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
+        self.bump_edges_seq();
+        Ok(())
     }
 
     pub(crate) fn materialize_node_py_attrs(
@@ -17836,157 +18123,20 @@ impl PyGraph {
     // br-r37-c1-addnoden follow-up: nx names these u_of_edge/v_of_edge;
     // a bare u/v collides with an edge attr keyed 'u' or 'v'
     // (add_edge(0, 1, u=5)). Match nx's names; alias to u/v for the body.
-    #[pyo3(signature = (u_of_edge, v_of_edge, **attr))]
-    fn add_edge(
+    #[pyo3(
+        name = "add_edge",
+        signature = (u_of_edge, v_of_edge, *, weight=OptionalWeightKwarg::Omitted, **attr),
+        text_signature = "($self, u_of_edge, v_of_edge, **attr)"
+    )]
+    fn py_add_edge(
         &mut self,
         py: Python<'_>,
         u_of_edge: &Bound<'_, PyAny>,
         v_of_edge: &Bound<'_, PyAny>,
+        weight: OptionalWeightKwarg<'_, '_>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
-        let u = u_of_edge;
-        let v = v_of_edge;
-        // br-r37-c1-aeshim: reject None and unhashable endpoints HERE. Of the
-        // four native `add_edge` kernels only `PyMultiGraph::add_edge` did, and
-        // this is a copy of its block. Measured against networkx by exception
-        // TYPE, ARGS and resulting node list, the unvalidated kernels diverged in
-        // 10 of 10 cases - and the unhashable ones did worse than raise wrongly:
-        // the object was STORED as a node and the graph became permanently
-        // unreadable, `G.nodes()` raising `TypeError: unhashable type` from a
-        // call site unrelated to the add. That is invisible through the public
-        // API only because the Python `add_edge` shim validates first; anything
-        // reaching the kernel directly got the corruption.
-        //
-        // Ordering matches networkx: u is created BEFORE v is examined, so a bad
-        // v leaves u on the graph.
-        if u.is_none() {
-            return Err(PyValueError::new_err("None cannot be a node"));
-        }
-        hash_key_as_dict_would(u)?;
-        if v.is_none() {
-            self.add_node(py, u, None)?;
-            return Err(PyValueError::new_err("None cannot be a node"));
-        }
-        if v.hash().is_err() {
-            self.add_node(py, u, None)?;
-            hash_key_as_dict_would(v)?;
-        }
-        let u_canonical = node_key_to_string(py, u)?;
-        let v_canonical = node_key_to_string(py, v)?;
-
-        // br-r37-c1-39d82: track new-node creation to bump
-        // nodes_seq for iterator staleness detection.
-        let u_was_new = !self.inner.has_node(&u_canonical);
-        let v_was_new = !self.inner.has_node(&v_canonical);
-        let __was_new = u_was_new || v_was_new;
-
-        // Ensure nodes exist in our maps. Probe before inserting: `entry()`
-        // takes an OWNED key, and `should_store_node_key` is true for every
-        // node outside the lazy int range, so the former
-        // `entry(canonical.clone())` cloned both canonicals on every call to
-        // reach an insert that fires once per node. Probing at insert time
-        // keeps `or_insert_with` semantics, including a self-loop's (u's
-        // display object is stored first and v's then finds it).
-        if !self.node_key_map.contains_key(&u_canonical)
-            && self.should_store_node_key(&u_canonical, u_was_new)
-        {
-            self.node_key_map
-                .insert(u_canonical.clone(), u.clone().unbind());
-        }
-        if !self.node_key_map.contains_key(&v_canonical)
-            && self.should_store_node_key(&v_canonical, v_was_new)
-        {
-            self.node_key_map
-                .insert(v_canonical.clone(), v.clone().unbind());
-        }
-        if __was_new {
-            if u_was_new {
-                self.node_iter_mirror_insert(py, &u_canonical)?;
-            }
-            if v_was_new {
-                self.node_iter_mirror_insert(py, &v_canonical)?;
-            }
-            self.bump_nodes_seq();
-        }
-        // br-r37-c1-z6uka: a NEW edge creates both adjacency cells with
-        // the objects passed in THIS call (nx `_adj[u][v] = ...` /
-        // `_adj[v][u] = ...`); existing cells keep their original object.
-        // For a SELF-LOOP both nx assignments hit the same dict cell and
-        // the second cannot replace the hash-equal key — only v's object
-        // applies (shrunk repro: add_edge(12.0, 12) renders (12, 12)).
-        let was_new_edge = !self.inner.has_edge(&u_canonical, &v_canonical);
-        if was_new_edge {
-            self.maybe_store_adj_key(py, &u_canonical, &v_canonical, v);
-            if u_canonical != v_canonical {
-                self.maybe_store_adj_key(py, &v_canonical, &u_canonical, u);
-            }
-        }
-        // br-r37-c1-89kxg: mirrors are LAZY — node dicts and attr-less edge
-        // dicts are created on first observation by the render paths.
-        // Build Rust AttrMap.
-        let mut rust_attrs = AttrMap::new();
-        if let Some(a) = attr
-            && !a.is_empty()
-        {
-            rust_attrs = py_dict_to_attr_map(a)?;
-            // br-r37-c1-aefbatch: a single C-level dict.update copies all items
-            // in one call instead of N Rust->Python set_item round-trips, which
-            // dominated attributed edge construction (add_edges_from / from_dict
-            // build paths were ~7x nx). The edge dict is freshly created for new
-            // edges and merged-into for existing ones; update() matches both.
-            //
-            // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.2 (existing-edge
-            // merge): an EXISTING edge may hold its attrs only in the core (the
-            // mirror is lazy; every generator-built graph starts that way). A
-            // fresh empty dict here hid them: karate_club_graph().add_edge(0, 1,
-            // extra=1) left G.edges[0, 1] == {'extra': 1} and size(weight) off
-            // by 3. networkx merges into the existing datadict, so seed first.
-            //
-            // A NEW edge whose dict round-trips through the native store (str
-            // keys, bool / float / str / i64 int values -
-            // attr_dict_is_batch_lossless; the store keeps key order) gets no
-            // dict here at all: the store is authoritative and the first read
-            // materialises the dict from it, as for an edge the attributed
-            // batch built. Anything else keeps the caller's objects in an
-            // eager dict.
-            if !was_new_edge || !attr_dict_is_batch_lossless(a) {
-                let mirror = if was_new_edge {
-                    self.edge_py_attrs
-                        .entry(Self::edge_key(&u_canonical, &v_canonical))
-                        .or_insert_with(|| {
-                            self.edge_attr_writes
-                                .new_dict(py)
-                                .expect("creating an edge attr dict")
-                                .unbind()
-                        })
-                        .clone_ref(py)
-                } else {
-                    self.materialize_edge_py_attrs(py, &u_canonical, &v_canonical)
-                };
-                mirror.bind(py).update(a.as_mapping())?;
-            }
-            // Numeric subclasses can change sum's type dispatch or override
-            // addition even when their projected native value compares equal.
-            if !attr_dict_is_batch_lossless(a) {
-                self.mark_edges_dirty();
-            }
-        }
-
-        // No per-edge `log::debug!` here: pyo3-log resolves the target on every
-        // call, ~500 Ir of a ~9,000 Ir attributed add_edge (sfq4w.3). The core
-        // borrows its endpoint keys (br-r37-c1-jc9e4), so no clones either.
-        self.inner
-            .add_edge_with_attrs(&u_canonical, &v_canonical, rust_attrs)
-            .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-        if was_new_edge && self.py_adj_rows_live() {
-            self.cached_adj_set_edge(py, &u_canonical, &v_canonical)?;
-            if u_canonical != v_canonical {
-                self.cached_adj_set_edge(py, &v_canonical, &u_canonical)?;
-            }
-        }
-        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
-        self.bump_edges_seq();
-        Ok(())
+        self.add_edge_with_optional_weight(py, u_of_edge, v_of_edge, weight, attr)
     }
 
     /// Add edges from an iterable of (u, v) or (u, v, attr_dict) tuples.
