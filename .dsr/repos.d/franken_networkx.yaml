@@ -83,6 +83,10 @@ release_contract:
     - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl.minisig
     - SHA256SUMS
     - SHA256SUMS.minisig
+host_paths:
+  trj: /data/release-work/franken_networkx_buildroot/franken_networkx
+  mmini: /Users/jemanuel/release-work/franken_networkx_buildroot/franken_networkx
+  wlap: C:/Users/jeffr/release-work/franken_networkx_buildroot/franken_networkx
 sync_excludes:
   - target
   - .rch-target
