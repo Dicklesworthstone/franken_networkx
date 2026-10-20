@@ -1,0 +1,30 @@
+{
+  "members": [
+    {
+      "class": "conformance_fixtures",
+      "path": "artifacts/conformance/latest/structured_logs.json",
+      "source_hash": "blake3:5d4e21fc71100517efa9ae944d75df2aa6aaef102862719f3666de04c9103fba"
+    },
+    {
+      "class": "benchmark_baselines",
+      "path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "source_hash": "blake3:ad2f2903b558b5f18f1d863ffe8837315a4796e40ab8827574c454a5375c247d"
+    },
+    {
+      "class": "migration_manifests",
+      "path": "artifacts/e2e/latest/v1_acceptance_manifest.json",
+      "source_hash": "blake3:73b2733c09ba7b32a4c69dc73c028a0aceee132bf8cf3fa2c3d572f673eff1f0"
+    },
+    {
+      "class": "reproducibility_ledgers",
+      "path": "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+      "source_hash": "blake3:8c4f41282823a2afa2fb076338c77c81ed3c6c7c54418cdeb34940bb5d0d65a1"
+    },
+    {
+      "class": "long_lived_snapshots",
+      "path": "artifacts/phase2c/FNX-P2C-009/final_evidence_pack_v1.json",
+      "source_hash": "blake3:f54af652642cb71798a6870c219285249871095d7c2bfc3b02dc400d1c574538"
+    }
+  ],
+  "schema": "fnx-release-evidence-input-v1"
+}
