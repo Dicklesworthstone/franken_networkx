@@ -311,6 +311,14 @@ def _remove_nodes_from_materialized(raw):
     front so unhashable inputs raise TypeError matching nx.
     """
     def remove_nodes_from(self, nodes):
+        owner = _shared_unsplit_owner(self)
+        if owner is None and _has_networkx_private_storage(self):
+            for n in nodes:
+                _HASH_PROBE.get(n)
+                if n in self:
+                    self.remove_node(n)
+            return None
+        target = owner if owner is not None else self
         # br-r37-c1-rnfitexc (cycle 217): generator-partial-progress
         # parity with nx (sister of cycle 216 br-r37-c1-aefitexc and
         # cycle 217 br-r37-c1-refitexc).  ``list(nodes)`` atomically
@@ -319,7 +327,9 @@ def _remove_nodes_from_materialized(raw):
         if isinstance(nodes, (list, tuple)):
             materialized = list(nodes)
             iteration_exc = None
-        elif _ebunch_reads_graph(nodes, self):
+        elif _ebunch_reads_graph(nodes, self) or (
+            target is not self and _ebunch_reads_graph(nodes, target)
+        ):
             # The iterable reads this graph: remove as it yields, as networkx
             # does, so it sees every node removed before it (br-r37-c1-apelp).
             for _n in nodes:
@@ -350,22 +360,22 @@ def _remove_nodes_from_materialized(raw):
         if first_error is None:
             removed_before = set()
             for n in materialized:
-                if n not in removed_before and n in self:
-                    _detach_rows_before_node_removal(self, n, removed_before=removed_before)
+                if n not in removed_before and n in target:
+                    _detach_rows_before_node_removal(target, n, removed_before=removed_before)
                     removed_before.add(n)
-            result = raw(self, materialized)
-            _invalidate_adjacency_row_caches(self)
+            result = raw(target, materialized)
+            _invalidate_adjacency_row_caches(target)
             if iteration_exc is not None:
                 raise iteration_exc
             return result
         if valid_count:
             removed_before = set()
             for n in materialized[:valid_count]:
-                if n not in removed_before and n in self:
-                    _detach_rows_before_node_removal(self, n, removed_before=removed_before)
+                if n not in removed_before and n in target:
+                    _detach_rows_before_node_removal(target, n, removed_before=removed_before)
                     removed_before.add(n)
-            raw(self, materialized[:valid_count])
-            _invalidate_adjacency_row_caches(self)
+            raw(target, materialized[:valid_count])
+            _invalidate_adjacency_row_caches(target)
         raise first_error
 
     return remove_nodes_from

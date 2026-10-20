@@ -402,7 +402,12 @@ def _coerce_arg_to_fnx_graph(G):
     # fnx.Graph: it misses this check, finds all three view checks False, and
     # reaches the same `isinstance` pass-through it does today.
     if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
-        return G
+        owner = _shared_unsplit_owner(G)
+        if owner is not None:
+            return owner
+        if not _has_networkx_private_storage(G):
+            return G
+        return _materialize_view(G)
     if isinstance(G, _FilteredGraphView):
         return _materialize_view(G)
     # br-r37-c1-revview: _ReverseDirectedView and _ReverseMultiDirectedView

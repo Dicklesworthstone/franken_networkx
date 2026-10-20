@@ -1,25 +1,11 @@
 """``copy.copy(G)`` must share storage with its source, as networkx's does.
 
-br-r37-c1-copyshare-2h5uj. networkx defines no ``__copy__`` on Graph, so ``copy.copy(G)``
-takes the default: a new instance whose ``__dict__`` is copied shallowly, which means
-``_adj`` and ``_node`` are the SAME dict objects. Everything is therefore shared -- the
-graph attrs dict, every node and edge attr dict, and the STRUCTURE itself: adding a node or
-an edge to the source appears in the copy.
-
-fnx shares only the graph attrs dict. Measured against networkx on all four classes by
-writing through the SOURCE and asking what the copy observes, 16 of 20 cells diverge. So
-``copy.copy(G)`` in fnx behaves roughly like ``G.copy()``, which is a different operation.
-
-WHY THIS IS XFAIL RATHER THAN FIXED. It is not reachable by re-pointing ``_adj`` / ``_node``
-at the source's mappings: br-r37-c1-4wqn9 tried that and it produced SILENT WRITE-LOSS --
-``h.add_edge`` wrote to h's own Rust store while ``h.edges`` read through the override
-pointing at g. Sharing requires two Python graph objects backed by ONE Rust store, which
-the store does not currently support (br-r37-c1-himzq is the neighbouring gap). The xfails
-are ``strict=True`` so they fail loudly the moment that capability lands and this module
-turns into the acceptance test for it.
-
-The graph-attrs row is NOT xfail: the shim shares that dict explicitly today, and it is
-carried here so a future change cannot quietly drop the one part that does work.
+br-r37-c1-copyshare-2h5uj / br-r37-c1-epic-storage-architecture-yr2oc.3:
+networkx defines no ``__copy__`` on Graph, so ``copy.copy(G)`` takes the default:
+a new instance whose ``__dict__`` is copied shallowly, which means ``_adj`` and
+``_node`` are the SAME dict objects. Everything is therefore shared -- the graph
+attrs dict, every node and edge attr dict, and the STRUCTURE itself: adding a
+node or an edge to the source appears in the copy, and vice versa.
 """
 
 import copy as copymod
@@ -57,7 +43,6 @@ def _observe(cls_name, mutate, observe):
 
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_shallow_copy_shares_the_graph_attrs_dict(cls_name):
-    """The one kind of sharing fnx already does. Not xfail -- a regression guard."""
     seen = _observe(
         cls_name,
         lambda g, c: g.graph.__setitem__("gattr", "changed"),
@@ -69,10 +54,6 @@ def test_shallow_copy_shares_the_graph_attrs_dict(cls_name):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-copyshare-2h5uj: copy.copy does not share node attr dicts",
-)
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_shallow_copy_shares_node_attr_dicts(cls_name):
     seen = _observe(
@@ -85,10 +66,6 @@ def test_shallow_copy_shares_node_attr_dicts(cls_name):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-copyshare-2h5uj: copy.copy does not share edge attr dicts",
-)
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_shallow_copy_shares_edge_attr_dicts(cls_name):
     seen = _observe(
@@ -101,19 +78,10 @@ def test_shallow_copy_shares_edge_attr_dicts(cls_name):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-copyshare-2h5uj: copy.copy does not share structure (_adj/_node)",
-)
 @pytest.mark.parametrize("cls_name", CLASSES)
 @pytest.mark.parametrize("what", ["node", "edge"])
 def test_shallow_copy_shares_structure(cls_name, what):
-    """The row that decides the fix: nx shares `_adj`/`_node` outright.
-
-    A write-proxying attr mapping would cover the two attribute rows above and still fail
-    here, so this is what says the fix has to be a shared backing store rather than a
-    smarter mapping object.
-    """
+    """nx shares `_adj`/`_node` outright so structural mutations are visible in both."""
     if what == "node":
         seen = _observe(
             cls_name,
@@ -130,3 +98,29 @@ def test_shallow_copy_shares_structure(cls_name, what):
         f"{cls_name}: adding a {what} to the source must be visible in copy.copy's result. "
         f"networkx gave {seen['nx']!r}, fnx gave {seen['fnx']!r}."
     )
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_shallow_copy_bidirectional_mutations_and_private_dict_identity(cls_name):
+    fg = _build(fnx, cls_name)
+    ng = _build(nx, cls_name)
+    fc = copymod.copy(fg)
+    nc = copymod.copy(ng)
+
+    assert fc.graph is fg.graph
+    assert fc._node is fg._node
+    assert fc._adj is fg._adj
+    if fg.is_directed():
+        assert fc._succ is fg._succ
+        assert fc._pred is fg._pred
+
+    fc.add_node("from_copy", tag=7)
+    nc.add_node("from_copy", tag=7)
+    fc.add_edge("b", "from_copy", weight=3.5)
+    nc.add_edge("b", "from_copy", weight=3.5)
+
+    assert ("from_copy" in fg) == ("from_copy" in ng) is True
+    assert fg.nodes["from_copy"] == ng.nodes["from_copy"] == {"tag": 7}
+    assert fg.has_edge("b", "from_copy") == ng.has_edge("b", "from_copy") is True
+    assert dict(fg.degree()) == dict(ng.degree())
+

@@ -1250,7 +1250,8 @@ def _digraph_in_degree(self):
     cache = vars(self)
     view = cache.get("_fnx_view_in_degree")
     if view is None:
-        view = _InDegreeView(self, "pred")
+        owner = _shared_unsplit_owner(self, cache)
+        view = _InDegreeView(owner if owner is not None else self, "pred")
         cache["_fnx_view_in_degree"] = view
     return view
 
@@ -1259,7 +1260,8 @@ def _digraph_out_degree(self):
     cache = vars(self)
     view = cache.get("_fnx_view_out_degree")
     if view is None:
-        view = _OutDegreeView(self, "succ")
+        owner = _shared_unsplit_owner(self, cache)
+        view = _OutDegreeView(owner if owner is not None else self, "succ")
         cache["_fnx_view_out_degree"] = view
     return view
 
@@ -1287,7 +1289,8 @@ def _multidigraph_in_degree(self):
     cache = vars(self)
     view = cache.get("_fnx_view_in_degree")
     if view is None:
-        view = _InMultiDegreeView(self, "pred")
+        owner = _shared_unsplit_owner(self, cache)
+        view = _InMultiDegreeView(owner if owner is not None else self, "pred")
         cache["_fnx_view_in_degree"] = view
     return view
 
@@ -1296,7 +1299,8 @@ def _multidigraph_out_degree(self):
     cache = vars(self)
     view = cache.get("_fnx_view_out_degree")
     if view is None:
-        view = _OutMultiDegreeView(self, "succ")
+        owner = _shared_unsplit_owner(self, cache)
+        view = _OutMultiDegreeView(owner if owner is not None else self, "succ")
         cache["_fnx_view_out_degree"] = view
     return view
 

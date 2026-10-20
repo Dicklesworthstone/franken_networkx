@@ -712,6 +712,9 @@ def _multidigraph_edges(self):
 
 
 def _simple_graph_adjacency(self):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        return _simple_graph_adjacency(owner)
     # br-r37-c1-vbe1o: a graph carrying ASSIGNED private storage yields that
     # mapping's rows, exactly as networkx does (`iter(self._adj.items())`). The
     # native paths below read the Rust store and cannot see it, and the final
@@ -776,6 +779,9 @@ def _multigraph_adjacency(self):
     a snapshot dict for type parity (recursive: each neighbour's
     keyed-attrs map is also unwrapped from AtlasView to dict).
     """
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        return _multigraph_adjacency(owner)
     # br-r37-c1-mdadj: build the nested {node: {nbr: {key: attrs}}} snapshot
     # natively (reusing the live edge attr dicts, in node x nbr x key order)
     # instead of unwrapping self.adj[node] via the per-element MultiAdjacencyView

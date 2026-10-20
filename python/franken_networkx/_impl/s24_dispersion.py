@@ -919,7 +919,8 @@ def freeze(G):
 
     br-r37-c1-cfcls: Convert nx input to fnx for consistent return type.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    if not isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-frzsetattr: write the method shadows straight into the instance
     # dict, and let only the LAST assignment go through the normal path.
     #

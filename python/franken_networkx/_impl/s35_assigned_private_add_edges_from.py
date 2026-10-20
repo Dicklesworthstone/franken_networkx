@@ -29,6 +29,12 @@ def _assigned_private_add_edges_from(self, ebunch_to_add, **attr):
     (u, v, key, datadict) and the ambiguous 3-tuple for multigraphs, where the
     third element is a KEY if it is not a mapping.
     """
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = _RAW_ADD_EDGES_FROM_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, ebunch_to_add, **attr)
+        return owner.add_edges_from(ebunch_to_add, **attr)
     multi = self.is_multigraph()
     for e in ebunch_to_add:
         ne = len(e)
@@ -58,6 +64,12 @@ def _assigned_private_add_weighted_edges_from(
     self, ebunch_to_add, weight="weight", **attr
 ):
     """networkx: add_edges_from((u, v, {weight: d}) for u, v, d in ebunch)."""
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = _RAW_ADD_WEIGHTED_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, ebunch_to_add, weight=weight, **attr)
+        return owner.add_weighted_edges_from(ebunch_to_add, weight=weight, **attr)
     _assigned_private_add_edges_from(
         self,
         ((u, v, {weight: d}) for u, v, d in ebunch_to_add),
@@ -109,6 +121,13 @@ def _assigned_private_remove_node(self, n):
     node present only natively is still absent as far as networkx is concerned.
     """
     storage = vars(self)
+    owner = _shared_unsplit_owner(self, storage)
+    if owner is not None:
+        raw = _RAW_REMOVE_NODE_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, n)
+        return owner.remove_node(n)
+    target = storage.get(_SHARED_STORAGE_SOURCE, self)
     mappings = _assigned_private_mappings(self, storage)
     node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
 
@@ -140,10 +159,10 @@ def _assigned_private_remove_node(self, n):
         )
         directed_mapping_data = (forward, backward, successors, predecessors)
 
-    raw = _RAW_REMOVE_NODE_BY_CLASS.get(type(self))
+    raw = _RAW_REMOVE_NODE_BY_CLASS.get(type(target))
     if raw is not None:
         try:
-            raw(self, n)
+            raw(target, n)
         except Exception:  # noqa: BLE001 - absent natively is fine; storage rules
             pass
 
@@ -184,6 +203,13 @@ def _assigned_private_remove_edge(self, u, v, key=None):
     """remove_edge: drop the pair from every assigned mapping, both directions."""
     storage = vars(self)
     multi = self.is_multigraph()
+    owner = _shared_unsplit_owner(self, storage)
+    if owner is not None:
+        raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, u, v, key) if (multi and key is not None) else raw(owner, u, v)
+        return owner.remove_edge(u, v, key) if (multi and key is not None) else owner.remove_edge(u, v)
+    target = storage.get(_SHARED_STORAGE_SOURCE, self)
     if self.is_directed():
         forward, backward = _assigned_private_edge_targets(self, storage)
         targets = [(forward, u, v)] if forward is not None else []
@@ -196,18 +222,18 @@ def _assigned_private_remove_edge(self, u, v, key=None):
     # Assigning `_node` does not replace the edge mapping.  In that split state
     # the native adjacency remains NetworkX's authority for remove_edge.
     if not targets:
-        raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(self))
+        raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(target))
         if raw is not None:
-            return raw(self, u, v, key) if (multi and key is not None) else raw(self, u, v)
+            return raw(target, u, v, key) if (multi and key is not None) else raw(target, u, v)
 
     forward_mapping, forward_u, forward_v = targets[0]
     if forward_mapping is None or forward_v not in forward_mapping.get(forward_u, {}):
         raise NetworkXError(f"The edge {u}-{v} is not in the graph.")
 
-    raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(self))
+    raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(target))
     if raw is not None:
         try:
-            raw(self, u, v, key) if (multi and key is not None) else raw(self, u, v)
+            raw(target, u, v, key) if (multi and key is not None) else raw(target, u, v)
         except Exception:  # noqa: BLE001 - the assigned mapping is the authority
             pass
 
@@ -233,6 +259,12 @@ def _assigned_private_remove_edge(self, u, v, key=None):
 
 def _assigned_private_remove_edges_from(self, ebunch):
     """NetworkX's tolerant batch removal, routed through assigned storage."""
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = _RAW_REMOVE_EDGES_FROM_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, ebunch)
+        return owner.remove_edges_from(ebunch)
     for edge in ebunch:
         u, v = edge[:2]
         try:
@@ -246,9 +278,20 @@ def _assigned_private_remove_edges_from(self, ebunch):
 def _assigned_private_clear(self):
     """clear(): networkx empties the assigned mappings themselves."""
     storage = vars(self)
-    raw = _RAW_CLEAR_BY_CLASS.get(type(self))
+    owner = _shared_unsplit_owner(self, storage)
+    if owner is not None:
+        raw = _RAW_CLEAR_BY_CLASS.get(type(owner))
+        if raw is not None:
+            raw(owner)
+        else:
+            owner.clear()
+        self.graph.clear()
+        return
+    target = storage.get(_SHARED_STORAGE_SOURCE, self)
+    raw = _RAW_CLEAR_BY_CLASS.get(type(target))
     if raw is not None:
-        raw(self)
+        raw(target)
+    self.graph.clear()
     node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
     if node_map is not None:
         node_map.clear()
@@ -259,9 +302,16 @@ def _assigned_private_clear(self):
 def _assigned_private_clear_edges(self):
     """clear_edges(): rows survive, their contents do not."""
     storage = vars(self)
-    raw = _RAW_CLEAR_EDGES_BY_CLASS.get(type(self))
+    owner = _shared_unsplit_owner(self, storage)
+    if owner is not None:
+        raw = _RAW_CLEAR_EDGES_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner)
+        return owner.clear_edges()
+    target = storage.get(_SHARED_STORAGE_SOURCE, self)
+    raw = _RAW_CLEAR_EDGES_BY_CLASS.get(type(target))
     if raw is not None:
-        raw(self)
+        raw(target)
     for mapping in _assigned_private_mappings(self, storage):
         for row in mapping.values():
             row.clear()
@@ -309,6 +359,10 @@ _RAW_CLEAR_EDGES_METHODS = tuple(_RAW_CLEAR_EDGES_BY_CLASS.values())
 
 
 def _assigned_private_has_edge_simple(self, u, v):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = _DIGRAPH_PRIVATE_AWARE_HAS_EDGE if owner.is_directed() else _GRAPH_PRIVATE_AWARE_HAS_EDGE
+        return raw(owner, u, v)
     _HASH_PROBE.get(u)
     _HASH_PROBE.get(v)
     # br-r37-c1-vbe1o: NO node-view probe. nx is `v in self._adj[u]` with the
@@ -334,6 +388,14 @@ def _assigned_private_has_edge_simple(self, u, v):
 
 
 def _assigned_private_has_edge_multi(self, u, v, key=None):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = (
+            _MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE
+            if owner.is_directed()
+            else _MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE
+        )
+        return raw(owner, u, v, key)
     _HASH_PROBE.get(u)
     _HASH_PROBE.get(v)
     if key is not None:
@@ -355,6 +417,14 @@ def _assigned_private_has_edge_multi(self, u, v, key=None):
 
 
 def _assigned_private_get_edge_data_simple(self, u, v, default=None):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = (
+            _DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+            if owner.is_directed()
+            else _GRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+        )
+        return raw(owner, u, v, default)
     _HASH_PROBE.get(u)
     _HASH_PROBE.get(v)
     if not self.has_edge(u, v):
@@ -367,6 +437,14 @@ def _assigned_private_get_edge_data_simple(self, u, v, default=None):
 def _assigned_private_get_edge_data_multi(
     self, u, v, key=None, default=None
 ):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = (
+            _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+            if owner.is_directed()
+            else _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
+        )
+        return raw(owner, u, v, key, default)
     _HASH_PROBE.get(u)
     _HASH_PROBE.get(v)
     if key is not None:
@@ -375,12 +453,13 @@ def _assigned_private_get_edge_data_multi(
     if _PRIVATE_ADJ_OVERRIDE not in storage and _PRIVATE_SUCC_OVERRIDE not in storage:
         # Assigning only _node (or _pred) leaves _adj native. Its writable
         # facade wraps keydicts, but get_edge_data must return the raw dict.
+        target = storage.get(_SHARED_STORAGE_SOURCE, self)
         raw = (
             _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
-            if self.is_directed()
+            if target.is_directed()
             else _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
         )
-        return raw(self, u, v, key, default)
+        return raw(target, u, v, key, default)
     if not self.has_edge(u, v, key):
         return default
     # br-r37-c1-vbe1o: raw `_adj`, as networkx does.
@@ -631,7 +710,7 @@ def _install_private_method_shadows(self, storage):
     # adding a node override after an adj override moves (False, True) to
     # (True, True) and genuinely needs has_node/number_of_nodes/order installed.
     # Skipping on non-emptiness alone would silently drop those.
-    node_override = _PRIVATE_NODE_OVERRIDE in storage
+    node_override = _PRIVATE_NODE_OVERRIDE in storage or _SHARED_STORAGE_SOURCE in storage
     any_override = node_override or (
         _PRIVATE_ADJ_OVERRIDE in storage
         or _PRIVATE_SUCC_OVERRIDE in storage
@@ -916,6 +995,7 @@ def _has_networkx_private_storage(self):
         or _PRIVATE_ADJ_OVERRIDE in storage
         or _PRIVATE_SUCC_OVERRIDE in storage
         or _PRIVATE_PRED_OVERRIDE in storage
+        or _SHARED_STORAGE_SOURCE in storage
     )
 
 
@@ -975,26 +1055,45 @@ def _cached_native_node_key_set(G, native_keys):
 
 
 def _private_node_mapping(self):
-    override = _private_override(self, _PRIVATE_NODE_OVERRIDE)
+    storage = self.__dict__
+    override = storage.get(_PRIVATE_NODE_OVERRIDE, _PRIVATE_MISSING)
     if override is not _PRIVATE_MISSING:
         return override
-    return _PrivateNodeFacade(self)
+    root = storage.get(_SHARED_STORAGE_SOURCE)
+    if root is not None:
+        return _private_node_mapping(root)
+    facade = storage.get("_fnx_priv_node")
+    if facade is None:
+        facade = _PrivateNodeFacade(self)
+        storage["_fnx_priv_node"] = facade
+        register_gc_dict = getattr(self, "_fnx_register_gc_dict", None)
+        if register_gc_dict is not None:
+            register_gc_dict(storage)
+    return facade
 
 
 def _private_adj_mapping(self, fallback):
-    override = _private_override(self, _PRIVATE_ADJ_OVERRIDE)
+    storage = self.__dict__
+    override = storage.get(_PRIVATE_ADJ_OVERRIDE, _PRIVATE_MISSING)
     if override is not _PRIVATE_MISSING:
         return override
+    root = storage.get(_SHARED_STORAGE_SOURCE)
+    if root is not None:
+        return fallback(root)
     return fallback(self)
 
 
 def _private_directed_adj_mapping(self, fallback):
-    override = _private_override(self, _PRIVATE_ADJ_OVERRIDE)
+    storage = self.__dict__
+    override = storage.get(_PRIVATE_ADJ_OVERRIDE, _PRIVATE_MISSING)
     if override is not _PRIVATE_MISSING:
         return override
-    succ_override = _private_override(self, _PRIVATE_SUCC_OVERRIDE)
+    succ_override = storage.get(_PRIVATE_SUCC_OVERRIDE, _PRIVATE_MISSING)
     if succ_override is not _PRIVATE_MISSING:
         return succ_override
+    root = storage.get(_SHARED_STORAGE_SOURCE)
+    if root is not None:
+        return fallback(root)
     return fallback(self)
 
 
@@ -1209,7 +1308,8 @@ def _read_only_private_mapping(graph, mapping):
     return mapping
 
 def _private_succ_mapping(self, fallback):
-    override = _private_override(self, _PRIVATE_SUCC_OVERRIDE)
+    storage = self.__dict__
+    override = storage.get(_PRIVATE_SUCC_OVERRIDE, _PRIVATE_MISSING)
     if override is not _PRIVATE_MISSING:
         return override
     # br-r37-c1-vbe1o: on a DIRECTED graph `_adj` and `_succ` are ONE mapping in
@@ -1223,16 +1323,23 @@ def _private_succ_mapping(self, fallback):
     # its absence was the whole `_adj`-on-directed group in the sweep: successors,
     # has_successor, out_degree, len(G.succ) and neighbors all read the native
     # succ view and reported a node the assigned `_adj` plainly carried.
-    adj_override = _private_override(self, _PRIVATE_ADJ_OVERRIDE)
+    adj_override = storage.get(_PRIVATE_ADJ_OVERRIDE, _PRIVATE_MISSING)
     if adj_override is not _PRIVATE_MISSING:
         return adj_override
+    root = storage.get(_SHARED_STORAGE_SOURCE)
+    if root is not None:
+        return fallback(root)
     return fallback(self)
 
 
 def _private_pred_mapping(self, fallback):
-    override = _private_override(self, _PRIVATE_PRED_OVERRIDE)
+    storage = self.__dict__
+    override = storage.get(_PRIVATE_PRED_OVERRIDE, _PRIVATE_MISSING)
     if override is not _PRIVATE_MISSING:
         return override
+    root = storage.get(_SHARED_STORAGE_SOURCE)
+    if root is not None:
+        return fallback(root)
     return fallback(self)
 
 

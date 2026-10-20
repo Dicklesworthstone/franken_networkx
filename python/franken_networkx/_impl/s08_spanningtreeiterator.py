@@ -120,11 +120,17 @@ def _graph_deepcopy(self, memo=None):
     # per-node/edge AtlasView walk below (``out[u][v]`` rebuilt the adjacency row
     # keydict O(E) times — the profiled deepcopy bottleneck). Byte-identical result;
     # graph attrs + frozen + custom instance attrs are applied by the shared tail.
-    _native_deepcopy = getattr(self, "_native_deepcopy", None)
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        _native_deepcopy = getattr(owner, "_native_deepcopy", None)
+    elif _SHARED_STORAGE_SOURCE in vars(self):
+        _native_deepcopy = None
+    else:
+        _native_deepcopy = getattr(self, "_native_deepcopy", None)
     if _native_deepcopy is not None:
         out = _native_deepcopy(memo)
     else:
-        out = _copy(self)
+        out = self.copy()
         for node, attrs in self.nodes(data=True):
             out_attrs = out.nodes[node]
             out_attrs.clear()
@@ -613,7 +619,8 @@ _DiEdgeMethodView.__call__ = _live_called_edge_view(_DiEdgeMethodView.__call__)
 
 def _make_edge_method_view_property(method, view_cls):
     def getter(self):
-        return view_cls(self, method)
+        owner = _shared_unsplit_owner(self)
+        return view_cls(owner if owner is not None else self, method)
     return property(getter)
 
 

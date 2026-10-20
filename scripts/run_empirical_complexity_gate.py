@@ -37,13 +37,7 @@ DEFAULT_SIZES = (500, 2000, 8000, 32000)
 SLOPE_TOLERANCE = 0.15
 
 # Allowlist of known open asymptotic-complexity debt, keyed by (op_id, graph_class) -> bead_id.
-# When yr2oc.3 lands, copy_shallow flips green and this entry must be removed.
-KNOWN_COMPLEXITY_DEBT_ALLOWLIST: dict[tuple[str, str], str] = {
-    ("copy_shallow", "Graph"): "br-r37-c1-epic-storage-architecture-yr2oc.3",
-    ("copy_shallow", "DiGraph"): "br-r37-c1-epic-storage-architecture-yr2oc.3",
-    ("copy_shallow", "MultiGraph"): "br-r37-c1-epic-storage-architecture-yr2oc.3",
-    ("copy_shallow", "MultiDiGraph"): "br-r37-c1-epic-storage-architecture-yr2oc.3",
-}
+KNOWN_COMPLEXITY_DEBT_ALLOWLIST: dict[tuple[str, str], str] = {}
 
 
 def compute_so_sha256() -> str:

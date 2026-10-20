@@ -40,6 +40,7 @@ class _DirectedDegreeView:
             or _PRIVATE_ADJ_OVERRIDE in ov
             or _PRIVATE_SUCC_OVERRIDE in ov
             or _PRIVATE_PRED_OVERRIDE in ov
+            or _SHARED_STORAGE_SOURCE in ov
         )
         # br-r37-c1-2r06n: the container `__call__` asks about a single argument,
         # resolved here so the hot path keeps ONE attribute load. Writing the

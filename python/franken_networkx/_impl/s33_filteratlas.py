@@ -171,6 +171,9 @@ def _fast_pred_row(graph, node):
     # class but has an EMPTY Rust base, so native_dict(node) raises KeyError
     # for a nested subgraph's view parent. type() (not getattr) gates it; the
     # view falls through to graph.pred[node] (the filter-aware adjacency).
+    owner = _shared_unsplit_owner(graph)
+    if owner is not None:
+        graph = owner
     if type(graph) in (DiGraph, MultiDiGraph) and not _has_networkx_private_storage(graph):
         native_dict = getattr(graph, "_native_predecessor_row_dict", None)
         if native_dict is not None:
@@ -192,6 +195,9 @@ def _fast_succ_row(graph, node):
     # The per-row accessor already yields the SAME key order AND live attrs
     # (verified byte-identical over mutated / edge-removed graphs), so use it
     # alone — O(deg), byte-identical output.
+    owner = _shared_unsplit_owner(graph)
+    if owner is not None:
+        graph = owner
     if _has_networkx_private_storage(graph):
         return graph.succ[node]
     if type(graph) is DiGraph:
@@ -208,7 +214,10 @@ def _fast_succ_row(graph, node):
 def _fast_adj_row(graph, node):
     # br-r37-c1-r3gjb: plain dict-of-dicts adjacency row (O(deg), O(1)
     # per-neighbour lookup) vs G[node] (AtlasView, ~15x slower per fetch).
-    if type(graph) in (Graph, MultiGraph):  # br-r37-c1-kum9v: views -> G[node]
+    owner = _shared_unsplit_owner(graph)
+    if owner is not None:
+        graph = owner
+    if type(graph) in (Graph, MultiGraph) and not _has_networkx_private_storage(graph):  # br-r37-c1-kum9v: views -> G[node]
         native_dict = getattr(graph, "_native_adjacency_row_dict", None)
         if native_dict is not None:
             return native_dict(node)

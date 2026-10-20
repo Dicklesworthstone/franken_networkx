@@ -3733,6 +3733,9 @@ pub(crate) struct InstanceDictGc {
     /// One flag covers both directions: it only gates whether the slot must
     /// consult Python at all, and the slot then reads the direction it wants.
     private_dir_override: bool,
+    shared_source: Option<PyObject>,
+    shared_node_mapping: Option<PyObject>,
+    shared_adj_mapping: Option<PyObject>,
 }
 
 #[allow(unsafe_code)]
@@ -3761,6 +3764,9 @@ impl InstanceDictGc {
             private_node_override: false,
             private_adj_override: false,
             private_dir_override: false,
+            shared_source: None,
+            shared_node_mapping: None,
+            shared_adj_mapping: None,
         }
     }
 
@@ -3796,6 +3802,9 @@ impl InstanceDictGc {
     pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.dict)?;
         visit.call(&self.dict)?;
+        visit.call(&self.shared_source)?;
+        visit.call(&self.shared_node_mapping)?;
+        visit.call(&self.shared_adj_mapping)?;
         let cache = self.adj_view_cache.lock().unwrap();
         visit.call(cache.as_ref())?;
         let row_cache = self.getitem_row_cache.lock().unwrap();
@@ -3806,6 +3815,9 @@ impl InstanceDictGc {
         if let Some(dict) = self.dict.take() {
             dict.bind(py).clear();
         }
+        self.shared_source = None;
+        self.shared_node_mapping = None;
+        self.shared_adj_mapping = None;
         *self.adj_view_cache.get_mut().unwrap() = None;
         *self.getitem_row_cache.get_mut().unwrap() = None;
     }
@@ -3865,6 +3877,64 @@ impl InstanceDictGc {
         self.clear_getitem_row_cache();
     }
 
+    pub(crate) fn set_shared_storage(
+        &mut self,
+        source: PyObject,
+        node_mapping: PyObject,
+        adj_mapping: PyObject,
+        directed: bool,
+    ) {
+        self.shared_source = Some(source);
+        self.shared_node_mapping = Some(node_mapping);
+        self.shared_adj_mapping = Some(adj_mapping);
+        self.private_node_override = true;
+        self.private_adj_override = true;
+        if directed {
+            self.private_dir_override = true;
+        }
+        self.clear_getitem_row_cache();
+    }
+
+    pub(crate) fn shared_nodes_seq(&self, py: Python<'_>) -> Option<u64> {
+        let source = self.shared_source.as_ref()?.bind(py);
+        if let Ok(g) = source.downcast::<PyGraph>() {
+            return Some(g.borrow().nodes_seq(py));
+        }
+        if let Ok(g) = source.downcast::<digraph::PyDiGraph>() {
+            return Some(g.borrow().nodes_seq(py));
+        }
+        if let Ok(g) = source.downcast::<PyMultiGraph>() {
+            return Some(g.borrow().nodes_seq(py));
+        }
+        if let Ok(g) = source.downcast::<digraph::PyMultiDiGraph>() {
+            return Some(g.borrow().nodes_seq(py));
+        }
+        source
+            .getattr("nodes_seq")
+            .and_then(|v| v.extract::<u64>())
+            .ok()
+    }
+
+    pub(crate) fn shared_edges_seq(&self, py: Python<'_>) -> Option<u64> {
+        let source = self.shared_source.as_ref()?.bind(py);
+        if let Ok(g) = source.downcast::<PyGraph>() {
+            return Some(g.borrow().edges_seq(py));
+        }
+        if let Ok(g) = source.downcast::<digraph::PyDiGraph>() {
+            return Some(g.borrow().edges_seq(py));
+        }
+        if let Ok(g) = source.downcast::<PyMultiGraph>() {
+            return Some(g.borrow().edges_seq(py));
+        }
+        if let Ok(g) = source.downcast::<digraph::PyMultiDiGraph>() {
+            return Some(g.borrow().edges_seq(py));
+        }
+        source
+            .getattr("edges_seq")
+            .and_then(|v| v.extract::<u64>())
+            .ok()
+    }
+
     /// Does this graph carry networkx private storage at all?
     ///
     /// br-r37-c1-6mxtl: the read paths ported out of Python need one question
@@ -3887,13 +3957,7 @@ impl InstanceDictGc {
         py: Python<'py>,
         u: &Bound<'py, PyAny>,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
-        if !self.private_adj_override {
-            return Ok(None);
-        }
-        let Some(dict) = self.dict.as_ref() else {
-            return Ok(None);
-        };
-        let Some(mapping) = dict.bind(py).get_item("_fnx_private_adj_override")? else {
+        let Some(mapping) = self.private_adj_mapping(py)? else {
             return Ok(None);
         };
         // `mapping[u]` — a missing source is the caller's KeyError to shape,
@@ -3949,20 +4013,27 @@ impl InstanceDictGc {
         if !self.private_adj_override {
             return Ok(None);
         }
-        let Some(dict) = self.dict.as_ref() else {
-            return Ok(None);
-        };
-        dict.bind(py).get_item("_fnx_private_adj_override")
+        if let Some(dict) = self.dict.as_ref()
+            && let Some(mapping) = dict.bind(py).get_item("_fnx_private_adj_override")?
+        {
+            return Ok(Some(mapping));
+        }
+        Ok(self.shared_adj_mapping.as_ref().map(|m| m.bind(py).clone()))
     }
 
     fn private_node_mapping<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         if !self.private_node_override {
             return Ok(None);
         }
-        let Some(dict) = self.dict.as_ref() else {
-            return Ok(None);
-        };
-        dict.bind(py).get_item("_fnx_private_node_override")
+        if let Some(dict) = self.dict.as_ref()
+            && let Some(mapping) = dict.bind(py).get_item("_fnx_private_node_override")?
+        {
+            return Ok(Some(mapping));
+        }
+        Ok(self
+            .shared_node_mapping
+            .as_ref()
+            .map(|m| m.bind(py).clone()))
     }
 
     pub(crate) fn private_node_contains(
@@ -4566,6 +4637,17 @@ impl PyGraph {
     /// when the adjacency it reads has been replaced.
     fn _fnx_set_private_adj_override(&mut self) {
         self.instance_dict_gc.set_private_adj_override();
+    }
+
+    fn _fnx_set_shared_storage(
+        &mut self,
+        source: PyObject,
+        node_mapping: PyObject,
+        adj_mapping: PyObject,
+        directed: bool,
+    ) {
+        self.instance_dict_gc
+            .set_shared_storage(source, node_mapping, adj_mapping, directed);
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -7814,6 +7896,17 @@ impl PyMultiGraph {
         }
     }
 
+    fn _fnx_set_shared_storage(
+        &mut self,
+        source: PyObject,
+        node_mapping: PyObject,
+        adj_mapping: PyObject,
+        directed: bool,
+    ) {
+        self.instance_dict_gc
+            .set_shared_storage(source, node_mapping, adj_mapping, directed);
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.instance_dict_gc.traverse(visit.clone())?;
         self.traverse_python_refs(&visit)
@@ -10634,14 +10727,18 @@ impl PyMultiGraph {
     /// Exposed to Python so view-materialization caches can key on
     /// ``(nodes_seq, edges_seq)`` without scanning for changes.
     #[getter]
-    fn nodes_seq(&self) -> u64 {
-        self.nodes_seq
+    pub(crate) fn nodes_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_nodes_seq(py)
+            .unwrap_or(self.nodes_seq)
     }
 
     /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
     #[getter]
-    fn edges_seq(&self) -> u64 {
-        self.edges_seq
+    pub(crate) fn edges_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_edges_seq(py)
+            .unwrap_or(self.edges_seq)
     }
 
     fn is_directed(&self) -> bool {
@@ -14310,8 +14407,11 @@ impl PyMultiGraph {
         }
     }
 
-    fn __bool__(&self) -> bool {
-        self.inner.node_count() > 0
+    fn __bool__(&self, py: Python<'_>) -> PyResult<bool> {
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count > 0);
+        }
+        Ok(self.inner.node_count() > 0)
     }
 }
 
@@ -17607,14 +17707,18 @@ impl PyGraph {
     /// Exposed to Python so view-materialization caches can key on
     /// ``(nodes_seq, edges_seq)`` without scanning for changes.
     #[getter]
-    fn nodes_seq(&self) -> u64 {
-        self.nodes_seq
+    pub(crate) fn nodes_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_nodes_seq(py)
+            .unwrap_or(self.nodes_seq)
     }
 
     /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
     #[getter]
-    fn edges_seq(&self) -> u64 {
-        self.edges_seq
+    pub(crate) fn edges_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_edges_seq(py)
+            .unwrap_or(self.edges_seq)
     }
 
     // ---- Predicates ----
@@ -19399,9 +19503,12 @@ impl PyGraph {
         }
     }
 
-    fn __bool__(&self) -> bool {
+    fn __bool__(&self, py: Python<'_>) -> PyResult<bool> {
         // Match NetworkX: bool(G) is True if there are nodes.
-        self.inner.node_count() > 0
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count > 0);
+        }
+        Ok(self.inner.node_count() > 0)
     }
 
     // ---- Graph utility methods ----
@@ -24090,10 +24197,38 @@ impl NodeIteratorGuard {
     /// the O(N) ``current_nodes()`` clone on every ``__next__`` call.
     fn node_count(&self, py: Python<'_>) -> usize {
         match self {
-            Self::Graph(graph) => graph.borrow(py).inner.node_count(),
-            Self::MultiGraph(graph) => graph.borrow(py).inner.node_count(),
-            Self::DiGraph(graph) => graph.borrow(py).inner.node_count(),
-            Self::MultiDiGraph(graph) => graph.borrow(py).inner.node_count(),
+            Self::Graph(graph) => {
+                let g = graph.borrow(py);
+                g.instance_dict_gc
+                    .private_node_len(py)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| g.inner.node_count())
+            }
+            Self::MultiGraph(graph) => {
+                let g = graph.borrow(py);
+                g.instance_dict_gc
+                    .private_node_len(py)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| g.inner.node_count())
+            }
+            Self::DiGraph(graph) => {
+                let g = graph.borrow(py);
+                g.instance_dict_gc
+                    .private_node_len(py)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| g.inner.node_count())
+            }
+            Self::MultiDiGraph(graph) => {
+                let g = graph.borrow(py);
+                g.instance_dict_gc
+                    .private_node_len(py)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| g.inner.node_count())
+            }
         }
     }
 
@@ -24104,10 +24239,10 @@ impl NodeIteratorGuard {
     /// ``nodes_ordered()``.
     fn nodes_seq(&self, py: Python<'_>) -> u64 {
         match self {
-            Self::Graph(graph) => graph.borrow(py).nodes_seq,
-            Self::MultiGraph(graph) => graph.borrow(py).nodes_seq,
-            Self::DiGraph(graph) => graph.borrow(py).nodes_seq,
-            Self::MultiDiGraph(graph) => graph.borrow(py).nodes_seq,
+            Self::Graph(graph) => graph.borrow(py).nodes_seq(py),
+            Self::MultiGraph(graph) => graph.borrow(py).nodes_seq(py),
+            Self::DiGraph(graph) => graph.borrow(py).nodes_seq(py),
+            Self::MultiDiGraph(graph) => graph.borrow(py).nodes_seq(py),
         }
     }
 
@@ -24116,19 +24251,19 @@ impl NodeIteratorGuard {
         match self {
             Self::Graph(graph) => {
                 let graph = graph.borrow(py);
-                (graph.nodes_seq, graph.edges_seq)
+                (graph.nodes_seq(py), graph.edges_seq(py))
             }
             Self::MultiGraph(graph) => {
                 let graph = graph.borrow(py);
-                (graph.nodes_seq, graph.edges_seq)
+                (graph.nodes_seq(py), graph.edges_seq(py))
             }
             Self::DiGraph(graph) => {
                 let graph = graph.borrow(py);
-                (graph.nodes_seq, graph.edges_seq)
+                (graph.nodes_seq(py), graph.edges_seq(py))
             }
             Self::MultiDiGraph(graph) => {
                 let graph = graph.borrow(py);
-                (graph.nodes_seq, graph.edges_seq)
+                (graph.nodes_seq(py), graph.edges_seq(py))
             }
         }
     }

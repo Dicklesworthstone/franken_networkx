@@ -1218,6 +1218,32 @@ _PRIVATE_OVERRIDE_PUBLIC_NAMES = (
     (_PRIVATE_SUCC_OVERRIDE, "_succ"),
     (_PRIVATE_PRED_OVERRIDE, "_pred"),
 )
+_SHARED_STORAGE_SOURCE = "_fnx_shared_storage_source"
+
+
+def _shared_unsplit_owner(self, storage=None):
+    """Return the shared storage owner when ``self`` is an un-split shallow copy."""
+    if storage is None:
+        storage = self.__dict__
+    root = storage.get(_SHARED_STORAGE_SOURCE)
+    if root is None:
+        return None
+    if (
+        _PRIVATE_NODE_OVERRIDE in storage
+        or _PRIVATE_ADJ_OVERRIDE in storage
+        or _PRIVATE_SUCC_OVERRIDE in storage
+        or _PRIVATE_PRED_OVERRIDE in storage
+    ):
+        return None
+    root_storage = root.__dict__
+    if (
+        _PRIVATE_NODE_OVERRIDE in root_storage
+        or _PRIVATE_ADJ_OVERRIDE in root_storage
+        or _PRIVATE_SUCC_OVERRIDE in root_storage
+        or _PRIVATE_PRED_OVERRIDE in root_storage
+    ):
+        return None
+    return root
 
 
 def _captured_private_overrides(graph):
@@ -1373,14 +1399,22 @@ def _assigned_private_add_node(
         raise ValueError("None cannot be a node")
 
     storage = vars(self)
+    owner = _shared_unsplit_owner(self, storage)
+    if owner is not None:
+        raw = _RAW_ADD_NODE_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, node_for_adding, **attr)
+        return owner.add_node(node_for_adding, **attr)
+
+    target = storage.get(_SHARED_STORAGE_SOURCE, self)
     # Record membership before the native call.  Graph.add_node decides whether
     # to replace an adjacency row from `_node`, not from `_adj`; an assigned
     # `_adj` can therefore contain a stale row for a node which is new to the
     # graph.  NetworkX replaces that row rather than merging it.
     known_to_node_store = node_for_adding in self._node
-    raw = _RAW_ADD_NODE_BY_CLASS.get(type(self))
+    raw = _RAW_ADD_NODE_BY_CLASS.get(type(target))
     if _sync_native and raw is not None:
-        raw(self, node_for_adding, **attr)
+        raw(target, node_for_adding, **attr)
 
     node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
     if node_map is not None:
@@ -1530,37 +1564,55 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
 def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
     """add_edge for a graph carrying assigned private storage (br-r37-c1-wv3cu)."""
     storage = vars(self)
+    owner = _shared_unsplit_owner(self, storage)
+    if owner is not None:
+        raw = _RAW_ADD_EDGE_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, u_of_edge, v_of_edge, **attr)
+        return owner.add_edge(u_of_edge, v_of_edge, **attr)
+    target = storage.get(_SHARED_STORAGE_SOURCE, self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
-    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
+    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(target))
     if raw is None:
         # A subclass can inherit the native writer while carrying only a
         # private node mapping; its native adjacency still needs the write.
-        for graph_class in type(self).__mro__[1:]:
+        for graph_class in type(target).__mro__[1:]:
             raw = _RAW_ADD_EDGE_BY_CLASS.get(graph_class)
             if raw is not None:
                 break
     if not python_only and raw is not None:
-        raw(self, u_of_edge, v_of_edge, **attr)
+        raw(target, u_of_edge, v_of_edge, **attr)
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, None, attr, storage)
 
 
 def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **attr):
     """Multigraph add_edge: the key is part of the address, not an attribute."""
     storage = vars(self)
+    owner = _shared_unsplit_owner(self, storage)
+    if owner is not None:
+        raw = _RAW_ADD_EDGE_BY_CLASS.get(type(owner))
+        if raw is not None:
+            if key is None:
+                return raw(owner, u_of_edge, v_of_edge, **attr)
+            return raw(owner, u_of_edge, v_of_edge, key, **attr)
+        if key is None:
+            return owner.add_edge(u_of_edge, v_of_edge, **attr)
+        return owner.add_edge(u_of_edge, v_of_edge, key, **attr)
+    target = storage.get(_SHARED_STORAGE_SOURCE, self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
-    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
+    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(target))
     if raw is None:
         # The shadow installer also handles subclasses inheriting the native
         # add_edge. With only _node assigned, the adjacency is still native.
-        for graph_class in type(self).__mro__[1:]:
+        for graph_class in type(target).__mro__[1:]:
             raw = _RAW_ADD_EDGE_BY_CLASS.get(graph_class)
             if raw is not None:
                 break
     if not python_only and raw is not None:
         if key is None:
-            key = raw(self, u_of_edge, v_of_edge, **attr)
+            key = raw(target, u_of_edge, v_of_edge, **attr)
         else:
-            raw(self, u_of_edge, v_of_edge, key, **attr)
+            raw(target, u_of_edge, v_of_edge, key, **attr)
     elif key is None:
         forward, _ = _assigned_private_edge_targets(self, storage)
         keydict = forward.get(u_of_edge, {}).get(v_of_edge, {}) if forward else {}
@@ -1577,6 +1629,12 @@ def _assigned_private_add_nodes_from(self, nodes_for_adding, **attr):
     That asymmetry is why the sweep showed add_node fixed while add_nodes_from
     still diverged — the batch kernel never reached the corrected path.
     """
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        raw = _RAW_ADD_NODES_FROM_BY_CLASS.get(type(owner))
+        if raw is not None:
+            return raw(owner, nodes_for_adding, **attr)
+        return owner.add_nodes_from(nodes_for_adding, **attr)
     for node in nodes_for_adding:
         if isinstance(node, tuple) and len(node) == 2 and isinstance(node[1], dict):
             name, node_attr = node

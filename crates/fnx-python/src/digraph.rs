@@ -480,6 +480,17 @@ impl PyDiGraph {
         self.instance_dict_gc.set_private_dir_override();
     }
 
+    fn _fnx_set_shared_storage(
+        &mut self,
+        source: PyObject,
+        node_mapping: PyObject,
+        adj_mapping: PyObject,
+        directed: bool,
+    ) {
+        self.instance_dict_gc
+            .set_shared_storage(source, node_mapping, adj_mapping, directed);
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.instance_dict_gc.traverse(visit.clone())?;
         self.traverse_python_refs(&visit)
@@ -865,6 +876,17 @@ impl PyMultiDiGraph {
     /// past an assigned `_succ` and reported a present node absent.
     fn _fnx_set_private_dir_override(&mut self) {
         self.instance_dict_gc.set_private_dir_override();
+    }
+
+    fn _fnx_set_shared_storage(
+        &mut self,
+        source: PyObject,
+        node_mapping: PyObject,
+        adj_mapping: PyObject,
+        directed: bool,
+    ) {
+        self.instance_dict_gc
+            .set_shared_storage(source, node_mapping, adj_mapping, directed);
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -5450,14 +5472,18 @@ impl PyMultiDiGraph {
     /// Exposed to Python so view-materialization caches can key on
     /// ``(nodes_seq, edges_seq)`` without scanning for changes.
     #[getter]
-    fn nodes_seq(&self) -> u64 {
-        self.nodes_seq
+    pub(crate) fn nodes_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_nodes_seq(py)
+            .unwrap_or(self.nodes_seq)
     }
 
     /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
     #[getter]
-    fn edges_seq(&self) -> u64 {
-        self.edges_seq
+    pub(crate) fn edges_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_edges_seq(py)
+            .unwrap_or(self.edges_seq)
     }
 
     fn is_directed(&self) -> bool {
@@ -7994,8 +8020,11 @@ impl PyMultiDiGraph {
         }
     }
 
-    fn __bool__(&self) -> bool {
-        self.inner.node_count() > 0
+    fn __bool__(&self, py: Python<'_>) -> PyResult<bool> {
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count > 0);
+        }
+        Ok(self.inner.node_count() > 0)
     }
 }
 
@@ -15004,14 +15033,18 @@ impl PyDiGraph {
     /// Exposed to Python so view-materialization caches can key on
     /// ``(nodes_seq, edges_seq)`` without scanning for changes.
     #[getter]
-    fn nodes_seq(&self) -> u64 {
-        self.nodes_seq
+    pub(crate) fn nodes_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_nodes_seq(py)
+            .unwrap_or(self.nodes_seq)
     }
 
     /// Monotonic edge-mutation counter (br-r37-c1-jft0i).
     #[getter]
-    fn edges_seq(&self) -> u64 {
-        self.edges_seq
+    pub(crate) fn edges_seq(&self, py: Python<'_>) -> u64 {
+        self.instance_dict_gc
+            .shared_edges_seq(py)
+            .unwrap_or(self.edges_seq)
     }
 
     // ---- Predicates ----
@@ -19439,8 +19472,11 @@ impl PyDiGraph {
         }
     }
 
-    fn __bool__(&self) -> bool {
-        self.inner.node_count() > 0
+    fn __bool__(&self, py: Python<'_>) -> PyResult<bool> {
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count > 0);
+        }
+        Ok(self.inner.node_count() > 0)
     }
 
     fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {

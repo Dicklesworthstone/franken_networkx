@@ -225,6 +225,10 @@ def _directed_graph_has_predecessor(self, u, v):
 
 
 def _digraph_out_edges(self, nbunch=None, data=False, default=None):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        return _digraph_out_edges(owner, nbunch=nbunch, data=data, default=default)
+    is_native_digraph = type(self) is DiGraph and not _has_networkx_private_storage(self)
     # br-r37-c1-outedges: out_edges == edges() for a DiGraph, but this delegated
     # to ``self.edges(...)`` (the EdgeDataView Python machinery) instead of the
     # node-major native builder that _digraph_in_edges already uses — so
@@ -232,7 +236,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
     # native ``_native_edges_*`` kernels (byte-identical to nx out_edges order +
     # data). Same exact-DiGraph gate as in_edges (conversion / subgraph views
     # keep the Python edges() path: their inner is not the source of truth).
-    if nbunch is None and type(self) is DiGraph:
+    if nbunch is None and is_native_digraph:
         if data is False:
             native = getattr(self, "_native_edges_no_data", None)
             if native is not None:
@@ -249,7 +253,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
     # (canonical filter + succ-row tuples) replaces the EdgeDataView machinery.
     if (
         data is False
-        and type(self) is DiGraph
+        and is_native_digraph
         and (
             _nbunch_is_iterable_bunch(self, nbunch)
         )
@@ -270,7 +274,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
     # live attr dicts (~0.21x via the EdgeDataView path). iterable nbunch only.
     if (
         data is True
-        and type(self) is DiGraph
+        and is_native_digraph
         and (
             _nbunch_is_iterable_bunch(self, nbunch)
         )
@@ -286,7 +290,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
     if (
         data is not False
         and data is not True
-        and type(self) is DiGraph
+        and is_native_digraph
         and (
             _nbunch_is_iterable_bunch(self, nbunch)
         )
@@ -305,6 +309,10 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
 
 
 def _digraph_in_edges(self, nbunch=None, data=False, default=None):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        return _digraph_in_edges(owner, nbunch=nbunch, data=data, default=default)
+    is_native_digraph = type(self) is DiGraph and not _has_networkx_private_storage(self)
     # br-r37-c1-inedges: all-edges path routes to the native node-major
     # predecessor builder instead of walking pred[target].items() via the
     # DiAdjacencyView lambda chain (~176x no-data / ~50x data). data=True
@@ -313,7 +321,7 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
     # (_DirectedGraphConversionView, a DiGraph subclass with an empty inner that
     # computes edges from a wrapped graph) and SubgraphViews inherit this method
     # but must keep the Python pred-walk; their inner is not the source of truth.
-    if nbunch is None and type(self) is DiGraph:
+    if nbunch is None and is_native_digraph:
         if data is False:
             native = getattr(self, "_native_in_edges_no_data", None)
             if native is not None:
@@ -326,7 +334,7 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
             native = getattr(self, "_native_in_edges_data_key", None)
             if native is not None:
                 return native(data, default)
-    elif type(self) is DiGraph and (
+    elif is_native_digraph and (
         _nbunch_is_iterable_bunch(self, nbunch)
     ):
         # iterable nbunch -> native pred-major pass. br-r37-c1-inedges (cc).
@@ -369,12 +377,18 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
 
 
 def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=None):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        return _multidigraph_out_edges(
+            owner, nbunch=nbunch, data=data, keys=keys, default=default
+        )
+    is_native_mdg = type(self) is MultiDiGraph and not _has_networkx_private_storage(self)
     # br-r37-c1-mdgoutedge (cc): out_edges(nbunch, data=False) — one native pass
     # (succ x edge_keys in rust; nx iterates succ[u] keydicts in Python). iterable
     # nbunch only (a single in-graph node returns its edges via the view path).
     if (
         data is False
-        and type(self) is MultiDiGraph
+        and is_native_mdg
         and (
             _nbunch_is_iterable_bunch(self, nbunch)
         )
@@ -393,7 +407,7 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
     # live attr dicts. iterable nbunch only.
     if (
         data is True
-        and type(self) is MultiDiGraph
+        and is_native_mdg
         and (
             _nbunch_is_iterable_bunch(self, nbunch)
         )
@@ -409,7 +423,7 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
     if (
         data is not False
         and data is not True
-        and type(self) is MultiDiGraph
+        and is_native_mdg
         and (
             _nbunch_is_iterable_bunch(self, nbunch)
         )
@@ -429,11 +443,17 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
 
 
 def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=None):
+    owner = _shared_unsplit_owner(self)
+    if owner is not None:
+        return _multidigraph_in_edges(
+            owner, nbunch=nbunch, data=data, keys=keys, default=default
+        )
+    is_native_mdg = type(self) is MultiDiGraph and not _has_networkx_private_storage(self)
     # br-r37-c1-mdginedges (cc): full-graph in_edges(data=True) was a pure-Python
     # self.pred[target].items() loop (~11x slower than nx). Route it to a native
     # target-major pass (byte-identical order, live attr dicts). Other shapes
     # (nbunch / keys / data=key / data=False) keep the Python path below.
-    if nbunch is None and type(self) is MultiDiGraph:
+    if nbunch is None and is_native_mdg:
         if data is True:
             native = getattr(self, "_native_mdg_in_edges_with_data", None)
             if native is not None:
@@ -452,7 +472,7 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
                 result = native(data, default, keys)
                 if result is not None:
                     return result
-    elif type(self) is MultiDiGraph and (
+    elif is_native_mdg and (
         _nbunch_is_iterable_bunch(self, nbunch)
     ):
         # iterable nbunch -> native pred-major pass (a single in-graph node returns
@@ -526,11 +546,14 @@ def _nbunch_membership_container(graph):
     The private lookup happens once per CALL, not once per node.
     """
     storage = vars(graph)
+    if _shared_unsplit_owner(graph, storage) is not None:
+        return None
     if (
         _PRIVATE_NODE_OVERRIDE in storage
         or _PRIVATE_ADJ_OVERRIDE in storage
         or _PRIVATE_SUCC_OVERRIDE in storage
         or _PRIVATE_PRED_OVERRIDE in storage
+        or _SHARED_STORAGE_SOURCE in storage
     ):
         return graph.adj
     return None
@@ -563,8 +586,9 @@ def _nbunch_filter_container(graph):
     private = _nbunch_membership_container(graph)
     if private is not None:
         return private
-    if type(graph) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-        node_dict = getattr(graph, "_fnx_node_key_dict", None)
+    target = _shared_unsplit_owner(graph) or graph
+    if type(target) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        node_dict = getattr(target, "_fnx_node_key_dict", None)
         if node_dict is not None:
             return node_dict()
     return graph.nodes
@@ -776,8 +800,12 @@ def _size_with_unweighted_int(size_impl):
         # None (→ the exact degree path below) on a dirty mirror, any non-integer
         # weight, or a non-string/callable weight, so float/mixed parity is
         # unchanged.
-        if type(weight) is str:
-            fast = self._weighted_size_fast(weight)
+        target = _shared_unsplit_owner(self)
+        if type(weight) is str and (
+            target is not None or not _has_networkx_private_storage(self)
+        ):
+            target = target or self
+            fast = target._weighted_size_fast(weight)
             if fast is not None:
                 return fast
             # br-r37-c1-7pzs9: the scalar above is INT-only (it sums each edge
@@ -791,7 +819,7 @@ def _size_with_unweighted_int(size_impl):
             # wide-range ones. Returns None on a dirty store, a non-numeric
             # weight, overflow, or an integer total past 2**53, which keeps those
             # on the byte-identical formula below.
-            fast = getattr(self, "_weighted_size_fast_float", None)
+            fast = getattr(target, "_weighted_size_fast_float", None)
             if fast is not None:
                 fast = fast(weight)
                 if fast is not None:

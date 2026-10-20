@@ -63,7 +63,8 @@ def _private_aware_get_edge_data_multi(raw_get_edge_data):
 
 def _private_aware_number_of_nodes(raw_number_of_nodes):
     def number_of_nodes(self):
-        if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
+        storage = self.__dict__
+        if _PRIVATE_NODE_OVERRIDE in storage or _SHARED_STORAGE_SOURCE in storage:
             return len(self)
         return raw_number_of_nodes(self)
 
@@ -81,6 +82,15 @@ _NATIVE_DIRECTED_EDGE_CLASSES = (DiGraph, MultiDiGraph)
 
 def _private_aware_number_of_edges(raw_number_of_edges):
     def number_of_edges(self, u=None, v=None):
+        owner = _shared_unsplit_owner(self)
+        if owner is not None:
+            if (
+                u is not None
+                and v is not None
+                and type(owner) in _NATIVE_EDGE_COUNT_CLASSES
+            ):
+                return owner.number_of_edges_between(u, v)
+            return raw_number_of_edges(owner, u, v)
         # br-r37-c1-s8dj1: the both-endpoints case goes STRAIGHT to the native
         # counter. `raw_number_of_edges` is a Python body, and on MultiDiGraph
         # the native it eventually reaches now answers from node positions
@@ -149,6 +159,7 @@ def _private_aware_neighbors(raw_neighbors, *, attr_name="adj"):
             and _PRIVATE_ADJ_OVERRIDE not in ov
             and _PRIVATE_SUCC_OVERRIDE not in ov
             and _PRIVATE_PRED_OVERRIDE not in ov
+            and _SHARED_STORAGE_SOURCE not in ov
         ):
             cache = ov.get("_fnx_adj_row_keydict_cache")
             if cache is not None and ov.get(
@@ -182,6 +193,7 @@ def _private_aware_digraph_successors():
             and _PRIVATE_ADJ_OVERRIDE not in ov
             and _PRIVATE_SUCC_OVERRIDE not in ov
             and _PRIVATE_PRED_OVERRIDE not in ov
+            and _SHARED_STORAGE_SOURCE not in ov
         ):
             state = (self.nodes_seq, self.edges_seq)
             if ov.get("_fnx_succ_row_keydict_cache_state") != state:
@@ -213,6 +225,7 @@ def _private_aware_digraph_predecessors():
             and _PRIVATE_ADJ_OVERRIDE not in ov
             and _PRIVATE_SUCC_OVERRIDE not in ov
             and _PRIVATE_PRED_OVERRIDE not in ov
+            and _SHARED_STORAGE_SOURCE not in ov
         ):
             state = (self.nodes_seq, self.edges_seq)
             if ov.get("_fnx_pred_row_keydict_cache_state") != state:
@@ -691,57 +704,50 @@ _RAW_GRAPH_SHALLOWCOPY = {
 
 
 def _graph_shallowcopy(self):
-    # br-r37-c1-5ctpe: copy.copy(G) must share the same attribute dict
-    # references (graph attrs are `is`, not just `==`). G.copy() returns
-    # a deep copy; copy.copy(G) returns a shallow copy.
-    #
-    # br-r37-c1-4wqn9: previous override-pattern (set h._adj = self.adj,
-    # h._node = self._node) caused silent write-loss: h.add_edge wrote
-    # to h's separate Rust storage but h.edges still read through the
-    # overridden _adj view pointing at g. Create an independent copy of
-    # the graph STRUCTURE but share the attribute dicts.
-    #
-    # br-r37-c1-o1i86: route exact graph types through the raw Rust
-    # __copy__ — self.copy() RE-DERIVES adjacency rows (nx.copy()
-    # semantics), but copy.copy must show the SOURCE's rows (nx shares
-    # _adj outright).
-    #
-    # br-r37-c1-copyshare-2h5uj: THE CLAIM THAT STOOD HERE IS FALSE, and it is
-    # corrected rather than deleted because it would stop the next reader
-    # looking. It said "The Rust path also shares node/edge attr dicts,
-    # matching nx's shared-storage behavior for attribute mutation". Measured
-    # against networkx on all four classes, writing through the SOURCE and
-    # asking what the copy observes — 16 of 20 cells diverge:
-    #
-    #     probe                     nx shares   fnx shares
-    #     graph attrs dict            True        True     (shared just below)
-    #     node attr dict              True        False
-    #     edge attr dict              True        False
-    #     STRUCTURE (add a node)      True        False
-    #     STRUCTURE (add an edge)     True        False
-    #
-    # networkx's copy.copy is an ALIAS: `_adj` / `_node` are the same dict
-    # objects, so structure and every attribute dict are shared. fnx shares
-    # only the graph attrs dict below; everything else is an independent copy.
-    # That is not a small gap — `copy.copy(G)` is effectively `G.copy()` here.
-    #
-    # It is also not fixable by re-pointing `_adj` / `_node`: br-r37-c1-4wqn9
-    # (cited above) tried exactly that and it caused SILENT WRITE-LOSS, because
-    # h.add_edge wrote to h's own Rust store while h.edges read through the
-    # override at g. A real fix needs two Python graph objects sharing ONE Rust
-    # store, which is a capability the store does not have.
-    raw = _RAW_GRAPH_SHALLOWCOPY.get(type(self))
-    if raw is not None:
-        result = raw(self)
-    else:
+    # br-r37-c1-epic-storage-architecture-yr2oc.3: copy.copy(G) is O(1) and shares
+    # underlying storage with G, matching NetworkX's copy.copy(G) semantics.
+    if isinstance(
+        self, (_FilteredGraphView, _ConversionGraphViewBase, _ReverseDirectedViewBase)
+    ):
         result = self.copy()
-    # Share graph attrs dict by setting the override directly
-    vars(result)[_GRAPH_ATTR_OVERRIDE] = self.graph
-    result._fnx_register_gc_dict(vars(result))
-    # br-r37-c1-s8obc: an assigned private store (``g._node = {...}``) must ride
-    # along, as it does in nx. copy.copy SHARES the mapping object, matching the
-    # graph-attrs sharing directly above and nx's own shallow-copy semantics.
-    _reapply_private_overrides(result, _captured_private_overrides(self))
+        vars(result)[_GRAPH_ATTR_OVERRIDE] = self.graph
+        result._fnx_register_gc_dict(vars(result))
+        _reapply_private_overrides(result, _captured_private_overrides(self))
+        if getattr(self, "frozen", False):
+            freeze(result)
+        return result
+
+    cls = type(self)
+    result = cls.__new__(cls)
+    src_storage = self.__dict__
+    dst_storage = result.__dict__
+    root = src_storage.get(_SHARED_STORAGE_SOURCE, self)
+    dst_storage[_SHARED_STORAGE_SOURCE] = root
+    dst_storage[_GRAPH_ATTR_OVERRIDE] = self.graph
+    descriptor_cached = src_storage.get(_DESCRIPTOR_CACHED_VIEWS) or ()
+    private_method_shadows = src_storage.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
+    for key, val in src_storage.items():
+        if key in dst_storage:
+            continue
+        if key.startswith("_fnx_") or key in descriptor_cached:
+            continue
+        if key in private_method_shadows and val is private_method_shadows[key]:
+            continue
+        if key == "frozen":
+            continue
+        dst_storage[key] = val
+    result._fnx_register_gc_dict(dst_storage)
+    result._fnx_set_shared_storage(
+        root,
+        root._node,
+        root._adj,
+        self.is_directed(),
+    )
+    overrides = _captured_private_overrides(self)
+    if overrides:
+        _reapply_private_overrides(result, overrides)
+    else:
+        _install_private_method_shadows(result, dst_storage)
     if getattr(self, "frozen", False):
         freeze(result)
     return result
@@ -807,7 +813,8 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
             self, (_FilteredGraphView, _ConversionGraphViewBase, _ReverseDirectedViewBase)
         ):
             return self.__reduce__()
-        inner = raw_reduce_ex(self, protocol)
+        target = vars(self).get(_SHARED_STORAGE_SOURCE, self)
+        inner = raw_reduce_ex(target, protocol)
         if isinstance(inner, tuple) and len(inner) >= 2:
             reconstructor = inner[0]
             if reconstructor is copyreg.__newobj__:
@@ -1041,9 +1048,14 @@ def _copy_preserving_insertion_order(self, as_view=False):
     if type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph) and not (
         _captured_private_overrides(self)
     ):
-        native_copy = getattr(self, "_native_copy", None)
+        target = vars(self).get(_SHARED_STORAGE_SOURCE, self)
+        native_copy = getattr(target, "_native_copy", None)
         if native_copy is not None:
-            return native_copy()
+            res = native_copy()
+            if target is not self:
+                res.graph.clear()
+                res.graph.update(self.graph)
+            return res
 
     result = type(self)()
     # Shallow: result.graph is a new dict but its values are shared

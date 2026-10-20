@@ -181,7 +181,11 @@ def _multigraph_getitem_from_native_row(self, node):
     # which such a mutation does not advance; a cached row would go stale with
     # nothing to invalidate it. `_set_private_override` also drops this cache, so
     # a row cached BEFORE the assignment cannot be served afterwards.
-    if _PRIVATE_NODE_OVERRIDE in storage or _PRIVATE_ADJ_OVERRIDE in storage:
+    if (
+        _PRIVATE_NODE_OVERRIDE in storage
+        or _PRIVATE_ADJ_OVERRIDE in storage
+        or _SHARED_STORAGE_SOURCE in storage
+    ):
         return self.adj[node]
     try:
         row = self._native_adjacency_row(node)
@@ -214,7 +218,7 @@ def _multigraph_getitem_from_native_row(self, node):
 
 
 def _digraph_getitem_from_native_row(self, node):
-    if type(self) is not DiGraph:
+    if type(self) is not DiGraph or _has_networkx_private_storage(self):
         return _graph_getitem_from_adj(self, node)
     _HASH_PROBE.get(node)
     try:
@@ -255,6 +259,7 @@ def _multidigraph_getitem_from_native_row(self, node):
         _PRIVATE_NODE_OVERRIDE in storage
         or _PRIVATE_ADJ_OVERRIDE in storage
         or _PRIVATE_SUCC_OVERRIDE in storage
+        or _SHARED_STORAGE_SOURCE in storage
     ):
         return self.adj[node]
     try:

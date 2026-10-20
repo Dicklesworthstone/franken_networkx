@@ -11525,24 +11525,22 @@ def test_custom_python_attrs_survive_deepcopy_and_pickle():
 
 
 def test_shallow_copy_returns_independent_writable_graph():
-    """br-r37-c1-4wqn9 (cycle 250): the previous _graph_shallowcopy
-    overrode result._adj / result._node to point at self.adj / self._node
-    while result was a fresh-empty Rust graph. h.add_edge(2, 3) wrote to
-    h's own Rust storage, but h.edges read through the overridden view
-    pointing at g — so the write was silently invisible.
-
-    Fix: delegate to self.copy() so copy.copy(g) returns an independent
-    writable copy (diverges from nx's shared-state contract, but is
-    consistent with g.copy() and never silently drops writes).
+    """br-r37-c1-4wqn9 + br-r37-c1-epic-storage-architecture-yr2oc.3:
+    copy.copy(g) must never silently drop writes on the copy (4wqn9) AND
+    must share underlying storage with g matching NetworkX's copy.copy(g)
+    contract (yr2oc.3).
     """
     import copy
 
-    # Undirected: copy is independent, h's writes don't leak to g
+    # Undirected: h's writes are visible on both h and g (matching nx)
     g = fnx.Graph([(0, 1)])
+    gn = nx.Graph([(0, 1)])
     h = copy.copy(g)
+    hn = copy.copy(gn)
     h.add_edge(2, 3)
-    assert sorted(h.edges()) == [(0, 1), (2, 3)]
-    assert sorted(g.edges()) == [(0, 1)]
+    hn.add_edge(2, 3)
+    assert sorted(h.edges()) == sorted(hn.edges()) == [(0, 1), (2, 3)]
+    assert sorted(g.edges()) == sorted(gn.edges()) == [(0, 1), (2, 3)]
 
     # Frozen flag survives
     g2 = fnx.path_graph(3)
@@ -11550,20 +11548,27 @@ def test_shallow_copy_returns_independent_writable_graph():
     h2 = copy.copy(g2)
     assert fnx.is_frozen(h2)
 
-    # DiGraph: independent + correct direction semantics
+    # DiGraph: shared storage + correct direction semantics
     g3 = fnx.DiGraph([(0, 1), (1, 2)])
+    g3n = nx.DiGraph([(0, 1), (1, 2)])
     h3 = copy.copy(g3)
+    h3n = copy.copy(g3n)
     h3.add_edge(2, 3)
-    assert sorted(h3.edges()) == [(0, 1), (1, 2), (2, 3)]
-    assert sorted(g3.edges()) == [(0, 1), (1, 2)]
+    h3n.add_edge(2, 3)
+    assert sorted(h3.edges()) == sorted(h3n.edges()) == [(0, 1), (1, 2), (2, 3)]
+    assert sorted(g3.edges()) == sorted(g3n.edges()) == [(0, 1), (1, 2), (2, 3)]
 
-    # MultiGraph: parallel edge keys still work after copy.copy
+    # MultiGraph: parallel edge keys still work after copy.copy and share storage
     g4 = fnx.MultiGraph()
+    g4n = nx.MultiGraph()
     g4.add_edge(0, 1, key='a')
+    g4n.add_edge(0, 1, key='a')
     h4 = copy.copy(g4)
+    h4n = copy.copy(g4n)
     h4.add_edge(0, 1, key='b')
-    assert h4.number_of_edges(0, 1) == 2
-    assert g4.number_of_edges(0, 1) == 1
+    h4n.add_edge(0, 1, key='b')
+    assert h4.number_of_edges(0, 1) == h4n.number_of_edges(0, 1) == 2
+    assert g4.number_of_edges(0, 1) == g4n.number_of_edges(0, 1) == 2
 
     # Graph + node attrs survive
     g5 = fnx.Graph()

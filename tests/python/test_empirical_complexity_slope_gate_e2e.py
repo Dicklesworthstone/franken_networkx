@@ -24,8 +24,8 @@ def test_empirical_complexity_catalogue_and_jsonl_artifacts_are_valid():
     report = json.loads(catalogue_path.read_text(encoding="utf-8"))
     assert report["schema_version"] == "1.0.0"
     assert report["summary"]["total_cases"] == 54
-    assert report["summary"]["passed_green"] == 50
-    assert report["summary"]["allowlisted_debt"] == 4
+    assert report["summary"]["passed_green"] == 54
+    assert report["summary"]["allowlisted_debt"] == 0
     assert report["summary"]["failed"] == 0
     assert report["summary"]["stale_allowlist"] == 0
 
@@ -33,11 +33,8 @@ def test_empirical_complexity_catalogue_and_jsonl_artifacts_are_valid():
     for cls_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
         assert rows_by_key[("remove_node", cls_name)]["status"] == "PASS"
         assert rows_by_key[("remove_node", cls_name)]["fnx_effective_slope"] <= 0.15
-        assert rows_by_key[("copy_shallow", cls_name)]["status"] == "ALLOWLISTED_DEBT"
-        assert (
-            rows_by_key[("copy_shallow", cls_name)]["allowlisted_debt_bead"]
-            == "br-r37-c1-epic-storage-architecture-yr2oc.3"
-        )
+        assert rows_by_key[("copy_shallow", cls_name)]["status"] == "PASS"
+        assert rows_by_key[("copy_shallow", cls_name)]["fnx_effective_slope"] <= 0.15
 
     lines = [
         json.loads(line)
@@ -66,13 +63,31 @@ def test_empirical_complexity_catalogue_and_jsonl_artifacts_are_valid():
 
 def test_slope_gate_negative_cases_fail_closed_on_copy_shallow_and_planted_linear_scan():
     """wvztf.2 negative test:
-    1. Unfixed copy.copy (yr2oc.3) fails closed when disallowing the debt allowlist.
+    1. A planted O(N) clone (`g.copy()` instead of `copy.copy(g)`) fails closed (native O(N) loop).
     2. A planted O(N) hidden scan in Python or native code fails closed (slope ~ 1.0 > 0.15).
-    3. An O(1) operation (has_node / remove_node) passes (slope <= 0.15).
+    3. O(1) operations (`copy.copy(g)`, `has_node`) pass (slope <= 0.15).
     """
     sizes = (250, 1000, 4000, 16000)
 
-    # 1. Unfixed copy.copy fails raw_pass (native O(N) loop)
+    # 1. Planted O(N) native clone fails raw_pass (native O(N) loop detection)
+    planted_native_clone_row = gate.measure_op_across_scales(
+        op_id="planted_native_clone",
+        cls_name="Graph",
+        theoretical_max_slope=0.0,
+        runner_factory=lambda g, _n: (
+            (lambda: g.copy())
+            if type(g).__module__.startswith("franken_networkx")
+            else (lambda: copy.copy(g))
+        ),
+        sizes=sizes,
+        iters=4,
+    )
+    assert planted_native_clone_row["raw_pass"] is False, (
+        f"expected raw failure on planted O(N) clone, got {planted_native_clone_row}"
+    )
+    assert planted_native_clone_row["fnx_effective_slope"] >= 0.75
+
+    # 1b. Fixed copy.copy(g) passes O(1) slope budget
     copy_row = gate.measure_op_across_scales(
         op_id="copy_shallow",
         cls_name="Graph",
@@ -81,8 +96,9 @@ def test_slope_gate_negative_cases_fail_closed_on_copy_shallow_and_planted_linea
         sizes=sizes,
         iters=4,
     )
-    assert copy_row["raw_pass"] is False, f"expected raw failure on copy.copy, got {copy_row}"
-    assert copy_row["fnx_effective_slope"] >= 0.75
+    assert copy_row["status"] == "PASS"
+    assert copy_row["raw_pass"] is True
+    assert abs(copy_row["fnx_effective_slope"]) <= 0.15
 
     # 2. Planted O(N) hidden scan in a supposedly O(1) operation fails closed
     planted_row = gate.measure_op_across_scales(

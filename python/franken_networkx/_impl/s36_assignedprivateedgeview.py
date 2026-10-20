@@ -1386,7 +1386,14 @@ def _private_aware_contains(raw_contains):
 def _private_aware_nodes(raw_nodes):
     def nodes(self):
         cache = vars(self)
-        if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
+        owner = _shared_unsplit_owner(self, cache)
+        if owner is not None:
+            view = cache.get("_fnx_view_nodes")
+            if view is None:
+                view = raw_nodes.__get__(owner, type(owner))
+                cache["_fnx_view_nodes"] = view
+            return view
+        if _PRIVATE_NODE_OVERRIDE in cache or _SHARED_STORAGE_SOURCE in cache:
             view = cache.get("_fnx_view_nodes_assigned")
             if view is None:
                 view = _AssignedPrivateNodeView(self)
@@ -1410,6 +1417,17 @@ def _private_aware_edges(raw_edges):
         # (private storage / regular). Both should return the same
         # instance on repeat access per nx's @cached_property contract.
         cache = vars(self)
+        owner = _shared_unsplit_owner(self, cache)
+        if owner is not None:
+            view = cache.get("_fnx_view_edges")
+            if view is None:
+                view = raw_edges.__get__(owner, type(owner))
+                cache["_fnx_view_edges"] = view
+            try:
+                _EDGE_VIEW_GRAPH_OWNER[id(view)] = owner
+            except TypeError:
+                pass
+            return view
         if _has_networkx_private_storage(self):
             view = cache.get("_fnx_view_edges_assigned")
             if view is None:
@@ -1459,6 +1477,14 @@ _EDGE_VIEW_GRAPH_OWNER: "_weakref.WeakValueDictionary[int, object]" = (
 
 def _private_aware_degree(raw_degree):
     def degree(self):
+        cache = vars(self)
+        owner = _shared_unsplit_owner(self, cache)
+        if owner is not None:
+            view = cache.get("_fnx_view_degree")
+            if view is None:
+                view = raw_degree.__get__(owner, type(owner))
+                cache["_fnx_view_degree"] = view
+            return view
         if _has_networkx_private_storage(self):
             # br-r37-c1-degprop: cache the ASSIGNED view too. `nodes` and
             # `edges` already cache theirs (`_fnx_view_nodes_assigned`,
@@ -1474,7 +1500,6 @@ def _private_aware_degree(raw_degree):
             # call), which is what makes them unlike the native-counter views
             # br-r37-c1-2r06n had to drop. The drop is added there anyway, so a
             # reassignment always rebuilds.
-            cache = vars(self)
             view = cache.get("_fnx_view_degree_assigned")
             if view is not None:
                 return view
@@ -1497,7 +1522,6 @@ def _private_aware_degree(raw_degree):
             return view
         # br-r37-c1-b3cnf follow-up: cache the DegreeView wrapper so
         # ``g.degree is g.degree`` matches nx's @cached_property.
-        cache = vars(self)
         view = cache.get("_fnx_view_degree")
         if view is None:
             view = raw_degree.__get__(self, type(self))
@@ -1513,7 +1537,8 @@ def _private_aware_has_node(raw_has_node):
         # Parameter named ``n`` to match networkx (br-r37-c1-classmethsig).
         # Drop-in callers writing ``G.has_node(n=x)`` would have hit
         # TypeError under fnx's earlier ``node`` name.
-        if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
+        storage = self.__dict__
+        if _PRIVATE_NODE_OVERRIDE in storage or _SHARED_STORAGE_SOURCE in storage:
             return n in self
         return raw_has_node(self, n)
 
