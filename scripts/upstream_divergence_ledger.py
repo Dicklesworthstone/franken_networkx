@@ -153,10 +153,12 @@ def _scan_rust_known_gaps() -> list[tuple[str, str, str]]:
 
 
 def _scan_python_intentional_delegation() -> list[tuple[str, str]]:
-    """Find functions in __init__.py that contain only an
+    """Find functions in __init__.py (and _impl/s*.py) that contain only an
     `_call_networkx_for_parity` body (full delegation)."""
     init_path = REPO_ROOT / "python" / "franken_networkx" / "__init__.py"
-    text = init_path.read_text(encoding="utf-8")
+    impl_dir = init_path.parent / "_impl"
+    paths = [init_path, *(sorted(impl_dir.glob("s*.py")) if impl_dir.is_dir() else ())]
+    text = "\n".join(p.read_text(encoding="utf-8") for p in paths)
     # Quick heuristic: walk function defs and look for direct return/yield-from
     # of _call_networkx_for_parity at the top level (not buried in a branch).
     fn_re = re.compile(

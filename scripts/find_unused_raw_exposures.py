@@ -201,13 +201,45 @@ TRIAGE = {
     "_raw_negative_edge_cycle": ("keep-public-api",
         "wrapper routes through inprocess cycle detection for heuristic and "
         "weight handling; raw kept as direct-Rust API"),
+    "_raw_all_pairs_dijkstra_path": ("keep-public-api",
+        "br-r37-c1-rc0923-epic-security-durability-conformance-csmqh.6: wrapper "
+        "yields per-source _raw_single_source_dijkstra_path for O(n) streaming "
+        "memory matching NetworkX's generator; raw kept as direct-Rust API"),
+    "_raw_all_pairs_dijkstra_path_length": ("keep-public-api",
+        "br-r37-c1-rc0923-epic-security-durability-conformance-csmqh.6: wrapper "
+        "yields per-source _raw_single_source_dijkstra_path_length for O(n) "
+        "streaming memory; raw kept as direct-Rust API"),
+    "_raw_all_pairs_shortest_path": ("keep-public-api",
+        "br-r37-c1-rc0923-epic-security-durability-conformance-csmqh.6: wrapper "
+        "yields per-source _raw_single_source_shortest_path for O(n) streaming "
+        "memory; raw kept as direct-Rust API"),
+    "_raw_all_pairs_shortest_path_length": ("keep-public-api",
+        "br-r37-c1-rc0923-epic-security-durability-conformance-csmqh.6: wrapper "
+        "yields per-source _raw_single_source_shortest_path_length for O(n) "
+        "streaming memory; raw kept as direct-Rust API"),
+    "_raw_degree_assortativity_coefficient": ("keep-public-api",
+        "wrapper routes through degree_mixing_matrix + numeric_assortativity "
+        "for full x/y/weight/nodes parameter parity; raw kept as direct-Rust API"),
+    "_raw_degree_assortativity_coefficient_directed": ("keep-public-api",
+        "wrapper routes through degree_mixing_matrix + numeric_assortativity "
+        "for full x/y/weight/nodes parameter parity; raw kept as direct-Rust API"),
+    "_raw_local_efficiency": ("keep-public-api",
+        "wrapper composes per-ego subgraph global_efficiency for exact nx "
+        "parity on isolated/disconnected neighborhoods; raw kept as direct-Rust API"),
 }
+
+
+def read_shim_source() -> str:
+    """Read franken_networkx/__init__.py plus any decomposed _impl/s*.py modules."""
+    impl_dir = INIT_PATH.parent / "_impl"
+    paths = [INIT_PATH, *(sorted(impl_dir.glob("s*.py")) if impl_dir.is_dir() else ())]
+    return "\n".join(p.read_text(encoding="utf-8") for p in paths)
 
 
 def find_unused_raw_exposures() -> dict[str, int]:
     """Return ``{raw_name: reference_count}`` for every _raw_<X> in fnx
-    whose only mention in __init__.py is the import line."""
-    text = INIT_PATH.read_text(encoding="utf-8")
+    whose only mention in __init__.py (and _impl/s*.py) is the import line."""
+    text = read_shim_source()
     raw_exports = [n for n in dir(fnx) if n.startswith("_raw_")]
     unused: dict[str, int] = {}
     for raw in sorted(raw_exports):

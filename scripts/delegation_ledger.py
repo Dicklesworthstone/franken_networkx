@@ -261,16 +261,28 @@ def _gather_static(*, include_backend=True) -> dict[str, StaticInfo]:
     packages = set()
     public_modules = set()
     _SOURCE_IDENTITIES.clear()
+    loaded_root = Path(fnx.__file__).resolve().parent
     for path in sorted(INIT_PATH.parent.rglob("*.py")):
-        parts = list(path.relative_to(INIT_PATH.parent).with_suffix("").parts)
+        rel_path = path.relative_to(INIT_PATH.parent)
+        parts = list(rel_path.with_suffix("").parts)
         if parts[-1] == "__init__":
             parts.pop()
         module = ".".join(["franken_networkx", *parts])
+        if parts and parts[0] == "_impl":
+            loaded_impl = loaded_root / rel_path
+            _SOURCE_IDENTITIES.append({
+                "module": module,
+                "checkout_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "loaded_sha256": hashlib.sha256(loaded_impl.read_bytes()).hexdigest() if loaded_impl.exists() else "",
+            })
+            if path.name != "__init__.py":
+                sources["franken_networkx"] = sources.get("franken_networkx", "") + "\n" + path.read_text(encoding="utf-8")
+            continue
         if not any(part.startswith("_") for part in parts):
             public_modules.add(module)
         if path.name == "__init__.py":
             packages.add(module)
-        sources[module] = path.read_text(encoding="utf-8")
+        sources[module] = (sources.get(module, "") + "\n" + path.read_text(encoding="utf-8")).lstrip("\n")
         modules[module] = importlib.import_module(module)
         loaded_path = Path(modules[module].__file__)
         _SOURCE_IDENTITIES.append({
@@ -349,6 +361,8 @@ def _object_targets(obj) -> set[str]:
                 parts = list(path.relative_to(root).with_suffix("").parts)
                 if parts[-1] == "__init__":
                     parts.pop()
+                if parts and parts[0] == "_impl":
+                    parts = []
                 return {".".join([package.__name__, *parts, code.co_qualname])}
         return set()
     if inspect.ismodule(obj):

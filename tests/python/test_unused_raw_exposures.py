@@ -37,8 +37,7 @@ def _load_triage() -> dict:
 
 
 def _find_unused_raw() -> list[str]:
-    init_path = REPO_ROOT / "python" / "franken_networkx" / "__init__.py"
-    text = init_path.read_text(encoding="utf-8")
+    text = _load_report_script().read_shim_source()
     return [
         n
         for n in dir(fnx)
