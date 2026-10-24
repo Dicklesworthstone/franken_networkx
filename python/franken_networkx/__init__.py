@@ -32,4 +32,6 @@ for _part_path in sorted(_impl_dir.glob("s*.py")):
     _machinery.SourceFileLoader(__name__, str(_part_path)).exec_module(_self_mod)
 __file__ = _init_file
 __doc__ = _init_doc
-del _machinery, _Path, _sys, _types, _self_mod, _init_file, _init_doc, _impl_dir, _impl_mod, _part_path
+# The implementation also imports _sys and _types into this shared namespace.
+# Runtime algorithms still use them after the loader has finished.
+del _machinery, _Path, _self_mod, _init_file, _init_doc, _impl_dir, _impl_mod, _part_path

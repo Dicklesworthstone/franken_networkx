@@ -663,8 +663,9 @@ def _nan_filtered_graph(G, weight, ignore_nan):
 class SpanningTreeIterator:
     """Iterate over all spanning trees of a graph in weight-sorted order.
 
-    Uses the Rust-backed spanning-tree iterator implementation and matches
-    NetworkX ``SpanningTreeIterator`` semantics for the supported graph types.
+    Keeps a frontier of edge partitions and selects each candidate with the
+    native spanning-tree kernel. Consuming a prefix does not enumerate the
+    remaining trees.
 
     Parameters
     ----------
@@ -692,13 +693,13 @@ class SpanningTreeIterator:
             )
 
     def __init__(self, G, weight="weight", minimum=True, ignore_nan=False):
-        self.G = G
+        self.G = _coerce_arg_to_fnx_graph(G).copy()
         self.weight = weight
         self.minimum = minimum
         self.ignore_nan = ignore_nan
+        self.partition_key = "SpanningTreeIterators super secret partition attribute name"
 
     def __iter__(self):
-        from franken_networkx._fnx import spanning_tree_iterator_rust
         from franken_networkx._fnx import NetworkXNotImplemented
 
         if self.G.is_directed():
@@ -717,33 +718,76 @@ class SpanningTreeIterator:
                 )
             )
             return self
-        graph = _nan_filtered_graph(self.G, self.weight, self.ignore_nan)
-        self._iterator = spanning_tree_iterator_rust(
-            graph,
-            self.weight,
-            self.minimum,
-            _sys.maxsize,
-        )
+        self._iterator = None
+        self.partition_queue = []
+        self._partition_serial = 0
+        self._queue_partition({}, self._select_partition({}))
         return self
 
+    def _select_partition(self, constraints):
+        for u, v, attrs in self.G.edges(data=True):
+            attrs[self.partition_key] = constraints.get((u, v), EdgePartition.OPEN)
+        tree = partition_spanning_tree(
+            self.G,
+            minimum=self.minimum,
+            weight=self.weight,
+            partition=self.partition_key,
+            ignore_nan=self.ignore_nan,
+        )
+        for _, _, attrs in tree.edges(data=True):
+            attrs.pop(self.partition_key, None)
+        return tree
+
+    def _queue_partition(self, constraints, tree):
+        from heapq import heappush
+
+        cost = tree.size(weight=self.weight)
+        self._partition_serial += 1
+        heappush(
+            self.partition_queue,
+            (cost if self.minimum else -cost, self._partition_serial, tree, constraints),
+        )
+
     def __next__(self):
-        if not hasattr(self, "_iterator") or self._iterator is None:
+        if not hasattr(self, "_iterator"):
             raise AttributeError(
                 "'SpanningTreeIterator' object has no attribute 'partition_queue'"
             )
         try:
-            return next(self._iterator)
+            if self._iterator is not None:
+                return next(self._iterator)
+            if not self.partition_queue:
+                raise StopIteration
+            from heapq import heappop
+
+            _, _, tree, constraints = heappop(self.partition_queue)
+            prefix = constraints.copy()
+            # Every alternative first differs at one open tree edge. Exclude
+            # that edge and include the preceding ones, producing disjoint
+            # partitions without constructing the unconsumed search space.
+            for edge in tree.edges:
+                if edge in constraints:
+                    continue
+                alternative = prefix.copy()
+                alternative[edge] = EdgePartition.EXCLUDED
+                candidate = self._select_partition(alternative)
+                if is_connected(candidate):
+                    self._queue_partition(alternative, candidate)
+                prefix[edge] = EdgePartition.INCLUDED
+            return tree
         except StopIteration:
             del self.G
             del self._iterator
-            raise StopIteration
+            if hasattr(self, "partition_queue"):
+                del self.partition_queue
+            raise
 
 
 class ArborescenceIterator:
     """Iterate over all spanning arborescences of a digraph in weight-sorted order.
 
-    Uses the Rust-backed arborescence iterator implementation and matches
-    NetworkX ``ArborescenceIterator`` semantics for the supported graph types.
+    Uses the incremental partition scheduler with native arborescence
+    selection on simple graphs, retaining only the current search frontier.
 
     Parameters
     ----------
@@ -770,14 +814,17 @@ class ArborescenceIterator:
             )
 
     def __init__(self, G, weight="weight", minimum=True, init_partition=None):
-        self.G = G
+        self.G = _coerce_arg_to_fnx_graph(G).copy()
         self.weight = weight
         self.minimum = minimum
-        self.init_partition = init_partition
+        self.init_partition = (
+            None if init_partition is None
+            else (tuple(init_partition[0]), tuple(init_partition[1]))
+        )
 
     def __iter__(self):
-        from franken_networkx._fnx import arborescence_iterator_rust
         from franken_networkx._fnx import NetworkXPointlessConcept
+        import networkx as _nx_local
 
         if not self.G.is_directed():
             from franken_networkx._fnx import NetworkXNotImplemented
@@ -787,7 +834,6 @@ class ArborescenceIterator:
             # br-r37-c1-ho3db: nx supports MultiDiGraph in
             # ArborescenceIterator; the Rust kernel is simple-only.
             # Delegate to nx so MultiDiGraph callers keep working.
-            import networkx as _nx_local
             self._iterator = iter(
                 _nx_local.ArborescenceIterator(
                     _networkx_graph_for_parity(self.G),
@@ -799,13 +845,19 @@ class ArborescenceIterator:
             return self
         if self.G.number_of_nodes() == 0:
             raise NetworkXPointlessConcept("G has no nodes.")
-        self._iterator = arborescence_iterator_rust(
+        scheduler = _nx_local.ArborescenceIterator(
             self.G,
-            self.weight,
-            self.minimum,
-            _sys.maxsize,
-            self.init_partition,
+            weight=self.weight,
+            minimum=self.minimum,
+            init_partition=self.init_partition,
         )
+        # Reuse the scheduler without replacing any NetworkX globals. Its
+        # working graph and every selected arborescence remain FNX graphs.
+        scheduler.method = (
+            minimum_spanning_arborescence if self.minimum
+            else maximum_spanning_arborescence
+        )
+        self._iterator = iter(scheduler)
         return self
 
     def __next__(self):

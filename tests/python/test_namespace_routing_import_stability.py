@@ -58,3 +58,32 @@ def test_flattened_algorithms_routing_survives_imports():
     for fn in ("connected_components", "find_cliques", "core_number",
                "node_connectivity", "is_chordal"):
         assert getattr(fa, fn) is not getattr(nx, fn)
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cutoff", [0, 2, 10])
+@pytest.mark.parametrize("function,node", [
+    ("single_source_shortest_path", 4),
+    ("single_source_shortest_path_length", 4),
+    ("single_target_shortest_path", 0),
+    ("single_target_shortest_path_length", 0),
+])
+def test_bounded_reverse_paths_work_after_package_initialization(
+    graph_type, cutoff, function, node
+):
+    reference = nx.path_graph(5, create_using=getattr(nx, graph_type))
+    graph = fnx.path_graph(5, create_using=getattr(fnx, graph_type))
+    expected = getattr(nx, function)(reference.reverse(copy=False), node, cutoff=cutoff)
+    actual = getattr(fnx, function)(graph.reverse(copy=False), node, cutoff=cutoff)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph", "view"])
+@pytest.mark.parametrize("native_input", [False, True])
+def test_common_neighbors_work_after_package_initialization(graph_type, native_input):
+    module = fnx if native_input else nx
+    if graph_type == "view":
+        graph = module.path_graph(3).subgraph([0, 1, 2])
+    else:
+        graph = module.path_graph(3, create_using=getattr(module, graph_type))
+    assert set(fnx.common_neighbors(graph, 0, 2)) == {1}
