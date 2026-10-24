@@ -2695,19 +2695,40 @@ def _apply_gexf_node_type(graph, node_type):
     if node_type is None:
         return graph
     import franken_networkx as fnx
+    from franken_networkx import _fnx
 
     mapping = {node: node_type(node) for node in graph.nodes()}
-    return fnx.relabel_nodes(graph, mapping, copy=True)
+    if len(set(mapping.values())) != len(mapping):
+        # Clean documents apply node_type inside the full decoder. After a
+        # native repair, merging labels would also merge surviving edges and
+        # there is no longer enough information to reconstruct their keys.
+        raise fnx.NetworkXNotImplemented(
+            "GEXF recovery with merging node_type conversions is not supported"
+        )
+    converted = fnx.relabel_nodes(graph, mapping, copy=True)
+    _fnx.copy_readwrite_policy(graph, converted)
+    return converted
+
+
+def _read_gexf_payload(path):
+    """Read once with the GEXF writer's compression and stream ownership rules."""
+    from networkx.utils import open_file
+
+    @open_file(0, mode="rb")
+    def read(handle):
+        return handle.read()
+
+    raw = read(path)
+    return raw.encode("utf-8") if isinstance(raw, str) else raw
 
 
 def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backend=None, **backend_kwargs):
     """Read GEXF into an fnx graph.
 
-    Simple-graph inputs go through the native Rust parser. Multigraph
-    inputs (detected via nx's parser, which reads the GEXF metadata)
-    round-trip through networkx's multigraph-aware parser and are
-    rehydrated on the fnx side as ``fnx.MultiGraph`` / ``fnx.MultiDiGraph``
-    (franken_networkx-rrh32).
+    Simple static inputs use the native parser. Rich GEXF attributes,
+    hierarchy, dynamic data and multigraphs use the complete decoder. Explicit
+    runtime modes retain native validation and bounded recovery as the policy
+    authority before a clean result is reconstructed with full fidelity.
     """
     import franken_networkx as fnx
     from franken_networkx import _fnx
@@ -2715,31 +2736,42 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     mode = backend_kwargs.pop("mode", None)
     fnx._validate_backend_dispatch_keywords("read_gexf", backend, backend_kwargs)
     _validate_gexf_version(version)
-    if hasattr(path, "read"):
-        raw = path.read()
-        if isinstance(raw, str):
-            raw = raw.encode("utf-8")
-    else:
-        with open(path, "rb") as handle:
-            raw = handle.read()
+    raw = _read_gexf_payload(path)
 
-    _needs_nx, _any_missing_label = _gexf_scan_document(raw)
-    if _needs_nx and mode is None and fnx.get_compatibility_mode() != "hardened":
-        graph = _read_gexf_via_nx(raw, version=version)
-    else:
-        # br-cc-gexf: the native parse is itself 2x nx. ONE fused scan pass (above)
-        # replaces the two routing parses AND tells us whether any node lacks a
-        # label; when none do (nx-written GEXF always writes labels), the
-        # node-metadata restore is a no-op on this NON-hierarchy branch, so skip
-        # its whole expat pass. Four redundant passes -> two for the common case.
-        graph = _fnx.read_gexf(_BytesIO(raw), mode=mode)
-        if _any_missing_label:
-            _restore_gexf_node_metadata(graph, raw)
-        _restore_gexf_graph_metadata(graph, raw)
+    needs_decoder, any_missing_label, native_required = _gexf_scan_document(raw)
+    needs_decoder = needs_decoder or node_type is not None
+    if (
+        needs_decoder
+        and not native_required
+        and mode is None
+        and fnx.get_compatibility_mode() != "hardened"
+    ):
+        return _read_gexf_via_nx(
+            raw, node_type=node_type, relabel=relabel, version=version
+        )
+
+    graph = _fnx.read_gexf(_BytesIO(raw), mode=mode)
+    recovered = any(
+        record["action"] == "full_validate" for record in graph.decision_records()
+    )
+    if needs_decoder and not recovered:
+        converted = _read_gexf_via_nx(
+            raw, node_type=node_type, relabel=relabel, version=version
+        )
+        _fnx.copy_readwrite_policy(graph, converted)
+        return converted
+
+    # Preserve the native parser's repaired document and its audit ledger.
+    # Missing labels and graph metadata are independent of those repairs.
+    if any_missing_label:
+        _restore_gexf_node_metadata(graph, raw)
+    _restore_gexf_graph_metadata(graph, raw)
 
     graph = _apply_gexf_node_type(graph, node_type)
     if relabel:
-        graph = relabel_gexf_graph(graph)
+        converted = relabel_gexf_graph(graph)
+        _fnx.copy_readwrite_policy(graph, converted)
+        graph = converted
     return graph
 
 
@@ -2793,14 +2825,16 @@ def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
     )
 
 
-def _read_gexf_via_nx(raw_bytes, *, version="1.2draft"):
-    """Read a multigraph-shape GEXF document through nx and rehydrate
-    as an fnx Multi*Graph (kept private so ``read_gexf`` stays out of
-    the NX_DELEGATED classification).
-    """
+def _read_gexf_via_nx(
+    raw_bytes, *, node_type=None, relabel=False, version="1.2draft"
+):
+    """Decode the complete GEXF data model, including IDs before edge creation."""
     from networkx.readwrite.gexf import read_gexf as _upstream_read_gexf
 
-    nx_graph = _upstream_read_gexf(_BytesIO(raw_bytes), version=version)
+    nx_graph = _upstream_read_gexf(
+        _BytesIO(raw_bytes), node_type=node_type, relabel=relabel,
+        version=version, backend="networkx",
+    )
     return _from_nx_graph(nx_graph)
 
 
@@ -3004,60 +3038,143 @@ def _gexf_document_has_hierarchy(raw_bytes):
 
 
 def _gexf_scan_document(raw_bytes):
-    """br-cc-gexf: ONE expat pass returning ``(needs_nx, any_missing_label)``,
-    fusing what previously took THREE passes: ``_gexf_document_is_multigraph`` +
-    ``_gexf_document_has_hierarchy`` (read_gexf routing = their OR) AND a peek at
-    whether any ``<node>`` lacks a ``label`` attr. ``needs_nx`` -> repeated
-    ``(source, target)`` pairs (or ``parallel="true"``) OR nested ``<node>``/
-    ``pid``/``<parent>``. ``any_missing_label`` lets the native branch SKIP
-    ``_restore_gexf_node_metadata`` when every node already has a label
-    (nx-written GEXF always does), since that restore's ONLY native-path effect
-    is mirroring nx's missing-label->None. Byte-identical routing to the two
-    originals (kept for any other callers)."""
-    try:
-        text = raw_bytes.decode("utf-8", errors="ignore")
-    except Exception:
-        return False, True
-    parallel = 'parallel="true"' in text or "parallel='true'" in text
+    """Find full-decoder features and native-policy requirements in one pass.
 
+    Known GEXF data that the simple native graph cannot represent must not be
+    silently discarded. Malformed declarations and unknown extensions still
+    pass through native validation, including when a known rich feature is
+    present in the same document.
+    """
     from xml.parsers import expat
 
-    pairs = []
-    state = {"hierarchy": False, "node_depth": 0, "missing_label": False}
+    namespaces = {
+        "http://www.gexf.net/1.1draft",
+        "http://www.gexf.net/1.2draft",
+        "http://gexf.net/1.3",
+    }
+    viz_namespaces = {namespace + "/viz" for namespace in namespaces}
+    known_tags = {
+        "gexf", "meta", "creator", "description", "keywords", "graph",
+        "nodes", "node", "edges", "edge", "attributes", "attribute",
+        "default", "options", "attvalues", "attvalue", "parents", "parent",
+        "spells", "spell", "slices", "slice",
+    }
+    viz_tags = {"color", "size", "thickness", "shape", "position"}
+    attr_defs = {}
+    pairs = set()
+    state = {
+        "needs_decoder": False,
+        "native_required": False,
+        "node_depth": 0,
+        "edge_depth": 0,
+        "missing_label": False,
+        "directed": False,
+        "attr_class": None,
+    }
 
     def start_element(name, attrs):
         tag = _xml_local_name(name)
-        if tag == "edge":
+        namespace = name.rsplit("}", 1)[0] if "}" in name else ""
+        if namespace in viz_namespaces and tag in viz_tags:
+            state["needs_decoder"] = True
+        elif namespace not in namespaces or tag not in known_tags:
+            state["native_required"] = True
+
+        if tag == "graph":
+            direction = attrs.get("defaultedgetype", "undirected")
+            normalized = direction.strip().lower()
+            state["directed"] = normalized in ("directed", "mutual")
+            if normalized not in ("directed", "undirected", "mutual"):
+                state["native_required"] = True
+            if (
+                normalized == "mutual"
+                or direction != normalized
+                or attrs.get("mode") == "dynamic"
+            ):
+                state["needs_decoder"] = True
+        elif tag == "edges":
+            if attrs.get("parallel") == "true":
+                state["needs_decoder"] = True
+        elif tag == "edge":
+            state["edge_depth"] += 1
             source = attrs.get("source")
             target = attrs.get("target")
-            if source is not None and target is not None:
-                pairs.append((source, target))
+            if not source or not target:
+                state["native_required"] = True
+            else:
+                pair = (source, target)
+                if not state["directed"] and target < source:
+                    pair = (target, source)
+                if pair in pairs:
+                    state["needs_decoder"] = True
+                pairs.add(pair)
+            if any(key in attrs for key in ("type", "start", "end")):
+                state["needs_decoder"] = True
         elif tag == "node":
+            if not attrs.get("id"):
+                state["native_required"] = True
             if state["node_depth"] > 0 or attrs.get("pid") is not None:
-                state["hierarchy"] = True
+                state["needs_decoder"] = True
+            if "start" in attrs or "end" in attrs:
+                state["needs_decoder"] = True
             if "label" not in attrs:
                 state["missing_label"] = True
             state["node_depth"] += 1
-        elif tag == "parent":
-            state["hierarchy"] = True
+        elif tag in ("parents", "parent", "spells", "spell", "slices", "slice"):
+            state["needs_decoder"] = True
+        elif tag == "attributes":
+            state["needs_decoder"] = True
+            state["attr_class"] = attrs.get("class", "")
+        elif tag == "attribute":
+            attr_id = attrs.get("id")
+            title = attrs.get("title")
+            if not attr_id or not title or title.startswith("__fnx_incompatible"):
+                state["native_required"] = True
+            attr_defs[state["attr_class"], attr_id] = attrs.get("type", "string")
+        elif tag == "attvalue":
+            scope = "edge" if state["edge_depth"] else "node" if state["node_depth"] else "graph"
+            attr_id = attrs.get("for")
+            attr_type = attr_defs.get((scope, attr_id))
+            if attr_type is None:
+                attr_type = attr_defs.get(("", attr_id))
+            if attr_type is None:
+                state["native_required"] = True
+            elif attr_type.strip().lower() in ("int", "integer", "long", "float", "double"):
+                value = attrs.get("value", "")
+                # Python accepts separators and non-ASCII digits that the
+                # native numeric validator rejects. Those are not the wide
+                # integer domain extension handled by the full decoder.
+                if "_" in value or not value.isascii():
+                    state["native_required"] = True
 
     def end_element(name):
-        if _xml_local_name(name) == "node" and state["node_depth"]:
+        tag = _xml_local_name(name)
+        if tag == "node" and state["node_depth"]:
             state["node_depth"] -= 1
+        elif tag == "edge" and state["edge_depth"]:
+            state["edge_depth"] -= 1
+        elif tag == "attributes":
+            state["attr_class"] = None
+
+    def xml_declaration(version, encoding, standalone):
+        if encoding and encoding.lower().replace("-", "") not in ("utf8", "ascii"):
+            state["needs_decoder"] = True
+
+    def doctype_declaration(name, system_id, public_id, has_internal_subset):
+        # Entity declarations must not bypass the native parser's policy when
+        # another feature selects the complete GEXF decoder.
+        state["native_required"] = True
 
     parser = expat.ParserCreate(namespace_separator="}")
     parser.StartElementHandler = start_element
     parser.EndElementHandler = end_element
+    parser.XmlDeclHandler = xml_declaration
+    parser.StartDoctypeDeclHandler = doctype_declaration
     try:
         parser.Parse(raw_bytes, True)
     except expat.ExpatError:
-        return False, True
-    needs_nx = (
-        parallel
-        or state["hierarchy"]
-        or (bool(pairs) and len(pairs) != len(set(pairs)))
-    )
-    return needs_nx, state["missing_label"]
+        return False, True, True
+    return state["needs_decoder"], state["missing_label"], state["native_required"]
 
 
 def _xml_local_name(name):
