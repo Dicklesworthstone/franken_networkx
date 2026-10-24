@@ -1281,6 +1281,50 @@ def _default_binary_heap():
 _BINARY_HEAP_DEFAULT = _default_binary_heap()
 
 
+def _stoer_wagner_native_domain(G, weight, heap):
+    """Keep f64 contraction arithmetic inside a faithful Python domain."""
+    import math
+
+    if (
+        type(G) is not Graph
+        or _has_networkx_private_storage(G)
+        or not isinstance(weight, str)
+        or heap is not _BINARY_HEAP_DEFAULT
+    ):
+        return False
+    integer_total = 0
+    float_total = 0.0
+    has_integer = False
+    has_float = False
+    for u, v, attrs in G.edges(data=True):
+        if u == v:
+            continue
+        value = attrs.get(weight, 1)
+        if type(value) is int:
+            if value < 0:
+                return False
+            has_integer = True
+            integer_total += value
+            # Every intermediate integral contraction weight is a sum of
+            # original nonnegative weights, so this also bounds all phases.
+            if integer_total > (1 << 53):
+                return False
+        elif type(value) is float:
+            if value < 0 or not math.isfinite(value):
+                return False
+            has_float = True
+            float_total += value
+            if not math.isfinite(float_total):
+                return False
+        else:
+            return False
+        # A mixed graph can have an entirely integral winning cut. The f64
+        # result cannot retain that cut's Python type, even for small inputs.
+        if has_integer and has_float:
+            return False
+    return True
+
+
 def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     """Return the Stoer-Wagner global minimum cut value and partition.
 
@@ -1293,14 +1337,13 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     heap : class, optional
         Heap class for the priority queue. Default
         ``networkx.utils.heaps.BinaryHeap`` (matches nx's default
-        sentinel for signature introspection). The fnx implementation
-        uses an internal heap and ignores this argument; the kwarg is
-        accepted for API drop-in compatibility with networkx.
+        sentinel for signature introspection). Custom heap classes run
+        through the Python contraction implementation.
 
     Returns
     -------
-    cut_value : float
-        Weight of the minimum cut.
+    cut_value : number
+        Weight of the minimum cut, preserving the input arithmetic.
     partition : tuple of lists
         The two lists of nodes that form the minimum cut partition.
     """
@@ -1330,8 +1373,8 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     # precondition here so callers relying on the documented contract
     # don't silently get wrong cuts.
     if isinstance(weight, str):
-        for _, _, attrs in G.edges(data=True):
-            if not isinstance(attrs, dict):
+        for u, v, attrs in G.edges(data=True):
+            if u == v or not isinstance(attrs, dict):
                 continue
             w = attrs.get(weight, 1)
             if isinstance(w, _numbers.Number) and not isinstance(w, bool) and w < 0:
@@ -1344,9 +1387,19 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     # order, unreplicable in Rust but exact by construction here.
     from franken_networkx._fnx import stoer_wagner_phases as _rust_stoer_wagner_phases
 
-    weight_key = "__fnx_stoer_wagner_unit_weight__" if weight is None else weight
+    if not _stoer_wagner_native_domain(G, weight, heap):
+        from franken_networkx.backend import _fnx_to_nx
+
+        try:
+            return _nx.algorithms.connectivity.stoerwagner.stoer_wagner(
+                _fnx_to_nx(G), weight=weight, heap=heap, backend="networkx"
+            )
+        except Exception as exc:
+            _raise_translated_networkx_exception(exc)
+
+    _sync_rust_edge_attrs(G, edge_only=True)
     cut_value, contractions, best_phase, copy_nodes = _rust_stoer_wagner_phases(
-        G, weight=weight_key
+        G, weight=weight
     )
     adj = {}
     for u, v in contractions[:best_phase]:
@@ -1381,7 +1434,9 @@ def _stoer_wagner_weights_all_integral(G, weight):
         return True
     if not isinstance(weight, str):
         return False
-    for _, _, attrs in G.edges(data=True):
+    for u, v, attrs in G.edges(data=True):
+        if u == v:
+            continue
         value = attrs.get(weight, 1) if isinstance(attrs, dict) else 1
         if isinstance(value, bool) or not isinstance(value, _numbers.Integral):
             return False

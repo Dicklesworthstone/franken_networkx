@@ -310,16 +310,10 @@ def hnm_harary_graph(n, m, create_using=None):
 def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     """Return the Gomory-Hu tree of an undirected graph.
 
-    br-ghtree: the Rust fast-path (``_fnx.gomory_hu_tree_rust``)
-    stringifies node identifiers (returning '0', '1' instead of the
-    integer node keys) AND omits the cut-value ``weight`` edge
-    attribute nx's tree carries. The Python path below uses
-    ``_minimum_cut_raw`` (the Rust min-cut probe) inside a pure-Python
-    tree-construction loop — node types and cut-value weights are
-    preserved. Always run the Python path to sidestep the fast-path
-    stringification bug while still staying native (no nx fallback,
-    so test_gomory_hu_tree_flow_func_matches_networkx_without_fallback
-    keeps passing).
+    Tree construction preserves Python node identities and exact cut
+    values. Bounded integer capacities use the native Edmonds-Karp probe;
+    other numeric domains and custom flow functions share one Python
+    residual network across the pairwise cuts.
     """
     _validate_flow_func_selector(flow_func)
 
@@ -371,16 +365,42 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
             "Infinite capacity path, flow unbounded above."
         )
 
-    # br-r37-c1-6ncq6: nx labels the tree with minimum_cut's value, an int over
-    # integral capacities (and a zero cut is the int 0 whatever they are); its
-    # residual network drops selfloops, so they do not decide the type.
-    import numbers as _numbers
-
-    all_int = all(
-        isinstance(attrs.get(capacity, 1), _numbers.Integral)
-        for u, v, attrs in G.edges(data=True)
-        if u != v
+    native = (
+        flow_func is None
+        and type(G) is Graph
+        and not _has_networkx_private_storage(G)
+        and isinstance(capacity, str)
     )
+    if native:
+        capacity_total = 0
+        for u, v, attrs in G.edges(data=True):
+            if u == v:
+                continue
+            value = attrs.get(capacity)
+            if type(value) is not int or value < 0:
+                native = False
+                break
+            capacity_total += value
+            # The Edmonds-Karp probe uses f64. Undirected reverse residual
+            # capacities can double, so keep twice the total exactly integral.
+            if capacity_total > (1 << 52):
+                native = False
+                break
+    if native:
+        _sync_rust_edge_attrs(G, edge_only=True)
+    else:
+        from franken_networkx.backend import _fnx_to_nx
+
+        python_graph = _fnx_to_nx(G)
+        if flow_func is None:
+            flow_func = _nx.algorithms.flow.edmonds_karp
+        try:
+            residual = _nx.algorithms.flow.build_residual_network(
+                python_graph, capacity
+            )
+        except Exception as exc:
+            _raise_translated_networkx_exception(exc)
+
     tree = {}
     labels = {}
     iter_nodes = iter(G)
@@ -390,10 +410,24 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
 
     for source in tree:
         target = tree[source]
-        cut_value, partition = _minimum_cut_raw(
-            G, source, target, capacity=capacity, edmonds_karp=True
-        )
-        cut_value = _coerce_flow_value(cut_value, all_int)
+        if native:
+            cut_value, partition = _minimum_cut_raw(
+                G, source, target, capacity=capacity, edmonds_karp=True
+            )
+            cut_value = _coerce_flow_value(cut_value, True)
+        else:
+            try:
+                cut_value, partition = _nx.algorithms.flow.maxflow.minimum_cut(
+                    python_graph,
+                    source,
+                    target,
+                    capacity=capacity,
+                    flow_func=flow_func,
+                    residual=residual,
+                    backend="networkx",
+                )
+            except Exception as exc:
+                _raise_translated_networkx_exception(exc)
         labels[(source, target)] = cut_value
 
         for node in partition[0]:
