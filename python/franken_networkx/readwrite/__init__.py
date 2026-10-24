@@ -349,6 +349,26 @@ def _read_graphml_via_nx(
     return _from_nx_graph(nx_graph)
 
 
+def _parse_graphml_via_nx(
+    graphml_string,
+    *,
+    node_type=str,
+    edge_key_type=int,
+    force_multigraph=False,
+):
+    """Keep string parsing distinct from GraphML file-byte decoding."""
+    import networkx as nx
+
+    nx_graph = nx.parse_graphml(
+        graphml_string,
+        node_type=node_type,
+        edge_key_type=edge_key_type,
+        force_multigraph=force_multigraph,
+        backend="networkx",
+    )
+    return _from_nx_graph(nx_graph)
+
+
 def _write_gml_via_nx(G, path, *, stringizer=None):
     """Private helper (br-wgmldr): emit GML via nx so:
       - ``stringizer`` kwarg is honoured
@@ -461,12 +481,12 @@ def _from_nx_graph(graph, create_using=None):
     to add_edges_from would produce an fnx graph whose adj[u] is in
     edge-traversal order instead of nx's add_edge insertion order.
     Use the existing per-node-queue topological emit helper (the
-    inverse of br-r37-c1-sgnab) so adj order is preserved across the
-    nx -> fnx conversion. Multigraph edges still need to walk
-    edges(keys=True, data=True) since the topo helper doesn't
-    distinguish parallel edges; keep the existing fast path there.
+    inverse of br-r37-c1-sgnab), then restore every adjacency row.
+    This also preserves directed predecessor order and multigraph
+    neighbor order, which cannot be recovered from a node-major
+    edge walk alone.
     """
-    from franken_networkx.backend import _topo_emit_edges_by_adj
+    from franken_networkx.backend import _restore_nx_row_order, _topo_emit_edges_by_adj
 
     # br-r37-c1-aot3m: many wrappers do
     # ``nx_result = nx.<fn>(args, create_using=create_using)``
@@ -519,6 +539,7 @@ def _from_nx_graph(graph, create_using=None):
 
         result.add_edges_from(_topo_edge_batch())
 
+    _restore_nx_row_order(graph, result)
     return result
 
 
@@ -1087,8 +1108,8 @@ def parse_graphml(
 ):
     """Parse GraphML string into a FrankenNetworkX graph.
 
-    Wraps ``networkx.parse_graphml`` and converts the result to an fnx
-    graph type so the return is drop-in compatible with fnx code.
+    Uses the public parser so every namespace follows the active
+    compatibility mode and preserves NetworkX's parser options.
 
     Parameters
     ----------
@@ -1113,19 +1134,16 @@ def parse_graphml(
         If no parallel edges are found a Graph or DiGraph is returned.
         Otherwise a MultiGraph or MultiDiGraph is returned.
     """
-    import networkx as nx
     import franken_networkx as fnx
 
     fnx._validate_backend_dispatch_keywords("parse_graphml", backend, backend_kwargs)
 
-    nx_graph = nx.parse_graphml(
+    return fnx.parse_graphml(
         graphml_string,
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,
-        backend="networkx",
     )
-    return _from_nx_graph(nx_graph)
 
 
 class GraphMLReader:
@@ -1350,7 +1368,9 @@ def read_graphml(
         except Exception:
             _content = None
         if _content is not None:
-            return parse_graphml(_content)
+            # Default file reads keep the full NetworkX encoding and numeric
+            # surface. Explicit mode requests use the policy-aware reader above.
+            return _read_graphml_via_nx(_BytesIO(_content))
 
     return _read_graphml_via_nx(
         path,

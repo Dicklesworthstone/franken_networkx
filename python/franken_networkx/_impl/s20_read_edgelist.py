@@ -304,6 +304,68 @@ def _read_graphml_mode_payload(path):
     return path.read()
 
 
+def _graphml_from_mode_payload(
+    payload, *, node_type=str, edge_key_type=int, force_multigraph=False,
+    mode=None, parse_string=False,
+):
+    """Apply native validation/recovery without losing the decoder's options."""
+    stream_type = _io.StringIO if isinstance(payload, str) else _io.BytesIO
+    graph = _fnx.validate_graphml(stream_type(payload), mode=mode)
+    records = graph.decision_records()
+    recovered = any(record["action"] == "full_validate" for record in records)
+    if not recovered:
+        # Native validation remains authoritative. A clean document still
+        # needs the complete key/multigraph/type contract; the simple native
+        # report alone cannot preserve parallel edges or lexical edge IDs.
+        if parse_string:
+            from .readwrite import _parse_graphml_via_nx
+
+            converted = _parse_graphml_via_nx(
+                payload, node_type=node_type,
+                edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+            )
+        else:
+            converted = _read_graphml_via_nx(
+                stream_type(payload), node_type=node_type,
+                edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+            )
+        _fnx.copy_readwrite_policy(graph, converted)
+        return converted
+    parallel = any(
+        record["rationale"] == "graphml parallel edges require multigraph reconstruction"
+        for record in records
+    )
+    if parallel or force_multigraph or edge_key_type is not int:
+        raise NetworkXNotImplemented(
+            "GraphML recovery with parallel edges or non-default multigraph/key options "
+            "is not supported"
+        )
+    if node_type is not str:
+        mapping = {}
+        for node in graph:
+            converted_node = node_type(node)
+            # Native canonicalization also supports ingestion values that
+            # are not legal NetworkX labels. This public API requires keys.
+            # Dict insertion, not hash(), preserves the interpreter's
+            # mapping-key TypeError wording (including Python 3.14).
+            {converted_node: None}
+            mapping[node] = converted_node
+        # The existing native relabel kernel retains the parser's runtime
+        # policy, ledger, attrs and insertion order for non-merging labels.
+        converted = graph._native_relabel_copy(mapping)
+        if converted is not None:
+            graph = converted
+        else:
+            # Merging labels take the general relabel path. Reuse the
+            # original graph afterwards: a freshly constructed graph would
+            # lose recovery decisions (and could inherit the ambient mode).
+            with compatibility_mode(graph.mode):
+                converted = relabel_nodes(graph, mapping, copy=True)
+            graph.clear()
+            _copy_graph_into(converted, graph)
+    return graph
+
+
 def read_graphml(
     path,
     node_type=str,
@@ -322,54 +384,11 @@ def read_graphml(
     mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
-        payload = _read_graphml_mode_payload(path)
-        stream_type = _io.StringIO if isinstance(payload, str) else _io.BytesIO
-        graph = _fnx.validate_graphml(stream_type(payload), mode=mode)
-        records = graph.decision_records()
-        recovered = any(record["action"] == "full_validate" for record in records)
-        if not recovered:
-            # Native validation remains authoritative. A clean document still
-            # needs the complete key/multigraph/type contract; the simple native
-            # report alone cannot preserve parallel edges or lexical edge IDs.
-            converted = _read_graphml_via_nx(
-                stream_type(payload), node_type=node_type,
-                edge_key_type=edge_key_type, force_multigraph=force_multigraph,
-            )
-            _fnx.copy_readwrite_policy(graph, converted)
-            return converted
-        parallel = any(
-            record["rationale"] == "graphml parallel edges require multigraph reconstruction"
-            for record in records
+        return _graphml_from_mode_payload(
+            _read_graphml_mode_payload(path), node_type=node_type,
+            edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+            mode=mode,
         )
-        if parallel or force_multigraph or edge_key_type is not int:
-            raise NetworkXNotImplemented(
-                "GraphML recovery with parallel edges or non-default multigraph/key options "
-                "is not supported"
-            )
-        if node_type is not str:
-            mapping = {}
-            for node in graph:
-                converted_node = node_type(node)
-                # Native canonicalization also supports ingestion values that
-                # are not legal NetworkX labels. This public API requires keys.
-                # Dict insertion, not hash(), preserves the interpreter's
-                # mapping-key TypeError wording (including Python 3.14).
-                {converted_node: None}
-                mapping[node] = converted_node
-            # The existing native relabel kernel retains the parser's runtime
-            # policy, ledger, attrs and insertion order for non-merging labels.
-            converted = graph._native_relabel_copy(mapping)
-            if converted is not None:
-                graph = converted
-            else:
-                # Merging labels take the general relabel path. Reuse the
-                # original graph afterwards: a freshly constructed graph would
-                # lose recovery decisions (and could inherit the ambient mode).
-                with compatibility_mode(graph.mode):
-                    converted = relabel_nodes(graph, mapping, copy=True)
-                graph.clear()
-                _copy_graph_into(converted, graph)
-        return graph
     # br-cc-graphml: for the DEFAULT case, read a FILENAME/Path into memory and
     # route through parse_graphml's native fast path (2x nx via `_fnx.read_graphml`
     # guarded against parallel-edge collapse; see parse_graphml). File-object

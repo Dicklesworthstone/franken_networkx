@@ -24,6 +24,165 @@ GRAPHML_READERS = [
     fnx.readwrite.graphml.read_graphml,
 ]
 GRAPHML_READER_IDS = ["top-level", "readwrite", "graphml-submodule"]
+GRAPHML_PARSERS = [
+    fnx.parse_graphml,
+    fnx.readwrite.parse_graphml,
+    fnx.readwrite.graphml.parse_graphml,
+]
+
+
+def _assert_graphml_matches(actual, expected):
+    assert actual.is_directed() == expected.is_directed()
+    assert actual.is_multigraph() == expected.is_multigraph()
+    assert actual.graph == expected.graph
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    kwargs = {"keys": True} if expected.is_multigraph() else {}
+    assert list(actual.edges(data=True, **kwargs)) == list(expected.edges(data=True, **kwargs))
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("as_bytes", [False, True])
+def test_parse_graphml_preserves_lexical_edge_keys(parser, mode, directed, as_bytes):
+    direction = "directed" if directed else "undirected"
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="w" for="edge" attr.name="weight" attr.type="int"/>'
+        f'<graph edgedefault="{direction}"><node id="a"/><node id="b"/>'
+        '<edge source="a" target="b" id="01"><data key="w">3</data></edge>'
+        '<edge source="a" target="b" id="1"><data key="w">7</data></edge>'
+        '</graph></graphml>'
+    )
+    if as_bytes:
+        payload = payload.encode()
+    expected = nx.parse_graphml(payload, edge_key_type=str)
+    with fnx.compatibility_mode(mode):
+        actual = parser(payload, edge_key_type=str)
+    _assert_graphml_matches(actual, expected)
+    assert actual.number_of_edges() == 2
+    assert actual.mode == mode
+    if mode == "hardened":
+        assert actual.decision_records()
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("edge_key_type", [int, str])
+def test_parse_graphml_force_multigraph_preserves_edge_id(parser, mode, directed, edge_key_type):
+    direction = "directed" if directed else "undirected"
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        f'<graph edgedefault="{direction}"><node id="a"/><node id="b"/>'
+        '<edge source="a" target="b" id="007"/></graph></graphml>'
+    )
+    options = dict(force_multigraph=True, edge_key_type=edge_key_type)
+    expected = nx.parse_graphml(payload, **options)
+    with fnx.compatibility_mode(mode):
+        actual = parser(payload, **options)
+    _assert_graphml_matches(actual, expected)
+    assert list(actual.edges(keys=True)) == [("a", "b", edge_key_type("007"))]
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize("directed", [False, True])
+def test_parse_graphml_converts_nodes_before_parallel_edge_detection(parser, mode, directed):
+    direction = "directed" if directed else "undirected"
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="c" for="node" attr.name="color" attr.type="string"/>'
+        f'<graph edgedefault="{direction}"><node id="01"><data key="c">red</data></node>'
+        '<node id="1"><data key="c">blue</data></node><node id="2"/>'
+        '<edge source="01" target="2" id="3"/>'
+        '<edge source="1" target="2" id="4"/></graph></graphml>'
+    )
+    expected = nx.parse_graphml(payload, node_type=int)
+    with fnx.compatibility_mode(mode):
+        actual = parser(payload, node_type=int)
+    _assert_graphml_matches(actual, expected)
+    assert actual.is_multigraph()
+    assert actual.number_of_edges() == 2
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_parse_graphml_key_converter_retains_unconvertible_id(parser, mode):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<graph edgedefault="directed"><node id="a"/><node id="b"/>'
+        '<edge source="a" target="b" id="01"/>'
+        '<edge source="a" target="b" id="other"/></graph></graphml>'
+    )
+    expected = nx.parse_graphml(payload, edge_key_type=float)
+    with fnx.compatibility_mode(mode):
+        actual = parser(payload, edge_key_type=float)
+    _assert_graphml_matches(actual, expected)
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize("options", [
+    {"node_type": int}, {"node_type": None},
+    {"node_type": lambda node: []}, {"edge_key_type": None},
+])
+def test_parse_graphml_conversion_errors_match_networkx(parser, mode, options):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<graph edgedefault="undirected"><node id="a"/><node id="b"/>'
+        '<edge source="a" target="b" id="01"/></graph></graphml>'
+    )
+    with pytest.raises(Exception) as expected:
+        nx.parse_graphml(payload, **options)
+    with fnx.compatibility_mode(mode):
+        with pytest.raises(type(expected.value)) as actual:
+            parser(payload, **options)
+        assert str(actual.value) == str(expected.value)
+        assert fnx.get_compatibility_mode() == mode
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_parse_graphml_unicode_text_keeps_declared_encoding(parser, mode):
+    payload = (
+        '<?xml version="1.0" encoding="ISO-8859-1"?>'
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<graph edgedefault="directed"><node id="café"/><node id="naïve"/>'
+        '<edge source="café" target="naïve" id="01"/></graph></graphml>'
+    )
+    options = dict(force_multigraph=True, edge_key_type=str)
+    expected = nx.parse_graphml(payload, **options)
+    with fnx.compatibility_mode(mode):
+        actual = parser(payload, **options)
+    _assert_graphml_matches(actual, expected)
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+def test_parse_graphml_hardened_conversion_keeps_recovery_ledger(parser):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="z" for="node" attr.name="z" attr.type="complex"/>'
+        '<graph edgedefault="undirected"><node id="01"><data key="z">1+2j</data>'
+        '</node><node id="2"/><edge source="01" target="2"/></graph></graphml>'
+    )
+    with fnx.compatibility_mode("hardened"):
+        with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+            actual = parser(payload, node_type=int)
+    assert actual.mode == "hardened"
+    assert list(actual) == [1, 2]
+    assert actual.nodes[1]["z"] == "1+2j"
+    assert any(
+        record["action"] == "full_validate"
+        and "unsupported attr.type `complex`" in record["rationale"]
+        for record in actual.decision_records()
+    )
+    # A requested multigraph recovery must fail before returning the lossy
+    # simple projection produced by native validation.
+    with fnx.compatibility_mode("hardened"):
+        with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+            with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery"):
+                parser(payload, node_type=int, force_multigraph=True)
 
 
 def _attributed_graph(seed, p=0.4):

@@ -540,6 +540,38 @@ def _hinted_attrs(data, wanted, preserve):
     return {}
 
 
+def _restore_nx_row_order(source, result):
+    """Keep every adjacency row when materializing the same graph shape.
+
+    Edge insertion order alone cannot reproduce both successor and
+    predecessor rows of a directed graph. Likewise, walking a multigraph's
+    edge view changes its reverse adjacency rows. These orders determine
+    traversal and shortest-path ties, so restore them before any destination
+    row escapes to the caller. Parallel-edge dictionaries are moved intact.
+
+    ``create_using`` may request a different graph kind or an upstream graph;
+    those conversions retain their own construction semantics.
+    """
+    if (
+        type(result) not in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
+        or source.is_directed() != result.is_directed()
+        or source.is_multigraph() != result.is_multigraph()
+    ):
+        return
+    nodes = list(result)
+    if result.is_directed():
+        rows = (
+            [list(source.succ[node]) for node in nodes],
+            [list(source.pred[node]) for node in nodes],
+        )
+    else:
+        rows = ([list(source.adj[node]) for node in nodes],)
+    if result.is_multigraph():
+        rows = tuple(zip(nodes, side) for side in rows)
+    if not result._fnx_set_row_orders(*rows):
+        raise RuntimeError("Cannot preserve adjacency order during graph conversion")
+
+
 def _nx_to_fnx_for_dispatch(
     G, *, edge_attrs, node_attrs, preserve_edge_attrs, preserve_node_attrs, preserve_graph_attrs
 ):
@@ -583,6 +615,7 @@ def _nx_to_fnx_for_dispatch(
                 adj, G.is_directed(), edge_attrs or None, bool(preserve_edge_attrs)
             )
         )
+    _restore_nx_row_order(G, result)
     return result
 
 

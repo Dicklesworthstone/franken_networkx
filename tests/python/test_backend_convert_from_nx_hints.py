@@ -58,7 +58,14 @@ def _shape(g):
     else:
         edges = [(repr(u), repr(v), sorted(d.items())) for u, v, d in g.edges(data=True)]
     nodes = [(repr(n), sorted(d.items())) for n, d in g.nodes(data=True)]
-    return type(g).__name__, dict(g.graph), nodes, adj, edges
+    pred = [(repr(u), [repr(v) for v in g.pred[u]]) for u in g] if g.is_directed() else None
+    return type(g).__name__, dict(g.graph), nodes, adj, edges, pred
+
+
+def _convert_preserving_attrs(graph, converter):
+    if converter == "readwrite":
+        return _from_nx_graph(graph)
+    return BackendInterface.convert_from_nx(graph, preserve_all_attrs=True)
 
 
 @pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
@@ -81,7 +88,93 @@ def test_preserving_everything_equals_the_full_converter(cls):
             preserve_node_attrs=True,
             preserve_graph_attrs=True,
         )
-        assert _shape(hinted) == _shape(_from_nx_graph(g)), seed
+        # Compare with the actual source as well: both converters previously
+        # lost the same predecessor/multigraph-neighbor ordering.
+        assert _shape(hinted) == _shape(g), seed
+        assert _shape(_from_nx_graph(g)) == _shape(g), seed
+
+
+@pytest.mark.parametrize("converter", ["backend", "readwrite"])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_conversion_preserves_reverse_traversal_and_shortest_path_ties(cls, converter):
+    graph = getattr(nx, cls)()
+    graph.add_nodes_from([0, 1, 2, 5])
+    graph.add_edges_from([(5, 2), (0, 2), (1, 0), (1, 5)])
+    converted = _convert_preserving_attrs(graph, converter)
+
+    assert list(graph.pred[2]) == [5, 0]
+    assert list(converted.pred[2]) == [5, 0]
+    assert list(fnx.bfs_edges(converted, 2, reverse=True)) == list(
+        nx.bfs_edges(graph, 2, reverse=True)
+    )
+    expected = nx.bidirectional_shortest_path(graph, 1, 2)
+    assert expected == [1, 5, 2]
+    assert fnx.bidirectional_shortest_path(converted, 1, 2) == expected
+    assert fnx.shortest_path(converted, 1, 2) == expected
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_dispatched_reverse_traversal_and_shortest_path_keep_source_order(cls):
+    graph = getattr(nx, cls)()
+    graph.add_nodes_from([0, 1, 2, 5])
+    graph.add_edges_from([(5, 2), (0, 2), (1, 0), (1, 5)])
+    assert nx.bidirectional_shortest_path(
+        graph, 1, 2, backend="franken_networkx"
+    ) == nx.bidirectional_shortest_path(graph, 1, 2)
+    assert list(nx.bfs_edges(graph, 2, reverse=True, backend="franken_networkx")) == list(
+        nx.bfs_edges(graph, 2, reverse=True)
+    )
+
+
+@pytest.mark.parametrize("converter", ["backend", "readwrite"])
+@pytest.mark.parametrize("cls", CLASSES)
+def test_conversion_keeps_shallow_attributes_and_parallel_edge_keys(cls, converter):
+    graph = getattr(nx, cls)()
+    graph_payload, node_payload, edge_payload = [], [], []
+    graph.graph["payload"] = graph_payload
+    graph.add_nodes_from(["a", "b", "c", "d", "isolated"])
+    graph.nodes["d"]["payload"] = node_payload
+    key_one = tuple(["parallel", 1])
+    key_two = tuple(["parallel", 2])
+    edges = [("c", "d"), ("a", "d"), ("b", "d"), ("d", "d")]
+    for u, v in edges:
+        attrs = {"weight": 3, "payload": edge_payload}
+        if graph.is_multigraph():
+            graph.add_edge(u, v, key=key_one, **attrs)
+            graph.add_edge(u, v, key=key_two, **attrs)
+        else:
+            graph.add_edge(u, v, **attrs)
+
+    converted = _convert_preserving_attrs(graph, converter)
+    assert _shape(converted) == _shape(graph)
+    assert converted.graph is not graph.graph
+    assert converted.graph["payload"] is graph_payload
+    assert converted.nodes["d"] is not graph.nodes["d"]
+    assert converted.nodes["d"]["payload"] is node_payload
+    for u, v in edges:
+        if graph.is_multigraph():
+            keys = list(converted[u][v])
+            assert len(keys) == 2
+            assert keys[0] is key_one
+            assert keys[1] is key_two
+            original_attrs, converted_attrs = graph[u][v][key_one], converted[u][v][key_one]
+        else:
+            original_attrs, converted_attrs = graph[u][v], converted[u][v]
+        assert converted_attrs is not original_attrs
+        assert converted_attrs["payload"] is edge_payload
+        converted_attrs["changed"] = True
+        assert "changed" not in original_attrs
+    if not graph.is_directed():
+        assert list(fnx.bfs_edges(converted, "d")) == list(nx.bfs_edges(graph, "d"))
+
+
+@pytest.mark.parametrize("converter", ["backend", "readwrite"])
+@pytest.mark.parametrize("cls", CLASSES)
+def test_conversion_preserves_empty_and_isolated_graphs(cls, converter):
+    graph = getattr(nx, cls)()
+    assert _shape(_convert_preserving_attrs(graph, converter)) == _shape(graph)
+    graph.add_nodes_from(["second", "first"])
+    assert _shape(_convert_preserving_attrs(graph, converter)) == _shape(graph)
 
 
 @pytest.mark.parametrize("cls", CLASSES)

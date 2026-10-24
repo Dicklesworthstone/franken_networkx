@@ -846,10 +846,12 @@ def parse_graphml(
 ):
     """Parse a GraphML string."""
     if isinstance(graphml_string, str):
-        payload = graphml_string.encode("utf-8")
+        payload = graphml_string
+        stream_type = _io.StringIO
         _text = graphml_string
     else:
         payload = graphml_string
+        stream_type = _io.BytesIO
         try:
             _text = bytes(graphml_string).decode("utf-8")
         except Exception:
@@ -895,7 +897,7 @@ def parse_graphml(
                 + _text.count("<edge/")
             )
             try:
-                _native = _fnx.read_graphml(_io.BytesIO(payload))
+                _native = _fnx.read_graphml(stream_type(payload))
             except Exception:
                 _native = None
             if (
@@ -905,38 +907,25 @@ def parse_graphml(
             ):
                 return _native
 
+    # Apply conversion options while the document still has its original IDs.
+    # Parsing first with defaults irreversibly merges lexical edge keys such
+    # as "01" and "1", and relabeling a simple graph afterwards can discard
+    # parallel edges introduced by node_type. The mode-aware reader also owns
+    # recovery decisions, so keep its ledger instead of rebuilding its result.
     if _rust_get_compatibility_mode() == "hardened":
-        graph = read_graphml(_io.BytesIO(payload))
-    else:
-        graph = _read_graphml_via_nx(
-            _io.BytesIO(payload),
-            node_type=str,
-            edge_key_type=int,
-            force_multigraph=False,
+        return _graphml_from_mode_payload(
+            payload, node_type=node_type,
+            edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+            parse_string=True,
         )
+    from .readwrite import _parse_graphml_via_nx
 
-    if node_type is not str:
-        mapping = {node: node_type(node) for node in list(graph.nodes())}
-        graph = relabel_nodes(graph, mapping, copy=True)
-
-    if force_multigraph and not graph.is_multigraph():
-        graph_type = MultiDiGraph if graph.is_directed() else MultiGraph
-        graph = _copy_graph_into(graph, graph_type())
-
-    if graph.is_multigraph() and edge_key_type is not int:
-        converted = MultiDiGraph() if graph.is_directed() else MultiGraph()
-        converted.graph.update(dict(graph.graph))
-        for node, attrs in graph.nodes(data=True):
-            converted.add_node(node, **dict(attrs))
-        # 4-tuple form avoids `key=..., **attrs` collision when attrs
-        # contains a 'key' entry (franken_networkx-uphdr).
-        converted.add_edges_from(
-            (u, v, edge_key_type(key), dict(attrs))
-            for u, v, key, attrs in graph.edges(keys=True, data=True)
-        )
-        graph = converted
-
-    return graph
+    return _parse_graphml_via_nx(
+        payload,
+        node_type=node_type,
+        edge_key_type=edge_key_type,
+        force_multigraph=force_multigraph,
+    )
 
 
 _GRAPHML_XML_TYPES = {
