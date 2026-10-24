@@ -224,10 +224,9 @@ const HITS_DEFAULT_MAX_ITERATIONS: usize = 100;
 /// so small absolute changes matter more.
 const HITS_DEFAULT_TOLERANCE: f64 = 1.0e-8;
 
-/// Epsilon for floating-point distance/weight comparisons.
-/// Used in shortest-path tie-breaking and min-cut value comparison.
-/// Tight enough to distinguish genuinely different weights but loose
-/// enough to absorb IEEE 754 rounding in path-length sums.
+/// Tolerance for numerical residuals and approximate scalar comparisons.
+/// Shortest-path ordering must use exact comparisons: any representable
+/// improvement matters, and only exactly equal distances are path ties.
 const DISTANCE_COMPARISON_EPSILON: f64 = 1.0e-12;
 
 /// Epsilon for flow algorithm numerical stability.
@@ -1554,7 +1553,7 @@ pub fn shortest_path_weighted(
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > distances[u] + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u] {
             continue;
         }
 
@@ -1575,7 +1574,7 @@ pub fn shortest_path_weighted(
                 let next_dist = d + weight;
                 let current_dist = distances[v];
 
-                if next_dist < current_dist - DISTANCE_COMPARISON_EPSILON {
+                if next_dist < current_dist {
                     if current_dist == f64::INFINITY {
                         nodes_touched += 1;
                     }
@@ -1806,7 +1805,7 @@ pub fn shortest_path_weighted_directed(
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+        if d > *distances.get(u).unwrap_or(&f64::INFINITY) {
             continue;
         }
 
@@ -1821,7 +1820,7 @@ pub fn shortest_path_weighted_directed(
                 let next_dist = d + weight;
                 let current_dist = *distances.get(v).unwrap_or(&f64::INFINITY);
 
-                if next_dist < current_dist - DISTANCE_COMPARISON_EPSILON {
+                if next_dist < current_dist {
                     if distances.insert(v, next_dist).is_none() {
                         nodes_touched += 1;
                     }
@@ -1922,7 +1921,7 @@ pub fn multi_source_dijkstra_nearest_source(
                     .filter(|value| value.is_finite() && *value >= 0.0)
                     .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
-                if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
+                if next_dist < distances[v_idx] {
                     distances[v_idx] = next_dist;
                     source_of[v_idx] = source_of[u_idx];
                     seq_counter += 1;
@@ -2023,7 +2022,7 @@ pub fn multi_source_dijkstra(
                     .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
 
-                if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
+                if next_dist < distances[v_idx] {
                     // Record decision: choosing this predecessor over previous (if any)
                     if let Some(old_pred_idx) = predecessors[v_idx] {
                         cgse_record_decision(&mut cgse_sink, u_name, ordered_nodes[old_pred_idx]);
@@ -2158,7 +2157,7 @@ pub fn multi_source_dijkstra_directed(
                     .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
 
-                if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
+                if next_dist < distances[v_idx] {
                     if distances[v_idx].is_infinite() {
                         nodes_touched += 1;
                     }
@@ -10943,7 +10942,7 @@ fn bellman_ford_spfa_lazy<'g>(
             let improves = if existing.is_infinite() {
                 true
             } else {
-                candidate + DISTANCE_COMPARISON_EPSILON < existing
+                candidate < existing
             };
             if !improves {
                 if !existing.is_infinite() && candidate == existing {
@@ -11005,9 +11004,7 @@ fn relax_weighted_edge(
 
     let candidate_distance = base_distance + weight;
     let should_update = match distances.get(to) {
-        Some(existing_distance) => {
-            candidate_distance + DISTANCE_COMPARISON_EPSILON < *existing_distance
-        }
+        Some(existing_distance) => candidate_distance < *existing_distance,
         None => true,
     };
     if !should_update {
@@ -11035,9 +11032,7 @@ fn can_relax_weighted_edge(
     };
     let candidate_distance = base_distance + weight;
     match distances.get(to) {
-        Some(existing_distance) => {
-            candidate_distance + DISTANCE_COMPARISON_EPSILON < *existing_distance
-        }
+        Some(existing_distance) => candidate_distance < *existing_distance,
         None => true,
     }
 }
@@ -21905,7 +21900,7 @@ fn minimum_cycle_basis_shortest_orthogonal_cycle(
         else {
             continue;
         };
-        if distance + DISTANCE_COMPARISON_EPSILON < best_distance {
+        if distance < best_distance {
             best_distance = distance;
             best_start = Some(start);
         }
@@ -21936,7 +21931,7 @@ fn minimum_cycle_basis_lifted_shortest_path_length(
     });
 
     while let Some(DijkstraState { dist, node, .. }) = heap.pop() {
-        if dist > distances[node] + DISTANCE_COMPARISON_EPSILON {
+        if dist > distances[node] {
             continue;
         }
         if node == target {
@@ -21946,7 +21941,7 @@ fn minimum_cycle_basis_lifted_shortest_path_length(
         for &(neighbor, _edge_idx, weight) in &adjacency[node] {
             stats.edges_scanned += 1;
             let next_distance = dist + weight;
-            if next_distance + DISTANCE_COMPARISON_EPSILON < distances[neighbor] {
+            if next_distance < distances[neighbor] {
                 distances[neighbor] = next_distance;
                 sequence = sequence.saturating_add(1);
                 heap.push(DijkstraState {
@@ -22040,12 +22035,10 @@ fn minimum_cycle_basis_lifted_bidirectional_shortest_path(
             stats.edges_scanned += 1;
             let next_distance = dist + weight;
             if finalized[direction][neighbor] {
-                if next_distance + DISTANCE_COMPARISON_EPSILON < dists[direction][neighbor] {
+                if next_distance < dists[direction][neighbor] {
                     return None;
                 }
-            } else if !seen_node[direction][neighbor]
-                || next_distance + DISTANCE_COMPARISON_EPSILON < seen[direction][neighbor]
-            {
+            } else if !seen_node[direction][neighbor] || next_distance < seen[direction][neighbor] {
                 seen[direction][neighbor] = next_distance;
                 seen_node[direction][neighbor] = true;
                 sequence = sequence.saturating_add(1);
@@ -22057,9 +22050,7 @@ fn minimum_cycle_basis_lifted_bidirectional_shortest_path(
                 preds[direction][neighbor] = Some(node);
                 if seen_node[1 - direction][neighbor] {
                     let candidate = next_distance + seen[1 - direction][neighbor];
-                    if final_distance
-                        .is_none_or(|distance| distance > candidate + DISTANCE_COMPARISON_EPSILON)
-                    {
+                    if final_distance.is_none_or(|distance| distance > candidate) {
                         final_distance = Some(candidate);
                         meet_node = Some(neighbor);
                     }
@@ -26667,8 +26658,8 @@ pub fn all_shortest_paths_weighted(
     // Index dist: Vec<f64> (INF = unvisited) + preds: Vec<Vec<usize>> + DijkstraState<usize> +
     // neighbors_indices + edge_weight_or_default_idx; names materialised only at path emit. FLOAT-SAFE:
     // the heap orders by (dist, seq) ONLY (node is not a tie-break; seq is a unique counter), the
-    // per-edge weight is bit-identical, and every f64 comparison / EPSILON test is unchanged and applied
-    // in the same pop/neighbour order → the same relaxation → the same predecessor DAG → the same paths.
+    // per-edge weight is bit-identical. Exact distance ordering and equality preserve
+    // improvements and distinguish unequal paths even at sub-epsilon scales.
     let source_idx = graph
         .get_node_index(source)
         .expect("has_node checked above");
@@ -26697,11 +26688,11 @@ pub fn all_shortest_paths_weighted(
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
+        if d > target_dist {
             break;
         }
 
-        if d > dist[u] + DISTANCE_COMPARISON_EPSILON {
+        if d > dist[u] {
             continue;
         }
 
@@ -26715,7 +26706,7 @@ pub fn all_shortest_paths_weighted(
                 let next_dist = d + weight;
                 let current_dist_v = dist[v];
 
-                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                if next_dist < current_dist_v {
                     dist[v] = next_dist;
                     preds[v] = vec![u];
                     seq_counter += 1;
@@ -26724,7 +26715,7 @@ pub fn all_shortest_paths_weighted(
                         seq: seq_counter,
                         node: v,
                     });
-                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                } else if next_dist == current_dist_v {
                     preds[v].push(u);
                 }
             }
@@ -26839,9 +26830,8 @@ pub fn all_shortest_paths_weighted_directed(
     // weighted Dijkstra: dist: Vec<f64> (INF unvisited) + preds: Vec<Vec<usize>> + DijkstraState<usize>
     // + successors_indices + the existing `digraph_edge_weight_or_default_idx` (bit-identical clamp to
     // the name-keyed `digraph_edge_weight_or_default`) + build_all_paths_from_preds_index. FLOAT-SAFE:
-    // the heap orders by (dist, seq) ONLY, the per-edge weight is bit-identical, and every f64 / EPSILON
-    // comparison is unchanged and applied in the same pop×successor order → the same relaxation → the
-    // same predecessor DAG → the same paths.
+    // the heap orders by (dist, seq) ONLY and distances compare exactly, so close
+    // but unequal distances never create spurious predecessor paths.
     let source_idx = digraph
         .get_node_index(source)
         .expect("has_node checked above");
@@ -26904,11 +26894,11 @@ where
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
+        if d > target_dist {
             break;
         }
 
-        if d > dist[u] + DISTANCE_COMPARISON_EPSILON {
+        if d > dist[u] {
             continue;
         }
 
@@ -26920,7 +26910,7 @@ where
             let next_dist = d + weight;
             let current_dist_v = dist[v];
 
-            if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < current_dist_v {
                 dist[v] = next_dist;
                 preds[v] = vec![u];
                 seq_counter += 1;
@@ -26929,7 +26919,7 @@ where
                     seq: seq_counter,
                     node: v,
                 });
-            } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+            } else if next_dist == current_dist_v {
                 preds[v].push(u);
             }
         }
@@ -27101,10 +27091,10 @@ pub fn all_shortest_paths_weighted_bellman_ford(
         if let (Some(&du), Some(&dv)) =
             (distances.get(left.as_str()), distances.get(right.as_str()))
         {
-            if (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON {
+            if du + edge_weight == dv {
                 preds.entry(right.as_str()).or_default().push(left.as_str());
             }
-            if (dv + edge_weight - du).abs() < DISTANCE_COMPARISON_EPSILON {
+            if dv + edge_weight == du {
                 preds.entry(left.as_str()).or_default().push(right.as_str());
             }
         }
@@ -27178,7 +27168,7 @@ pub fn all_shortest_paths_weighted_directed_bellman_ford(
         let edge_weight = signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
         if let (Some(&du), Some(&dv)) =
             (distances.get(left.as_str()), distances.get(right.as_str()))
-            && (du + edge_weight - dv).abs() < DISTANCE_COMPARISON_EPSILON
+            && du + edge_weight == dv
         {
             preds.entry(right.as_str()).or_default().push(left.as_str());
         }
@@ -36691,8 +36681,7 @@ pub fn single_source_dijkstra_directed(
     // become index arrays, the heap carries u32 nodes, and edge weights
     // are resolved ONCE per edge into a CSR-aligned vec before the relax
     // loop (one String-keyed lookup per edge, zero in the hot loop).
-    // Identical epsilon comparisons + FIFO seq tie-breaks preserve the
-    // k9q6q finalize order byte-for-byte.
+    // Exact comparisons + FIFO sequence tie-breaks preserve finalize order.
     let Some(source_idx) = digraph.get_node_index(source) else {
         return Vec::new();
     };
@@ -36730,7 +36719,7 @@ pub fn single_source_dijkstra_directed(
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > distances[u as usize] + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u as usize] {
             continue;
         }
         if !finalized[u as usize] {
@@ -36742,7 +36731,7 @@ pub fn single_source_dijkstra_directed(
         for (offset, &v) in csr.successors(u as usize).iter().enumerate() {
             let weight = weights[row_start + offset];
             let next_dist = d + weight;
-            if next_dist < distances[v as usize] - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < distances[v as usize] {
                 distances[v as usize] = next_dist;
                 seq_counter += 1;
                 pq.push(DijkstraState {
@@ -36770,7 +36759,7 @@ pub fn single_source_dijkstra_full_directed(
     // br-r37-c1-d58s8 P1: integer-CSR dijkstra (full variant — the one
     // the shared single_source_dijkstra binding actually calls).
     // Index-array distances/predecessors/finalized, u32 heap, weights
-    // resolved once per edge into a CSR-aligned vec. Identical epsilon
+    // resolved once per edge into a CSR-aligned vec. Exact comparisons
     // + FIFO seq tie-breaks preserve the k9q6q finalize order; paths
     // reconstructed from the integer predecessor chain at the end.
     let Some(source_idx) = digraph.get_node_index(source) else {
@@ -36811,7 +36800,7 @@ pub fn single_source_dijkstra_full_directed(
         dist: d, node: u, ..
     }) = pq.pop()
     {
-        if d > distances[u as usize] + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u as usize] {
             continue;
         }
         if !finalized[u as usize] {
@@ -36823,7 +36812,7 @@ pub fn single_source_dijkstra_full_directed(
         for (offset, &v) in csr.successors(u as usize).iter().enumerate() {
             let weight = weights[row_start + offset];
             let next_dist = d + weight;
-            if next_dist < distances[v as usize] - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < distances[v as usize] {
                 distances[v as usize] = next_dist;
                 predecessors[v as usize] = u;
                 seq_counter += 1;
@@ -37093,7 +37082,7 @@ pub fn dijkstra_path_to_target(
     }) = pq.pop()
     {
         let u = u as usize;
-        if d > distances.get(u) + DISTANCE_COMPARISON_EPSILON {
+        if d > distances.get(u) {
             continue;
         }
         if !finalized.get(u) {
@@ -37124,7 +37113,7 @@ pub fn dijkstra_path_to_target(
             for &v in neighbors {
                 let (w, _) = graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
                 let next_dist = d + w;
-                if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+                if next_dist < distances.get(v) {
                     distances.set(v, next_dist);
                     predecessors.set(v, u32::try_from(u).unwrap_or(u32::MAX));
                     seq_counter += 1;
@@ -37233,7 +37222,7 @@ pub fn dijkstra_path_to_target_directed(
     }) = pq.pop()
     {
         let u = u as usize;
-        if d > distances.get(u) + DISTANCE_COMPARISON_EPSILON {
+        if d > distances.get(u) {
             continue;
         }
         if !finalized.get(u) {
@@ -37279,7 +37268,7 @@ pub fn dijkstra_path_to_target_directed(
         for &v in digraph.successors_indices(u).unwrap_or(&[]) {
             let (w, _) = digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
             let next_dist = d + w;
-            if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < distances.get(v) {
                 distances.set(v, next_dist);
                 predecessors.set(v, u32::try_from(u).unwrap_or(u32::MAX));
                 seq_counter += 1;
@@ -37569,8 +37558,7 @@ fn multigraph_weighted_row(
 ///     on FIRST finalization, never on relaxation;
 ///   * `all_int_paths` propagates as `all_int_paths[u] && is_int`, which is what
 ///     keeps integer weights yielding integer distances;
-///   * both epsilon comparisons keep their original directions - the stale-pop
-///     skip adds it, the improvement test subtracts it;
+///   * exact comparisons skip stale entries and preserve every improvement;
 ///   * the cutoff is applied to `next_dist` BEFORE relaxation.
 ///
 /// br-r37-c1-m0cj7: networkx's `_dijkstra_multisource` - every source starts
@@ -37616,7 +37604,7 @@ where
     }) = pq.pop()
     {
         let u_usize = u as usize;
-        if d > distances.get(u_usize) + DISTANCE_COMPARISON_EPSILON {
+        if d > distances.get(u_usize) {
             continue;
         }
         if !finalized.get(u_usize) {
@@ -37637,7 +37625,7 @@ where
             if next_dist > cutoff {
                 continue;
             }
-            if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < distances.get(v) {
                 distances.set(v, next_dist);
                 predecessors.set(v, u);
                 all_int_paths.set(v, u_all_int && is_int);
@@ -37811,7 +37799,7 @@ fn single_source_dijkstra_typed_csr_indexed(
     }) = pq.pop()
     {
         let u_usize = u as usize;
-        if d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u_usize] {
             continue;
         }
         if !finalized[u_usize] {
@@ -37828,7 +37816,7 @@ fn single_source_dijkstra_typed_csr_indexed(
             {
                 continue;
             }
-            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < distances[v_usize] {
                 distances[v_usize] = next_dist;
                 predecessors[v_usize] = u;
                 all_int_paths[v_usize] = all_int_paths[u_usize] && weight_is_int[edge_offset];
@@ -37891,7 +37879,7 @@ where
     }) = pq.pop()
     {
         let u_usize = u as usize;
-        if finalized.get(u_usize) || d > distances.get(u_usize) + DISTANCE_COMPARISON_EPSILON {
+        if finalized.get(u_usize) || d > distances.get(u_usize) {
             continue;
         }
         finalized.set(u_usize, true);
@@ -37906,7 +37894,7 @@ where
         expand(u_usize, &mut row);
         for &(v, weight, is_int) in &row {
             let next_dist = d + weight;
-            if next_dist < distances.get(v) - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < distances.get(v) {
                 distances.set(v, next_dist);
                 all_int_paths.set(v, u_all_int && is_int);
                 seq_counter += 1;
@@ -38630,7 +38618,7 @@ fn single_source_dijkstra_paths_csr(
     }) = pq.pop()
     {
         let u_usize = u as usize;
-        if d > distances[u_usize] + DISTANCE_COMPARISON_EPSILON {
+        if d > distances[u_usize] {
             continue;
         }
         if !finalized[u_usize] {
@@ -38642,7 +38630,7 @@ fn single_source_dijkstra_paths_csr(
             let v = targets[edge_offset];
             let v_usize = v as usize;
             let next_dist = d + weights[edge_offset];
-            if next_dist < distances[v_usize] - DISTANCE_COMPARISON_EPSILON {
+            if next_dist < distances[v_usize] {
                 distances[v_usize] = next_dist;
                 predecessors[v_usize] = u;
                 seq_counter += 1;
@@ -38993,9 +38981,7 @@ pub fn floyd_warshall_predecessor_and_distance(
                 if w < dist[ui][vi] {
                     dist[ui][vi] = w;
                     pred[ui][vi] = vec![ui];
-                } else if (w - dist[ui][vi]).abs() < DISTANCE_COMPARISON_EPSILON
-                    && !pred[ui][vi].contains(&ui)
-                {
+                } else if w == dist[ui][vi] && !pred[ui][vi].contains(&ui) {
                     pred[ui][vi].push(ui);
                 }
             }
@@ -39012,10 +38998,10 @@ pub fn floyd_warshall_predecessor_and_distance(
                     continue;
                 }
                 let via_k = dist[i][k] + dist[k][j];
-                if via_k + DISTANCE_COMPARISON_EPSILON < dist[i][j] {
+                if via_k < dist[i][j] {
                     dist[i][j] = via_k;
                     pred[i][j] = pred[k][j].clone();
-                } else if (via_k - dist[i][j]).abs() < DISTANCE_COMPARISON_EPSILON {
+                } else if via_k == dist[i][j] {
                     let new_preds: Vec<usize> = pred[k][j]
                         .iter()
                         .copied()
@@ -68621,6 +68607,118 @@ mod tests {
         assert_eq!(result.distances.len(), 2);
         assert_eq!(result.predecessors.len(), 2);
         assert!(!result.negative_cycle_detected);
+    }
+
+    #[test]
+    fn weighted_shortest_paths_preserve_sub_epsilon_improvements() {
+        for unit in [2.0_f64.powi(-50), 2.0_f64.powi(-500), f64::from_bits(1)] {
+            let mut graph = Graph::strict();
+            let mut digraph = DiGraph::strict();
+            for (left, right, weight) in
+                [("s", "t", 5.0 * unit), ("s", "a", unit), ("a", "t", unit)]
+            {
+                let edge_attrs: AttrMap =
+                    [("weight".to_owned(), weight.into())].into_iter().collect();
+                graph
+                    .add_edge_with_attrs(left, right, edge_attrs.clone())
+                    .unwrap();
+                digraph
+                    .add_edge_with_attrs(left, right, edge_attrs)
+                    .unwrap();
+            }
+            let path = vec!["s".to_owned(), "a".to_owned(), "t".to_owned()];
+            assert_eq!(
+                shortest_path_weighted(&graph, "s", "t", "weight").path,
+                Some(path.clone())
+            );
+            assert_eq!(
+                super::shortest_path_weighted_directed(&digraph, "s", "t", "weight").path,
+                Some(path.clone())
+            );
+            assert_eq!(
+                super::dijkstra_path_length(&graph, "s", "t", "weight"),
+                Some(2.0 * unit)
+            );
+            assert_eq!(
+                super::dijkstra_path_length_directed(&digraph, "s", "t", "weight"),
+                Some(2.0 * unit)
+            );
+            assert_eq!(
+                super::dijkstra_path_to_target(&graph, "s", "t", "weight")
+                    .unwrap()
+                    .1,
+                path
+            );
+            assert_eq!(
+                super::dijkstra_path_to_target_directed(&digraph, "s", "t", "weight")
+                    .unwrap()
+                    .1,
+                path
+            );
+            assert_eq!(
+                all_shortest_paths_weighted(&graph, "s", "t", "weight"),
+                vec![path.clone()]
+            );
+            assert_eq!(
+                super::all_shortest_paths_weighted_directed(&digraph, "s", "t", "weight"),
+                vec![path.clone()]
+            );
+            assert_eq!(
+                super::all_shortest_paths_weighted_bellman_ford(&graph, "s", "t", "weight")
+                    .unwrap(),
+                vec![path.clone()]
+            );
+            assert_eq!(
+                super::all_shortest_paths_weighted_directed_bellman_ford(
+                    &digraph, "s", "t", "weight"
+                )
+                .unwrap(),
+                vec![path]
+            );
+            for result in [
+                multi_source_dijkstra(&graph, &["s"], "weight"),
+                super::multi_source_dijkstra_directed(&digraph, &["s"], "weight"),
+                bellman_ford_shortest_paths(&graph, "s", "weight"),
+                super::bellman_ford_shortest_paths_directed(&digraph, "s", "weight"),
+            ] {
+                assert!(!result.negative_cycle_detected);
+                assert_eq!(
+                    result
+                        .distances
+                        .iter()
+                        .find(|entry| entry.node == "t")
+                        .unwrap()
+                        .distance,
+                    2.0 * unit
+                );
+            }
+            let (distances, predecessors) =
+                super::floyd_warshall_predecessor_and_distance(&graph, "weight");
+            assert_eq!(distances["s"]["t"], 2.0 * unit);
+            assert_eq!(predecessors["s"]["t"], vec!["a".to_owned()]);
+        }
+    }
+
+    #[test]
+    fn bellman_ford_detects_sub_epsilon_negative_cycles() {
+        for unit in [2.0_f64.powi(-50), 2.0_f64.powi(-500), f64::from_bits(1)] {
+            let negative: AttrMap = [("weight".to_owned(), (-unit).into())]
+                .into_iter()
+                .collect();
+            let zero: AttrMap = [("weight".to_owned(), 0.0.into())].into_iter().collect();
+            let mut graph = Graph::strict();
+            graph
+                .add_edge_with_attrs("s", "t", negative.clone())
+                .unwrap();
+            assert!(bellman_ford_shortest_paths(&graph, "s", "weight").negative_cycle_detected);
+            let mut digraph = DiGraph::strict();
+            digraph.add_edge_with_attrs("s", "t", negative).unwrap();
+            digraph.add_edge_with_attrs("t", "s", zero).unwrap();
+            assert!(
+                super::bellman_ford_shortest_paths_directed(&digraph, "s", "weight")
+                    .negative_cycle_detected
+            );
+        }
     }
 
     #[test]

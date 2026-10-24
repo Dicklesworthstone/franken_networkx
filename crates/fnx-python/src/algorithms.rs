@@ -42,6 +42,7 @@ fn display_map_with_capacity(capacity: usize) -> DisplayMap {
 }
 
 const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
+#[cfg(test)]
 const PY_DISTANCE_COMPARISON_EPSILON: f64 = 1.0e-12;
 
 #[derive(Copy, Clone, PartialEq)]
@@ -1089,7 +1090,7 @@ fn multigraph_dijkstra_path_to_target_lazy(
         ..
     }) = pq.pop()
     {
-        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+        if distance > distances[node_idx] {
             continue;
         }
         if finalized[node_idx] {
@@ -1134,7 +1135,7 @@ fn multigraph_dijkstra_path_to_target_lazy(
                 continue;
             };
             let next_distance = distance + edge_weight;
-            if next_distance < distances[neighbor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+            if next_distance < distances[neighbor_idx] {
                 distances[neighbor_idx] = next_distance;
                 predecessors[neighbor_idx] = node_idx;
                 all_int_paths[neighbor_idx] = all_int_paths[node_idx] && edge_all_int;
@@ -10355,13 +10356,6 @@ fn flow_py_error(err: fnx_algorithms::FlowError) -> PyErr {
     NetworkXError::new_err(err.to_string())
 }
 
-fn py_num_to_f64(value: fnx_algorithms::preflow_push::PyNum) -> f64 {
-    match value {
-        fnx_algorithms::preflow_push::PyNum::Int(v) => v as f64,
-        fnx_algorithms::preflow_push::PyNum::Float(v) => v,
-    }
-}
-
 fn py_num_to_pyobject(
     py: Python<'_>,
     value: fnx_algorithms::preflow_push::PyNum,
@@ -10485,7 +10479,7 @@ pub fn maximum_flow(
     source: &Bound<'_, PyAny>,
     sink: &Bound<'_, PyAny>,
     capacity: &str,
-) -> PyResult<(f64, PyObject)> {
+) -> PyResult<(PyObject, PyObject)> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
     if let Some((node_objs, _, residual)) = try_run_preflow_push(py, &gr, &s, &t, capacity, false)?
@@ -10561,7 +10555,7 @@ pub fn maximum_flow(
             _ => unreachable!(),
         }
         return Ok((
-            py_num_to_f64(residual.flow_value()),
+            py_num_to_pyobject(py, residual.flow_value())?,
             outer.into_any().unbind(),
         ));
     }
@@ -10591,7 +10585,10 @@ pub fn maximum_flow(
     };
     let result = result.map_err(flow_py_error)?;
     let flow_dict = flow_dict_object(py, &gr, &result.flows)?;
-    Ok((result.value, flow_dict))
+    Ok((
+        result.value.into_pyobject(py)?.into_any().unbind(),
+        flow_dict,
+    ))
 }
 
 /// Return the maximum flow value between source and sink.
@@ -10603,14 +10600,14 @@ pub fn maximum_flow_value(
     source: &Bound<'_, PyAny>,
     sink: &Bound<'_, PyAny>,
     capacity: &str,
-) -> PyResult<f64> {
+) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
     if let Some((_, _, residual)) = try_run_preflow_push(py, &gr, &s, &t, capacity, true)? {
-        return Ok(py_num_to_f64(residual.flow_value()));
+        return py_num_to_pyobject(py, residual.flow_value());
     }
     let cap = capacity.to_owned();
-    match &gr {
+    let value = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
             py.allow_threads(move || fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap))
@@ -10640,7 +10637,8 @@ pub fn maximum_flow_value(
                     .map_err(flow_py_error)
             }
         }
-    }
+    }?;
+    Ok(value.into_pyobject(py)?.into_any().unbind())
 }
 
 /// Return the minimum cut value between source and sink.
@@ -10652,14 +10650,14 @@ pub fn minimum_cut_value(
     source: &Bound<'_, PyAny>,
     sink: &Bound<'_, PyAny>,
     capacity: &str,
-) -> PyResult<f64> {
+) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
     if let Some((_, _, residual)) = try_run_preflow_push(py, &gr, &s, &t, capacity, true)? {
-        return Ok(py_num_to_f64(residual.flow_value()));
+        return py_num_to_pyobject(py, residual.flow_value());
     }
     let cap = capacity.to_owned();
-    match &gr {
+    let value = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
             py.allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap))
@@ -10691,7 +10689,8 @@ pub fn minimum_cut_value(
                 .map_err(flow_py_error)
             }
         }
-    }
+    }?;
+    Ok(value.into_pyobject(py)?.into_any().unbind())
 }
 
 /// Return the minimum cut value and node partition between source and sink.
@@ -10704,7 +10703,7 @@ pub fn minimum_cut(
     sink: &Bound<'_, PyAny>,
     capacity: &str,
     edmonds_karp: bool,
-) -> PyResult<(f64, PyObject)> {
+) -> PyResult<(PyObject, PyObject)> {
     let gr = extract_graph(g)?;
     let (s, t) = flow_terminals(py, &gr, source, sink)?;
     if !edmonds_karp
@@ -10719,7 +10718,7 @@ pub fn minimum_cut(
         let all_nodes = pyo3::types::PySet::new(py, node_objs.iter())?;
         let reachable = all_nodes.call_method1("__sub__", (&non_reachable,))?;
         let partition = tuple_object(py, &[reachable.unbind(), non_reachable.unbind()])?;
-        return Ok((py_num_to_f64(residual.flow_value()), partition));
+        return Ok((py_num_to_pyobject(py, residual.flow_value())?, partition));
     }
     let cap = capacity.to_owned();
     let cut = match &gr {
@@ -10771,7 +10770,7 @@ pub fn minimum_cut(
         ],
     )?;
 
-    Ok((cut.value, partition))
+    Ok((cut.value.into_pyobject(py)?.into_any().unbind(), partition))
 }
 
 /// Compute minimum cost flow on a directed graph.
@@ -23289,7 +23288,7 @@ fn multidigraph_dijkstra_target_path_rows(
             ..
         }) = scratch.pq.pop()
         {
-            if distance > scratch.distance(node_idx, epoch) + PY_DISTANCE_COMPARISON_EPSILON {
+            if distance > scratch.distance(node_idx, epoch) {
                 continue;
             }
             if scratch.is_finalized(node_idx, epoch) {
@@ -23325,12 +23324,12 @@ fn multidigraph_dijkstra_target_path_rows(
                 let next_distance = distance + arc.weight;
                 let target_distance = scratch.distance(arc.target, epoch);
                 if scratch.is_finalized(arc.target, epoch) {
-                    if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                    if next_distance < target_distance {
                         return MultiDiDijkstraTargetPath::Delegate;
                     }
                     continue;
                 }
-                if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                if next_distance < target_distance {
                     scratch.set_distance(arc.target, next_distance, epoch);
                     scratch.set_predecessor(arc.target, node_idx, epoch);
                     seq_counter += 1;
@@ -23383,7 +23382,7 @@ fn multidigraph_dijkstra_target_length_rows(
             ..
         }) = scratch.pq.pop()
         {
-            if distance > scratch.distance(node_idx, epoch) + PY_DISTANCE_COMPARISON_EPSILON {
+            if distance > scratch.distance(node_idx, epoch) {
                 continue;
             }
             if scratch.is_finalized(node_idx, epoch) {
@@ -23401,12 +23400,12 @@ fn multidigraph_dijkstra_target_length_rows(
                 let next_distance = distance + arc.weight;
                 let target_distance = scratch.distance(arc.target, epoch);
                 if scratch.is_finalized(arc.target, epoch) {
-                    if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                    if next_distance < target_distance {
                         return MultiDiDijkstraTargetLength::Delegate;
                     }
                     continue;
                 }
-                if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                if next_distance < target_distance {
                     scratch.set_distance(arc.target, next_distance, epoch);
                     scratch.all_int_paths[arc.target] = node_all_int && arc.all_int;
                     seq_counter += 1;
@@ -23452,7 +23451,7 @@ fn multidigraph_single_source_dijkstra_lengths_rows(
             ..
         }) = scratch.pq.pop()
         {
-            if distance > scratch.distance(node_idx, epoch) + PY_DISTANCE_COMPARISON_EPSILON {
+            if distance > scratch.distance(node_idx, epoch) {
                 continue;
             }
             if scratch.is_finalized(node_idx, epoch) {
@@ -23472,12 +23471,12 @@ fn multidigraph_single_source_dijkstra_lengths_rows(
                 }
                 let target_distance = scratch.distance(arc.target, epoch);
                 if scratch.is_finalized(arc.target, epoch) {
-                    if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                    if next_distance < target_distance {
                         return MultiDiDijkstraSourceLengths::Delegate;
                     }
                     continue;
                 }
-                if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
+                if next_distance < target_distance {
                     scratch.set_distance(arc.target, next_distance, epoch);
                     scratch.all_int_paths[arc.target] = node_all_int && arc.all_int;
                     scratch.set_predecessor(arc.target, node_idx, epoch);
@@ -23528,9 +23527,7 @@ fn multidigraph_dijkstra_target_path_borrowed(
         ..
     }) = pq.pop()
     {
-        if distance
-            > distances.get(node).copied().unwrap_or(f64::INFINITY) + PY_DISTANCE_COMPARISON_EPSILON
-        {
+        if distance > distances.get(node).copied().unwrap_or(f64::INFINITY) {
             continue;
         }
         if !finalized.insert(node) {
@@ -23560,18 +23557,12 @@ fn multidigraph_dijkstra_target_path_borrowed(
             };
             let next_distance = distance + edge_weight;
             if finalized.contains(successor) {
-                if next_distance
-                    < distances.get(successor).copied().unwrap_or(f64::INFINITY)
-                        - PY_DISTANCE_COMPARISON_EPSILON
-                {
+                if next_distance < distances.get(successor).copied().unwrap_or(f64::INFINITY) {
                     return MultiDiDijkstraTargetPath::Delegate;
                 }
                 continue;
             }
-            if next_distance
-                < distances.get(successor).copied().unwrap_or(f64::INFINITY)
-                    - PY_DISTANCE_COMPARISON_EPSILON
-            {
+            if next_distance < distances.get(successor).copied().unwrap_or(f64::INFINITY) {
                 distances.insert(successor, next_distance);
                 predecessors.insert(successor, node);
                 seq_counter += 1;
@@ -23630,7 +23621,7 @@ fn multidigraph_dijkstra_target_length_borrowed(
         ..
     }) = pq.pop()
     {
-        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+        if distance > distances[node_idx] {
             continue;
         }
         if !finalized[node_idx] {
@@ -23656,7 +23647,7 @@ fn multidigraph_dijkstra_target_length_borrowed(
                 return MultiDiDijkstraTargetLength::Delegate;
             };
             let next_distance = distance + edge_weight;
-            if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+            if next_distance < distances[successor_idx] {
                 distances[successor_idx] = next_distance;
                 all_int_paths[successor_idx] = all_int_paths[node_idx] && edge_int;
                 seq_counter += 1;
@@ -23711,7 +23702,7 @@ fn multidigraph_single_source_dijkstra_lengths_borrowed(
         ..
     }) = pq.pop()
     {
-        if distance > distances[node_idx] + PY_DISTANCE_COMPARISON_EPSILON {
+        if distance > distances[node_idx] {
             continue;
         }
         if finalized[node_idx] {
@@ -23743,12 +23734,12 @@ fn multidigraph_single_source_dijkstra_lengths_borrowed(
                 continue;
             }
             if finalized[successor_idx] {
-                if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+                if next_distance < distances[successor_idx] {
                     return MultiDiDijkstraSourceLengths::Delegate;
                 }
                 continue;
             }
-            if next_distance < distances[successor_idx] - PY_DISTANCE_COMPARISON_EPSILON {
+            if next_distance < distances[successor_idx] {
                 distances[successor_idx] = next_distance;
                 all_int_paths[successor_idx] = all_int_paths[node_idx] && edge_int;
                 predecessors[successor_idx] = node_idx;

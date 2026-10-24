@@ -1387,65 +1387,50 @@ def _flow_has_infinite_capacity(flowG, capacity):
 
 
 def _flow_caps_summary(flowG, capacity):
-    """br-r37-c1-31tby: single-pass fusion of ``_flow_has_infinite_capacity``
-    + ``_all_flow_caps_integral``.
-
-    The four high-level flow wrappers (maximum_flow / maximum_flow_value /
-    minimum_cut / minimum_cut_value) called those two helpers back-to-back,
-    each iterating the *whole* flow graph's ``edges(data=True)`` (a fresh
-    full materialization through ``_native_edges_with_data``). Over a
-    repeated-call algorithm like ``all_node_cuts`` (hundreds of max_flow
-    calls on the same auxiliary graph) the two scans dominated runtime
-    (~54% of total in cProfile). Fuse them into ONE edge walk.
+    """Select an exact native flow domain and output type in one edge scan.
 
     Returns ``(needs_nx, all_int)``:
 
-    * ``needs_nx`` is byte-for-byte equivalent to
-      ``_flow_has_infinite_capacity(flowG, capacity)``: True iff any edge
-      capacity is missing (default +inf), None, +-inf, NaN, negative, or
-      not a ``numbers.Real``. We return as soon as that is established —
-      exactly the original short-circuit, which delegated before ever
-      computing ``all_int``.
-    * ``all_int`` is only consumed by the wrappers when ``needs_nx`` is
-      False (every capacity is a present, finite, non-negative Real); in
-      that regime it equals ``_all_flow_caps_integral(flowG, capacity)``:
-      True iff every capacity is ``numbers.Integral``. A finite
-      non-negative ``float`` is never Integral, so it forces False.
+    * Native capacities are finite, nonnegative builtin int, float, or
+      bool values. Fractions, Decimals, numeric subclasses, missing values,
+      and other domains stay in Python so conversion cannot change their
+      arithmetic, exceptions, or result types.
+    * The sum of integer capacities bounds integral excess and, for
+      directed graphs, opposing-arc residual capacity. An undirected edge
+      has capacity in both directions, so twice that sum is a safe bound.
+      Keep the bound within i64 before calling the native preflow kernel:
+      its overflow fallback uses floats and would silently round integers.
+      This bound is independent of f64's exact-integer range; large i64
+      flows remain integers through the native binding.
+    * ``all_int`` is consumed only on the native path. A builtin float
+      capacity makes it False even if that float has an integral value.
     """
     import math as _math
-    import numbers as _numbers
     if not isinstance(capacity, str):
         # networkx accepts any hashable attribute key (``capacity=0``); the
         # native kernels read capacity by string name only.
         return True, False
     all_int = True
+    integer_capacity_sum = 0
+    integer_capacity_limit = (1 << 63) - 1
+    if not flowG.is_directed():
+        integer_capacity_limit //= 2
     for _u, _v, attrs in flowG.edges(data=True):
         cap = attrs.get(capacity, None) if isinstance(attrs, dict) else None
         tc = type(cap)
-        # Concrete-type fast paths first (the overwhelmingly common case),
-        # mirroring the per-edge logic of both original helpers.
-        if tc is int:
+        if tc is int or tc is bool:
             if cap < 0:
                 return True, all_int
-            continue  # plain int is Integral -> all_int unaffected
+            integer_capacity_sum += cap
+            if integer_capacity_sum > integer_capacity_limit:
+                return True, all_int
+            continue
         if tc is float:
             if cap < 0.0 or _math.isinf(cap) or _math.isnan(cap):
                 return True, all_int
             all_int = False  # a finite non-negative float is not Integral
             continue
-        # Missing capacity defaults to +inf in _flow_has_infinite_capacity,
-        # so a missing-or-None capacity routes to nx just like an infinite one.
-        if cap is None:
-            return True, all_int
-        if not isinstance(cap, _numbers.Real):
-            return True, all_int
-        cap_f = float(cap)
-        if _math.isinf(cap_f) or _math.isnan(cap_f) or cap_f < 0:
-            return True, all_int
-        # Finite, non-negative Real that is neither plain int nor float
-        # (e.g. numpy integer, Fraction): integrality per _all_flow_caps_integral.
-        if not isinstance(cap, _numbers.Integral):
-            all_int = False
+        return True, all_int
     return False, all_int
 
 
@@ -1498,9 +1483,10 @@ def _maximum_flow_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=Non
 def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
 
-    br-flowt: nx returns int when all capacities are ints; the Rust
-    native always returns float. Coerce back to int when inputs are
-    integer-typed so `isinstance(flow_value, int)` matches nx.
+    Native preflow preserves Python int/float arithmetic in both the
+    value and flow dictionary. Capacities outside its exact numeric
+    domain stay in Python, retaining arbitrary integer precision and
+    the arithmetic of Fraction, Decimal, and custom numeric types.
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)

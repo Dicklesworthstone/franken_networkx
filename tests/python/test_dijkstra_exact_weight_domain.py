@@ -192,3 +192,101 @@ def test_ordinary_weights_stay_on_the_native_path(nx_cls, fnx_cls):
     for bad in (2**60, 2**70, Fraction(1, 3)):
         _, gfx = _pair(nx_cls, fnx_cls, bad)
         assert should_delegate(gfx, "weight") is True, f"{bad!r} must delegate"
+
+
+SMALL_WEIGHTS = [2.0**-50, 2.0**-500, float.fromhex("0x0.0000000000001p-1022")]
+
+
+def _close_weight_alternatives(nx_cls, fnx_cls, unit):
+    """The first path is longer; two later paths tie exactly, one via zero."""
+    graphs = nx_cls(), fnx_cls()
+    for graph in graphs:
+        graph.add_edge("s", "t", weight=5 * unit)
+        graph.add_edge("s", "a", weight=unit)
+        graph.add_edge("a", "t", weight=unit)
+        graph.add_edge("s", "b", weight=2 * unit)
+        graph.add_edge("b", "t", weight=0.0)
+        graph.add_node("isolated")
+        if graph.is_multigraph():
+            graph.add_edge("s", "a", weight=4 * unit)
+    return graphs
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+@pytest.mark.parametrize("unit", SMALL_WEIGHTS)
+def test_sub_epsilon_dijkstra_paths_and_distances_match_networkx(nx_cls, fnx_cls, unit):
+    gnx, gfx = _close_weight_alternatives(nx_cls, fnx_cls, unit)
+    assert fnx._should_delegate_dijkstra_to_networkx(gfx, "weight") is False
+    assert nx.dijkstra_path_length(gnx, "s", "t") == 2 * unit
+    for name in ("dijkstra_path", "dijkstra_path_length", "bidirectional_dijkstra"):
+        assert getattr(fnx, name)(gfx, "s", "t") == getattr(nx, name)(gnx, "s", "t")
+    for name in ("shortest_path", "shortest_path_length"):
+        assert getattr(fnx, name)(gfx, "s", "t", weight="weight") == getattr(nx, name)(
+            gnx, "s", "t", weight="weight"
+        )
+    for cutoff in (None, 3 * unit):
+        for name in (
+            "single_source_dijkstra", "single_source_dijkstra_path",
+            "single_source_dijkstra_path_length", "dijkstra_predecessor_and_distance",
+        ):
+            assert getattr(fnx, name)(gfx, "s", cutoff=cutoff) == getattr(nx, name)(
+                gnx, "s", cutoff=cutoff
+            )
+        for name in (
+            "multi_source_dijkstra", "multi_source_dijkstra_path",
+            "multi_source_dijkstra_path_length",
+        ):
+            assert getattr(fnx, name)(gfx, ["s", "isolated"], cutoff=cutoff) == getattr(nx, name)(
+                gnx, ["s", "isolated"], cutoff=cutoff
+            )
+    assert fnx.single_source_dijkstra(gfx, "s", target="t") == nx.single_source_dijkstra(
+        gnx, "s", target="t"
+    )
+    for name in ("all_pairs_dijkstra", "all_pairs_dijkstra_path", "all_pairs_dijkstra_path_length"):
+        assert list(getattr(fnx, name)(gfx)) == list(getattr(nx, name)(gnx))
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+@pytest.mark.parametrize("unit", SMALL_WEIGHTS)
+def test_sub_epsilon_bellman_ford_and_exact_path_ties_match_networkx(nx_cls, fnx_cls, unit):
+    gnx, gfx = _close_weight_alternatives(nx_cls, fnx_cls, unit)
+    for name in ("bellman_ford_path", "bellman_ford_path_length"):
+        assert getattr(fnx, name)(gfx, "s", "t") == getattr(nx, name)(gnx, "s", "t")
+    for name in (
+        "single_source_bellman_ford", "single_source_bellman_ford_path",
+        "single_source_bellman_ford_path_length",
+    ):
+        assert getattr(fnx, name)(gfx, "s") == getattr(nx, name)(gnx, "s")
+    for method in ("dijkstra", "bellman-ford"):
+        got = list(fnx.all_shortest_paths(gfx, "s", "t", weight="weight", method=method))
+        want = list(nx.all_shortest_paths(gnx, "s", "t", weight="weight", method=method))
+        assert got == want
+        assert ["s", "t"] not in got  # Close distances are not equal distances.
+    for name in ("all_pairs_bellman_ford_path", "all_pairs_bellman_ford_path_length"):
+        assert list(getattr(fnx, name)(gfx)) == list(getattr(nx, name)(gnx))
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_representable_improvement_near_one_is_not_a_tie(nx_cls, fnx_cls):
+    gnx, gfx = nx_cls(), fnx_cls()
+    for graph in (gnx, gfx):
+        graph.add_edge("s", "t", weight=1.0 + 2.0**-50)
+        graph.add_edge("s", "a", weight=0.5)
+        graph.add_edge("a", "t", weight=0.5)
+    assert fnx.dijkstra_path_length(gfx, "s", "t") == nx.dijkstra_path_length(gnx, "s", "t") == 1.0
+    assert fnx.dijkstra_path(gfx, "s", "t") == nx.dijkstra_path(gnx, "s", "t") == ["s", "a", "t"]
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+@pytest.mark.parametrize("unit", SMALL_WEIGHTS)
+def test_bellman_ford_detects_sub_epsilon_negative_cycles(nx_cls, fnx_cls, unit):
+    gnx, gfx = nx_cls(), fnx_cls()
+    for graph in (gnx, gfx):
+        graph.add_edge("s", "a", weight=0.0)
+        graph.add_edge("a", "t", weight=-unit)
+        if graph.is_directed():
+            graph.add_edge("t", "a", weight=0.0)
+    with pytest.raises(nx.NetworkXUnbounded):
+        nx.single_source_bellman_ford_path_length(gnx, "s")
+    with pytest.raises(fnx.NetworkXUnbounded):
+        fnx.single_source_bellman_ford_path_length(gfx, "s")
