@@ -444,6 +444,52 @@ def _coerce_arg_to_fnx_graph(G):
     return G
 
 
+def _view_filter_cache_token(view):
+    """Describe only filter state whose behavior is known without calling it.
+
+    User callbacks can depend on closure variables, object attributes, or
+    node data that do not advance the root graph's structural/edge epochs.
+    Their output must therefore be evaluated again for every materialization.
+    A built-in node-set filter has known membership semantics, but its set is
+    mutable, so retain a snapshot rather than the filter object's identity.
+    """
+    if not view._filter_edge_is_default:
+        return None
+    if view._filter_node_is_default:
+        return (), ()
+    node_filter = view._filter_node
+    if type(node_filter) is _NodeSetFilter and type(node_filter.nodes) is set:
+        nodes = tuple(node_filter.nodes)
+        return tuple(map(id, nodes)), nodes
+    return None
+
+
+def _view_node_attribute_snapshot(view, root):
+    """Track shallow node-data changes without comparing arbitrary values.
+
+    Node dictionaries have no mutation epoch. Their values may be arrays or
+    user objects whose equality is unsuitable for a cache key. Retain their
+    identities and keep the original objects alive alongside the cache, so an
+    address cannot be reused after an attribute is replaced or removed.
+    Nested containers remain shared by the materialization's shallow copy.
+    """
+    if (
+        type(root) in (Graph, DiGraph)
+        and _native_graph_has_any_attrs is not None
+        and _native_graph_has_any_attrs(root) is False
+    ):
+        return (), ()
+    token = []
+    retained = []
+    for node, attrs in view.nodes(data=True):
+        if not attrs:
+            continue
+        items = tuple(attrs.items())
+        token.append((id(node), tuple((id(key), id(value)) for key, value in items)))
+        retained.append((node, items))
+    return tuple(token), retained
+
+
 def _materialize_view(view):
     """The concrete fnx graph a view shows - a filtered view
     (br-r37-c1-ajhcl), a reverse view or a to_directed / to_undirected
@@ -474,7 +520,18 @@ def _materialize_view(view):
     the view's graph dict, as networkx's views do.
     """
     root = view
+    filter_tokens = []
+    filter_references = []
+    filters_cacheable = True
     while True:
+        if isinstance(root, _FilteredGraphView):
+            snapshot = _view_filter_cache_token(root)
+            if snapshot is None:
+                filters_cacheable = False
+            else:
+                token, references = snapshot
+                filter_tokens.append(token)
+                filter_references.append(references)
         inner = getattr(root, "_graph", None)
         if inner is None:
             break
@@ -486,6 +543,7 @@ def _materialize_view(view):
     # Such roots must be walked anew rather than reuse a stale native copy.
     if (
         root is not view
+        and filters_cacheable
         and ns is not None
         and es is not None
         and not _has_networkx_private_storage(root)
@@ -494,7 +552,8 @@ def _materialize_view(view):
             epoch = _fnx.edge_attr_epoch(root)
         except TypeError:
             epoch = None
-        cache_key = (ns, es, epoch)
+        node_token, node_references = _view_node_attribute_snapshot(view, root)
+        cache_key = (id(root), ns, es, epoch, tuple(filter_tokens), node_token)
         cached = view.__dict__.get("_fnx_materialized_cache")
         if cached is not None and cached[0] == cache_key:
             return cached[1]
@@ -542,7 +601,11 @@ def _materialize_view(view):
             rows = tuple(zip(nodes, side) for side in rows)
         out._fnx_set_row_orders(*rows)
     if cache_key is not None:
-        view.__dict__["_fnx_materialized_cache"] = (cache_key, out)
+        view.__dict__["_fnx_materialized_cache"] = (
+            cache_key,
+            out,
+            (root, filter_references, node_references),
+        )
     return out
 
 
