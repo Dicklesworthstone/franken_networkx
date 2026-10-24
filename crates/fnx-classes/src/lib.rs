@@ -4823,11 +4823,15 @@ pub(crate) mod multigraph_storage {
         ) -> Result<(), E> {
             let mut processed = vec![false; self.node_order.slot_count()];
             if self.node_order.is_dense() {
-                for (u_name, u_slot) in self.node_order.iter() {
+                // Dense entries have no tombstones, but their stable slots can
+                // still differ from positions after compaction or recycling.
+                // The reverse entry lookup is O(1) in this branch.
+                for (u_pos, (u_name, u_slot)) in self.node_order.iter().enumerate() {
                     for &v_slot in self.rows[u_slot].keys() {
                         if processed[v_slot] {
                             continue;
                         }
+                        let v_pos = self.node_order.position_of_slot(v_slot);
                         let v_name = self
                             .node_order
                             .name(v_slot)
@@ -4835,7 +4839,7 @@ pub(crate) mod multigraph_storage {
                         let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
                         if let Some(bucket) = self.edges.get(&pair) {
                             for (key, attrs) in bucket.iter() {
-                                visit(u_slot, v_slot, u_name.as_str(), v_name, key, attrs)?;
+                                visit(u_pos, v_pos, u_name.as_str(), v_name, key, attrs)?;
                             }
                         }
                     }
@@ -11544,6 +11548,73 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(from_indices, from_borrowed);
+    }
+
+    #[test]
+    fn multigraph_edge_view_positions_survive_compaction_and_slot_recycling() {
+        let visit = |graph: &MultiGraph| {
+            let nodes = graph.nodes_ordered();
+            let mut observed = Vec::new();
+            graph
+                .try_for_each_indexed_edge_view_ordered_borrowed(
+                    |left, right, left_name, right_name, key, _attrs| {
+                        assert_eq!(nodes.get(left).copied(), Some(left_name));
+                        assert_eq!(nodes.get(right).copied(), Some(right_name));
+                        observed.push((left, right, key));
+                        Ok::<(), std::convert::Infallible>(())
+                    },
+                )
+                .expect("infallible visitor");
+            observed
+        };
+
+        for batch in [false, true] {
+            let mut graph = MultiGraph::strict();
+            for name in ["discard0", "discard1", "discard2", "tail", "head"] {
+                let _ = graph.add_node(name);
+            }
+            for (left, right, key) in [
+                ("tail", "head", 7),
+                ("tail", "head", 2),
+                ("tail", "tail", 5),
+                ("head", "head", 11),
+            ] {
+                graph
+                    .add_edge_with_key_and_attrs(left, right, key, AttrMap::new())
+                    .expect("edge");
+            }
+            let removed = ["discard0", "discard1", "discard2"];
+            if batch {
+                assert_eq!(graph.remove_nodes_from(removed), (3, 0));
+            } else {
+                for name in removed {
+                    assert!(graph.remove_node(name));
+                }
+            }
+            assert_eq!(visit(&graph), [(0, 1, 7), (0, 1, 2), (0, 0, 5), (1, 1, 11)]);
+            assert_eq!(visit(&graph.clone_with_fresh_policy()), visit(&graph));
+
+            // Refill all freed slots in a different insertion order. Every
+            // slot is now in bounds, but using it as a position is still wrong.
+            for name in ["discard2", "discard1", "discard0"] {
+                let _ = graph.add_node(name);
+            }
+            graph
+                .add_edge_with_key_and_attrs("head", "discard2", 9, AttrMap::new())
+                .expect("recycled target");
+            graph.add_edge("discard0", "tail").expect("recycled source");
+            assert_eq!(
+                visit(&graph),
+                [
+                    (0, 1, 7),
+                    (0, 1, 2),
+                    (0, 0, 5),
+                    (0, 4, 0),
+                    (1, 1, 11),
+                    (1, 2, 9)
+                ]
+            );
+        }
     }
 
     #[test]
