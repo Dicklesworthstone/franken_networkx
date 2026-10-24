@@ -8,8 +8,6 @@ construction (flow conformance contract is cost-only).
 from itertools import chain, islice, repeat
 from math import ceil, sqrt
 
-import numbers as _numbers
-
 import networkx as nx
 from networkx.utils import not_implemented_for
 
@@ -26,27 +24,54 @@ _NS_CAP_INF = 1 << 60
 
 
 def _ns_is_int(x):
-    # Plain Python ints (``type is int`` excludes bool) fast-path, then the
-    # numbers.Integral ABC for numpy/other integral scalars.
-    return type(x) is int or (
-        isinstance(x, _numbers.Integral) and not isinstance(x, bool)
-    )
+    # Numeric subclasses can define different arithmetic or result types.
+    # Keep those operations in the existing Python solver.
+    return type(x) is int
 
 
 def _ns_arrays_all_int(node_demands, edge_capacities, edge_weights):
-    """True iff every demand/weight is integral and every capacity is integral
-    or +inf, AND magnitudes are safely within i64 (so the kernel's integer
-    arithmetic matches nx's bigint result exactly)."""
+    """Admit builtin integers only when every native intermediate fits i64.
+
+    Individual input bounds do not protect the artificial capacities,
+    potentials, or the final sum of flow times cost. Wider problems retain
+    exact arithmetic through the existing Python simplex pivots.
+    """
+    demand_magnitude = 0
     for d in node_demands:
-        if not _ns_is_int(d) or abs(int(d)) >= _NS_CAP_INF:
+        if not _ns_is_int(d) or abs(d) >= _NS_CAP_INF:
             return False
+        demand_magnitude += abs(d)
+    weight_magnitude = 0
     for w in edge_weights:
-        if not _ns_is_int(w) or abs(int(w)) >= _NS_CAP_INF:
+        if not _ns_is_int(w) or abs(w) >= _NS_CAP_INF:
             return False
+        weight_magnitude += abs(w)
+    finite_capacity_sum = 0
+    inf = float("inf")
     for c in edge_capacities:
-        if c == float("inf"):
+        if type(c) is float and c == inf:
             continue
-        if not _ns_is_int(c) or int(c) >= _NS_CAP_INF:
+        if not _ns_is_int(c) or not 0 <= c < _NS_CAP_INF:
+            return False
+        finite_capacity_sum += c
+
+    integer_limit = (1 << 63) - 1
+    faux_inf = 3 * max(finite_capacity_sum, weight_magnitude, demand_magnitude) or 1
+    # A tree path to the artificial root contains at most one artificial
+    # edge, so |potential| <= faux_inf + sum(abs(real weights)). This
+    # conservative bound also covers reduced costs and potential shifts,
+    # including each intermediate subtraction/addition in the Rust kernel.
+    if 4 * faux_inf + 3 * weight_magnitude > integer_limit:
+        return False
+
+    # Finite-edge flows are bounded by capacity. Before accumulating cost,
+    # the solver rejects any flow >= faux_inf / 2 as unbounded, so faux_inf
+    # also bounds an accepted infinite-capacity edge. Sum absolute products
+    # to protect each multiplication and every partial cost sum.
+    cost_magnitude = 0
+    for c, w in zip(edge_capacities, edge_weights):
+        cost_magnitude += abs(w) * (faux_inf if c == inf else c)
+        if cost_magnitude > integer_limit:
             return False
     return True
 

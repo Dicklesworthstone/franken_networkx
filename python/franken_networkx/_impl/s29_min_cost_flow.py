@@ -61,33 +61,35 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     _edge_iter = _new_edges() if _new_edges is not None else G.edges(data=True)
     for u, v, edge_attrs in _edge_iter:
         if isinstance(edge_attrs, dict):
-            edge_capacity = float(edge_attrs.get(capacity, float("inf")))
+            edge_capacity = edge_attrs.get(capacity, float("inf"))
             if edge_capacity < 0:
                 raise NetworkXUnfeasible(
                     f"edge {(u, v)!r} has negative capacity"
                 )
 
-    # Extract demands via one bulk ``nodes(data=True)`` native read (node order
-    # preserved) instead of a per-node ``G.nodes[node]`` AdjacencyView lookup.
+    # Preserve the input arithmetic during validation. Converting demands to
+    # floats can make an exactly balanced integer or rational network appear
+    # infeasible, and overflows for integers beyond the float range.
+    # Read attributes in bulk while keeping the original node order.
     node_demand = {}
     for node, attrs in G.nodes(data=True):
         if isinstance(attrs, dict):
-            node_demand[node] = float(attrs.get(demand, 0))
+            node_demand[node] = attrs.get(demand, 0)
         else:
-            node_demand[node] = 0.0
+            node_demand[node] = 0
 
     # br-r37-c1-74xas: nx raises NetworkXError("node X has infinite
     # demand") at this stage (not NetworkXUnfeasible). Detect inf
     # demand explicitly so the exception type + message match nx.
     for node, d in node_demand.items():
-        if _math.isinf(d):
+        if abs(d) == float("inf"):
             raise NetworkXError(f"node {node!r} has infinite demand")
 
     # Check feasibility: sum of demands must be zero
     # br-r37-c1-74xas: nx's exact wording is "total node demand is not
     # zero" — match it (still NetworkXUnfeasible).
     total_demand = sum(node_demand.values())
-    if abs(total_demand) > 1e-10:
+    if total_demand != 0:
         raise NetworkXUnfeasible("total node demand is not zero")
 
     # br-r37-c1-t6gfk: the successive-shortest-paths solver below relaxes
@@ -406,28 +408,28 @@ def _validate_network_simplex_inputs(G, demand, capacity, weight):
     if len(G) == 0:
         raise NetworkXError("graph has no nodes")
 
-    total_demand = 0.0
+    node_demands = []
     for node in G:
         node_attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
         if not isinstance(node_attrs, dict):
             continue
-        node_demand = float(node_attrs.get(demand, 0))
-        if _math.isinf(node_demand):
+        node_demand = node_attrs.get(demand, 0)
+        if abs(node_demand) == float("inf"):
             raise NetworkXError(f"node {node!r} has infinite demand")
-        total_demand += node_demand
+        node_demands.append(node_demand)
 
     for u, v, edge_attrs in G.edges(data=True):
         if not isinstance(edge_attrs, dict):
             continue
-        edge_weight = float(edge_attrs.get(weight, 0))
-        if _math.isinf(edge_weight):
+        edge_weight = edge_attrs.get(weight, 0)
+        if abs(edge_weight) == float("inf"):
             raise NetworkXError(f"edge {(u, v)!r} has infinite weight")
 
-        edge_capacity = float(edge_attrs.get(capacity, float("inf")))
+        edge_capacity = edge_attrs.get(capacity, float("inf"))
         if edge_capacity < 0:
             raise NetworkXUnfeasible(f"edge {(u, v)!r} has negative capacity")
 
-    if abs(total_demand) > 1e-10:
+    if sum(node_demands) != 0:
         raise NetworkXUnfeasible("total node demand is not zero")
 
 
