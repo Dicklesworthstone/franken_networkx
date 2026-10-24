@@ -110,13 +110,17 @@ def test_the_marker_forgiveness_is_reachable_on_a_real_method():
 # matplotlib functions draw it; README "Drawing is delegated"). This list used
 # to be empty only because those wrappers deliberately hid their forwarding
 # target from the classifier (br-r37-c1-hiplx); since
-# br-r37-c1-rc0923-epic-honest-measurement-vbneu.1 they name it. Any OTHER
-# export that gains a visible networkx route still fails this lock.
+# br-r37-c1-rc0923-epic-honest-measurement-vbneu.1 they name it. The cut
+# wrappers also explicitly delegate unsupported exact numeric domains and
+# caller-supplied flow solvers; docs/coverage.md records those routes. Any
+# other export that gains a visible networkx route still fails this lock.
 _OWNED_NETWORKX_DELEGATED_EXPORTS = [
     "draw_networkx",
     "draw_networkx_edge_labels",
     "draw_networkx_edges",
     "draw_networkx_nodes",
+    "gomory_hu_tree",
+    "stoer_wagner",
 ]
 
 

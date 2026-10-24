@@ -664,8 +664,8 @@ class SpanningTreeIterator:
     """Iterate over all spanning trees of a graph in weight-sorted order.
 
     Keeps a frontier of edge partitions and selects each candidate with the
-    native spanning-tree kernel. Consuming a prefix does not enumerate the
-    remaining trees.
+    spanning-tree selector, using its native kernel for supported weights.
+    Consuming a prefix does not enumerate the remaining trees.
 
     Parameters
     ----------
@@ -741,7 +741,19 @@ class SpanningTreeIterator:
     def _queue_partition(self, constraints, tree):
         from heapq import heappush
 
-        cost = tree.size(weight=self.weight)
+        # Graph.size(weight) divides by two, rounding integer totals to float.
+        # Distinct costs beyond 2**53 must not become arbitrary heap ties.
+        # Keep the established degree-sum arithmetic for other numeric types.
+        cost = 0
+        if self.weight is None:
+            cost = tree.size()
+        else:
+            for _, _, attrs in tree.edges(data=True):
+                value = attrs.get(self.weight, 1)
+                if type(value) not in (int, bool):
+                    cost = tree.size(weight=self.weight)
+                    break
+                cost += value
         self._partition_serial += 1
         heappush(
             self.partition_queue,

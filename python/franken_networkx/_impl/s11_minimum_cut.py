@@ -716,7 +716,7 @@ def _kruskal_spanning_edges_inproc(
     for e in edges:
         d = e[-1]
         wt = d.get(weight, 1)
-        if isinstance(wt, float) and isnan(wt):
+        if isnan(wt):
             if ignore_nan:
                 continue
             raise ValueError(f"NaN found as an edge weight. Edge {e}")
@@ -792,7 +792,7 @@ def _prim_spanning_edges_inproc(
             for v, keydict in G.adj[u].items():
                 for k, d in keydict.items():
                     wt = d.get(weight, 1) * sign
-                    if isinstance(wt, float) and isnan(wt):
+                    if isnan(wt):
                         if ignore_nan:
                             continue
                         msg = f"NaN found as an edge weight. Edge {(u, v, k, d)}"
@@ -801,7 +801,7 @@ def _prim_spanning_edges_inproc(
         else:
             for v, d in G.adj[u].items():
                 wt = d.get(weight, 1) * sign
-                if isinstance(wt, float) and isnan(wt):
+                if isnan(wt):
                     if ignore_nan:
                         continue
                     msg = f"NaN found as an edge weight. Edge {(u, v, d)}"
@@ -832,7 +832,7 @@ def _prim_spanning_edges_inproc(
                         continue
                     for k2, d2 in keydict.items():
                         new_weight = d2.get(weight, 1) * sign
-                        if isinstance(new_weight, float) and isnan(new_weight):
+                        if isnan(new_weight):
                             if ignore_nan:
                                 continue
                             msg = f"NaN found as an edge weight. Edge {(v, w, k2, d2)}"
@@ -843,7 +843,7 @@ def _prim_spanning_edges_inproc(
                     if w in visited:
                         continue
                     new_weight = d2.get(weight, 1) * sign
-                    if isinstance(new_weight, float) and isnan(new_weight):
+                    if isnan(new_weight):
                         if ignore_nan:
                             continue
                         msg = f"NaN found as an edge weight. Edge {(v, w, d2)}"
@@ -870,7 +870,7 @@ def _boruvka_inproc_full(G, minimum=True, weight="weight", data=True, ignore_nan
             for nbr, d in G[n].items():
                 if nbr not in cset:
                     wt = d.get(weight, 1) * sign
-                    if isinstance(wt, float) and isnan(wt):
+                    if isnan(wt):
                         if ignore_nan:
                             continue
                         msg = f"NaN found as an edge weight. Edge {(n, nbr, d)}"
@@ -905,6 +905,32 @@ def _check_spanning_edge_algorithm(algorithm):
     unhashable value."""
     if algorithm not in _SPANNING_EDGE_ALGORITHMS:
         raise ValueError(f"{algorithm} is not a valid choice for an algorithm.")
+
+
+def _spanning_weights_native_safe(G, weight):
+    """Keep exact Python comparisons out of the f64 spanning selectors."""
+    if not isinstance(weight, str):
+        return False
+    # The shared scan reads live mirrors and store-only edges, and caches only
+    # while their revisions are unchanged. Its second and third flags also
+    # cover inexact integer conversion and custom numeric types. Negative
+    # weights are valid for spanning trees, so ignore the first flag.
+    scan = _cached_native_weight_scan(G, weight)
+    if scan is not None:
+        return not (scan[1] or scan[2])
+
+    # Retain the same conservative exact-integer envelope when the native
+    # scanner is unavailable. Never decide from a lossy float(value) coercion.
+    integer_magnitude = 0
+    for _, _, value in G.edges(data=weight, default=1):
+        kind = type(value)
+        if kind is int or kind is bool:
+            integer_magnitude += abs(value)
+            if integer_magnitude > 2**53:
+                return False
+        elif kind is not float or not _math.isfinite(value):
+            return False
+    return True
 
 
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
@@ -951,7 +977,7 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         )
         if native_weights:
             _sync_rust_edge_attrs(G, edge_only=True)
-            native_weights = not _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+            native_weights = _spanning_weights_native_safe(G, weight)
         if algorithm == "kruskal" and native_weights:
             # The kernel selects on the native store and emits each edge's data
             # from its mirror, or from the store when the edge has none
@@ -1061,7 +1087,7 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         )
         if native_weights:
             _sync_rust_edge_attrs(G, edge_only=True)
-            native_weights = not _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
+            native_weights = _spanning_weights_native_safe(G, weight)
         if algorithm == "kruskal" and native_weights:
             # Edge data comes from the mirror or, without one, the store (see
             # minimum_spanning_edges).
@@ -1547,7 +1573,11 @@ def partition_spanning_tree(G, minimum=True, weight="weight", partition="partiti
     """
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    if G.is_directed() or G.is_multigraph():
+    if (
+        G.is_directed()
+        or G.is_multigraph()
+        or not _spanning_weights_native_safe(G, weight)
+    ):
         edges = _kruskal_spanning_edges_inproc(
             G,
             minimum=minimum,

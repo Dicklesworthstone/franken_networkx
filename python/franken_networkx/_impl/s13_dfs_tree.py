@@ -402,27 +402,10 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # br-r37-c1-syncedgeonly: MST reads only edge weights, never node attrs —
     # edge-only sync skips the full sync's unguarded O(N) node-attr rebuild.
     _sync_rust_edge_attrs(G, edge_only=True)
-    # br-r37-c1-mstedgescan: NaN-weighted edges are an nx error
-    # condition (with default ignore_nan=False), but the Rust kernel
-    # silently treats NaN as the default 1.0.  Use the native Rust
-    # nonfinite-scan helper (br-r37-c1-hbfnumeric) post-sync so the
-    # check is O(E) over the in-Rust attr map (~0.05ms) rather than a
-    # Python-side g.edges(data=True) walk (~1.5ms).
-    if _native_has_nonfinite_edge_weight is not None:
-        try:
-            if _native_has_nonfinite_edge_weight(G, weight):
-                return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-        except Exception:
-            # Defensive: if the native helper errors, fall back to the
-            # Python scan to preserve the NaN-rejection contract.
-            if _has_nan_or_inf_edge_weight(G, weight):
-                return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-    elif _has_nan_or_inf_edge_weight(G, weight):
-        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-    # br-r37-c1-6eaq6: networkx raises TypeError on a weight that is not a
-    # number (the kernel read it as the default 1), and computes exactly on an
-    # int wider than i64 (the store holds only a stand-in for one).
-    if not G.is_multigraph() and _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
+    # Fractions, Decimals and large integers can have distinct values that
+    # round to equal f64 weights. Validate the comparison domain as well as
+    # finite/numeric values before either simple or multigraph selection.
+    if not _spanning_weights_native_safe(G, weight):
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # br-r37-c1-ij951: MultiGraph must return a keyed MultiGraph, not the
     # simple Graph produced by _raw_minimum_spanning_tree. The native helper
@@ -570,17 +553,8 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # reject NaN/inf weights (nx error contract), then run the native kernel.
     # br-r37-c1-syncedgeonly: edge-only sync (reads edge weights, not node attrs).
     _sync_rust_edge_attrs(G, edge_only=True)
-    if _native_has_nonfinite_edge_weight is not None:
-        try:
-            if _native_has_nonfinite_edge_weight(G, weight):
-                return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-        except Exception:
-            if _has_nan_or_inf_edge_weight(G, weight):
-                return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-    elif _has_nan_or_inf_edge_weight(G, weight):
-        return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
-    # br-r37-c1-6eaq6: see minimum_spanning_tree.
-    if _has_nonnumeric_edge_weight(G, weight, _skip_sync=True):
+    # Share minimum_spanning_tree's exact comparison-domain admission.
+    if not _spanning_weights_native_safe(G, weight):
         return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     result = _raw_maximum_spanning_tree(G, weight=weight)
     # br-r37-c1-7t11e: sibling of br-r37-c1-esr5k — for range-built graphs (lazy
