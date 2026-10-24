@@ -597,7 +597,9 @@ def eigenvector_centrality(
                 return _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight)
             except PowerIterationFailedConvergence:
                 raise
-            except (ValueError, ZeroDivisionError, FloatingPointError):
+            except (ImportError, ValueError, ZeroDivisionError, FloatingPointError):
+                # NumPy/SciPy accelerate this path but are not required by
+                # the eigenvector power-iteration API.
                 pass
         return _eigenvector_centrality_inproc(
             G,

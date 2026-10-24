@@ -114,6 +114,148 @@ def test_float_weights_still_take_the_native_path(monkeypatch):
     assert calls and A[0, 1] == 2.0
 
 
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize(
+    "value,nonedge", [(2**53 + 1, 0), (2**63 + 1, np.uint64(0))]
+)
+def test_inferred_integer_dtype_keeps_exact_edge_values(cls, value, nonedge):
+    matrices = []
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_edge("u", "v", weight=value)
+        matrices.append(module.to_numpy_array(graph, nonedge=nonedge))
+    expected, actual = matrices
+    assert actual.dtype == expected.dtype
+    np.testing.assert_array_equal(actual, expected)
+    assert int(actual[0, 1]) == value
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("dtype", [np.longdouble, np.clongdouble])
+def test_extended_precision_dtype_receives_original_value(cls, dtype):
+    if np.finfo(np.longdouble).nmant <= np.finfo(np.float64).nmant:
+        pytest.skip("platform longdouble has no additional integer precision")
+    value = 2**53 + 1
+    if dtype is np.clongdouble:
+        # NumPy converts a Python int through double for a complex dtype;
+        # an extended real scalar preserves its precision in that conversion.
+        value = np.longdouble(value)
+    matrices = []
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_edge("u", "v", weight=value)
+        matrices.append(module.to_numpy_array(graph, dtype=dtype))
+    expected, actual = matrices
+    assert actual.dtype == expected.dtype
+    np.testing.assert_array_equal(actual, expected)
+    assert int(actual[0, 1].real) == 2**53 + 1
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_float32_conversion_rounds_original_integer_once(cls):
+    # Just above a float32 midpoint, but below the resolution of float64.
+    value = 2**60 + 2**36 + 1
+    matrices = []
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_edge("u", "v", weight=value)
+        matrices.append(module.to_numpy_array(graph, dtype=np.float32))
+    np.testing.assert_array_equal(matrices[1], matrices[0])
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("dtype", [None, np.float16, np.float32, np.float64, complex, object])
+@pytest.mark.parametrize(
+    "weights",
+    [
+        [2**53, 1, -(2**53)],
+        [1e16, 1.0, -1e16],
+        [1e8, 1.0, -1e8],
+        [0.1, 0.2, 0.3],
+    ],
+)
+def test_parallel_weights_reduce_before_array_conversion(cls, dtype, weights):
+    matrices = []
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_nodes_from(["u", "v", "isolated"])
+        for value in weights:
+            graph.add_edge("u", "v", weight=value)
+            graph.add_edge("u", "u", weight=value)
+        matrices.append(module.to_numpy_array(graph, dtype=dtype))
+    expected, actual = matrices
+    assert actual.dtype == expected.dtype
+    np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_parallel_unit_edge_count_is_cast_only_after_reduction(cls, weight):
+    matrices = []
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_edges_from((0, 1) for _ in range(2051))
+        matrices.append(module.to_numpy_array(graph, dtype=np.float16, weight=weight))
+    expected, actual = matrices
+    np.testing.assert_array_equal(actual, expected)
+    assert actual[0, 1] == np.float16(2051)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_none_weight_key_uses_live_attribute_values(cls):
+    matrices = []
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_edges_from([(0, 1, {None: 7, "weight": 100}), (1, 2, {"weight": 200})])
+        matrices.append(module.to_numpy_array(graph, weight=None))
+    np.testing.assert_array_equal(matrices[1], matrices[0])
+    assert matrices[1][0, 1] == 7
+    assert matrices[1][1, 2] == 1
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("reducer", [sum, min, max])
+def test_parallel_reduction_preserves_filters_fill_order_and_mutations(cls, reducer):
+    graph_pairs = []
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_nodes_from(["isolated", "v", "u", "outside"])
+        graph.add_edge("u", "v", key="first", weight=2**53)
+        graph.add_edge("u", "v", key="second", weight=-(2**53))
+        graph.add_edge("u", "u", weight=3)
+        graph.add_edge("outside", "v", weight=17)
+        graph_pairs.append(graph)
+    options = dict(
+        nodelist=["u", "v", "isolated"],
+        multigraph_weight=reducer,
+        nonedge=-7,
+        order="F",
+    )
+    for _ in range(2):
+        expected = nx.to_numpy_array(graph_pairs[0], **options)
+        actual = fnx.to_numpy_array(graph_pairs[1], **options)
+        np.testing.assert_array_equal(actual, expected)
+        assert actual.dtype == expected.dtype
+        assert actual.flags.f_contiguous
+        for graph in graph_pairs:
+            graph["u"]["v"]["first"]["weight"] = 2**53 + 1
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+def test_numpy_export_namespace_and_backend_preserve_exact_parallel_sum(cls):
+    graph = getattr(nx, cls)()
+    for value in (2**53, 1, -(2**53)):
+        graph.add_edge("u", "v", weight=value)
+    expected = nx.to_numpy_array(graph)
+    from franken_networkx.backend import BackendInterface
+
+    converted = BackendInterface.convert_from_nx(graph, preserve_all_attrs=True)
+    np.testing.assert_array_equal(fnx.convert_matrix.to_numpy_array(converted), expected)
+    np.testing.assert_array_equal(
+        nx.to_numpy_array(graph, backend="franken_networkx"), expected
+    )
+
+
 # --- to_scipy_sparse_array format keyword (br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.7)
 
 

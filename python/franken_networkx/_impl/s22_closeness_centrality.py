@@ -477,7 +477,12 @@ def katz_centrality(
                 )
             except PowerIterationFailedConvergence:
                 raise
-            except (ValueError, ZeroDivisionError, FloatingPointError, NetworkXError):
+            except (
+                ImportError, ValueError, ZeroDivisionError,
+                FloatingPointError, NetworkXError,
+            ):
+                # Custom parameters must remain usable without the optional
+                # NumPy/SciPy acceleration dependencies.
                 pass
         return _katz_centrality_inproc(
             G,
