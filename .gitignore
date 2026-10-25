@@ -148,6 +148,10 @@ crates/*/target/
 # Local FrankenSQLite WAL certification sidecars (machine-local, regenerated)
 .beads/*wal-cert
 .beads/*wal-cert-head
+.beads/.br-wal-index-*/
+artifacts/perf/claim_incumbent_*
+!artifacts/perf/claim_incumbent_full_d9f78bd9.json
+artifacts/perf/realistic_ca_astroph_18772_dd415552e.txt
 
 # Claude local settings + agent scratch dir (scheduled_tasks.lock,
 # settings.local.json, etc. are machine-local Claude Code state)
