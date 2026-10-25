@@ -13492,8 +13492,9 @@ pub fn bfs_layers(
                 .collect()
         };
     // sources can be a single node or iterable of nodes
-    let source_key = node_key_to_string(py, sources)?;
-    if gr.has_node(&source_key) {
+    if let Ok(source_key) = node_key_to_string(py, sources)
+        && gr.has_node(&source_key)
+    {
         // Single source
         let source_refs = [source_key.as_str()];
         let layers = if gr.is_directed() {
