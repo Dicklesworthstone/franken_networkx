@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "report_id": "empirical-complexity-catalogue-v1",
-  "generated_at_utc": "2026-10-20T06:14:33.565052+00:00",
-  "so_sha256": "d9f78bd90f5218d7c0d96e93421be3dbbffbe45188527a18734a185e73eaa19a",
+  "generated_at_utc": "2026-10-25T05:56:24.921998+00:00",
+  "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047",
   "sizes": [
     500,
     2000,
@@ -43,21 +43,21 @@
         22
       ],
       "fnx_wall_ns_median": [
+        143.3,
+        121.2,
         111.2,
-        103.2,
-        123.2,
-        131.3
+        124.3
       ],
       "nx_wall_ns_median": [
-        103.2,
-        102.2,
-        113.2,
-        122.2
+        139.2,
+        130.3,
+        115.2,
+        118.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0487,
-      "nx_wall_slope": 0.0439,
+      "fnx_wall_slope": -0.037,
+      "nx_wall_slope": -0.0443,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -89,21 +89,21 @@
         22
       ],
       "fnx_wall_ns_median": [
-        105.2,
-        101.1,
-        102.2,
-        123.2
+        103.2,
+        100.2,
+        103.2,
+        128.2
       ],
       "nx_wall_ns_median": [
-        98.2,
-        107.2,
-        110.2,
-        119.2
+        96.2,
+        113.2,
+        128.2,
+        116.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.035,
-      "nx_wall_slope": 0.0439,
+      "fnx_wall_slope": 0.0491,
+      "nx_wall_slope": 0.0499,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -135,21 +135,21 @@
         22
       ],
       "fnx_wall_ns_median": [
-        110.2,
-        113.2,
-        106.2,
-        127.2
+        109.2,
+        122.2,
+        120.2,
+        119.2
       ],
       "nx_wall_ns_median": [
-        100.2,
-        113.2,
-        113.2,
-        119.3
+        98.2,
+        105.2,
+        118.2,
+        113.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0264,
-      "nx_wall_slope": 0.0378,
+      "fnx_wall_slope": 0.0178,
+      "nx_wall_slope": 0.0392,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -181,21 +181,21 @@
         22
       ],
       "fnx_wall_ns_median": [
-        108.2,
+        103.2,
         102.2,
-        118.3,
-        150.3
+        102.2,
+        128.3
       ],
       "nx_wall_ns_median": [
-        103.2,
-        112.3,
-        109.2,
+        104.2,
+        111.2,
+        114.2,
         120.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0817,
-      "nx_wall_slope": 0.031,
+      "fnx_wall_slope": 0.0471,
+      "nx_wall_slope": 0.0328,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -227,21 +227,21 @@
         25
       ],
       "fnx_wall_ns_median": [
-        136.2,
+        148.2,
         123.2,
-        130.3,
-        137.2
+        114.2,
+        135.3
       ],
       "nx_wall_ns_median": [
-        119.2,
+        123.3,
         133.3,
-        124.2,
-        136.3
+        117.2,
+        133.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0056,
-      "nx_wall_slope": 0.0239,
+      "fnx_wall_slope": -0.0252,
+      "nx_wall_slope": 0.0074,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -273,67 +273,67 @@
         25
       ],
       "fnx_wall_ns_median": [
-        126.2,
-        120.3,
-        127.3,
-        148.3
+        135.3,
+        121.2,
+        153.3,
+        139.2
       ],
       "nx_wall_ns_median": [
-        117.2,
-        138.2,
-        126.2,
+        113.2,
+        129.3,
+        131.3,
+        130.3
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": 0.0231,
+      "nx_wall_slope": 0.0316,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "has_edge",
+      "graph_class": "MultiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        17,
+        17,
+        17,
+        17
+      ],
+      "nx_inst_counts": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "fnx_wall_ns_median": [
+        147.3,
+        135.3,
+        148.3,
+        152.3
+      ],
+      "nx_wall_ns_median": [
+        131.2,
+        131.2,
+        137.2,
         134.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.039,
-      "nx_wall_slope": 0.0228,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "has_edge",
-      "graph_class": "MultiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        17,
-        17,
-        17,
-        17
-      ],
-      "nx_inst_counts": [
-        28,
-        28,
-        28,
-        28
-      ],
-      "fnx_wall_ns_median": [
-        126.2,
-        133.3,
-        139.2,
-        416.8
-      ],
-      "nx_wall_ns_median": [
-        124.3,
-        139.2,
-        140.3,
-        146.3
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.2617,
-      "nx_wall_slope": 0.0358,
+      "fnx_wall_slope": 0.0138,
+      "nx_wall_slope": 0.0081,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -365,527 +365,527 @@
         28
       ],
       "fnx_wall_ns_median": [
-        156.3,
-        246.5,
-        161.3,
-        190.4
-      ],
-      "nx_wall_ns_median": [
-        121.3,
-        139.3,
-        136.2,
-        144.3
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0121,
-      "nx_wall_slope": 0.036,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_row",
-      "graph_class": "Graph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        47,
-        47,
-        47,
-        47
-      ],
-      "nx_inst_counts": [
-        35,
-        35,
-        35,
-        35
-      ],
-      "fnx_wall_ns_median": [
-        214.4,
-        193.4,
-        218.4,
-        210.4
-      ],
-      "nx_wall_ns_median": [
-        205.4,
-        213.4,
-        212.5,
-        211.4
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0047,
-      "nx_wall_slope": 0.0059,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_row",
-      "graph_class": "DiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        47,
-        47,
-        47,
-        47
-      ],
-      "nx_inst_counts": [
-        35,
-        35,
-        35,
-        35
-      ],
-      "fnx_wall_ns_median": [
-        209.4,
-        205.4,
-        204.4,
-        217.4
-      ],
-      "nx_wall_ns_median": [
-        230.5,
-        232.4,
-        236.4,
-        262.5
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0078,
-      "nx_wall_slope": 0.0294,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_row",
-      "graph_class": "MultiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        16,
-        16,
-        16,
-        16
-      ],
-      "nx_inst_counts": [
-        35,
-        35,
-        35,
-        35
-      ],
-      "fnx_wall_ns_median": [
-        124.2,
-        112.2,
-        115.2,
-        119.2
-      ],
-      "nx_wall_ns_median": [
-        220.5,
-        213.4,
-        215.4,
-        227.4
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.007,
-      "nx_wall_slope": 0.0073,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_row",
-      "graph_class": "MultiDiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        16,
-        16,
-        16,
-        16
-      ],
-      "nx_inst_counts": [
-        35,
-        35,
-        35,
-        35
-      ],
-      "fnx_wall_ns_median": [
-        117.2,
-        107.2,
-        109.2,
-        118.2
-      ],
-      "nx_wall_ns_median": [
-        217.4,
-        418.8,
-        224.5,
-        222.4
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0032,
-      "nx_wall_slope": -0.0401,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_cell",
-      "graph_class": "Graph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        49,
-        49,
-        49,
-        49
-      ],
-      "nx_inst_counts": [
-        43,
-        43,
-        43,
-        43
-      ],
-      "fnx_wall_ns_median": [
-        297.6,
-        274.5,
-        274.5,
-        297.6
-      ],
-      "nx_wall_ns_median": [
-        233.4,
-        246.5,
-        256.5,
-        275.5
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0,
-      "nx_wall_slope": 0.0388,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_cell",
-      "graph_class": "DiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        49,
-        49,
-        49,
-        49
-      ],
-      "nx_inst_counts": [
-        43,
-        43,
-        43,
-        43
-      ],
-      "fnx_wall_ns_median": [
-        283.6,
-        267.5,
-        281.6,
-        325.6
-      ],
-      "nx_wall_ns_median": [
-        256.4,
-        270.5,
-        282.5,
-        298.6
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0336,
-      "nx_wall_slope": 0.0361,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_cell",
-      "graph_class": "MultiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        45,
-        45,
-        45,
-        45
-      ],
-      "nx_inst_counts": [
-        50,
-        50,
-        50,
-        50
-      ],
-      "fnx_wall_ns_median": [
-        409.8,
-        371.7,
-        358.7,
-        397.8
-      ],
-      "nx_wall_ns_median": [
-        333.6,
-        345.6,
-        349.6,
-        357.6
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.009,
-      "nx_wall_slope": 0.0159,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "getitem_cell",
-      "graph_class": "MultiDiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        45,
-        45,
-        45,
-        45
-      ],
-      "nx_inst_counts": [
-        50,
-        50,
-        50,
-        50
-      ],
-      "fnx_wall_ns_median": [
-        396.8,
-        374.7,
-        420.8,
-        386.7
-      ],
-      "nx_wall_ns_median": [
-        341.6,
-        347.7,
-        351.7,
-        355.7
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0028,
-      "nx_wall_slope": 0.0096,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "get_edge_data",
-      "graph_class": "Graph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        17,
-        17,
-        17,
-        17
-      ],
-      "nx_inst_counts": [
-        26,
-        26,
-        26,
-        26
-      ],
-      "fnx_wall_ns_median": [
-        171.3,
-        170.4,
-        168.4,
-        189.3
-      ],
-      "nx_wall_ns_median": [
-        127.3,
-        145.2,
-        138.2,
-        138.3
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0208,
-      "nx_wall_slope": 0.0144,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "get_edge_data",
-      "graph_class": "DiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        17,
-        17,
-        17,
-        17
-      ],
-      "nx_inst_counts": [
-        26,
-        26,
-        26,
-        26
-      ],
-      "fnx_wall_ns_median": [
-        171.4,
-        159.3,
-        170.3,
-        176.3
-      ],
-      "nx_wall_ns_median": [
-        124.2,
-        134.3,
-        138.3,
-        136.3
-      ],
-      "fnx_inst_slope": 0.0,
-      "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0109,
-      "nx_wall_slope": 0.0222,
-      "fnx_effective_slope": 0.0,
-      "nx_effective_slope": 0.0,
-      "slope_budget": 0.15,
-      "native_loop_detected": false,
-      "raw_pass": true,
-      "allowlisted_debt_bead": null,
-      "status": "PASS"
-    },
-    {
-      "op_id": "get_edge_data",
-      "graph_class": "MultiGraph",
-      "theoretical_max_slope": 0.0,
-      "sizes": [
-        500,
-        2000,
-        8000,
-        32000
-      ],
-      "fnx_inst_counts": [
-        17,
-        17,
-        17,
-        17
-      ],
-      "nx_inst_counts": [
-        29,
-        29,
-        29,
-        29
-      ],
-      "fnx_wall_ns_median": [
-        170.3,
-        177.4,
-        178.3,
-        186.4
+        151.3,
+        155.3,
+        157.3,
+        179.4
       ],
       "nx_wall_ns_median": [
         122.2,
-        138.2,
+        135.2,
+        139.3,
+        141.2
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": 0.0378,
+      "nx_wall_slope": 0.0334,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_row",
+      "graph_class": "Graph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        47,
+        47,
+        47,
+        47
+      ],
+      "nx_inst_counts": [
+        35,
+        35,
+        35,
+        35
+      ],
+      "fnx_wall_ns_median": [
+        253.5,
+        213.4,
+        213.4,
+        223.5
+      ],
+      "nx_wall_ns_median": [
+        217.4,
+        220.4,
+        218.4,
+        223.4
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": -0.0273,
+      "nx_wall_slope": 0.0052,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_row",
+      "graph_class": "DiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        47,
+        47,
+        47,
+        47
+      ],
+      "nx_inst_counts": [
+        35,
+        35,
+        35,
+        35
+      ],
+      "fnx_wall_ns_median": [
+        235.4,
+        209.4,
+        198.4,
+        225.4
+      ],
+      "nx_wall_ns_median": [
+        249.5,
+        233.4,
+        238.5,
+        258.5
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": -0.0133,
+      "nx_wall_slope": 0.0092,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_row",
+      "graph_class": "MultiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        16,
+        16,
+        16,
+        16
+      ],
+      "nx_inst_counts": [
+        35,
+        35,
+        35,
+        35
+      ],
+      "fnx_wall_ns_median": [
+        116.2,
+        113.2,
+        110.2,
+        120.2
+      ],
+      "nx_wall_ns_median": [
+        232.5,
+        217.4,
+        220.5,
+        254.5
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": 0.0054,
+      "nx_wall_slope": 0.0206,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_row",
+      "graph_class": "MultiDiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        16,
+        16,
+        16,
+        16
+      ],
+      "nx_inst_counts": [
+        35,
+        35,
+        35,
+        35
+      ],
+      "fnx_wall_ns_median": [
+        153.3,
+        110.2,
+        126.2,
+        123.3
+      ],
+      "nx_wall_ns_median": [
+        209.4,
+        220.4,
+        217.4,
+        242.4
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": -0.0373,
+      "nx_wall_slope": 0.0307,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_cell",
+      "graph_class": "Graph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        49,
+        49,
+        49,
+        49
+      ],
+      "nx_inst_counts": [
+        43,
+        43,
+        43,
+        43
+      ],
+      "fnx_wall_ns_median": [
+        306.6,
+        288.5,
+        304.6,
+        818.5
+      ],
+      "nx_wall_ns_median": [
+        251.4,
+        252.5,
+        259.4,
+        278.5
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": 0.2164,
+      "nx_wall_slope": 0.0241,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_cell",
+      "graph_class": "DiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        49,
+        49,
+        49,
+        49
+      ],
+      "nx_inst_counts": [
+        43,
+        43,
+        43,
+        43
+      ],
+      "fnx_wall_ns_median": [
+        280.5,
+        297.5,
+        285.5,
+        293.6
+      ],
+      "nx_wall_ns_median": [
+        267.5,
+        294.6,
+        287.6,
+        283.5
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": 0.0069,
+      "nx_wall_slope": 0.0108,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_cell",
+      "graph_class": "MultiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        45,
+        45,
+        45,
+        45
+      ],
+      "nx_inst_counts": [
+        50,
+        50,
+        50,
+        50
+      ],
+      "fnx_wall_ns_median": [
+        498.0,
+        371.7,
+        533.0,
+        382.8
+      ],
+      "nx_wall_ns_median": [
+        340.6,
+        347.7,
+        467.9,
+        369.7
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": -0.0309,
+      "nx_wall_slope": 0.0392,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "getitem_cell",
+      "graph_class": "MultiDiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        45,
+        45,
+        45,
+        45
+      ],
+      "nx_inst_counts": [
+        50,
+        50,
+        50,
+        50
+      ],
+      "fnx_wall_ns_median": [
+        402.8,
+        389.7,
+        400.8,
+        532.0
+      ],
+      "nx_wall_ns_median": [
+        340.6,
+        340.6,
+        358.6,
+        528.0
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": 0.0622,
+      "nx_wall_slope": 0.0986,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "get_edge_data",
+      "graph_class": "Graph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        17,
+        17,
+        17,
+        17
+      ],
+      "nx_inst_counts": [
+        26,
+        26,
+        26,
+        26
+      ],
+      "fnx_wall_ns_median": [
+        163.3,
+        176.4,
+        174.3,
+        169.3
+      ],
+      "nx_wall_ns_median": [
+        130.3,
+        155.2,
         137.3,
         142.3
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0199,
-      "nx_wall_slope": 0.0325,
+      "fnx_wall_slope": 0.0069,
+      "nx_wall_slope": 0.0102,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "get_edge_data",
+      "graph_class": "DiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        17,
+        17,
+        17,
+        17
+      ],
+      "nx_inst_counts": [
+        26,
+        26,
+        26,
+        26
+      ],
+      "fnx_wall_ns_median": [
+        176.4,
+        165.3,
+        176.3,
+        170.3
+      ],
+      "nx_wall_ns_median": [
+        130.2,
+        134.3,
+        136.3,
+        149.3
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": -0.003,
+      "nx_wall_slope": 0.0307,
+      "fnx_effective_slope": 0.0,
+      "nx_effective_slope": 0.0,
+      "slope_budget": 0.15,
+      "native_loop_detected": false,
+      "raw_pass": true,
+      "allowlisted_debt_bead": null,
+      "status": "PASS"
+    },
+    {
+      "op_id": "get_edge_data",
+      "graph_class": "MultiGraph",
+      "theoretical_max_slope": 0.0,
+      "sizes": [
+        500,
+        2000,
+        8000,
+        32000
+      ],
+      "fnx_inst_counts": [
+        17,
+        17,
+        17,
+        17
+      ],
+      "nx_inst_counts": [
+        29,
+        29,
+        29,
+        29
+      ],
+      "fnx_wall_ns_median": [
+        173.3,
+        180.4,
+        175.4,
+        207.4
+      ],
+      "nx_wall_ns_median": [
+        130.2,
+        139.2,
+        146.2,
+        146.3
+      ],
+      "fnx_inst_slope": 0.0,
+      "nx_inst_slope": 0.0,
+      "fnx_wall_slope": 0.0368,
+      "nx_wall_slope": 0.0288,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -917,21 +917,21 @@
         29
       ],
       "fnx_wall_ns_median": [
-        173.4,
-        167.4,
-        182.3,
-        260.4
+        179.4,
+        183.3,
+        171.3,
+        192.4
       ],
       "nx_wall_ns_median": [
-        126.2,
-        134.2,
-        130.3,
-        203.4
+        129.2,
+        143.3,
+        137.3,
+        144.3
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0941,
-      "nx_wall_slope": 0.1012,
+      "fnx_wall_slope": 0.0103,
+      "nx_wall_slope": 0.0208,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -963,21 +963,21 @@
         53
       ],
       "fnx_wall_ns_median": [
-        374.7,
-        342.7,
-        339.6,
-        351.7
+        351.6,
+        326.6,
+        345.6,
+        400.7
       ],
       "nx_wall_ns_median": [
-        254.5,
-        282.5,
-        273.6,
-        279.5
+        248.5,
+        304.6,
+        269.6,
+        275.6
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.0144,
-      "nx_wall_slope": 0.018,
+      "fnx_wall_slope": 0.0324,
+      "nx_wall_slope": 0.0136,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1009,21 +1009,21 @@
         59
       ],
       "fnx_wall_ns_median": [
-        332.6,
-        327.7,
-        339.7,
-        361.7
+        338.6,
+        341.7,
+        365.7,
+        360.7
       ],
       "nx_wall_ns_median": [
-        248.5,
-        292.5,
-        279.5,
-        278.6
+        272.6,
+        278.5,
+        278.5,
+        278.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0207,
-      "nx_wall_slope": 0.0215,
+      "fnx_wall_slope": 0.0186,
+      "nx_wall_slope": 0.0046,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1055,21 +1055,21 @@
         100
       ],
       "fnx_wall_ns_median": [
-        305.6,
-        302.5,
-        316.6,
-        323.6
+        308.6,
+        313.6,
+        297.6,
+        353.7
       ],
       "nx_wall_ns_median": [
-        584.1,
-        600.1,
-        663.3,
-        596.1
+        590.1,
+        613.2,
+        585.1,
+        612.1
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0157,
-      "nx_wall_slope": 0.0116,
+      "fnx_wall_slope": 0.0257,
+      "nx_wall_slope": 0.0045,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1101,21 +1101,21 @@
         115
       ],
       "fnx_wall_ns_median": [
-        300.6,
-        317.6,
-        324.6,
-        341.6
+        309.6,
+        313.6,
+        313.6,
+        345.7
       ],
       "nx_wall_ns_median": [
-        754.4,
-        785.5,
-        798.6,
-        829.6
+        752.4,
+        807.5,
+        797.5,
+        806.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0292,
-      "nx_wall_slope": 0.0218,
+      "fnx_wall_slope": 0.0239,
+      "nx_wall_slope": 0.0141,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1147,21 +1147,21 @@
         28
       ],
       "fnx_wall_ns_median": [
-        266.5,
-        252.5,
-        257.5,
-        256.5
+        262.5,
+        258.4,
+        249.5,
+        270.5
       ],
       "nx_wall_ns_median": [
-        214.4,
-        239.4,
-        229.4,
-        241.5
+        228.5,
+        227.5,
+        233.4,
+        247.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.0069,
-      "nx_wall_slope": 0.0227,
+      "fnx_wall_slope": 0.004,
+      "nx_wall_slope": 0.0191,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1193,21 +1193,21 @@
         28
       ],
       "fnx_wall_ns_median": [
-        243.4,
-        230.5,
-        231.5,
-        244.5
+        240.5,
+        235.5,
+        233.5,
+        236.4
       ],
       "nx_wall_ns_median": [
-        216.5,
-        225.4,
-        212.4,
-        235.4
+        205.4,
+        220.4,
+        218.4,
+        225.4
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0013,
-      "nx_wall_slope": 0.0138,
+      "fnx_wall_slope": -0.0043,
+      "nx_wall_slope": 0.0195,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1239,21 +1239,21 @@
         28
       ],
       "fnx_wall_ns_median": [
-        282.6,
-        282.5,
-        288.5,
-        285.5
+        275.5,
+        271.5,
+        275.5,
+        277.5
       ],
       "nx_wall_ns_median": [
-        231.4,
-        223.4,
-        230.5,
-        233.5
+        222.5,
+        235.5,
+        229.4,
+        230.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0037,
-      "nx_wall_slope": 0.0042,
+      "fnx_wall_slope": 0.0026,
+      "nx_wall_slope": 0.0058,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1285,21 +1285,21 @@
         28
       ],
       "fnx_wall_ns_median": [
-        265.6,
-        258.4,
-        256.5,
-        274.5
+        264.5,
+        292.6,
+        261.5,
+        269.5
       ],
       "nx_wall_ns_median": [
-        211.4,
-        215.4,
-        221.4,
-        234.4
+        206.4,
+        220.4,
+        220.5,
+        230.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0066,
-      "nx_wall_slope": 0.0243,
+      "fnx_wall_slope": -0.0041,
+      "nx_wall_slope": 0.0239,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1331,21 +1331,21 @@
         408
       ],
       "fnx_wall_ns_median": [
-        5948.9,
-        5844.8,
-        6166.6,
-        5908.8
+        7329.0,
+        7242.5,
+        5700.8,
+        5526.6
       ],
       "nx_wall_ns_median": [
-        3897.4,
-        3727.1,
-        3762.1,
-        4494.8
+        3799.6,
+        3904.9,
+        3856.1,
+        3703.4
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0024,
-      "nx_wall_slope": 0.0315,
+      "fnx_wall_slope": -0.0783,
+      "nx_wall_slope": -0.0065,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1377,21 +1377,21 @@
         259
       ],
       "fnx_wall_ns_median": [
-        8372.1,
-        9106.0,
-        8141.8,
-        8133.0
+        8235.6,
+        7836.0,
+        7903.8,
+        7729.6
       ],
       "nx_wall_ns_median": [
-        3146.0,
-        3109.6,
-        3142.1,
-        4440.9
+        3095.9,
+        3088.4,
+        4571.1,
+        3044.6
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.0143,
-      "nx_wall_slope": 0.0753,
+      "fnx_wall_slope": -0.0131,
+      "nx_wall_slope": 0.0247,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1423,21 +1423,21 @@
         495
       ],
       "fnx_wall_ns_median": [
-        10122.9,
-        10145.5,
-        10294.5,
-        9903.8
+        10606.4,
+        9888.8,
+        9823.6,
+        10546.2
       ],
       "nx_wall_ns_median": [
-        4866.8,
-        4710.1,
-        4643.9,
-        4641.4
+        4737.8,
+        4662.6,
+        4593.8,
+        4791.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.0037,
-      "nx_wall_slope": -0.0113,
+      "fnx_wall_slope": -0.0017,
+      "nx_wall_slope": 0.0014,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1469,21 +1469,21 @@
         365
       ],
       "fnx_wall_ns_median": [
-        10530.0,
-        10022.8,
-        10000.2,
-        10000.2
+        10219.4,
+        10084.1,
+        9992.8,
+        10140.4
       ],
       "nx_wall_ns_median": [
-        4165.4,
-        4092.8,
-        4022.6,
-        3963.8
+        4142.9,
+        4036.4,
+        4032.6,
+        4090.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.0113,
-      "nx_wall_slope": -0.012,
+      "fnx_wall_slope": -0.0023,
+      "nx_wall_slope": -0.0028,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1515,21 +1515,21 @@
         661
       ],
       "fnx_wall_ns_median": [
-        10458.2,
-        10381.3,
-        9326.0,
-        10002.3
+        10226.2,
+        9566.5,
+        11396.7,
+        10837.2
       ],
       "nx_wall_ns_median": [
-        8539.5,
-        8572.8,
-        8233.8,
-        8663.0
+        10606.7,
+        8654.7,
+        8952.0,
+        9159.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.0174,
-      "nx_wall_slope": 0.0002,
+      "fnx_wall_slope": 0.0252,
+      "nx_wall_slope": -0.0293,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1561,21 +1561,21 @@
         850
       ],
       "fnx_wall_ns_median": [
-        10897.3,
-        13494.0,
-        10516.7,
-        11992.7
+        12478.7,
+        12927.8,
+        13604.2,
+        12027.8
       ],
       "nx_wall_ns_median": [
-        9102.3,
-        9351.0,
-        9082.2,
-        9364.3
+        9459.5,
+        10062.3,
+        9496.3,
+        9811.8
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0027,
-      "nx_wall_slope": 0.004,
+      "fnx_wall_slope": -0.0043,
+      "nx_wall_slope": 0.0037,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1607,21 +1607,21 @@
         688
       ],
       "fnx_wall_ns_median": [
-        9631.5,
-        9751.8,
-        9922.2,
-        10231.0
+        9546.3,
+        9863.7,
+        10630.2,
+        10728.7
       ],
       "nx_wall_ns_median": [
-        8619.7,
-        8848.5,
-        8686.5,
-        12572.2
+        8361.0,
+        8708.2,
+        8641.3,
+        8937.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0143,
-      "nx_wall_slope": 0.0803,
+      "fnx_wall_slope": 0.0307,
+      "nx_wall_slope": 0.0139,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1653,21 +1653,21 @@
         877
       ],
       "fnx_wall_ns_median": [
-        11379.8,
-        11951.0,
-        10942.5,
-        12884.5
+        11625.3,
+        11598.7,
+        18393.2,
+        14210.3
       ],
       "nx_wall_ns_median": [
-        9491.3,
-        10319.5,
-        11231.2,
-        9930.3
+        9257.7,
+        11097.7,
+        17616.7,
+        14764.7
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0205,
-      "nx_wall_slope": 0.0159,
+      "fnx_wall_slope": 0.0767,
+      "nx_wall_slope": 0.1343,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1699,21 +1699,21 @@
         124
       ],
       "fnx_wall_ns_median": [
-        1594.7,
-        1372.7,
-        1499.5,
-        1596.3
+        1492.8,
+        1391.0,
+        2250.8,
+        1539.5
       ],
       "nx_wall_ns_median": [
-        938.5,
-        965.2,
-        951.7,
-        1007.0
+        985.2,
+        923.3,
+        1245.7,
+        968.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0066,
-      "nx_wall_slope": 0.0142,
+      "fnx_wall_slope": 0.0414,
+      "nx_wall_slope": 0.0179,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1745,21 +1745,21 @@
         120
       ],
       "fnx_wall_ns_median": [
-        1370.8,
-        1392.7,
-        1399.3,
-        1624.7
+        1539.7,
+        1300.8,
+        2556.5,
+        1482.8
       ],
       "nx_wall_ns_median": [
-        1012.0,
-        965.2,
-        968.5,
-        1035.3
+        980.2,
+        963.5,
+        963.5,
+        1033.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0371,
-      "nx_wall_slope": 0.0052,
+      "fnx_wall_slope": 0.0406,
+      "nx_wall_slope": 0.0115,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1791,21 +1791,21 @@
         178
       ],
       "fnx_wall_ns_median": [
-        2010.5,
-        1973.8,
-        2483.2,
-        2314.3
+        2347.8,
+        2134.2,
+        2437.8,
+        2828.7
       ],
       "nx_wall_ns_median": [
-        1342.5,
-        2653.3,
-        1396.0,
-        1342.5
+        1387.5,
+        1401.0,
+        1389.3,
+        1392.7
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.047,
-      "nx_wall_slope": -0.0463,
+      "fnx_wall_slope": 0.0499,
+      "nx_wall_slope": 0.0002,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1837,21 +1837,21 @@
         174
       ],
       "fnx_wall_ns_median": [
-        2317.7,
-        2048.8,
-        2716.8,
-        2771.8
+        3052.5,
+        2489.7,
+        3126.0,
+        2765.2
       ],
       "nx_wall_ns_median": [
-        1409.3,
-        1494.5,
-        1476.2,
-        1431.2
+        1815.2,
+        1451.0,
+        1502.8,
+        1521.3
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0591,
-      "nx_wall_slope": 0.0024,
+      "fnx_wall_slope": -0.005,
+      "nx_wall_slope": -0.0357,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1883,21 +1883,21 @@
         101
       ],
       "fnx_wall_ns_median": [
-        2583.2,
-        2297.8,
-        2731.8,
-        4147.8
+        2531.3,
+        2359.5,
+        3613.5,
+        4219.7
       ],
       "nx_wall_ns_median": [
-        726.3,
-        803.2,
-        1028.5,
-        938.5
+        756.5,
+        814.8,
+        1020.2,
+        1125.3
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.115,
-      "nx_wall_slope": 0.0733,
+      "fnx_wall_slope": 0.1413,
+      "nx_wall_slope": 0.1022,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1929,21 +1929,21 @@
         117
       ],
       "fnx_wall_ns_median": [
-        2210.8,
-        2311.0,
-        3121.0,
-        4343.2
+        2354.3,
+        2940.7,
+        4057.7,
+        4396.7
       ],
       "nx_wall_ns_median": [
-        828.2,
-        956.8,
-        1147.2,
-        1511.2
+        850.0,
+        1051.8,
+        1548.0,
+        1663.2
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.1678,
-      "nx_wall_slope": 0.1432,
+      "fnx_wall_slope": 0.1584,
+      "nx_wall_slope": 0.1731,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -1975,21 +1975,21 @@
         101
       ],
       "fnx_wall_ns_median": [
-        2359.5,
-        2616.5,
-        4259.7,
-        4511.8
+        2356.2,
+        2857.0,
+        4114.3,
+        4630.5
       ],
       "nx_wall_ns_median": [
-        793.2,
-        1012.0,
-        1290.8,
-        1269.2
+        849.8,
+        1063.8,
+        1788.5,
+        1669.8
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.1754,
-      "nx_wall_slope": 0.1193,
+      "fnx_wall_slope": 0.1725,
+      "nx_wall_slope": 0.1836,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -2021,21 +2021,21 @@
         117
       ],
       "fnx_wall_ns_median": [
-        2668.5,
-        4087.7,
-        5361.8,
-        5533.8
+        3249.5,
+        2640.0,
+        4116.2,
+        6049.8
       ],
       "nx_wall_ns_median": [
-        903.3,
-        1753.3,
-        2028.8,
-        1826.8
+        1197.3,
+        1100.3,
+        1489.5,
+        1828.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.1774,
-      "nx_wall_slope": 0.1629,
+      "fnx_wall_slope": 0.1665,
+      "nx_wall_slope": 0.1135,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -2067,21 +2067,21 @@
         407
       ],
       "fnx_wall_ns_median": [
-        12679.0,
-        8406.0,
-        8170.5,
-        9338.0
+        8671.5,
+        7825.0,
+        8030.5,
+        8806.5
       ],
       "nx_wall_ns_median": [
-        6332.0,
-        5640.5,
-        5560.5,
-        5826.0
+        6126.5,
+        5866.0,
+        5500.0,
+        5646.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": -0.0682,
-      "nx_wall_slope": -0.0191,
+      "fnx_wall_slope": 0.0052,
+      "nx_wall_slope": -0.0223,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -2113,21 +2113,21 @@
         407
       ],
       "fnx_wall_ns_median": [
-        9322.5,
-        9558.0,
-        9012.5,
-        10715.5
+        9448.0,
+        11011.0,
+        10334.5,
+        9843.5
       ],
       "nx_wall_ns_median": [
-        5796.0,
-        5866.0,
-        5745.5,
-        6091.5
+        6011.5,
+        8230.5,
+        5986.5,
+        5801.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0259,
-      "nx_wall_slope": 0.0093,
+      "fnx_wall_slope": 0.0043,
+      "nx_wall_slope": -0.0307,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -2159,21 +2159,21 @@
         407
       ],
       "fnx_wall_ns_median": [
-        8726.5,
-        12629.0,
-        9062.5,
-        10555.0
+        8806.5,
+        8000.0,
+        9383.0,
+        10841.0
       ],
       "nx_wall_ns_median": [
-        5796.0,
-        5826.0,
-        5866.0,
-        6121.5
+        5646.0,
+        5520.5,
+        5911.0,
+        6812.5
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.0172,
-      "nx_wall_slope": 0.0123,
+      "fnx_wall_slope": 0.0565,
+      "nx_wall_slope": 0.0456,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -2205,21 +2205,21 @@
         407
       ],
       "fnx_wall_ns_median": [
-        9528.0,
-        9207.5,
-        9252.5,
-        9824.0
+        8941.5,
+        8215.5,
+        8275.5,
+        11106.5
       ],
       "nx_wall_ns_median": [
-        6162.0,
-        5700.5,
-        6116.5,
-        5841.0
+        5525.5,
+        5250.0,
+        5355.5,
+        5786.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.0,
-      "fnx_wall_slope": 0.007,
-      "nx_wall_slope": -0.0065,
+      "fnx_wall_slope": 0.0474,
+      "nx_wall_slope": 0.0114,
       "fnx_effective_slope": 0.0,
       "nx_effective_slope": 0.0,
       "slope_budget": 0.15,
@@ -2251,24 +2251,24 @@
         11488464
       ],
       "fnx_wall_ns_median": [
-        238371.0,
-        1260449.0,
-        4924161.0,
-        20106009.0
+        308656.0,
+        1672359.0,
+        5449609.0,
+        25413007.0
       ],
       "nx_wall_ns_median": [
-        1419440.0,
-        6835652.0,
-        32232657.0,
-        122240412.0
+        1538566.0,
+        8244135.0,
+        32689128.0,
+        129160308.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.9994,
-      "fnx_wall_slope": 1.058,
-      "nx_wall_slope": 1.0761,
-      "fnx_effective_slope": 1.058,
-      "nx_effective_slope": 1.0761,
-      "slope_budget": 1.2261,
+      "fnx_wall_slope": 1.0397,
+      "nx_wall_slope": 1.0581,
+      "fnx_effective_slope": 1.0397,
+      "nx_effective_slope": 1.0581,
+      "slope_budget": 1.2081,
       "native_loop_detected": true,
       "raw_pass": true,
       "allowlisted_debt_bead": null,
@@ -2297,24 +2297,24 @@
         7232552
       ],
       "fnx_wall_ns_median": [
-        160594.0,
-        877623.0,
-        3243256.0,
-        13132334.0
+        164091.0,
+        847085.0,
+        3085368.0,
+        13126690.0
       ],
       "nx_wall_ns_median": [
-        1095305.0,
-        4968144.0,
-        25649944.0,
-        111119119.0
+        1091128.0,
+        5250492.0,
+        26846224.0,
+        113911486.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.9989,
-      "fnx_wall_slope": 1.0473,
-      "nx_wall_slope": 1.1181,
-      "fnx_effective_slope": 1.0473,
-      "nx_effective_slope": 1.1181,
-      "slope_budget": 1.2681,
+      "fnx_wall_slope": 1.0415,
+      "nx_wall_slope": 1.1236,
+      "fnx_effective_slope": 1.0415,
+      "nx_effective_slope": 1.1236,
+      "slope_budget": 1.2736,
       "native_loop_detected": true,
       "raw_pass": true,
       "allowlisted_debt_bead": null,
@@ -2343,24 +2343,24 @@
         30080647
       ],
       "fnx_wall_ns_median": [
-        691651.0,
-        2678416.0,
-        15037003.0,
-        73033060.0
+        694016.0,
+        3097671.0,
+        13803953.0,
+        89890376.0
       ],
       "nx_wall_ns_median": [
-        3250709.0,
-        14351515.0,
-        64506433.0,
-        277653132.0
+        3212949.0,
+        14557022.0,
+        61948195.0,
+        290279982.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.9997,
-      "fnx_wall_slope": 1.1328,
-      "nx_wall_slope": 1.0709,
-      "fnx_effective_slope": 1.1328,
-      "nx_effective_slope": 1.0709,
-      "slope_budget": 1.2209,
+      "fnx_wall_slope": 1.1603,
+      "nx_wall_slope": 1.0791,
+      "fnx_effective_slope": 1.1603,
+      "nx_effective_slope": 1.0791,
+      "slope_budget": 1.2291,
       "native_loop_detected": true,
       "raw_pass": true,
       "allowlisted_debt_bead": null,
@@ -2389,24 +2389,24 @@
         1917772
       ],
       "fnx_wall_ns_median": [
-        28634.0,
-        80713.0,
-        714745.0,
-        3997745.0
+        28854.0,
+        94048.0,
+        833950.0,
+        4500240.0
       ],
       "nx_wall_ns_median": [
-        127131.0,
-        529683.0,
-        3586055.0,
-        14591309.0
+        124476.0,
+        519054.0,
+        4042232.0,
+        17015061.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.9996,
-      "fnx_wall_slope": 1.2261,
-      "nx_wall_slope": 1.1644,
-      "fnx_effective_slope": 1.2261,
-      "nx_effective_slope": 1.1644,
-      "slope_budget": 1.3144,
+      "fnx_wall_slope": 1.2502,
+      "nx_wall_slope": 1.2123,
+      "fnx_effective_slope": 1.2502,
+      "nx_effective_slope": 1.2123,
+      "slope_budget": 1.3623,
       "native_loop_detected": true,
       "raw_pass": true,
       "allowlisted_debt_bead": null,
@@ -2435,24 +2435,24 @@
         1840050
       ],
       "fnx_wall_ns_median": [
-        40567.0,
-        141208.0,
-        564450.0,
-        9035952.0
+        41208.0,
+        146378.0,
+        1217067.0,
+        9380229.0
       ],
       "nx_wall_ns_median": [
-        130457.0,
-        537859.0,
-        2200760.0,
-        16956892.0
+        140416.0,
+        545003.0,
+        4009649.0,
+        18577691.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.9997,
-      "fnx_wall_slope": 1.2698,
-      "nx_wall_slope": 1.155,
-      "fnx_effective_slope": 1.2698,
-      "nx_effective_slope": 1.155,
-      "slope_budget": 1.305,
+      "fnx_wall_slope": 1.3274,
+      "nx_wall_slope": 1.2011,
+      "fnx_effective_slope": 1.3274,
+      "nx_effective_slope": 1.2011,
+      "slope_budget": 1.3511,
       "native_loop_detected": true,
       "raw_pass": true,
       "allowlisted_debt_bead": null,
@@ -2481,24 +2481,24 @@
         1440384
       ],
       "fnx_wall_ns_median": [
-        69262.0,
-        259682.0,
-        3393490.0,
-        12460542.0
+        70955.0,
+        326409.0,
+        2179701.0,
+        12013841.0
       ],
       "nx_wall_ns_median": [
-        109056.0,
-        421579.0,
-        3951698.0,
-        11856948.0
+        110780.0,
+        438010.0,
+        2927539.0,
+        12156491.0
       ],
       "fnx_inst_slope": 0.0,
       "nx_inst_slope": 0.9962,
-      "fnx_wall_slope": 1.3091,
-      "nx_wall_slope": 1.1761,
-      "fnx_effective_slope": 1.3091,
-      "nx_effective_slope": 1.1761,
-      "slope_budget": 1.3261,
+      "fnx_wall_slope": 1.2475,
+      "nx_wall_slope": 1.1537,
+      "fnx_effective_slope": 1.2475,
+      "nx_effective_slope": 1.1537,
+      "slope_budget": 1.3037,
       "native_loop_detected": true,
       "raw_pass": true,
       "allowlisted_debt_bead": null,
