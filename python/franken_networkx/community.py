@@ -45,53 +45,108 @@ def modularity(G, communities, weight="weight", resolution=1, *, backend=None, *
     )
 
 
+class _CommunityBinaryHeap:
+    def __init__(self):
+        from itertools import count as _count
+
+        self._dict = {}
+        self._heap = []
+        self._count = _count()
+
+    def __bool__(self):
+        return bool(self._dict)
+
+    def __contains__(self, key):
+        return key in self._dict
+
+    def get(self, key, default=None):
+        return self._dict.get(key, default)
+
+    def pop(self):
+        from heapq import heappop as _heappop
+
+        d = self._dict
+        if not d:
+            raise _fnx.NetworkXError("heap is empty")
+        heap = self._heap
+        while True:
+            value, _, key = _heappop(heap)
+            if key in d and value == d[key]:
+                break
+        del d[key]
+        return key, value
+
+    def insert(self, key, value, allow_increase=False):
+        from heapq import heappush as _heappush
+
+        d = self._dict
+        if key in d:
+            old_value = d[key]
+            if value < old_value or (allow_increase and value > old_value):
+                d[key] = value
+                _heappush(self._heap, (value, next(self._count), key))
+                return value < old_value
+            return False
+        d[key] = value
+        _heappush(self._heap, (value, next(self._count), key))
+        return True
+
+
+def _kernighan_lin_sweep(edge_info, side):
+    heap0, heap1 = cost_heaps = _CommunityBinaryHeap(), _CommunityBinaryHeap()
+    for u, nbrs in edge_info.items():
+        cost_u = sum(wt if side[v] else -wt for v, wt in nbrs.items())
+        if side[u]:
+            heap1.insert(u, cost_u)
+        else:
+            heap0.insert(u, -cost_u)
+
+    def _update_heap_values(node):
+        side_node = side[node]
+        for nbr, wt in edge_info[node].items():
+            side_nbr = side[nbr]
+            if side_nbr == side_node:
+                wt = -wt
+            heap_nbr = cost_heaps[side_nbr]
+            if nbr in heap_nbr:
+                cost_nbr = heap_nbr.get(nbr) + 2 * wt
+                heap_nbr.insert(nbr, cost_nbr, allow_increase=True)
+
+    i = 0
+    totcost = 0
+    while heap0 and heap1:
+        u, cost_u = heap0.pop()
+        _update_heap_values(u)
+        v, cost_v = heap1.pop()
+        _update_heap_values(v)
+        totcost += cost_u + cost_v
+        i += 1
+        yield totcost, i, (u, v)
+
+
+def _community_groups(many_to_one):
+    from collections import defaultdict as _defaultdict
+
+    one_to_many = _defaultdict(set)
+    for v, k in many_to_one.items():
+        one_to_many[k].add(v)
+    return dict(one_to_many)
+
+
 def kernighan_lin_bisection(
     G, partition=None, max_iter=10, weight="weight", seed=None, *, backend=None, **backend_kwargs
 ):
-    """Partition ``G`` into two blocks via the Kernighan-Lin algorithm.
-
-    br-r37-c1-wxy3x: ``from networkx...community import *`` re-exported nx's
-    pure-Python ``kernighan_lin_bisection``, whose only hot cost is building
-    ``edge_info`` from ``G._adj.items()`` — on an fnx Graph that walks the slow
-    AtlasView adjacency, making it ~2x slower than nx. Build ``edge_info`` from
-    the native ``to_dict_of_dicts`` snapshot instead and reuse nx's exact
-    ``_kernighan_lin_sweep`` and RNG, so the result is byte-identical to nx (same
-    ``list(G)`` node order, same seeded shuffle, same sweep / tie-break) while
-    closing the gap (2x slower -> nx parity, 1.34x self-speedup).
-
-    Simple ``Graph`` with a string ``weight`` only; multigraph / callable weight /
-    subclass / view delegate to nx (exact path + contract). Directed raises like
-    nx's ``@not_implemented_for('directed')``; explicit ``partition`` keeps nx's
-    validation.
-    """
+    """Partition ``G`` into two blocks via the Kernighan-Lin algorithm."""
     _fnx._validate_backend_dispatch_keywords(
         "kernighan_lin_bisection", backend, backend_kwargs
     )
     G = _fnx._coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise _fnx.NetworkXNotImplemented("not implemented for directed type")
-    if type(G) is not _fnx.Graph or callable(weight):
-        return _nx_community.kernighan_lin_bisection(
-            _fnx._networkx_graph_for_parity(G),
-            partition=partition,
-            max_iter=max_iter,
-            weight=weight,
-            seed=seed,
-        )
-
-    import inspect as _inspect
-
-    from networkx.utils import create_py_random_state as _create_py_random_state
-
-    # nx keeps the sweep + RNG conversion private; reach the exact same helpers so
-    # the heuristic and seeded shuffle match byte-for-byte.
-    _sweep = _inspect.unwrap(_nx_community.kernighan_lin_bisection).__globals__[
-        "_kernighan_lin_sweep"
-    ]
 
     nodes = list(G)
     if partition is None:
-        rng = _create_py_random_state(seed)
+        rng = _fnx._generator_random_state(seed)
         rng.shuffle(nodes)
         mid = len(nodes) // 2
         A, B = nodes[:mid], nodes[mid:]
@@ -100,22 +155,35 @@ def kernighan_lin_bisection(
             A, B = partition
         except (TypeError, ValueError) as err:
             raise _fnx.NetworkXError("partition must be two sets") from err
-        if not _nx_community.is_partition(G, [A, B]):
+        if not is_partition(G, [A, B]):
             raise _fnx.NetworkXError("partition invalid")
 
     side = {node: (node in A) for node in nodes}
 
-    # Native bulk snapshot instead of the slow per-node AtlasView walk; identical
-    # {u: {v: weight}} structure (node + adjacency order preserved) as nx builds
-    # from ``G._adj`` for the simple-graph string-weight case.
-    dod = _fnx.to_dict_of_dicts(G)
-    edge_info = {
-        u: {v: wt for v, d in nbrs.items() if (wt := d.get(weight, 1)) is not None}
-        for u, nbrs in dod.items()
-    }
+    if type(G) is _fnx.Graph and not callable(weight):
+        dod = _fnx.to_dict_of_dicts(G)
+        edge_info = {
+            u: {v: wt for v, d in nbrs.items() if (wt := d.get(weight, 1)) is not None}
+            for u, nbrs in dod.items()
+        }
+    else:
+        if callable(weight):
+            sum_weight = weight
+        elif G.is_multigraph():
+            sum_weight = lambda u, v, d: sum(dd.get(weight, 1) for dd in d.values())
+        else:
+            sum_weight = lambda u, v, d: d.get(weight, 1)
+        edge_info = {
+            u: {
+                v: wt
+                for v, d in G.adj[u].items()
+                if (wt := sum_weight(u, v, d)) is not None
+            }
+            for u in nodes
+        }
 
     for _ in range(max_iter):
-        costs = list(_sweep(edge_info, side))
+        costs = list(_kernighan_lin_sweep(edge_info, side))
         min_cost, min_i, _ = min(costs)
         if min_cost >= 0:
             break
@@ -588,7 +656,6 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
     _fnx._validate_backend_dispatch_keywords(
         "asyn_lpa_communities", backend, backend_kwargs
     )
-    from networkx.utils import create_py_random_state, groups
 
     if not isinstance(
         G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
@@ -637,7 +704,7 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
                 for u in node_list
             ]
 
-    rng = create_py_random_state(seed)
+    rng = _fnx._generator_random_state(seed)
     unweighted = weight is None
 
     def _gen():
@@ -684,10 +751,10 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
                 if cur not in best_labels:
                     labels[node] = rng.choice(best_labels)
                     cont = True
-        # Rebuild node-keyed labels in node order so groups() yields the
+        # Rebuild node-keyed labels in node order so _community_groups() yields the
         # exact communities (sets of node objects) nx would.
         label_by_node = {node_list[i]: labels[i] for i in range(n)}
-        yield from groups(label_by_node).values()
+        yield from _community_groups(label_by_node).values()
 
     return _gen()
 
@@ -695,29 +762,11 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
 def fast_label_propagation_communities(
     G, *, weight=None, seed=None, backend=None, **backend_kwargs
 ):
-    """Communities via fast label propagation (Traag & Šubelj 2023).
-
-    br-r37-c1-0gjy3: same ``import *`` re-export tax as
-    ``asyn_lpa_communities`` (~2x nx) — nx's queue-driven LPA ran against the
-    fnx Graph, rebuilding adjacency views. ``seed`` is a real CPython
-    ``random.Random`` (``py_random_state``) so a Python in-process impl is
-    byte-exact. Same three levers (key-only snapshot + index space + reusable
-    mark-array), plus one extra: nx shuffles a ``deque`` (``deque[i]`` is
-    O(n), so its initial shuffle is O(n^2)); shuffling a plain list of indices
-    yields the IDENTICAL permutation (Fisher-Yates draws depend only on
-    ``len``, not the container) in O(n), then seeds the work deque.
-
-    Only the concrete simple unweighted ``Graph`` takes the fast path;
-    everything else (weighted / directed / multigraph / view / non-fnx)
-    delegates to nx (directed uses pred+succ and in_edges; weighted reads
-    edge data — different code paths).
-    """
+    """Communities via fast label propagation (Traag & Šubelj 2023)."""
     _fnx._validate_backend_dispatch_keywords(
         "fast_label_propagation_communities", backend, backend_kwargs
     )
     from collections import deque
-
-    from networkx.utils import create_py_random_state, groups
 
     if (
         type(G) is not _fnx.Graph
@@ -741,7 +790,7 @@ def fast_label_propagation_communities(
     for node, nbrs in G._native_adjacency_keys():
         adj[idx[node]] = [idx[v] for v in nbrs]
 
-    rng = create_py_random_state(seed)
+    rng = _fnx._generator_random_state(seed)
 
     def _gen():
         comms = list(range(n))
@@ -777,59 +826,28 @@ def fast_label_propagation_communities(
                         queue.append(v)
                         in_queue[v] = True
         label_by_node = {node_list[i]: comms[i] for i in range(n)}
-        yield from groups(label_by_node).values()
+        yield from _community_groups(label_by_node).values()
 
     return _gen()
 
 
 def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
-    """Find k-clique communities via the clique-percolation method.
-
-    br-r37-c1-emdlw: ``k_clique_communities`` is ``@nx._dispatchable``, so the
-    ``from networkx... import *`` re-export converted the WHOLE fnx graph to
-    nx (``_fnx_to_nx``, attrs and all) on every call (~78% of runtime in
-    cProfile, ~2x nx). Two levers:
-
-    The algorithm only needs ``G``'s maximal cliques; everything after is
-    graph-free. Compute them with fnx's native ``find_cliques`` (already
-    nx-order) — no whole-graph conversion.
-
-    br-r37-c1-ygt3z: each community is ``frozenset.union(*component)`` of a
-    component set that networkx's ``_plain_bfs`` grows over the percolation
-    graph, so its iteration order follows the order that BFS adds cliques in,
-    which follows the order each clique's row lists its neighbours in, which
-    follows the iteration order of the set of adjacent cliques networkx builds
-    per clique. The percolation graph is therefore built as networkx builds
-    it, as plain dict rows (an edge is appended to both rows when it is new,
-    and an existing one moves nothing - nx.Graph.add_edge), and walked as
-    ``_plain_bfs`` walks it. The union-find over every sorted (k-1)-subset of
-    each clique that this replaces lost that order, raised TypeError on
-    unorderable node labels, and enumerated C(|clique|, k-1) subsets per
-    clique: a K26 with k=12 took 3.4 s, where networkx takes 0.3 ms.
-
-    Non-fnx graphs fall through to nx.
-    """
+    """Find k-clique communities via the clique-percolation method."""
     _fnx._validate_backend_dispatch_keywords(
         "k_clique_communities", backend, backend_kwargs
     )
-    if not isinstance(
-        G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
-    ):
-        return _nx_community.k_clique_communities(G, k, cliques=cliques)
+    G = _fnx._coerce_arg_to_fnx_graph(G)
 
-    import networkx as _nx
     from collections import defaultdict
     from itertools import count
 
     def _gen():
         if k < 2:
-            raise _nx.NetworkXError(f"k={k}, k must be greater than 1.")
+            raise _fnx.NetworkXError(f"k={k}, k must be greater than 1.")
         nonlocal cliques
         if cliques is None:
             unique = [frozenset(c) for c in _fnx.find_cliques(G) if len(c) >= k]
         else:
-            # A repeated clique is one percolation-graph node, and networkx's pass
-            # over the repeat adds no edge the first pass did not.
             unique = list(dict.fromkeys(frozenset(c) for c in cliques if len(c) >= k))
         if not unique:
             return
@@ -840,6 +858,598 @@ def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
             yield frozenset.union(*(unique[i] for i in comp))
 
     return _gen()
+
+
+def _without_most_central_edges(G, most_valuable_edge):
+    original_num_components = _fnx.number_connected_components(G)
+    num_new_components = original_num_components
+    while num_new_components <= original_num_components:
+        edge = most_valuable_edge(G)
+        G.remove_edge(*edge)
+        new_components = tuple(_fnx.connected_components(G))
+        num_new_components = len(new_components)
+    return new_components
+
+
+def girvan_newman(G, most_valuable_edge=None, *, backend=None, **backend_kwargs):
+    """Finds communities in a graph using the Girvan–Newman method."""
+    _fnx._validate_backend_dispatch_keywords("girvan_newman", backend, backend_kwargs)
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+
+    def _gen():
+        nonlocal most_valuable_edge
+        if G.number_of_edges() == 0:
+            yield tuple(_fnx.connected_components(G))
+            return
+        if most_valuable_edge is None:
+
+            def most_valuable_edge(g):
+                betweenness = _fnx.edge_betweenness_centrality(g)
+                return max(betweenness, key=betweenness.get)
+
+        g = G.copy().to_undirected()
+        g.remove_edges_from(list(_fnx.selfloop_edges(g)))
+        while g.number_of_edges() > 0:
+            yield _without_most_central_edges(g, most_valuable_edge)
+
+    return _gen()
+
+
+def asyn_fluidc(G, k, max_iter=100, seed=None, *, backend=None, **backend_kwargs):
+    """Returns communities in `G` as detected by Fluid Communities algorithm."""
+    _fnx._validate_backend_dispatch_keywords("asyn_fluidc", backend, backend_kwargs)
+    from collections import Counter
+
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    rng = _fnx._generator_random_state(seed)
+    if not isinstance(k, int):
+        raise _fnx.NetworkXError("k must be an integer.")
+    if not k > 0:
+        raise _fnx.NetworkXError("k must be greater than 0.")
+    if not _fnx.is_connected(G):
+        raise _fnx.NetworkXError("Fluid Communities require connected Graphs.")
+    if len(G) < k:
+        raise _fnx.NetworkXError("k cannot be bigger than the number of nodes.")
+    if max_iter <= 0:
+        raise ValueError(f"{max_iter=} must be greater than 0")
+
+    max_density = 1.0
+    vertices = list(G)
+    rng.shuffle(vertices)
+    communities = {n: i for i, n in enumerate(vertices[:k])}
+    density = {}
+    com_to_numvertices = {}
+    for vertex in communities:
+        com_to_numvertices[communities[vertex]] = 1
+        density[communities[vertex]] = max_density
+
+    iter_count = 0
+    cont = True
+    while cont and iter_count < max_iter:
+        cont = False
+        iter_count += 1
+        vertices = list(G)
+        rng.shuffle(vertices)
+        for vertex in vertices:
+            com_counter = Counter()
+            try:
+                com_counter.update({communities[vertex]: density[communities[vertex]]})
+            except KeyError:
+                pass
+            for v in G[vertex]:
+                try:
+                    com_counter.update({communities[v]: density[communities[v]]})
+                except KeyError:
+                    continue
+            new_com = -1
+            if len(com_counter.keys()) > 0:
+                max_freq = max(com_counter.values())
+                best_communities = [
+                    com
+                    for com, freq in com_counter.items()
+                    if (max_freq - freq) < 0.0001
+                ]
+                try:
+                    if communities[vertex] in best_communities:
+                        new_com = communities[vertex]
+                except KeyError:
+                    pass
+                if new_com == -1:
+                    cont = True
+                    new_com = rng.choice(best_communities)
+                    try:
+                        com_to_numvertices[communities[vertex]] -= 1
+                        density[communities[vertex]] = (
+                            max_density / com_to_numvertices[communities[vertex]]
+                        )
+                    except KeyError:
+                        pass
+                    communities[vertex] = new_com
+                    com_to_numvertices[communities[vertex]] += 1
+                    density[communities[vertex]] = (
+                        max_density / com_to_numvertices[communities[vertex]]
+                    )
+    return iter(_community_groups(communities).values())
+
+
+def edge_betweenness_partition(
+    G, number_of_sets, *, weight=None, backend=None, **backend_kwargs
+):
+    """Partition created by iteratively removing the highest edge betweenness edge."""
+    _fnx._validate_backend_dispatch_keywords(
+        "edge_betweenness_partition", backend, backend_kwargs
+    )
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if number_of_sets <= 0:
+        raise _fnx.NetworkXError("number_of_sets must be >0")
+    if number_of_sets == 1:
+        return [set(G)]
+    if number_of_sets == len(G):
+        return [{n} for n in G]
+    if number_of_sets > len(G):
+        raise _fnx.NetworkXError("number_of_sets must be <= len(G)")
+
+    H = G.copy()
+    partition = list(_fnx.connected_components(H))
+    while len(partition) < number_of_sets:
+        ranking = _fnx.edge_betweenness_centrality(H, weight=weight)
+        edge = max(ranking, key=ranking.get)
+        H.remove_edge(*edge)
+        partition = list(_fnx.connected_components(H))
+    return partition
+
+
+def edge_current_flow_betweenness_partition(
+    G, number_of_sets, *, weight=None, backend=None, **backend_kwargs
+):
+    """Partition created by removing the highest edge current flow betweenness edge."""
+    _fnx._validate_backend_dispatch_keywords(
+        "edge_current_flow_betweenness_partition", backend, backend_kwargs
+    )
+    import functools as _functools
+
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if number_of_sets <= 0:
+        raise _fnx.NetworkXError("number_of_sets must be >0")
+    elif number_of_sets == 1:
+        return [set(G)]
+    elif number_of_sets == len(G):
+        return [{n} for n in G]
+    elif number_of_sets > len(G):
+        raise _fnx.NetworkXError("number_of_sets must be <= len(G)")
+
+    rank = _functools.partial(
+        _fnx.edge_current_flow_betweenness_centrality,
+        normalized=False,
+        weight=weight,
+    )
+    H = G.copy()
+    partition = list(_fnx.connected_components(H))
+    if len(partition) > 1:
+        Hcc_subgraphs = [H.subgraph(cc).copy() for cc in partition]
+    else:
+        Hcc_subgraphs = [H]
+
+    ranking = {}
+    for Hcc in Hcc_subgraphs:
+        ranking.update(rank(Hcc))
+
+    while len(partition) < number_of_sets:
+        edge = max(ranking, key=ranking.get)
+        for cc, Hcc in zip(partition, Hcc_subgraphs):
+            if edge[0] in cc:
+                Hcc.remove_edge(*edge)
+                del ranking[edge]
+                splitcc_list = list(_fnx.connected_components(Hcc))
+                if len(splitcc_list) > 1:
+                    cc_new = min(splitcc_list, key=len)
+                    Hcc_new = Hcc.subgraph(cc_new).copy()
+                    newranks = rank(Hcc_new)
+                    for e, r in newranks.items():
+                        ranking[e if e in ranking else e[::-1]] = r
+                    partition.append(cc_new)
+                    Hcc_subgraphs.append(Hcc_new)
+                    Hcc.remove_nodes_from(cc_new)
+                    cc.difference_update(cc_new)
+                newranks = rank(Hcc)
+                for e, r in newranks.items():
+                    ranking[e if e in ranking else e[::-1]] = r
+                break
+    return partition
+
+
+def _calculate_local_modularity_for_candidate(G, v, C, B, T, I):
+    C_tmp = C | {v}
+    B_tmp = B.copy()
+    T_tmp = T.copy()
+    I_tmp = I.copy()
+    removed_B_nodes = set()
+
+    for nbr in G[v]:
+        if nbr not in C_tmp:
+            B_tmp.add(v)
+            T_tmp.add(frozenset([v, nbr]))
+        if nbr in B:
+            nbr_still_in_B = any(nbr_nbr not in C_tmp for nbr_nbr in G[nbr])
+            if not nbr_still_in_B:
+                B_tmp.remove(nbr)
+                removed_B_nodes.add(nbr)
+        if nbr in C_tmp:
+            I_tmp.add(frozenset([v, nbr]))
+
+    for removed_node in removed_B_nodes:
+        for removed_node_nbr in G[removed_node]:
+            if removed_node_nbr not in B_tmp:
+                T_tmp.discard(frozenset([removed_node_nbr, removed_node]))
+                I_tmp.discard(frozenset([removed_node_nbr, removed_node]))
+
+    R_tmp = len(I_tmp) / len(T_tmp) if len(T_tmp) > 0 else 1
+    return R_tmp, B_tmp, T_tmp, I_tmp
+
+
+def _clauset_greedy_source_expansion(G, *, source, cutoff=None):
+    if cutoff is None:
+        cutoff = float("inf")
+    C = {source}
+    B = {source}
+    U = set(G[source].keys()) - C
+    T = {frozenset([node, nbr]) for node in B for nbr in G.neighbors(node)}
+    I = {edge for edge in T if all(node in C for node in edge)}
+
+    R_value = 0
+    while len(C) < cutoff:
+        if not U:
+            break
+        max_R = 0
+        best_node = None
+        best_node_B = best_node_T = best_node_I = set()
+
+        for v in U:
+            R_tmp, B_tmp, T_tmp, I_tmp = _calculate_local_modularity_for_candidate(
+                G, v, C, B, T, I
+            )
+            if R_tmp > max_R:
+                max_R = R_tmp
+                best_node = v
+                best_node_B = B_tmp
+                best_node_T = T_tmp
+                best_node_I = I_tmp
+
+        C = C | {best_node}
+        U.update(set(G[best_node].keys()) - C)
+        U.remove(best_node)
+        B = best_node_B
+        T = best_node_T
+        I = best_node_I
+        if max_R < R_value:
+            break
+        R_value = max_R
+
+    return C
+
+
+def greedy_source_expansion(G, *, source, cutoff=None, method="clauset"):
+    """Find the local community around a source node."""
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if method != "clauset":
+        raise ValueError(f"{method} is not a valid choice for an algorithm.")
+    return _clauset_greedy_source_expansion(G, source=source, cutoff=cutoff)
+
+
+def lukes_partitioning(
+    G, max_size, node_weight=None, edge_weight=None, *, backend=None, **backend_kwargs
+):
+    """Optimal partitioning of a weighted tree using the Lukes algorithm."""
+    _fnx._validate_backend_dispatch_keywords(
+        "lukes_partitioning", backend, backend_kwargs
+    )
+    from copy import deepcopy
+    from functools import lru_cache
+    from random import choice
+
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if not _fnx.is_tree(G):
+        raise _fnx.NotATree("lukes_partitioning works only on trees")
+    if G.is_directed():
+        root = [n for n, d in G.in_degree() if d == 0]
+        assert len(root) == 1
+        root = root[0]
+        t_G = deepcopy(G)
+    else:
+        root = choice(list(G.nodes))
+        t_G = _fnx.dfs_tree(G, root)
+
+    if edge_weight is None or node_weight is None:
+        safe_G = deepcopy(G)
+        if edge_weight is None:
+            _fnx.set_edge_attributes(safe_G, 1.0, "weight")
+            edge_weight = "weight"
+        if node_weight is None:
+            _fnx.set_node_attributes(safe_G, 1, "weight")
+            node_weight = "weight"
+    else:
+        safe_G = G
+
+    all_n_attr = _fnx.get_node_attributes(safe_G, node_weight).values()
+    for x in all_n_attr:
+        if not isinstance(x, int):
+            raise TypeError(
+                "lukes_partitioning needs integer "
+                f"values for node_weight ({node_weight})"
+            )
+
+    def _leaves(gr):
+        for x in gr.nodes:
+            if not _fnx.descendants(gr, x):
+                yield x
+
+    def _a_parent_of_leaves_only(gr):
+        tleaves = set(_leaves(gr))
+        for n in set(gr.nodes) - tleaves:
+            if all(x in tleaves for x in _fnx.descendants(gr, n)):
+                return n
+
+    @lru_cache(2048)
+    def _value_of_cluster(cluster):
+        valid_edges = [e for e in safe_G.edges if e[0] in cluster and e[1] in cluster]
+        return sum(safe_G.edges[e][edge_weight] for e in valid_edges)
+
+    def _value_of_partition(partition):
+        return sum(_value_of_cluster(frozenset(c)) for c in partition)
+
+    @lru_cache(2048)
+    def _weight_of_cluster(cluster):
+        return sum(safe_G.nodes[n][node_weight] for n in cluster)
+
+    def _pivot(partition, node):
+        ccx = [c for c in partition if node in c]
+        assert len(ccx) == 1
+        return ccx[0]
+
+    def _concatenate_or_merge(partition_1, partition_2, x, i, ref_weight):
+        ccx = _pivot(partition_1, x)
+        cci = _pivot(partition_2, i)
+        merged_xi = ccx.union(cci)
+        if _weight_of_cluster(frozenset(merged_xi)) <= ref_weight:
+            cp1 = [c for c in partition_1 if c != ccx]
+            cp2 = [c for c in partition_2 if c != cci]
+            option_2 = [merged_xi] + cp1 + cp2
+            return option_2, _value_of_partition(option_2)
+        option_1 = partition_1 + partition_2
+        return option_1, _value_of_partition(option_1)
+
+    leaves = set(_leaves(t_G))
+    for lv in leaves:
+        t_G.nodes[lv]["partitions"] = {}
+        slot = safe_G.nodes[lv][node_weight]
+        t_G.nodes[lv]["partitions"][slot] = [{lv}]
+        t_G.nodes[lv]["partitions"][0] = [{lv}]
+
+    for inner in [x for x in t_G.nodes if x not in leaves]:
+        t_G.nodes[inner]["partitions"] = {}
+        slot = safe_G.nodes[inner][node_weight]
+        t_G.nodes[inner]["partitions"][slot] = [{inner}]
+
+    while True:
+        x_node = _a_parent_of_leaves_only(t_G)
+        weight_of_x = safe_G.nodes[x_node][node_weight]
+        best_value = 0
+        best_partition = None
+        bp_buffer = {}
+        x_descendants = _fnx.descendants(t_G, x_node)
+        for i_node in x_descendants:
+            for j in range(weight_of_x, max_size + 1):
+                for p1 in range(weight_of_x, j + 1):
+                    a, b = p1, j - p1
+                    if (
+                        a not in t_G.nodes[x_node]["partitions"]
+                        or b not in t_G.nodes[i_node]["partitions"]
+                    ):
+                        continue
+                    part1 = t_G.nodes[x_node]["partitions"][a]
+                    part2 = t_G.nodes[i_node]["partitions"][b]
+                    part, value = _concatenate_or_merge(part1, part2, x_node, i_node, j)
+                    if j not in bp_buffer or bp_buffer[j][1] < value:
+                        bp_buffer[j] = part, value
+                    if best_value <= value:
+                        best_value = value
+                        best_partition = part
+            for w, (best_part_for_vl, _vl) in bp_buffer.items():
+                t_G.nodes[x_node]["partitions"][w] = best_part_for_vl
+            bp_buffer.clear()
+
+        t_G.nodes[x_node]["partitions"][0] = best_partition
+        t_G.remove_nodes_from(x_descendants)
+        if x_node == root:
+            return t_G.nodes[root]["partitions"][0]
+
+
+def naive_greedy_modularity_communities(
+    G, resolution=1, weight=None, *, backend=None, **backend_kwargs
+):
+    """Find communities in G using greedy modularity maximization."""
+    _fnx._validate_backend_dispatch_keywords(
+        "naive_greedy_modularity_communities", backend, backend_kwargs
+    )
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    communities = [frozenset([u]) for u in G.nodes()]
+    merges = []
+    old_modularity = None
+    new_modularity = modularity(G, communities, resolution=resolution, weight=weight)
+    while old_modularity is None or new_modularity > old_modularity:
+        old_modularity = new_modularity
+        trial_communities = list(communities)
+        to_merge = None
+        for i, u in enumerate(communities):
+            for j, v in enumerate(communities):
+                if j <= i or len(u) == 0 or len(v) == 0:
+                    continue
+                trial_communities[j] = u | v
+                trial_communities[i] = frozenset([])
+                trial_modularity = modularity(
+                    G, trial_communities, resolution=resolution, weight=weight
+                )
+                if trial_modularity >= new_modularity:
+                    if trial_modularity > new_modularity:
+                        new_modularity = trial_modularity
+                        to_merge = (i, j, new_modularity - old_modularity)
+                    elif to_merge and min(i, j) < min(to_merge[0], to_merge[1]):
+                        new_modularity = trial_modularity
+                        to_merge = (i, j, new_modularity - old_modularity)
+                trial_communities[i] = u
+                trial_communities[j] = v
+        if to_merge is not None:
+            merges.append(to_merge)
+            i, j, _dq = to_merge
+            u, v = communities[i], communities[j]
+            communities[j] = u | v
+            communities[i] = frozenset([])
+    return sorted((c for c in communities if len(c) > 0), key=len, reverse=True)
+
+
+def spectral_modularity_bipartition(G):
+    """Return a bipartition of the nodes based on the modularity matrix spectrum."""
+    import numpy as np
+
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    B = _fnx.modularity_matrix(G)
+    eigenvalues, eigenvectors = np.linalg.eig(B)
+    index = np.argsort(eigenvalues)[-1]
+    v2 = zip(np.real(eigenvectors[:, index]), G)
+    left, right = set(), set()
+    for u, n in v2:
+        if u < 0:
+            left.add(n)
+        else:
+            right.add(n)
+    return left, right
+
+
+def greedy_node_swap_bipartition(G, *, init_split=None, max_iter=10):
+    """Split the nodes into two communities based on greedy modularity maximization."""
+    from copy import deepcopy
+    import random as _random
+
+    G = _fnx._coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if init_split is None:
+        m1 = len(G) // 2
+        some_nodes = set(_random.sample(list(G), m1))
+        other_nodes = {n for n in G if n not in some_nodes}
+        best_split_so_far = (some_nodes, other_nodes)
+    else:
+        if not is_partition(G, init_split):
+            raise _fnx.NetworkXError("init_split is not a partition of G")
+        if len(init_split) != 2:
+            raise _fnx.NetworkXError("init_split must be a bipartition")
+        best_split_so_far = deepcopy(init_split)
+
+    best_mod = modularity(G, best_split_so_far)
+    max_split, max_mod = best_split_so_far, best_mod
+    its = 0
+    m = G.number_of_edges()
+    G_degree = dict(G.degree)
+
+    while max_mod >= best_mod and its < max_iter:
+        best_split_so_far = max_split
+        best_mod = max_mod
+        next_split = deepcopy(max_split)
+        next_mod = max_mod
+        nodes = set(G)
+        while nodes:
+            max_swap = -1
+            max_node = None
+            max_node_comm = None
+            non_max_node_comm = None
+            left, right = next_split
+            leftd = sum(G_degree[n] for n in left)
+            rightd = sum(G_degree[n] for n in right)
+            for n in nodes:
+                if n in left:
+                    in_comm, out_comm = left, right
+                    in_deg, out_deg = leftd, rightd
+                else:
+                    in_comm, out_comm = right, left
+                    in_deg, out_deg = rightd, leftd
+
+                nbrs = set(G[n].keys())
+                d_eii = -len(nbrs & in_comm) / m
+                d_ejj = len(nbrs & out_comm) / m
+                deg = G_degree[n]
+                d_sum_ai = (deg / (2 * m**2)) * (in_deg - out_deg - deg)
+                swap_change = d_eii + d_ejj + d_sum_ai
+
+                if swap_change > max_swap:
+                    max_swap = swap_change
+                    max_node = n
+                    max_node_comm = in_comm
+                    non_max_node_comm = out_comm
+            max_node_comm.remove(max_node)
+            non_max_node_comm.add(max_node)
+            next_mod += max_swap
+            if next_mod > max_mod:
+                max_split, max_mod = deepcopy(next_split), next_mod
+            nodes.remove(max_node)
+        its += 1
+    return best_split_so_far
+
+
+def leiden_communities(
+    G,
+    weight="weight",
+    resolution=1,
+    max_level=None,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Find a best partition of `G` using Leiden Community Detection (backend required)."""
+    _fnx._validate_backend_dispatch_keywords(
+        "leiden_communities", backend, backend_kwargs
+    )
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    _fnx._generator_random_state(seed)
+    raise NotImplementedError(
+        "'leiden_communities' is not implemented by networkx. "
+        "Please try a different backend."
+    )
+
+
+def leiden_partitions(
+    G,
+    weight="weight",
+    resolution=1,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Yield partitions for each level of Leiden Community Detection (backend required)."""
+    _fnx._validate_backend_dispatch_keywords(
+        "leiden_partitions", backend, backend_kwargs
+    )
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    _fnx._generator_random_state(seed)
+    raise NotImplementedError(
+        "'leiden_partitions' is not implemented by networkx. "
+        "Please try a different backend."
+    )
 
 
 _UPSTREAM_PUBLIC = getattr(

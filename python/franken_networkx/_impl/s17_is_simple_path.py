@@ -213,6 +213,7 @@ def _treewidth_decomp(graph, heuristic):
 
 
 def _treewidth_min_degree(G):
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -220,6 +221,353 @@ def _treewidth_min_degree(G):
 
     heuristic = _MinDegreeHeuristic(G)
     return _treewidth_decomp(G, lambda graph: heuristic.best_node(graph))
+
+
+def _min_fill_in_heuristic(graph_dict):
+    if len(graph_dict) == 0:
+        return None
+
+    min_fill_in_node = None
+    min_fill_in = float("inf")
+
+    nodes_by_degree = sorted(graph_dict, key=lambda x: len(graph_dict[x]))
+    min_degree = len(graph_dict[nodes_by_degree[0]])
+
+    if min_degree == len(graph_dict) - 1:
+        return None
+
+    for node in nodes_by_degree:
+        num_fill_in = 0
+        nbrs = graph_dict[node]
+        for nbr in nbrs:
+            num_fill_in += len(nbrs - graph_dict[nbr]) - 1
+            if num_fill_in >= 2 * min_fill_in:
+                break
+
+        num_fill_in /= 2
+
+        if num_fill_in < min_fill_in:
+            if num_fill_in == 0:
+                return node
+            min_fill_in = num_fill_in
+            min_fill_in_node = node
+
+    return min_fill_in_node
+
+
+def _treewidth_min_fill_in(G):
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    return _treewidth_decomp(G, _min_fill_in_heuristic)
+
+
+def _ramsey_r2_adj(nodes, adj):
+    if not nodes:
+        return set(), set()
+
+    node = nodes[0]
+    node_nbrs = adj[node]
+    nbr_nodes = [v for v in nodes[1:] if v in node_nbrs]
+    nnbr_nodes = [v for v in nodes[1:] if v not in node_nbrs]
+    c_1, i_1 = _ramsey_r2_adj(nbr_nodes, adj)
+    c_2, i_2 = _ramsey_r2_adj(nnbr_nodes, adj)
+
+    c_1.add(node)
+    i_2.add(node)
+    return max(c_1, c_2, key=len), max(i_1, i_2, key=len)
+
+
+def _clique_removal_from_adj(nodes, adj):
+    c_i, i_i = _ramsey_r2_adj(nodes, adj)
+    cliques = [c_i]
+    isets = [i_i]
+    while nodes:
+        nodes = [v for v in nodes if v not in c_i]
+        c_i, i_i = _ramsey_r2_adj(nodes, adj)
+        if c_i:
+            cliques.append(c_i)
+        if i_i:
+            isets.append(i_i)
+    maxiset = max(isets, key=len)
+    return maxiset, cliques
+
+
+def _approx_swap_node_partition(cut, node):
+    return cut - {node} if node in cut else cut.union({node})
+
+
+def _approx_remove_nonterminal_leaves(G, terminals):
+    terminal_set = set(terminals)
+    leaves = {n for n in G if len(set(G[n]) - {n}) == 1}
+    nonterminal_leaves = leaves - terminal_set
+
+    while nonterminal_leaves:
+        candidate_leaves = set.union(*(set(G[n]) for n in nonterminal_leaves))
+        candidate_leaves -= nonterminal_leaves | terminal_set
+        G.remove_nodes_from(nonterminal_leaves)
+        leaves = {n for n in candidate_leaves if len(set(G[n]) - {n}) == 1}
+        nonterminal_leaves = leaves - terminal_set
+
+
+def _approx_mehlhorn_steiner_tree(G, terminal_nodes, weight):
+    distances, paths = multi_source_dijkstra(G, terminal_nodes, weight=weight)
+
+    d_1 = {}
+    s = {}
+    for v in G.nodes():
+        s[v] = paths[v][0]
+        d_1[(v, s[v])] = distances[v]
+
+    G_1_prime = Graph()
+    for u, v, data in G.edges(data=True):
+        su, sv = s[u], s[v]
+        weight_here = d_1[(u, su)] + data.get(weight, 1) + d_1[(v, sv)]
+        if not G_1_prime.has_edge(su, sv):
+            G_1_prime.add_edge(su, sv, weight_d1=weight_here)
+        else:
+            new_weight = min(weight_here, G_1_prime[su][sv]["weight_d1"])
+            G_1_prime.add_edge(su, sv, weight_d1=new_weight)
+
+    G_2 = minimum_spanning_edges(G_1_prime, data=True, weight="weight_d1")
+
+    G_3 = Graph()
+    for u, v, _ in G_2:
+        path = shortest_path(G, u, v, weight=weight)
+        for n1, n2 in _itertools.pairwise(path):
+            G_3.add_edge(n1, n2, weight=G[n1][n2].get(weight, 1))
+
+    G_3_mst = list(minimum_spanning_edges(G_3, data=False, weight=weight))
+    if G.is_multigraph():
+        G_3_mst = [
+            (u, v, min(G[u][v], key=lambda k: G[u][v][k].get(weight, 1)))
+            for u, v in G_3_mst
+        ]
+    G_4 = edge_subgraph(G, G_3_mst).copy()
+    _approx_remove_nonterminal_leaves(G_4, terminal_nodes)
+    return list(G_4.edges())
+
+
+def _approx_kou_steiner_tree(G, terminal_nodes, weight):
+    H = Graph()
+    unvisited_terminals = set(terminal_nodes)
+
+    u = unvisited_terminals.pop()
+    distances, paths = single_source_dijkstra(G, source=u, weight=weight)
+    if len(G) != len(distances):
+        raise NetworkXError("G is not a connected graph.")
+    for v in unvisited_terminals:
+        H.add_edge(u, v, distance=distances[v], path=paths[v])
+
+    for u in unvisited_terminals.copy():
+        distances, paths = single_source_dijkstra(G, source=u, weight=weight)
+        unvisited_terminals.remove(u)
+        for v in unvisited_terminals:
+            H.add_edge(u, v, distance=distances[v], path=paths[v])
+
+    mst_edges = minimum_spanning_edges(H, weight="distance", data=True)
+
+    mst_all_edges = list(
+        _itertools.chain.from_iterable(
+            _itertools.pairwise(d["path"]) for u, v, d in mst_edges
+        )
+    )
+    if G.is_multigraph():
+        mst_all_edges = [
+            (u, v, min(G[u][v], key=lambda k: G[u][v][k].get(weight, 1)))
+            for u, v in mst_all_edges
+        ]
+
+    G_S = edge_subgraph(G, mst_all_edges).copy()
+    T_S = list(minimum_spanning_edges(G_S, weight="weight", data=False))
+    if G.is_multigraph():
+        T_S = [
+            (u, v, min(G[u][v], key=lambda k: G[u][v][k].get(weight, 1)))
+            for u, v in T_S
+        ]
+
+    T_H = edge_subgraph(G, T_S).copy()
+    _approx_remove_nonterminal_leaves(T_H, terminal_nodes)
+
+    return list(T_H.edges())
+
+
+class _ApproxBinaryHeap:
+    def __init__(self):
+        self._dict = {}
+        self._heap = []
+        self._count = _count()
+
+    def pop(self):
+        d = self._dict
+        if not d:
+            raise NetworkXError("heap is empty")
+        heap = self._heap
+        while True:
+            value, _, key = _heappop(heap)
+            if key in d and value == d[key]:
+                break
+        del d[key]
+        return key, value
+
+    def insert(self, key, value, allow_increase=False):
+        d = self._dict
+        if key in d:
+            old_value = d[key]
+            if value < old_value or (allow_increase and value > old_value):
+                d[key] = value
+                _heappush(self._heap, (value, next(self._count), key))
+                return value < old_value
+            return False
+        d[key] = value
+        _heappush(self._heap, (value, next(self._count), key))
+        return True
+
+
+def _approx_greedy_plus_plus(G, iterations):
+    if G.number_of_edges() == 0:
+        return 0.0, set()
+    if iterations < 1:
+        raise ValueError(
+            f"The number of iterations must be an integer >= 1. Provided: {iterations}"
+        )
+
+    loads = {node: 0 for node in G.nodes}
+    best_density = 0.0
+    best_subgraph = set()
+
+    for _ in range(iterations):
+        heap = _ApproxBinaryHeap()
+        for node, degree in G.degree:
+            heap.insert(node, loads[node] + degree)
+        remaining_nodes = set(G.nodes)
+        num_edges = G.number_of_edges()
+        current_degrees = dict(G.degree)
+
+        while remaining_nodes:
+            num_nodes = len(remaining_nodes)
+            current_density = num_edges / num_nodes
+            if current_density > best_density:
+                best_density = current_density
+                best_subgraph = set(remaining_nodes)
+
+            node, _ = heap.pop()
+            if node not in remaining_nodes:
+                continue
+
+            loads[node] += current_degrees[node]
+            for neighbor in G.neighbors(node):
+                if neighbor in remaining_nodes:
+                    current_degrees[neighbor] -= 1
+                    num_edges -= 1
+                    heap.insert(neighbor, loads[neighbor] + current_degrees[neighbor])
+
+            remaining_nodes.remove(node)
+
+    return best_density, best_subgraph
+
+
+def _approx_fractional_peeling(G, b, x, node_to_idx, edge_to_idx):
+    heap = _ApproxBinaryHeap()
+    remaining_nodes = set(G.nodes)
+    for idx, node in enumerate(G):
+        heap.insert(node, b[idx])
+
+    num_edges = G.number_of_edges()
+    best_density = 0.0
+    best_subgraph = set()
+
+    while remaining_nodes:
+        num_nodes = len(remaining_nodes)
+        current_density = num_edges / num_nodes
+        if current_density > best_density:
+            best_density = current_density
+            best_subgraph = set(remaining_nodes)
+
+        node, _ = heap.pop()
+        while node not in remaining_nodes:
+            node, _ = heap.pop()
+
+        for neighbor in G.neighbors(node):
+            if neighbor in remaining_nodes:
+                neighbor_idx = node_to_idx[neighbor]
+                b[neighbor_idx] -= x[edge_to_idx[(neighbor, node)]]
+                num_edges -= 1
+                heap.insert(neighbor, b[neighbor_idx])
+
+        remaining_nodes.remove(node)
+
+    return best_density, best_subgraph
+
+
+def _approx_fista(G, iterations):
+    if G.number_of_edges() == 0:
+        return 0.0, set()
+    if iterations < 1:
+        raise ValueError(
+            f"The number of iterations must be an integer >= 1. Provided: {iterations}"
+        )
+    import numpy as np
+
+    node_to_idx = {node: idx for idx, node in enumerate(G)}
+    num_nodes = G.number_of_nodes()
+    num_undirected_edges = G.number_of_edges()
+
+    bidirectional_edges = [(u, v) for u, v in G.edges] + [(v, u) for u, v in G.edges]
+    edge_to_idx = {edge: idx for idx, edge in enumerate(bidirectional_edges)}
+    num_edges = len(bidirectional_edges)
+
+    reverse_edge_idx = np.empty(num_edges, dtype=np.int32)
+    for idx in range(num_undirected_edges):
+        reverse_edge_idx[idx] = num_undirected_edges + idx
+    for idx in range(num_undirected_edges, 2 * num_undirected_edges):
+        reverse_edge_idx[idx] = idx - num_undirected_edges
+
+    x = np.full(num_edges, 0.5, dtype=np.float32)
+    y = x.copy()
+    z = np.zeros(num_edges, dtype=np.float32)
+    b = np.zeros(num_nodes, dtype=np.float32)
+    tk = 1.0
+
+    edge_src_indices = np.array(
+        [node_to_idx[u] for u, _ in bidirectional_edges], dtype=np.int32
+    )
+    max_degree = max(deg for _, deg in G.degree)
+    learning_rate = 0.9 / max_degree
+
+    for _ in range(iterations):
+        b[:] = 0.0
+        np.add.at(b, edge_src_indices, y)
+        z = y - 2.0 * learning_rate * b[edge_src_indices]
+        tknew = (1.0 + _math.sqrt(1 + 4.0 * tk**2)) / 2.0
+        new_xuv = (z - z[reverse_edge_idx] + 1.0) / 2.0
+        clamped_x = np.clip(new_xuv, 0.0, 1.0)
+        y = (
+            clamped_x
+            + ((tk - 1.0) / tknew) * (clamped_x - x)
+            + (tk / tknew) * (clamped_x - y)
+        )
+        x = clamped_x
+        tk = tknew
+
+    b[:] = 0.0
+    np.add.at(b, edge_src_indices, x)
+    return _approx_fractional_peeling(G, b, x, node_to_idx, edge_to_idx)
+
+
+def _approx_swap_two_nodes(soln, seed):
+    a, b = seed.sample(range(1, len(soln) - 1), k=2)
+    soln[a], soln[b] = soln[b], soln[a]
+    return soln
+
+
+def _approx_move_one_node(soln, seed):
+    a, b = seed.sample(range(1, len(soln) - 1), k=2)
+    soln.insert(b, soln.pop(a))
+    return soln
 
 
 class _ApproximationNamespace:
@@ -230,6 +578,268 @@ class _ApproximationNamespace:
             "treewidth_min_degree", backend, backend_kwargs
         )
         return _treewidth_min_degree(G)
+
+    def treewidth_min_fill_in(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "treewidth_min_fill_in", backend, backend_kwargs
+        )
+        return _treewidth_min_fill_in(G)
+
+    def ramsey_R2(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords("ramsey_R2", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        nodes = list(G)
+        adj = {u: set(G[u]) - {u} for u in nodes}
+        return _ramsey_r2_adj(nodes, adj)
+
+    def clique_removal(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords("clique_removal", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        nodes = list(G)
+        adj = {u: set(G[u]) - {u} for u in nodes}
+        return _clique_removal_from_adj(nodes, adj)
+
+    def maximum_independent_set(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "maximum_independent_set", backend, backend_kwargs
+        )
+        iset, _ = self.clique_removal(G)
+        return iset
+
+    def max_clique(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords("max_clique", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        nodes = list(G)
+        all_nodes = set(nodes)
+        comp_adj = {u: all_nodes - set(G[u]) - {u} for u in nodes}
+        iset, _ = _clique_removal_from_adj(nodes, comp_adj)
+        return iset
+
+    def one_exchange(
+        self,
+        G,
+        initial_cut=None,
+        seed=None,
+        weight=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("one_exchange", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        rng = _generator_random_state(seed)
+        if initial_cut is None:
+            initial_cut = set()
+        cut = set(initial_cut)
+        current_cut_size = cut_size(G, cut, weight=weight)
+        while True:
+            nodes = list(G.nodes())
+            rng.shuffle(nodes)
+            best_node_to_swap = max(
+                nodes,
+                key=lambda v: cut_size(
+                    G, _approx_swap_node_partition(cut, v), weight=weight
+                ),
+                default=None,
+            )
+            potential_cut = _approx_swap_node_partition(cut, best_node_to_swap)
+            potential_cut_size = cut_size(G, potential_cut, weight=weight)
+            if potential_cut_size > current_cut_size:
+                cut = potential_cut
+                current_cut_size = potential_cut_size
+            else:
+                break
+        partition = (cut, set(G.nodes()) - cut)
+        return current_cut_size, partition
+
+    def steiner_tree(
+        self,
+        G,
+        terminal_nodes,
+        weight="weight",
+        method=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("steiner_tree", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if method is None:
+            method = "mehlhorn"
+        if method == "kou":
+            edges = _approx_kou_steiner_tree(G, terminal_nodes, weight)
+        elif method == "mehlhorn":
+            edges = _approx_mehlhorn_steiner_tree(G, terminal_nodes, weight)
+        else:
+            raise ValueError(f"{method} is not a valid choice for an algorithm.")
+        if G.is_multigraph():
+            edges = [
+                (u, v, min(G[u][v], key=lambda k: G[u][v][k][weight]))
+                for u, v in edges
+            ]
+        return edge_subgraph(G, edges).copy()
+
+    def densest_subgraph(
+        self,
+        G,
+        iterations=1,
+        *,
+        method="fista",
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("densest_subgraph", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        if method == "greedy++":
+            return _approx_greedy_plus_plus(G, iterations)
+        if method == "fista":
+            return _approx_fista(G, iterations)
+        raise ValueError(f"{method} is not a valid choice for an algorithm.")
+
+    def christofides(
+        self, G, weight="weight", tree=None, *, backend=None, **backend_kwargs
+    ):
+        _validate_backend_dispatch_keywords("christofides", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        loop_nodes = nodes_with_selfloops(G)
+        try:
+            node = next(loop_nodes)
+        except StopIteration:
+            pass
+        else:
+            G = G.copy()
+            G.remove_edge(node, node)
+            G.remove_edges_from((n, n) for n in loop_nodes)
+        N = len(G) - 1
+        if any(len(nbrdict) != N for n, nbrdict in G.adj.items()):
+            raise NetworkXError("G must be a complete graph.")
+        if tree is None:
+            tree = minimum_spanning_tree(G, weight=weight)
+        else:
+            tree = _coerce_arg_to_fnx_graph(tree)
+        L = G.copy()
+        L.remove_nodes_from([v for v, degree in tree.degree if not (degree % 2)])
+        MG = MultiGraph()
+        MG.add_edges_from(tree.edges)
+        edges = min_weight_matching(L, weight=weight)
+        MG.add_edges_from(edges)
+        circuit = eulerian_circuit(MG)
+        nodes = []
+        for u, v in circuit:
+            if v in nodes:
+                continue
+            if not nodes:
+                nodes.append(u)
+            nodes.append(v)
+        nodes.append(nodes[0])
+        return nodes
+
+    def traveling_salesman_problem(
+        self, G, weight="weight", nodes=None, cycle=True, method=None, **kwargs
+    ):
+        if "backend" in kwargs:
+            backend = kwargs.pop("backend")
+            _validate_backend_dispatch_keywords(
+                "traveling_salesman_problem", backend, {}
+            )
+        G = _coerce_arg_to_fnx_graph(G)
+        if method is None:
+            if G.is_directed():
+                method = self.asadpour_atsp
+            else:
+                method = self.christofides
+        if nodes is None:
+            nodes = list(G.nodes)
+
+        dist = {}
+        path = {}
+        for n, (d, p) in all_pairs_dijkstra(G, weight=weight):
+            dist[n] = d
+            path[n] = p
+
+        if G.is_directed():
+            if not is_strongly_connected(G):
+                raise NetworkXError("G is not strongly connected")
+            GG = DiGraph()
+        else:
+            GG = Graph()
+        for u in nodes:
+            for v in nodes:
+                if u == v:
+                    continue
+                GG.add_edge(u, v, **{weight: dist[u][v]})
+
+        best_GG = method(GG, weight=weight, **kwargs)
+
+        if not cycle:
+            (u, v) = max(_itertools.pairwise(best_GG), key=lambda x: dist[x[0]][x[1]])
+            pos = best_GG.index(u) + 1
+            while best_GG[pos] != v:
+                pos = best_GG[pos:].index(u) + 1
+            best_GG = best_GG[pos:-1] + best_GG[:pos]
+
+        best_path = []
+        for u, v in _itertools.pairwise(best_GG):
+            best_path.extend(path[u][v][:-1])
+        best_path.append(v)
+        return best_path
+
+    def asadpour_atsp(
+        self,
+        G,
+        weight="weight",
+        seed=None,
+        source=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("asadpour_atsp", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if not G.is_directed():
+            raise NetworkXNotImplemented("not implemented for undirected type")
+        N = len(G) - 1
+        if N < 1:
+            raise NetworkXError("G must have at least two nodes")
+        if any(len(nbrdict) - (n in nbrdict) != N for n, nbrdict in G.adj.items()):
+            raise NetworkXError("G is not a complete DiGraph")
+        if source is not None and source not in G.nodes:
+            raise NetworkXError("Given source node not in G.")
+        if N == 1:
+            if source is None:
+                return list(G)
+            return [source, next(n for n in G if n != source)]
+        return _nx.approximation.asadpour_atsp(
+            _networkx_graph_for_parity(G),
+            weight=weight,
+            seed=seed,
+            source=source,
+            backend="networkx",
+        )
 
     def min_weighted_vertex_cover(self, G, weight=None, *, backend=None, **backend_kwargs):
         # br-vcnative: the generic __getattr__ wrapper round-trips the graph
@@ -295,9 +905,7 @@ class _ApproximationNamespace:
             raise NetworkXNotImplemented("not implemented for directed type")
         if G.is_multigraph():
             raise NetworkXNotImplemented("not implemented for multigraph type")
-        from networkx.utils import create_py_random_state as _create_py_random_state
-
-        rng = _create_py_random_state(seed)
+        rng = _generator_random_state(seed)
         cut = {node for node in G.nodes() if rng.random() < p}
         cut_size_value = cut_size(G, cut, weight=weight)
         return cut_size_value, (cut, set(G.nodes()) - cut)
@@ -800,10 +1408,6 @@ class _ApproximationNamespace:
         # known move, n>=3, a COMPLETE graph, and INTEGER-valued weights (so the
         # numpy pairwise sum equals nx's left-to-right Python sum exactly).
         import numpy as _np
-        from networkx.algorithms.approximation.traveling_salesman import (
-            move_one_node as _move_one_node,
-            swap_two_nodes as _swap_two_nodes,
-        )
 
         if type(G) not in (Graph, DiGraph):
             return None
@@ -823,9 +1427,9 @@ class _ApproximationNamespace:
                 return None
             init_is_greedy = True
         if move == "1-1":
-            mv = _swap_two_nodes
+            mv = _approx_swap_two_nodes
         elif move == "1-0":
-            mv = _move_one_node
+            mv = _approx_move_one_node
         else:
             return None
 
@@ -916,10 +1520,8 @@ class _ApproximationNamespace:
             if prep is not None:
                 import math as _math
 
-                from networkx.utils import create_py_random_state as _cprs
-
                 nodes, W, mv, cyc = prep
-                rng = _cprs(seed)
+                rng = _generator_random_state(seed)
                 cost = float(W[cyc[:-1], cyc[1:]].sum())
                 best_cycle = cyc.copy()
                 best_cost = cost
@@ -984,10 +1586,8 @@ class _ApproximationNamespace:
         if backend is None and not backend_kwargs:
             prep = self._tsp_anneal_prep(G, init_cycle, weight, source, move)
             if prep is not None:
-                from networkx.utils import create_py_random_state as _cprs
-
                 nodes, W, mv, cyc = prep
-                rng = _cprs(seed)
+                rng = _generator_random_state(seed)
                 cost = float(W[cyc[:-1], cyc[1:]].sum())
                 best_cycle = cyc.copy()
                 best_cost = cost

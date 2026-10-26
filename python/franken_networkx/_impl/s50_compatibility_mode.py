@@ -33,12 +33,14 @@ def drain_decision_records(G) -> list:
     """Drain and return audit ledger decision records for graph `G`."""
     return _rust_drain_decision_records(G)
 approximation = _approx_ns
-# br-r37-c1-2poe6: the concrete native ``average_clustering`` method bypasses the
-# __getattr__ wrapper's functools.wraps, so mirror nx's docstring/name for
+# br-r37-c1-2poe6: concrete native methods on _ApproximationNamespace bypass the
+# __getattr__ wrapper's functools.wraps, so mirror nx's docstring for
 # introspection parity (test_approximation_wrapper_carries_nx_docstring).
-_ApproximationNamespace.average_clustering.__doc__ = (
-    _nx.approximation.average_clustering.__doc__
-)
+for _apx_attr, _apx_val in _ApproximationNamespace.__dict__.items():
+    if not _apx_attr.startswith("_") and callable(_apx_val):
+        _nx_apx_fn = getattr(_nx.approximation, _apx_attr, None)
+        if _nx_apx_fn is not None and getattr(_apx_val, "__doc__", None) is None:
+            _apx_val.__doc__ = _nx_apx_fn.__doc__
 
 # Capture the NetworkX AmbiguousSolution exception class under a
 # fnx-internal name so PY_WRAPPER functions defined earlier in this
