@@ -127,32 +127,76 @@ def _derive_top_nodes(G, top_nodes):
         return None
 
 
-def hopcroft_karp_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
-    """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp).
+def _hopcroft_karp_inprocess(G, top_nodes=None):
+    import collections as _collections
+    import itertools as _itertools
 
-    br-r37-c1-bngez: native byte-exact kernel for the ``top_nodes``-given simple
-    Graph case (no fnx->nx conversion + no nx Python sweeps); other shapes use a
-    one-shot nx view. Result is byte-identical to
-    ``networkx.bipartite.hopcroft_karp_matching``.
-    """
+    INFINITY = float("inf")
+    left, right = sets(G, top_nodes)
+    leftmatches = {v: None for v in left}
+    rightmatches = {v: None for v in right}
+    distances = {}
+    queue = _collections.deque()
+
+    def breadth_first_search():
+        for v in left:
+            if leftmatches[v] is None:
+                distances[v] = 0
+                queue.append(v)
+            else:
+                distances[v] = INFINITY
+        distances[None] = INFINITY
+        while queue:
+            v = queue.popleft()
+            if distances[v] < distances[None]:
+                for u in G[v]:
+                    if distances[rightmatches[u]] is INFINITY:
+                        distances[rightmatches[u]] = distances[v] + 1
+                        queue.append(rightmatches[u])
+        return distances[None] is not INFINITY
+
+    def depth_first_search(v):
+        if v is not None:
+            for u in G[v]:
+                if distances[rightmatches[u]] == distances[v] + 1:
+                    if depth_first_search(rightmatches[u]):
+                        rightmatches[u] = v
+                        leftmatches[v] = u
+                        return True
+            distances[v] = INFINITY
+            return False
+        return True
+
+    while breadth_first_search():
+        for v in left:
+            if leftmatches[v] is None:
+                depth_first_search(v)
+
+    leftmatches = {k: v for k, v in leftmatches.items() if v is not None}
+    rightmatches = {k: v for k, v in rightmatches.items() if v is not None}
+    return dict(_itertools.chain(leftmatches.items(), rightmatches.items()))
+
+
+def hopcroft_karp_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
+    """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp)."""
     _fnx._validate_backend_dispatch_keywords(
         "hopcroft_karp_matching", backend, backend_kwargs
     )
-    top_nodes = _derive_top_nodes(G, top_nodes)
-    result = _native_hopcroft_karp(G, top_nodes)
+    derived = _derive_top_nodes(G, top_nodes)
+    result = _native_hopcroft_karp(G, derived)
     if result is not None:
         return result
-    return _nx_bipartite.hopcroft_karp_matching(_matching_nx_view(G), top_nodes)
+    return _hopcroft_karp_inprocess(G, top_nodes)
 
 
 def maximum_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Alias of :func:`hopcroft_karp_matching` (matches networkx)."""
     _fnx._validate_backend_dispatch_keywords("maximum_matching", backend, backend_kwargs)
-    top_nodes = _derive_top_nodes(G, top_nodes)
-    result = _native_hopcroft_karp(G, top_nodes)
+    derived = _derive_top_nodes(G, top_nodes)
+    result = _native_hopcroft_karp(G, derived)
     if result is not None:
         return result
-    return _nx_bipartite.maximum_matching(_matching_nx_view(G), top_nodes)
+    return _hopcroft_karp_inprocess(G, top_nodes)
 
 
 def eppstein_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
@@ -650,17 +694,7 @@ def biadjacency_matrix(
 
 
 def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
-    """Robins & Alexander bipartite clustering ``4*C_4 / L_3`` of ``G``.
-
-    br-r37-c1-niit0: re-exported from networkx as an ``@nx._dispatchable``, so
-    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
-    before nx counts four-cycles / three-paths with Python set operations (~1.1x
-    slower than nx). Both counts are integer GRAPH INVARIANTS, so a native
-    integer-CSR kernel (`robins_alexander_counts`) computes them with mark-array
-    intersections and zero conversion; the float arithmetic
-    (`(4.0 * (C_4_numer / 4)) / (L_3_numer / 2)`) is done here EXACTLY as nx, so
-    the result is byte-identical. Directed / multigraph / nx-typed inputs delegate.
-    """
+    """Robins & Alexander bipartite clustering ``4*C_4 / L_3`` of ``G``."""
     _fnx._validate_backend_dispatch_keywords(
         "robins_alexander_clustering", backend, backend_kwargs
     )
@@ -673,8 +707,6 @@ def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
     ):
         counts = native(G)
         if counts is not None:
-            # nx returns int 0 for these degenerate cases (checked before any
-            # float division), so mirror that exactly.
             if G.order() < 4 or G.size() < 3:
                 return 0
             c4_numer, l3_numer = counts
@@ -683,10 +715,31 @@ def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
                 return 0
             C_4 = c4_numer / 4
             return (4.0 * C_4) / L_3
-    # nx-typed / directed / multigraph / kernel unavailable: delegate to nx.
-    return _nx_bipartite.robins_alexander_clustering(
-        G if isinstance(G, _nx.Graph) else _matching_nx_view(G)
-    )
+    if G.order() < 4 or G.size() < 3:
+        return 0
+    paths = 0
+    for v in G:
+        for u in G[v]:
+            for w in set(G[u]) - {v}:
+                paths += len(set(G[w]) - {v, u})
+    L_3 = paths / 2
+    if L_3 == 0:
+        return 0
+    cycles = 0
+    seen = set()
+    G_adj = G._adj
+    for v in G:
+        seen.add(v)
+        v_neighbors = set(G_adj[v])
+        if len(v_neighbors) < 2:
+            continue
+        two_hop_neighbors = set().union(*(G_adj[u] for u in v_neighbors))
+        two_hop_neighbors -= seen
+        for x in two_hop_neighbors:
+            p2 = len(v_neighbors.intersection(G_adj[x]))
+            cycles += p2 * (p2 - 1)
+    C_4 = cycles / 4
+    return (4.0 * C_4) / L_3
 
 
 def latapy_clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
@@ -783,19 +836,7 @@ def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
 
 
 def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
-    """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``.
-
-    br-r37-c1-g6wla: re-exported from networkx as an ``@nx._dispatchable``, so
-    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
-    before nx counts, per node, the neighbour pairs sharing another common
-    neighbour using Python set intersections (~1.16x slower than nx). ``rc(v) =
-    2*overlap / (deg*(deg-1))`` where ``overlap`` is an integer GRAPH INVARIANT,
-    so a native integer-CSR kernel (`node_redundancy_overlaps`) counts it with
-    mark-array intersections + early exit and zero conversion; the float division
-    is done here EXACTLY as nx so the result is byte-identical. The default
-    ``nodes=None`` (all nodes) case takes the native path; an explicit ``nodes``
-    subset, nx-typed / directed / multigraph inputs delegate to nx.
-    """
+    """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``."""
     _fnx._validate_backend_dispatch_keywords(
         "node_redundancy", backend, backend_kwargs
     )
@@ -809,52 +850,47 @@ def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
     ):
         counts = native(G)
         if counts is not None:
-            # nx checks all requested nodes have >=2 neighbours BEFORE computing
-            # anything and raises a single NetworkXError otherwise; mirror that.
             if any(deg < 2 for (_overlap, deg) in counts):
                 raise _nx.NetworkXError(
                     "Cannot compute redundancy coefficient for a node"
                     " that has fewer than two neighbors."
                 )
-            # `counts` is in node order (== list(G)); dict key order matches nx.
             return {
                 node: (2 * overlap) / (deg * (deg - 1))
                 for node, (overlap, deg) in zip(G, counts)
             }
-    # nx-typed / directed / multigraph / explicit nodes / unavailable: delegate.
-    return _nx_bipartite.node_redundancy(
-        G if isinstance(G, _nx.Graph) else _matching_nx_view(G), nodes
-    )
+    from itertools import combinations as _combinations
+
+    if nodes is None:
+        nodes = G
+    if any(len(G[v]) < 2 for v in nodes):
+        raise _nx.NetworkXError(
+            "Cannot compute redundancy coefficient for a node"
+            " that has fewer than two neighbors."
+        )
+    result = {}
+    for v in nodes:
+        n_deg = len(G[v])
+        overlap = sum(
+            1 for (u, w) in _combinations(G[v], 2) if (set(G[u]) & set(G[w])) - {v}
+        )
+        result[v] = (2 * overlap) / (n_deg * (n_deg - 1))
+    return result
 
 
 def minimum_weight_full_matching(
     G, top_nodes=None, weight="weight", *, backend=None, **backend_kwargs
 ):
-    """Minimum-weight full matching of bipartite ``G`` (rectangular LAP).
-
-    br-r37-c1-n4dwd: re-exported from networkx as an ``@nx._dispatchable``, so
-    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
-    before nx builds the biadjacency matrix and defers to
-    ``scipy.optimize.linear_sum_assignment`` (~4x slower than nx). Run nx's EXACT
-    algorithm IN-PROCESS on the fnx graph using the already-native
-    :func:`sets` and :func:`biadjacency_matrix` (both byte-exact) plus the same
-    deterministic SciPy LAP solver — no conversion. Byte-identical: the bipartite
-    set split, the row/column ordering (``list(left)`` / ``list(right)``), the
-    inf-padded weight matrix, and the SciPy assignment all match nx exactly
-    (verified across heavy integer-weight tie cases). nx-typed inputs delegate.
-    """
+    """Minimum-weight full matching of bipartite ``G`` (rectangular LAP)."""
     _fnx._validate_backend_dispatch_keywords(
         "minimum_weight_full_matching", backend, backend_kwargs
     )
-    if isinstance(G, _nx.Graph):
-        return _nx_bipartite.minimum_weight_full_matching(G, top_nodes, weight)
     import numpy as _np
     import scipy as _sp
 
     left, right = sets(G, top_nodes)
     U = list(left)
     V = list(right)
-    # Inf where edges are missing (not zero), exactly as nx.
     weights_sparse = biadjacency_matrix(
         G, row_order=U, column_order=V, weight=weight, format="coo"
     )
@@ -866,47 +902,27 @@ def minimum_weight_full_matching(
     return d
 
 
-def _spectral_bipartivity_nx_copy(B):
-    """Weight-preserving fnx->nx copy for the spectral_bipartivity delegate path
-    (directed / multigraph), which needs edge weights and the matching graph
-    type."""
-    if B.is_multigraph():
-        H = _nx.MultiDiGraph() if B.is_directed() else _nx.MultiGraph()
-        H.add_nodes_from(B)
-        H.add_edges_from(B.edges(keys=True, data=True))
-    else:
-        H = _nx.DiGraph() if B.is_directed() else _nx.Graph()
-        H.add_nodes_from(B)
-        H.add_edges_from(B.edges(data=True))
-    return H
-
-
 def spectral_bipartivity(
     G, nodes=None, weight="weight", *, backend=None, **backend_kwargs
 ):
-    """Spectral bipartivity measure of bipartite ``G``.
-
-    br-r37-c1-1h238: re-exported from networkx as an ``@nx._dispatchable``, so on
-    an fnx graph it converts the WHOLE graph then forms TWO dense matrix
-    exponentials (`expm(A)` and `expm(-A)`, each O(n^3) Pade) — ~430ms at n=270.
-    But the measure is `trace(cosh A) / trace(exp A)` for the whole-graph case
-    (`nodes=None`) and a ratio of `expm` DIAGONALS per node otherwise — both
-    expressible from the symmetric spectrum alone. Compute one eigendecomposition
-    of the (symmetric, undirected) adjacency: `nodes=None` uses
-    `eigvalsh` -> `sum(cosh λ)/sum(exp λ)`; per-node uses `eigh` -> diagonals
-    `Σ_k V_ik² e^{λ_k}` / `Σ_k V_ik² cosh(λ_k)`. ~90x faster, agreeing with nx's
-    expm result to far beyond the module's round-6 conformance bar. Directed /
-    multigraph / nx-typed inputs delegate to nx (non-symmetric / general expm).
-    """
+    """Spectral bipartivity measure of bipartite ``G``."""
     _fnx._validate_backend_dispatch_keywords(
         "spectral_bipartivity", backend, backend_kwargs
     )
-    if isinstance(G, _nx.Graph):
-        return _nx_bipartite.spectral_bipartivity(G, nodes, weight)
-    if G.is_directed() or G.is_multigraph():
-        return _nx_bipartite.spectral_bipartivity(
-            _spectral_bipartivity_nx_copy(G), nodes, weight
-        )
+    import numpy as _np
+
+    if G.is_directed() or G.is_multigraph() or isinstance(G, _nx.Graph):
+        import scipy as _sp
+
+        nodelist = list(G)
+        A = _fnx.to_numpy_array(G, nodelist, weight=weight)
+        expA = _sp.linalg.expm(A)
+        expmA = _sp.linalg.expm(-A)
+        coshA = 0.5 * (expA + expmA)
+        if nodes is None:
+            return float(coshA.diagonal().sum() / expA.diagonal().sum())
+        index = dict(zip(nodelist, range(len(nodelist))))
+        return {n: coshA.item(index[n], index[n]) / expA.item(index[n], index[n]) for n in nodes}
     if len(G) > 0:
         try:
             color(G)
@@ -922,8 +938,6 @@ def spectral_bipartivity(
                     raise KeyError(node)
                 result[node] = 1.0
             return result
-    import numpy as _np
-
     nodelist = list(G)
     A = _fnx.to_numpy_array(G, nodelist, weight=weight)
     if nodes is None:
@@ -1703,27 +1717,51 @@ def reverse_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, *
     return G
 
 
-def from_biadjacency_matrix(A, create_using=None, edge_attribute="weight", *, row_order=None, column_order=None, backend=None, **backend_kwargs):
-    """Create a bipartite graph from a biadjacency matrix.
+def _generate_bipartite_weighted_edges(A):
+    import numpy as _np
 
-    Directly constructs the fnx bipartite graph without intermediate nx conversions.
-    """
+    if A.format == "csr":
+        nrows = A.shape[0]
+        src_indices = _np.repeat(_np.arange(nrows), _np.diff(A.indptr))
+        return zip(src_indices.tolist(), A.indices.tolist(), A.data.tolist())
+    if A.format == "csc":
+        ncols = A.shape[1]
+        dst_indices = _np.repeat(_np.arange(ncols), _np.diff(A.indptr))
+        return zip(A.indices.tolist(), dst_indices.tolist(), A.data.tolist())
+    if A.format == "dok":
+        return ((int(r), int(c), v.item()) for (r, c), v in A.items())
+    coo = A.tocoo()
+    return zip(coo.row.tolist(), coo.col.tolist(), coo.data.tolist())
+
+
+def from_biadjacency_matrix(A, create_using=None, edge_attribute="weight", *, row_order=None, column_order=None, backend=None, **backend_kwargs):
+    """Create a bipartite graph from a biadjacency matrix."""
     _fnx._validate_backend_dispatch_keywords(
         "from_biadjacency_matrix", backend, backend_kwargs
     )
     import itertools
-    import networkx.algorithms.bipartite.matrix as _bpm
 
     G = _fnx.empty_graph(0, create_using)
     n, m = A.shape
-    row_order, column_order = _bpm._validate_initialize_bipartite_nodelists(
-        A, row_order, column_order
-    )
+    if row_order is not None:
+        if len(row_order) != n:
+            raise ValueError(
+                "Length of row_order does not match number of rows in A ({n})"
+            )
+    else:
+        row_order = []
+    if column_order is not None:
+        if len(column_order) != m:
+            raise ValueError(
+                "Length of column_order does not match number of columns in A ({m})"
+            )
+    else:
+        column_order = []
 
     G.add_nodes_from(((i, {"bipartite": 0}) for i in range(n)))
     G.add_nodes_from(((i, {"bipartite": 1}) for i in range(n, n + m)))
 
-    triples = ((u, n + v, d) for (u, v, d) in _bpm._generate_weighted_edges(A))
+    triples = ((u, n + v, d) for (u, v, d) in _generate_bipartite_weighted_edges(A))
     if A.dtype.kind in ("i", "u") and G.is_multigraph():
         chain = itertools.chain.from_iterable
         triples = chain(((u, v, 1) for d in range(w)) for (u, v, w) in triples)
