@@ -21,6 +21,22 @@ __all__ = list(
 )
 
 
+def mutual_weight(G, u, v, weight=None, *, backend=None, **backend_kwargs):
+    """Return the sum of the weights of the edges between *u* and *v* in *G*."""
+    _fnx._validate_backend_dispatch_keywords("mutual_weight", backend, backend_kwargs)
+    return _fnx._mutual_weight(G, u, v, weight=weight)
+
+
+def normalized_mutual_weight(
+    G, u, v, norm=sum, weight=None, *, backend=None, **backend_kwargs
+):
+    """Return normalized mutual weight of the edges from *u* to *v*."""
+    _fnx._validate_backend_dispatch_keywords(
+        "normalized_mutual_weight", backend, backend_kwargs
+    )
+    return _fnx._normalized_mutual_weight(G, u, v, weight=weight, norm=norm)
+
+
 def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     """Return the constraint on nodes in *G*."""
     _fnx._validate_backend_dispatch_keywords("constraint", backend, backend_kwargs)
