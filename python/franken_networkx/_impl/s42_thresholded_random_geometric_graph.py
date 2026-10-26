@@ -1208,72 +1208,100 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     )
 
 
-def tree_isomorphism(t1, t2, *, backend=None, **backend_kwargs):
-    """Return an isomorphism mapping between two trees t1 and t2.
+def _root_trees_inproc(t1, root1, t2, root2):
+    dT = DiGraph()
+    newroot1 = 1
+    newroot2 = t1.number_of_nodes() + 1
+    namemap1 = {root1: newroot1}
+    namemap2 = {root2: newroot2}
+    dT.add_edge(0, namemap1[root1])
+    dT.add_edge(0, namemap2[root2])
+    for i, (v1, v2) in enumerate(bfs_edges(t1, root1)):
+        namemap1[v2] = i + namemap1[root1] + 1
+        dT.add_edge(namemap1[v1], namemap1[v2])
+    for i, (v1, v2) in enumerate(bfs_edges(t2, root2)):
+        namemap2[v2] = i + namemap2[root2] + 1
+        dT.add_edge(namemap2[v1], namemap2[v2])
+    namemap = {}
+    for old, new in namemap1.items():
+        namemap[new] = old
+    for old, new in namemap2.items():
+        namemap[new] = old
+    return (dT, namemap, newroot1, newroot2)
 
-    br-r37-c1-l6zub: parity with nx.isomorphism.tree_isomorphism.
-    Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
-    """
+
+def tree_isomorphism(t1, t2, *, backend=None, **backend_kwargs):
+    """Return an isomorphism mapping between two trees t1 and t2."""
     _validate_backend_dispatch_keywords(
         "tree_isomorphism",
         backend,
         backend_kwargs,
     )
-    import networkx as nx
-    # br-r37-c1-treeisocheck (cc): nx's tree_isomorphism itself runs is_tree +
-    # faster_could_be_isomorphic (degree-sequence reject) BEFORE the AHU, but the
-    # delegate paid a 2x whole-graph fnx->nx conversion first — even for the
-    # common case of non-isomorphic trees nx rejects in O(n) (39/39 random
-    # distinct trees differ in degree sequence). Do those cheap checks in-process
-    # so non-iso short-circuits without converting. Byte-identical: same
-    # NotATree contract, [] for non-iso (0 fails / 64 pairs + edge cases vs nx),
-    # and the isomorphic-mapping path is unchanged (still the delegate). 0.13x ->
-    # 9.61x on the non-iso path.
+    if t1.is_directed() or t2.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if t1.is_multigraph() or t2.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if not is_tree(t1):
         raise NetworkXError("t1 is not a tree")
     if not is_tree(t2):
         raise NetworkXError("t2 is not a tree")
     if not faster_could_be_isomorphic(t1, t2):
         return []
-    return nx.algorithms.isomorphism.tree_isomorphism(
-        _networkx_graph_for_parity(t1),
-        _networkx_graph_for_parity(t2),
-        backend="networkx",
-    )
+    center1 = center(t1)
+    center2 = center(t2)
+    if len(center1) != len(center2):
+        return []
+    if len(center1) == 1:
+        return rooted_tree_isomorphism(t1, center1[0], t2, center2[0])
+    attempts = rooted_tree_isomorphism(t1, center1[0], t2, center2[0])
+    if len(attempts) > 0:
+        return attempts
+    return rooted_tree_isomorphism(t1, center1[0], t2, center2[1])
 
 
 def rooted_tree_isomorphism(t1, root1, t2, root2, *, backend=None, **backend_kwargs):
-    """Return an isomorphism mapping between rooted trees.
-
-    br-r37-c1-07kwm: parity with nx.isomorphism.rooted_tree_isomorphism.
-    Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
-    """
+    """Return an isomorphism mapping between rooted trees."""
     _validate_backend_dispatch_keywords(
         "rooted_tree_isomorphism",
         backend,
         backend_kwargs,
     )
-    import networkx as nx
-    # br-r37-c1-treeisocheck (cc): cheap in-process pre-reject before the 2x
-    # fnx->nx conversion + AHU (sibling of tree_isomorphism). A rooted iso is an
-    # unrooted iso that maps root->root, so faster_could_be_isomorphic (degree
-    # sequence) is a sound necessary condition; non-iso (different degree seq)
-    # short-circuits without converting. Byte-identical: NotATree contract + []
-    # for non-iso (0 fails vs nx incl varied roots/edge cases); iso-mapping path
-    # unchanged. 0.50x -> 66.62x on the non-iso path.
     if not is_tree(t1):
         raise NetworkXError("t1 is not a tree")
     if not is_tree(t2):
         raise NetworkXError("t2 is not a tree")
     if not faster_could_be_isomorphic(t1, t2):
         return []
-    return nx.algorithms.isomorphism.rooted_tree_isomorphism(
-        _networkx_graph_for_parity(t1),
-        root1,
-        _networkx_graph_for_parity(t2),
-        root2,
-        backend="networkx",
-    )
+    from collections import defaultdict as _defaultdict
+
+    dT, namemap, newroot1, newroot2 = _root_trees_inproc(t1, root1, t2, root2)
+    L = _defaultdict(list)
+    for n, dist in shortest_path_length(dT, source=0).items():
+        L[dist].append(n)
+    h = max(L)
+    label = {v: 0 for v in dT}
+    ordered_labels = {v: () for v in dT}
+    ordered_children = {v: () for v in dT}
+    for i in range(h - 1, 0, -1):
+        for v in L[i]:
+            if dT.out_degree(v) > 0:
+                s = sorted(((label[u], u) for u in dT.successors(v)), reverse=True)
+                ordered_labels[v], ordered_children[v] = list(zip(*s))
+        forlabel = sorted((ordered_labels[v], v) for v in L[i])
+        current = 0
+        for idx, (ol, v) in enumerate(forlabel):
+            if idx != 0 and ol != forlabel[idx - 1][0]:
+                current += 1
+            label[v] = current
+    isomorphism = []
+    if label[newroot1] == 0 and label[newroot2] == 0:
+        stack = [(newroot1, newroot2)]
+        while stack:
+            curr_v, curr_w = stack.pop()
+            isomorphism.append((curr_v, curr_w))
+            stack.extend(zip(ordered_children[curr_v], ordered_children[curr_w]))
+        isomorphism = [(namemap[u], namemap[v]) for (u, v) in isomorphism]
+    return isomorphism
 
 
 

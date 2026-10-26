@@ -383,22 +383,40 @@ def _katz_centrality_inproc(
     normalized=True,
     weight=None,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
+    if len(G) == 0:
+        return {}
+    nnodes = G.number_of_nodes()
+    x = {n: 0 for n in G} if nstart is None else nstart
     try:
-        return _nx.algorithms.centrality.katz.katz_centrality(
-            H,
-            alpha=alpha,
-            beta=beta,
-            max_iter=max_iter,
-            tol=tol,
-            nstart=nstart,
-            normalized=normalized,
-            weight=weight,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+        b = dict.fromkeys(G, float(beta))
+    except (TypeError, ValueError, AttributeError) as err:
+        b = beta
+        if set(beta) != set(G):
+            raise NetworkXError(
+                "beta dictionary must have a value for every node"
+            ) from err
+
+    for _ in range(max_iter):
+        xlast = x
+        x = dict.fromkeys(xlast, 0)
+        for n in x:
+            for nbr in G[n]:
+                x[nbr] += xlast[n] * G[n][nbr].get(weight, 1)
+        for n in x:
+            x[n] = alpha * x[n] + b[n]
+        error = sum(abs(x[n] - xlast[n]) for n in x)
+        if error < nnodes * tol:
+            if normalized:
+                try:
+                    s = 1.0 / _math.hypot(*x.values())
+                except ZeroDivisionError:
+                    s = 1.0
+            else:
+                s = 1
+            for n in x:
+                x[n] *= s
+            return x
+    raise _make_power_iteration_failed_convergence(max_iter)
 
 
 def katz_centrality(

@@ -1530,23 +1530,58 @@ def _approximate_current_flow_betweenness_centrality_inproc(
     *,
     sample_weight=1,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.centrality.current_flow_betweenness.approximate_current_flow_betweenness_centrality(
-            H,
-            normalized=normalized,
-            weight=weight,
-            dtype=dtype,
-            solver=solver,
-            epsilon=epsilon,
-            kmax=kmax,
-            seed=seed,
-            sample_weight=sample_weight,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import numpy as np
+
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    rng = _create_py_random_state(seed)
+    if not is_connected(G):
+        raise NetworkXError("Graph not connected.")
+
+    n = G.number_of_nodes()
+    if n < 3:
+        return dict.fromkeys(G, 0.0)
+    if epsilon <= 0:
+        raise NetworkXError(f"Epsilon must be positive. Got {epsilon=}.")
+    if sample_weight <= 0:
+        raise NetworkXError(f"Sample weight must be positive. Got {sample_weight=}.")
+
+    nb = (n - 1.0) * (n - 2.0)
+    cstar = n * (n - 1) / nb
+    k = int(sample_weight * np.ceil((cstar / epsilon) ** 2 * np.log(n)))
+    if k > kmax:
+        msg = f"Number random pairs k>kmax ({k}>{kmax}) "
+        raise NetworkXError(msg, "Increase kmax or epsilon")
+
+    solvername = {
+        "full": _FullInverseLaplacian,
+        "lu": _SuperLUInverseLaplacian,
+        "cg": _CGInverseLaplacian,
+    }
+    if solver not in solvername:
+        raise NetworkXError(f"Unknown solver: {solver}.")
+    ordering = _current_flow_rcm_ordering(G)
+    H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
+    L = laplacian_matrix(H, nodelist=range(n), weight=weight).asformat("csc")
+    L = L.astype(dtype)
+    C = solvername[solver](L, dtype=dtype)
+    betweenness = dict.fromkeys(H, 0.0)
+    cstar2k = cstar / (2 * k)
+    for _ in range(k):
+        s, t = pair = rng.sample(range(n), 2)
+        b = np.zeros(n, dtype=dtype)
+        b[s] = 1
+        b[t] = -1
+        p = C.solve(b)
+        for v in H:
+            if v in pair:
+                continue
+            for nbr in H[v]:
+                w = H[v][nbr].get(weight, 1.0)
+                betweenness[v] += float(w * np.abs(p[v] - p[nbr]) * cstar2k)
+    factor = 1.0 if normalized else nb / 2.0
+    return {ordering[k_node]: val * factor for k_node, val in betweenness.items()}
 
 
 def approximate_current_flow_betweenness_centrality(

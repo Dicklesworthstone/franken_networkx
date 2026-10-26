@@ -639,15 +639,15 @@ def _edge_load_from_source_local(G, source, cutoff=None):
 
 def _load_centrality_from_source_local(G, source, cutoff=None, weight=None):
     if weight is None:
-        _, predecessors, _, distances = _single_source_shortest_path_basic_local(
-            G, source, cutoff=cutoff
+        predecessors, distances = predecessor(
+            G, source, cutoff=cutoff, return_seen=True
         )
     else:
-        _, predecessors, _, distances = _single_source_dijkstra_path_basic_local(
+        predecessors, distances = dijkstra_predecessor_and_distance(
             G,
             source,
-            weight,
             cutoff=cutoff,
+            weight=weight,
         )
 
     # networkx's _node_betweenness sorts (length, vert) PAIRS: ties at one
@@ -721,28 +721,6 @@ def _group_preprocessing_local(G, group_nodes, weight):
                     )
 
     return path_betweenness, sigma, distances
-
-
-def _load_centrality_inproc(
-    G,
-    v=None,
-    cutoff=None,
-    normalized=True,
-    weight=None,
-):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.centrality.load.load_centrality(
-            H,
-            v=v,
-            cutoff=cutoff,
-            normalized=normalized,
-            weight=weight,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
 
 
 def _load_value_rank(G):
@@ -840,26 +818,6 @@ def load_centrality(
                     G, weight, value_rank, normalized
                 )
                 return loads[v] if single else loads
-
-    # br-r37-c1-u84bo: nx's load centrality uses dijkstra, which raises
-    # ValueError(('Contradictory paths found:', 'negative weights?')) on a
-    # negative edge weight (and honours its weight contract for +inf /
-    # non-numeric values). The pure-Python fallback below silently returned a
-    # result instead. For a string ``weight`` with negative / +inf / non-numeric
-    # values, delegate the whole computation to nx so the error (or result)
-    # matches exactly — mirrors the dijkstra/astar family's weight contract.
-    if isinstance(weight, str) and (
-        _has_negative_edge_weight_for_dijkstra(G, weight)
-        or _has_positive_infinity_edge_weight_for_dijkstra(G, weight)
-        or _has_nonnumeric_edge_weight(G, weight)
-    ):
-        return _load_centrality_inproc(
-            G,
-            v=v,
-            cutoff=cutoff,
-            normalized=normalized,
-            weight=weight,
-        )
 
     if v is not None:
         betweenness = 0.0

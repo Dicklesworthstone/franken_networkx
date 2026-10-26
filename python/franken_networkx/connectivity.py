@@ -118,46 +118,32 @@ def local_node_connectivity(
     backend=None,
     **backend_kwargs,
 ):
-    """Local node connectivity kappa(source, target).
-
-    br-lncroute: the ``from networkx... import *`` above left this bound to
-    NetworkX's flow-based implementation, so calling it on an fnx graph ran nx's
-    Python max-flow over the per-access AtlasView substrate (~0.75x nx). For the
-    default exact query, ``local_node_connectivity(G, s, t)`` is identically
-    ``kappa(s, t) == node_connectivity(G, s, t)``, and fnx's native
-    ``node_connectivity`` computes it via the fast max-flow substrate
-    (~2.9x nx, value-identical over 60 random directed+undirected pairs plus
-    complete / path / cycle / disconnected / dense-adjacent edge cases).
-
-    Route only the default case (no custom ``flow_func`` / ``auxiliary`` /
-    ``residual`` / ``cutoff`` / backend, distinct in-graph endpoints) to the
-    native path; everything else — including the early-exit ``cutoff`` contract
-    (returns ``min(true, cutoff)``) and the ``KeyError`` raised for a missing
-    endpoint — falls back to NetworkX's implementation verbatim.
-    """
+    """Local node connectivity kappa(source, target)."""
+    _fnx._validate_backend_dispatch_keywords(
+        "local_node_connectivity", backend, backend_kwargs
+    )
     if (
         flow_func is None
         and auxiliary is None
         and residual is None
         and cutoff is None
-        and backend is None
-        and not backend_kwargs
         and s != t
         and s in G
         and t in G
     ):
         return _fnx.node_connectivity(G, s, t)
-    return _nx_connectivity.local_node_connectivity(
-        G,
-        s,
-        t,
-        flow_func=flow_func,
-        auxiliary=auxiliary,
-        residual=residual,
-        cutoff=cutoff,
-        backend=backend,
-        **backend_kwargs,
-    )
+    if flow_func is None:
+        flow_func = _fnx.edmonds_karp
+    H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
+    mapping = H.graph.get("mapping", None)
+    if mapping is None:
+        raise _fnx.NetworkXError("Invalid auxiliary digraph.")
+    kwargs = {"flow_func": flow_func, "residual": residual}
+    if getattr(flow_func, "__name__", None) != "preflow_push":
+        kwargs["cutoff"] = cutoff
+    if getattr(flow_func, "__name__", None) == "shortest_augmenting_path":
+        kwargs["two_phase"] = True
+    return _fnx.maximum_flow_value(H, f"{mapping[s]}B", f"{mapping[t]}A", **kwargs)
 
 
 def local_edge_connectivity(
@@ -172,73 +158,49 @@ def local_edge_connectivity(
     backend=None,
     **backend_kwargs,
 ):
-    """Local edge connectivity lambda(s, t).
-
-    br-lncroute: sibling of :func:`local_node_connectivity`. Left bound to
-    NetworkX's flow implementation by the wildcard import, so it ran nx's
-    Python max-flow over the fnx per-access substrate (~0.71x nx). For the
-    default exact query ``local_edge_connectivity(G, s, t) == lambda(s, t) ==
-    edge_connectivity(G, s, t)``, and fnx's native ``edge_connectivity`` computes
-    it via the fast value-only max-flow substrate (~17x nx, value-identical over
-    60 directed+undirected pairs plus complete / path / disconnected edge cases).
-
-    Routes only the default case (no custom ``flow_func`` / ``auxiliary`` /
-    ``residual`` / ``cutoff`` / backend, distinct in-graph endpoints); the
-    ``cutoff`` early-exit contract and missing-endpoint errors fall back to
-    NetworkX verbatim.
-    """
+    """Local edge connectivity lambda(s, t)."""
+    _fnx._validate_backend_dispatch_keywords(
+        "local_edge_connectivity", backend, backend_kwargs
+    )
     if (
         flow_func is None
         and auxiliary is None
         and residual is None
         and cutoff is None
-        and backend is None
-        and not backend_kwargs
         and s != t
         and s in G
         and t in G
     ):
         return _fnx.edge_connectivity(G, s, t)
-    return _nx_connectivity.local_edge_connectivity(
-        G,
-        s,
-        t,
-        flow_func=flow_func,
-        auxiliary=auxiliary,
-        residual=residual,
-        cutoff=cutoff,
-        backend=backend,
-        **backend_kwargs,
-    )
+    if flow_func is None:
+        flow_func = _fnx.edmonds_karp
+    H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
+    kwargs = {"flow_func": flow_func, "residual": residual}
+    if getattr(flow_func, "__name__", None) != "preflow_push":
+        kwargs["cutoff"] = cutoff
+    if getattr(flow_func, "__name__", None) == "shortest_augmenting_path":
+        kwargs["two_phase"] = True
+    return _fnx.maximum_flow_value(H, s, t, **kwargs)
 
 
 def is_locally_k_edge_connected(G, s, t, k, *, backend=None, **backend_kwargs):
-    """Return whether ``s`` and ``t`` are locally k-edge-connected.
-
-    br-lncroute: sibling of :func:`local_edge_connectivity`. ``True`` iff
-    ``local_edge_connectivity(G, s, t) == lambda(s, t) >= k``, i.e.
-    ``edge_connectivity(G, s, t) >= k``. The wildcard import left this bound to
-    NetworkX's cutoff-flow implementation (~0.76x nx on a fnx graph); fnx's
-    native ``edge_connectivity`` computes ``lambda(s, t)`` via the fast max-flow
-    substrate (~18x nx, value-identical over 40 pairs x k plus complete /
-    disconnected edge cases). Routes only positive integer ``k`` with distinct
-    in-graph endpoints and no backend; ``k < 1`` (nx raises ``ValueError``) and
-    missing endpoints fall back to NetworkX verbatim.
-    """
-    if (
-        isinstance(k, int)
-        and not isinstance(k, bool)
-        and k >= 1
-        and backend is None
-        and not backend_kwargs
-        and s != t
-        and s in G
-        and t in G
-    ):
-        return _fnx.edge_connectivity(G, s, t) >= k
-    return _nx_connectivity.is_locally_k_edge_connected(
-        G, s, t, k, backend=backend, **backend_kwargs
+    """Return whether ``s`` and ``t`` are locally k-edge-connected."""
+    _fnx._validate_backend_dispatch_keywords(
+        "is_locally_k_edge_connected", backend, backend_kwargs
     )
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if k < 1:
+        raise ValueError(f"k must be positive, not {k}")
+    if G.degree(s) < k or G.degree(t) < k:
+        return False
+    if k == 1:
+        return _fnx.has_path(G, s, t)
+    if s != t and s in G and t in G:
+        return _fnx.edge_connectivity(G, s, t) >= k
+    return local_edge_connectivity(G, s, t, cutoff=k) >= k
 
 
 def build_auxiliary_node_connectivity(G, *, backend=None, **backend_kwargs):
@@ -306,21 +268,24 @@ def minimum_st_edge_cut(
     _fnx._validate_backend_dispatch_keywords(
         "minimum_st_edge_cut", backend, backend_kwargs
     )
+    H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
     if flow_func is None and residual is None:
-        H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
         H_fnx = _fnx._coerce_arg_to_fnx_graph(H)
         _, (reachable, non_reachable) = _fnx._minimum_cut_raw(
             H_fnx, s, t, capacity="capacity", edmonds_karp=True
         )
-        reachable = set(reachable)
-        non_reachable = set(non_reachable)
-        cutset = set()
-        for u, nbrs in ((n, G[n]) for n in reachable):
-            cutset.update((u, v) for v in nbrs if v in non_reachable)
-        return cutset
-    return _nx_connectivity.minimum_st_edge_cut(
-        G, s, t, flow_func=flow_func, auxiliary=auxiliary, residual=residual
-    )
+    else:
+        if flow_func is None:
+            flow_func = _fnx.edmonds_karp
+        _, (reachable, non_reachable) = _fnx.minimum_cut(
+            H, s, t, capacity="capacity", flow_func=flow_func, residual=residual
+        )
+    reachable = set(reachable)
+    non_reachable = set(non_reachable)
+    cutset = set()
+    for u, nbrs in ((n, G[n]) for n in reachable):
+        cutset.update((u, v) for v in nbrs if v in non_reachable)
+    return cutset
 
 
 def minimum_st_node_cut(
@@ -330,21 +295,22 @@ def minimum_st_node_cut(
     _fnx._validate_backend_dispatch_keywords(
         "minimum_st_node_cut", backend, backend_kwargs
     )
-    if flow_func is None and residual is None:
-        H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
-        mapping = H.graph.get("mapping", None)
-        if mapping is None:
-            raise _fnx.NetworkXError("Invalid auxiliary digraph.")
-        if G.has_edge(s, t) or G.has_edge(t, s):
-            return set()
-        edge_cut = minimum_st_edge_cut(
-            H, f"{mapping[s]}B", f"{mapping[t]}A", auxiliary=H
-        )
-        node_cut = {H.nodes[node]["id"] for edge in edge_cut for node in edge}
-        return node_cut - {s, t}
-    return _nx_connectivity.minimum_st_node_cut(
-        G, s, t, flow_func=flow_func, auxiliary=auxiliary, residual=residual
+    H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
+    mapping = H.graph.get("mapping", None)
+    if mapping is None:
+        raise _fnx.NetworkXError("Invalid auxiliary digraph.")
+    if G.has_edge(s, t) or G.has_edge(t, s):
+        return set()
+    edge_cut = minimum_st_edge_cut(
+        H,
+        f"{mapping[s]}B",
+        f"{mapping[t]}A",
+        flow_func=flow_func,
+        auxiliary=H,
+        residual=residual,
     )
+    node_cut = {H.nodes[node]["id"] for edge in edge_cut for node in edge}
+    return node_cut - {s, t}
 
 
 EdgeComponentAuxGraph = _fnx._EdgeComponentAuxGraph
