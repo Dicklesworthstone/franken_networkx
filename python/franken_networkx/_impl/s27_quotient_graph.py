@@ -459,6 +459,8 @@ def identified_nodes(
     copy=True,
     *,
     store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
 ):
     """Return *G* with nodes *u* and *v* identified (contracted).
 
@@ -481,6 +483,7 @@ def identified_nodes(
     -------
     Graph or DiGraph
     """
+    _validate_backend_dispatch_keywords("identified_nodes", backend, backend_kwargs)
     # br-r37-c1-cnodes-vbad: nx raises NetworkXError when ``v`` is
     # not in G (its ``H.nodes[v]`` access surfaces a typed error).
     # fnx previously guarded with ``if v in G else {}``, silently
@@ -694,6 +697,8 @@ def contracted_nodes(
     copy=True,
     *,
     store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
 ):
     """Contract nodes *u* and *v* in *G*.
 
@@ -708,6 +713,7 @@ def contracted_nodes(
     copy : bool, optional
         If True (default), return a new graph.
     """
+    _validate_backend_dispatch_keywords("contracted_nodes", backend, backend_kwargs)
     return identified_nodes(
         G,
         u,
@@ -725,6 +731,8 @@ def contracted_edge(
     copy=True,
     *,
     store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
 ):
     """Contract an edge in *G* by merging its endpoints.
 
@@ -735,6 +743,7 @@ def contracted_edge(
     self_loops : bool, optional
     copy : bool, optional
     """
+    _validate_backend_dispatch_keywords("contracted_edge", backend, backend_kwargs)
     u, v = edge[:2]
     if not G.has_edge(u, v):
         raise ValueError(f"Edge {edge} does not exist in graph G; cannot contract it")

@@ -18,28 +18,28 @@
     "min_cut_set_order_parity": true
   },
   "candidate": {
-    "candidate_id": "091879cc19db76ecfc7c1cd7ca244b80c92bb8095d6589298ea8c94a5296e02a",
+    "candidate_id": "003708f2c25435099bf2baa116667f372032a7827c03a2daf138f72765a94f9a",
     "fnx_version": "0.2.3",
-    "head": "4abcc0432ec15a83a821b778774cb86b5a9bcd59",
+    "head": "d6c628c22c866d9d747b1d8f60d65892b7edea7e",
     "installed_verification": {
-      "candidate_id": "091879cc19db76ecfc7c1cd7ca244b80c92bb8095d6589298ea8c94a5296e02a",
-      "extension": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv/lib/python3.14/site-packages/franken_networkx/_fnx.abi3.so",
+      "candidate_id": "003708f2c25435099bf2baa116667f372032a7827c03a2daf138f72765a94f9a",
+      "extension": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv/lib/python3.14/site-packages/franken_networkx/_fnx.abi3.so",
       "installed_journey_ok": true,
       "installed_witness_hash": "d1bd7e1cb5986b8443f713305a384e80515a9aeef49adae47a053a10a00ddadb",
       "oracle_version": "3.6.1",
-      "package": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv/lib/python3.14/site-packages/franken_networkx",
-      "prefix": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv",
-      "python": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv/bin/python",
+      "package": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv/lib/python3.14/site-packages/franken_networkx",
+      "prefix": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv",
+      "python": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv/bin/python",
       "python_version": "3.14.3 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
-      "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047"
+      "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef"
     },
-    "native_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047",
+    "native_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef",
     "oracle_version": "3.6.1",
     "python_version": "3.14.3",
-    "release_evidence_sha256": "4b437c2f27a62001d40fed3d1da741bfedcecc350dc95c34d581e17d5b1b3b2a",
-    "sdist_sha256": "8aa8fe639a954ba824d62d81079657458948ad500ccffa8b2c4c7a5778164d8a",
-    "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047",
-    "wheel_sha256": "67de219fcf7b5a9a2ad7c99c1829fd5f056e355009ee8c2b5a66c17f14617cf8"
+    "release_evidence_sha256": "73de544bb66400dcd4b5e1c5a427e35b9325676192a7bb5f3688057368b342d7",
+    "sdist_sha256": "0f6484ed9ef0245b5c8b5a234dd0fa757427748f6a061ea883a98769eab1a053",
+    "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef",
+    "wheel_sha256": "3cae16e83b59b1e2a1a2f9622923c30b7074eef8bec8890b2218e590a65b5bc1"
   },
   "cgse": {
     "algorithm_count": 12,
@@ -192,7 +192,7 @@
       "recovered_blocks": 1,
       "semantic_replay_ok": true
     },
-    "candidate_id": "091879cc19db76ecfc7c1cd7ca244b80c92bb8095d6589298ea8c94a5296e02a",
+    "candidate_id": "003708f2c25435099bf2baa116667f372032a7827c03a2daf138f72765a94f9a",
     "durability_binary_sha256": "08908781507152b99567a07e3404ce7f3d8811a43daf237a08dc9a950cb7c826",
     "durability_classes": [
       "conformance_fixtures",
@@ -201,26 +201,26 @@
       "reproducibility_ledgers",
       "long_lived_snapshots"
     ],
-    "head": "4abcc0432ec15a83a821b778774cb86b5a9bcd59",
+    "head": "d6c628c22c866d9d747b1d8f60d65892b7edea7e",
     "input_file_count": 546,
     "installed_verification": {
-      "candidate_id": "091879cc19db76ecfc7c1cd7ca244b80c92bb8095d6589298ea8c94a5296e02a",
-      "extension": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv/lib/python3.14/site-packages/franken_networkx/_fnx.abi3.so",
+      "candidate_id": "003708f2c25435099bf2baa116667f372032a7827c03a2daf138f72765a94f9a",
+      "extension": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv/lib/python3.14/site-packages/franken_networkx/_fnx.abi3.so",
       "installed_journey_ok": true,
       "installed_witness_hash": "d1bd7e1cb5986b8443f713305a384e80515a9aeef49adae47a053a10a00ddadb",
       "oracle_version": "3.6.1",
-      "package": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv/lib/python3.14/site-packages/franken_networkx",
-      "prefix": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv",
-      "python": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/retained_venv/bin/python",
+      "package": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv/lib/python3.14/site-packages/franken_networkx",
+      "prefix": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv",
+      "python": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/retained_venv/bin/python",
       "python_version": "3.14.3 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
-      "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047"
+      "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef"
     },
-    "native_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047",
-    "release_evidence_path": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/candidate/franken_networkx-0.2.3-release-evidence.tar.gz",
-    "release_evidence_sha256": "4b437c2f27a62001d40fed3d1da741bfedcecc350dc95c34d581e17d5b1b3b2a",
-    "sdist_sha256": "8aa8fe639a954ba824d62d81079657458948ad500ccffa8b2c4c7a5778164d8a",
-    "wheel_path": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792907898496-3394486/candidate/franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-    "wheel_sha256": "67de219fcf7b5a9a2ad7c99c1829fd5f056e355009ee8c2b5a66c17f14617cf8"
+    "native_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef",
+    "release_evidence_path": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/candidate/franken_networkx-0.2.3-release-evidence.tar.gz",
+    "release_evidence_sha256": "73de544bb66400dcd4b5e1c5a427e35b9325676192a7bb5f3688057368b342d7",
+    "sdist_sha256": "0f6484ed9ef0245b5c8b5a234dd0fa757427748f6a061ea883a98769eab1a053",
+    "wheel_path": "/data/projects/franken_networkx/target/e2e_acceptance/run-1792976534043-3374983/candidate/franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+    "wheel_sha256": "3cae16e83b59b1e2a1a2f9622923c30b7074eef8bec8890b2218e590a65b5bc1"
   },
   "excluded_environments": [
     {
@@ -240,7 +240,7 @@
       "reason": "cross-OS/arch wheel target; local host is x86_64-unknown-linux-gnu"
     }
   ],
-  "generated_at_utc": "2026-10-25T05:58:20.639917+00:00",
+  "generated_at_utc": "2026-10-26T01:02:16.416517+00:00",
   "performance_receipts": {
     "assertions": 11,
     "attribute_store_rss": {
@@ -250,14 +250,14 @@
         "MultiDiGraph": 1.0881,
         "MultiGraph": 0.7856
       },
-      "sha256": "35d3dd24320bbd6ef5234fbc1b4143fd4b0453161831597ee5b1dfc0eac7014b",
-      "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047"
+      "sha256": "d36984f36f848a3dbfb792f9a6660e3e0ba2c441e67a84f2afe71e537f18d7fb",
+      "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef"
     },
     "backend_whole_job": {
       "all_outputs_equal": true,
       "cold_geomean_vs_nx": 1.7586,
-      "sha256": "4a2e193436589d484315715a36c9bb702646f3ec29c333f6fb93901ff14df535",
-      "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047",
+      "sha256": "1254871f92a7e798ae946975eea8fff36742b67b25f4d35f046b2085c520e0eb",
+      "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef",
       "total_jobs": 10,
       "warm_geomean_vs_nx": 5.5884
     },
@@ -265,16 +265,16 @@
       "allowlisted_debt": 0,
       "failed": 0,
       "passed_green": 54,
-      "sha256": "11709dcbe8f1de90f5e16dcb210667dde293a4cb90282ec3752be299de764eb7",
-      "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047"
+      "sha256": "20c3216c72b670d8850e3e48b7d110d2473da1742368e5e11b108250290c048e",
+      "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef"
     },
     "slo_gate": {
-      "sha256": "4946204eefe7fb175df7831b1c7d30bfe5173758337bc23866cf0a216b35447d",
-      "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047",
+      "sha256": "7c85eb9f7bdce5899d087d16193677c32582060e1402c5dd28f4bdd017f83016",
+      "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef",
       "status": "pass",
       "workload_count": 7
     },
-    "so_sha256": "23b92d0d8cb980a8e1bd8245d2e9c578c6cd1f6c890eb226f97b6c31b7cb6047"
+    "so_sha256": "5b9c53adfaca857fd8d068574737a719508533a91f6fd7d945641fc5a6726aef"
   },
   "phase": "completed",
   "replay_commands": [
@@ -288,7 +288,7 @@
     "hardened_edgelist_recovered": true,
     "hardened_graphml_recovered": true,
     "incompatible_feature_failed_closed": true,
-    "snapshot_sha256": "86fe3f12992bb9bdf06a58eede2a700a7ebb9063aa0a233b103f9328495783ab",
+    "snapshot_sha256": "f453a45922b60df335aa835f75094e4766609e2cef1fffbda739a4241df1b16f",
     "strict_failed_closed": true
   },
   "semantics": {
@@ -343,7 +343,7 @@
     "failed_steps": 0,
     "passed_steps": 12,
     "skips": 0,
-    "total_elapsed_s": 2.142,
+    "total_elapsed_s": 2.371,
     "unknown_observations": [],
     "xfails": 0
   }

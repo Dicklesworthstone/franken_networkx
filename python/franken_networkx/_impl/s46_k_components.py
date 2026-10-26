@@ -573,8 +573,6 @@ def tree_all_pairs_lowest_common_ancestor(
 def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a random graph based on the specified kernel.
 
-    Delegates to NetworkX's random_kernel_graph implementation.
-
     Parameters
     ----------
     n : int
@@ -591,59 +589,30 @@ def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, crea
         Backend dispatch (ignored, for compatibility).
     """
     _validate_backend_dispatch_keywords("random_kernel_graph", backend, backend_kwargs)
-    return _random_kernel_graph_via_parity(
-        n,
-        kernel_integral,
-        kernel_root=kernel_root,
-        seed=seed,
-        create_using=create_using,
-        backend=backend,
-        **backend_kwargs,
-    )
+    rng = _generator_random_state(seed)
+    graph = _checked_create_using(create_using, directed=False, multigraph=False)
+    if kernel_root is None:
+        import scipy as sp
 
+        def kernel_root(y, a, r):
+            def my_function(b):
+                return kernel_integral(y, a, b) - r
 
-def _random_kernel_graph_via_parity(
-    n,
-    kernel_integral,
-    *,
-    kernel_root=None,
-    seed=None,
-    create_using=None,
-    backend=None,
-    **backend_kwargs,
-):
-    """Helper — keeps ``random_kernel_graph`` classified as PY_WRAPPER.
+            return sp.optimize.brentq(my_function, a, 1)
 
-    Normalises fnx graph classes/instances to their upstream nx
-    equivalents before delegating (upstream's descriptor path crashes
-    on fnx's Rust-bound classes otherwise).
-    """
-    import networkx as _nx_mod
-    from franken_networkx.readwrite import _from_nx_graph
+    graph.add_nodes_from(range(n))
+    edges = []
+    (i, j) = (1, 1)
+    while i < n:
+        r = -_math.log(1 - rng.random())  # (1-rng.random()) in (0, 1]
+        if kernel_integral(i / n, j / n, 1) <= r:
+            i, j = i + 1, i + 1
+        else:
+            j = _math.ceil(n * kernel_root(i / n, j / n, r))
+            edges.append((i - 1, j - 1))
+    graph.add_edges_from(edges)
+    return graph
 
-    _FNX_TO_NX_CLASS = {
-        Graph: _nx_mod.Graph,
-        DiGraph: _nx_mod.DiGraph,
-        MultiGraph: _nx_mod.MultiGraph,
-        MultiDiGraph: _nx_mod.MultiDiGraph,
-    }
-    if isinstance(create_using, type) and create_using in _FNX_TO_NX_CLASS:
-        create_using = _FNX_TO_NX_CLASS[create_using]
-    elif isinstance(create_using, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
-        nx_cls = _FNX_TO_NX_CLASS.get(type(create_using))
-        if nx_cls is not None:
-            create_using = nx_cls()
-
-    g = _nx_mod.random_kernel_graph(
-        n,
-        kernel_integral,
-        kernel_root=kernel_root,
-        seed=seed,
-        create_using=create_using,
-        backend="networkx",
-        **backend_kwargs,
-    )
-    return _from_nx_graph(g)
 
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
