@@ -1059,7 +1059,14 @@ fn custom_object_canonical_key(
     key: &Bound<'_, PyAny>,
     prefix: &str,
 ) -> PyResult<String> {
-    let h = key.hash()?;
+    let Ok(h) = key.hash() else {
+        let addr = key.as_ptr() as usize;
+        return if prefix.is_empty() {
+            Ok(format!("__fnx_id:{addr:x}"))
+        } else {
+            Ok(format!("{prefix}__fnx_id:{addr:x}"))
+        };
+    };
     if object_uses_identity_equality(py, key) {
         let addr = key.as_ptr() as usize;
         return if prefix.is_empty() {
