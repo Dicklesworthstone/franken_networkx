@@ -35,6 +35,11 @@ def _is_simple_fnx_graph(G):
     return isinstance(G, _fnx.Graph)
 
 
+def matching_dict_to_set(matching):
+    """Convert matching dict format to matching set format."""
+    return _fnx._matching_dict_to_set(matching)
+
+
 def is_matching(G, matching, *, backend=None, **backend_kwargs):
     """Return True if *matching* is a valid matching of *G*."""
     _fnx._validate_backend_dispatch_keywords("is_matching", backend, backend_kwargs)
@@ -65,7 +70,7 @@ def max_weight_matching(
         "max_weight_matching", backend, backend_kwargs
     )
     if _is_simple_fnx_graph(G) and len(G) <= _DIRECT_MAX_WEIGHT_MATCHING_NODE_LIMIT:
-        return _upstream_body("max_weight_matching")(
+        return _fnx._max_weight_matching_impl(
             G,
             maxcardinality=maxcardinality,
             weight=weight,
@@ -81,7 +86,7 @@ def min_weight_matching(G, weight="weight", *, backend=None, **backend_kwargs):
         "min_weight_matching", backend, backend_kwargs
     )
     if _is_simple_fnx_graph(G):
-        return _upstream_body("min_weight_matching")(G, weight=weight)
+        return _fnx._min_weight_matching_impl(G, weight=weight)
     return _fnx.min_weight_matching(G, weight=weight)
 
 

@@ -1554,8 +1554,11 @@ def prefix_tree(paths):
 
 
 def _root_to_leaf_paths_via_nx(G):
-    """br-r37-c1-17uhk: private wrapper so dag_to_branching stays PY_WRAPPER."""
-    return _nx.algorithms.dag.root_to_leaf_paths(G, backend="networkx")
+    """Yield root-to-leaf paths in a DAG using native all_simple_paths."""
+    roots = (v for v, d in G.in_degree() if d == 0)
+    leaves = (v for v, d in G.out_degree() if d == 0)
+    for root, leaf in _itertools.product(roots, leaves):
+        yield from all_simple_paths(G, root, leaf)
 
 
 def dag_to_branching(G):

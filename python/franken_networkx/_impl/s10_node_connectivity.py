@@ -1146,6 +1146,9 @@ def min_weight_matching(G, weight="weight"):
     )
 
 
+_min_weight_matching_impl = min_weight_matching
+
+
 def _max_weight_matching_native(G, maxcardinality, weight, min_weight=False):
     """networkx's ``max_weight_matching`` through the native port (1g0lj.1).
 
@@ -1235,6 +1238,9 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
     return _max_weight_matching_structural_nx(
         G, maxcardinality=maxcardinality, weight=weight
     )
+
+
+_max_weight_matching_impl = max_weight_matching
 
 
 def min_edge_cover(G, matching_algorithm=None):

@@ -245,6 +245,146 @@ def center(G):
     return _fnx.center(G)
 
 
+def _subtree_sizes(G, root):
+    sizes = {root: 1}
+    stack = [root]
+    for parent, child in _fnx.dfs_edges(G, root):
+        while stack[-1] != parent:
+            descendant = stack.pop()
+            sizes[stack[-1]] += sizes[descendant]
+        stack.append(child)
+        sizes[child] = 1
+    for i in range(len(stack) - 1, 0, -1):
+        sizes[stack[i - 1]] += sizes[stack[i]]
+    return sizes
+
+
+def centroid(G, *, backend=None, **backend_kwargs):
+    """Return the centroid of an unweighted tree."""
+    _fnx._validate_backend_dispatch_keywords("centroid", backend, backend_kwargs)
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if not _fnx.is_tree(G):
+        raise _fnx.NotATree("provided graph is not a tree")
+    prev, root = None, next(iter(G))
+    sizes = _subtree_sizes(G, root)
+    total_size = G.number_of_nodes()
+
+    def _heaviest_child(prev_node, root_node):
+        return max(
+            (x for x in G.neighbors(root_node) if x != prev_node),
+            key=sizes.get,
+            default=None,
+        )
+
+    hc = _heaviest_child(prev, root)
+    while max(total_size - sizes[root], sizes.get(hc, 0)) > total_size / 2:
+        prev, root = root, hc
+        hc = _heaviest_child(prev, root)
+
+    return [root] + [
+        x for x in G.neighbors(root) if x != prev and sizes[x] == total_size / 2
+    ]
+
+
+def branching_weight(G, attr="weight", default=1, *, backend=None, **backend_kwargs):
+    """Return the total weight of a branching."""
+    _fnx._validate_backend_dispatch_keywords(
+        "branching_weight", backend, backend_kwargs
+    )
+    return sum(edge[2].get(attr, default) for edge in G.edges(data=True))
+
+
+def minimal_branching(
+    G,
+    /,
+    *,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    backend=None,
+    **backend_kwargs,
+):
+    """Return a minimal branching from ``G``."""
+    _fnx._validate_backend_dispatch_keywords(
+        "minimal_branching", backend, backend_kwargs
+    )
+    return _fnx._minimal_branching_backend_impl(
+        G,
+        attr=attr,
+        default=default,
+        preserve_attrs=preserve_attrs,
+        partition=partition,
+    )
+
+
+def greedy_branching(
+    G, attr="weight", default=1, kind="max", seed=None, *, backend=None, **backend_kwargs
+):
+    """Return a branching obtained through a greedy algorithm."""
+    import operator as _operator
+    import string as _string
+
+    _fnx._validate_backend_dispatch_keywords(
+        "greedy_branching", backend, backend_kwargs
+    )
+    if kind not in {"max", "min"}:
+        raise _fnx.NetworkXException("Unknown value for `kind`.")
+
+    reverse = kind != "min"
+    if attr is None:
+        rng = _fnx._generator_random_state(seed)
+        attr = "".join(rng.choice(_string.ascii_letters) for _ in range(15))
+
+    edges = [(u, v, data.get(attr, default)) for (u, v, data) in G.edges(data=True)]
+    try:
+        edges.sort(key=_operator.itemgetter(2, 0, 1), reverse=reverse)
+    except TypeError:
+        edges.sort(key=_operator.itemgetter(2), reverse=reverse)
+
+    B = _fnx.DiGraph()
+    B.add_nodes_from(G)
+
+    parent = {}
+    weight_rank = {}
+
+    def _find(x):
+        if x not in parent:
+            parent[x] = x
+            weight_rank[x] = 1
+            return x
+        path = []
+        root = parent[x]
+        while root != x:
+            path.append(x)
+            x = root
+            root = parent[x]
+        for ancestor in path:
+            parent[ancestor] = root
+        return root
+
+    def _union(x, y):
+        rx, ry = _find(x), _find(y)
+        if rx == ry:
+            return
+        if weight_rank[rx] < weight_rank[ry]:
+            rx, ry = ry, rx
+        weight_rank[rx] += weight_rank[ry]
+        parent[ry] = rx
+
+    for u, v, w in edges:
+        if _find(u) == _find(v):
+            continue
+        if B.in_degree(v) == 1:
+            continue
+        data = {attr: w} if attr is not None else {}
+        B.add_edge(u, v, **data)
+        _union(u, v)
+
+    return B
+
+
 def from_prufer_sequence(sequence, *, backend=None, **backend_kwargs):
     """Return the tree corresponding to the given Prüfer sequence.
 
