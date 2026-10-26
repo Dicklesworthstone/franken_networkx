@@ -15,14 +15,64 @@ from networkx.algorithms.threshold import *  # noqa: F401,F403
 import networkx.algorithms.threshold as _nx_threshold
 
 import franken_networkx as _fnx
-from franken_networkx.readwrite import _from_nx_graph
 
-# br-r37-c1-ukwgj: find_alternating_4_cycle and find_creation_sequence
-# are dispatchable but absent from threshold.__all__ (which lists only
-# is_threshold_graph / find_threshold_graph), so the star import skips
-# them.  Re-export for fnx.algorithms.threshold parity.
-find_alternating_4_cycle = _nx_threshold.find_alternating_4_cycle
-find_creation_sequence = _nx_threshold.find_creation_sequence
+
+def uncompact(creation_sequence):
+    """Convert a compact creation sequence for a threshold graph to standard form."""
+    first = creation_sequence[0]
+    if isinstance(first, str):
+        return creation_sequence
+    if isinstance(first, tuple):
+        return creation_sequence
+    if isinstance(first, int):
+        ccscopy = creation_sequence[:]
+    else:
+        raise TypeError("Not a valid creation sequence type")
+    cs = []
+    while ccscopy:
+        cs.extend(ccscopy.pop(0) * ["d"])
+        if ccscopy:
+            cs.extend(ccscopy.pop(0) * ["i"])
+    return cs
+
+
+def find_alternating_4_cycle(G, *, backend=None, **backend_kwargs):
+    """Return False if there aren't any alternating 4 cycles, else [a, b, c, d]."""
+    _fnx._validate_backend_dispatch_keywords(
+        "find_alternating_4_cycle", backend, backend_kwargs
+    )
+    for u, v in G.edges():
+        for w in G.nodes():
+            if not G.has_edge(u, w) and u != w:
+                for x in G.neighbors(w):
+                    if not G.has_edge(v, x) and v != x:
+                        return [u, v, w, x]
+    return False
+
+
+def find_creation_sequence(G, *, backend=None, **backend_kwargs):
+    """Find a threshold subgraph that is close to largest in G."""
+    _fnx._validate_backend_dispatch_keywords(
+        "find_creation_sequence", backend, backend_kwargs
+    )
+    cs = []
+    H = G
+    while H.order() > 0:
+        dsdict = dict(H.degree())
+        ds = [(d, v) for v, d in dsdict.items()]
+        ds.sort()
+        if ds[-1][0] == 0:
+            cs.extend(zip(dsdict, ["i"] * (len(ds) - 1) + ["d"]))
+            break
+        while ds[0][0] == 0:
+            (d, iso) = ds.pop(0)
+            cs.append((iso, "i"))
+        (d, bigv) = ds.pop()
+        cs.append((bigv, "d"))
+        H = H.subgraph(H.neighbors(bigv))
+    cs.reverse()
+    return cs
+
 
 __all__ = list(
     getattr(
@@ -77,61 +127,37 @@ def is_threshold_graph(G, *, backend=None, **backend_kwargs):
 
 
 def find_threshold_graph(G, create_using=None, *, backend=None, **backend_kwargs):
-    """Find a threshold subgraph of the given graph.
-
-    Wraps ``networkx.algorithms.threshold.find_threshold_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("find_threshold_graph", backend, backend_kwargs)
-    # br-r37-c1-threshnative: nx's find_threshold_graph(G, create_using) is exactly
-    # ``threshold_graph(find_creation_sequence(G), create_using)``. Run nx's
-    # creation-sequence finder (O(V) degree scan, unchanged), then route the
-    # O(V^2) construction through THIS module's native threshold_graph (batched
-    # add_edges_from, no intermediate nx graph + _from_nx_graph conversion) instead
-    # of nx.threshold_graph + convert. Byte-identical: same creation sequence, and
-    # threshold_graph is byte-exact (2000/2000 across all sequence formats).
-    cs = _nx_threshold.find_creation_sequence(G)
+    """Find a threshold subgraph of the given graph."""
+    _fnx._validate_backend_dispatch_keywords(
+        "find_threshold_graph", backend, backend_kwargs
+    )
+    cs = find_creation_sequence(G)
     return threshold_graph(cs, create_using=create_using)
 
 
 def threshold_graph(creation_sequence, create_using=None, *, backend=None, **backend_kwargs):
-    """Build a threshold graph from a creation sequence.
-
-    Wraps ``networkx.algorithms.threshold.threshold_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Build a threshold graph from a creation sequence."""
     _fnx._validate_backend_dispatch_keywords("threshold_graph", backend, backend_kwargs)
-    # br-r37-c1-threshnative: for the default (undirected fnx Graph) result, build
-    # DIRECTLY instead of constructing a networkx graph (per-edge add_edge over the
-    # O(V^2) dominating edges) and then paying _from_nx_graph (the fnx<-nx
-    # conversion + row alignment). Replicates nx's exact algorithm verbatim — same
-    # creation-sequence parsing (string / labeled-tuple / compact via nx's own
-    # uncompact), same "dominating node connects to all existing nodes in node
-    # order" edge emission, same node order, same graph name — so node labels,
-    # node order and edge order are byte-identical; only the construction is fnx
-    # (one add_nodes_from + one batched add_edges_from). A non-None create_using
-    # keeps the delegated path (its type/relabel semantics).
-    if create_using is None:
-        first = creation_sequence[0]
-        if isinstance(first, str):
-            ci = list(enumerate(creation_sequence))
-        elif isinstance(first, tuple):
-            ci = list(creation_sequence)
-        elif isinstance(first, int):
-            ci = list(enumerate(_nx_threshold.uncompact(creation_sequence)))
-        else:
-            raise ValueError("not a valid creation sequence")
-        G = _fnx.Graph()
-        G.graph["name"] = "Threshold Graph"
-        node_list = []
-        edges = []
-        for v, node_type in ci:
-            if node_type == "d":  # dominating: connect to all existing nodes
-                for u in node_list:
-                    edges.append((v, u))
-            node_list.append(v)
-        G.add_nodes_from(node_list)
-        G.add_edges_from(edges)
-        return G
-    nx_result = _nx_threshold.threshold_graph(creation_sequence, create_using=create_using)
-    return _from_nx_graph(nx_result, create_using=create_using)
+    first = creation_sequence[0]
+    if isinstance(first, str):
+        ci = list(enumerate(creation_sequence))
+    elif isinstance(first, tuple):
+        ci = list(creation_sequence)
+    elif isinstance(first, int):
+        ci = list(enumerate(uncompact(creation_sequence)))
+    else:
+        raise ValueError("not a valid creation sequence")
+    G = _fnx.empty_graph(0, create_using)
+    if G.is_directed():
+        raise _fnx.NetworkXError("Directed Graph not supported")
+    G.graph["name"] = "Threshold Graph"
+    node_list = []
+    edges = []
+    for v, node_type in ci:
+        if node_type == "d":
+            for u in node_list:
+                edges.append((v, u))
+        node_list.append(v)
+    G.add_nodes_from(node_list)
+    G.add_edges_from(edges)
+    return G

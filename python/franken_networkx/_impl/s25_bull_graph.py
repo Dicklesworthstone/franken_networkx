@@ -1440,25 +1440,109 @@ def random_labeled_tree(n, *, seed=None):
     return _random_tree_internal(n, seed=rng)
 
 
+import random as _random
+
+
+class _PythonRandomViaNumpyBits(_random.Random):
+    """Provide the random.Random algorithms using a numpy.random bit generator."""
+
+    def __init__(self, rng=None):
+        import numpy as np
+
+        self._rng = np.random.mtrand._rand if rng is None else rng
+        self.gauss_next = None
+
+    def random(self):
+        return self._rng.random()
+
+    def getrandbits(self, k):
+        if k < 0:
+            raise ValueError("number of bits must be non-negative")
+        numbytes = (k + 7) // 8
+        x = int.from_bytes(self._rng.bytes(numbytes), "big")
+        return x >> (numbytes * 8 - k)
+
+    def getstate(self):
+        return self._rng.__getstate__()
+
+    def setstate(self, state):
+        self._rng.__setstate__(state)
+
+    def seed(self, *args, **kwds):
+        raise NotImplementedError("seed() not implemented in PythonRandomViaNumpyBits")
+
+
+class _PythonRandomInterface:
+    """Backward-compatible wrapper for pre-seeded numpy RandomState instances."""
+
+    def __init__(self, rng=None):
+        import numpy as np
+
+        self._rng = np.random.mtrand._rand if rng is None else rng
+
+    def random(self):
+        return self._rng.random()
+
+    def uniform(self, a, b):
+        return a + (b - a) * self._rng.random()
+
+    def randrange(self, a, b=None):
+        import numpy as np
+
+        if b is None:
+            a, b = 0, a
+        if b > 9223372036854775807:
+            return _PythonRandomViaNumpyBits(self._rng).randrange(a, b)
+        if isinstance(self._rng, np.random.Generator):
+            return self._rng.integers(a, b)
+        return self._rng.randint(a, b)
+
+    def choice(self, seq):
+        import numpy as np
+
+        if isinstance(self._rng, np.random.Generator):
+            idx = self._rng.integers(0, len(seq))
+        else:
+            idx = self._rng.randint(0, len(seq))
+        return seq[idx]
+
+    def gauss(self, mu, sigma):
+        return self._rng.normal(mu, sigma)
+
+    def shuffle(self, seq):
+        return self._rng.shuffle(seq)
+
+    def sample(self, seq, k):
+        return self._rng.choice(list(seq), size=(k,), replace=False)
+
+    def randint(self, a, b):
+        import numpy as np
+
+        if b > 9223372036854775807:
+            return _PythonRandomViaNumpyBits(self._rng).randint(a, b)
+        if isinstance(self._rng, np.random.Generator):
+            return self._rng.integers(a, b + 1)
+        return self._rng.randint(a, b + 1)
+
+    def expovariate(self, scale):
+        return self._rng.exponential(1 / scale)
+
+    def paretovariate(self, shape):
+        return self._rng.pareto(shape)
+
+
 def _generator_random_state(seed):
     """Return a stdlib random state matching NetworkX's common seed semantics."""
-    import random as _random
-
-    class _NumpyRandIntAdapter:
-        def __init__(self, rng):
-            self._rng = rng
-
-        def randint(self, low, high):
-            if hasattr(self._rng, "integers"):
-                return int(self._rng.integers(low, high + 1))
-            return int(self._rng.randint(low, high + 1))
-
     if seed is None or seed is _random:
         return _random._inst
     if isinstance(seed, _random.Random):
         return seed
     if isinstance(seed, int):
         return _random.Random(seed)
+    if isinstance(seed, (_PythonRandomInterface, _PythonRandomViaNumpyBits)) or type(
+        seed
+    ).__name__ in ("PythonRandomInterface", "PythonRandomViaNumpyBits"):
+        return seed
 
     try:
         import numpy as np
@@ -1466,31 +1550,14 @@ def _generator_random_state(seed):
         np = None
 
     if np is not None:
-        try:
-            from networkx.utils.misc import PythonRandomInterface, PythonRandomViaNumpyBits
-        except ImportError:
-            pass
-        else:
-            # br-r37-c1-cdf1v: an already-wrapped numpy RNG passes through, as
-            # in nx's create_py_random_state - a helper handed the wrapper its
-            # caller made (random_labeled_rooted_tree -> the tree draw) must
-            # keep drawing from it rather than raise.
-            if isinstance(seed, (PythonRandomInterface, PythonRandomViaNumpyBits)):
-                return seed
+        if isinstance(seed, np.random.Generator):
+            return _PythonRandomViaNumpyBits(seed)
         if seed is np.random:
-            try:
-                from networkx.utils.misc import create_py_random_state
-
-                return create_py_random_state(seed)
-            except ImportError:
-                return _NumpyRandIntAdapter(np.random.mtrand._rand)
-        if isinstance(seed, np.random.Generator | np.random.RandomState):
-            try:
-                from networkx.utils.misc import create_py_random_state
-
-                return create_py_random_state(seed)
-            except ImportError:
-                return _NumpyRandIntAdapter(seed)
+            return _PythonRandomViaNumpyBits(np.random.mtrand._rand)
+        if isinstance(seed, np.random.RandomState):
+            if seed is np.random.mtrand._rand:
+                return _PythonRandomViaNumpyBits(seed)
+            return _PythonRandomInterface(seed)
     raise ValueError(f"{seed} cannot be used to generate a random.Random instance")
 
 

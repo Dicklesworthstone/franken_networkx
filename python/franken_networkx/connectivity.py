@@ -299,6 +299,54 @@ def bridge_components(G, *, backend=None, **backend_kwargs):
     return _fnx._bridge_components(G)
 
 
+def minimum_st_edge_cut(
+    G, s, t, flow_func=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs
+):
+    """Return the edges of the cut-set of a minimum (s, t)-cut."""
+    _fnx._validate_backend_dispatch_keywords(
+        "minimum_st_edge_cut", backend, backend_kwargs
+    )
+    if flow_func is None and residual is None:
+        H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
+        H_fnx = _fnx._coerce_arg_to_fnx_graph(H)
+        _, (reachable, non_reachable) = _fnx._minimum_cut_raw(
+            H_fnx, s, t, capacity="capacity", edmonds_karp=True
+        )
+        reachable = set(reachable)
+        non_reachable = set(non_reachable)
+        cutset = set()
+        for u, nbrs in ((n, G[n]) for n in reachable):
+            cutset.update((u, v) for v in nbrs if v in non_reachable)
+        return cutset
+    return _nx_connectivity.minimum_st_edge_cut(
+        G, s, t, flow_func=flow_func, auxiliary=auxiliary, residual=residual
+    )
+
+
+def minimum_st_node_cut(
+    G, s, t, flow_func=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs
+):
+    """Return a set of nodes of minimum cardinality that disconnect source from target in G."""
+    _fnx._validate_backend_dispatch_keywords(
+        "minimum_st_node_cut", backend, backend_kwargs
+    )
+    if flow_func is None and residual is None:
+        H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
+        mapping = H.graph.get("mapping", None)
+        if mapping is None:
+            raise _fnx.NetworkXError("Invalid auxiliary digraph.")
+        if G.has_edge(s, t) or G.has_edge(t, s):
+            return set()
+        edge_cut = minimum_st_edge_cut(
+            H, f"{mapping[s]}B", f"{mapping[t]}A", auxiliary=H
+        )
+        node_cut = {H.nodes[node]["id"] for edge in edge_cut for node in edge}
+        return node_cut - {s, t}
+    return _nx_connectivity.minimum_st_node_cut(
+        G, s, t, flow_func=flow_func, auxiliary=auxiliary, residual=residual
+    )
+
+
 EdgeComponentAuxGraph = _fnx._EdgeComponentAuxGraph
 general_k_edge_subgraphs = _fnx._general_k_edge_subgraphs
 
