@@ -428,12 +428,36 @@ def spectral_graph_forge(G, alpha, transformation="identity", seed=None):
 
 
 def _tutte_polynomial_inproc(G):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.polynomials.tutte_polynomial(H, backend="networkx")
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import sympy
+
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    x = sympy.Symbol("x")
+    y = sympy.Symbol("y")
+    stack = _deque()
+    stack.append(MultiGraph(G))
+
+    polynomial = 0
+    while stack:
+        curr = stack.pop()
+        curr_bridges = set(bridges(curr))
+
+        e = None
+        for i in curr.edges:
+            if (i[0], i[1]) not in curr_bridges and i[0] != i[1]:
+                e = i
+                break
+        if not e:
+            loops = list(selfloop_edges(curr, keys=True))
+            polynomial += x ** len(curr_bridges) * y ** len(loops)
+        else:
+            C = contracted_edge(curr, e, self_loops=True)
+            C.remove_edge(e[0], e[0])
+            curr.remove_edge(*e)
+            stack.append(curr)
+            stack.append(C)
+    return sympy.simplify(polynomial)
 
 
 def tutte_polynomial(G, *, backend=None, **backend_kwargs):

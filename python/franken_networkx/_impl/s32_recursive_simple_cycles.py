@@ -535,20 +535,137 @@ def chordless_cycles(G, length_bound=None, *, backend=None, **backend_kwargs):
     return _chordless_cycles_via_parity(G, length_bound=length_bound)
 
 
+class _ChordlessNeighborhoodCache(dict):
+    def __init__(self, G):
+        self.G = G
+
+    def __missing__(self, v):
+        Gv = self[v] = list(self.G[v])
+        return Gv
+
+
+def _chordless_cycle_search(F, B, path, length_bound):
+    blocked = _defaultdict(int)
+    target = path[0]
+    blocked[path[1]] = 1
+    for w in path[1:]:
+        for v in B[w]:
+            blocked[v] += 1
+
+    stack = [iter(F[path[2]])]
+    while stack:
+        nbrs = stack[-1]
+        for w in nbrs:
+            if blocked[w] == 1 and (length_bound is None or len(path) < length_bound):
+                Fw = F[w]
+                if target in Fw:
+                    yield path + [w]
+                else:
+                    Bw = B[w]
+                    if target in Bw:
+                        continue
+                    for v in Bw:
+                        blocked[v] += 1
+                    path.append(w)
+                    stack.append(iter(Fw))
+                    break
+        else:
+            stack.pop()
+            for v in B[path.pop()]:
+                blocked[v] -= 1
+
+
 def _chordless_cycles_via_parity(G, *, length_bound=None):
-    """Helper — keeps ``chordless_cycles`` classified as PY_WRAPPER.
+    """In-process chordless cycle enumeration."""
+    G = _coerce_arg_to_fnx_graph(G)
+    if length_bound is not None:
+        if length_bound == 0:
+            return
+        elif length_bound < 0:
+            raise ValueError("length bound must be non-negative")
 
-    Imports upstream from the submodule so monkeypatches of the
-    top-level ``nx.chordless_cycles`` don't intercept parity tests
-    that assert fnx avoids the public delegation path.
-    """
-    from networkx.algorithms.cycles import (
-        chordless_cycles as _upstream_chordless_cycles,
-    )
+    directed = G.is_directed()
+    multigraph = G.is_multigraph()
 
-    yield from _upstream_chordless_cycles(
-        _networkx_graph_for_traversal_parity(G), length_bound=length_bound, backend="networkx"
-    )
+    if multigraph:
+        yield from ([v] for v, Gv in G.adj.items() if len(Gv.get(v, ())) == 1)
+    else:
+        yield from ([v] for v, Gv in G.adj.items() if v in Gv)
+
+    if length_bound is not None and length_bound == 1:
+        return
+
+    loops = set(nodes_with_selfloops(G))
+    edges = ((u, v) for u in G if u not in loops for v in G._adj[u] if v not in loops)
+    if directed:
+        F = DiGraph(edges)
+        B = F.to_undirected(as_view=False)
+    else:
+        F = Graph(edges)
+        B = None
+
+    if multigraph:
+        if not directed:
+            B = F.copy()
+            visited = set()
+        for u, Gu in G.adj.items():
+            if u in loops:
+                continue
+            if directed:
+                multiplicity = ((v, len(Guv)) for v, Guv in Gu.items())
+                for v, m in multiplicity:
+                    if m > 1:
+                        F.remove_edges_from(((u, v), (v, u)))
+            else:
+                multiplicity = ((v, len(Guv)) for v, Guv in Gu.items() if v in visited)
+                for v, m in multiplicity:
+                    if m == 2:
+                        yield [u, v]
+                    if m > 1:
+                        F.remove_edge(u, v)
+                visited.add(u)
+
+    if directed:
+        for u, Fu in list(F.adj.items()):
+            digons = [[u, v] for v in Fu if F.has_edge(v, u)]
+            yield from digons
+            F.remove_edges_from(digons)
+            F.remove_edges_from(e[::-1] for e in digons)
+
+    if length_bound is not None and length_bound == 2:
+        return
+
+    if directed:
+        separate = strongly_connected_components
+
+        def stems(C, v):
+            for u, w in _itertools.product(C.pred[v], C.succ[v]):
+                if not G.has_edge(u, w):
+                    yield [u, v, w], F.has_edge(w, u)
+    else:
+        separate = biconnected_components
+
+        def stems(C, v):
+            yield from (
+                ([u, v, w], F.has_edge(w, u)) for u, w in _itertools.combinations(C[v], 2)
+            )
+
+    components = [c for c in separate(F) if len(c) > 2]
+    while components:
+        c = components.pop()
+        v = next(iter(c))
+        Fc = F.subgraph(c)
+        Fcc = Bcc = None
+        for S, is_triangle in stems(Fc, v):
+            if is_triangle:
+                yield S
+            else:
+                if Fcc is None:
+                    Fcc = _ChordlessNeighborhoodCache(Fc)
+                    Bcc = Fcc if B is None else _ChordlessNeighborhoodCache(B.subgraph(c))
+                yield from _chordless_cycle_search(Fcc, Bcc, S, length_bound)
+
+        components.extend(c for c in separate(F.subgraph(c - {v})) if len(c) > 2)
 
 
 def to_undirected(graph):

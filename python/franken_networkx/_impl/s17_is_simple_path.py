@@ -1015,12 +1015,8 @@ class _ApproximationNamespace:
             raise NetworkXNotImplemented("not implemented for directed type")
         if len(G) == 0:
             return set()
-        if type(G) is not Graph:
-            return _nx.approximation.min_weighted_dominating_set(
-                _networkx_graph_for_parity(G), weight=weight, backend="networkx"
-            )
         dom_set: set = set()
-        dod = to_dict_of_lists(G)
+        dod = to_dict_of_lists(G) if type(G) is Graph else {v: G[v] for v in G}
         if weight is None:
             node_w = {v: 1 for v in G}
         else:
@@ -1140,8 +1136,17 @@ class _ApproximationNamespace:
         if G.number_of_nodes() == 1:
             return 0
         if G.is_directed():
-            nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.diameter(nx_G, seed=seed, backend="networkx")
+            G_reversed = G.reverse()
+            rng = _generator_random_state(seed)
+            source = rng.choice(list(G))
+            forward_distances = single_source_shortest_path_length(G, source)
+            backward_distances = single_source_shortest_path_length(G_reversed, source)
+            n = len(G)
+            if len(forward_distances) != n or len(backward_distances) != n:
+                raise NetworkXError("DiGraph not strongly connected.")
+            *_, a_1 = forward_distances
+            *_, a_2 = backward_distances
+            return max(eccentricity(G_reversed, a_1), eccentricity(G, a_2))
         rng = _generator_random_state(seed)
         source = rng.choice(list(G))
         distances = single_source_shortest_path_length(G, source)
@@ -1151,14 +1156,6 @@ class _ApproximationNamespace:
         return eccentricity(G, node)
 
     def local_node_connectivity(self, G, source, target, cutoff=None, *, backend=None, **backend_kwargs):
-        # br-r37-c1-apxlnc: the generic __getattr__ wrapper round-tripped the
-        # graph through ``_networkx_graph_for_parity`` (an O(V+E) conversion)
-        # before running White & Newman's greedy approximation — but the
-        # algorithm itself only touches the O(kappa) augmenting-path nodes, so
-        # the conversion dominated (~25x slower than nx on a single pair). Run
-        # the algorithm IN-PROCESS using the raw neighbour binding (no
-        # conversion, no AtlasView per-access tax). Directed / multigraph /
-        # nx-private-storage graphs keep the delegation path.
         _validate_backend_dispatch_keywords(
             "local_node_connectivity", backend, backend_kwargs
         )
@@ -1175,26 +1172,79 @@ class _ApproximationNamespace:
             return _approx_local_node_connectivity_undirected(
                 G, raw, source, target, cutoff
             )
-        nx_G = _networkx_graph_for_parity(G)
-        return _nx.approximation.local_node_connectivity(
-            nx_G, source, target, cutoff, backend="networkx"
-        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if target == source:
+            raise NetworkXError("source and target have to be different nodes.")
+        if G.is_directed():
+            possible = min(G.out_degree(source), G.in_degree(target))
+            Gpred = G.predecessors
+            Gsucc = G.successors
+        else:
+            possible = min(G.degree(source), G.degree(target))
+            Gpred = G.neighbors
+            Gsucc = G.neighbors
+        if not possible:
+            return 0
+        if cutoff is None:
+            cutoff = float("inf")
+        exclude = set()
+        K = 0
+        for _ in range(min(possible, cutoff)):
+            pred = {source: None}
+            succ = {target: None}
+            forward_fringe = [source]
+            reverse_fringe = [target]
+            level = 0
+            found = None
+            while forward_fringe and reverse_fringe and found is None:
+                level += 1
+                if level % 2 != 0:
+                    this_level = forward_fringe
+                    forward_fringe = []
+                    for v in this_level:
+                        for w in Gsucc(v):
+                            if w in exclude:
+                                continue
+                            if w not in pred:
+                                forward_fringe.append(w)
+                                pred[w] = v
+                            if w in succ:
+                                found = w
+                                break
+                        if found is not None:
+                            break
+                else:
+                    this_level = reverse_fringe
+                    reverse_fringe = []
+                    for v in this_level:
+                        for w in Gpred(v):
+                            if w in exclude:
+                                continue
+                            if w not in succ:
+                                succ[w] = v
+                                reverse_fringe.append(w)
+                            if w in pred:
+                                found = w
+                                break
+                        if found is not None:
+                            break
+            if found is None:
+                break
+            w = found
+            path = []
+            while w is not None:
+                path.append(w)
+                w = pred[w]
+            path.reverse()
+            w = succ[path[-1]]
+            while w is not None:
+                path.append(w)
+                w = succ[w]
+            exclude.update(set(path))
+            K += 1
+        return K
 
     def node_connectivity(self, G, s=None, t=None, *, backend=None, **backend_kwargs):
-        # br-r37-c1-nawyw: the generic __getattr__ wrapper round-trips the graph
-        # through ``_networkx_graph_for_parity`` (a full O(V+E) fnx->nx build)
-        # before running White & Newman's greedy approximation on nx views
-        # (~1.3-1.6x slower than nx). Run nx's EXACT algorithm in-process over the
-        # raw neighbour binding (no conversion, no AtlasView per-access tax).
-        #
-        # Byte-exactness: the returned K is order-INVARIANT. With ``cutoff=K``
-        # each ``local_node_connectivity(a,b,cutoff=K)`` returns ``min(true_lnc,
-        # K)``, so ``K = min(K, ...)`` is just the running minimum of true local
-        # connectivities bounded by the minimum degree — independent of the
-        # iteration order over the pair set. We only need the SAME minimum-degree
-        # node ``v`` (first in node order, matching nx's
-        # ``min(G.degree(), key=itemgetter(1))``) and the SAME pair set. Directed
-        # / multigraph / nx-private-storage graphs keep the delegation path.
         _validate_backend_dispatch_keywords(
             "node_connectivity", backend, backend_kwargs
         )
@@ -1202,8 +1252,33 @@ class _ApproximationNamespace:
             raise NetworkXError("Both source and target must be specified.")
         raw = _raw_neighbors_dispatch(G)
         if raw is None or G.is_directed() or G.is_multigraph():
-            nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.node_connectivity(nx_G, s, t, backend="networkx")
+            G = _coerce_arg_to_fnx_graph(G)
+            if s is not None and t is not None:
+                if s not in G:
+                    raise NetworkXError(f"node {s} not in graph")
+                if t not in G:
+                    raise NetworkXError(f"node {t} not in graph")
+                return self.local_node_connectivity(G, s, t)
+            if G.is_directed():
+                connected_func = is_weakly_connected
+                iter_func = _itertools.permutations
+
+                def _neighbors(v):
+                    return _itertools.chain(G.predecessors(v), G.successors(v))
+            else:
+                connected_func = is_connected
+                iter_func = _itertools.combinations
+                _neighbors = G.neighbors
+            if not connected_func(G):
+                return 0
+            v, minimum_degree = min(G.degree(), key=_operator.itemgetter(1))
+            K = minimum_degree
+            for w in set(G) - set(_neighbors(v)) - {v}:
+                K = min(K, self.local_node_connectivity(G, v, w, cutoff=K))
+            for x, y in iter_func(_neighbors(v), 2):
+                if y not in G[x] and x != y:
+                    K = min(K, self.local_node_connectivity(G, x, y, cutoff=K))
+            return K
         # Local node connectivity.
         if s is not None and t is not None:
             if s not in G:
@@ -1282,64 +1357,60 @@ class _ApproximationNamespace:
         )
         nak = getattr(G, "_native_adjacency_keys", None)
         if (
-            nak is None
-            or type(G) is not Graph
-            or G.is_directed()
-            or G.is_multigraph()
+            nak is not None
+            and type(G) is Graph
+            and not G.is_directed()
+            and not G.is_multigraph()
         ):
-            nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.all_pairs_node_connectivity(
-                nx_G, nbunch=nbunch, cutoff=cutoff, backend="networkx"
-            )
-        adj = {node: list(nbrs) for node, nbrs in nak()}
-        deg = {node: len(nbrs) for node, nbrs in adj.items()}
-        if nbunch is None:
-            nb = list(adj)
-        else:
+            adj = {node: list(nbrs) for node, nbrs in nak()}
+            deg = {node: len(nbrs) for node, nbrs in adj.items()}
+            if nbunch is None:
+                nb = list(adj)
+                all_pairs = {n: {} for n in nb}
+                for u, v in _itertools.combinations(nb, 2):
+                    k = _approx_local_node_connectivity_dict(adj, deg, u, v, cutoff)
+                    all_pairs[u][v] = k
+                    all_pairs[v][u] = k
+                return all_pairs
             nb = list(set(nbunch))
-            # nx computes G.degree() on nbunch nodes directly; an out-of-graph
-            # node would diverge — keep that (rare) case on the nx path.
-            if any(n not in adj for n in nb):
-                nx_G = _networkx_graph_for_parity(G)
-                return _nx.approximation.all_pairs_node_connectivity(
-                    nx_G, nbunch=nbunch, cutoff=cutoff, backend="networkx"
-                )
-        all_pairs = {n: {} for n in nb}
-        for u, v in _itertools.combinations(nb, 2):
-            k = _approx_local_node_connectivity_dict(adj, deg, u, v, cutoff)
+            if all(n in adj for n in nb):
+                all_pairs = {n: {} for n in nb}
+                for u, v in _itertools.combinations(nb, 2):
+                    k = _approx_local_node_connectivity_dict(adj, deg, u, v, cutoff)
+                    all_pairs[u][v] = k
+                    all_pairs[v][u] = k
+                return all_pairs
+        G = _coerce_arg_to_fnx_graph(G)
+        nb_iter = G if nbunch is None else set(nbunch)
+        directed = G.is_directed()
+        iter_func = _itertools.permutations if directed else _itertools.combinations
+        all_pairs = {n: {} for n in nb_iter}
+        for u, v in iter_func(nb_iter, 2):
+            k = self.local_node_connectivity(G, u, v, cutoff=cutoff)
             all_pairs[u][v] = k
-            all_pairs[v][u] = k
+            if not directed:
+                all_pairs[v][u] = k
         return all_pairs
 
     def large_clique_size(self, G, *, backend=None, **backend_kwargs):
-        # br-r37-c1-eg2bz: the generic __getattr__ wrapper round-trips the graph
-        # through ``_networkx_graph_for_parity`` (a full O(V+E) fnx->nx build)
-        # before running nx's Pattabiraman degree-greedy heuristic — ~2x slower
-        # than nx, dominated by that conversion. The algorithm only needs a
-        # degree map + adjacency SETS, so run nx's EXACT heuristic in-process
-        # over a cheap key-only native snapshot (``_native_adjacency_keys``).
-        # It is set-iteration-order dependent (``max(U, key=degree)`` ties), so
-        # the snapshot is keyed by the original node OBJECTS — the CPython set
-        # order then matches nx's exactly, making the result byte-identical.
-        # Directed / multigraph keep nx's @not_implemented_for raise via delegation.
         _validate_backend_dispatch_keywords(
             "large_clique_size", backend, backend_kwargs
         )
         G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
         nak = getattr(G, "_native_adjacency_keys", None)
-        if G.is_directed() or G.is_multigraph() or nak is None or type(G) is not Graph:
-            return _nx.approximation.large_clique_size(
-                _networkx_graph_for_parity(G), backend="networkx"
-            )
-
-        adj = {node: set(nbrs) for node, nbrs in nak()}
-        degrees = {u: len(nbrs) for u, nbrs in adj.items()}
+        if nak is not None and type(G) is Graph and number_of_selfloops(G) == 0:
+            adj = {node: set(nbrs) for node, nbrs in nak()}
+            degrees = {u: len(nbrs) for u, nbrs in adj.items()}
+        else:
+            adj = {node: set(G[node]) for node in G}
+            degrees = dict(G.degree())
         deg_get = degrees.__getitem__
 
         def _clique_heuristic(candidates, size, best_size):
-            # Faithful iterative form of nx's tail recursion: pick the highest-
-            # degree candidate (set-order tie-break), intersect with its high-
-            # degree neighbourhood, repeat. best_size is fixed within a call.
             while candidates:
                 u = max(candidates, key=deg_get)
                 candidates.remove(u)
@@ -1356,29 +1427,19 @@ class _ApproximationNamespace:
         return best_size
 
     def metric_closure(self, G, weight="weight", *, backend=None, **backend_kwargs):
-        # br-r37-c1-mcdij: the generic __getattr__ wrapper round-trips the
-        # graph through ``_networkx_graph_for_parity`` and then runs nx's
-        # pure-Python ``all_pairs_dijkstra`` (distance + path) to build the
-        # complete metric-closure graph — ~2.7x slower than nx. Route the
-        # all-pairs Dijkstra through the native ``_raw_all_pairs_dijkstra``
-        # kernel (byte-exact distances AND paths) and assemble the complete
-        # graph with one ``add_edges_from``, reproducing nx's exact edge-
-        # insertion order (``set(G)`` iteration, first-node-first). Verified
-        # order-sensitively byte-identical to the delegating path across 11
-        # graph shapes incl. weighted. None-weight / directed / multigraph /
-        # nx-typed inputs keep the delegating path.
         _validate_backend_dispatch_keywords(
             "metric_closure", backend, backend_kwargs
         )
-        from franken_networkx.readwrite import _from_nx_graph
+        import warnings
 
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
         if (
             type(G) is Graph
             and isinstance(weight, str)
             and G.number_of_nodes() > 0
         ):
-            import warnings
-
             apd = _raw_all_pairs_dijkstra(G, weight=weight)
             nodes = list(G)
             first = nodes[0]
@@ -1386,7 +1447,6 @@ class _ApproximationNamespace:
                 raise NetworkXError(
                     "G is not a connected graph. metric_closure is not defined."
                 )
-            # Preserve nx's deprecation contract (removal in NetworkX 3.8).
             warnings.warn(
                 "metric_closure is deprecated and will be removed in NetworkX 3.8.\n"
                 "Use nx.all_pairs_shortest_path_length instead.",
@@ -1411,76 +1471,63 @@ class _ApproximationNamespace:
             M.add_edges_from(edges)
             return M
 
-        return _from_nx_graph(
-            _nx.approximation.metric_closure(
-                _networkx_graph_for_parity(G), weight=weight, backend="networkx"
-            )
+        warnings.warn(
+            "metric_closure is deprecated and will be removed in NetworkX 3.8.\n"
+            "Use nx.all_pairs_shortest_path_length instead.",
+            category=DeprecationWarning,
+            stacklevel=2,
         )
+        M = Graph()
+        Gnodes = set(G)
+        all_paths_iter = iter(all_pairs_dijkstra(G, weight=weight))
+        u, (distance, path) = next(all_paths_iter)
+        if len(G) != len(distance):
+            raise NetworkXError(
+                "G is not a connected graph. metric_closure is not defined."
+            )
+        Gnodes.remove(u)
+        for v in Gnodes:
+            M.add_edge(u, v, distance=distance[v], path=path[v])
+        for u, (distance, path) in all_paths_iter:
+            Gnodes.remove(u)
+            for v in Gnodes:
+                M.add_edge(u, v, distance=distance[v], path=path[v])
+        return M
 
     def greedy_tsp(self, G, weight="weight", source=None, *, backend=None, **backend_kwargs):
-        # Nearest-neighbour greedy TSP heuristic. The generic __getattr__
-        # wrapper round-trips the (dense, complete) weighted graph through
-        # ``_networkx_graph_for_parity`` — an O(n^2) fnx->nx construction tax
-        # that left greedy_tsp the fleet's biggest measured laggard (~0.09x
-        # vs nx). ``_fnx.greedy_tsp_native`` reads the edge weights straight
-        # from the Rust store and runs the nearest-neighbour walk natively,
-        # returning the tour ONLY when it is provably byte-identical to nx:
-        # every greedy step must have a UNIQUE minimal-weight neighbour, so the
-        # choice is independent of nx's ``min(set(G), key=...)`` tie-break
-        # order. It returns ``None`` — and we fall back to the faithful nx
-        # delegation (preserving nx's exact errors) — for multigraphs,
-        # non-numeric weights, incomplete/empty graphs, an unknown source, or
-        # any tie step.
         _validate_backend_dispatch_keywords("greedy_tsp", backend, backend_kwargs)
-        if backend is None and not backend_kwargs and type(G) in (Graph, DiGraph):
+        G = _coerce_arg_to_fnx_graph(G)
+        if type(G) in (Graph, DiGraph):
             try:
                 tour = _fnx.greedy_tsp_native(G, weight, source)
             except Exception:
                 tour = None
             if tour is not None:
                 return tour
-            # br-cc-tsptie: the native kernel returns None whenever ANY greedy
-            # step has a tie (two neighbours sharing the minimal weight) — common
-            # for integer-weighted instances — and we then paid the O(n^2)
-            # ``_networkx_graph_for_parity`` build PLUS nx's own O(n^2) AtlasView
-            # loop, leaving greedy_tsp at ~0.05-0.08x vs nx on the tie path. Run
-            # nx's EXACT algorithm IN-PROCESS over a single adjacency snapshot
-            # instead: skips the fnx->nx graph construction entirely and reads
-            # plain Python dicts (no AtlasView tax). Byte-identical to nx — the
-            # tie-break ``min(nodeset, key=...)`` iterates a real CPython ``set``
-            # over the SAME node objects, so it resolves ties exactly as nx does
-            # (0/400 adversarial incl. int-weight ties, directed, str nodes; all
-            # error contracts — incomplete/empty/bad-source/non-numeric weight —
-            # match). 0.05-0.08x -> 1.5-1.6x. Only simple Graph/DiGraph reach
-            # here (the type gate above); multigraphs keep nx delegation.
             adj = {u: nbrs for u, nbrs in G.adjacency()}
-            order = len(adj)
-            complete_degree = order - 1
-            for node, nbrdict in adj.items():
-                if len(nbrdict) - (node in nbrdict) != complete_degree:
-                    raise NetworkXError("G must be a complete graph.")
-            if source is None:
-                source = next(iter(G))
-            if order == 2:
-                neighbor = next(iter(adj[source]))
-                return [source, neighbor, source]
-            nodeset = set(G)
-            nodeset.remove(source)
-            cycle = [source]
-            next_node = source
-            while nodeset:
-                nbrdict = adj[next_node]
-                next_node = min(nodeset, key=lambda n: nbrdict[n].get(weight, 1))
-                cycle.append(next_node)
-                nodeset.remove(next_node)
-            cycle.append(cycle[0])
-            return cycle
-        return _nx.approximation.greedy_tsp(
-            _networkx_graph_for_parity(G),
-            weight=weight,
-            source=source,
-            backend="networkx",
-        )
+        else:
+            adj = {u: G[u] for u in G}
+        order = len(adj)
+        complete_degree = order - 1
+        for node, nbrdict in adj.items():
+            if len(nbrdict) - (node in nbrdict) != complete_degree:
+                raise NetworkXError("G must be a complete graph.")
+        if source is None:
+            source = _arbitrary_element_inproc(G)
+        if order == 2:
+            neighbor = next(iter(adj[source]))
+            return [source, neighbor, source]
+        nodeset = set(G)
+        nodeset.remove(source)
+        cycle = [source]
+        next_node = source
+        while nodeset:
+            nbrdict = adj[next_node]
+            next_node = min(nodeset, key=lambda n: nbrdict[n].get(weight, 1))
+            cycle.append(next_node)
+            nodeset.remove(next_node)
+        cycle.append(cycle[0])
+        return cycle
 
     def _tsp_anneal_prep(self, G, init_cycle, weight, source, move):
         # Shared fast-path setup for simulated_annealing_tsp /
@@ -1633,19 +1680,60 @@ class _ApproximationNamespace:
                             cost = adj_cost
                     t -= t * alpha
                 return [nodes[i] for i in best_cycle]
-        return _nx.approximation.simulated_annealing_tsp(
-            _networkx_graph_for_parity(G),
-            init_cycle,
-            weight=weight,
-            source=source,
-            temp=temp,
-            move=move,
-            max_iterations=max_iterations,
-            N_inner=N_inner,
-            alpha=alpha,
-            seed=seed,
-            backend="networkx",
-        )
+        import math as _math
+
+        G = _coerce_arg_to_fnx_graph(G)
+        rng = _create_py_random_state(seed)
+        if move == "1-1":
+            mv_fn = _approx_swap_two_nodes
+        elif move == "1-0":
+            mv_fn = _approx_move_one_node
+        else:
+            mv_fn = move
+        if init_cycle == "greedy":
+            cycle = self.greedy_tsp(G, weight=weight, source=source)
+            if G.number_of_nodes() == 2:
+                return cycle
+        else:
+            cycle = list(init_cycle)
+            if source is None:
+                source = cycle[0]
+            elif source != cycle[0]:
+                raise NetworkXError("source must be first node in init_cycle")
+            if cycle[0] != cycle[-1]:
+                raise NetworkXError("init_cycle must be a cycle. (return to start)")
+            if len(cycle) - 1 != len(G) or len(set(G.nbunch_iter(cycle))) != len(G):
+                raise NetworkXError("init_cycle should be a cycle over all nodes in G.")
+            N = len(G) - 1
+            if any(len(nbrdict) - (n in nbrdict) != N for n, nbrdict in G.adj.items()):
+                raise NetworkXError("G must be a complete graph.")
+            if G.number_of_nodes() == 2:
+                neighbor = next(G.neighbors(source))
+                return [source, neighbor, source]
+        cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(cycle))
+        count = 0
+        best_cycle = cycle.copy()
+        best_cost = cost
+        while count <= max_iterations and temp > 0:
+            count += 1
+            for _ in range(N_inner):
+                adj_sol = mv_fn(cycle, rng)
+                adj_cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(adj_sol))
+                delta = adj_cost - cost
+                if delta <= 0:
+                    cycle = adj_sol
+                    cost = adj_cost
+                    if cost < best_cost:
+                        count = 0
+                        best_cycle = cycle.copy()
+                        best_cost = cost
+                else:
+                    p = _math.exp(-delta / temp)
+                    if p >= rng.random():
+                        cycle = adj_sol
+                        cost = adj_cost
+            temp -= temp * alpha
+        return best_cycle
 
     def threshold_accepting_tsp(
         self,
@@ -1663,10 +1751,6 @@ class _ApproximationNamespace:
         backend=None,
         **backend_kwargs,
     ):
-        # Same de-delegation as simulated_annealing_tsp (~0.42x -> >1x at the
-        # default config); threshold-accepting differs only in the accept rule
-        # (delta <= threshold) and the threshold cooldown (only on an accepted
-        # iteration).
         _validate_backend_dispatch_keywords(
             "threshold_accepting_tsp", backend, backend_kwargs
         )
@@ -1684,7 +1768,6 @@ class _ApproximationNamespace:
                     count += 1
                     accepted = False
                     for _ in range(N_inner):
-                        # In-place move with no revert on reject (see SA note).
                         mv(cyc, rng)
                         adj_cost = float(W[cyc[:-1], cyc[1:]].sum())
                         delta = adj_cost - cost
@@ -1698,47 +1781,79 @@ class _ApproximationNamespace:
                     if accepted:
                         thr -= thr * alpha
                 return [nodes[i] for i in best_cycle]
-        return _nx.approximation.threshold_accepting_tsp(
-            _networkx_graph_for_parity(G),
-            init_cycle,
-            weight=weight,
-            source=source,
-            threshold=threshold,
-            move=move,
-            max_iterations=max_iterations,
-            N_inner=N_inner,
-            alpha=alpha,
-            seed=seed,
-            backend="networkx",
-        )
+        G = _coerce_arg_to_fnx_graph(G)
+        rng = _create_py_random_state(seed)
+        if move == "1-1":
+            mv_fn = _approx_swap_two_nodes
+        elif move == "1-0":
+            mv_fn = _approx_move_one_node
+        else:
+            mv_fn = move
+        if init_cycle == "greedy":
+            cycle = self.greedy_tsp(G, weight=weight, source=source)
+            if G.number_of_nodes() == 2:
+                return cycle
+        else:
+            cycle = list(init_cycle)
+            if source is None:
+                source = cycle[0]
+            elif source != cycle[0]:
+                raise NetworkXError("source must be first node in init_cycle")
+            if cycle[0] != cycle[-1]:
+                raise NetworkXError("init_cycle must be a cycle. (return to start)")
+            if len(cycle) - 1 != len(G) or len(set(G.nbunch_iter(cycle))) != len(G):
+                raise NetworkXError("init_cycle is not all and only nodes.")
+            N = len(G) - 1
+            if any(len(nbrdict) - (n in nbrdict) != N for n, nbrdict in G.adj.items()):
+                raise NetworkXError("G must be a complete graph.")
+            if G.number_of_nodes() == 2:
+                neighbor = list(G.neighbors(source))[0]
+                return [source, neighbor, source]
+        cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(cycle))
+        count = 0
+        best_cycle = cycle.copy()
+        best_cost = cost
+        while count <= max_iterations:
+            count += 1
+            accepted = False
+            for _ in range(N_inner):
+                adj_sol = mv_fn(cycle, rng)
+                adj_cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(adj_sol))
+                delta = adj_cost - cost
+                if delta <= threshold:
+                    accepted = True
+                    cycle = adj_sol
+                    cost = adj_cost
+                    if cost < best_cost:
+                        count = 0
+                        best_cycle = cycle.copy()
+                        best_cost = cost
+            if accepted:
+                threshold -= threshold * alpha
+        return best_cycle
 
     def __getattr__(self, name):
-        nx_func = getattr(_nx.approximation, name)
+        import importlib as _importlib
 
-        # Preserve nx's exact signature on the wrapper so
-        # ``inspect.signature(fnx.approximation.X)`` matches upstream
-        # (br-r37-c1-approxsig). Earlier versions used a generic
-        # ``(G, *args, **kwargs)`` shape that hid every kwarg from
-        # introspection and let typos through silently.
-        import functools as _functools
-        from franken_networkx.readwrite import _from_nx_graph
-
-        @_functools.wraps(nx_func)
-        def wrapper(G, *args, **kwargs):
-            nx_G = _networkx_graph_for_parity(G)
-            kwargs.setdefault("backend", "networkx")
-            result = nx_func(nx_G, *args, **kwargs)
-            # br-r37-c1-apxret: convert graph results to fnx types
-            if isinstance(result, _nx.Graph):
-                return _from_nx_graph(result)
-            # br-r37-c1-treewidth: handle (int, Graph) tuple returns
-            if isinstance(result, tuple) and len(result) == 2:
-                first, second = result
-                if isinstance(second, _nx.Graph):
-                    return (first, _from_nx_graph(second))
-            return result
-
-        return wrapper
+        _child_modules = {
+            "clique",
+            "clustering_coefficient",
+            "connectivity",
+            "density",
+            "distance_measures",
+            "dominating_set",
+            "kcomponents",
+            "matching",
+            "maxcut",
+            "ramsey",
+            "steinertree",
+            "traveling_salesman",
+            "treewidth",
+            "vertex_cover",
+        }
+        if name in _child_modules:
+            return _importlib.import_module(f"networkx.algorithms.approximation.{name}")
+        raise AttributeError(f"module 'franken_networkx.approximation' has no attribute {name!r}")
 
     def __dir__(self):
         return sorted(set(dir(_nx.approximation)) | {"treewidth_min_degree"})

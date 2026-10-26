@@ -655,17 +655,40 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
         "asyn_lpa_communities", backend, backend_kwargs
     )
 
-    if not isinstance(
-        G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
-    ):
-        return _nx_community.asyn_lpa_communities(G, weight=weight, seed=seed)
-    # Only the concrete simple Graph gets the native fast path: the native
-    # key/adjacency helpers read the underlying Rust adjacency (bypassing
-    # subgraph-view filtering), and directed / multigraph semantics differ.
     if type(G) is not _fnx.Graph:
-        return _nx_community.asyn_lpa_communities(
-            _fnx._networkx_graph_for_parity(G), weight=weight, seed=seed
-        )
+        from collections import Counter as _Counter
+
+        rng_fb = _fnx._create_py_random_state(seed)
+
+        def _fallback_gen():
+            labels = {node: i for i, node in enumerate(G)}
+            cont = True
+            while cont:
+                cont = False
+                nodes = list(G)
+                rng_fb.shuffle(nodes)
+                for node in nodes:
+                    if not G[node]:
+                        continue
+                    if weight is None:
+                        label_freq = _Counter(map(labels.get, G[node]))
+                    else:
+                        label_freq = defaultdict(float)
+                        for _, v, wt in G.edges(node, data=weight, default=1):
+                            label_freq[labels[v]] += wt
+                    max_freq = max(label_freq.values())
+                    best_labels = [
+                        label for label, freq in label_freq.items() if freq == max_freq
+                    ]
+                    if labels[node] not in best_labels:
+                        labels[node] = rng_fb.choice(best_labels)
+                        cont = True
+            groups = defaultdict(set)
+            for node, label in labels.items():
+                groups[label].add(node)
+            yield from groups.values()
+
+        return _fallback_gen()
 
     node_list = list(G)
     n = len(node_list)
@@ -771,15 +794,52 @@ def fast_label_propagation_communities(
         or weight is not None
         or getattr(G, "_native_adjacency_keys", None) is None
     ):
-        if isinstance(
-            G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
-        ):
-            return _nx_community.fast_label_propagation_communities(
-                _fnx._networkx_graph_for_parity(G), weight=weight, seed=seed
-            )
-        return _nx_community.fast_label_propagation_communities(
-            G, weight=weight, seed=seed
-        )
+        from collections import Counter as _Counter
+
+        rng_fb = _fnx._create_py_random_state(seed)
+
+        def _fast_label_count(comms, node):
+            if weight is None:
+                if not G.is_multigraph():
+                    return _Counter(map(comms.get, _fnx.all_neighbors(G, node)))
+                label_freqs = defaultdict(int)
+                for nbr in G[node]:
+                    label_freqs[comms[nbr]] += len(G[node][nbr])
+                if G.is_directed():
+                    for nbr in G.pred[node]:
+                        label_freqs[comms[nbr]] += len(G.pred[node][nbr])
+                return label_freqs
+            label_freqs = defaultdict(float)
+            for _, nbr, w in G.edges(node, data=weight, default=1):
+                label_freqs[comms[nbr]] += w
+            if G.is_directed():
+                for nbr, _, w in G.in_edges(node, data=weight, default=1):
+                    label_freqs[comms[nbr]] += w
+            return label_freqs
+
+        def _fallback_gen():
+            nodes_queue = deque(G)
+            rng_fb.shuffle(nodes_queue)
+            nodes_set = set(G)
+            comms = {node: i for i, node in enumerate(G)}
+            while nodes_queue:
+                node = nodes_queue.popleft()
+                nodes_set.remove(node)
+                if G.degree(node) > 0:
+                    label_freqs = _fast_label_count(comms, node)
+                    max_freq = max(label_freqs.values())
+                    comm = rng_fb.choice(
+                        [c for c in label_freqs if label_freqs[c] == max_freq]
+                    )
+                    if comms[node] != comm:
+                        comms[node] = comm
+                        for nbr in _fnx.all_neighbors(G, node):
+                            if comms[nbr] != comm and nbr not in nodes_set:
+                                nodes_queue.append(nbr)
+                                nodes_set.add(nbr)
+            yield from _community_groups(comms).values()
+
+        return _fallback_gen()
 
     node_list = list(G)
     n = len(node_list)

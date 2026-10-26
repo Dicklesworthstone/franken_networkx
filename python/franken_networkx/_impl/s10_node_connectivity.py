@@ -291,14 +291,46 @@ def _multigraph_degree_assortativity_coefficient(G, weight):
 
 
 def _degree_assortativity_inproc(G, x="out", y="in", weight=None, nodes=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.assortativity.correlation.degree_assortativity_coefficient(
-            H, x=x, y=y, weight=weight, nodes=nodes, backend="networkx"
+    import numpy as _np
+
+    if nodes is None:
+        nodes = G.nodes
+    if G.is_directed():
+        indeg = (
+            {d for _, d in G.in_degree(nodes, weight=weight)}
+            if "in" in (x, y)
+            else set()
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+        outdeg = (
+            {d for _, d in G.out_degree(nodes, weight=weight)}
+            if "out" in (x, y)
+            else set()
+        )
+        degrees = set.union(indeg, outdeg)
+    else:
+        degrees = {d for _, d in G.degree(nodes, weight=weight)}
+    mapping = {d: i for i, d in enumerate(degrees)}
+    matrix = degree_mixing_matrix(
+        G, x=x, y=y, nodes=nodes, weight=weight, mapping=mapping
+    )
+    if matrix.size == 0:
+        return float("nan")
+    if matrix.sum() != 1.0:
+        total = matrix.sum()
+        if total == 0.0:
+            return float("nan")
+        matrix = matrix / total
+    x_arr = _np.array(list(mapping.keys()))
+    y_arr = x_arr
+    idx = list(mapping.values())
+    a = matrix.sum(axis=0)
+    b = matrix.sum(axis=1)
+    vara = (a[idx] * x_arr**2).sum() - ((a[idx] * x_arr).sum()) ** 2
+    varb = (b[idx] * y_arr**2).sum() - ((b[idx] * y_arr).sum()) ** 2
+    xy = _np.outer(x_arr, y_arr)
+    ab = _np.outer(a[idx], b[idx])
+    with _np.errstate(divide="ignore", invalid="ignore"):
+        return float((xy * (matrix - ab)).sum() / _np.sqrt(vara * varb))
 
 
 def degree_assortativity_coefficient(
