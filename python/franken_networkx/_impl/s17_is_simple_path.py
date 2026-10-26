@@ -847,6 +847,87 @@ class _ApproximationNamespace:
             backend="networkx",
         )
 
+    def k_components(
+        self, G, min_density=0.95, *, backend=None, **backend_kwargs
+    ):
+        _validate_backend_dispatch_keywords("k_components", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+
+        def _same(measure, tol=0):
+            vals = set(measure.values())
+            return (max(vals) - min(vals)) <= tol
+
+        def _cliques_heuristic(G_sub, H_sub, k_val, min_dens):
+            h_cnumber = core_number(H_sub)
+            for i, c_value in enumerate(
+                sorted(set(h_cnumber.values()), reverse=True)
+            ):
+                cands = {n for n, c in h_cnumber.items() if c == c_value}
+                if i == 0:
+                    overlap = False
+                else:
+                    overlap = set.intersection(
+                        *[{x for x in H_sub[n] if x not in cands} for n in cands]
+                    )
+                if overlap and len(overlap) < k_val:
+                    SH = H_sub.subgraph(cands | overlap)
+                else:
+                    SH = H_sub.subgraph(cands)
+                sh_cnumber = core_number(SH)
+                SG_inner = k_core(G_sub.subgraph(SH), k_val)
+                while not (_same(sh_cnumber) and density(SH) >= min_dens):
+                    SH = H_sub.subgraph(SG_inner).copy()
+                    if len(SH) <= k_val:
+                        break
+                    sh_cnumber = core_number(SH)
+                    sh_deg = dict(SH.degree())
+                    min_deg = min(sh_deg.values())
+                    SH.remove_nodes_from(
+                        n for n, d in sh_deg.items() if d == min_deg
+                    )
+                    SG_inner = k_core(G_sub.subgraph(SH), k_val)
+                else:
+                    yield SG_inner
+
+        result = _defaultdict(list)
+        for component in connected_components(G):
+            comp = set(component)
+            if len(comp) > 1:
+                result[1].append(comp)
+        for bicomponent in biconnected_components(G):
+            bicomp = set(bicomponent)
+            if len(bicomp) > 2:
+                result[2].append(bicomp)
+        if len(G) == 0:
+            return result
+        g_cnumber = core_number(G)
+        max_core = max(g_cnumber.values()) if g_cnumber else 0
+        for k in range(3, max_core + 1):
+            C = k_core(G, k, core_number=g_cnumber)
+            for nodes in biconnected_components(C):
+                if len(nodes) < k:
+                    continue
+                SG = G.subgraph(nodes)
+                H = Graph()
+                H.add_nodes_from(SG.nodes())
+                for u, v in _itertools.combinations(SG, 2):
+                    K = self.local_node_connectivity(SG, u, v, cutoff=k)
+                    if K >= k:
+                        H.add_edge(u, v)
+                for h_nodes in biconnected_components(H):
+                    if len(h_nodes) <= k:
+                        continue
+                    SH = H.subgraph(h_nodes)
+                    for Gc in _cliques_heuristic(SG, SH, k, min_density):
+                        for k_nodes in biconnected_components(Gc):
+                            Gk = k_core(SG.subgraph(k_nodes), k)
+                            if len(Gk) <= k:
+                                continue
+                            result[k].append(set(Gk))
+        return result
+
     def min_weighted_vertex_cover(self, G, weight=None, *, backend=None, **backend_kwargs):
         # br-vcnative: the generic __getattr__ wrapper round-trips the graph
         # through ``_networkx_graph_for_parity`` (an O(n^2) fnx->nx conversion)

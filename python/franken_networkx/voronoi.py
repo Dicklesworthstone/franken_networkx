@@ -7,6 +7,9 @@ import importlib as _importlib
 _nx_voronoi = _importlib.import_module("networkx.algorithms.voronoi")
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
+
+groups = _fnx_utils.groups
 
 __all__ = list(getattr(_nx_voronoi, "__all__", ("voronoi_cells",)))
 

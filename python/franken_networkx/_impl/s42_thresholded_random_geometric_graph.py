@@ -1318,6 +1318,174 @@ _ISOMORPHISM_MATCHER_HELPERS = (
 
 
 def _build_isomorphism_module():
+    from itertools import permutations as _iso_permutations
+
+    def _iso_copyfunc(f, name=None):
+        return _types.FunctionType(
+            f.__code__, f.__globals__, name or f.__name__, f.__defaults__, f.__closure__
+        )
+
+    def _iso_allclose(x, y, rtol=1.0000000000000001e-05, atol=1e-08):
+        return all(
+            _math.isclose(xi, yi, rel_tol=rtol, abs_tol=atol) for xi, yi in zip(x, y)
+        )
+
+    def categorical_node_match(attr, default):
+        if isinstance(attr, str):
+
+            def match(data1, data2):
+                return data1.get(attr, default) == data2.get(attr, default)
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(data1, data2):
+                return all(data1.get(attr, d) == data2.get(attr, d) for attr, d in attrs)
+
+        return match
+
+    categorical_edge_match = _iso_copyfunc(
+        categorical_node_match, "categorical_edge_match"
+    )
+
+    def categorical_multiedge_match(attr, default):
+        if isinstance(attr, str):
+
+            def match(datasets1, datasets2):
+                values1 = {data.get(attr, default) for data in datasets1.values()}
+                values2 = {data.get(attr, default) for data in datasets2.values()}
+                return values1 == values2
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(datasets1, datasets2):
+                values1 = set()
+                for data1 in datasets1.values():
+                    x = tuple(data1.get(attr, d) for attr, d in attrs)
+                    values1.add(x)
+                values2 = set()
+                for data2 in datasets2.values():
+                    x = tuple(data2.get(attr, d) for attr, d in attrs)
+                    values2.add(x)
+                return values1 == values2
+
+        return match
+
+    def numerical_node_match(attr, default, rtol=1.0000000000000001e-05, atol=1e-08):
+        if isinstance(attr, str):
+
+            def match(data1, data2):
+                return _math.isclose(
+                    data1.get(attr, default),
+                    data2.get(attr, default),
+                    rel_tol=rtol,
+                    abs_tol=atol,
+                )
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(data1, data2):
+                values1 = [data1.get(attr, d) for attr, d in attrs]
+                values2 = [data2.get(attr, d) for attr, d in attrs]
+                return _iso_allclose(values1, values2, rtol=rtol, atol=atol)
+
+        return match
+
+    numerical_edge_match = _iso_copyfunc(numerical_node_match, "numerical_edge_match")
+
+    def numerical_multiedge_match(
+        attr, default, rtol=1.0000000000000001e-05, atol=1e-08
+    ):
+        if isinstance(attr, str):
+
+            def match(datasets1, datasets2):
+                values1 = sorted(data.get(attr, default) for data in datasets1.values())
+                values2 = sorted(data.get(attr, default) for data in datasets2.values())
+                return _iso_allclose(values1, values2, rtol=rtol, atol=atol)
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(datasets1, datasets2):
+                values1 = []
+                for data1 in datasets1.values():
+                    x = tuple(data1.get(attr, d) for attr, d in attrs)
+                    values1.append(x)
+                values2 = []
+                for data2 in datasets2.values():
+                    x = tuple(data2.get(attr, d) for attr, d in attrs)
+                    values2.append(x)
+                values1.sort()
+                values2.sort()
+                for xi, yi in zip(values1, values2):
+                    if not _iso_allclose(xi, yi, rtol=rtol, atol=atol):
+                        return False
+                else:
+                    return True
+
+        return match
+
+    def generic_node_match(attr, default, op):
+        if isinstance(attr, str):
+
+            def match(data1, data2):
+                return op(data1.get(attr, default), data2.get(attr, default))
+
+        else:
+            attrs = list(zip(attr, default, op))
+
+            def match(data1, data2):
+                for attr, d, operator in attrs:
+                    if not operator(data1.get(attr, d), data2.get(attr, d)):
+                        return False
+                else:
+                    return True
+
+        return match
+
+    generic_edge_match = _iso_copyfunc(generic_node_match, "generic_edge_match")
+
+    def generic_multiedge_match(attr, default, op):
+        if isinstance(attr, str):
+            attr = [attr]
+            default = [default]
+            op = [op]
+        attrs = list(zip(attr, default))
+
+        def match(datasets1, datasets2):
+            values1 = []
+            for data1 in datasets1.values():
+                x = tuple(data1.get(attr, d) for attr, d in attrs)
+                values1.append(x)
+            values2 = []
+            for data2 in datasets2.values():
+                x = tuple(data2.get(attr, d) for attr, d in attrs)
+                values2.append(x)
+            for vals2 in _iso_permutations(values2):
+                for xi, yi in zip(values1, vals2):
+                    if not all(map(lambda x, y, z: z(x, y), xi, yi, op)):
+                        break
+                else:
+                    return True
+            else:
+                return False
+
+        return match
+
+    matchers = {
+        "categorical_node_match": categorical_node_match,
+        "categorical_edge_match": categorical_edge_match,
+        "categorical_multiedge_match": categorical_multiedge_match,
+        "generic_node_match": generic_node_match,
+        "generic_edge_match": generic_edge_match,
+        "generic_multiedge_match": generic_multiedge_match,
+        "numerical_node_match": numerical_node_match,
+        "numerical_edge_match": numerical_edge_match,
+        "numerical_multiedge_match": numerical_multiedge_match,
+    }
+
     module = _types.ModuleType(f"{__name__}.isomorphism")
     module.__doc__ = "FrankenNetworkX graph isomorphism API."
     module.__package__ = __name__
@@ -1325,10 +1493,8 @@ def _build_isomorphism_module():
     module.__all__ = all_exports
     for export_name in _ISOMORPHISM_MODULE_EXPORTS:
         setattr(module, export_name, globals()[export_name])
-    # br-r37-c1-4cmv8: isomorphism matcher helpers from nx (not at fnx top-level)
-    from networkx.algorithms import isomorphism as _nx_iso
-    for helper_name in _ISOMORPHISM_MATCHER_HELPERS:
-        setattr(module, helper_name, getattr(_nx_iso, helper_name))
+    for helper_name, helper_fn in matchers.items():
+        setattr(module, helper_name, helper_fn)
     return module
 
 

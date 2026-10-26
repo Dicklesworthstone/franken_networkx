@@ -10,6 +10,9 @@ except ModuleNotFoundError:
     _nx_perfect_graph = None
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
+
+not_implemented_for = _fnx_utils.not_implemented_for
 
 __all__ = (
     list(getattr(_nx_perfect_graph, "__all__", ("is_perfect_graph",)))

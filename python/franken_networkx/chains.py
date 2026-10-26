@@ -12,7 +12,9 @@ import importlib as _importlib
 _nx_chains = _importlib.import_module("networkx.algorithms.chains")
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
 
+not_implemented_for = _fnx_utils.not_implemented_for
 chain_decomposition = _fnx.chain_decomposition
 
 __all__ = list(getattr(_nx_chains, "__all__", ("chain_decomposition",)))

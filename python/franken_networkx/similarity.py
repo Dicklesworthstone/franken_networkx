@@ -7,6 +7,10 @@ import importlib as _importlib
 _nx_similarity = _importlib.import_module("networkx.algorithms.similarity")
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
+
+not_implemented_for = _fnx_utils.not_implemented_for
+np_random_state = _fnx_utils.np_random_state
 
 __all__ = list(
     getattr(

@@ -7,6 +7,11 @@ import importlib as _importlib
 _nx_simple_paths = _importlib.import_module("networkx.algorithms.simple_paths")
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
+
+not_implemented_for = _fnx_utils.not_implemented_for
+pairwise = _fnx_utils.pairwise
+PathBuffer = _fnx._ShortestSimplePathBuffer
 
 __all__ = list(
     getattr(

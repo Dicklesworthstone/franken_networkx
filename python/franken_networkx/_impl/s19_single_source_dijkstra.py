@@ -1376,7 +1376,7 @@ def _write_adjlist_generate_fast(G, path, comments, delimiter, encoding):
     import sys
     import time
 
-    from networkx.utils import open_file as _open_file
+    from franken_networkx.utils import open_file as _open_file
 
     @_open_file(1, mode="wb")
     def _emit(G, path):

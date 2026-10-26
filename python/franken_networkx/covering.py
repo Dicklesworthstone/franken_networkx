@@ -12,6 +12,10 @@ import importlib as _importlib
 _nx_covering = _importlib.import_module("networkx.algorithms.covering")
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
+
+not_implemented_for = _fnx_utils.not_implemented_for
+arbitrary_element = _fnx_utils.arbitrary_element
 
 __all__ = list(getattr(_nx_covering, "__all__", ("min_edge_cover", "is_edge_cover")))
 

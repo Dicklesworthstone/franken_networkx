@@ -7,6 +7,10 @@ import importlib as _importlib
 _nx_mis = _importlib.import_module("networkx.algorithms.mis")
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
+
+not_implemented_for = _fnx_utils.not_implemented_for
+py_random_state = _fnx_utils.py_random_state
 
 __all__ = list(getattr(_nx_mis, "__all__", ("maximal_independent_set",)))
 

@@ -12,6 +12,9 @@ import importlib as _importlib
 _nx_broadcasting = _importlib.import_module("networkx.algorithms.broadcasting")
 
 import franken_networkx as _fnx
+from franken_networkx import utils as _fnx_utils
+
+not_implemented_for = _fnx_utils.not_implemented_for
 
 __all__ = list(
     getattr(

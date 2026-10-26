@@ -54,6 +54,7 @@ for _name in (
     "greedy_tsp",
     "simulated_annealing_tsp",
     "threshold_accepting_tsp",
+    "k_components",
 ):
     globals()[_name] = getattr(_fnx._approx_ns, _name)
 
