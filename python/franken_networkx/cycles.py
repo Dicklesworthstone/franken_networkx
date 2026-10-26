@@ -7,11 +7,6 @@ import importlib as _importlib
 _nx_cycles = _importlib.import_module("networkx.algorithms.cycles")
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
-
-not_implemented_for = _fnx_utils.not_implemented_for
-arbitrary_element = _fnx_utils.arbitrary_element
-pairwise = _fnx_utils.pairwise
 
 __all__ = list(
     getattr(
@@ -79,6 +74,10 @@ def girth(G, *, backend=None, **backend_kwargs):
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "arbitrary_element", "pairwise"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_cycles, name)
     except AttributeError as exc:

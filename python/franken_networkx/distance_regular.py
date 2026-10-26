@@ -7,9 +7,6 @@ import importlib as _importlib
 _nx_distance_regular = _importlib.import_module("networkx.algorithms.distance_regular")
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
-
-not_implemented_for = _fnx_utils.not_implemented_for
 
 __all__ = list(
     getattr(
@@ -63,6 +60,10 @@ def diameter(
 
 
 def __getattr__(name):
+    if name == "not_implemented_for":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.not_implemented_for
     try:
         return getattr(_nx_distance_regular, name)
     except AttributeError as exc:

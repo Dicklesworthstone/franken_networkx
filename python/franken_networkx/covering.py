@@ -12,10 +12,6 @@ import importlib as _importlib
 _nx_covering = _importlib.import_module("networkx.algorithms.covering")
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
-
-not_implemented_for = _fnx_utils.not_implemented_for
-arbitrary_element = _fnx_utils.arbitrary_element
 
 __all__ = list(getattr(_nx_covering, "__all__", ("min_edge_cover", "is_edge_cover")))
 
@@ -35,6 +31,10 @@ def is_edge_cover(G, cover, *, backend=None, **backend_kwargs):
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "arbitrary_element"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_covering, name)
     except AttributeError as exc:

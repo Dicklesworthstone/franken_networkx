@@ -12,15 +12,17 @@ import importlib as _importlib
 _nx_time_dependent = _importlib.import_module("networkx.algorithms.time_dependent")
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
 
-not_implemented_for = _fnx_utils.not_implemented_for
 cd_index = _fnx.cd_index
 
 __all__ = list(getattr(_nx_time_dependent, "__all__", ("cd_index",)))
 
 
 def __getattr__(name):
+    if name == "not_implemented_for":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.not_implemented_for
     try:
         return getattr(_nx_time_dependent, name)
     except AttributeError as exc:

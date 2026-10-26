@@ -7,9 +7,6 @@ import importlib as _importlib
 _nx_polynomials = _importlib.import_module("networkx.algorithms.polynomials")
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
-
-not_implemented_for = _fnx_utils.not_implemented_for
 
 __all__ = list(
     getattr(_nx_polynomials, "__all__", ("tutte_polynomial", "chromatic_polynomial"))
@@ -33,6 +30,10 @@ def tutte_polynomial(G, *, backend=None, **backend_kwargs):
 
 
 def __getattr__(name):
+    if name == "not_implemented_for":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.not_implemented_for
     try:
         return getattr(_nx_polynomials, name)
     except AttributeError as exc:

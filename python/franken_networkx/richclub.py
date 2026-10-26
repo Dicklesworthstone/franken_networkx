@@ -7,10 +7,6 @@ import importlib as _importlib
 _nx_richclub = _importlib.import_module("networkx.algorithms.richclub")
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
-
-not_implemented_for = _fnx_utils.not_implemented_for
-py_random_state = _fnx_utils.py_random_state
 
 __all__ = list(getattr(_nx_richclub, "__all__", ("rich_club_coefficient",)))
 
@@ -32,6 +28,10 @@ def rich_club_coefficient(
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "py_random_state"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_richclub, name)
     except AttributeError as exc:

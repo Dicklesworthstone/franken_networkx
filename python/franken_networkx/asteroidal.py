@@ -12,9 +12,7 @@ import importlib as _importlib
 _nx_asteroidal = _importlib.import_module("networkx.algorithms.asteroidal")
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
 
-not_implemented_for = _fnx_utils.not_implemented_for
 is_at_free = _fnx.is_at_free
 find_asteroidal_triple = _fnx.find_asteroidal_triple
 
@@ -53,6 +51,10 @@ __all__ = list(
 
 
 def __getattr__(name):
+    if name == "not_implemented_for":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.not_implemented_for
     try:
         return getattr(_nx_asteroidal, name)
     except AttributeError as exc:

@@ -861,19 +861,19 @@ def powerlaw_sequence(n, exponent=2.0, seed=None):
 
 
 def is_valid_tree_degree_sequence(degree_sequence):
-    """Returns True if `degree_sequence` is a valid tree degree sequence."""
-    deg_seq = list(degree_sequence)
-    num_nodes = len(deg_seq)
-    if num_nodes == 0:
-        return True
-    if num_nodes == 1:
-        return deg_seq == [0]
-    if any(d <= 0 for d in deg_seq):
-        return False
-    return sum(deg_seq) == 2 * (num_nodes - 1)
+    """Check if a degree sequence is valid for a tree."""
+    seq = list(degree_sequence)
+    number_of_nodes = len(seq)
+    twice_number_of_edges = sum(seq)
+
+    if 2 * number_of_nodes - twice_number_of_edges != 2:
+        return False, "tree must have one more node than number of edges"
+    elif seq != [0] and any(d <= 0 for d in seq):
+        return False, "nontrivial tree must have strictly positive node degrees"
+    return True, ""
 
 
-@py_random_state(3)
+@py_random_state(2)
 def zipf_rv(alpha, xmin=1, seed=None):
     """Returns a random value chosen from the Zipf distribution."""
     if xmin < 1:
@@ -895,10 +895,11 @@ def zipf_rv(alpha, xmin=1, seed=None):
 def cumulative_distribution(distribution):
     """Returns normalized cumulative distribution from discrete distribution."""
     cdf = [0.0]
-    psum = sum(distribution)
-    for i in range(len(distribution)):
-        cdf.append(cdf[i] + distribution[i] / psum)
-    return cdf
+    cumulative = 0.0
+    for element in distribution:
+        cumulative += element
+        cdf.append(cumulative)
+    return [element / cumulative for element in cdf]
 
 
 @py_random_state(3)
@@ -912,7 +913,7 @@ def discrete_sequence(n, distribution=None, cdistribution=None, seed=None):
         cdf = cumulative_distribution(distribution)
     else:
         raise _nx_error(
-            "discrete_sequence: distribution or cdistribution must be specified"
+            "discrete_sequence: distribution or cdistribution missing"
         )
 
     inputseq = [seed.random() for i in range(n)]
@@ -923,16 +924,11 @@ def discrete_sequence(n, distribution=None, cdistribution=None, seed=None):
 @py_random_state(2)
 def random_weighted_sample(mapping, k, seed=None):
     """Returns k items without replacement from a weighted sample."""
-    if k > len(mapping) or k < 0:
-        raise ValueError("sample larger than population or is negative")
+    if k > len(mapping):
+        raise ValueError("sample larger than population")
     sample = set()
-    if k == 0:
-        return []
-    m = dict(mapping)
     while len(sample) < k:
-        choice = weighted_choice(m, seed)
-        sample.add(choice)
-        del m[choice]
+        sample.add(weighted_choice(mapping, seed))
     return list(sample)
 
 

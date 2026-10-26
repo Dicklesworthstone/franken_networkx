@@ -1396,6 +1396,8 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     # contraction sequence; the partition recovery below is nx's tail run
     # VERBATIM with real CPython sets — its list order is set-iteration
     # order, unreplicable in Rust but exact by construction here.
+    if heap is None:
+        heap = _BINARY_HEAP_DEFAULT
     from franken_networkx._fnx import stoer_wagner_phases as _rust_stoer_wagner_phases
 
     if not _stoer_wagner_native_domain(G, weight, heap):

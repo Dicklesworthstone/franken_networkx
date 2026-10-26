@@ -14,9 +14,7 @@ _nx_communicability_alg = _importlib.import_module(
 )
 
 import franken_networkx as _fnx
-from franken_networkx import utils as _fnx_utils
 
-not_implemented_for = _fnx_utils.not_implemented_for
 communicability = _fnx.communicability
 communicability_exp = _fnx.communicability_exp
 
@@ -30,6 +28,10 @@ __all__ = list(
 
 
 def __getattr__(name):
+    if name == "not_implemented_for":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.not_implemented_for
     try:
         return getattr(_nx_communicability_alg, name)
     except AttributeError as exc:
