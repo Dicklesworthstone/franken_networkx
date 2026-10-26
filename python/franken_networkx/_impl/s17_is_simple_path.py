@@ -759,13 +759,19 @@ class _ApproximationNamespace:
         return nodes
 
     def traveling_salesman_problem(
-        self, G, weight="weight", nodes=None, cycle=True, method=None, **kwargs
+        self,
+        G,
+        weight="weight",
+        nodes=None,
+        cycle=True,
+        method=None,
+        *,
+        backend=None,
+        **kwargs,
     ):
-        if "backend" in kwargs:
-            backend = kwargs.pop("backend")
-            _validate_backend_dispatch_keywords(
-                "traveling_salesman_problem", backend, {}
-            )
+        _validate_backend_dispatch_keywords(
+            "traveling_salesman_problem", backend, {}
+        )
         G = _coerce_arg_to_fnx_graph(G)
         if method is None:
             if G.is_directed():
