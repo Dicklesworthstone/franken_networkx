@@ -307,6 +307,38 @@ def hnm_harary_graph(n, m, create_using=None):
     return _harary_graph_from_edges(n, edges, create_using=create_using)
 
 
+def _gomory_hu_prepare_fallback(G, capacity, flow_func):
+    from franken_networkx.backend import _fnx_to_nx
+
+    python_graph = _fnx_to_nx(G)
+    if flow_func is None:
+        flow_func = _nx.algorithms.flow.edmonds_karp
+    try:
+        residual = _nx.algorithms.flow.build_residual_network(
+            python_graph, capacity
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+    return python_graph, flow_func, residual
+
+
+def _gomory_hu_cut_fallback(
+    python_graph, source, target, capacity, flow_func, residual
+):
+    try:
+        return _nx.algorithms.flow.maxflow.minimum_cut(
+            python_graph,
+            source,
+            target,
+            capacity=capacity,
+            flow_func=flow_func,
+            residual=residual,
+            backend="networkx",
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     """Return the Gomory-Hu tree of an undirected graph.
 
@@ -389,17 +421,9 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     if native:
         _sync_rust_edge_attrs(G, edge_only=True)
     else:
-        from franken_networkx.backend import _fnx_to_nx
-
-        python_graph = _fnx_to_nx(G)
-        if flow_func is None:
-            flow_func = _nx.algorithms.flow.edmonds_karp
-        try:
-            residual = _nx.algorithms.flow.build_residual_network(
-                python_graph, capacity
-            )
-        except Exception as exc:
-            _raise_translated_networkx_exception(exc)
+        python_graph, flow_func, residual = _gomory_hu_prepare_fallback(
+            G, capacity, flow_func
+        )
 
     tree = {}
     labels = {}
@@ -416,18 +440,9 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
             )
             cut_value = _coerce_flow_value(cut_value, True)
         else:
-            try:
-                cut_value, partition = _nx.algorithms.flow.maxflow.minimum_cut(
-                    python_graph,
-                    source,
-                    target,
-                    capacity=capacity,
-                    flow_func=flow_func,
-                    residual=residual,
-                    backend="networkx",
-                )
-            except Exception as exc:
-                _raise_translated_networkx_exception(exc)
+            cut_value, partition = _gomory_hu_cut_fallback(
+                python_graph, source, target, capacity, flow_func, residual
+            )
         labels[(source, target)] = cut_value
 
         for node in partition[0]:

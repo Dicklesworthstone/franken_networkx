@@ -1325,6 +1325,17 @@ def _stoer_wagner_native_domain(G, weight, heap):
     return True
 
 
+def _stoer_wagner_fallback(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
+    from franken_networkx.backend import _fnx_to_nx
+
+    try:
+        return _nx.algorithms.connectivity.stoerwagner.stoer_wagner(
+            _fnx_to_nx(G), weight=weight, heap=heap, backend="networkx"
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     """Return the Stoer-Wagner global minimum cut value and partition.
 
@@ -1388,14 +1399,7 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     from franken_networkx._fnx import stoer_wagner_phases as _rust_stoer_wagner_phases
 
     if not _stoer_wagner_native_domain(G, weight, heap):
-        from franken_networkx.backend import _fnx_to_nx
-
-        try:
-            return _nx.algorithms.connectivity.stoerwagner.stoer_wagner(
-                _fnx_to_nx(G), weight=weight, heap=heap, backend="networkx"
-            )
-        except Exception as exc:
-            _raise_translated_networkx_exception(exc)
+        return _stoer_wagner_fallback(G, weight=weight, heap=heap)
 
     _sync_rust_edge_attrs(G, edge_only=True)
     cut_value, contractions, best_phase, copy_nodes = _rust_stoer_wagner_phases(
