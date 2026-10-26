@@ -1449,7 +1449,9 @@ def binomial_tree(n, create_using=None):
     return G
 
 
-def complete_bipartite_graph(n1, n2, create_using=None):
+def complete_bipartite_graph(
+    n1, n2, create_using=None, *, backend=None, **backend_kwargs
+):
     """Return the complete bipartite graph K_(n1,n2).
 
     br-bipartiteattr: the Rust fast path omitted the per-node
@@ -1459,6 +1461,9 @@ def complete_bipartite_graph(n1, n2, create_using=None):
     partitions. Always take the Python path so these parity-critical
     attributes are set.
     """
+    _validate_backend_dispatch_keywords(
+        "complete_bipartite_graph", backend, backend_kwargs
+    )
     n1_value, top = _nodes_or_number_local(n1)
     n2_value, bottom = _nodes_or_number_local(n2)
 
@@ -1469,10 +1474,8 @@ def complete_bipartite_graph(n1, n2, create_using=None):
     if isinstance(n1_value, _numbers.Integral) and isinstance(n2_value, _numbers.Integral):
         bottom = [n1_value + i for i in bottom]
 
-    for node in top:
-        G.add_node(node, bipartite=0)
-    for node in bottom:
-        G.add_node(node, bipartite=1)
+    G.add_nodes_from((node, {"bipartite": 0}) for node in top)
+    G.add_nodes_from((node, {"bipartite": 1}) for node in bottom)
     if len(G) != len(top) + len(bottom):
         raise NetworkXError("Inputs n1 and n2 must contain distinct nodes")
     G.add_edges_from((u, v) for u in top for v in bottom)

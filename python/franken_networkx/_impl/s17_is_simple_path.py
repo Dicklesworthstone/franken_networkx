@@ -1057,6 +1057,10 @@ class _ApproximationNamespace:
         return sorted(set(dir(_nx.approximation)) | {"treewidth_min_degree"})
 
 
+_approx_ns = _ApproximationNamespace()
+approximation = _approx_ns
+
+
 def _approx_local_node_connectivity_undirected(G, raw, source, target, cutoff):
     """In-process White & Newman greedy node-connectivity approximation for an
     undirected simple graph, mirroring

@@ -1318,18 +1318,17 @@ def read_gml(
     backend=None,
     **backend_kwargs,
 ):
-    """Read graph in GML format from path.
-
-    Wraps ``networkx.read_gml`` and converts the result to an fnx
-    graph type for drop-in compatibility.
-    """
+    """Read graph in GML format from path."""
     import franken_networkx as fnx
 
-    fnx._validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
+    return fnx.read_gml(
+        path,
+        label=label,
+        destringizer=destringizer,
+        backend=backend,
+        **backend_kwargs,
+    )
 
-    # Always networkx's parser: the native one loses lists, backslashes and
-    # +INF/NAN typing (see test_read_gml_default_roundtrips_like_networkx).
-    return _read_gml_via_nx(path, label=label, destringizer=destringizer)
 
 
 def read_graphml(

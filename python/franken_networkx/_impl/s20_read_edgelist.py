@@ -654,17 +654,45 @@ def star_graph(n, create_using=None):
 # nx emits.
 
 
-def projected_graph(B, nodes, multigraph=False):
+def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwargs):
     """Return the projection of a bipartite graph onto one set of nodes.
 
     Two nodes in the projection are connected if they share a neighbor
     in the original bipartite graph. If multigraph=True, one edge is
     added per shared neighbor (returns MultiGraph).
     """
+    _validate_backend_dispatch_keywords("projected_graph", backend, backend_kwargs)
     if B.is_multigraph():
         raise NetworkXError("not defined for multigraphs")
 
     nodes = list(nodes)
+    nak = getattr(B, "_native_adjacency_keys", None)
+    if nak is not None and type(B) in (Graph, DiGraph):
+        directed = type(B) is DiGraph
+        adj = {node: list(nbrs) for node, nbrs in nak()}
+        if multigraph:
+            pred = {n: set(B.pred[n]) for n in B} if directed else None
+            G = MultiDiGraph() if directed else MultiGraph()
+            G.graph.update(B.graph)
+            G.add_nodes_from((n, B.nodes[n]) for n in nodes)
+            for u in nodes:
+                au = set(adj[u])
+                nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
+                for n in nbrs2:
+                    links = au & (pred[n] if directed else set(adj[n]))
+                    for l in links:
+                        if not G.has_edge(u, n, l):
+                            G.add_edge(u, n, key=l)
+            return G
+        G = DiGraph() if directed else Graph()
+        G.graph.update(B.graph)
+        G.add_nodes_from((n, B.nodes[n]) for n in nodes)
+        proj_edges = []
+        for u in nodes:
+            nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
+            proj_edges.extend((u, n) for n in nbrs2)
+        G.add_edges_from(proj_edges)
+        return G
 
     if multigraph:
         G = MultiDiGraph() if B.is_directed() else MultiGraph()

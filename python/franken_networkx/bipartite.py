@@ -1012,59 +1012,15 @@ def collaboration_weighted_projected_graph(B, nodes, *, backend=None, **backend_
 
 
 def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwargs):
-    """Return the projection of B onto one of its node sets.
-
-    Wraps ``networkx.algorithms.bipartite.projected_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords(
-        "projected_graph", backend, backend_kwargs
+    """Return the projection of B onto one of its node sets."""
+    return _fnx.projected_graph(
+        B,
+        nodes,
+        multigraph=multigraph,
+        backend=backend,
+        **backend_kwargs,
     )
-    # br-r37-c1-bpproj: de-delegate every simple/multi fnx Graph or DiGraph case.
-    # The delegated path ran nx's algorithm THROUGH fnx's slow per-access adjacency
-    # views AND rebuilt the result via _from_nx_graph (~61% of the time). Snapshot
-    # B's adjacency once via the native key-only binding and build the fnx
-    # projection directly — two nodes are joined iff they share a common neighbour;
-    # ``_native_adjacency_keys`` yields successors for a DiGraph (= nx's ``B[u]``).
-    # The projection is UNWEIGHTED (simple: edge existence; multigraph: one edge
-    # per shared neighbour, keyed by that neighbour's label, deduped via has_edge
-    # exactly like nx) so there is NO float-summation order to diverge — byte-exact,
-    # verified incl. exact edge order + keys. nx-typed B keeps the delegation path.
-    nak = getattr(B, "_native_adjacency_keys", None)
-    if nak is not None and type(B) in (_fnx.Graph, _fnx.DiGraph):
-        directed = type(B) is _fnx.DiGraph
-        adj = {node: list(nbrs) for node, nbrs in nak()}
-        if multigraph:
-            pred = {n: set(B.pred[n]) for n in B} if directed else None
-            G = _fnx.MultiDiGraph() if directed else _fnx.MultiGraph()
-            G.graph.update(B.graph)
-            G.add_nodes_from((n, B.nodes[n]) for n in nodes)
-            for u in nodes:
-                au = set(adj[u])
-                nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
-                for n in nbrs2:
-                    links = au & (pred[n] if directed else set(adj[n]))
-                    for l in links:
-                        if not G.has_edge(u, n, l):
-                            G.add_edge(u, n, key=l)
-            return G
-        G = _fnx.DiGraph() if directed else _fnx.Graph()
-        G.graph.update(B.graph)
-        G.add_nodes_from((n, B.nodes[n]) for n in nodes)
-        # br-r37-c1-bpprojbatch: collect ALL projection edges and add them in ONE
-        # add_edges_from. The previous per-node add_edges_from loop only let the
-        # FIRST node hit the native bulk-edge fast path; every later call saw a
-        # non-fresh graph and fell back to the per-edge add_edge tax (~83k add_edge
-        # calls on an 80-node projection). Same node-major emission order (nodes ->
-        # each node's nbrs2 set) so the edge insertion order stays byte-identical.
-        proj_edges = []
-        for u in nodes:
-            nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
-            proj_edges.extend((u, n) for n in nbrs2)
-        G.add_edges_from(proj_edges)
-        return G
-    nx_result = _nx_bipartite.projected_graph(B, nodes, multigraph=multigraph)
-    return _from_nx_graph(nx_result)
+
 
 
 def weighted_projected_graph(B, nodes, ratio=False, *, backend=None, **backend_kwargs):
@@ -1293,31 +1249,15 @@ def alternating_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=Non
 
 
 def complete_bipartite_graph(n1, n2, create_using=None, *, backend=None, **backend_kwargs):
-    """Return the complete bipartite graph K_{n1,n2}.
-
-    Wraps ``networkx.algorithms.bipartite.complete_bipartite_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords(
-        "complete_bipartite_graph", backend, backend_kwargs
+    """Return the complete bipartite graph K_{n1,n2}."""
+    return _fnx.complete_bipartite_graph(
+        n1,
+        n2,
+        create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
     )
-    # br-r37-c1-bpcompletegen: de-delegate the common integer case (create_using
-    # None -> fnx.Graph). nx (after its nodes_or_number decorator) makes
-    # top=range(n1), bottom=[n1+i for i in range(n2)], tags bipartite 0/1, adds all
-    # top x bottom edges and sets the graph name. Replicate it directly instead of
-    # building an nx graph + _from_nx_graph. Containers / create_using keep the
-    # delegation path (nodes_or_number normalisation + type semantics).
-    if create_using is None and isinstance(n1, int) and isinstance(n2, int):
-        top = range(n1)
-        bottom = [n1 + i for i in range(n2)]
-        G = _fnx.Graph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in top)
-        G.add_nodes_from((v, {"bipartite": 1}) for v in bottom)
-        G.add_edges_from((u, v) for u in top for v in bottom)
-        G.graph["name"] = f"complete_bipartite_graph({n1}, {n2})"
-        return G
-    nx_result = _nx_bipartite.complete_bipartite_graph(n1, n2, create_using=create_using)
-    return _from_nx_graph(nx_result, create_using=create_using)
+
 
 
 def configuration_model(aseq, bseq, create_using=None, seed=None, *, backend=None, **backend_kwargs):

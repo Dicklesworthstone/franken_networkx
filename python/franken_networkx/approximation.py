@@ -39,17 +39,6 @@ def steiner_tree(G, terminal_nodes, weight="weight", method=None, *, backend=Non
     return _from_nx_graph(nx_result)
 
 
-def treewidth_min_degree(G, *, backend=None, **backend_kwargs):
-    """Return a (treewidth, graph) tuple using the minimum degree heuristic.
-
-    Wraps ``networkx.algorithms.approximation.treewidth_min_degree`` and
-    converts the tree decomposition graph to an fnx graph type.
-    """
-    _fnx._validate_backend_dispatch_keywords("treewidth_min_degree", backend, backend_kwargs)
-    treewidth, nx_decomp = _nx_approx.treewidth_min_degree(G)
-    return treewidth, _from_nx_graph(nx_decomp)
-
-
 def treewidth_min_fill_in(G, *, backend=None, **backend_kwargs):
     """Return a (treewidth, graph) tuple using the minimum fill-in heuristic.
 
@@ -61,12 +50,22 @@ def treewidth_min_fill_in(G, *, backend=None, **backend_kwargs):
     return treewidth, _from_nx_graph(nx_decomp)
 
 
-def metric_closure(G, weight="weight", *, backend=None, **backend_kwargs):
-    """Return the metric closure of a graph.
+for _name in (
+    "treewidth_min_degree",
+    "min_maximal_matching",
+    "randomized_partitioning",
+    "min_weighted_dominating_set",
+    "min_edge_dominating_set",
+    "average_clustering",
+    "diameter",
+    "local_node_connectivity",
+    "node_connectivity",
+    "all_pairs_node_connectivity",
+    "large_clique_size",
+    "metric_closure",
+    "greedy_tsp",
+    "simulated_annealing_tsp",
+    "threshold_accepting_tsp",
+):
+    globals()[_name] = getattr(_fnx._approx_ns, _name)
 
-    Wraps ``networkx.algorithms.approximation.metric_closure`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("metric_closure", backend, backend_kwargs)
-    nx_result = _nx_approx.metric_closure(G, weight=weight)
-    return _from_nx_graph(nx_result)

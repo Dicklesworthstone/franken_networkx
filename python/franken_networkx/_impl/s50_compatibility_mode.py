@@ -32,7 +32,7 @@ def decision_records(G) -> list:
 def drain_decision_records(G) -> list:
     """Drain and return audit ledger decision records for graph `G`."""
     return _rust_drain_decision_records(G)
-approximation = _ApproximationNamespace()
+approximation = _approx_ns
 # br-r37-c1-2poe6: the concrete native ``average_clustering`` method bypasses the
 # __getattr__ wrapper's functools.wraps, so mirror nx's docstring/name for
 # introspection parity (test_approximation_wrapper_carries_nx_docstring).
