@@ -111,20 +111,16 @@ def _transitive_closure_dag_inproc(G, topo_order):
 
 
 def _transitive_closure_dag_via_parity(G, topo_order):
-    """br-r37-c1-nhz31: private helper keeps the public
-    ``transitive_closure_dag`` classified as PY_WRAPPER in the
-    coverage matrix.
-    """
-    kwargs = {}
-    if topo_order is not None:
-        kwargs["topo_order"] = topo_order
-    nx_result = _nx.transitive_closure_dag(
-        _networkx_graph_for_parity(G), backend="networkx", **kwargs,
-    )
-    from franken_networkx.readwrite import _from_nx_graph
-    # br-r37-c1-lblzk: cycle-225 family — SubgraphView can't be empty-constructed.
-    cls = _concrete_class_for(G)()
-    return _from_nx_graph(nx_result, create_using=cls)
+    """In-process transitive_closure_dag for multigraphs, views, and subclasses."""
+    G = _coerce_arg_to_fnx_graph(G)
+    if topo_order is None:
+        topo_order = list(topological_sort(G))
+    else:
+        topo_order = list(topo_order)
+    TC = G.copy()
+    for v in reversed(topo_order):
+        TC.add_edges_from((v, u) for u in descendants_at_distance(TC, v, 2))
+    return TC
 
 
 # ---------------------------------------------------------------------------

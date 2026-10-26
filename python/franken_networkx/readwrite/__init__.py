@@ -387,24 +387,11 @@ def _write_gml_via_nx(G, path, *, stringizer=None):
     ):
         return None
 
-    import networkx as nx
-    from networkx.utils import open_file
+    def _emit_gml(fobj):
+        for line in generate_gml(G, stringizer):
+            fobj.write((line + "\n").encode("ascii"))
 
-    # br-r37-c1-gmldirect: nx's generate_gml only iterates nodes(data=
-    # True)/edges(data=True)/graph, all exposed nx-compatibly by fnx, so
-    # write DIRECTLY from the fnx graph (skip the fnx->nx rebuild that
-    # was 4.9x). Re-apply nx's @open_file to the undispatched writer so
-    # path + .gz/.bz2 compression handling is preserved. Exact concrete
-    # types only; views/subclasses keep the _to_nx fallback.
-    raw_writer = getattr(nx.write_gml, "__wrapped__", None)
-    if raw_writer is not None and type(G) in (
-        fnx.Graph,
-        fnx.DiGraph,
-        fnx.MultiGraph,
-        fnx.MultiDiGraph,
-    ):
-        return open_file(1, mode="wb")(raw_writer)(G, path, stringizer=stringizer)
-    return nx.write_gml(_to_nx(G), path, stringizer=stringizer)
+    return fnx._open_path_and_call(path, "wb", _emit_gml)
 
 
 def _write_gml_native_plain_path_ok(path):
@@ -1257,22 +1244,18 @@ def read_adjlist(
     backend=None,
     **backend_kwargs,
 ):
-    """Read graph in adjacency list format from path.
-
-    Wraps ``networkx.read_adjlist`` and converts the result to an fnx
-    graph type for drop-in compatibility.
-    """
+    """Read graph in adjacency list format from path."""
     import franken_networkx as fnx
 
-    fnx._validate_backend_dispatch_keywords("read_adjlist", backend, backend_kwargs)
-
-    return _read_adjlist_via_nx(
+    return fnx.read_adjlist(
         path,
         comments=comments,
         delimiter=delimiter,
         create_using=create_using,
         nodetype=nodetype,
         encoding=encoding,
+        backend=backend,
+        **backend_kwargs,
     )
 
 
@@ -1289,16 +1272,10 @@ def read_edgelist(
     backend=None,
     **backend_kwargs,
 ):
-    """Read a graph from a list of edges.
-
-    Wraps ``networkx.read_edgelist`` and converts the result to an fnx
-    graph type for drop-in compatibility.
-    """
+    """Read a graph from a list of edges."""
     import franken_networkx as fnx
 
-    fnx._validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
-
-    return _read_edgelist_via_nx(
+    return fnx.read_edgelist(
         path,
         comments=comments,
         delimiter=delimiter,
@@ -1307,6 +1284,8 @@ def read_edgelist(
         data=data,
         edgetype=edgetype,
         encoding=encoding,
+        backend=backend,
+        **backend_kwargs,
     )
 
 
@@ -2711,13 +2690,9 @@ def _apply_gexf_node_type(graph, node_type):
 
 def _read_gexf_payload(path):
     """Read once with the GEXF writer's compression and stream ownership rules."""
-    from networkx.utils import open_file
+    import franken_networkx as fnx
 
-    @open_file(0, mode="rb")
-    def read(handle):
-        return handle.read()
-
-    raw = read(path)
+    raw = fnx._open_path_and_call(path, "rb", lambda handle: handle.read())
     return raw.encode("utf-8") if isinstance(raw, str) else raw
 
 

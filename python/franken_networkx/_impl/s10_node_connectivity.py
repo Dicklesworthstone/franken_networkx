@@ -1,6 +1,6 @@
 
 
-def node_connectivity(G, s=None, t=None, flow_func=None):
+def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Return the node connectivity of the graph.
 
     Parameters
@@ -19,6 +19,7 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     int
         The node connectivity of G.
     """
+    _validate_backend_dispatch_keywords("node_connectivity", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
@@ -95,7 +96,7 @@ def _edge_connectivity_inproc(G, s=None, t=None, flow_func=None, cutoff=None):
         _raise_translated_networkx_exception(exc)
 
 
-def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
+def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend=None, **backend_kwargs):
     """Return the edge connectivity of the graph.
 
     Parameters
@@ -116,6 +117,7 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     int
         The edge connectivity of G.
     """
+    _validate_backend_dispatch_keywords("edge_connectivity", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
@@ -299,7 +301,9 @@ def _degree_assortativity_inproc(G, x="out", y="in", weight=None, nodes=None):
         _raise_translated_networkx_exception(exc)
 
 
-def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None):
+def degree_assortativity_coefficient(
+    G, x="out", y="in", weight=None, nodes=None, *, backend=None, **backend_kwargs
+):
     """Compute degree assortativity of graph.
 
     br-assortkw: accepts nx's full parameter surface (``x``, ``y``,
@@ -309,6 +313,9 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     mixing-matrix evaluation is bit-for-bit identical (``==``) to NetworkX's
     ``numeric_assortativity_coefficient`` pipeline with zero NetworkX frames.
     """
+    _validate_backend_dispatch_keywords(
+        "degree_assortativity_coefficient", backend, backend_kwargs
+    )
     G = _coerce_arg_to_fnx_graph(G)
     if (
         x == "out"
@@ -818,14 +825,26 @@ def _betweenness_centrality_inproc(
         _raise_translated_networkx_exception(exc)
 
 
-def _networkx_release():
-    """Major/minor of the actual oracle, including prerelease/dev versions."""
+def _compute_networkx_release():
+    import importlib.metadata as _im
     import re
 
-    match = re.match(r"^(\d+)\.(\d+)", _nx.__version__)
+    try:
+        ver = _im.version("networkx")
+    except Exception:
+        ver = str(getattr(_sys.modules.get("networkx"), "__version__", "3.6"))
+    match = re.match(r"^(\d+)\.(\d+)", ver)
     if match is None:
-        raise RuntimeError("Cannot determine NetworkX oracle release.")
+        return (3, 6)
     return tuple(map(int, match.groups()))
+
+
+_CACHED_NX_RELEASE = _compute_networkx_release()
+
+
+def _networkx_release():
+    """Major/minor of the actual oracle, including prerelease/dev versions."""
+    return _CACHED_NX_RELEASE
 
 
 def betweenness_centrality(
@@ -1085,7 +1104,7 @@ def maximal_matching(G):
     return _raw_maximal_matching(G)
 
 
-def min_weight_matching(G, weight="weight"):
+def min_weight_matching(G, weight="weight", *, backend=None, **backend_kwargs):
     """Compute a minimum-weight matching in the graph.
 
     Returns a set of edges (2-tuples).
@@ -1107,6 +1126,7 @@ def min_weight_matching(G, weight="weight"):
     Sister of br-r37-c1-mwm-mg (which fixed max_weight_matching);
     mirror the same eager rejection here.
     """
+    _validate_backend_dispatch_keywords("min_weight_matching", backend, backend_kwargs)
     # Check directed first to match nx's decorator ordering.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
@@ -1201,7 +1221,7 @@ def _max_weight_matching_structural_nx(G, maxcardinality, weight):
         _raise_translated_networkx_exception(exc)
 
 
-def max_weight_matching(G, maxcardinality=False, weight="weight"):
+def max_weight_matching(G, maxcardinality=False, weight="weight", *, backend=None, **backend_kwargs):
     """Compute a maximum-weight matching in the graph.
 
     Returns a set of edges (2-tuples).
@@ -1225,6 +1245,7 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
     parity family — this is a behavioural-parity sister.
     Mirror nx's eager rejection.
     """
+    _validate_backend_dispatch_keywords("max_weight_matching", backend, backend_kwargs)
     # Check directed first (matches nx's @not_implemented_for
     # decorator ordering: ``directed`` decorator was applied last,
     # so it fires first when both directed AND multigraph apply).
@@ -1243,7 +1264,7 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
 _max_weight_matching_impl = max_weight_matching
 
 
-def min_edge_cover(G, matching_algorithm=None):
+def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs):
     """Return a minimum edge cover of the graph.
 
     Parameters
@@ -1263,6 +1284,7 @@ def min_edge_cover(G, matching_algorithm=None):
         algorithms (dict-returning) produce both ``(u, v)`` and
         ``(v, u)`` directions per edge, matching nx's contract.
     """
+    _validate_backend_dispatch_keywords("min_edge_cover", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -1488,7 +1510,7 @@ def _maximum_flow_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=Non
         _raise_translated_networkx_exception(exc)
 
 
-def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
 
     Native preflow preserves Python int/float arithmetic in both the
@@ -1496,6 +1518,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     domain stay in Python, retaining arbitrary integer precision and
     the arithmetic of Fraction, Decimal, and custom numeric types.
     """
+    _validate_backend_dispatch_keywords("maximum_flow", backend, {})
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
@@ -1518,8 +1541,9 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     return _coerce_flow_value(flow_value, all_int), _coerce_flow_dict(flow_dict, all_int)
 
 
-def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Return just the max-flow value. nx-int parity when all caps int."""
+    _validate_backend_dispatch_keywords("maximum_flow_value", backend, {})
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)

@@ -219,10 +219,8 @@ def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords(
         "label_propagation_communities", backend, backend_kwargs
     )
-    if type(G) is not _fnx.Graph:
-        return _nx_community.label_propagation_communities(
-            _fnx._networkx_graph_for_parity(G)
-        )
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
 
     from collections import defaultdict
 
@@ -231,12 +229,12 @@ def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     idx = {u: i for i, u in enumerate(node_list)}
     adj = [None] * n
     _nak = getattr(G, "_native_adjacency_keys", None)
-    if _nak is not None:
+    if type(G) is _fnx.Graph and _nak is not None:
         for node, nbrs in _nak():
             adj[idx[node]] = [idx[v] for v in nbrs]
     else:
         for u in node_list:
-            adj[idx[u]] = [idx[v] for v in G._adj[u]]
+            adj[idx[u]] = [idx[v] for v in G[u]]
 
     # Colour classes in nx's exact order (greedy_color dict order).
     colors = _fnx.coloring.greedy_color(G)

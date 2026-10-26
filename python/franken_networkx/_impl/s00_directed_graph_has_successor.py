@@ -97,11 +97,136 @@ try:
     _nx_for_fallback_cfg.config.fallback_to_nx = True
     _NETWORKX_GRAPH_DEFAULT = _nx_for_fallback_cfg.Graph
     from networkx.exception import HasACycle as _NetworkXHasACycle
-    from networkx.utils import create_py_random_state as _create_py_random_state
 except Exception:
     _NETWORKX_GRAPH_DEFAULT = Graph
     _NetworkXHasACycle = Exception
-    _create_py_random_state = None
+
+
+import random as _random
+
+
+class _InProcPythonRandomViaNumpyBits(_random.Random):
+    """Provide the random.Random algorithms using a numpy.random bit generator."""
+
+    def __init__(self, rng=None):
+        import numpy as np
+
+        self._rng = np.random.mtrand._rand if rng is None else rng
+        self.gauss_next = None
+
+    def random(self):
+        return self._rng.random()
+
+    def getrandbits(self, k):
+        if k < 0:
+            raise ValueError("number of bits must be non-negative")
+        numbytes = (k + 7) // 8
+        x = int.from_bytes(self._rng.bytes(numbytes), "big")
+        return x >> (numbytes * 8 - k)
+
+    def getstate(self):
+        return self._rng.__getstate__()
+
+    def setstate(self, state):
+        self._rng.__setstate__(state)
+
+    def seed(self, *args, **kwds):
+        raise NotImplementedError("seed() not implemented in PythonRandomViaNumpyBits")
+
+
+class _InProcPythonRandomInterface:
+    """Backward-compatible wrapper for pre-seeded numpy RandomState instances."""
+
+    def __init__(self, rng=None):
+        import numpy as np
+
+        self._rng = np.random.mtrand._rand if rng is None else rng
+
+    def random(self):
+        return self._rng.random()
+
+    def uniform(self, a, b):
+        return a + (b - a) * self._rng.random()
+
+    def randrange(self, a, b=None):
+        import numpy as np
+
+        if b is None:
+            a, b = 0, a
+        if b > 9223372036854775807:
+            return _InProcPythonRandomViaNumpyBits(self._rng).randrange(a, b)
+        if isinstance(self._rng, np.random.Generator):
+            return self._rng.integers(a, b)
+        return self._rng.randint(a, b)
+
+    def choice(self, seq):
+        import numpy as np
+
+        if isinstance(self._rng, np.random.Generator):
+            idx = self._rng.integers(0, len(seq))
+        else:
+            idx = self._rng.randint(0, len(seq))
+        return seq[idx]
+
+    def gauss(self, mu, sigma):
+        return self._rng.normal(mu, sigma)
+
+    def shuffle(self, seq):
+        return self._rng.shuffle(seq)
+
+    def sample(self, seq, k):
+        return self._rng.choice(list(seq), size=(k,), replace=False)
+
+    def randint(self, a, b):
+        import numpy as np
+
+        if b > 9223372036854775807:
+            return _InProcPythonRandomViaNumpyBits(self._rng).randint(a, b)
+        if isinstance(self._rng, np.random.Generator):
+            return self._rng.integers(a, b + 1)
+        return self._rng.randint(a, b + 1)
+
+    def expovariate(self, scale):
+        return self._rng.exponential(1 / scale)
+
+    def paretovariate(self, shape):
+        return self._rng.pareto(shape)
+
+
+def _create_py_random_state(random_state=None):
+    """Return a stdlib random state matching NetworkX's create_py_random_state."""
+    if random_state is None or random_state is _random:
+        return _random._inst
+    if isinstance(random_state, _random.Random):
+        return random_state
+    if isinstance(random_state, int):
+        return _random.Random(random_state)
+    if isinstance(
+        random_state, (_InProcPythonRandomInterface, _InProcPythonRandomViaNumpyBits)
+    ) or type(random_state).__name__ in (
+        "PythonRandomInterface",
+        "PythonRandomViaNumpyBits",
+    ):
+        return random_state
+
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+
+    if np is not None:
+        if isinstance(random_state, np.random.Generator):
+            return _InProcPythonRandomViaNumpyBits(random_state)
+        if random_state is np.random:
+            return _InProcPythonRandomViaNumpyBits(np.random.mtrand._rand)
+        if isinstance(random_state, np.random.RandomState):
+            if random_state is np.random.mtrand._rand:
+                return _InProcPythonRandomViaNumpyBits(random_state)
+            return _InProcPythonRandomInterface(random_state)
+    raise ValueError(
+        f"{random_state} cannot be used to generate a random.Random instance"
+    )
+
 
 try:
     import networkx.lazy_imports as _nx_lazy_imports
@@ -111,74 +236,63 @@ except Exception:
     pass
 
 
-# br-r37-c1-u3umv: ``nx.drawing.layout._process_params`` short-circuits
-# ``isinstance(G, nx.Graph)`` for graph-like objects that *aren't* an
-# ``nx.Graph`` subclass: it discards the input and rebuilds a node-only
-# graph (no edges) via ``empty.add_nodes_from(G)``. fnx graph classes
-# pass the duck-type API but fail the isinstance check, so every nx
-# layout helper that calls ``_process_params`` (spring/fr/kk/spectral/
-# planar/...) silently runs on an edge-less version of the graph and
-# produces positions that ignore connectivity. Patch the helper at
-# import time to convert fnx graphs into nx graphs *with edges* before
-# delegating to the original implementation.
-try:
-    import networkx.drawing.layout as _nx_layout_module
+def _install_nx_interop_patches():
+    # br-r37-c1-u3umv: patch nx.drawing.layout._process_params so fnx graphs
+    # convert with edges preserved rather than falling into the duck-typed
+    # node-only branch.
+    try:
+        import networkx.drawing.layout as _nx_layout_module
 
-    _original_process_params = _nx_layout_module._process_params
+        _orig_process_params = _nx_layout_module._process_params
 
-    def _fnx_aware_process_params(G, center, dim):
-        if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
-            from franken_networkx.backend import _fnx_to_nx
-            G = _fnx_to_nx(G)
-        return _original_process_params(G, center, dim)
+        def _fnx_aware_process_params(G, center, dim):
+            if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+                from franken_networkx.backend import _fnx_to_nx
 
-    _fnx_aware_process_params.__wrapped__ = _original_process_params
-    _nx_layout_module._process_params = _fnx_aware_process_params
-except Exception:
-    pass
+                G = _fnx_to_nx(G)
+            return _orig_process_params(G, center, dim)
+
+        _fnx_aware_process_params.__wrapped__ = _orig_process_params
+        _nx_layout_module._process_params = _fnx_aware_process_params
+    except Exception:
+        pass
+
+    # br-r37-c1-sg4dw: patch nx.scale_free_graph so initial_graph accepts fnx
+    # MultiDiGraph instances.
+    try:
+        import functools as _functools_for_sfg
+        import networkx as _nx_for_sfg_patch
+        import networkx.generators as _nx_generators_for_sfg
+        import networkx.generators.directed as _nx_directed_for_sfg
+
+        _orig_sfg = _nx_directed_for_sfg.scale_free_graph
+
+        @_functools_for_sfg.wraps(_orig_sfg)
+        def _fnx_aware_scale_free_graph(n, *args, initial_graph=None, **kwargs):
+            if initial_graph is not None and isinstance(
+                initial_graph, (Graph, DiGraph, MultiGraph, MultiDiGraph)
+            ):
+                from franken_networkx.backend import _fnx_to_nx
+
+                initial_graph = _fnx_to_nx(initial_graph)
+                if not isinstance(initial_graph, _nx_for_sfg_patch.MultiDiGraph):
+                    converted = _nx_for_sfg_patch.MultiDiGraph()
+                    for node, attrs in initial_graph.nodes(data=True):
+                        converted.add_node(node, **attrs)
+                    for u, v, *rest in initial_graph.edges(data=True):
+                        data = rest[0] if rest else {}
+                        converted.add_edge(u, v, **data)
+                    initial_graph = converted
+            return _orig_sfg(n, *args, initial_graph=initial_graph, **kwargs)
+
+        _nx_directed_for_sfg.scale_free_graph = _fnx_aware_scale_free_graph
+        _nx_generators_for_sfg.scale_free_graph = _fnx_aware_scale_free_graph
+        _nx_for_sfg_patch.scale_free_graph = _fnx_aware_scale_free_graph
+    except Exception:
+        pass
 
 
-# br-r37-c1-sg4dw: ``nx.scale_free_graph`` is decorated
-# ``@_dispatchable(graphs=None, returns_graph=True)`` so the dispatcher
-# never sees its ``initial_graph`` argument, and the function body then
-# raises ``NetworkXError("initial_graph must be a MultiDiGraph.")`` via
-# an ``isinstance(initial_graph, nx.MultiDiGraph)`` guard when the user
-# passes an fnx multidigraph. Wrap the function so fnx multidigraph
-# inputs are converted to nx.MultiDiGraph before the original kernel
-# runs. Patch all three exported references (``nx.scale_free_graph``,
-# ``nx.generators.scale_free_graph``,
-# ``nx.generators.directed.scale_free_graph``) so the fix is visible
-# regardless of which import path the user took.
-try:
-    import networkx as _nx_for_sfg_patch
-    import networkx.generators.directed as _nx_directed_for_sfg
-    import networkx.generators as _nx_generators_for_sfg
-    import functools as _functools_for_sfg
-
-    _original_scale_free_graph = _nx_directed_for_sfg.scale_free_graph
-
-    @_functools_for_sfg.wraps(_original_scale_free_graph)
-    def _fnx_aware_scale_free_graph(n, *args, initial_graph=None, **kwargs):
-        if initial_graph is not None and isinstance(
-            initial_graph, (Graph, DiGraph, MultiGraph, MultiDiGraph)
-        ):
-            from franken_networkx.backend import _fnx_to_nx
-            initial_graph = _fnx_to_nx(initial_graph)
-            if not isinstance(initial_graph, _nx_for_sfg_patch.MultiDiGraph):
-                converted = _nx_for_sfg_patch.MultiDiGraph()
-                for node, attrs in initial_graph.nodes(data=True):
-                    converted.add_node(node, **attrs)
-                for u, v, *rest in initial_graph.edges(data=True):
-                    data = rest[0] if rest else {}
-                    converted.add_edge(u, v, **data)
-                initial_graph = converted
-        return _original_scale_free_graph(n, *args, initial_graph=initial_graph, **kwargs)
-
-    _nx_directed_for_sfg.scale_free_graph = _fnx_aware_scale_free_graph
-    _nx_generators_for_sfg.scale_free_graph = _fnx_aware_scale_free_graph
-    _nx_for_sfg_patch.scale_free_graph = _fnx_aware_scale_free_graph
-except Exception:
-    pass
+_install_nx_interop_patches()
 
 
 # br-r37-c1-rc0923-epic-honest-measurement-vbneu.1: NetworkX's own enum, by

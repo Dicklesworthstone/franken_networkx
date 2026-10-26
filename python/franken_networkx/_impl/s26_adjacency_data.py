@@ -1070,7 +1070,9 @@ def _all_pairs_node_connectivity_inproc(G, nbunch=None, flow_func=None):
         _raise_translated_networkx_exception(exc)
 
 
-def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
+def all_pairs_node_connectivity(
+    G, nbunch=None, flow_func=None, *, backend=None, **backend_kwargs
+):
     """Return node connectivity between all pairs.
 
     Returns
@@ -1078,6 +1080,9 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     dict of dicts
         ``result[u][v]`` is the node connectivity between u and v.
     """
+    _validate_backend_dispatch_keywords(
+        "all_pairs_node_connectivity", backend, backend_kwargs
+    )
     _validate_flow_func_selector(flow_func)
     # br-r37-c1-1y7h1: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
@@ -1336,7 +1341,9 @@ def _stoer_wagner_fallback(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
         _raise_translated_networkx_exception(exc)
 
 
-def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
+def stoer_wagner(
+    G, weight="weight", heap=_BINARY_HEAP_DEFAULT, *, backend=None, **backend_kwargs
+):
     """Return the Stoer-Wagner global minimum cut value and partition.
 
     Parameters
@@ -1358,6 +1365,7 @@ def stoer_wagner(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
     partition : tuple of lists
         The two lists of nodes that form the minimum cut partition.
     """
+    _validate_backend_dispatch_keywords("stoer_wagner", backend, backend_kwargs)
     from franken_networkx._fnx import stoer_wagner as _rust_stoer_wagner
 
     # br-r37-c1-tqimg: nx is @not_implemented_for('multigraph') and

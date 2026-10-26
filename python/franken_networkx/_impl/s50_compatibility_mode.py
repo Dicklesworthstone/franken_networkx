@@ -36,21 +36,17 @@ approximation = _approx_ns
 # br-r37-c1-2poe6: concrete native methods on _ApproximationNamespace bypass the
 # __getattr__ wrapper's functools.wraps, so mirror nx's docstring for
 # introspection parity (test_approximation_wrapper_carries_nx_docstring).
-for _apx_attr, _apx_val in _ApproximationNamespace.__dict__.items():
-    if not _apx_attr.startswith("_") and callable(_apx_val):
-        _nx_apx_fn = getattr(_nx.approximation, _apx_attr, None)
-        if _nx_apx_fn is not None and getattr(_apx_val, "__doc__", None) is None:
-            _apx_val.__doc__ = _nx_apx_fn.__doc__
+def _sync_approximation_docstrings():
+    for apx_attr, apx_val in _ApproximationNamespace.__dict__.items():
+        if not apx_attr.startswith("_") and callable(apx_val):
+            nx_apx_fn = getattr(_nx.approximation, apx_attr, None)
+            if nx_apx_fn is not None and getattr(apx_val, "__doc__", None) is None:
+                apx_val.__doc__ = nx_apx_fn.__doc__
 
-# Capture the NetworkX AmbiguousSolution exception class under a
-# fnx-internal name so PY_WRAPPER functions defined earlier in this
-# module (notably is_bipartite_node_set) can `raise _AmbiguousSolution(...)`
-# without referencing the `_nx` alias inside their source — the
-# coverage-matrix classifier in scripts/generate_coverage_matrix.py walks
-# each function's source via inspect.getsource() and flags anything that
-# names the `_nx` alias as NX_DELEGATED. Re-exporting under a non-alias
-# name keeps these functions correctly classified as PY_WRAPPER.
-_AmbiguousSolution = _nx.AmbiguousSolution
+
+_sync_approximation_docstrings()
+
+from networkx.exception import AmbiguousSolution as _AmbiguousSolution
 
 
 # br-Gsigbulk: bulk-rename the first parameter of Rust-bindings that

@@ -12,7 +12,7 @@ def _minimum_cut_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None
         _raise_translated_networkx_exception(exc)
 
 
-def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Return the minimum cut value and node partition.
 
     br-mincutsig: parameter names match nx.minimum_cut exactly so that
@@ -25,6 +25,7 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     None`` passing any kwarg is a user error, so we raise with nx's
     message instead of ``TypeError: unexpected keyword argument``.
     """
+    _validate_backend_dispatch_keywords("minimum_cut", backend, {})
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _validate_flow_func_selector(flow_func)
@@ -53,13 +54,14 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     return _coerce_flow_value(value, all_int), partition
 
 
-def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Return the minimum cut value between source and sink.
 
     br-mincutsig: see ``minimum_cut`` — parameter names follow nx. The
     trailing ``**kwargs`` mirrors nx's contract of forwarding to
     ``flow_func`` (and raising when none is supplied).
     """
+    _validate_backend_dispatch_keywords("minimum_cut_value", backend, {})
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _validate_flow_func_selector(flow_func)
@@ -633,8 +635,6 @@ def _boruvka_spanning_edges_inproc(G, weight, minimum, ignore_nan):
     """
     from math import isnan
 
-    from networkx.utils import UnionFind
-
     from franken_networkx.backend import _native_fnx_to_nx_adjacency
 
     if _native_fnx_to_nx_adjacency is None or type(G) is not Graph:
@@ -665,7 +665,7 @@ def _boruvka_spanning_edges_inproc(G, weight, minimum, ignore_nan):
             row.append((canon_to_obj[nbr_canon], w))
         adj[obj] = row
 
-    forest = UnionFind(G)
+    forest = _InProcUnionFind(G)
 
     def _best_edge(component):
         # Mirrors nx.edge_boundary order: nset1 = {n for n in component};
@@ -698,14 +698,66 @@ def _boruvka_spanning_edges_inproc(G, weight, minimum, ignore_nan):
     return out
 
 
+class _InProcUnionFind:
+    """In-process UnionFind with NetworkX-identical path compression and to_sets()."""
+
+    def __init__(self, elements=None):
+        if elements is None:
+            elements = ()
+        self.parents = {}
+        self.weights = {}
+        for x in elements:
+            self.weights[x] = 1
+            self.parents[x] = x
+
+    def __getitem__(self, obj):
+        if obj not in self.parents:
+            self.parents[obj] = obj
+            self.weights[obj] = 1
+            return obj
+        path = []
+        root = self.parents[obj]
+        while root != obj:
+            path.append(obj)
+            obj = root
+            root = self.parents[obj]
+        for ancestor in path:
+            self.parents[ancestor] = root
+        return root
+
+    def __iter__(self):
+        return iter(self.parents)
+
+    def to_sets(self):
+        for x in self.parents:
+            _ = self[x]
+        one_to_many = _defaultdict(set)
+        for v, k in self.parents.items():
+            one_to_many[k].add(v)
+        yield from one_to_many.values()
+
+    def union(self, *objects):
+        roots = iter(
+            sorted(
+                {self[x] for x in objects}, key=lambda r: self.weights[r], reverse=True
+            )
+        )
+        try:
+            root = next(roots)
+        except StopIteration:
+            return
+        for r in roots:
+            self.weights[root] += self.weights[r]
+            self.parents[r] = root
+
+
 def _kruskal_spanning_edges_inproc(
     G, minimum=True, weight="weight", keys=True, data=True, ignore_nan=False, partition=None
 ):
     from math import isnan
     from operator import itemgetter
-    from networkx.utils import UnionFind
 
-    subtrees = UnionFind()
+    subtrees = _InProcUnionFind()
     if G.is_multigraph():
         edges = G.edges(keys=True, data=True)
     else:
@@ -852,10 +904,9 @@ def _prim_spanning_edges_inproc(
 
 
 def _boruvka_inproc_full(G, minimum=True, weight="weight", data=True, ignore_nan=False):
-    from networkx.utils import UnionFind
     from math import isnan
 
-    forest = UnionFind(G)
+    forest = _InProcUnionFind(G)
 
     def best_edge(component):
         sign = 1 if minimum else -1
@@ -1215,7 +1266,9 @@ def _random_spanning_tree_inproc(G, weight=None, *, multiplicative=True, seed=No
         _raise_translated_networkx_exception(exc)
 
 
-def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+def minimum_branching(
+    G, attr="weight", default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs
+):
     """br-isokw: ``G`` matches nx; default aligned to int 1 (was 1.0).
 
     br-r37-c1-ugod2: nx accepts undirected graphs (returns an empty
@@ -1228,6 +1281,7 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     message. nx accepts MultiDiGraph. Delegate multigraph input to nx
     so drop-in callers using MultiDiGraph keep working.
     """
+    _validate_backend_dispatch_keywords("minimum_branching", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
 
     def negate(w):
@@ -1317,7 +1371,9 @@ def _maximum_branching_native(G, attr, default, preserve_attrs, partition):
     return H
 
 
-def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+def maximum_branching(
+    G, attr="weight", default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs
+):
     """br-isokw: ``G`` matches nx; default aligned to int 1.
 
     br-r37-c1-ugod2: nx accepts undirected graphs (returns the
@@ -1333,6 +1389,7 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     step-for-step port instead (edge order included); the networkx
     delegation below remains for weights that port does not cover.
     """
+    _validate_backend_dispatch_keywords("maximum_branching", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     H = _maximum_branching_native(G, attr, default, preserve_attrs, partition)
     if H is not None:
@@ -1409,7 +1466,9 @@ def _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition):
     return _branching_round_trip(G, attr, default, preserve_attrs, partition, transform, transform)
 
 
-def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+def minimum_spanning_arborescence(
+    G, attr="weight", default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs
+):
     """networkx's minimum_spanning_arborescence: minimal_branching's in-place
     weight round trip, then the arborescence check (see _branching_round_trip).
 
@@ -1417,6 +1476,9 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     raises NetworkXNotImplemented, exactly as in networkx, so G's weights are
     rewritten even then. No arborescence raises the base NetworkXException.
     """
+    _validate_backend_dispatch_keywords(
+        "minimum_spanning_arborescence", backend, backend_kwargs
+    )
     G = _coerce_arg_to_fnx_graph(G)
     B = _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition)
     if not is_arborescence(B):
@@ -1447,11 +1509,16 @@ def _minimal_branching_backend_impl(G, /, *, attr="weight", default=1, preserve_
     return _minimal_branching_round_trip(G, attr, default, preserve_attrs, partition)
 
 
-def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+def maximum_spanning_arborescence(
+    G, attr="weight", default=1, preserve_attrs=False, partition=None, *, backend=None, **backend_kwargs
+):
     """networkx's maximum_spanning_arborescence: its own in-place weight shift
     and back (see _branching_round_trip), then the arborescence check, which
     is also where undirected input raises NetworkXNotImplemented.
     """
+    _validate_backend_dispatch_keywords(
+        "maximum_spanning_arborescence", backend, backend_kwargs
+    )
     G = _coerce_arg_to_fnx_graph(G)
     min_weight = float("inf")
     max_weight = -float("inf")

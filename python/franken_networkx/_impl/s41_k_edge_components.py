@@ -1,15 +1,48 @@
 
 
 def _onion_layers_impl(G):
-    """Private delegation helper (fallback when the native kernel is
-    unavailable); keeps the public ``onion_layers`` PY_WRAPPER-classified.
+    """Private in-process fallback when the native kernel is unavailable;
+    keeps the public ``onion_layers`` PY_WRAPPER-classified.
     """
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.core.onion_layers(H, backend="networkx")
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if number_of_selfloops(G) > 0:
+        msg = (
+            "Input graph contains self loops which is not permitted; "
+            "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
+        )
+        raise NetworkXNotImplemented(msg)
+    od_layers = {}
+    neighbors = {v: list(all_neighbors(G, v)) for v in G}
+    degrees = dict(G.degree())
+    current_core = 1
+    current_layer = 1
+    isolated_nodes = list(isolates(G))
+    if len(isolated_nodes) > 0:
+        for v in isolated_nodes:
+            od_layers[v] = current_layer
+            degrees.pop(v)
+        current_layer = 2
+    while len(degrees) > 0:
+        nodes = sorted(degrees, key=degrees.get)
+        min_degree = degrees[nodes[0]]
+        if min_degree > current_core:
+            current_core = min_degree
+        this_layer = []
+        for n in nodes:
+            if degrees[n] > current_core:
+                break
+            this_layer.append(n)
+        for v in this_layer:
+            od_layers[v] = current_layer
+            for n in neighbors[v]:
+                neighbors[n].remove(v)
+                degrees[n] = degrees[n] - 1
+            degrees.pop(v)
+        current_layer = current_layer + 1
+    return od_layers
 
 
 def _bridge_components(G):
@@ -173,8 +206,9 @@ def k_edge_components(G, k):
     return aux_graph.k_edge_components(k)
 
 
-def k_edge_subgraphs(G, k):
+def k_edge_subgraphs(G, k, *, backend=None, **backend_kwargs):
     """Yield k-edge-connected component subgraphs."""
+    _validate_backend_dispatch_keywords("k_edge_subgraphs", backend, backend_kwargs)
     if k < 1:
         raise ValueError("k cannot be less than 1")
     if G.is_multigraph():
@@ -253,12 +287,78 @@ def _k_edge_is_locally_connected(G, source, target, k):
         return False
 
 
-try:  # br-r37-c1-h5qm1: nx's linear-time unconstrained k=2 bridge-augmentation
-    from networkx.algorithms.connectivity.edge_augmentation import (
-        bridge_augmentation as _nx_bridge_augmentation,
+def _collapse_bridge_components(G, grouped_nodes):
+    mapping = {}
+    members = {}
+    C = Graph()
+    i = 0
+    remaining = set(G.nodes())
+    for i, group in enumerate(grouped_nodes):
+        group = set(group)
+        remaining.difference_update(group)
+        members[i] = group
+        mapping.update((n, i) for n in group)
+    for i, node in enumerate(remaining, start=i + 1):
+        group = {node}
+        members[i] = group
+        mapping.update((n, i) for n in group)
+    number_of_groups = i + 1
+    C.add_nodes_from(range(number_of_groups))
+    C.add_edges_from(
+        (mapping[u], mapping[v]) for u, v in G.edges() if mapping[u] != mapping[v]
     )
-except Exception:  # pragma: no cover - nx always present
-    _nx_bridge_augmentation = None
+    set_node_attributes(C, name="members", values=members)
+    C.graph["mapping"] = mapping
+    return C
+
+
+def _unconstrained_bridge_augmentation_inproc(G):
+    if G.number_of_nodes() < 3:
+        raise NetworkXUnfeasible("impossible to bridge connect less than 3 nodes")
+    bridge_ccs = list(_bridge_components(G))
+    C = _collapse_bridge_components(G, bridge_ccs)
+    vset1 = [
+        tuple(cc) * 2
+        if len(cc) == 1
+        else sorted(cc, key=C.degree)[0:2]
+        for cc in connected_components(C)
+    ]
+    if len(vset1) > 1:
+        nodes1 = [vs[0] for vs in vset1]
+        nodes2 = [vs[1] for vs in vset1]
+        A1 = list(zip(nodes1[1:], nodes2))
+    else:
+        A1 = []
+    T = C.copy()
+    T.add_edges_from(A1)
+    leafs = [n for n, d in T.degree() if d == 1]
+    if len(leafs) == 1:
+        A2 = []
+    if len(leafs) == 2:
+        A2 = [tuple(leafs)]
+    else:
+        try:
+            root = next(n for n, d in T.degree() if d > 1)
+        except StopIteration:
+            return
+        v2 = [n for n in dfs_preorder_nodes(T, root) if T.degree(n) == 1]
+        half = _math.ceil(len(v2) / 2)
+        A2 = list(zip(v2[:half], v2[-half:]))
+    aug_tree_edges = A1 + A2
+    inverse = _defaultdict(list)
+    for k, v in C.graph["mapping"].items():
+        inverse[v].append(k)
+    inverse = {
+        mu: sorted(mapped, key=lambda u: (G.degree(u), u))
+        for mu, mapped in inverse.items()
+    }
+    G2 = G.copy()
+    for mu, mv in aug_tree_edges:
+        for u, v in _itertools.product(inverse[mu], inverse[mv]):
+            if not G2.has_edge(u, v):
+                G2.add_edge(u, v)
+                yield u, v
+                break
 
 
 def _k_edge_greedy_augmentation(G, k, avail=None, weight=None, seed=0):
@@ -436,7 +536,9 @@ def find_induced_nodes(G, s, t, treewidth_bound=_sys.maxsize):
                 induced_nodes.add(node)
                 break
     return induced_nodes
-def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
+def k_edge_augmentation(
+    G, k, avail=None, weight=None, partial=False, *, backend=None, **backend_kwargs
+):
     """Find edges to add to make G k-edge-connected.
 
     Parameters
@@ -464,6 +566,9 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     candidate edges between node pairs that are not yet locally
     k-edge-connected, then prune redundant additions deterministically.
     """
+    _validate_backend_dispatch_keywords(
+        "k_edge_augmentation", backend, backend_kwargs
+    )
     # br-r37-c1-keaug-order: nx's @not_implemented_for decorators
     # fire BEFORE the function body, so wrong-type input raises
     # NetworkXNotImplemented regardless of k value. Move the type
@@ -511,9 +616,9 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     # exact linear-time ``bridge_augmentation`` in-process on the fnx graph (no
     # conversion): byte-identical to nx, ~27x faster than the old greedy, and
     # minimum cardinality. Other k / avail cases keep the greedy.
-    if k == 2 and avail is None and _nx_bridge_augmentation is not None:
+    if k == 2 and avail is None:
         try:
-            return list(_nx_bridge_augmentation(G, backend="networkx"))
+            return list(_unconstrained_bridge_augmentation_inproc(G))
         except NetworkXUnfeasible:
             if not partial:
                 raise
@@ -584,39 +689,30 @@ def stochastic_block_model(
     )
 
 
-def _sbm_native(sizes, p, seed, directed, selfloops):
+def _sbm_native(sizes, p, seed, directed, selfloops, nodelist=None, sparse=True):
     """br-r37-c1-sbmnative: generate a stochastic block model natively, byte-
-    identical to nx for a given int/None seed, without delegating to nx or
-    converting nx->fnx.
-
-    Reproduces nx's EXACT generation: the same ``random.Random(seed)`` draw
-    sequence, the same block iteration (``combinations_with_replacement`` /
-    ``product``), the same diagonal per-edge sampling, and the same sparse
-    geometric-skip sampling (``floor(log(rand)/log(1-p))``) over the same
-    set-ordered ``itertools`` edge iterators. Edges are COLLECTED into a list and
-    committed through ONE ``add_edges_from`` batch (skipping nx's per-edge
-    ``add_edge`` and the whole nx->fnx conversion) — ~1.77x slower -> nx parity.
+    identical to nx for any seed/nodelist/sparse combination, without delegating
+    to nx or converting nx->fnx.
     """
     import itertools as _it
 
-    # br-r37-c1-sbmrng-instance (cc): accept a live ``random.Random`` directly
-    # (callers like gaussian_random_partition_graph pass their already-advanced
-    # rng) and consume from it in nx's exact draw order — byte-identical to nx,
-    # which also threads the same rng into the SBM. Only int/None creates a fresh
-    # instance. This lets the partition family hit the native batch path instead
-    # of the nx->fnx conversion tax.
-    # br-r37-c1-cdf1v: nx's py_random_state - None is the global random state.
     rng = _generator_random_state(seed)
     length = len(sizes)
     cumsum = [sum(sizes[0:x]) for x in range(length + 1)]
-    nodelist = range(sum(sizes))
-    parts = [set(nodelist[cumsum[x] : cumsum[x + 1]]) for x in range(length)]
+    resolved_nodes = range(sum(sizes)) if nodelist is None else nodelist
+    parts = [set(resolved_nodes[cumsum[x] : cumsum[x + 1]]) for x in range(length)]
 
     result = DiGraph() if directed else Graph()
     result.graph["partition"] = parts
+    node_block = {}
     for block_id, block_nodes in enumerate(parts):
         for node in block_nodes:
-            result.add_node(node, block=block_id)
+            node_block[node] = block_id
+            if nodelist is None:
+                result.add_node(node, block=block_id)
+    if nodelist is not None:
+        for node in nodelist:
+            result.add_node(node, block=node_block[node])
     result.graph["name"] = "stochastic_block_model"
 
     block_iter = (
@@ -642,110 +738,38 @@ def _sbm_native(sizes, p, seed, directed, selfloops):
                     edge_list.append(e)
         else:
             edges = _it.product(parts[i], parts[j])
-        if p[i][j] == 1:
-            edge_list.extend(edges)
-        elif p[i][j] > 0:
-            ln1p = _math.log(1 - p[i][j])
-            while True:
-                try:
-                    skip = _math.floor(_math.log(rng.random()) / ln1p)
-                    next(_it.islice(edges, skip, skip), None)
-                    edge_list.append(next(edges))
-                except StopIteration:
-                    break
+        if sparse:
+            if p[i][j] == 1:
+                edge_list.extend(edges)
+            elif p[i][j] > 0:
+                ln1p = _math.log(1 - p[i][j])
+                while True:
+                    try:
+                        skip = _math.floor(_math.log(rng.random()) / ln1p)
+                        next(_it.islice(edges, skip, skip), None)
+                        edge_list.append(next(edges))
+                    except StopIteration:
+                        break
+        else:
+            for e in edges:
+                if rng.random() < p[i][j]:
+                    edge_list.append(e)
     result.add_edges_from(edge_list)
     return result
 
 
 def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
-    """br-sbmrng: private delegation helper so the public
-    stochastic_block_model stays PY_WRAPPER in the coverage classifier
-    instead of being flagged as NX_DELEGATED.
-
-    br-r37-c1-hkbd8: nx's stochastic_block_model uses set-iteration
-    on each partition block, so the resulting graph's nodes() order
-    is hash-based (not user nodelist order). Re-walk the explicit
-    nodelist when supplied so node iteration matches the caller's
-    intent.
-    """
-    # br-r37-c1-sbmnative: native byte-exact generation for the common case
-    # (no explicit nodelist, sparse sampling, reproducible int/None seed) — skips
-    # the nx call + nx->fnx conversion entirely. Falls back to nx delegation for
-    # an explicit nodelist, sparse=False, or a non-int/None seed (Random / numpy
-    # RandomState), where reproducing the draw sequence is not in scope.
-    import random as _random
-    if (
-        nodelist is None
-        and sparse
-        and (
-            seed is None
-            or (isinstance(seed, int) and not isinstance(seed, bool))
-            # br-r37-c1-sbmrng-instance (cc): a live random.Random consumes in
-            # nx's exact draw order in _sbm_native -> byte-exact, native batch
-            # (gaussian/random partition pass an advanced rng instance here).
-            or isinstance(seed, _random.Random)
-        )
-    ):
-        return _sbm_native(sizes, p, seed, directed, selfloops)
-    nx_result = _nx.stochastic_block_model(
-        sizes, p,
+    """br-sbmrng: private helper so the public stochastic_block_model stays
+    PY_WRAPPER in the coverage classifier."""
+    return _sbm_native(
+        sizes,
+        p,
+        seed,
+        directed,
+        selfloops,
         nodelist=nodelist,
-        seed=seed,
-        directed=directed,
-        selfloops=selfloops,
         sparse=sparse,
-        backend="networkx",
     )
-    from franken_networkx.readwrite import _from_nx_graph
-    if nodelist is None:
-        # br-r37-c1-sbmconv: SBM/partition output is order-insensitive — the
-        # parity tests compare ``sorted(nodes)`` / ``sorted(edges)`` (see
-        # _graph_signature) — so skip _from_nx_graph's adj-order-preserving topo
-        # emit (~40% of the convert) and bulk-ingest nx's node/edge lists
-        # directly. Byte-exact under the sorted-signature contract; ~3x faster
-        # conversion across the whole partition family (random/planted/gaussian
-        # partition + stochastic_block_model). Edges carry no attrs in the
-        # default partition models, so emit plain 2-tuples to hit the fast
-        # plain-batch path, falling back to 3-tuples only when an attr exists.
-        cls = (
-            MultiDiGraph if directed and nx_result.is_multigraph()
-            else DiGraph if directed
-            else MultiGraph if nx_result.is_multigraph()
-            else Graph
-        )
-        result = cls()
-        result.graph.update(dict(nx_result.graph))
-        result.add_nodes_from(nx_result.nodes(data=True))
-        if nx_result.is_multigraph():
-            result.add_edges_from(
-                (u, v, k, d)
-                for u, v, k, d in nx_result.edges(keys=True, data=True)
-            )
-        else:
-            result.add_edges_from(
-                (u, v) if not d else (u, v, d)
-                for u, v, d in nx_result.edges(data=True)
-            )
-        return result
-    # Build a fresh fnx graph that walks the user's nodelist in
-    # order, copying node attrs from the nx result. Edges and
-    # graph-level attrs are then copied across.
-    cls = MultiDiGraph if directed and nx_result.is_multigraph() else (
-        DiGraph if directed else (
-            MultiGraph if nx_result.is_multigraph() else Graph
-        )
-    )
-    result = cls()
-    result.graph.update(dict(nx_result.graph))
-    for node in nodelist:
-        result.add_node(node, **dict(nx_result.nodes[node]))
-    if result.is_multigraph():
-        for u, v, key, data in nx_result.edges(keys=True, data=True):
-            result.add_edge(u, v, key=key, **dict(data))
-    else:
-        for u, v, data in nx_result.edges(data=True):
-            result.add_edge(u, v, **dict(data))
-    return result
 
 
 def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):

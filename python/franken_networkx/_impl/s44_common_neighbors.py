@@ -843,8 +843,12 @@ def parse_graphml(
     node_type=str,
     edge_key_type=int,
     force_multigraph=False,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Parse a GraphML string."""
+    _validate_backend_dispatch_keywords("parse_graphml", backend, backend_kwargs)
     if isinstance(graphml_string, str):
         payload = graphml_string
         stream_type = _io.StringIO
@@ -1551,8 +1555,11 @@ def random_degree_sequence_graph(sequence, seed=None, tries=10):
     raise NetworkXError(f"failed to generate graph in {tries} tries")
 
 
-def random_internet_as_graph(n, seed=None):
+def random_internet_as_graph(n, seed=None, *, backend=None, **backend_kwargs):
     """Random Internet AS-level graph."""
+    _validate_backend_dispatch_keywords(
+        "random_internet_as_graph", backend, backend_kwargs
+    )
     return _random_internet_as_graph_impl(n, seed=seed)
 
 
@@ -1569,11 +1576,50 @@ def _random_internet_as_graph_impl(n, seed=None):
 
 
 def _random_reference_inproc(G, niter=1, connectivity=True, seed=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.smallworld.random_reference(
-            H, niter=niter, connectivity=connectivity, seed=seed, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    from bisect import bisect_left
+
+    rng = _create_py_random_state(seed)
+    G = G.copy()
+    keys, degrees = zip(*G.degree())
+    total_deg = float(sum(degrees))
+    cdf = [0.0]
+    acc = 0.0
+    for deg in degrees:
+        acc += deg
+        cdf.append(acc / total_deg)
+    nnodes = len(G)
+    nedges = G.number_of_edges()
+    niter = niter * nedges
+    ntries = int(nnodes * nedges / (nnodes * (nnodes - 1) / 2))
+    swapcount = 0
+
+    for _ in range(niter):
+        n = 0
+        while n < ntries:
+            ai = bisect_left(cdf, rng.random()) - 1
+            ci = bisect_left(cdf, rng.random()) - 1
+            if ai == ci:
+                continue
+            a = keys[ai]
+            c = keys[ci]
+            b = rng.choice(list(G.neighbors(a)))
+            d = rng.choice(list(G.neighbors(c)))
+            if b in [a, c, d] or d in [a, b, c]:
+                continue
+
+            if (d not in G[a]) and (b not in G[c]):
+                G.add_edge(a, d)
+                G.add_edge(c, b)
+                G.remove_edge(a, b)
+                G.remove_edge(c, d)
+
+                if connectivity and not has_path(G, a, b):
+                    G.remove_edge(a, d)
+                    G.remove_edge(c, b)
+                    G.add_edge(a, b)
+                    G.add_edge(c, d)
+                else:
+                    swapcount += 1
+                    break
+            n += 1
+    return G

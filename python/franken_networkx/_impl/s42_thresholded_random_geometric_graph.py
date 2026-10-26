@@ -1504,24 +1504,15 @@ _sys.modules[f"{__name__}.isomorphism"] = isomorphism
 
 # Tree/Forest Utilities (br-xkr)
 def _junction_tree_nx(G):
-    # br-r37-c1-jtchord / br-r37-c1-hf7zh: the in-process nx clique-graph /
-    # maximum-spanning-tree assembly lives in this private helper so the
-    # public ``junction_tree`` wrapper stays free of direct ``_nx.*``
-    # references (classifier keeps it PY_WRAPPER, not NX_DELEGATED).
     from itertools import combinations
 
-    from franken_networkx.backend import _fnx_to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    clique_graph = _nx.Graph()
+    clique_graph = Graph()
     if G.is_directed():
         G = moral_graph(G)
     chordal_graph, _ = complete_to_chordal_graph(G)
     cliques = [
         tuple(sorted(i))
-        for i in _nx.chordal_graph_cliques(
-            _fnx_to_nx(chordal_graph), backend="networkx"
-        )
+        for i in _chordal_graph_cliques_inprocess(chordal_graph)
     ]
     clique_graph.add_nodes_from(cliques, type="clique")
     for edge in combinations(cliques, 2):
@@ -1532,13 +1523,13 @@ def _junction_tree_nx(G):
             clique_graph.add_edge(
                 edge[0], edge[1], weight=len(sepset), sepset=sepset
             )
-    jt = _nx.maximum_spanning_tree(clique_graph, backend="networkx")
+    jt = maximum_spanning_tree(clique_graph)
     for edge in list(jt.edges(data=True)):
         jt.add_node(edge[2]["sepset"], type="sepset")
         jt.add_edge(edge[0], edge[2]["sepset"])
         jt.add_edge(edge[1], edge[2]["sepset"])
         jt.remove_edge(edge[0], edge[1])
-    return _from_nx_graph(jt)
+    return jt
 
 
 def junction_tree(G):

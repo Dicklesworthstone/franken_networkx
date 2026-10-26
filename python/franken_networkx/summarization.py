@@ -42,17 +42,13 @@ def dedensify(G, threshold, prefix=None, copy=True, *, backend=None, **backend_k
         Set of nodes that were compressed.
     """
     _fnx._validate_backend_dispatch_keywords("dedensify", backend, backend_kwargs)
-    if isinstance(
+    if not copy:
+        return _fnx.dedensify(G, threshold, prefix=prefix, copy=False)
+    if not isinstance(
         G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
     ):
-        return _fnx.dedensify(G, threshold, prefix=prefix, copy=copy)
-
-    nx_graph, contractions = _nx_summarization.dedensify(
-        G, threshold, prefix=prefix, copy=copy
-    )
-    if not copy:
-        return nx_graph, contractions
-    return _from_nx_graph(nx_graph), contractions
+        G = _from_nx_graph(G)
+    return _fnx.dedensify(G, threshold, prefix=prefix, copy=True)
 
 
 def snap_aggregation(

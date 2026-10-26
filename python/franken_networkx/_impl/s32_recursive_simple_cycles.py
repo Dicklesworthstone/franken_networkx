@@ -299,12 +299,13 @@ def _intersection_array_networkx_loop(G):
 # ---------------------------------------------------------------------------
 
 
-def eulerize(G):
+def eulerize(G, *, backend=None, **backend_kwargs):
     """Add minimum edges to make G Eulerian. Returns copy with added edges.
 
     Finds odd-degree nodes, computes shortest paths between all pairs of them,
     finds minimum weight matching, and duplicates matched-path edges.
     """
+    _validate_backend_dispatch_keywords("eulerize", backend, backend_kwargs)
     from itertools import combinations as _combinations
 
     # br-r37-c1-96xkv: directed guard runs before the empty/connected
@@ -398,7 +399,7 @@ def _node_order_key_local(node):
 
 
 def _minimum_cycle_basis_component_ordered_graph_local(G, component):
-    ordered = _nx.Graph()
+    ordered = Graph()
     component_nodes = set(component)
 
     for node in G:
@@ -412,18 +413,9 @@ def _minimum_cycle_basis_component_ordered_graph_local(G, component):
     return ordered
 
 
-def minimum_cycle_basis(G, weight=None):
-    """Find minimum weight cycle basis.
-
-    br-mincyclewt: the Rust _raw_minimum_cycle_basis returned
-    SUBOPTIMAL (non-minimum-weight) cycle bases on weighted graphs.
-    On K4 with weights ``abs(u-v)+1`` fnx returned a basis of total
-    weight 25 where nx returned the correct weight-23 basis. The
-    Rust implementation seems to ignore or misuse the edge weights.
-    When a weight attribute is specified, delegate to nx's reference
-    per-component implementation to guarantee a true minimum.
-    Unweighted graphs (weight=None) still use the Rust fast path.
-    """
+def minimum_cycle_basis(G, weight=None, *, backend=None, **backend_kwargs):
+    """Find minimum weight cycle basis."""
+    _validate_backend_dispatch_keywords("minimum_cycle_basis", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -431,24 +423,7 @@ def minimum_cycle_basis(G, weight=None):
 
     # br-r37-c1-ey500: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-
-    # br-mcbscipy: run networkx's EXACT de Pina algorithm in-process (so the
-    # CPython-set-order-dependent parts — the spanning tree, the
-    # ``chords = G.edges - tree_edges - ...`` set difference, the set_orth GF(2)
-    # updates, and the final ``shortest_path`` tie-break — are byte-identical to
-    # upstream), but replace the O(m*n) Python Dijkstra bottleneck inside
-    # ``_min_cycle`` (the ``lift`` dict: one shortest-path-length per node into the
-    # lifted double-cover, ~94.5% of upstream runtime) with a single batched
-    # scipy ``csgraph.dijkstra`` over the lifted graph's sparse matrix. Distances
-    # are exact (integer for unweighted, exact shortest-path sums for weighted), so
-    # the argmin ``start`` and the resulting cycle are unchanged — verified
-    # byte-exact (incl. the PYTHONHASHSEED-sensitive two-triangles fixture and
-    # weighted graphs). 6-8x faster, growing with n. Falls back to the pure-nx
-    # reference on any unexpected error.
-    try:
-        return _minimum_cycle_basis_fast(G, weight)
-    except Exception:
-        return _minimum_cycle_basis_via_parity(G, weight)
+    return _minimum_cycle_basis_fast(G, weight)
 
 
 def _min_cycle_scipy(graph, orth, weight):
@@ -457,16 +432,13 @@ def _min_cycle_scipy(graph, orth, weight):
     ``len(graph)`` separate Python Dijkstra calls. Byte-identical output."""
     import numpy as _np
     import scipy.sparse as _sps
+    from itertools import pairwise as _pairwise
     from scipy.sparse.csgraph import dijkstra as _csg_dijkstra
-    from networkx.utils import pairwise as _pairwise
 
     nodes = list(graph)
     index = {u: i for i, u in enumerate(nodes)}
     n = len(nodes)
 
-    # Lifted graph Gi as a 2n-node sparse matrix: copy (v, 0) -> index[v], lifted
-    # copy (v, 1) -> index[v] + n. Edges in ``orth`` cross layers; others stay
-    # in-layer — exactly networkx's construction, in integer index space.
     rows, cols, data = [], [], []
     for u, v, wt in graph.edges(data=weight, default=1):
         iu, iv = index[u], index[v]
@@ -480,22 +452,20 @@ def _min_cycle_scipy(graph, orth, weight):
     lifted = _sps.csr_matrix(
         (_np.asarray(data, dtype=float), (rows, cols)), shape=(2 * n, 2 * n)
     )
-    # lift[v] = dist( (v,0) -> (v,1) ) for every v, via one multi-source Dijkstra.
     distances = _csg_dijkstra(lifted, directed=False, indices=_np.arange(n))
     lift = {nodes[i]: distances[i, i + n] for i in range(n)}
 
     start = min(lift, key=lift.get)
     end = (start, 1)
 
-    # Single actual path stays on networkx for its exact tie-break (parity).
-    lifted_nx = _nx.Graph()
+    lifted_fnx = Graph()
     for u, v, wt in graph.edges(data=weight, default=1):
         if (u, v) in orth or (v, u) in orth:
-            lifted_nx.add_edges_from([(u, (v, 1)), ((u, 1), v)], Gi_weight=wt)
+            lifted_fnx.add_edges_from([(u, (v, 1)), ((u, 1), v)], Gi_weight=wt)
         else:
-            lifted_nx.add_edges_from([(u, v), ((u, 1), (v, 1))], Gi_weight=wt)
-    min_path_i = _nx.shortest_path(
-        lifted_nx, source=start, target=end, weight="Gi_weight", backend="networkx"
+            lifted_fnx.add_edges_from([(u, v), ((u, 1), (v, 1))], Gi_weight=wt)
+    min_path_i = shortest_path(
+        lifted_fnx, source=start, target=end, weight="Gi_weight"
     )
     min_path = [node if node in graph else node[0] for node in min_path_i]
 
@@ -521,11 +491,10 @@ def _min_cycle_scipy(graph, orth, weight):
 
 
 def _min_cycle_basis_scipy(component_graph, weight):
-    """networkx ``_min_cycle_basis`` verbatim, calling the scipy-accelerated
-    ``_min_cycle_scipy``. All set-order-dependent state stays in Python so the
-    output is byte-identical to upstream."""
+    """In-process de Pina ``_min_cycle_basis`` calling the scipy-accelerated
+    ``_min_cycle_scipy``."""
     cb = []
-    tree_edges = list(_nx.minimum_spanning_edges(component_graph, weight=None, data=False, backend="networkx"))
+    tree_edges = list(minimum_spanning_edges(component_graph, weight=None, data=False))
     chords = component_graph.edges - tree_edges - {(v, u) for u, v in tree_edges}
 
     set_orth = [{edge} for edge in chords]
@@ -547,10 +516,7 @@ def _min_cycle_basis_scipy(component_graph, weight):
 
 
 def _minimum_cycle_basis_fast(G, weight):
-    """In-process de Pina minimum cycle basis with a scipy-batched ``lift``.
-    Mirrors ``_minimum_cycle_basis_via_parity`` (same per-component ordered nx
-    graph and same ``connected_components`` order) so it is a drop-in, but is
-    6-8x faster on the upstream-bottleneck shortest-path sweep."""
+    """In-process de Pina minimum cycle basis with a scipy-batched ``lift``."""
     return sum(
         (
             _min_cycle_basis_scipy(
@@ -563,31 +529,10 @@ def _minimum_cycle_basis_fast(G, weight):
     )
 
 
-def _minimum_cycle_basis_via_parity(G, weight):
-    """Helper — delegate to upstream _min_cycle_basis on each component.
-
-    Kept out of ``__all__`` so the classifier doesn't flag
-    ``minimum_cycle_basis`` itself as NX_DELEGATED.
-    """
-    from networkx.algorithms.cycles import (
-        _min_cycle_basis as _upstream_min_cycle_basis,
-    )
-
-    return sum(
-        (
-            _upstream_min_cycle_basis(
-                _minimum_cycle_basis_component_ordered_graph_local(G, component),
-                weight,
-            )
-            for component in connected_components(G)
-        ),
-        [],
-    )
-
-
-def chordless_cycles(G, length_bound=None):
+def chordless_cycles(G, length_bound=None, *, backend=None, **backend_kwargs):
     """Find all chordless (induced) cycles."""
-    yield from _chordless_cycles_via_parity(G, length_bound=length_bound)
+    _validate_backend_dispatch_keywords("chordless_cycles", backend, backend_kwargs)
+    return _chordless_cycles_via_parity(G, length_bound=length_bound)
 
 
 def _chordless_cycles_via_parity(G, *, length_bound=None):

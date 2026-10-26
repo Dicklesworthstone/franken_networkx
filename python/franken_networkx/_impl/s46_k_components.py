@@ -87,7 +87,7 @@ def _k_components_inproc(G, flow_func=None):
         _raise_translated_networkx_exception(exc)
 
 
-def k_components(G, flow_func=None):
+def k_components(G, flow_func=None, *, backend=None, **backend_kwargs):
     """Return k-connected component structure.
 
     br-kcompalgo: delegated to nx for correctness outside narrow exact
@@ -105,6 +105,7 @@ def k_components(G, flow_func=None):
     six-/seven-/eight-/nine-regular residual components still delegate when a custom
     ``flow_func`` is supplied because nx calls it there.
     """
+    _validate_backend_dispatch_keywords("k_components", backend, backend_kwargs)
     if type(G) is Graph:
         node_count = len(G)
         if node_count < 2:
@@ -299,7 +300,7 @@ def _k_components_moody_white_fnx(G):
     return _k_components_reconstruct_fnx(k_comps)
 
 
-def k_factor(G, k, matching_weight="weight"):
+def k_factor(G, k, matching_weight="weight", *, backend=None, **backend_kwargs):
     """Compute a k-factor of a graph.
 
     A k-factor of a graph is a spanning k-regular subgraph.
@@ -307,6 +308,7 @@ def k_factor(G, k, matching_weight="weight"):
     each node of G and a subset of the edges of G such that each
     node has degree k.
     """
+    _validate_backend_dispatch_keywords("k_factor", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -1162,10 +1164,20 @@ def _tree_edges_local(n, r):
 
 def _classic_default_graph_type(default):
     """Map a default graph constructor or instance to the Franken graph surface."""
-    if default is None:
+    if default is None or default is _NETWORKX_GRAPH_DEFAULT:
         return Graph
     if default in (Graph, DiGraph, MultiGraph, MultiDiGraph):
         return default
+    if isinstance(default, type) and getattr(default, "__module__", "").startswith("networkx."):
+        name = getattr(default, "__name__", "")
+        if name == "Graph":
+            return Graph
+        if name == "DiGraph":
+            return DiGraph
+        if name == "MultiGraph":
+            return MultiGraph
+        if name == "MultiDiGraph":
+            return MultiDiGraph
 
     probe = default() if isinstance(default, type) else default
     if probe.is_multigraph():

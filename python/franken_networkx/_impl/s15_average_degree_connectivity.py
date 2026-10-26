@@ -596,7 +596,7 @@ from franken_networkx._fnx import (
 
 
 
-def is_k_edge_connected(G, k):
+def is_k_edge_connected(G, k, *, backend=None, **backend_kwargs):
     """Return True if *G* is k-edge-connected.
 
     br-ikeck0: nx.is_k_edge_connected raises
@@ -604,6 +604,7 @@ def is_k_edge_connected(G, k):
     Rust binding accepted k=0 and returned True (vacuously). Match
     nx's validation.
     """
+    _validate_backend_dispatch_keywords("is_k_edge_connected", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -630,7 +631,7 @@ def is_k_edge_connected(G, k):
     return edge_connectivity(G) >= k
 
 
-def average_node_connectivity(G, flow_func=None):
+def average_node_connectivity(G, flow_func=None, *, backend=None, **backend_kwargs):
     """Return the average node connectivity of the graph.
 
     Parameters
@@ -645,6 +646,9 @@ def average_node_connectivity(G, flow_func=None):
     float
         The average node connectivity of G.
     """
+    _validate_backend_dispatch_keywords(
+        "average_node_connectivity", backend, backend_kwargs
+    )
     # br-r37-c1-qz40o: the standalone Rust BFS local_node_connectivity is a
     # heuristic that misvalues some pairs. But the bulk
     # ``all_pairs_node_connectivity`` (native undirected, byte-correct vs nx;

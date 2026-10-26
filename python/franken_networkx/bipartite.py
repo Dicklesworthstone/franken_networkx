@@ -18,6 +18,7 @@ from __future__ import annotations
 import networkx as _nx
 from networkx.algorithms.bipartite import *  # noqa: F401,F403
 import networkx.algorithms.bipartite as _nx_bipartite
+from networkx.exception import AmbiguousSolution as _AmbiguousSolution
 from networkx.utils import open_file as _nx_open_file
 
 import franken_networkx as _fnx
@@ -1032,7 +1033,7 @@ def sets(G, top_nodes=None, *, backend=None, **backend_kwargs):
         Y = set(G) - X
     else:
         if not is_connected(G):
-            raise _nx.AmbiguousSolution(
+            raise _AmbiguousSolution(
                 "Disconnected graph: Ambiguous solution for bipartite sets."
             )
         c = color(G)
@@ -1054,7 +1055,7 @@ def is_bipartite_node_set(G, nodes, *, backend=None, **backend_kwargs):
     )
     S = set(nodes)
     if len(S) < len(nodes):
-        raise _nx.AmbiguousSolution(
+        raise _AmbiguousSolution(
             "The input node set contains duplicates.\n"
             "This may lead to incorrect results when using it in bipartite algorithms.\n"
             "Consider using set(nodes) as the input"

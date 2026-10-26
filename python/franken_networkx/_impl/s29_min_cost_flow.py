@@ -1,6 +1,8 @@
 
 
-def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
+def min_cost_flow(
+    G, demand="demand", capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
     """Find minimum cost flow satisfying node demands.
 
     Uses the successive shortest paths algorithm with Bellman-Ford.
@@ -30,6 +32,7 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     NetworkXUnfeasible
         If no feasible flow exists.
     """
+    _validate_backend_dispatch_keywords("min_cost_flow", backend, backend_kwargs)
     # br-r37-c1-3qt4m: nx's @not_implemented_for('undirected')
     # decorator raises NetworkXNotImplemented, not NetworkXError.
     # min_cost_flow_cost and capacity_scaling both call this so the
@@ -279,7 +282,9 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     return flow
 
 
-def min_cost_flow_cost(G, demand="demand", capacity="capacity", weight="weight"):
+def min_cost_flow_cost(
+    G, demand="demand", capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
     """Return the cost of the minimum cost flow.
 
     Parameters
@@ -291,12 +296,15 @@ def min_cost_flow_cost(G, demand="demand", capacity="capacity", weight="weight")
     -------
     float
     """
+    _validate_backend_dispatch_keywords("min_cost_flow_cost", backend, backend_kwargs)
     flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
     # nx's min_cost_flow_cost is network_simplex(G)[0] (br-r37-c1-6soms).
     return _network_simplex_cost(G, flow, weight)
 
 
-def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
+def max_flow_min_cost(
+    G, s, t, capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
     """Find a maximum flow of minimum cost from *s* to *t*.
 
     First finds maximum flow value, then finds the min-cost flow
@@ -325,6 +333,7 @@ def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
     an undirected G becomes two arcs per edge instead of reaching
     min_cost_flow undirected and raising NetworkXNotImplemented.
     """
+    _validate_backend_dispatch_keywords("max_flow_min_cost", backend, backend_kwargs)
     max_val = maximum_flow_value(G, s, t, capacity=capacity)
     H = DiGraph(G)
     H.add_node(s, demand=-max_val)
@@ -338,6 +347,9 @@ def capacity_scaling(
     capacity="capacity",
     weight="weight",
     heap=_BINARY_HEAP_DEFAULT,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Find minimum cost flow using capacity scaling.
 
@@ -359,6 +371,7 @@ def capacity_scaling(
     tuple
         ``(flowCost, flowDict)`` matching NetworkX's return signature.
     """
+    _validate_backend_dispatch_keywords("capacity_scaling", backend, backend_kwargs)
     # br-r37-c1-3qt4m: nx's @not_implemented_for('undirected') on
     # capacity_scaling raises NetworkXNotImplemented before the
     # network_simplex empty-graph check.  Match the ordering.
@@ -433,7 +446,9 @@ def _validate_network_simplex_inputs(G, demand, capacity, weight):
         raise NetworkXUnfeasible("total node demand is not zero")
 
 
-def network_simplex(G, demand="demand", capacity="capacity", weight="weight"):
+def network_simplex(
+    G, demand="demand", capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
+):
     """Find minimum cost flow using the network simplex algorithm.
 
     Returns both the cost and the flow dictionary.
@@ -447,6 +462,7 @@ def network_simplex(G, demand="demand", capacity="capacity", weight="weight"):
     -------
     (cost, flowDict) : tuple
     """
+    _validate_backend_dispatch_keywords("network_simplex", backend, backend_kwargs)
     _validate_network_simplex_inputs(G, demand, capacity, weight)
     flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
     return (_network_simplex_cost(G, flow, weight), flow)

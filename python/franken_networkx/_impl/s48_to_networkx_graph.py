@@ -1003,7 +1003,7 @@ def _lfr_generate_communities(degree_sequence, community_sizes, mu, max_iters, r
     # assignment fails to converge.  Match nx's exact exception
     # class so callers using ``except nx.ExceededMaxIterations:``
     # catch the right error.
-    from networkx import ExceededMaxIterations as _EMI
+    from networkx.exception import ExceededMaxIterations as _EMI
     raise _EMI(
         "Could not assign communities; try increasing min_community"
     )

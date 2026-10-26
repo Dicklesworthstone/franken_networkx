@@ -465,11 +465,12 @@ def kemeny_constant(G, *, weight=None, backend=None, **backend_kwargs):
 
 def _label_propagation_communities_via_nx(G):
     """br-r37-c1-17uhk: private wrapper so non_randomness stays PY_WRAPPER."""
-    return _nx.community.label_propagation_communities(G, backend="networkx")
+    return community.label_propagation_communities(G)
 
 
-def non_randomness(G, k=None, weight="weight"):
+def non_randomness(G, k=None, weight="weight", *, backend=None, **backend_kwargs):
     """Compute the non-randomness of a graph."""
+    _validate_backend_dispatch_keywords("non_randomness", backend, backend_kwargs)
     import numpy as np
 
     if G.is_multigraph():
@@ -574,14 +575,21 @@ def is_distance_regular(G):
 
 
 def _sigma_inproc(G, niter=100, nrand=10, seed=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.smallworld.sigma(
-            H, niter=niter, nrand=nrand, seed=seed, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import numpy as np
+
+    rng = _create_py_random_state(seed)
+    rand_c = []
+    rand_l = []
+    for _ in range(nrand):
+        Gr = random_reference(G, niter=niter, seed=rng)
+        rand_c.append(transitivity(Gr))
+        rand_l.append(average_shortest_path_length(Gr))
+
+    C = transitivity(G)
+    L = average_shortest_path_length(G)
+    Cr = np.mean(rand_c)
+    Lr = np.mean(rand_l)
+    return float((C / Cr) / (L / Lr))
 
 
 def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
@@ -589,14 +597,6 @@ def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 
     sigma = (C/C_rand) / (L/L_rand) where C is clustering, L is avg path.
     sigma > 1 indicates small-world structure.
-
-    br-smallrng: nx threads a single stateful @py_random_state RNG
-    through all inner random_reference calls, so each of the ``nrand``
-    iterations draws different reference graphs and the resulting
-    sigma depends on nrand and seed in a specific way. fnx's local
-    loop used Python's stdlib Random + per-iteration seed derivation,
-    producing diverging numeric results for the same (G, seed, nrand)
-    inputs. Delegate to nx so the scalar matches exactly.
     """
     _validate_backend_dispatch_keywords("sigma", backend, backend_kwargs)
     if G.is_multigraph():
@@ -611,14 +611,26 @@ def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 
 
 def _omega_inproc(G, niter=5, nrand=10, seed=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.smallworld.omega(
-            H, niter=niter, nrand=nrand, seed=seed, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import numpy as np
+
+    rng = _create_py_random_state(seed)
+    rand_l = []
+    Cl = average_clustering(G)
+    niter_lattice_reference = niter
+    niter_random_reference = niter * 2
+
+    for _ in range(nrand):
+        Gr = random_reference(G, niter=niter_random_reference, seed=rng)
+        rand_l.append(average_shortest_path_length(Gr))
+        Gl = lattice_reference(G, niter=niter_lattice_reference, seed=rng)
+        Cl_temp = average_clustering(Gl)
+        if Cl_temp > Cl:
+            Cl = Cl_temp
+
+    C = average_clustering(G)
+    L = average_shortest_path_length(G)
+    Lr = np.mean(rand_l)
+    return float((Lr / L) - (C / Cl))
 
 
 def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
@@ -671,33 +683,9 @@ def _edge_disjoint_paths_inproc(
         _raise_translated_networkx_exception(exc)
 
 
-def edge_disjoint_paths(
+def _edge_disjoint_paths_gen(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    """Find edge-disjoint paths from s to t via max-flow decomposition.
-
-    br-disjointkw: accepts nx's ``auxiliary`` and ``residual`` kwargs at
-    the public surface so ``edge_disjoint_paths(G, s, t, residual=R)``
-    doesn't TypeError. The Rust path still computes the decomposition
-    without reusing a pre-built residual network; a future native
-    improvement can thread these through.
-
-    br-r37-c1-edp-validate: nx raises NetworkXError on bad inputs;
-    fnx's Rust binding silently yielded an empty generator.  Match
-    nx's typed-error contract for missing-node + same-source-sink.
-
-    br-r37-c1-edp-cutoff: nx honours ``cutoff`` (max number of
-    augmenting paths) and raises ``NetworkXNoPath`` for cutoff
-    values below 1 (NaN / -inf / negative / 0).  fnx's Rust path
-    silently ignored cutoff.  Delegate any advanced-kwarg case
-    (cutoff / flow_func / auxiliary / residual) to nx so the
-    documented contract holds.
-
-    br-r37-c1-r6ce1: the native kernel is networkx's algorithm step for
-    step, so the paths and their order are networkx's. It also decides
-    s == t in networkx's order: NetworkXNoPath when the node has no
-    edge, else "source and sink are the same node".
-    """
     if s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
@@ -714,6 +702,18 @@ def edge_disjoint_paths(
     if paths is None:
         raise NetworkXNoPath
     yield from paths
+
+
+def edge_disjoint_paths(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs
+):
+    """Find edge-disjoint paths from s to t via max-flow decomposition."""
+    _validate_backend_dispatch_keywords("edge_disjoint_paths", backend, backend_kwargs)
+    return _edge_disjoint_paths_gen(
+        G, s, t,
+        flow_func=flow_func, cutoff=cutoff,
+        auxiliary=auxiliary, residual=residual,
+    )
 
 
 def _node_disjoint_paths_inproc(
@@ -738,23 +738,9 @@ def _node_disjoint_paths_inproc(
         _raise_translated_networkx_exception(exc)
 
 
-def node_disjoint_paths(
+def _node_disjoint_paths_gen(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    """Find node-disjoint paths from s to t via node-splitting.
-
-    br-disjointkw: see ``edge_disjoint_paths`` — parity kwargs added at
-    the public surface.
-
-    br-r37-c1-edp-validate: same input validation as
-    ``edge_disjoint_paths`` for missing nodes.  nx accepts the
-    same-source-sink case and yields a degenerate path, so leave
-    that path through — only validate node membership.
-
-    br-r37-c1-edp-cutoff: same delegation pattern as
-    ``edge_disjoint_paths`` — nx honours cutoff but the Rust path
-    ignores it.
-    """
     if s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
@@ -767,16 +753,31 @@ def node_disjoint_paths(
             auxiliary=auxiliary, residual=residual,
         )
         return
-    # br-r37-c1-r6ce1: networkx's algorithm natively, s == t included (the
-    # cycles through s); None is its NetworkXNoPath.
     paths = _fnx.node_disjoint_paths_rust(G, s, t)
     if paths is None:
         raise NetworkXNoPath
     yield from paths
 
 
-def all_node_cuts(G, k=None, flow_func=None):
+def node_disjoint_paths(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs
+):
+    """Find node-disjoint paths from s to t via node-splitting."""
+    _validate_backend_dispatch_keywords("node_disjoint_paths", backend, backend_kwargs)
+    return _node_disjoint_paths_gen(
+        G, s, t,
+        flow_func=flow_func, cutoff=cutoff,
+        auxiliary=auxiliary, residual=residual,
+    )
+
+
+def all_node_cuts(G, k=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Enumerate all minimum node cuts."""
+    _validate_backend_dispatch_keywords("all_node_cuts", backend, backend_kwargs)
+    return _all_node_cuts_gen(G, k=k, flow_func=flow_func)
+
+
+def _all_node_cuts_gen(G, k=None, flow_func=None):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
