@@ -833,6 +833,67 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     return _raw_degree_centrality(G)
 
 
+def _single_source_betweenness_dijkstra(G, source, weight):
+    """Count weighted shortest paths without coercing Python edge arithmetic.
+
+    Full Brandes retains equal-distance predecessors even after settlement.
+    This matters for zero-weight edges, including self-loops. Unlike general
+    Dijkstra, a weight of ``None`` is an arithmetic error, not a hidden edge.
+    """
+    weight_fn = _centrality_weight_function(G, weight)
+    stack = []
+    predecessors = {node: [] for node in G}
+    sigma = dict.fromkeys(G, 0.0)
+    sigma[source] = 1.0
+    distances = {}
+    seen = {source: 0}
+    counter = _count()
+    queue = [(0, next(counter), source, source)]
+    while queue:
+        distance, _, parent, node = _heappop(queue)
+        if node in distances:
+            continue
+        sigma[node] += sigma[parent]
+        stack.append(node)
+        distances[node] = distance
+        for neighbor, edge_data in G[node].items():
+            candidate = distance + weight_fn(node, neighbor, edge_data)
+            if neighbor not in distances and (
+                neighbor not in seen or candidate < seen[neighbor]
+            ):
+                seen[neighbor] = candidate
+                sigma[neighbor] = 0.0
+                predecessors[neighbor] = [node]
+                _heappush(queue, (candidate, next(counter), node, neighbor))
+            elif candidate == seen[neighbor]:
+                sigma[neighbor] += sigma[node]
+                predecessors[neighbor].append(node)
+    return stack, predecessors, sigma, distances
+
+
+def _rescale_betweenness_legacy_local(
+    betweenness, n, *, normalized, directed, endpoints=False, k=None
+):
+    """Uniform scaling used before the source-aware node/edge estimators."""
+    if normalized:
+        if endpoints and n >= 2:
+            scale = 1 / (n * (n - 1))
+        elif not endpoints and n > 2:
+            scale = 1 / ((n - 1) * (n - 2))
+        else:
+            scale = None
+    else:
+        scale = None if directed else 0.5
+    if scale is not None:
+        if k is not None:
+            # Keep this association: scale * (n / k) changes float bits and
+            # the exception text for an empty source sample.
+            scale = scale * n / k
+        for node in betweenness:
+            betweenness[node] *= scale
+    return betweenness
+
+
 def _betweenness_centrality_inproc(
     G,
     k=None,
@@ -841,20 +902,48 @@ def _betweenness_centrality_inproc(
     endpoints=False,
     seed=None,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.centrality.betweenness.betweenness_centrality(
-            H,
-            k=k,
-            normalized=normalized,
-            weight=weight,
-            endpoints=endpoints,
-            seed=seed,
-            backend="networkx",
+    """Owned Brandes for multigraphs and general Python weight values."""
+    rng = _create_py_random_state(seed)
+    n = len(G)
+    betweenness = dict.fromkeys(G, 0.0)
+    source_aware = _networkx_release() >= (3, 5)
+    sampled_nodes = None
+    if k is not None and not (source_aware and k == n):
+        sampled_nodes = _betweenness_sampled_sources(
+            G, rng, k, endpoints, normalized, source_aware
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    sources = G if sampled_nodes is None else sampled_nodes
+    for source in sources:
+        if weight is None:
+            stack, predecessors, sigma, _ = _single_source_shortest_path_basic_local(
+                G, source
+            )
+        else:
+            stack, predecessors, sigma, _ = _single_source_betweenness_dijkstra(
+                G, source, weight
+            )
+        if endpoints:
+            _accumulate_endpoints_local(
+                betweenness, stack, predecessors, sigma, source
+            )
+            continue
+        delta = dict.fromkeys(stack, 0.0)
+        while stack:
+            node = stack.pop()
+            coefficient = (1.0 + delta[node]) / sigma[node]
+            for parent in predecessors[node]:
+                delta[parent] += sigma[parent] * coefficient
+            if node != source:
+                betweenness[node] += delta[node]
+    if source_aware:
+        return _rescale_betweenness_local(
+            betweenness, n, normalized=normalized, directed=G.is_directed(),
+            endpoints=endpoints, sampled_nodes=sampled_nodes,
+        )
+    return _rescale_betweenness_legacy_local(
+        betweenness, n, normalized=normalized, directed=G.is_directed(),
+        endpoints=endpoints, k=k,
+    )
 
 
 def _compute_networkx_release():
@@ -914,7 +1003,7 @@ def betweenness_centrality(
     # (nx requires weights > 0 for betweenness). The shared live-dict checker
     # also rejects custom arithmetic, NaNs and oversized integer sums: the
     # old three store-only gates lost those distinctions during projection.
-    # Out-of-contract inputs delegate to nx for exact parity.
+    # Other inputs retain their Python arithmetic in the owned Brandes path.
     # br-r37-c1-quim8: a k-sampled call takes it too, over the sources
     # networkx samples.
     if isinstance(weight, str) and not G.is_multigraph():
