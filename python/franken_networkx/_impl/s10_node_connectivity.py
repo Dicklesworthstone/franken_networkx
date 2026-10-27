@@ -1518,28 +1518,56 @@ def _check_flow_endpoints(flowG, source, sink):
         raise NetworkXError(f"node {sink} not in graph")
 
 
-def _maximum_flow_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(flowG)
-    kwargs.setdefault("backend", "networkx")
+def _flow_residual_inproc(
+    flowG, source, target, capacity, flow_func, kwargs, value_only, cut
+):
+    """Run the selected residual solver on the original graph.
+
+    The Python solvers retain exact capacities (including arbitrary integers,
+    Fraction, and Decimal) and can reuse a caller-owned residual network. Do
+    not copy either graph: callbacks and residual attributes are observable.
+    """
+    from franken_networkx.flow import preflow_push
+
+    if flow_func is None:
+        if kwargs:
+            raise NetworkXError(
+                "You have to explicitly set a flow_func if you need to pass "
+                "parameters via kwargs."
+            )
+        flow_func = preflow_push
+    _validate_flow_func_selector(flow_func)
+    if (
+        cut
+        and "cutoff" in kwargs
+        and (
+            flow_func is preflow_push
+            or flow_func is _nx.algorithms.flow.preflow_push
+        )
+    ):
+        raise NetworkXError("cutoff should not be specified.")
     try:
-        return _nx.algorithms.flow.maxflow.maximum_flow(
-            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
+        return flow_func(
+            flowG, source, target, capacity=capacity, value_only=value_only, **kwargs
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
+
+
+def _maximum_flow_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    from franken_networkx.flow import build_flow_dict
+
+    residual = _flow_residual_inproc(
+        flowG, _s, _t, capacity, flow_func, kwargs, False, False
+    )
+    return residual.graph["flow_value"], build_flow_dict(flowG, residual)
 
 
 def _maximum_flow_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(flowG)
-    kwargs.setdefault("backend", "networkx")
-    try:
-        return _nx.algorithms.flow.maxflow.maximum_flow_value(
-            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    residual = _flow_residual_inproc(
+        flowG, _s, _t, capacity, flow_func, kwargs, True, False
+    )
+    return residual.graph["flow_value"]
 
 
 def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
@@ -1624,12 +1652,25 @@ def _validate_flow_func_selector(flow_func):
 
 
 def _minimum_cut_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(flowG)
-    kwargs.setdefault("backend", "networkx")
-    try:
-        return _nx.algorithms.flow.maxflow.minimum_cut(
-            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    residual = _flow_residual_inproc(
+        flowG, _s, _t, capacity, flow_func, kwargs, True, True
+    )
+    # A value-only preflow can retain excess away from the sink. The sink side
+    # is therefore all nodes that can still reach t across unsaturated arcs,
+    # rather than the complement of a forward walk from s. This also places
+    # disconnected nodes on NetworkX's source side. Inspect the residual in
+    # place without removing/re-adding edges, which would invalidate held
+    # attribute dictionaries and reorder a caller-supplied residual.
+    sink_side = {_t}
+    frontier = [_t]
+    predecessors = residual.pred
+    while frontier:
+        node = frontier.pop()
+        for predecessor, attrs in predecessors[node].items():
+            if (
+                predecessor not in sink_side
+                and attrs["flow"] != attrs["capacity"]
+            ):
+                sink_side.add(predecessor)
+                frontier.append(predecessor)
+    return residual.graph["flow_value"], (set(flowG) - sink_side, sink_side)

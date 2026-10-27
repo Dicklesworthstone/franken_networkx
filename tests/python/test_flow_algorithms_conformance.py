@@ -24,12 +24,15 @@ from __future__ import annotations
 
 import itertools
 import warnings
+from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 import networkx as nx
 from networkx.algorithms import flow as nx_flow
 
 import franken_networkx as fnx
+import franken_networkx.backend as fnx_backend
 
 
 ALGORITHMS = [
@@ -561,3 +564,116 @@ def test_non_string_attribute_keys_reach_networkx_results():
         assert getattr(fnx, name)(fg, "s", "t", capacity=0) == getattr(nx, name)(
             ng, "s", "t", capacity=0
         ), name
+
+
+_HIGH_LEVEL_FLOW_APIS = (
+    "maximum_flow", "maximum_flow_value", "minimum_cut", "minimum_cut_value"
+)
+
+
+def _forbid_networkx_flow(*args, **kwargs):
+    raise AssertionError("owned flow must not convert to or execute through NetworkX")
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("capacity", [10**100, Fraction(2, 3), Decimal("0.7")])
+def test_general_capacity_flow_runs_without_networkx(
+    monkeypatch, name, directed, capacity
+):
+    nx_graph = nx.DiGraph() if directed else nx.Graph()
+    nx_graph.add_edge("s", "a", capacity=capacity)
+    nx_graph.add_edge("a", "t", capacity=capacity)
+    nx_graph.add_edge("s", "dead", capacity=capacity * 2)
+    nx_graph.add_node("isolated")
+    fnx_graph = fnx.DiGraph() if directed else fnx.Graph()
+    fnx_graph.add_nodes_from(nx_graph)
+    fnx_graph.add_edges_from(nx_graph.edges(data=True))
+    expected = getattr(nx, name)(nx_graph, "s", "t")
+
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _forbid_networkx_flow)
+    for entrypoint in _HIGH_LEVEL_FLOW_APIS:
+        monkeypatch.setattr(nx_flow.maxflow, entrypoint, _forbid_networkx_flow)
+    actual = getattr(fnx, name)(fnx_graph, "s", "t")
+    assert actual == expected
+    actual_value = actual[0] if isinstance(actual, tuple) else actual
+    expected_value = expected[0] if isinstance(expected, tuple) else expected
+    assert type(actual_value) is type(expected_value)
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+def test_flow_callback_reuses_original_graph_and_residual(monkeypatch, name, algorithm):
+    edges = [
+        ("s", "a", 8), ("a", "t", 2), ("s", "b", 4),
+        ("b", "t", 3), ("s", "dead", 7), ("a", "b", 1),
+    ]
+    fg, ng = _pair_directed(edges, capacity_attr="budget")
+    fg.add_node("isolated")
+    ng.add_node("isolated")
+    nx_solver = getattr(nx_flow, algorithm)
+    fnx_solver = getattr(fnx.flow, algorithm)
+    expected = getattr(nx, name)(
+        ng, "s", "t", capacity="budget", flow_func=nx_solver
+    )
+    residual = fnx.flow.build_residual_network(fg, "budget")
+    held_attrs = {(u, v): attrs for u, v, attrs in residual.edges(data=True)}
+    edge_order = list(residual.edges())
+    marker = object()
+    residual.graph["caller_marker"] = marker
+    calls = []
+
+    def solver(graph, source, target, *, capacity, value_only, residual, marker):
+        calls.append((graph, source, target, capacity, value_only, residual, marker))
+        result = fnx_solver(
+            graph, source, target, capacity=capacity,
+            value_only=value_only, residual=residual,
+        )
+        assert result is residual
+        return result
+
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _forbid_networkx_flow)
+    for entrypoint in _HIGH_LEVEL_FLOW_APIS:
+        monkeypatch.setattr(nx_flow.maxflow, entrypoint, _forbid_networkx_flow)
+    actual = getattr(fnx, name)(
+        fg, "s", "t", capacity="budget", flow_func=solver,
+        residual=residual, marker=marker,
+    )
+    assert actual == expected
+    assert len(calls) == 1
+    graph, source, target, capacity, value_only, used_residual, received_marker = calls[0]
+    assert graph is fg
+    assert (source, target, capacity) == ("s", "t", "budget")
+    assert value_only is (name != "maximum_flow")
+    assert used_residual is residual
+    assert received_marker is marker
+    assert residual.graph["caller_marker"] is marker
+    assert list(residual.edges()) == edge_order
+    for (u, v), attrs in held_attrs.items():
+        assert residual[u][v] is attrs
+
+
+@pytest.mark.parametrize("name", ["minimum_cut", "minimum_cut_value"])
+def test_cut_rejects_preflow_cutoff_before_invoking_solver(name):
+    fg, ng = _pair_directed([("s", "a", 4), ("a", "t", 3)])
+    with pytest.raises(nx.NetworkXError) as expected:
+        getattr(nx, name)(ng, "s", "t", flow_func=nx_flow.preflow_push, cutoff=1)
+    for solver in (nx_flow.preflow_push, fnx.flow.preflow_push):
+        with pytest.raises(fnx.NetworkXError) as actual:
+            getattr(fnx, name)(fg, "s", "t", flow_func=solver, cutoff=1)
+        assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+def test_explicit_augmenting_flow_retains_cutoff_behavior(name):
+    fg, ng = _pair_directed([
+        ("s", "a", 3), ("a", "t", 3),
+        ("s", "b", 5), ("b", "t", 5),
+    ])
+    expected = getattr(nx, name)(
+        ng, "s", "t", flow_func=nx_flow.edmonds_karp, cutoff=2
+    )
+    actual = getattr(fnx, name)(
+        fg, "s", "t", flow_func=fnx.flow.edmonds_karp, cutoff=2
+    )
+    assert actual == expected

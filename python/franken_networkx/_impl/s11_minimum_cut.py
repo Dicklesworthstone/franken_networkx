@@ -1,15 +1,10 @@
 
 
 def _minimum_cut_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(flowG)
-    kwargs.setdefault("backend", "networkx")
-    try:
-        return _nx.algorithms.flow.maxflow.minimum_cut_value(
-            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    residual = _flow_residual_inproc(
+        flowG, _s, _t, capacity, flow_func, kwargs, True, True
+    )
+    return residual.graph["flow_value"]
 
 
 def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
