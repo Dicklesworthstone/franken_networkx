@@ -77,21 +77,17 @@ def _ordered_two_clique_bridge_k_components(G):
 
 
 def _k_components_inproc(G, flow_func=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.connectivity.kcomponents.k_components(
-            H, flow_func=flow_func, backend="networkx"
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    return _k_components_moody_white_fnx(G, flow_func=flow_func)
 
 
 def k_components(G, flow_func=None, *, backend=None, **backend_kwargs):
     """Return k-connected component structure.
 
-    br-kcompalgo: delegated to nx for correctness outside narrow exact
-    fast paths. The previous bespoke Python implementation treated
+    The general path uses the owned Moody-White decomposition, forwarding
+    custom flow functions through connectivity and minimum-cut enumeration.
+    The previous bespoke Python implementation treated
     ``k_components`` as ``{k: components_with_node_connectivity_at_least_k(G)}``
     and missed Moody-White recursive substructures. Complete graphs,
     simple-cycle components, forests, clique-block graphs, complete
@@ -99,11 +95,9 @@ def k_components(G, flow_func=None, *, backend=None, **backend_kwargs):
     ordered prism components, wheel components, tuple-label hypercube
     components, ordered two-clique bridge components, plus bounded simple
     cubic/quartic/quintic/six-/seven-/eight-/nine-regular components whose
-    connectivity is certified by vertex-removal BFS, are the safe exceptions: their
-    k-component lattices are closed form. Complete multipartite, 2-degenerate,
-    prism, wheel, hypercube, two-clique bridge, cubic, quartic, quintic, and
-    six-/seven-/eight-/nine-regular residual components still delegate when a custom
-    ``flow_func`` is supplied because nx calls it there.
+    connectivity is certified by vertex-removal BFS, have closed-form
+    k-component lattices. Where a custom ``flow_func`` needs to run, the
+    general decomposition retains the callback's execution and exceptions.
     """
     _validate_backend_dispatch_keywords("k_components", backend, backend_kwargs)
     if type(G) is Graph:
@@ -263,7 +257,7 @@ def _k_components_reconstruct_fnx(k_comps):
     return result
 
 
-def _k_components_moody_white_fnx(G):
+def _k_components_moody_white_fnx(G, flow_func=None):
     k_comps = _defaultdict(list)
     for component in connected_components(G):
         comp = set(component)
@@ -277,20 +271,20 @@ def _k_components_moody_white_fnx(G):
     for B in bicomponents:
         if len(B) <= 2:
             continue
-        k = node_connectivity(B)
+        k = node_connectivity(B, flow_func=flow_func)
         if k > 2:
             k_comps[k].append(set(B))
-        cuts = list(all_node_cuts(B, k=k))
+        cuts = list(all_node_cuts(B, k=k, flow_func=flow_func))
         stack = [(k, _k_components_generate_partition_fnx(B, cuts, k))]
         while stack:
             parent_k, partition = stack[-1]
             try:
                 nodes = next(partition)
                 C = B.subgraph(nodes).copy()
-                this_k = node_connectivity(C)
+                this_k = node_connectivity(C, flow_func=flow_func)
                 if this_k > parent_k and this_k > 2:
                     k_comps[this_k].append(set(C))
-                cuts = list(all_node_cuts(C, k=this_k))
+                cuts = list(all_node_cuts(C, k=this_k, flow_func=flow_func))
                 if cuts:
                     stack.append(
                         (this_k, _k_components_generate_partition_fnx(C, cuts, this_k))

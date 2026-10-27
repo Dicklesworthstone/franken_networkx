@@ -30,11 +30,15 @@ differ across implementations.
 from __future__ import annotations
 
 import math
+from itertools import combinations
+from random import Random
 
 import networkx as nx
 import pytest
 
 import franken_networkx as fnx
+import franken_networkx.backend as fnx_backend
+import franken_networkx.flow as fnx_flow
 
 
 def _close(a, b, *, tol=1e-9):
@@ -1455,3 +1459,151 @@ def test_minimum_node_cut_size_equals_node_connectivity():
     cut = fnx.minimum_node_cut(g)
     nc = fnx.node_connectivity(g)
     assert len(cut) == nc
+
+
+def _owned_connectivity_graph_pair(kind="Graph"):
+    edges = [
+        (0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3),
+        (4, 6), (5, 6), (6, 7), (7, 0), (1, 6), (2, 5),
+    ]
+    graphs = [getattr(library, kind)() for library in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(range(8))
+        graph.add_edges_from(edges)
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, key="parallel")
+    return graphs
+
+
+def _reject_connectivity_delegation(*args, **kwargs):
+    raise AssertionError("connectivity must execute on the owned graph")
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("endpoints", [(None, None), (0, 5)])
+@pytest.mark.parametrize("solver", ["edmonds_karp", "shortest_augmenting_path", "preflow_push"])
+def test_owned_node_connectivity_general_solver(kind, endpoints, solver, monkeypatch):
+    graph, reference = _owned_connectivity_graph_pair(kind)
+    source, target = endpoints
+    expected = nx.node_connectivity(
+        reference, source, target, flow_func=getattr(nx.algorithms.flow, solver)
+    )
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _reject_connectivity_delegation)
+    monkeypatch.setattr(
+        nx.algorithms.connectivity.connectivity,
+        "node_connectivity",
+        _reject_connectivity_delegation,
+    )
+    assert fnx.node_connectivity(
+        graph, source, target, flow_func=getattr(fnx_flow, solver)
+    ) == expected
+
+
+@pytest.mark.parametrize("explicit_k", [False, True])
+def test_owned_node_cutsets_invoke_solver_and_reuse_residual(explicit_k, monkeypatch):
+    graph, reference = _owned_connectivity_graph_pair()
+    k = nx.node_connectivity(reference) if explicit_k else None
+    expected_calls = []
+    actual_calls = []
+    actual_graphs = []
+    actual_residuals = []
+
+    def record_call(calls, source, target, kwargs):
+        calls.append((source, target, {k: v for k, v in kwargs.items() if k != "residual"}))
+
+    def reference_solver(auxiliary, source, target, **kwargs):
+        record_call(expected_calls, source, target, kwargs)
+        return nx.algorithms.flow.edmonds_karp(auxiliary, source, target, **kwargs)
+
+    def owned_solver(auxiliary, source, target, **kwargs):
+        assert isinstance(auxiliary, fnx.DiGraph)
+        assert isinstance(kwargs["residual"], fnx.DiGraph)
+        record_call(actual_calls, source, target, kwargs)
+        if "value_only" not in kwargs:
+            actual_graphs.append(auxiliary)
+            actual_residuals.append(kwargs["residual"])
+        return fnx_flow.edmonds_karp(auxiliary, source, target, **kwargs)
+
+    expected = list(nx.all_node_cuts(reference, k=k, flow_func=reference_solver))
+    original_edges = list(graph.edges(data=True))
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _reject_connectivity_delegation)
+    monkeypatch.setattr(nx, "all_node_cuts", _reject_connectivity_delegation)
+    monkeypatch.setattr(nx, "node_connectivity", _reject_connectivity_delegation)
+    actual = list(fnx.all_node_cuts(graph, k=k, flow_func=owned_solver))
+    assert actual == expected
+    assert actual_calls == expected_calls
+    assert len(actual_graphs) > 1
+    assert all(auxiliary is actual_graphs[0] for auxiliary in actual_graphs)
+    assert all(residual is actual_residuals[0] for residual in actual_residuals)
+    assert list(graph.edges(data=True)) == original_edges
+
+
+@pytest.mark.parametrize("kind", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize(
+    "solver",
+    ["edmonds_karp", "shortest_augmenting_path", "preflow_push", "dinitz", "boykov_kolmogorov"],
+)
+def test_owned_node_cutsets_match_selected_solver(kind, solver):
+    graph, reference = _owned_connectivity_graph_pair(kind)
+    expected = list(nx.all_node_cuts(reference, flow_func=getattr(nx.algorithms.flow, solver)))
+    actual = list(fnx.all_node_cuts(graph, flow_func=getattr(fnx_flow, solver)))
+    assert actual == expected
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_owned_node_cutsets_complete_against_vertex_removal(seed):
+    rng = Random(seed)
+    reference = nx.cycle_graph(7)
+    reference.add_edges_from(
+        (u, v) for u, v in combinations(range(7), 2) if rng.random() < 0.25
+    )
+    graph = fnx.Graph()
+    graph.add_nodes_from(reference)
+    graph.add_edges_from(reference.edges())
+    k = nx.node_connectivity(reference)
+    expected = {
+        frozenset(cut)
+        for cut in combinations(reference, k)
+        if nx.number_connected_components(reference.subgraph(set(reference) - set(cut))) > 1
+    }
+    actual = list(fnx.all_node_cuts(graph))
+    assert {frozenset(cut) for cut in actual} == expected
+    assert len(actual) == len(expected)
+
+
+@pytest.mark.parametrize("explicit_k", [False, True])
+def test_owned_node_cutsets_propagate_solver_errors_lazily(explicit_k):
+    def fail_solver(*args, **kwargs):
+        raise RuntimeError("selected flow solver failed")
+
+    cuts = fnx.all_node_cuts(fnx.cycle_graph(6), k=2 if explicit_k else None, flow_func=fail_solver)
+    with pytest.raises(RuntimeError, match="selected flow solver failed"):
+        list(cuts)
+
+
+@pytest.mark.parametrize("kind", ["Graph", "MultiGraph", "view"])
+@pytest.mark.parametrize("solver", ["edmonds_karp", "shortest_augmenting_path", "preflow_push"])
+def test_owned_k_components_forward_custom_solver(kind, solver, monkeypatch):
+    graph, reference = _owned_connectivity_graph_pair("Graph" if kind == "view" else kind)
+    if kind == "view":
+        graph = graph.subgraph(list(graph))
+        reference = reference.subgraph(list(reference))
+    calls = []
+
+    def flow_solver(auxiliary, source, target, **kwargs):
+        assert isinstance(auxiliary, fnx.DiGraph)
+        calls.append((source, target))
+        if solver == "preflow_push":
+            kwargs.pop("cutoff", None)
+        return getattr(fnx_flow, solver)(auxiliary, source, target, **kwargs)
+
+    expected = nx.k_components(reference, flow_func=getattr(nx.algorithms.flow, solver))
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _reject_connectivity_delegation)
+    monkeypatch.setattr(nx, "k_components", _reject_connectivity_delegation)
+    monkeypatch.setattr(nx, "all_node_cuts", _reject_connectivity_delegation)
+    monkeypatch.setattr(nx, "node_connectivity", _reject_connectivity_delegation)
+    actual = fnx.k_components(graph, flow_func=flow_solver)
+    assert {k: {frozenset(c) for c in comps} for k, comps in actual.items()} == {
+        k: {frozenset(c) for c in comps} for k, comps in expected.items()
+    }
+    assert calls

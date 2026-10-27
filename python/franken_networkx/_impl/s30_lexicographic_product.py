@@ -664,23 +664,78 @@ def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 def _edge_disjoint_paths_inproc(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        gen = _nx.algorithms.connectivity.disjoint_paths.edge_disjoint_paths(
-            H, s, t,
-            flow_func=flow_func, cutoff=cutoff,
-            auxiliary=auxiliary, residual=residual,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    """Decompose an owned unit-capacity flow without copying supplied state."""
+    from franken_networkx.connectivity import build_auxiliary_edge_connectivity
+    from franken_networkx.flow import (
+        edmonds_karp,
+        preflow_push,
+        shortest_augmenting_path,
+    )
 
+    if s not in G:
+        raise NetworkXError(f"node {s} not in graph")
+    if t not in G:
+        raise NetworkXError(f"node {t} not in graph")
+    H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
+    possible = min(H.out_degree(s), H.in_degree(t))
+    if not possible:
+        raise NetworkXNoPath
+    limit = possible if cutoff is None else min(cutoff, possible)
+    if flow_func is None:
+        flow_func = edmonds_karp
+
+    # Retain the callback protocol and its original auxiliary/residual objects.
+    # Value-only preflows can leave excess away from t; reconstruction below
+    # discards walks that do not reach t. Special options belong to known
+    # solvers, not unrelated callables that happen to have the same name.
+    options = {
+        "capacity": "capacity", "residual": residual,
+        "cutoff": limit, "value_only": True,
+    }
+    if flow_func is preflow_push or flow_func is _nx.algorithms.flow.preflow_push:
+        options.pop("cutoff")
+    elif (
+        flow_func is shortest_augmenting_path
+        or flow_func is _nx.algorithms.flow.shortest_augmenting_path
+    ):
+        options["two_phase"] = True
     try:
-        for path in gen:
-            yield path
+        result = flow_func(H, s, t, **options)
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
+    if result.graph["flow_value"] == 0:
+        raise NetworkXNoPath
+
+    # Match the established native decomposition: source arcs retain their
+    # residual insertion order, while subsequent steps consume each row from
+    # its end. Only these local dictionaries are consumed; callers can reuse
+    # the residual immediately for another pair of terminals.
+    outgoing = {
+        node: {
+            neighbor: None
+            for neighbor, attrs in result[node].items()
+            if attrs["capacity"] == attrs["flow"] and attrs["flow"] > 0
+        }
+        for node in result
+    }
+    completed = 0
+    for first in list(outgoing[s]):
+        if completed >= limit:
+            break
+        if first == t:
+            # The established generator does not count a direct edge against
+            # the number of longer paths reconstructed from a full preflow.
+            yield [s, t]
+            continue
+        path = [s, first]
+        while path[-1] != t:
+            row = outgoing[path[-1]]
+            if not row:
+                break
+            path.append(row.popitem()[0])
+        else:
+            yield path
+            completed += 1
 
 
 def _edge_disjoint_paths_gen(
@@ -719,23 +774,31 @@ def edge_disjoint_paths(
 def _node_disjoint_paths_inproc(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        gen = _nx.algorithms.connectivity.disjoint_paths.node_disjoint_paths(
-            H, s, t,
-            flow_func=flow_func, cutoff=cutoff,
-            auxiliary=auxiliary, residual=residual,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    """Recover original nodes from edge-disjoint paths in a split graph."""
+    from franken_networkx.connectivity import build_auxiliary_node_connectivity
 
-    try:
-        for path in gen:
-            yield path
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
+    mapping = H.graph.get("mapping")
+    if mapping is None:
+        raise NetworkXError("Invalid auxiliary digraph.")
+    source, target = f"{mapping[s]}B", f"{mapping[t]}A"
+    possible = min(H.out_degree(source), H.in_degree(target))
+    if not possible:
+        raise NetworkXNoPath
+    limit = possible if cutoff is None else min(cutoff, possible)
+    paths = _edge_disjoint_paths_inproc(
+        H, source, target, flow_func=flow_func,
+        cutoff=limit, auxiliary=H, residual=residual,
+    )
+    for path in paths:
+        seen = set()
+        original_path = []
+        for node in path:
+            original = H.nodes[node]["id"]
+            if original not in seen:
+                seen.add(original)
+                original_path.append(original)
+        yield original_path
 
 
 def _node_disjoint_paths_gen(
@@ -786,6 +849,13 @@ def _all_node_cuts_gen(G, k=None, flow_func=None):
     if density(G) == 1:
         return
 
+    from franken_networkx.connectivity import build_auxiliary_node_connectivity
+    from franken_networkx import flow as _flow
+
+    connectivity_flow_func = flow_func
+    if flow_func is None:
+        flow_func = _flow.edmonds_karp
+
     def is_separating_set(cut):
         if len(cut) == len(G) - 1:
             return True
@@ -793,51 +863,24 @@ def _all_node_cuts_gen(G, k=None, flow_func=None):
         # the restricted view to a concrete Graph before dispatching.
         return not is_connected(restricted_view(G, cut, []).copy())
 
-    def build_auxiliary_node_connectivity_graph(graph):
-        auxiliary = DiGraph()
-        mapping = {}
-
-        for index, node in enumerate(graph):
-            mapping[node] = index
-            auxiliary.add_node(f"{index}A", id=node)
-            auxiliary.add_node(f"{index}B", id=node)
-            auxiliary.add_edge(f"{index}A", f"{index}B", capacity=1)
-
-        for source, target in graph.edges():
-            auxiliary.add_edge(f"{mapping[source]}B", f"{mapping[target]}A", capacity=1)
-            auxiliary.add_edge(f"{mapping[target]}B", f"{mapping[source]}A", capacity=1)
-
-        auxiliary.graph["mapping"] = mapping
-        return auxiliary
-
-    def residual_after_flow(auxiliary, flow_dict):
-        # br-r37-c1-anodecutsresid: the residual's EDGE attrs (capacity) are never
-        # read downstream — transitive_closure / condensation / antichains and the
-        # cut logic use STRUCTURE plus the *auxiliary* node "id" only. Drop the
-        # per-edge attr copy and batch the insert: lighter adjacency to materialize
-        # (the per-flow _native_adjacency_dict hotspot) + one bulk build instead of
-        # an O(E) add_edge loop. Byte-identical cuts (structure-only consumers).
-        residual = DiGraph()
-        residual.add_nodes_from(auxiliary.nodes(data=True))
-        residual.add_edges_from(
-            (left, right)
-            for left, right, attrs in auxiliary.edges(data=True)
-            if (cap := attrs.get("capacity", 1)) != flow_dict.get(left, {}).get(right, 0)
-            and cap != 0
-        )
-        return residual
-
-    if k is None:
-        k = node_connectivity(G)
-    elif not isinstance(k, int):
-        raise TypeError("k must be an integer or None")
-
     seen = set()
-    auxiliary = build_auxiliary_node_connectivity_graph(G)
+    auxiliary = build_auxiliary_node_connectivity(G)
     mapping = auxiliary.graph["mapping"]
     original_predecessors = {
         node: set(auxiliary.predecessors(node)) for node in auxiliary.nodes()
     }
+    residual = _flow.build_residual_network(auxiliary, "capacity")
+    kwargs = {"capacity": "capacity", "residual": residual}
+    if (
+        flow_func is _flow.shortest_augmenting_path
+        or flow_func is _nx.algorithms.flow.shortest_augmenting_path
+    ):
+        kwargs["two_phase"] = True
+
+    if k is None:
+        k = node_connectivity(G, flow_func=connectivity_flow_func)
+    elif not isinstance(k, int):
+        raise TypeError("k must be an integer or None")
 
     highest_degree_nodes = {
         node
@@ -852,24 +895,31 @@ def _all_node_cuts_gen(G, k=None, flow_func=None):
     for source in highest_degree_nodes:
         non_adjacent = set(G) - {source} - set(G.neighbors(source))
         for target in non_adjacent:
-            flow_value, flow_dict = maximum_flow(
+            residual = flow_func(
                 auxiliary,
                 f"{mapping[source]}B",
                 f"{mapping[target]}A",
-                capacity="capacity",
+                **kwargs,
             )
 
-            if flow_value != k:
+            if residual.graph["flow_value"] != k:
                 continue
 
             flowed_edges = [
                 (left, right)
-                for left, outgoing in flow_dict.items()
-                for right, flow in outgoing.items()
-                if flow != 0
+                for left, right, attrs in residual.edges(data=True)
+                if attrs["flow"] != 0
             ]
             incident_components = {node for edge in flowed_edges for node in edge}
-            residual = residual_after_flow(auxiliary, flow_dict)
+            # Keep the solver's residual across pairs. Its saturated and
+            # zero-capacity reverse arcs are excluded only while enumerating
+            # closed sets, then restored before the next flow computation.
+            saturated_edges = [
+                (left, right, dict(attrs))
+                for left, right, attrs in residual.edges(data=True)
+                if attrs["capacity"] == attrs["flow"] or attrs["capacity"] == 0
+            ]
+            residual.remove_edges_from(saturated_edges)
             closure = transitive_closure(residual)
             condensed = condensation(residual)
 
@@ -925,8 +975,15 @@ def _all_node_cuts_gen(G, k=None, flow_func=None):
                 seen.add(frozen)
                 yield node_cut
 
-            auxiliary.add_edge(f"{mapping[source]}B", f"{mapping[target]}A", capacity=1)
-            auxiliary.add_edge(f"{mapping[target]}B", f"{mapping[source]}A", capacity=1)
+            for left, right in (
+                (f"{mapping[source]}B", f"{mapping[target]}A"),
+                (f"{mapping[target]}B", f"{mapping[source]}A"),
+            ):
+                auxiliary.add_edge(left, right, capacity=1)
+                original_predecessors[right].add(left)
+                residual.add_edge(left, right, capacity=1)
+                residual.add_edge(right, left, capacity=0)
+            residual.add_edges_from(saturated_edges)
 
 
 def connected_dominating_set(G, *, backend=None, **backend_kwargs):

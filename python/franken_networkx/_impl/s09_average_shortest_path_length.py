@@ -1539,11 +1539,46 @@ def _build_auxiliary_edge_connectivity_fast(G):
 
 
 def _node_connectivity_inproc(G, s=None, t=None, flow_func=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.connectivity.connectivity.node_connectivity(
-            H, s=s, t=t, flow_func=flow_func, backend="networkx"
+    from franken_networkx.connectivity import (
+        build_auxiliary_node_connectivity,
+        local_node_connectivity,
+    )
+    from franken_networkx.flow import build_residual_network
+
+    if s is not None and t is not None:
+        return local_node_connectivity(G, s, t, flow_func=flow_func)
+
+    if G.is_directed():
+        if not is_weakly_connected(G):
+            return 0
+        pairs = _itertools.permutations
+
+        def neighbors(node):
+            return _itertools.chain(G.predecessors(node), G.successors(node))
+    else:
+        if not is_connected(G):
+            return 0
+        pairs = _itertools.combinations
+        neighbors = G.neighbors
+
+    auxiliary = build_auxiliary_node_connectivity(G)
+    residual = build_residual_network(auxiliary, "capacity")
+    kwargs = {
+        "flow_func": flow_func,
+        "auxiliary": auxiliary,
+        "residual": residual,
+    }
+    node, connectivity = min(G.degree(), key=_operator.itemgetter(1))
+    for other in set(G) - set(neighbors(node)) - {node}:
+        kwargs["cutoff"] = connectivity
+        connectivity = min(
+            connectivity, local_node_connectivity(G, node, other, **kwargs)
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    for source, target in pairs(neighbors(node), 2):
+        if target in G[source]:
+            continue
+        kwargs["cutoff"] = connectivity
+        connectivity = min(
+            connectivity, local_node_connectivity(G, source, target, **kwargs)
+        )
+    return connectivity
