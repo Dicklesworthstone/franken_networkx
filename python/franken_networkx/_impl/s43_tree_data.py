@@ -308,35 +308,28 @@ def hnm_harary_graph(n, m, create_using=None):
 
 
 def _gomory_hu_prepare_fallback(G, capacity, flow_func):
-    from franken_networkx.backend import _fnx_to_nx
+    from franken_networkx.flow import build_residual_network, edmonds_karp
 
-    python_graph = _fnx_to_nx(G)
     if flow_func is None:
-        flow_func = _nx.algorithms.flow.edmonds_karp
-    try:
-        residual = _nx.algorithms.flow.build_residual_network(
-            python_graph, capacity
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
-    return python_graph, flow_func, residual
+        flow_func = edmonds_karp
+    # Keep the caller's graph and one exact-capacity residual for all cuts.
+    # In particular, custom solvers must see the original graph object and
+    # capacities must never pass through an f64 projection or an nx copy.
+    residual = build_residual_network(G, capacity)
+    return G, flow_func, residual
 
 
 def _gomory_hu_cut_fallback(
     python_graph, source, target, capacity, flow_func, residual
 ):
-    try:
-        return _nx.algorithms.flow.maxflow.minimum_cut(
-            python_graph,
-            source,
-            target,
-            capacity=capacity,
-            flow_func=flow_func,
-            residual=residual,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    return _minimum_cut_inproc(
+        python_graph,
+        source,
+        target,
+        capacity=capacity,
+        flow_func=flow_func,
+        residual=residual,
+    )
 
 
 def gomory_hu_tree(

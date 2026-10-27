@@ -1289,14 +1289,80 @@ def _stoer_wagner_native_domain(G, weight, heap):
 
 
 def _stoer_wagner_fallback(G, weight="weight", heap=_BINARY_HEAP_DEFAULT):
-    from franken_networkx.backend import _fnx_to_nx
+    """Contract an ordered adjacency snapshot using the original numeric values."""
+    if heap is _BINARY_HEAP_DEFAULT:
+        from franken_networkx.utils import BinaryHeap
 
-    try:
-        return _nx.algorithms.connectivity.stoerwagner.stoer_wagner(
-            _fnx_to_nx(G), weight=weight, heap=heap, backend="networkx"
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+        heap = BinaryHeap
+
+    # An edge-built copy can have a different node order from G. Preserve it,
+    # along with each adjacency row's insertion order, for phase tie breaks.
+    adjacency = {}
+    for u, v, attrs in G.edges(data=True):
+        if u != v:
+            value = attrs.get(weight, 1)
+            adjacency.setdefault(u, {})[v] = value
+            adjacency.setdefault(v, {})[u] = value
+    checked = set()
+    for u, neighbors in adjacency.items():
+        for v, value in neighbors.items():
+            if v not in checked and value < 0:
+                raise NetworkXError("graph has a negative-weighted edge.")
+        checked.add(u)
+
+    cut_value = float("inf")
+    # Graph iteration uses the generic set-construction path. Passing the
+    # dict directly changes set layout (and partition order) on hash ties.
+    nodes = set(iter(adjacency))
+    contractions = []
+    n = len(adjacency)
+    for phase in range(n - 1):
+        u = next(iter(adjacency))
+        selected = {u}
+        queue = heap()
+        for v, value in adjacency[u].items():
+            queue.insert(v, -value)
+        for _ in range(n - phase - 2):
+            u = queue.pop()[0]
+            selected.add(u)
+            for v, value in adjacency[u].items():
+                if v not in selected:
+                    queue.insert(v, queue.get(v, 0) - value)
+        v, value = queue.min()
+        value = -value
+        if value < cut_value:
+            cut_value = value
+            best_phase = phase
+
+        contractions.append((u, v))
+        for neighbor, value in adjacency[v].items():
+            if neighbor != u:
+                if neighbor in adjacency[u]:
+                    adjacency[u][neighbor] += value
+                else:
+                    adjacency[u][neighbor] = value
+                adjacency[neighbor][u] = adjacency[u][neighbor]
+        for neighbor in adjacency[v]:
+            del adjacency[neighbor][v]
+        del adjacency[v]
+
+    contracted = {}
+    for u, v in contractions[:best_phase]:
+        contracted.setdefault(u, {})[v] = None
+        contracted.setdefault(v, {})[u] = None
+    start = contractions[best_phase][1]
+    seen = {start: None}
+    frontier = [start]
+    while frontier:
+        next_frontier = []
+        for node in frontier:
+            for neighbor in contracted.get(node, {}):
+                if neighbor not in seen:
+                    seen[neighbor] = None
+                    next_frontier.append(neighbor)
+        frontier = next_frontier
+    reachable = set(seen)
+    return cut_value, (list(reachable), list(nodes - reachable))
 
 
 def stoer_wagner(
