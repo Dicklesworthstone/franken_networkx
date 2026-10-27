@@ -5,7 +5,9 @@ def min_cost_flow(
 ):
     """Find minimum cost flow satisfying node demands.
 
-    Uses the successive shortest paths algorithm with Bellman-Ford.
+    Uses the in-process network simplex solver, including keyed parallel arcs.
+    Safe integer problems use the native pivot kernel; wider integers and
+    other numeric types retain their exact arithmetic in the Python solver.
 
     Each node may have a ``demand`` attribute:
     - Negative demand = supply (source, has excess flow to send)
@@ -14,7 +16,7 @@ def min_cost_flow(
 
     Parameters
     ----------
-    G : DiGraph
+    G : DiGraph or MultiDiGraph
     demand : str, optional
         Node attribute for supply/demand. Default ``'demand'``.
     capacity : str, optional
@@ -25,7 +27,8 @@ def min_cost_flow(
     Returns
     -------
     dict of dicts
-        ``flowDict[u][v]`` is the optimal flow on edge (u, v).
+        ``flowDict[u][v]`` is the optimal flow on edge (u, v). For a
+        multigraph, ``flowDict[u][v][key]`` gives each parallel edge's flow.
 
     Raises
     ------
@@ -95,189 +98,20 @@ def min_cost_flow(
     if total_demand != 0:
         raise NetworkXUnfeasible("total node demand is not zero")
 
-    # br-r37-c1-t6gfk: the successive-shortest-paths solver below relaxes
-    # Bellman-Ford over O(n^2) (u, succ) pairs calling G.successors /
-    # G.get_edge_data INSIDE the hot loop — 50-96x slower than nx with real
-    # demands (n=600: ~3.5s vs ~37ms). Replace it with the network-simplex
-    # algorithm run IN-PROCESS on the fnx graph (no fnx->nx conversion): it
-    # extracts the graph to flat arrays once, then pivots on arrays. The flow
-    # conformance contract is cost-only (test_flow_conformance_matrix asserts
-    # equal cost / balanced total flow, NOT an exact flow dict — fnx's SSP
-    # already produced different valid optima than nx on some inputs), and the
-    # simplex is cost-exact by construction. The validation above already
-    # enforced fnx's error contracts (empty graph, negative capacity, infinite
-    # / non-zero total demand); the simplex additionally surfaces nx's
-    # NetworkXUnbounded for negative-cost infinite-capacity cycles.
-    # br-r37-c1-8foqi: for simple DiGraphs, run fnx's in-process port of the
-    # network-simplex over a fast pre-extracting shim (``_FastG``) that caches
-    # the node/edge data via fnx's native bulk readers — the ported pivots are
-    # byte-identical to nx's but the graph I/O no longer pays the per-element
-    # AdjacencyView read tax, bringing min_cost_flow from ~2x slower than nx to
-    # parity. Multigraphs keep the upstream ``__wrapped__`` path (the shim does
-    # not carry edge keys).
-    if not G.is_multigraph():
-        from ._network_simplex_native import (
-            _FastG as _FastNSG,
-            network_simplex as _native_network_simplex,
-        )
-
-        _fastg = _FastNSG(G)
-        _cost, flow = _native_network_simplex(
-            _fastg, demand=demand, capacity=capacity, weight=weight
-        )
-        if _mcf_inputs_all_integral(G, demand, capacity, weight, _fastg=_fastg):
-            flow = _coerce_flow_dict_to_int(flow)
-        return flow
-
-    flow, _handled = _min_cost_flow_network_simplex_nx(
-        G, demand=demand, capacity=capacity, weight=weight
+    # Extract once, preserving keys for parallel arcs. Both graph types now
+    # share the owned solver and its integer-overflow admission guard. The
+    # solver handles feasible negative-cost circulations as well as supplies
+    # and demands, and detects unbounded infinite-capacity negative cycles.
+    from ._network_simplex_native import (
+        _FastG as _FastNSG,
+        network_simplex as _native_network_simplex,
     )
-    if _handled:
-        if _mcf_inputs_all_integral(G, demand, capacity, weight):
-            flow = _coerce_flow_dict_to_int(flow)
-        return flow
 
-    # Initialize flow dict  (successive-shortest-paths fallback)
-    flow = {u: {} for u in nodes}
-    for u, v in G.edges():
-        flow.setdefault(u, {})[v] = 0
-
-    # Build residual graph and run successive shortest paths
-    # NetworkX convention: negative demand = supply, positive = demand
-    sources = [n for n in nodes if node_demand[n] < 0]
-    sinks = [n for n in nodes if node_demand[n] > 0]
-    remaining_supply = {n: -node_demand[n] for n in sources}
-    remaining_demand = {n: node_demand[n] for n in sinks}
-
-    # Successive shortest paths: augment along shortest cost path
-    for _ in range(n * n):  # upper bound on iterations
-        # Find shortest path from any source with remaining supply
-        # to any sink with remaining demand using Bellman-Ford on residual
-        best_path = None
-        best_cost = float("inf")
-        best_source = None
-        best_sink = None
-
-        for source in sources:
-            if remaining_supply.get(source, 0) <= 1e-10:
-                continue
-
-            # BFS/Bellman-Ford on residual graph
-            dist = {source: 0.0}
-            pred = {source: None}
-            # Relaxation
-            for _ in range(n):
-                updated = False
-                for u in nodes:
-                    if u not in dist:
-                        continue
-                    # Forward edges
-                    if hasattr(G, "successors"):
-                        succs = list(G.successors(u))
-                    else:
-                        succs = list(G.neighbors(u))
-                    for v in succs:
-                        data = G.get_edge_data(u, v)
-                        if not isinstance(data, dict):
-                            continue
-                        cap = float(data.get(capacity, float("inf")))
-                        current_flow = flow.get(u, {}).get(v, 0)
-                        residual_cap = cap - current_flow
-                        if residual_cap > 1e-10:
-                            edge_cost = float(data.get(weight, 0))
-                            new_dist = dist[u] + edge_cost
-                            if v not in dist or new_dist < dist[v] - 1e-10:
-                                dist[v] = new_dist
-                                pred[v] = (u, "forward")
-                                updated = True
-                    # Backward edges (reverse flow)
-                    if hasattr(G, "predecessors"):
-                        preds_list = list(G.predecessors(u))
-                    else:
-                        preds_list = []
-                    for v in preds_list:
-                        current_flow = flow.get(v, {}).get(u, 0)
-                        if current_flow > 1e-10:
-                            data = G.get_edge_data(v, u)
-                            edge_cost = (
-                                -float(data.get(weight, 0))
-                                if isinstance(data, dict)
-                                else 0.0
-                            )
-                            new_dist = dist[u] + edge_cost
-                            if v not in dist or new_dist < dist[v] - 1e-10:
-                                dist[v] = new_dist
-                                pred[v] = (u, "backward")
-                                updated = True
-                if not updated:
-                    break
-
-            # Check reachable sinks
-            for sink in sinks:
-                if sink in dist and remaining_demand.get(sink, 0) > 1e-10:
-                    if dist[sink] < best_cost:
-                        best_cost = dist[sink]
-                        best_path = pred
-                        best_source = source
-                        best_sink = sink
-
-        if best_path is None:
-            break
-
-        # Find bottleneck along the path
-        path_nodes = []
-        current = best_sink
-        while current is not None:
-            path_nodes.append(current)
-            p = best_path.get(current)
-            if p is None:
-                break
-            current = p[0] if p else None
-        path_nodes.reverse()
-
-        bottleneck = min(remaining_supply[best_source], remaining_demand[best_sink])
-        # Also check edge capacities along path
-        for i in range(len(path_nodes) - 1):
-            u, v = path_nodes[i], path_nodes[i + 1]
-            info = best_path.get(v)
-            if info and info[1] == "forward":
-                data = G.get_edge_data(u, v)
-                cap = (
-                    float(data.get(capacity, float("inf")))
-                    if isinstance(data, dict)
-                    else float("inf")
-                )
-                residual = cap - flow.get(u, {}).get(v, 0)
-                bottleneck = min(bottleneck, residual)
-            elif info and info[1] == "backward":
-                bottleneck = min(bottleneck, flow.get(v, {}).get(u, 0))
-
-        if bottleneck <= 1e-10:
-            break
-
-        # Augment flow along path
-        for i in range(len(path_nodes) - 1):
-            u, v = path_nodes[i], path_nodes[i + 1]
-            info = best_path.get(v)
-            if info and info[1] == "forward":
-                flow.setdefault(u, {})[v] = flow.get(u, {}).get(v, 0) + bottleneck
-            elif info and info[1] == "backward":
-                flow.setdefault(v, {})[u] = flow.get(v, {}).get(u, 0) - bottleneck
-
-        remaining_supply[best_source] -= bottleneck
-        remaining_demand[best_sink] -= bottleneck
-
-    # Check if all demands are satisfied
-    for source in sources:
-        if remaining_supply.get(source, 0) > 1e-10:
-            raise NetworkXUnfeasible("no flow satisfies all node demands")
-    for sink in sinks:
-        if remaining_demand.get(sink, 0) > 1e-10:
-            raise NetworkXUnfeasible("no flow satisfies all node demands")
-
-    # br-mcfint: preserve int flow values when every input is int
-    # (nx contract).
-    if _mcf_inputs_all_integral(G, demand, capacity, weight):
+    _fastg = _FastNSG(G)
+    _cost, flow = _native_network_simplex(
+        _fastg, demand=demand, capacity=capacity, weight=weight
+    )
+    if _mcf_inputs_all_integral(G, demand, capacity, weight, _fastg=_fastg):
         flow = _coerce_flow_dict_to_int(flow)
     return flow
 

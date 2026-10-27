@@ -1438,22 +1438,3 @@ def _coerce_flow_dict_to_int(flow_dict):
         out[u] = {v: (int(f) if isinstance(f, float) and f.is_integer() else f)
                   for v, f in inner.items()}
     return out
-
-
-def _min_cost_flow_network_simplex_nx(G, demand, capacity, weight):
-    # br-r37-c1-hf7zh: the multigraph network-simplex delegation (the only
-    # direct nx reference in the min_cost_flow family) lives in this private
-    # helper so the public ``min_cost_flow`` wrapper stays free of direct
-    # ``_nx.*`` references (classifier keeps it PY_WRAPPER, not NX_DELEGATED).
-    # Returns ``(flow, handled)``; ``handled`` is False when nx's
-    # ``network_simplex.__wrapped__`` is unavailable so the caller falls back
-    # to the successive-shortest-paths path.
-    import networkx as _nx_local
-
-    _network_simplex = getattr(_nx_local.network_simplex, "__wrapped__", None)
-    if _network_simplex is None:
-        return None, False
-    _cost, flow = _network_simplex(
-        G, demand=demand, capacity=capacity, weight=weight
-    )
-    return flow, True

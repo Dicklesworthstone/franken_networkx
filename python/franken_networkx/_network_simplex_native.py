@@ -77,7 +77,7 @@ def _ns_arrays_all_int(node_demands, edge_capacities, edge_weights):
 
 
 class _FastG:
-    """Fast pre-extracting read-only shim over an fnx DiGraph for network_simplex.
+    """Read-only snapshot of a directed graph for network_simplex.
 
     Caches the whole node list + node attrs + edge list once via fnx's native
     bulk readers (``nodes(data=True)`` / ``_native_edges_with_data``), so the
@@ -92,10 +92,16 @@ class _FastG:
         nd = list(G.nodes(data=True))
         self._nodes = [n for n, _ in nd]
         self._nattr = {n: d for n, d in nd}
-        _new = getattr(G, "_native_edges_with_data", None)
-        self._edges = list(_new()) if _new is not None else list(G.edges(data=True))
-        self._selfloops = [e for e in self._edges if e[0] == e[1]]
         self._is_multi = G.is_multigraph()
+        if self._is_multi:
+            # Each parallel arc is a separate simplex variable. Preserve its
+            # original key and iteration position through the array solver so
+            # reconstruction cannot merge capacities, costs, or flow values.
+            self._edges = list(G.edges(data=True, keys=True))
+        else:
+            _new = getattr(G, "_native_edges_with_data", None)
+            self._edges = list(_new()) if _new is not None else list(G.edges(data=True))
+        self._selfloops = [e for e in self._edges if e[0] == e[1]]
 
     def __iter__(self):
         return iter(self._nodes)
