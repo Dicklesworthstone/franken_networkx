@@ -3,7 +3,7 @@
     {
       "class": "conformance_fixtures",
       "path": "artifacts/conformance/latest/structured_logs.json",
-      "source_hash": "blake3:5d4e21fc71100517efa9ae944d75df2aa6aaef102862719f3666de04c9103fba"
+      "source_hash": "blake3:4a3a129d0d1ccef5cfd5d48613299b97c6fd109370bb0c249aeb2fa07bc44976"
     },
     {
       "class": "benchmark_baselines",
@@ -13,7 +13,7 @@
     {
       "class": "migration_manifests",
       "path": "artifacts/e2e/latest/v1_acceptance_manifest.json",
-      "source_hash": "blake3:73b2733c09ba7b32a4c69dc73c028a0aceee132bf8cf3fa2c3d572f673eff1f0"
+      "source_hash": "blake3:8dd94de7eabd49c50cb873b302558a7a844e3485f8d53e0d783b6874849b88cb"
     },
     {
       "class": "reproducibility_ledgers",

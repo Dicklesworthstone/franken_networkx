@@ -994,9 +994,18 @@ def _pagerank_scipy_matrix(G, weight):
         nodelist, A, is_dangling = cached[1]
     else:
         nodelist = list(G)
+        # Validate the native exporter's numeric domain only when rebuilding
+        # the matrix. A valid mutation token already covers its edge values,
+        # so repeated personalized queries can reuse the cached matrix.
+        if _pagerank_needs_networkx_weight_parity(G, weight):
+            native_csr_normalized = False
+            A = _sparse_array_from_edge_values(
+                G, {node: i for i, node in enumerate(nodelist)},
+                float, weight, "csr",
+            )
         # br-r37-c1-raqel: build COO directly for pagerank to skip dtype
         # checks in to_scipy_sparse_array. Native path returns (rows, cols, data).
-        if (
+        elif (
             _native_adjacency_arrays is not None
             and not G.is_multigraph()
             and (weight is None or isinstance(weight, str))
@@ -1129,11 +1138,9 @@ def _pagerank_scipy_matrix(G, weight):
             else:
                 # A present nonnumeric/nonfinite value must retain SciPy's
                 # exact conversion/error behavior, never become unit weight.
-                from franken_networkx.backend import _fnx_to_nx
-
-                A = _nx.to_scipy_sparse_array(
-                    _fnx_to_nx(G), nodelist=nodelist, weight=weight,
-                    dtype=float, backend="networkx",
+                A = _sparse_array_from_edge_values(
+                    G, {node: i for i, node in enumerate(nodelist)},
+                    float, weight, "csr",
                 )
         else:
             native_csr_normalized = False
@@ -1190,12 +1197,26 @@ def _pagerank_scipy_personalized(
     the vectors and their iteration arithmetic remain separate, including
     NetworkX's Python ``sum`` association for dangling ranks.
     """
-    import numpy as _np
-
-    N = len(G)
-    if N == 0:
+    if len(G) == 0:
         return {}
     nodelist, A, is_dangling = _pagerank_scipy_matrix(G, weight)
+    return _pagerank_power_iteration(
+        nodelist, A, is_dangling, alpha, personalization, max_iter, tol, nstart, dangling
+    )
+
+
+def _pagerank_power_iteration(
+    nodelist, A, is_dangling, alpha, personalization, max_iter, tol, nstart, dangling
+):
+    """Solve PageRank from an owned transition matrix and caller vectors.
+
+    Both native matrix exporters and the general edge-value exporter use this
+    iteration so mapping-like vectors, zero sums, convergence, and floating
+    point association retain the same behavior on every supported graph type.
+    """
+    import numpy as _np
+
+    N = len(nodelist)
 
     if nstart is None:
         x = _np.repeat(1.0 / N, N)
@@ -1328,22 +1349,27 @@ def _pagerank_inproc(
     weight="weight",
     dangling=None,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.link_analysis.pagerank_alg.pagerank(
-            H,
-            alpha=alpha,
-            personalization=personalization,
-            max_iter=max_iter,
-            tol=tol,
-            nstart=nstart,
-            weight=weight,
-            dangling=dangling,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    """PageRank for graph values outside the native exporter's numeric domain."""
+    if len(G) == 0:
+        return {}
+    import numpy as np
+    import scipy.sparse as sp
+
+    nodelist = list(G)
+    # Keep original values until SciPy casts them: summing parallel edges in
+    # Python first or replacing nonfinite values changes the resulting matrix.
+    # The owned exporter also preserves undirected self-loop corrections and
+    # arbitrary hashable attribute keys, including callable keys.
+    A = _sparse_array_from_edge_values(
+        G, {node: i for i, node in enumerate(nodelist)}, float, weight, "csr"
+    )
+    row_sums = np.asarray(A.sum(axis=1)).flatten()
+    row_sums[row_sums != 0] = 1.0 / row_sums[row_sums != 0]
+    A = sp.dia_array((row_sums, 0), shape=A.shape).tocsr() @ A
+    return _pagerank_power_iteration(
+        nodelist, A, np.where(row_sums == 0)[0], alpha,
+        personalization, max_iter, tol, nstart, dangling,
+    )
 
 
 def pagerank(
@@ -1372,14 +1398,9 @@ def pagerank(
     # in Python so drop-in callers regex-matching nx's wording match.
     max_iter = _coerce_index_arg(max_iter, "max_iter")
 
-    # The Rust pagerank honours the ``weight`` attribute and matches nx
-    # within 1e-16 on non-negative weights. Try the fast-path whenever
-    # the unsupported kwargs (personalization / nstart / dangling) are
-    # absent; the Rust impl raises NetworkXNotImplemented if it detects
-    # negative edge weights (numerically unstable for power iteration),
-    # and we fall through to the pure-Python path in that case. Non-string
-    # hashable weight keys also stay on the Python path because the PyO3
-    # binding accepts only str/None.
+    # Native matrix exporters accept string weight keys or unit weights.
+    # Other hashable keys and values outside the exporter's numeric domain
+    # use the owned edge-value exporter before the same sparse iteration.
     pagerank_weight = weight
     if (
         isinstance(weight, str)
@@ -1411,30 +1432,18 @@ def pagerank(
         and dangling is None
         and (pagerank_weight is None or isinstance(pagerank_weight, str))
     ):
-        if _pagerank_needs_networkx_weight_parity(G, pagerank_weight):
-            return _pagerank_inproc(
-                G,
-                alpha=alpha,
-                personalization=None,
-                max_iter=max_iter,
-                tol=tol,
-                nstart=None,
-                weight=pagerank_weight,
-                dangling=None,
-            )
         # br-r37-c1-y5y7i: use scipy.sparse matvec for 2-3× speedup
         # over pure-Rust scalar iteration on dense graphs.
         return _pagerank_scipy(G, alpha, max_iter, tol, pagerank_weight)
 
-    # br-r37-c1-prscipy (cc): personalization / nstart / dangling case — use the scipy
-    # matvec (mirroring nx) instead of the ~5x-slower pure-Python power iteration below.
+    # br-r37-c1-prscipy (cc): personalization / nstart / dangling case — retain
+    # the native matrix builder/cache before the shared sparse iteration.
     # Gated to simple Graph/DiGraph and canonical native multigraphs with
     # str/None weight and dict (or None) vectors. Multigraph sparse conversion
     # already sums parallel edges; keep its uncached matrix so held edge-dict
     # writes remain visible. Multigraph private rows and subclasses retain
     # their own route.
-    # Keep scipy's errors: retrying zero-sum personalization or invalid weights
-    # in the Python loop changes NetworkX's exception type/message.
+    # The general route below uses the same vector normalization and errors.
     if (
         len(G) > 0
         and (
@@ -1453,70 +1462,8 @@ def pagerank(
             G, alpha, personalization, max_iter, tol, nstart, pagerank_weight, dangling
         )
 
-    if len(G) == 0:
-        return {}
-
-    directed_graph = G.to_directed()
-    nodes = list(directed_graph)
-    node_count = len(nodes)
-
-    if nstart is None:
-        current = dict.fromkeys(nodes, 1.0 / node_count)
-    else:
-        current = _normalize_pagerank_vector(nstart, nodes, zero_sum="nan")
-
-    if personalization is None:
-        personalization_vector = dict.fromkeys(nodes, 1.0 / node_count)
-    else:
-        personalization_vector = _normalize_pagerank_vector(personalization, nodes)
-
-    if dangling is None:
-        dangling_weights = personalization_vector
-    else:
-        dangling_weights = _normalize_pagerank_vector(dangling, nodes, zero_sum="nan")
-
-    transition_weights = {}
-    dangling_nodes = []
-    # br-prcallable: snapshot the out-adjacency ONCE (single native bulk build)
-    # instead of indexing ``directed_graph.succ[node]`` per node — the latter
-    # rebuilt the whole adjacency dict on every access (O(N^2)).
-    _succ_snapshot = dict(directed_graph.adjacency())
-    _is_multi = directed_graph.is_multigraph()
-    for node in nodes:
-        neighbor_weights = _pagerank_outgoing_weights(
-            _succ_snapshot[node], weight, _is_multi
-        )
-        total_weight = _math.fsum(neighbor_weights.values())
-        if total_weight == 0:
-            transition_weights[node] = None
-            dangling_nodes.append(node)
-            continue
-        transition_weights[node] = {
-            nbr: neighbor_weight / total_weight
-            for nbr, neighbor_weight in neighbor_weights.items()
-        }
-
-    for _ in range(max_iter):
-        previous = current
-        current = dict.fromkeys(nodes, 0.0)
-        dangling_sum = alpha * _math.fsum(previous[node] for node in dangling_nodes)
-
-        for node in nodes:
-            neighbor_weights = transition_weights[node]
-            if not neighbor_weights:
-                continue
-            scaled_rank = alpha * previous[node]
-            for nbr, neighbor_weight in neighbor_weights.items():
-                current[nbr] += scaled_rank * neighbor_weight
-
-        for node in nodes:
-            current[node] += (
-                dangling_sum * dangling_weights.get(node, 0)
-                + (1.0 - alpha) * personalization_vector.get(node, 0)
-            )
-
-        error = _math.fsum(abs(current[node] - previous[node]) for node in nodes)
-        if error < node_count * tol:
-            return current
-
-    raise PowerIterationFailedConvergence(max_iter)
+    return _pagerank_inproc(
+        G, alpha=alpha, personalization=personalization,
+        max_iter=max_iter, tol=tol, nstart=nstart,
+        weight=pagerank_weight, dangling=dangling,
+    )

@@ -301,10 +301,11 @@ def _forbid_min_cost_numeric_route(*args, **kwargs):
 
 
 @pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS)
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize(
     "case", ["cost_product", "unbounded_capacity_cost", "capacity_sum", "potentials"]
 )
-def test_min_cost_flow_avoids_native_intermediate_integer_overflow(api, case, monkeypatch):
+def test_min_cost_flow_avoids_native_intermediate_integer_overflow(api, cls, case, monkeypatch):
     if case in ("cost_product", "unbounded_capacity_cost"):
         amount = 4_000_000_000
         demands = [("s", -amount), ("t", amount)]
@@ -323,13 +324,14 @@ def test_min_cost_flow_avoids_native_intermediate_integer_overflow(api, case, mo
 
     simplex = import_module("franken_networkx._network_simplex_native")
     monkeypatch.setattr(simplex, "_native_ns_int", _forbid_min_cost_numeric_route)
-    expected = getattr(nx, api)(_exact_demand_graph(nx, "DiGraph", demands, edges))
-    actual = getattr(fnx, api)(_exact_demand_graph(fnx, "DiGraph", demands, edges))
+    expected = getattr(nx, api)(_exact_demand_graph(nx, cls, demands, edges))
+    actual = getattr(fnx, api)(_exact_demand_graph(fnx, cls, demands, edges))
     assert actual == expected
 
 
 @pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS)
-def test_min_cost_flow_keeps_safe_integer_problem_native(api, monkeypatch):
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_min_cost_flow_keeps_safe_integer_problem_native(api, cls, monkeypatch):
     simplex = import_module("franken_networkx._network_simplex_native")
     monkeypatch.setattr(
         simplex._DataEssentialsAndFunctions,
@@ -338,8 +340,107 @@ def test_min_cost_flow_keeps_safe_integer_problem_native(api, monkeypatch):
     )
     demands = [("s", -5), ("t", 5)]
     edges = [("s", "a", 5, 2), ("a", "t", 5, 3)]
-    expected = getattr(nx, api)(_exact_demand_graph(nx, "DiGraph", demands, edges))
-    actual = getattr(fnx, api)(_exact_demand_graph(fnx, "DiGraph", demands, edges))
+    expected = getattr(nx, api)(_exact_demand_graph(nx, cls, demands, edges))
+    actual = getattr(fnx, api)(_exact_demand_graph(fnx, cls, demands, edges))
+    assert actual == expected
+
+
+def _parallel_demand_graph(lib, unit=1):
+    graph = lib.MultiDiGraph()
+    graph.add_node("source", balance=-5 * unit)
+    graph.add_node(("middle", 1), balance=0)
+    graph.add_node("sink", balance=5 * unit)
+    graph.add_node("isolated", balance=0)
+    graph.add_edge("source", ("middle", 1), key=("cheap", 0), units=3 * unit, cost=1)
+    graph.add_edge("source", ("middle", 1), key="expensive", units=4 * unit, cost=4)
+    graph.add_edge(("middle", 1), "sink", key=7, units=5 * unit, cost=2)
+    graph.add_edge("source", "sink", key="closed", units=0, cost=-999)
+    graph.add_edge(("middle", 1), ("middle", 1), key="profit", units=2 * unit, cost=-3)
+    graph.add_edge(("middle", 1), ("middle", 1), key=("idle", 1), units=9 * unit, cost=2)
+    return graph
+
+
+def _forbid_upstream_min_cost_solver(*args, **kwargs):
+    raise AssertionError("parallel-edge min-cost flow delegated to NetworkX")
+
+
+@pytest.mark.parametrize("api", ["min_cost_flow", "min_cost_flow_cost", "network_simplex"])
+@pytest.mark.parametrize("unit", [1, Fraction(1, 2), 2**70])
+@pytest.mark.parametrize("input_kind", ["native", "networkx", "view"])
+def test_parallel_min_cost_flow_is_owned_and_preserves_keys(api, unit, input_kind, monkeypatch):
+    options = {"demand": "balance", "capacity": "units", "weight": "cost"}
+    expected = getattr(nx, api)(_parallel_demand_graph(nx, unit), **options)
+    graph = _parallel_demand_graph(nx if input_kind == "networkx" else fnx, unit)
+    if input_kind == "view":
+        graph = fnx.subgraph_view(graph)
+
+    monkeypatch.setattr(nx, "network_simplex", _forbid_upstream_min_cost_solver)
+    monkeypatch.setattr(
+        nx.algorithms.flow.networksimplex,
+        "network_simplex",
+        _forbid_upstream_min_cost_solver,
+    )
+    actual = getattr(fnx, api)(graph, **options)
+    assert actual == expected
+    if api == "min_cost_flow_cost":
+        assert actual == 15 * unit
+        return
+
+    flow = actual[1] if api == "network_simplex" else actual
+    assert flow["isolated"] == {}
+    assert flow["source"][("middle", 1)][("cheap", 0)] == 3 * unit
+    assert flow["source"][("middle", 1)]["expensive"] == 2 * unit
+    assert flow["source"]["sink"]["closed"] == 0
+    assert flow[("middle", 1)][("middle", 1)]["profit"] == 2 * unit
+    assert flow[("middle", 1)][("middle", 1)][("idle", 1)] == 0
+    for node in graph:
+        incoming = sum(flow[u][node][key] for u, _, key in graph.in_edges(node, keys=True))
+        outgoing = sum(flow[node][v][key] for _, v, key in graph.out_edges(node, keys=True))
+        assert incoming - outgoing == graph.nodes[node]["balance"]
+    for u, v, key, data in graph.edges(keys=True, data=True):
+        assert 0 <= flow[u][v][key] <= data["units"]
+
+
+@pytest.mark.parametrize("native_kernel", [True, False])
+@pytest.mark.parametrize("case", ["infeasible", "unbounded_cycle", "unbounded_selfloop"])
+def test_parallel_min_cost_flow_failure_contract_without_upstream(case, native_kernel, monkeypatch):
+    graph = fnx.MultiDiGraph()
+    if case == "infeasible":
+        graph.add_node("s", demand=-4)
+        graph.add_node("t", demand=4)
+        graph.add_edge("s", "t", key="a", capacity=1, weight=1)
+        graph.add_edge("s", "t", key="b", capacity=2, weight=2)
+        error, message = nx.NetworkXUnfeasible, "no flow satisfies all node demands"
+    else:
+        graph.add_edge("s", "t", key="a", weight=-2)
+        graph.add_edge("s", "t", key="b", capacity=3, weight=2)
+        graph.add_edge("t", "s", key="back", weight=1)
+        if case == "unbounded_selfloop":
+            graph["s"]["t"]["a"]["capacity"] = 1
+            graph.add_edge("t", "t", key=("loop", 0), weight=-1)
+        error, message = nx.NetworkXUnbounded, "negative cycle with infinite capacity found"
+
+    if not native_kernel:
+        simplex = import_module("franken_networkx._network_simplex_native")
+        monkeypatch.setattr(simplex, "_native_ns_int", None)
+    monkeypatch.setattr(nx, "network_simplex", _forbid_upstream_min_cost_solver)
+    with pytest.raises(error, match=message):
+        fnx.min_cost_flow(graph)
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_parallel_min_cost_flow_matches_simplex_on_circulations(seed, monkeypatch):
+    rng = random.Random(seed)
+    graph = nx.MultiDiGraph()
+    graph.add_nodes_from(range(5))
+    for u in graph:
+        for v in graph:
+            for key in range(rng.randrange(3)):
+                graph.add_edge(u, v, key=key, capacity=rng.randrange(5), weight=rng.randrange(-3, 6))
+    expected = nx.network_simplex(graph)
+    native_graph = fnx.MultiDiGraph(graph)
+    monkeypatch.setattr(nx, "network_simplex", _forbid_upstream_min_cost_solver)
+    actual = fnx.network_simplex(native_graph)
     assert actual == expected
 
 

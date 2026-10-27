@@ -293,6 +293,10 @@ def generate_random_paths(
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "np_random_state"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_similarity, name)
     except AttributeError as exc:

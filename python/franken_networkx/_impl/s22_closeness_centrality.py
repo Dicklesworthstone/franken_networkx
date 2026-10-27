@@ -107,19 +107,56 @@ def _edge_betweenness_centrality_inproc(
     weight=None,
     seed=None,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.centrality.betweenness.edge_betweenness_centrality(
-            H,
-            k=k,
-            normalized=normalized,
-            weight=weight,
-            seed=seed,
-            backend="networkx",
+    """Owned edge Brandes, including keyed parallel-edge contributions."""
+    rng = _create_py_random_state(seed)
+    betweenness = dict.fromkeys(G, 0.0)
+    betweenness.update(dict.fromkeys(G.edges(), 0.0))
+    sampled_nodes = None
+    if k is not None:
+        # Edge estimators sample even at k == n, preserving both summation
+        # order and the caller's random-state advancement.
+        sampled_nodes = rng.sample(list(G.nodes()), k)
+        if not isinstance(sampled_nodes, list):
+            sampled_nodes = sampled_nodes.tolist()
+    sources = G if sampled_nodes is None else sampled_nodes
+    for source in sources:
+        if weight is None:
+            stack, predecessors, sigma, _ = _single_source_shortest_path_basic_local(
+                G, source
+            )
+        else:
+            stack, predecessors, sigma, _ = _single_source_betweenness_dijkstra(
+                G, source, weight
+            )
+        delta = dict.fromkeys(stack, 0.0)
+        while stack:
+            node = stack.pop()
+            coefficient = (1.0 + delta[node]) / sigma[node]
+            for parent in predecessors[node]:
+                contribution = sigma[parent] * coefficient
+                edge = (parent, node)
+                if edge not in betweenness:
+                    edge = (node, parent)
+                betweenness[edge] += contribution
+                delta[parent] += contribution
+            if node != source:
+                betweenness[node] += delta[node]
+    for node in G:
+        del betweenness[node]
+    if _networkx_release() >= (3, 6):
+        _rescale_betweenness_local(
+            betweenness, len(G), normalized=normalized, directed=G.is_directed(),
+            endpoints=True, sampled_nodes=sampled_nodes,
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    else:
+        # Through 3.5, edge normalization never applies a sampled n/k factor.
+        _rescale_betweenness_legacy_local(
+            betweenness, len(G), normalized=normalized, directed=G.is_directed(),
+            endpoints=True,
+        )
+    if G.is_multigraph():
+        return _add_edge_keys_local(G, betweenness, weight)
+    return betweenness
 
 
 def edge_betweenness_centrality(
@@ -170,7 +207,7 @@ def edge_betweenness_centrality(
     # whose association and two-step rescale put the last bit of 37-58% of
     # the values off networkx's). A callable or out-of-contract weight and a
     # multigraph - networkx keys it by (u, v, key) with a value per parallel
-    # edge (br-gauntlet-ebc-multi) - run networkx's port.
+    # edge (br-gauntlet-ebc-multi) - use the owned Python Brandes path.
     native = not G.is_multigraph() and (weight is None or isinstance(weight, str))
     if native and weight is not None:
         native = not _should_delegate_dijkstra_to_networkx(G, weight)
@@ -383,22 +420,40 @@ def _katz_centrality_inproc(
     normalized=True,
     weight=None,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
+    if len(G) == 0:
+        return {}
+    nnodes = G.number_of_nodes()
+    x = {n: 0 for n in G} if nstart is None else nstart
     try:
-        return _nx.algorithms.centrality.katz.katz_centrality(
-            H,
-            alpha=alpha,
-            beta=beta,
-            max_iter=max_iter,
-            tol=tol,
-            nstart=nstart,
-            normalized=normalized,
-            weight=weight,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+        b = dict.fromkeys(G, float(beta))
+    except (TypeError, ValueError, AttributeError) as err:
+        b = beta
+        if set(beta) != set(G):
+            raise NetworkXError(
+                "beta dictionary must have a value for every node"
+            ) from err
+
+    for _ in range(max_iter):
+        xlast = x
+        x = dict.fromkeys(xlast, 0)
+        for n in x:
+            for nbr in G[n]:
+                x[nbr] += xlast[n] * G[n][nbr].get(weight, 1)
+        for n in x:
+            x[n] = alpha * x[n] + b[n]
+        error = sum(abs(x[n] - xlast[n]) for n in x)
+        if error < nnodes * tol:
+            if normalized:
+                try:
+                    s = 1.0 / _math.hypot(*x.values())
+                except ZeroDivisionError:
+                    s = 1.0
+            else:
+                s = 1
+            for n in x:
+                x[n] *= s
+            return x
+    raise _make_power_iteration_failed_convergence(max_iter)
 
 
 def katz_centrality(

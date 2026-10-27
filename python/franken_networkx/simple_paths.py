@@ -8,6 +8,8 @@ _nx_simple_paths = _importlib.import_module("networkx.algorithms.simple_paths")
 
 import franken_networkx as _fnx
 
+PathBuffer = _fnx._ShortestSimplePathBuffer
+
 __all__ = list(
     getattr(
         _nx_simple_paths,
@@ -59,6 +61,10 @@ def all_simple_edge_paths(
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "pairwise"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_simple_paths, name)
     except AttributeError as exc:

@@ -18,6 +18,7 @@ from __future__ import annotations
 import networkx as _nx
 from networkx.algorithms.bipartite import *  # noqa: F401,F403
 import networkx.algorithms.bipartite as _nx_bipartite
+from networkx.exception import AmbiguousSolution as _AmbiguousSolution
 from networkx.utils import open_file as _nx_open_file
 
 import franken_networkx as _fnx
@@ -126,41 +127,330 @@ def _derive_top_nodes(G, top_nodes):
         return None
 
 
-def hopcroft_karp_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
-    """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp).
+def _hopcroft_karp_inprocess(G, top_nodes=None):
+    import collections as _collections
+    import itertools as _itertools
 
-    br-r37-c1-bngez: native byte-exact kernel for the ``top_nodes``-given simple
-    Graph case (no fnx->nx conversion + no nx Python sweeps); other shapes use a
-    one-shot nx view. Result is byte-identical to
-    ``networkx.bipartite.hopcroft_karp_matching``.
-    """
+    INFINITY = float("inf")
+    left, right = sets(G, top_nodes)
+    leftmatches = {v: None for v in left}
+    rightmatches = {v: None for v in right}
+    distances = {}
+    queue = _collections.deque()
+
+    def breadth_first_search():
+        for v in left:
+            if leftmatches[v] is None:
+                distances[v] = 0
+                queue.append(v)
+            else:
+                distances[v] = INFINITY
+        distances[None] = INFINITY
+        while queue:
+            v = queue.popleft()
+            if distances[v] < distances[None]:
+                for u in G[v]:
+                    if distances[rightmatches[u]] is INFINITY:
+                        distances[rightmatches[u]] = distances[v] + 1
+                        queue.append(rightmatches[u])
+        return distances[None] is not INFINITY
+
+    def depth_first_search(v):
+        if v is not None:
+            for u in G[v]:
+                if distances[rightmatches[u]] == distances[v] + 1:
+                    if depth_first_search(rightmatches[u]):
+                        rightmatches[u] = v
+                        leftmatches[v] = u
+                        return True
+            distances[v] = INFINITY
+            return False
+        return True
+
+    while breadth_first_search():
+        for v in left:
+            if leftmatches[v] is None:
+                depth_first_search(v)
+
+    leftmatches = {k: v for k, v in leftmatches.items() if v is not None}
+    rightmatches = {k: v for k, v in rightmatches.items() if v is not None}
+    return dict(_itertools.chain(leftmatches.items(), rightmatches.items()))
+
+
+def hopcroft_karp_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
+    """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp)."""
     _fnx._validate_backend_dispatch_keywords(
         "hopcroft_karp_matching", backend, backend_kwargs
     )
-    top_nodes = _derive_top_nodes(G, top_nodes)
-    result = _native_hopcroft_karp(G, top_nodes)
+    derived = _derive_top_nodes(G, top_nodes)
+    result = _native_hopcroft_karp(G, derived)
     if result is not None:
         return result
-    return _nx_bipartite.hopcroft_karp_matching(_matching_nx_view(G), top_nodes)
+    return _hopcroft_karp_inprocess(G, top_nodes)
 
 
 def maximum_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Alias of :func:`hopcroft_karp_matching` (matches networkx)."""
     _fnx._validate_backend_dispatch_keywords("maximum_matching", backend, backend_kwargs)
-    top_nodes = _derive_top_nodes(G, top_nodes)
-    result = _native_hopcroft_karp(G, top_nodes)
+    derived = _derive_top_nodes(G, top_nodes)
+    result = _native_hopcroft_karp(G, derived)
     if result is not None:
         return result
-    return _nx_bipartite.maximum_matching(_matching_nx_view(G), top_nodes)
+    return _hopcroft_karp_inprocess(G, top_nodes)
 
 
 def eppstein_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
-    """Maximum-cardinality matching of bipartite ``G`` (Eppstein).
-
-    br-r37-c1-bipmatch: see :func:`hopcroft_karp_matching`.
-    """
+    """Maximum-cardinality matching of bipartite ``G`` (Eppstein)."""
     _fnx._validate_backend_dispatch_keywords("eppstein_matching", backend, backend_kwargs)
-    return _nx_bipartite.eppstein_matching(_matching_nx_view(G), top_nodes)
+    left, right = sets(G, top_nodes)
+    adj = {}
+    for u, v in G.edges(left):
+        u_nbrs = adj.setdefault(u, {})
+        adj.setdefault(v, {})
+        u_nbrs[v] = None
+    matching = {}
+    for u in adj:
+        for v in adj[u]:
+            if v not in matching:
+                matching[v] = u
+                break
+    while True:
+        preds = {}
+        unmatched = []
+        pred = {u: unmatched for u in adj}
+        for v in matching:
+            del pred[matching[v]]
+        layer = list(pred)
+
+        while layer and not unmatched:
+            new_layer = {}
+            for u in layer:
+                for v in adj[u]:
+                    if v not in preds:
+                        new_layer.setdefault(v, []).append(u)
+            layer = []
+            for v in new_layer:
+                preds[v] = new_layer[v]
+                if v in matching:
+                    layer.append(matching[v])
+                    pred[matching[v]] = v
+                else:
+                    unmatched.append(v)
+
+        if not unmatched:
+            for key in matching.copy():
+                matching[matching[key]] = key
+            return matching
+
+        def recurse(v):
+            if v in preds:
+                L = preds.pop(v)
+                for u in L:
+                    if u in pred:
+                        pu = pred.pop(u)
+                        if pu is unmatched or recurse(pu):
+                            matching[v] = u
+                            return True
+            return False
+
+        for v in unmatched:
+            recurse(v)
+
+
+def _is_connected_by_alternating_path(G, v, matched_edges, unmatched_edges, targets):
+    def _alternating_dfs(u, along_matched=True):
+        visited = set()
+        initial_depth = 0 if along_matched else 1
+        stack = [(u, iter(G[u]), initial_depth)]
+        while stack:
+            parent, children, depth = stack[-1]
+            valid_edges = matched_edges if depth % 2 else unmatched_edges
+            try:
+                child = next(children)
+                if child not in visited:
+                    if (parent, child) in valid_edges or (child, parent) in valid_edges:
+                        if child in targets:
+                            return True
+                        visited.add(child)
+                        stack.append((child, iter(G[child]), depth + 1))
+            except StopIteration:
+                stack.pop()
+        return False
+
+    return _alternating_dfs(v, along_matched=True) or _alternating_dfs(
+        v, along_matched=False
+    )
+
+
+def _connected_by_alternating_paths(G, matching, targets):
+    edge_sets = {frozenset((u, v)) for u, v in matching.items()}
+    matched_edges = {tuple(edge) for edge in edge_sets}
+    unmatched_edges = {
+        (u, v) for (u, v) in G.edges() if frozenset((u, v)) not in edge_sets
+    }
+    return {
+        v
+        for v in G
+        if v in targets
+        or _is_connected_by_alternating_path(
+            G, v, matched_edges, unmatched_edges, targets
+        )
+    }
+
+
+def to_vertex_cover(G, matching, top_nodes=None, *, backend=None, **backend_kwargs):
+    """Return the minimum vertex cover corresponding to the given maximum matching."""
+    _fnx._validate_backend_dispatch_keywords("to_vertex_cover", backend, backend_kwargs)
+    L, R = sets(G, top_nodes)
+    unmatched_vertices = set(G) - set(matching)
+    U = unmatched_vertices & L
+    Z = _connected_by_alternating_paths(G, matching, U)
+    return (L - Z) | (R & Z)
+
+
+def maximal_extendability(G, *, backend=None, **backend_kwargs):
+    """Compute the extendability of a bipartite graph."""
+    _fnx._validate_backend_dispatch_keywords(
+        "maximal_extendability", backend, backend_kwargs
+    )
+    if G.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if not _fnx.is_connected(G):
+        raise _fnx.NetworkXError("Graph G is not connected")
+    if not is_bipartite(G):
+        raise _fnx.NetworkXError("Graph G is not bipartite")
+
+    U, V = sets(G)
+    max_matching = hopcroft_karp_matching(G)
+    if not _fnx.is_perfect_matching(G, max_matching):
+        raise _fnx.NetworkXError("Graph G does not contain a perfect matching")
+
+    pm = [(node, max_matching[node]) for node in V & max_matching.keys()]
+    directed_edges = [
+        (x, y) if (x in V and (x, y) in pm) or (x in U and (y, x) not in pm) else (y, x)
+        for x, y in G.edges
+    ]
+
+    residual_G = _fnx.DiGraph()
+    residual_G.add_nodes_from(G)
+    residual_G.add_edges_from(directed_edges)
+
+    if not _fnx.is_strongly_connected(residual_G):
+        raise _fnx.NetworkXError("The residual graph of G is not strongly connected")
+
+    k = float("inf")
+    for u in U:
+        for v in V:
+            num_paths = sum(1 for _ in _fnx.node_disjoint_paths(residual_G, u, v))
+            k = k if k < num_paths else num_paths
+    return k
+
+
+def _clean_personalization_dict(personalization):
+    if personalization is None:
+        return {}
+    if any(value < 0 for value in personalization.values()):
+        raise _fnx.NetworkXAlgorithmError(
+            "Personalization values must be non-negative."
+        )
+    return {node: value for node, value in personalization.items() if value != 0}
+
+
+def birank(
+    G,
+    nodes,
+    *,
+    alpha=None,
+    beta=None,
+    top_personalization=None,
+    bottom_personalization=None,
+    max_iter=100,
+    tol=1.0e-6,
+    weight="weight",
+    backend=None,
+    **backend_kwargs,
+):
+    """Compute the BiRank score for nodes in a bipartite network."""
+    import itertools as _itertools
+    import numpy as np
+    import scipy as sp
+
+    _fnx._validate_backend_dispatch_keywords("birank", backend, backend_kwargs)
+    top = set(nodes)
+    bottom = set(G) - top
+    top_count = len(top)
+    bottom_count = len(bottom)
+
+    if top_count == 0 or bottom_count == 0:
+        raise _fnx.NetworkXAlgorithmError(
+            "The BiRank algorithm requires a bipartite graph with at least one"
+            "node in each set."
+        )
+
+    top_personalization = _clean_personalization_dict(top_personalization)
+    bottom_personalization = _clean_personalization_dict(bottom_personalization)
+
+    if alpha is None:
+        alpha = 0.8 if top_personalization else 1
+    if beta is None:
+        beta = 0.8 if bottom_personalization else 1
+
+    if alpha < 0 or alpha > 1:
+        raise _fnx.NetworkXAlgorithmError("alpha must be in the interval [0, 1]")
+    if beta < 0 or beta > 1:
+        raise _fnx.NetworkXAlgorithmError("beta must be in the interval [0, 1]")
+
+    p0 = np.array([top_personalization.get(n, 0) for n in top], dtype=float)
+    u0 = np.array([bottom_personalization.get(n, 0) for n in bottom], dtype=float)
+
+    W = biadjacency_matrix(G, bottom, top, weight=weight, dtype=float)
+    p_degrees = W.sum(axis=0, dtype=float)
+    p_degrees[p_degrees == 0] = 1.0
+    D_p = sp.sparse.dia_array(
+        ([1.0 / np.sqrt(p_degrees)], [0]),
+        shape=(top_count, top_count),
+        dtype=float,
+    )
+    u_degrees = W.sum(axis=1, dtype=float)
+    u_degrees[u_degrees == 0] = 1.0
+    D_u = sp.sparse.dia_array(
+        ([1.0 / np.sqrt(u_degrees)], [0]),
+        shape=(bottom_count, bottom_count),
+        dtype=float,
+    )
+    S = D_u.tocsr() @ W @ D_p.tocsr()
+    S_T = S.T
+
+    p = np.ones(top_count, dtype=float) / top_count
+    u = beta * (S @ p) + (1 - beta) * u0
+
+    for _ in range(max_iter):
+        p_last = p
+        u_last = u
+        p = alpha * (S_T @ u) + (1 - alpha) * p0
+        u = beta * (S @ p) + (1 - beta) * u0
+
+        err_u = np.absolute((u_last - u) / np.maximum(1.0, u_last)).sum()
+        if err_u >= len(u) * tol:
+            continue
+        err_p = np.absolute((p_last - p) / np.maximum(1.0, p_last)).sum()
+        if err_p >= len(p) * tol:
+            continue
+
+        if alpha == 1 and beta == 1:
+            p = p / np.linalg.norm(p, 1)
+            u = u / np.linalg.norm(u, 1)
+
+        return dict(
+            zip(
+                _itertools.chain(top, bottom),
+                map(float, _itertools.chain(p, u)),
+            )
+        )
+
+    raise _fnx.PowerIterationFailedConvergence(max_iter)
 
 
 def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs):
@@ -175,7 +465,7 @@ def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs
     if len(G) == 0:
         return set()
     if any(degree == 0 for _, degree in G.degree()):
-        raise _nx.NetworkXException(
+        raise _fnx.NetworkXException(
             "Graph has a node with no edge incident on it, so no edge cover exists."
         )
     if matching_algorithm is None:
@@ -224,14 +514,41 @@ def generate_edgelist(G, delimiter=" ", data=True):
     return _lines()
 
 
-@_nx_open_file(1, mode="wb")
+def _open_bipartite_file(path, mode="rb"):
+    from os.path import splitext as _splitext
+    from pathlib import Path as _Path
+
+    if isinstance(path, str):
+        ext = _splitext(path)[1]
+    elif isinstance(path, _Path):
+        ext = path.suffix
+        path = str(path)
+    else:
+        return path, False
+
+    if ext == ".gz":
+        import gzip as _gzip
+
+        return _gzip.open(path, mode=mode), True
+    if ext == ".bz2":
+        import bz2 as _bz2
+
+        return _bz2.open(path, mode=mode), True
+    return open(path, mode=mode), True
+
+
 def write_edgelist(
     G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"
 ):
     """Write a bipartite edgelist using local ``generate_edgelist``."""
-    for line in generate_edgelist(G, delimiter, data):
-        line += "\n"
-        path.write(line.encode(encoding))
+    fobj, should_close = _open_bipartite_file(path, mode="wb")
+    try:
+        for line in generate_edgelist(G, delimiter, data):
+            line += "\n"
+            fobj.write(line.encode(encoding))
+    finally:
+        if should_close:
+            fobj.close()
 
 
 def density(B, nodes, *, backend=None, **backend_kwargs):
@@ -377,17 +694,7 @@ def biadjacency_matrix(
 
 
 def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
-    """Robins & Alexander bipartite clustering ``4*C_4 / L_3`` of ``G``.
-
-    br-r37-c1-niit0: re-exported from networkx as an ``@nx._dispatchable``, so
-    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
-    before nx counts four-cycles / three-paths with Python set operations (~1.1x
-    slower than nx). Both counts are integer GRAPH INVARIANTS, so a native
-    integer-CSR kernel (`robins_alexander_counts`) computes them with mark-array
-    intersections and zero conversion; the float arithmetic
-    (`(4.0 * (C_4_numer / 4)) / (L_3_numer / 2)`) is done here EXACTLY as nx, so
-    the result is byte-identical. Directed / multigraph / nx-typed inputs delegate.
-    """
+    """Robins & Alexander bipartite clustering ``4*C_4 / L_3`` of ``G``."""
     _fnx._validate_backend_dispatch_keywords(
         "robins_alexander_clustering", backend, backend_kwargs
     )
@@ -400,8 +707,6 @@ def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
     ):
         counts = native(G)
         if counts is not None:
-            # nx returns int 0 for these degenerate cases (checked before any
-            # float division), so mirror that exactly.
             if G.order() < 4 or G.size() < 3:
                 return 0
             c4_numer, l3_numer = counts
@@ -410,10 +715,31 @@ def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
                 return 0
             C_4 = c4_numer / 4
             return (4.0 * C_4) / L_3
-    # nx-typed / directed / multigraph / kernel unavailable: delegate to nx.
-    return _nx_bipartite.robins_alexander_clustering(
-        G if isinstance(G, _nx.Graph) else _matching_nx_view(G)
-    )
+    if G.order() < 4 or G.size() < 3:
+        return 0
+    paths = 0
+    for v in G:
+        for u in G[v]:
+            for w in set(G[u]) - {v}:
+                paths += len(set(G[w]) - {v, u})
+    L_3 = paths / 2
+    if L_3 == 0:
+        return 0
+    cycles = 0
+    seen = set()
+    G_adj = G._adj
+    for v in G:
+        seen.add(v)
+        v_neighbors = set(G_adj[v])
+        if len(v_neighbors) < 2:
+            continue
+        two_hop_neighbors = set().union(*(G_adj[u] for u in v_neighbors))
+        two_hop_neighbors -= seen
+        for x in two_hop_neighbors:
+            p2 = len(v_neighbors.intersection(G_adj[x]))
+            cycles += p2 * (p2 - 1)
+    C_4 = cycles / 4
+    return (4.0 * C_4) / L_3
 
 
 def latapy_clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
@@ -510,19 +836,7 @@ def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
 
 
 def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
-    """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``.
-
-    br-r37-c1-g6wla: re-exported from networkx as an ``@nx._dispatchable``, so
-    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
-    before nx counts, per node, the neighbour pairs sharing another common
-    neighbour using Python set intersections (~1.16x slower than nx). ``rc(v) =
-    2*overlap / (deg*(deg-1))`` where ``overlap`` is an integer GRAPH INVARIANT,
-    so a native integer-CSR kernel (`node_redundancy_overlaps`) counts it with
-    mark-array intersections + early exit and zero conversion; the float division
-    is done here EXACTLY as nx so the result is byte-identical. The default
-    ``nodes=None`` (all nodes) case takes the native path; an explicit ``nodes``
-    subset, nx-typed / directed / multigraph inputs delegate to nx.
-    """
+    """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``."""
     _fnx._validate_backend_dispatch_keywords(
         "node_redundancy", backend, backend_kwargs
     )
@@ -536,52 +850,47 @@ def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
     ):
         counts = native(G)
         if counts is not None:
-            # nx checks all requested nodes have >=2 neighbours BEFORE computing
-            # anything and raises a single NetworkXError otherwise; mirror that.
             if any(deg < 2 for (_overlap, deg) in counts):
                 raise _nx.NetworkXError(
                     "Cannot compute redundancy coefficient for a node"
                     " that has fewer than two neighbors."
                 )
-            # `counts` is in node order (== list(G)); dict key order matches nx.
             return {
                 node: (2 * overlap) / (deg * (deg - 1))
                 for node, (overlap, deg) in zip(G, counts)
             }
-    # nx-typed / directed / multigraph / explicit nodes / unavailable: delegate.
-    return _nx_bipartite.node_redundancy(
-        G if isinstance(G, _nx.Graph) else _matching_nx_view(G), nodes
-    )
+    from itertools import combinations as _combinations
+
+    if nodes is None:
+        nodes = G
+    if any(len(G[v]) < 2 for v in nodes):
+        raise _nx.NetworkXError(
+            "Cannot compute redundancy coefficient for a node"
+            " that has fewer than two neighbors."
+        )
+    result = {}
+    for v in nodes:
+        n_deg = len(G[v])
+        overlap = sum(
+            1 for (u, w) in _combinations(G[v], 2) if (set(G[u]) & set(G[w])) - {v}
+        )
+        result[v] = (2 * overlap) / (n_deg * (n_deg - 1))
+    return result
 
 
 def minimum_weight_full_matching(
     G, top_nodes=None, weight="weight", *, backend=None, **backend_kwargs
 ):
-    """Minimum-weight full matching of bipartite ``G`` (rectangular LAP).
-
-    br-r37-c1-n4dwd: re-exported from networkx as an ``@nx._dispatchable``, so
-    calling it on an fnx graph round-trips the WHOLE graph through ``_fnx_to_nx``
-    before nx builds the biadjacency matrix and defers to
-    ``scipy.optimize.linear_sum_assignment`` (~4x slower than nx). Run nx's EXACT
-    algorithm IN-PROCESS on the fnx graph using the already-native
-    :func:`sets` and :func:`biadjacency_matrix` (both byte-exact) plus the same
-    deterministic SciPy LAP solver — no conversion. Byte-identical: the bipartite
-    set split, the row/column ordering (``list(left)`` / ``list(right)``), the
-    inf-padded weight matrix, and the SciPy assignment all match nx exactly
-    (verified across heavy integer-weight tie cases). nx-typed inputs delegate.
-    """
+    """Minimum-weight full matching of bipartite ``G`` (rectangular LAP)."""
     _fnx._validate_backend_dispatch_keywords(
         "minimum_weight_full_matching", backend, backend_kwargs
     )
-    if isinstance(G, _nx.Graph):
-        return _nx_bipartite.minimum_weight_full_matching(G, top_nodes, weight)
     import numpy as _np
     import scipy as _sp
 
     left, right = sets(G, top_nodes)
     U = list(left)
     V = list(right)
-    # Inf where edges are missing (not zero), exactly as nx.
     weights_sparse = biadjacency_matrix(
         G, row_order=U, column_order=V, weight=weight, format="coo"
     )
@@ -593,47 +902,27 @@ def minimum_weight_full_matching(
     return d
 
 
-def _spectral_bipartivity_nx_copy(B):
-    """Weight-preserving fnx->nx copy for the spectral_bipartivity delegate path
-    (directed / multigraph), which needs edge weights and the matching graph
-    type."""
-    if B.is_multigraph():
-        H = _nx.MultiDiGraph() if B.is_directed() else _nx.MultiGraph()
-        H.add_nodes_from(B)
-        H.add_edges_from(B.edges(keys=True, data=True))
-    else:
-        H = _nx.DiGraph() if B.is_directed() else _nx.Graph()
-        H.add_nodes_from(B)
-        H.add_edges_from(B.edges(data=True))
-    return H
-
-
 def spectral_bipartivity(
     G, nodes=None, weight="weight", *, backend=None, **backend_kwargs
 ):
-    """Spectral bipartivity measure of bipartite ``G``.
-
-    br-r37-c1-1h238: re-exported from networkx as an ``@nx._dispatchable``, so on
-    an fnx graph it converts the WHOLE graph then forms TWO dense matrix
-    exponentials (`expm(A)` and `expm(-A)`, each O(n^3) Pade) — ~430ms at n=270.
-    But the measure is `trace(cosh A) / trace(exp A)` for the whole-graph case
-    (`nodes=None`) and a ratio of `expm` DIAGONALS per node otherwise — both
-    expressible from the symmetric spectrum alone. Compute one eigendecomposition
-    of the (symmetric, undirected) adjacency: `nodes=None` uses
-    `eigvalsh` -> `sum(cosh λ)/sum(exp λ)`; per-node uses `eigh` -> diagonals
-    `Σ_k V_ik² e^{λ_k}` / `Σ_k V_ik² cosh(λ_k)`. ~90x faster, agreeing with nx's
-    expm result to far beyond the module's round-6 conformance bar. Directed /
-    multigraph / nx-typed inputs delegate to nx (non-symmetric / general expm).
-    """
+    """Spectral bipartivity measure of bipartite ``G``."""
     _fnx._validate_backend_dispatch_keywords(
         "spectral_bipartivity", backend, backend_kwargs
     )
-    if isinstance(G, _nx.Graph):
-        return _nx_bipartite.spectral_bipartivity(G, nodes, weight)
-    if G.is_directed() or G.is_multigraph():
-        return _nx_bipartite.spectral_bipartivity(
-            _spectral_bipartivity_nx_copy(G), nodes, weight
-        )
+    import numpy as _np
+
+    if G.is_directed() or G.is_multigraph() or isinstance(G, _nx.Graph):
+        import scipy as _sp
+
+        nodelist = list(G)
+        A = _fnx.to_numpy_array(G, nodelist, weight=weight)
+        expA = _sp.linalg.expm(A)
+        expmA = _sp.linalg.expm(-A)
+        coshA = 0.5 * (expA + expmA)
+        if nodes is None:
+            return float(coshA.diagonal().sum() / expA.diagonal().sum())
+        index = dict(zip(nodelist, range(len(nodelist))))
+        return {n: coshA.item(index[n], index[n]) / expA.item(index[n], index[n]) for n in nodes}
     if len(G) > 0:
         try:
             color(G)
@@ -649,8 +938,6 @@ def spectral_bipartivity(
                     raise KeyError(node)
                 result[node] = 1.0
             return result
-    import numpy as _np
-
     nodelist = list(G)
     A = _fnx.to_numpy_array(G, nodelist, weight=weight)
     if nodes is None:
@@ -760,7 +1047,7 @@ def sets(G, top_nodes=None, *, backend=None, **backend_kwargs):
         Y = set(G) - X
     else:
         if not is_connected(G):
-            raise _nx.AmbiguousSolution(
+            raise _AmbiguousSolution(
                 "Disconnected graph: Ambiguous solution for bipartite sets."
             )
         c = color(G)
@@ -782,7 +1069,7 @@ def is_bipartite_node_set(G, nodes, *, backend=None, **backend_kwargs):
     )
     S = set(nodes)
     if len(S) < len(nodes):
-        raise _nx.AmbiguousSolution(
+        raise _AmbiguousSolution(
             "The input node set contains duplicates.\n"
             "This may lead to incorrect results when using it in bipartite algorithms.\n"
             "Consider using set(nodes) as the input"
@@ -1012,74 +1299,25 @@ def collaboration_weighted_projected_graph(B, nodes, *, backend=None, **backend_
 
 
 def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwargs):
-    """Return the projection of B onto one of its node sets.
-
-    Wraps ``networkx.algorithms.bipartite.projected_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords(
-        "projected_graph", backend, backend_kwargs
+    """Return the projection of B onto one of its node sets."""
+    return _fnx.projected_graph(
+        B,
+        nodes,
+        multigraph=multigraph,
+        backend=backend,
+        **backend_kwargs,
     )
-    # br-r37-c1-bpproj: de-delegate every simple/multi fnx Graph or DiGraph case.
-    # The delegated path ran nx's algorithm THROUGH fnx's slow per-access adjacency
-    # views AND rebuilt the result via _from_nx_graph (~61% of the time). Snapshot
-    # B's adjacency once via the native key-only binding and build the fnx
-    # projection directly — two nodes are joined iff they share a common neighbour;
-    # ``_native_adjacency_keys`` yields successors for a DiGraph (= nx's ``B[u]``).
-    # The projection is UNWEIGHTED (simple: edge existence; multigraph: one edge
-    # per shared neighbour, keyed by that neighbour's label, deduped via has_edge
-    # exactly like nx) so there is NO float-summation order to diverge — byte-exact,
-    # verified incl. exact edge order + keys. nx-typed B keeps the delegation path.
-    nak = getattr(B, "_native_adjacency_keys", None)
-    if nak is not None and type(B) in (_fnx.Graph, _fnx.DiGraph):
-        directed = type(B) is _fnx.DiGraph
-        adj = {node: list(nbrs) for node, nbrs in nak()}
-        if multigraph:
-            pred = {n: set(B.pred[n]) for n in B} if directed else None
-            G = _fnx.MultiDiGraph() if directed else _fnx.MultiGraph()
-            G.graph.update(B.graph)
-            G.add_nodes_from((n, B.nodes[n]) for n in nodes)
-            for u in nodes:
-                au = set(adj[u])
-                nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
-                for n in nbrs2:
-                    links = au & (pred[n] if directed else set(adj[n]))
-                    for l in links:
-                        if not G.has_edge(u, n, l):
-                            G.add_edge(u, n, key=l)
-            return G
-        G = _fnx.DiGraph() if directed else _fnx.Graph()
-        G.graph.update(B.graph)
-        G.add_nodes_from((n, B.nodes[n]) for n in nodes)
-        # br-r37-c1-bpprojbatch: collect ALL projection edges and add them in ONE
-        # add_edges_from. The previous per-node add_edges_from loop only let the
-        # FIRST node hit the native bulk-edge fast path; every later call saw a
-        # non-fresh graph and fell back to the per-edge add_edge tax (~83k add_edge
-        # calls on an 80-node projection). Same node-major emission order (nodes ->
-        # each node's nbrs2 set) so the edge insertion order stays byte-identical.
-        proj_edges = []
-        for u in nodes:
-            nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
-            proj_edges.extend((u, n) for n in nbrs2)
-        G.add_edges_from(proj_edges)
-        return G
-    nx_result = _nx_bipartite.projected_graph(B, nodes, multigraph=multigraph)
-    return _from_nx_graph(nx_result)
+
 
 
 def weighted_projected_graph(B, nodes, ratio=False, *, backend=None, **backend_kwargs):
-    """Return a weighted projection of B onto one of its node sets.
-
-    Wraps ``networkx.algorithms.bipartite.weighted_projected_graph`` and
-    converts the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a weighted projection of B onto one of its node sets."""
     _fnx._validate_backend_dispatch_keywords(
         "weighted_projected_graph", backend, backend_kwargs
     )
-    # br-r37-c1-0y2fn / bpprojdir: de-delegate simple Graph AND DiGraph (the weight
-    # is an integer count / order-free ratio -> byte-exact for directed too). nx
-    # guards n_top < 1 (raises) — keep that on the delegation fallback.
-    if type(B) in (_fnx.Graph, _fnx.DiGraph) and not B.is_multigraph():
+    if B.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    if type(B) in (_fnx.Graph, _fnx.DiGraph):
         n_top = len(B) - len(nodes)
         if n_top >= 1:
             if ratio:
@@ -1089,42 +1327,74 @@ def weighted_projected_graph(B, nodes, ratio=False, *, backend=None, **backend_k
             _fast = _weighted_projection_inprocess(B, nodes, wf, allow_directed=True)
             if _fast is not None:
                 return _fast
-    nx_result = _nx_bipartite.weighted_projected_graph(B, nodes, ratio=ratio)
-    return _from_nx_graph(nx_result)
+    if B.is_directed():
+        pred = B.pred
+        G = _fnx.DiGraph()
+    else:
+        pred = B.adj
+        G = _fnx.Graph()
+    G.graph.update(B.graph)
+    G.add_nodes_from((n, dict(B.nodes[n])) for n in nodes)
+    n_top = len(B) - len(nodes)
+    if n_top < 1:
+        raise _fnx.NetworkXAlgorithmError(
+            f"the size of the nodes to project onto ({len(nodes)}) is >= the graph size ({len(B)}).\n"
+            "They are either not a valid bipartite partition or contain duplicates"
+        )
+    edges = []
+    for u in nodes:
+        unbrs = set(B[u])
+        nbrs2 = {n for nbr in unbrs for n in B[nbr]} - {u}
+        for v in nbrs2:
+            vnbrs = set(pred[v])
+            common = unbrs & vnbrs
+            weight = len(common) if not ratio else len(common) / n_top
+            edges.append((u, v, {"weight": weight}))
+    G.add_edges_from(edges)
+    return G
 
 
 def generic_weighted_projected_graph(B, nodes, weight_function=None, *, backend=None, **backend_kwargs):
-    """Return a weighted projection of B with a user-specified weight function.
-
-    Wraps ``networkx.algorithms.bipartite.generic_weighted_projected_graph`` and
-    converts the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a weighted projection of B with a user-specified weight function."""
     _fnx._validate_backend_dispatch_keywords(
         "generic_weighted_projected_graph", backend, backend_kwargs
     )
-    # br-r37-c1-0y2fn: de-delegate only the DEFAULT weight function (number of
-    # shared neighbours). A user-supplied weight_function is arbitrary Python and
-    # keeps the nx delegation path.
+    if B.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
     if weight_function is None:
         _fast = _weighted_projection_inprocess(
             B, nodes, lambda un, vn, adj: len(un & vn), allow_directed=True
         )
         if _fast is not None:
             return _fast
-    nx_result = _nx_bipartite.generic_weighted_projected_graph(B, nodes, weight_function=weight_function)
-    return _from_nx_graph(nx_result)
+    if B.is_directed():
+        pred = B.pred
+        G = _fnx.DiGraph()
+    else:
+        pred = B.adj
+        G = _fnx.Graph()
+    if weight_function is None:
+        def weight_function(G_arg, u, v):
+            return len(set(G_arg[u]) & set(pred[v]))
+    G.graph.update(B.graph)
+    G.add_nodes_from((n, dict(B.nodes[n])) for n in nodes)
+    edges = []
+    for u in nodes:
+        nbrs2 = {n for nbr in set(B[u]) for n in B[nbr]} - {u}
+        for v in nbrs2:
+            weight = weight_function(B, u, v)
+            edges.append((u, v, {"weight": weight}))
+    G.add_edges_from(edges)
+    return G
 
 
 def overlap_weighted_projected_graph(B, nodes, jaccard=True, *, backend=None, **backend_kwargs):
-    """Return a weighted projection of B using overlap/Jaccard coefficients.
-
-    Wraps ``networkx.algorithms.bipartite.overlap_weighted_projected_graph`` and
-    converts the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a weighted projection of B using overlap/Jaccard coefficients."""
     _fnx._validate_backend_dispatch_keywords(
         "overlap_weighted_projected_graph", backend, backend_kwargs
     )
-    # br-r37-c1-0y2fn: de-delegate the simple undirected case.
+    if B.is_multigraph():
+        raise _fnx.NetworkXNotImplemented("not implemented for multigraph type")
     if jaccard:
         wf = lambda un, vn, adj: len(un & vn) / len(un | vn)
     else:
@@ -1132,33 +1402,37 @@ def overlap_weighted_projected_graph(B, nodes, jaccard=True, *, backend=None, **
     _fast = _weighted_projection_inprocess(B, nodes, wf, allow_directed=True)
     if _fast is not None:
         return _fast
-    nx_result = _nx_bipartite.overlap_weighted_projected_graph(B, nodes, jaccard=jaccard)
-    return _from_nx_graph(nx_result)
+    if B.is_directed():
+        pred = B.pred
+        G = _fnx.DiGraph()
+    else:
+        pred = B.adj
+        G = _fnx.Graph()
+    G.graph.update(B.graph)
+    G.add_nodes_from((n, dict(B.nodes[n])) for n in nodes)
+    edges = []
+    for u in nodes:
+        unbrs = set(B[u])
+        nbrs2 = {n for nbr in unbrs for n in B[nbr]} - {u}
+        for v in nbrs2:
+            vnbrs = set(pred[v])
+            if jaccard:
+                wt = len(unbrs & vnbrs) / len(unbrs | vnbrs)
+            else:
+                wt = len(unbrs & vnbrs) / min(len(unbrs), len(vnbrs))
+            edges.append((u, v, {"weight": wt}))
+    G.add_edges_from(edges)
+    return G
 
 
 def random_graph(n, m, p, seed=None, directed=False, *, backend=None, **backend_kwargs):
-    """Return a bipartite random graph.
-
-    Wraps ``networkx.algorithms.bipartite.random_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a bipartite random graph."""
     _fnx._validate_backend_dispatch_keywords(
         "random_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bprandgen: de-delegate the undirected case. The generator is RNG-
-    # driven but uses Python's random (the @py_random_state-converted ``seed``), so
-    # ``create_py_random_state(seed)`` reproduces nx's EXACT draw sequence and the
-    # geometric fast-gnp loop (no graph-state dependency) yields nx's exact edges.
-    # Collect + bulk add instead of nx build + _from_nx_graph. p<=0 -> nodes only;
-    # p>=1 -> complete_bipartite_graph (native, byte-exact; nx returns the UNDIRECTED
-    # complete graph even when directed=True — a quirk we replicate). For directed B
-    # nx runs the SAME geometric loop a second time to add the reverse (m->n) edges,
-    # continuing the same rng sequence; reproduce both loops in order. The graph name
-    # matches nx (complete's name overrides on the p>=1 path).
     import math as _math
-    from networkx.utils import create_py_random_state
 
-    rng = create_py_random_state(seed)
+    rng = _fnx._generator_random_state(seed)
     G = _fnx.DiGraph() if directed else _fnx.Graph()
     G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
     G.add_nodes_from((v, {"bipartite": 1}) for v in range(n, n + m))
@@ -1195,255 +1469,179 @@ def random_graph(n, m, p, seed=None, directed=False, *, backend=None, **backend_
 
 
 def gnmk_random_graph(n, m, k, seed=None, directed=False, *, backend=None, **backend_kwargs):
-    """Return a random bipartite graph G_{n,m,k}.
-
-    Wraps ``networkx.algorithms.bipartite.gnmk_random_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a random bipartite graph G_{n,m,k}."""
     _fnx._validate_backend_dispatch_keywords(
         "gnmk_random_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bprandgen: de-delegate the main case via the same
-    # create_py_random_state RNG-reproduction lever. nx draws u=seed.choice(top),
-    # v=seed.choice(bottom) and rejects v already in G[u]; replicate exactly with a
-    # per-u neighbour set (top u, bottom v), collect accepted edges in order, bulk
-    # add. ``bottom = list(set(G) - set(top))`` is reproduced on the fnx graph so the
-    # set-iteration order (which drives choice indices) matches nx byte-for-byte.
-    # Directed B is handled too: every drawn edge is top->bottom, so ``v in G[u]`` is
-    # exactly the successor check tracked by ``nbrs[u]`` -> only the result type
-    # differs. The n==1/m==1 (no-edge) and k>=max_edges (complete; for directed nx
-    # raises in its undirected-only complete builder) branches keep the delegation.
-    if n > 1 and m > 1 and k < n * m:
-        from networkx.utils import create_py_random_state
-
-        rng = create_py_random_state(seed)
-        G = _fnx.DiGraph() if directed else _fnx.Graph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
-        G.add_nodes_from((v, {"bipartite": 1}) for v in range(n, n + m))
-        G.graph["name"] = f"bipartite_gnm_random_graph({n},{m},{k})"
-        top = [x for x, d in G.nodes(data=True) if d["bipartite"] == 0]
-        bottom = list(set(G) - set(top))
-        nbrs = {u: set() for u in top}
-        edges = []
-        edge_count = 0
-        while edge_count < k:
-            u = rng.choice(top)
-            v = rng.choice(bottom)
-            if v in nbrs[u]:
-                continue
-            nbrs[u].add(v)
-            edges.append((u, v))
-            edge_count += 1
-        G.add_edges_from(edges)
+    rng = _fnx._generator_random_state(seed)
+    G = _fnx.DiGraph() if directed else _fnx.Graph()
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
+    G.add_nodes_from((v, {"bipartite": 1}) for v in range(n, n + m))
+    G.graph["name"] = f"bipartite_gnm_random_graph({n},{m},{k})"
+    if n == 1 or m == 1:
         return G
-    nx_result = _nx_bipartite.gnmk_random_graph(n, m, k, seed=seed, directed=directed)
-    return _from_nx_graph(nx_result)
+    max_edges = n * m
+    if k >= max_edges:
+        return complete_bipartite_graph(n, m, create_using=G)
+    top = [x for x, d in G.nodes(data=True) if d["bipartite"] == 0]
+    bottom = list(set(G) - set(top))
+    nbrs = {u: set() for u in top}
+    edges = []
+    edge_count = 0
+    while edge_count < k:
+        u = rng.choice(top)
+        v = rng.choice(bottom)
+        if v in nbrs[u]:
+            continue
+        nbrs[u].add(v)
+        edges.append((u, v))
+        edge_count += 1
+    G.add_edges_from(edges)
+    return G
 
 
 def alternating_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, **backend_kwargs):
-    """Return a bipartite graph from two degree sequences using alternating Havel-Hakimi.
-
-    Wraps ``networkx.algorithms.bipartite.alternating_havel_hakimi_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a bipartite graph from two degree sequences using alternating Havel-Hakimi."""
     _fnx._validate_backend_dispatch_keywords(
         "alternating_havel_hakimi_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bphhgen: de-delegate the default (MultiGraph). Run nx's deterministic
-    # alternating Havel-Hakimi loop verbatim (largest-a-degree node -> b-stubs
-    # interleaved low/high via zip(large, small)) to collect edges in nx's exact
-    # order, then bulk add. Byte-identical incl. multi-edge keys + graph name.
-    if create_using is None:
-        naseq, nbseq = len(aseq), len(bseq)
-        suma, sumb = sum(aseq), sum(bseq)
-        if suma != sumb:
-            raise _fnx.NetworkXError(
-                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
-            )
-        G = _fnx.MultiGraph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
-        G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, naseq + nbseq))
-        if naseq == 0 or max(aseq) == 0:
-            return G
-        edges = []
-        astubs = [[aseq[v], v] for v in range(naseq)]
-        bstubs = [[bseq[v - naseq], v] for v in range(naseq, naseq + nbseq)]
-        while astubs:
-            astubs.sort()
-            (degree, u) = astubs.pop()
-            if degree == 0:
-                break
-            bstubs.sort()
-            small = bstubs[0 : degree // 2]
-            large = bstubs[(-degree + degree // 2) :]
-            stubs = [x for z in zip(large, small) for x in z]
-            if len(stubs) < len(small) + len(large):
-                stubs.append(large.pop())
-            for target in stubs:
-                v = target[1]
-                edges.append((u, v))
-                target[0] -= 1
-                if target[0] == 0:
-                    bstubs.remove(target)
-        G.add_edges_from(edges)
-        G.graph["name"] = "bipartite_alternating_havel_hakimi_graph"
+    G = _fnx.empty_graph(0, create_using, default=_fnx.MultiGraph)
+    if G.is_directed():
+        raise _fnx.NetworkXError("Directed Graph not supported")
+    naseq, nbseq = len(aseq), len(bseq)
+    suma, sumb = sum(aseq), sum(bseq)
+    if suma != sumb:
+        raise _fnx.NetworkXError(
+            f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+        )
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
+    G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, naseq + nbseq))
+    if naseq == 0 or max(aseq) == 0:
         return G
-    nx_result = _nx_bipartite.alternating_havel_hakimi_graph(aseq, bseq, create_using=create_using)
-    return _from_nx_graph(nx_result, create_using=create_using)
+    edges = []
+    astubs = [[aseq[v], v] for v in range(naseq)]
+    bstubs = [[bseq[v - naseq], v] for v in range(naseq, naseq + nbseq)]
+    while astubs:
+        astubs.sort()
+        (degree, u) = astubs.pop()
+        if degree == 0:
+            break
+        bstubs.sort()
+        small = bstubs[0 : degree // 2]
+        large = bstubs[(-degree + degree // 2) :]
+        stubs = [x for z in zip(large, small) for x in z]
+        if len(stubs) < len(small) + len(large):
+            stubs.append(large.pop())
+        for target in stubs:
+            v = target[1]
+            edges.append((u, v))
+            target[0] -= 1
+            if target[0] == 0:
+                bstubs.remove(target)
+    G.add_edges_from(edges)
+    G.graph["name"] = "bipartite_alternating_havel_hakimi_graph"
+    return G
 
 
 def complete_bipartite_graph(n1, n2, create_using=None, *, backend=None, **backend_kwargs):
-    """Return the complete bipartite graph K_{n1,n2}.
-
-    Wraps ``networkx.algorithms.bipartite.complete_bipartite_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords(
-        "complete_bipartite_graph", backend, backend_kwargs
+    """Return the complete bipartite graph K_{n1,n2}."""
+    return _fnx.complete_bipartite_graph(
+        n1,
+        n2,
+        create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
     )
-    # br-r37-c1-bpcompletegen: de-delegate the common integer case (create_using
-    # None -> fnx.Graph). nx (after its nodes_or_number decorator) makes
-    # top=range(n1), bottom=[n1+i for i in range(n2)], tags bipartite 0/1, adds all
-    # top x bottom edges and sets the graph name. Replicate it directly instead of
-    # building an nx graph + _from_nx_graph. Containers / create_using keep the
-    # delegation path (nodes_or_number normalisation + type semantics).
-    if create_using is None and isinstance(n1, int) and isinstance(n2, int):
-        top = range(n1)
-        bottom = [n1 + i for i in range(n2)]
-        G = _fnx.Graph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in top)
-        G.add_nodes_from((v, {"bipartite": 1}) for v in bottom)
-        G.add_edges_from((u, v) for u in top for v in bottom)
-        G.graph["name"] = f"complete_bipartite_graph({n1}, {n2})"
-        return G
-    nx_result = _nx_bipartite.complete_bipartite_graph(n1, n2, create_using=create_using)
-    return _from_nx_graph(nx_result, create_using=create_using)
 
 
 def configuration_model(aseq, bseq, create_using=None, seed=None, *, backend=None, **backend_kwargs):
-    """Return a random bipartite graph from two degree sequences.
-
-    Wraps ``networkx.algorithms.bipartite.configuration_model`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a random bipartite graph from two degree sequences."""
     _fnx._validate_backend_dispatch_keywords(
         "configuration_model", backend, backend_kwargs
     )
-    # br-r37-c1-bprandgen: de-delegate the default (MultiGraph) via the
-    # create_py_random_state RNG-reproduction lever. nx builds degree-repeated stub
-    # lists, ``seed.shuffle``s both, and pairs astubs[i]<->bstubs[i]. Reproduce the
-    # exact initial stub order + rng so both shuffles match nx byte-for-byte, then
-    # bulk add the paired (multi)edges. Node labels, multi-edge keys, suma!=sumb
-    # NetworkXError and the graph name match nx. Non-None create_using delegates.
-    if create_using is None:
-        lena, lenb = len(aseq), len(bseq)
-        suma, sumb = sum(aseq), sum(bseq)
-        if suma != sumb:
-            raise _fnx.NetworkXError(
-                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
-            )
-        G = _fnx.MultiGraph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in range(lena))
-        G.add_nodes_from((v, {"bipartite": 1}) for v in range(lena, lena + lenb))
-        if lena == 0 or max(aseq) == 0:
-            return G
-        from networkx.utils import create_py_random_state
-
-        rng = create_py_random_state(seed)
-        stubs = [[v] * aseq[v] for v in range(lena)]
-        astubs = [x for subseq in stubs for x in subseq]
-        stubs = [[v] * bseq[v - lena] for v in range(lena, lena + lenb)]
-        bstubs = [x for subseq in stubs for x in subseq]
-        rng.shuffle(astubs)
-        rng.shuffle(bstubs)
-        G.add_edges_from([astubs[i], bstubs[i]] for i in range(suma))
-        G.graph["name"] = "bipartite_configuration_model"
+    rng = _fnx._generator_random_state(seed)
+    G = _fnx.empty_graph(0, create_using, default=_fnx.MultiGraph)
+    if G.is_directed():
+        raise _fnx.NetworkXError("Directed Graph not supported")
+    lena, lenb = len(aseq), len(bseq)
+    suma, sumb = sum(aseq), sum(bseq)
+    if suma != sumb:
+        raise _fnx.NetworkXError(
+            f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+        )
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(lena))
+    G.add_nodes_from((v, {"bipartite": 1}) for v in range(lena, lena + lenb))
+    if lena == 0 or max(aseq) == 0:
         return G
-    nx_result = _nx_bipartite.configuration_model(aseq, bseq, create_using=create_using, seed=seed)
-    return _from_nx_graph(nx_result, create_using=create_using)
+    stubs = [[v] * aseq[v] for v in range(lena)]
+    astubs = [x for subseq in stubs for x in subseq]
+    stubs = [[v] * bseq[v - lena] for v in range(lena, lena + lenb)]
+    bstubs = [x for subseq in stubs for x in subseq]
+    rng.shuffle(astubs)
+    rng.shuffle(bstubs)
+    G.add_edges_from([astubs[i], bstubs[i]] for i in range(suma))
+    G.graph["name"] = "bipartite_configuration_model"
+    return G
 
 
 def havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, **backend_kwargs):
-    """Return a bipartite graph from two degree sequences using Havel-Hakimi.
-
-    Wraps ``networkx.algorithms.bipartite.havel_hakimi_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a bipartite graph from two degree sequences using Havel-Hakimi."""
     _fnx._validate_backend_dispatch_keywords(
         "havel_hakimi_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bphhgen: de-delegate the default (create_using None -> MultiGraph).
-    # nx's Havel-Hakimi loop is deterministic Python; run it verbatim to COLLECT
-    # the edges in nx's exact order (largest-a-degree node connected to the
-    # largest-b-degree stubs, with the in-place stub decrement/remove), then bulk
-    # add — skipping the nx graph build + _from_nx_graph conversion. Node labels,
-    # bipartite tags, multi-edge KEY order (one extend in algorithm order) and the
-    # graph name (set only when edges exist, matching nx's early return) are
-    # byte-identical. A non-None create_using keeps the delegation path.
-    if create_using is None:
-        naseq, nbseq = len(aseq), len(bseq)
-        suma, sumb = sum(aseq), sum(bseq)
-        if suma != sumb:
-            raise _fnx.NetworkXError(
-                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
-            )
-        G = _fnx.MultiGraph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
-        G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, naseq + nbseq))
-        if naseq == 0 or max(aseq) == 0:
-            return G  # no edges; nx returns here without setting the name
-        edges = []
-        astubs = [[aseq[v], v] for v in range(naseq)]
-        bstubs = [[bseq[v - naseq], v] for v in range(naseq, naseq + nbseq)]
-        astubs.sort()
-        while astubs:
-            (degree, u) = astubs.pop()
-            if degree == 0:
-                break
-            bstubs.sort()
-            for target in bstubs[-degree:]:
-                v = target[1]
-                edges.append((u, v))
-                target[0] -= 1
-                if target[0] == 0:
-                    bstubs.remove(target)
-        G.add_edges_from(edges)
-        G.graph["name"] = "bipartite_havel_hakimi_graph"
+    G = _fnx.empty_graph(0, create_using, default=_fnx.MultiGraph)
+    if G.is_directed():
+        raise _fnx.NetworkXError("Directed Graph not supported")
+    naseq, nbseq = len(aseq), len(bseq)
+    suma, sumb = sum(aseq), sum(bseq)
+    if suma != sumb:
+        raise _fnx.NetworkXError(
+            f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+        )
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
+    G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, naseq + nbseq))
+    if naseq == 0 or max(aseq) == 0:
         return G
-    nx_result = _nx_bipartite.havel_hakimi_graph(aseq, bseq, create_using=create_using)
-    return _from_nx_graph(nx_result, create_using=create_using)
+    edges = []
+    astubs = [[aseq[v], v] for v in range(naseq)]
+    bstubs = [[bseq[v - naseq], v] for v in range(naseq, naseq + nbseq)]
+    astubs.sort()
+    while astubs:
+        (degree, u) = astubs.pop()
+        if degree == 0:
+            break
+        bstubs.sort()
+        for target in bstubs[-degree:]:
+            v = target[1]
+            edges.append((u, v))
+            target[0] -= 1
+            if target[0] == 0:
+                bstubs.remove(target)
+    G.add_edges_from(edges)
+    G.graph["name"] = "bipartite_havel_hakimi_graph"
+    return G
 
 
 def preferential_attachment_graph(aseq, p, create_using=None, seed=None, *, backend=None, **backend_kwargs):
-    """Create a bipartite graph with preferential attachment model.
-
-    Wraps ``networkx.algorithms.bipartite.preferential_attachment_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Create a bipartite graph with preferential attachment model."""
     _fnx._validate_backend_dispatch_keywords(
         "preferential_attachment_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bprandgen: de-delegate the default (MultiGraph) via the
-    # create_py_random_state lever. This generator reads GRAPH STATE (len(G),
-    # G.degree(b)), so track the node count + per-bottom-node degree as we build.
-    # nx evaluates ``seed.random() < p or len(G) == naseq`` (random() ALWAYS drawn),
-    # creating a fresh bottom node id=len(G) on the if-branch or preferentially
-    # choosing an existing bottom (degree-weighted stub list) on the else-branch.
-    # Reproduce verbatim; node order (top then bottom in creation order), multi-edge
-    # keys, the p>1 NetworkXError and the graph name match nx. Non-None create_using
-    # delegates.
-    if create_using is None:
-        if p > 1:
-            raise _fnx.NetworkXError(f"probability {p} > 1")
-        from functools import reduce as _reduce
-        from networkx.utils import create_py_random_state
+    rng = _fnx._generator_random_state(seed)
+    G = _fnx.empty_graph(0, create_using, default=_fnx.MultiGraph)
+    if G.is_directed():
+        raise _fnx.NetworkXError("Directed Graph not supported")
+    if p > 1:
+        raise _fnx.NetworkXError(f"probability {p} > 1")
+    from functools import reduce as _reduce
 
-        rng = create_py_random_state(seed)
-        naseq = len(aseq)
-        ng = naseq  # current node count (top nodes only, initially)
-        bdeg = {}  # bottom node id -> degree (multiplicity)
+    naseq = len(aseq)
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
+    vv = [[v] * aseq[v] for v in range(naseq)]
+    if isinstance(G, _fnx.MultiGraph):
+        ng = naseq
+        bdeg = {}
         edges = []
-        vv = [[v] * aseq[v] for v in range(naseq)]
         while vv:
             while vv[0]:
                 source = vv[0][0]
@@ -1459,84 +1657,111 @@ def preferential_attachment_graph(aseq, p, create_using=None, seed=None, *, back
                 edges.append((source, target))
                 bdeg[target] += 1
             vv.remove(vv[0])
-        G = _fnx.MultiGraph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in range(naseq))
         G.add_nodes_from((v, {"bipartite": 1}) for v in range(naseq, ng))
         G.add_edges_from(edges)
-        G.graph["name"] = "bipartite_preferential_attachment_model"
-        return G
-    nx_result = _nx_bipartite.preferential_attachment_graph(aseq, p, create_using=create_using, seed=seed)
-    return _from_nx_graph(nx_result, create_using=create_using)
+    else:
+        while vv:
+            while vv[0]:
+                source = vv[0][0]
+                vv[0].remove(source)
+                if rng.random() < p or len(G) == naseq:
+                    target = len(G)
+                    G.add_node(target, bipartite=1)
+                    G.add_edge(source, target)
+                else:
+                    bb = [[b] * G.degree(b) for b in range(naseq, len(G))]
+                    bbstubs = _reduce(lambda x, y: x + y, bb)
+                    target = rng.choice(bbstubs)
+                    G.add_node(target, bipartite=1)
+                    G.add_edge(source, target)
+            vv.remove(vv[0])
+    G.graph["name"] = "bipartite_preferential_attachment_model"
+    return G
 
 
 def reverse_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, **backend_kwargs):
-    """Return a bipartite graph from two degree sequences using reverse Havel-Hakimi.
-
-    Wraps ``networkx.algorithms.bipartite.reverse_havel_hakimi_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
+    """Return a bipartite graph from two degree sequences using reverse Havel-Hakimi."""
     _fnx._validate_backend_dispatch_keywords(
         "reverse_havel_hakimi_graph", backend, backend_kwargs
     )
-    # br-r37-c1-bphhgen: de-delegate the default (MultiGraph). Run nx's deterministic
-    # reverse Havel-Hakimi loop verbatim (largest-a-degree node -> SMALLEST-degree
-    # b-stubs ``bstubs[0:degree]``, bstubs sorted once up front) to collect edges in
-    # nx's exact order, then bulk add. Byte-identical incl. multi-edge keys + name.
-    if create_using is None:
-        lena, lenb = len(aseq), len(bseq)
-        suma, sumb = sum(aseq), sum(bseq)
-        if suma != sumb:
-            raise _fnx.NetworkXError(
-                f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
-            )
-        G = _fnx.MultiGraph()
-        G.add_nodes_from((v, {"bipartite": 0}) for v in range(lena))
-        G.add_nodes_from((v, {"bipartite": 1}) for v in range(lena, lena + lenb))
-        if lena == 0 or max(aseq) == 0:
-            return G
-        edges = []
-        astubs = [[aseq[v], v] for v in range(lena)]
-        bstubs = [[bseq[v - lena], v] for v in range(lena, lena + lenb)]
-        astubs.sort()
-        bstubs.sort()
-        while astubs:
-            (degree, u) = astubs.pop()
-            if degree == 0:
-                break
-            for target in bstubs[0:degree]:
-                v = target[1]
-                edges.append((u, v))
-                target[0] -= 1
-                if target[0] == 0:
-                    bstubs.remove(target)
-        G.add_edges_from(edges)
-        G.graph["name"] = "bipartite_reverse_havel_hakimi_graph"
+    G = _fnx.empty_graph(0, create_using, default=_fnx.MultiGraph)
+    if G.is_directed():
+        raise _fnx.NetworkXError("Directed Graph not supported")
+    lena, lenb = len(aseq), len(bseq)
+    suma, sumb = sum(aseq), sum(bseq)
+    if suma != sumb:
+        raise _fnx.NetworkXError(
+            f"invalid degree sequences, sum(aseq)!=sum(bseq),{suma},{sumb}"
+        )
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(lena))
+    G.add_nodes_from((v, {"bipartite": 1}) for v in range(lena, lena + lenb))
+    if lena == 0 or max(aseq) == 0:
         return G
-    nx_result = _nx_bipartite.reverse_havel_hakimi_graph(aseq, bseq, create_using=create_using)
-    return _from_nx_graph(nx_result, create_using=create_using)
+    edges = []
+    astubs = [[aseq[v], v] for v in range(lena)]
+    bstubs = [[bseq[v - lena], v] for v in range(lena, lena + lenb)]
+    astubs.sort()
+    bstubs.sort()
+    while astubs:
+        (degree, u) = astubs.pop()
+        if degree == 0:
+            break
+        for target in bstubs[0:degree]:
+            v = target[1]
+            edges.append((u, v))
+            target[0] -= 1
+            if target[0] == 0:
+                bstubs.remove(target)
+    G.add_edges_from(edges)
+    G.graph["name"] = "bipartite_reverse_havel_hakimi_graph"
+    return G
+
+
+def _generate_bipartite_weighted_edges(A):
+    import numpy as _np
+
+    if A.format == "csr":
+        nrows = A.shape[0]
+        src_indices = _np.repeat(_np.arange(nrows), _np.diff(A.indptr))
+        return zip(src_indices.tolist(), A.indices.tolist(), A.data.tolist())
+    if A.format == "csc":
+        ncols = A.shape[1]
+        dst_indices = _np.repeat(_np.arange(ncols), _np.diff(A.indptr))
+        return zip(A.indices.tolist(), dst_indices.tolist(), A.data.tolist())
+    if A.format == "dok":
+        return ((int(r), int(c), v.item()) for (r, c), v in A.items())
+    coo = A.tocoo()
+    return zip(coo.row.tolist(), coo.col.tolist(), coo.data.tolist())
 
 
 def from_biadjacency_matrix(A, create_using=None, edge_attribute="weight", *, row_order=None, column_order=None, backend=None, **backend_kwargs):
-    """Create a bipartite graph from a biadjacency matrix.
-
-    Directly constructs the fnx bipartite graph without intermediate nx conversions.
-    """
+    """Create a bipartite graph from a biadjacency matrix."""
     _fnx._validate_backend_dispatch_keywords(
         "from_biadjacency_matrix", backend, backend_kwargs
     )
     import itertools
-    import networkx.algorithms.bipartite.matrix as _bpm
 
     G = _fnx.empty_graph(0, create_using)
     n, m = A.shape
-    row_order, column_order = _bpm._validate_initialize_bipartite_nodelists(
-        A, row_order, column_order
-    )
+    if row_order is not None:
+        if len(row_order) != n:
+            raise ValueError(
+                "Length of row_order does not match number of rows in A ({n})"
+            )
+    else:
+        row_order = []
+    if column_order is not None:
+        if len(column_order) != m:
+            raise ValueError(
+                "Length of column_order does not match number of columns in A ({m})"
+            )
+    else:
+        column_order = []
 
     G.add_nodes_from(((i, {"bipartite": 0}) for i in range(n)))
     G.add_nodes_from(((i, {"bipartite": 1}) for i in range(n, n + m)))
 
-    triples = ((u, n + v, d) for (u, v, d) in _bpm._generate_weighted_edges(A))
+    triples = ((u, n + v, d) for (u, v, d) in _generate_bipartite_weighted_edges(A))
     if A.dtype.kind in ("i", "u") and G.is_multigraph():
         chain = itertools.chain.from_iterable
         triples = chain(((u, v, 1) for d in range(w)) for (u, v, w) in triples)
@@ -1613,27 +1838,13 @@ def parse_edgelist(lines, comments="#", delimiter=None, create_using=None, nodet
 
 
 def read_edgelist(path, comments="#", delimiter=None, create_using=None, nodetype=None, data=True, edgetype=None, encoding="utf-8", *, backend=None, **backend_kwargs):
-    """Read a bipartite graph edge list from a file.
-
-    Directly parses into an fnx bipartite graph without intermediate nx conversions.
-    """
+    """Read a bipartite graph edge list from a file."""
     _fnx._validate_backend_dispatch_keywords(
         "read_edgelist", backend, backend_kwargs
     )
-    from networkx.utils import open_file
-
-    @open_file(0, mode="rb")
-    def _read_edgelist(
-        path,
-        comments="#",
-        delimiter=None,
-        create_using=None,
-        nodetype=None,
-        data=True,
-        edgetype=None,
-        encoding="utf-8",
-    ):
-        lines = (line.decode(encoding) for line in path)
+    fobj, should_close = _open_bipartite_file(path, mode="rb")
+    try:
+        lines = (line.decode(encoding) for line in fobj)
         return parse_edgelist(
             lines,
             comments=comments,
@@ -1642,14 +1853,6 @@ def read_edgelist(path, comments="#", delimiter=None, create_using=None, nodetyp
             nodetype=nodetype,
             data=data,
         )
-
-    return _read_edgelist(
-        path,
-        comments=comments,
-        delimiter=delimiter,
-        create_using=create_using,
-        nodetype=nodetype,
-        data=data,
-        edgetype=edgetype,
-        encoding=encoding,
-    )
+    finally:
+        if should_close:
+            fobj.close()

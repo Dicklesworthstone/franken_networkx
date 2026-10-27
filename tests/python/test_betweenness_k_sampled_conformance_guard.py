@@ -3,9 +3,10 @@
 Checks source sampling, rescaling, float association and RNG consumption
 against the actual installed oracle. Node rescaling changes in NetworkX 3.5;
 edge rescaling changes in 3.6. Admitted plain-weight and unweighted kernels stay
-native; weights with custom or inexact integer arithmetic retain the oracle.
+native; general Python weights and multigraphs use owned Brandes algorithms.
 
-No mocks: real fnx vs real networkx 3.x.
+Numerical checks compare real fnx graphs against the installed NetworkX 3.x.
+Ownership checks disable graph conversion and upstream centrality execution.
 """
 
 from __future__ import annotations
@@ -248,7 +249,7 @@ def _weighted_twins(n, directed, seed=5):
 
 @pytest.fixture
 def python_port_calls(monkeypatch):
-    """Count the calls that reach the in-process networkx port."""
+    """Count the calls that need the general Python Brandes path."""
     calls = []
     for name in ("_betweenness_centrality_inproc", "_edge_betweenness_centrality_inproc"):
         original = getattr(fnx, name)
@@ -320,9 +321,8 @@ def test_invalid_seed_raises_networkx_error_without_k():
         assert str(actual.value) == str(expected.value)
 
 
-def test_weighted_k_sampled_with_a_negative_weight_runs_networkx(python_port_calls):
-    """The native kernels take non-negative weights only; networkx's own
-    Dijkstra runs on anything, so a negative weight goes to the port."""
+def test_weighted_k_sampled_with_a_negative_weight_uses_python_arithmetic(python_port_calls):
+    """Negative weights retain observable Python shortest-path arithmetic."""
     fg, ng = _weighted_twins(40, directed=False)
     u, v = next(iter(ng.edges()))
     for g in (fg, ng):
@@ -516,3 +516,241 @@ def test_wrong_native_sampled_policy_is_detected(directed, weight):
     assert correct == want, (nx.__version__, correct, want)
     assert wrong[0] == "return", wrong  # An API error is not a semantic negative.
     assert wrong != want, (nx.__version__, wrong, want)
+
+
+def _forbid_betweenness_delegation(monkeypatch):
+    import franken_networkx.backend as fnx_backend
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("general betweenness must execute without NetworkX conversion or delegation")
+
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", forbidden)
+    monkeypatch.setattr(fnx, "_networkx_graph_for_parity", forbidden)
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", forbidden)
+    for name in ("betweenness_centrality", "edge_betweenness_centrality"):
+        monkeypatch.setattr(nx.algorithms.centrality.betweenness, name, forbidden)
+
+
+def _owned_betweenness_twins(graph_type, family):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    if family == "fraction":
+        weights = (Fraction(1, 10), Fraction(2, 10), Fraction(3, 10))
+    elif family == "decimal":
+        weights = (Decimal("0.1"), Decimal("0.2"), Decimal("0.3"))
+    elif family == "wide-int":
+        weights = (2**54 + 1, 1, 2**54 + 1)
+    else:
+        weights = (1, 2, 3)
+    attribute = ("distance", 0) if family == "nonstring" else "weight"
+    nodes = [5, "mid", ("branch", 0), "target", "isolate"]
+    edges = [
+        (5, "mid", weights[0]), ("mid", "target", weights[1]),
+        (5, "target", weights[2]), (5, ("branch", 0), weights[0]),
+        (("branch", 0), "target", weights[1]), ("mid", "mid", weights[0]),
+    ]
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, graph_type)()
+        graph.add_nodes_from(nodes)
+
+        def add_edge(u, v, value, key="primary"):
+            if graph.is_multigraph():
+                graph.add_edge(u, v, key=key)
+                graph[u][v][key][attribute] = value
+            else:
+                graph.add_edge(u, v)
+                graph[u][v][attribute] = value
+
+        for u, v, value in edges:
+            add_edge(u, v, value)
+        if graph.is_directed():
+            add_edge("target", 5, weights[2])
+        if graph.is_multigraph():
+            add_edge(5, "mid", weights[0], key=("equal", 0))
+            add_edge(5, "mid", weights[0] + weights[1], key=17)
+        graphs.append(graph)
+    if family == "callable":
+        if graphs[0].is_multigraph():
+            weight = lambda u, v, data: min(attrs.get("weight", 1) for attrs in data.values())
+        else:
+            weight = lambda u, v, data: data.get("weight", 1)
+    else:
+        weight = attribute
+    return graphs[0], graphs[1], weight
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("family", ["fraction", "decimal", "wide-int", "callable", "nonstring"])
+@pytest.mark.parametrize("algorithm,endpoints,normalized,k", [
+    ("betweenness_centrality", False, True, None),
+    ("betweenness_centrality", False, False, 2),
+    ("betweenness_centrality", False, True, 1),
+    ("betweenness_centrality", True, True, 2),
+    ("betweenness_centrality", True, False, None),
+    ("edge_betweenness_centrality", False, True, None),
+    ("edge_betweenness_centrality", False, False, 2),
+    ("edge_betweenness_centrality", False, True, 5),
+])
+def test_owned_betweenness_general_weights_and_parallel_keys(
+    monkeypatch, graph_type, family, algorithm, endpoints, normalized, k
+):
+    fg, ng, weight = _owned_betweenness_twins(graph_type, family)
+    mine, theirs = random.Random(17), random.Random(17)
+    kwargs = {"weight": weight, "k": k, "normalized": normalized}
+    if algorithm == "betweenness_centrality":
+        kwargs["endpoints"] = endpoints
+    want = _centrality_outcome(getattr(nx, algorithm), ng, seed=theirs, **kwargs)
+    _forbid_betweenness_delegation(monkeypatch)
+    got = _centrality_outcome(getattr(fnx, algorithm), fg, seed=mine, **kwargs)
+    assert got == want, (graph_type, family, kwargs, got, want)
+    assert mine.getstate() == theirs.getstate()
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm,endpoints", [
+    ("betweenness_centrality", False), ("betweenness_centrality", True),
+    ("edge_betweenness_centrality", False),
+])
+@pytest.mark.parametrize("n,k", [
+    (0, None), (0, 0), (0, 1), (1, None), (1, 0), (1, 1),
+    (2, 0), (2, 1), (2, 2), (5, 0), (5, 1), (5, 5),
+    (5, 5.0), (5, -1), (5, 6),
+])
+def test_owned_betweenness_sample_boundaries(monkeypatch, graph_type, algorithm, endpoints, n, k):
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, graph_type)()
+        graph.add_nodes_from(range(n))
+        graph.add_edges_from((u, u + 1, {"weight": 1}) for u in range(n - 1))
+        graphs.append(graph)
+    kwargs = {"weight": "weight", "k": k}
+    if algorithm == "betweenness_centrality":
+        kwargs["endpoints"] = endpoints
+    mine, theirs = random.Random(19), random.Random(19)
+    want = _centrality_outcome(getattr(nx, algorithm), graphs[1], seed=theirs, **kwargs)
+    _forbid_betweenness_delegation(monkeypatch)
+    got = _centrality_outcome(getattr(fnx, algorithm), graphs[0], seed=mine, **kwargs)
+    assert got == want, (graph_type, n, kwargs, got, want)
+    assert mine.getstate() == theirs.getstate()
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm,endpoints", [
+    ("betweenness_centrality", False), ("betweenness_centrality", True),
+    ("edge_betweenness_centrality", False),
+])
+@pytest.mark.parametrize("value", [0, -1, None, float("inf")], ids=["zero", "negative", "None", "infinity"])
+def test_owned_betweenness_weight_arithmetic(monkeypatch, graph_type, algorithm, endpoints, value):
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, graph_type)()
+        graph.add_weighted_edges_from([(0, 1, value), (1, 2, 1), (0, 2, 1), (1, 1, value)])
+        graphs.append(graph)
+    if graphs[0].is_multigraph():
+        weight = lambda u, v, data: min(attrs["weight"] for attrs in data.values())
+    else:
+        weight = lambda u, v, data: data["weight"]
+    kwargs = {"weight": weight, "normalized": False}
+    if algorithm == "betweenness_centrality":
+        kwargs["endpoints"] = endpoints
+    want = _centrality_outcome(getattr(nx, algorithm), graphs[1], **kwargs)
+    _forbid_betweenness_delegation(monkeypatch)
+    got = _centrality_outcome(getattr(fnx, algorithm), graphs[0], **kwargs)
+    assert got == want, (graph_type, value, kwargs, got, want)
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm,endpoints", [
+    ("betweenness_centrality", False), ("betweenness_centrality", True),
+    ("edge_betweenness_centrality", False),
+])
+@pytest.mark.parametrize("kind", ["RandomState", "Generator"])
+@pytest.mark.parametrize("k", [1, 2, 5])
+def test_owned_betweenness_numpy_source_sampling(monkeypatch, graph_type, algorithm, endpoints, kind, k):
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, graph_type)()
+        graph.add_nodes_from(range(5))
+        graph.add_weighted_edges_from([(0, 1, 1), (0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1), (3, 0, 4)])
+        graphs.append(graph)
+    mine, theirs = _numpy_seed(kind), _numpy_seed(kind)
+    kwargs = {"weight": "weight", "k": k}
+    if algorithm == "betweenness_centrality":
+        kwargs["endpoints"] = endpoints
+    want = _centrality_outcome(getattr(nx, algorithm), graphs[1], seed=theirs, **kwargs)
+    _forbid_betweenness_delegation(monkeypatch)
+    got = _centrality_outcome(getattr(fnx, algorithm), graphs[0], seed=mine, **kwargs)
+    assert got == want, (graph_type, kwargs, kind, got, want)
+    assert mine.random() == theirs.random()
+
+
+class _EndSourceRandom(random.Random):
+    def sample(self, population, k):
+        assert list(population) == [0, 1, 2, 3]
+        assert k == 2
+        return [0, 3]
+
+
+@pytest.mark.parametrize("release", [(3, 4), (3, 5), (3, 6)])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("normalized", [False, True])
+@pytest.mark.parametrize("algorithm,endpoints", [
+    ("betweenness_centrality", False), ("betweenness_centrality", True),
+    ("edge_betweenness_centrality", False),
+])
+def test_owned_betweenness_versioned_path_estimates(
+    monkeypatch, release, directed, normalized, algorithm, endpoints
+):
+    """Closed-form endpoint-source estimates on a four-node path.
+
+    The two end sources contribute [0, 3, 3, 0] to interior nodes and
+    [4, 4, 4] to edges in the undirected graph. The directed path admits
+    only the forward source's [0, 2, 1, 0] and [3, 2, 1] contributions.
+    """
+    cls = fnx.MultiDiGraph if directed else fnx.MultiGraph
+    graph = cls([(0, 1), (1, 2), (2, 3)])
+    kwargs = {"k": 2, "seed": _EndSourceRandom(0), "normalized": normalized}
+    if algorithm == "edge_betweenness_centrality":
+        values = [3.0, 2.0, 1.0] if directed else [4.0, 4.0, 4.0]
+        if normalized:
+            scale = 1 / 6 if release >= (3, 6) else 1 / 12
+        elif release >= (3, 6):
+            scale = 2 if directed else 1
+        else:
+            scale = 1 if directed else 0.5
+        keys = [(0, 1, 0), (1, 2, 0), (2, 3, 0)]
+    else:
+        kwargs["endpoints"] = endpoints
+        keys = list(range(4))
+        if endpoints:
+            values = [3.0, 3.0, 2.0, 1.0] if directed else [4.0, 5.0, 5.0, 4.0]
+            scale = 1 / 6 if normalized else (2 if directed and release >= (3, 5) else 1)
+        else:
+            values = [0.0, 2.0, 1.0, 0.0] if directed else [0.0, 3.0, 3.0, 0.0]
+            if normalized:
+                scale = 0.25 if release >= (3, 5) else 1 / 3
+            elif release >= (3, 5):
+                scale = 1.5 if directed else 0.75
+            else:
+                scale = 1
+    expected = {key: value * scale for key, value in zip(keys, values)}
+    monkeypatch.setattr(fnx, "_networkx_release", lambda: release)
+    _forbid_betweenness_delegation(monkeypatch)
+    actual = getattr(fnx, algorithm)(graph, **kwargs)
+    assert list(actual) == list(expected)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("release,loop_score", [((3, 4), 0.5), ((3, 5), 1.0), ((3, 6), 1.0)])
+def test_owned_betweenness_unsampled_legacy_small_graph(monkeypatch, release, loop_score):
+    # A zero-weight self-loop contributes one unit of dependency at node 1.
+    # Modern rescaling skips n < 3 without endpoints; the old unnormalized
+    # undirected estimator still divides by two, including unsampled calls.
+    graph = fnx.MultiGraph([(0, 1), (1, 1)])
+    monkeypatch.setattr(fnx, "_networkx_release", lambda: release)
+    _forbid_betweenness_delegation(monkeypatch)
+    assert fnx.betweenness_centrality(
+        graph, normalized=False, weight=lambda u, v, data: 0
+    ) == {0: 0.0, 1: loop_score}

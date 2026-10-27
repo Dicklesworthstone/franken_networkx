@@ -34,18 +34,7 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None, *, backend=None, **ba
     inputs keep NetworkX's algorithm. Both mutate and return the input graph.
     """
     _fnx._validate_backend_dispatch_keywords("double_edge_swap", backend, backend_kwargs)
-    # br-r37-c1-swaproute: the native top-level ``fnx.double_edge_swap`` uses a fast
-    # uniform edge-pick (an intentional, documented divergence from nx's degree-CDF
-    # algorithm — only the degree sequence is contracted, not exact output). The
-    # submodule previously delegated EVERY input to nx's degree-CDF algorithm, which
-    # for an fnx graph ran through fnx's per-access adjacency views (slow) AND
-    # produced results inconsistent with the top-level fnx function. Route fnx
-    # graphs to the native top-level (fast + the documented fnx behaviour); genuine
-    # nx-typed inputs keep nx's algorithm so the nx-parity contract holds.
-    if isinstance(G, _nx.Graph):
-        _nx_swap.double_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
-    else:
-        _fnx.double_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+    _fnx.double_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
     return G
 
 
@@ -62,16 +51,7 @@ def connected_double_edge_swap(
 
 
 def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None, backend=None, **backend_kwargs):
-    """Swap three edges in a directed graph while keeping the node degrees fixed.
-
-    Routes fnx graphs to the native top-level implementation; genuine NetworkX
-    inputs keep NetworkX's algorithm. Both mutate and return the input graph.
-    """
+    """Swap three edges in a directed graph while keeping the node degrees fixed."""
     _fnx._validate_backend_dispatch_keywords("directed_edge_swap", backend, backend_kwargs)
-    # br-r37-c1-swaproute: see double_edge_swap. Route fnx graphs to the native
-    # top-level; genuine nx-typed inputs keep nx's algorithm.
-    if isinstance(G, _nx.Graph):
-        _nx_swap.directed_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
-    else:
-        _fnx.directed_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+    _fnx.directed_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
     return G

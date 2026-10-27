@@ -843,8 +843,12 @@ def parse_graphml(
     node_type=str,
     edge_key_type=int,
     force_multigraph=False,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Parse a GraphML string."""
+    _validate_backend_dispatch_keywords("parse_graphml", backend, backend_kwargs)
     if isinstance(graphml_string, str):
         payload = graphml_string
         stream_type = _io.StringIO
@@ -1551,29 +1555,236 @@ def random_degree_sequence_graph(sequence, seed=None, tries=10):
     raise NetworkXError(f"failed to generate graph in {tries} tries")
 
 
-def random_internet_as_graph(n, seed=None):
+def random_internet_as_graph(n, seed=None, *, backend=None, **backend_kwargs):
     """Random Internet AS-level graph."""
+    _validate_backend_dispatch_keywords(
+        "random_internet_as_graph", backend, backend_kwargs
+    )
     return _random_internet_as_graph_impl(n, seed=seed)
 
 
 def _random_internet_as_graph_impl(n, seed=None):
-    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
-    from franken_networkx.readwrite import _from_nx_graph
+    """In-process Elmokashfi et al. random Internet AS-level graph generator."""
+    from math import floor
 
-    nx_result = _nx.random_internet_as_graph(
-        n,
-        seed=seed,
-        backend="networkx",
-    )
-    return _from_nx_graph(nx_result, create_using=Graph())
+    rng = _create_py_random_state(seed)
+
+    def _uniform_int_from_avg(a, m):
+        b = 2 * m - a
+        p = (b - floor(b)) / 2
+        x1 = round(rng.random() * (floor(b) - a) + a)
+        x2 = 1 if rng.random() < p else 0
+        return x1 + x2
+
+    def _choose_pref_attach(degs):
+        if len(degs) == 0:
+            return None
+        s = sum(degs.values())
+        if s == 0:
+            return rng.choice(list(degs.keys()))
+        v = rng.random() * s
+        nodes = list(degs.keys())
+        i = 0
+        acc = degs[nodes[i]]
+        while v > acc:
+            i += 1
+            acc += degs[nodes[i]]
+        return nodes[i]
+
+    n_t = min(n, round(rng.random() * 2 + 4))
+    n_m = round(0.15 * n)
+    n_cp = round(0.05 * n)
+    n_c = max(0, n - n_t - n_m - n_cp)
+
+    d_m = 2 + (2.5 * n) / 10000
+    d_cp = 2 + (1.5 * n) / 10000
+    d_c = 1 + (5 * n) / 100000
+
+    p_m_m = 1 + (2 * n) / 10000
+    p_cp_m = 0.2 + (2 * n) / 10000
+    p_cp_cp = 0.05 + (2 * n) / 100000
+
+    t_m = 0.375
+    t_cp = 0.375
+    t_c = 0.125
+
+    regions = {f"REG{i}": set() for i in range(5)}
+    customers = {}
+    providers = {}
+    nodes_by_kind = {"T": set(), "M": set(), "CP": set(), "C": set()}
+    G = Graph()
+
+    def _add_edge(i, j, kind):
+        customer = str(i) if kind == "transit" else "none"
+        G.add_edge(i, j, type=kind, customer=customer)
+
+    def _choose_peer_pref_attach(node_list):
+        d = {nd: G.nodes[nd]["peers"] for nd in node_list}
+        return _choose_pref_attach(d)
+
+    def _choose_node_pref_attach(node_list):
+        degs = dict(G.degree(node_list))
+        return _choose_pref_attach(degs)
+
+    def _add_customer(i, j):
+        customers[j].add(i)
+        providers[i].add(j)
+        for z in providers[j]:
+            customers[z].add(i)
+            providers[i].add(z)
+
+    def _add_node(i, kind, reg2prob, avg_deg, t_edge_prob):
+        regs = 2 if rng.random() < reg2prob else 1
+        node_options = set()
+        G.add_node(i, type=kind, peers=0)
+        customers[i] = set()
+        providers[i] = set()
+        nodes_by_kind[kind].add(i)
+        for r in rng.sample(list(regions), regs):
+            node_options = node_options.union(regions[r])
+            regions[r].add(i)
+        edge_num = _uniform_int_from_avg(1, avg_deg)
+        t_options = node_options.intersection(nodes_by_kind["T"])
+        m_options = node_options.intersection(nodes_by_kind["M"])
+        if i in m_options:
+            m_options.remove(i)
+        d = 0
+        while d < edge_num and (len(t_options) > 0 or len(m_options) > 0):
+            if len(m_options) == 0 or (
+                len(t_options) > 0 and rng.random() < t_edge_prob
+            ):
+                j = _choose_node_pref_attach(t_options)
+                t_options.remove(j)
+            else:
+                j = _choose_node_pref_attach(m_options)
+                m_options.remove(j)
+            _add_edge(i, j, "transit")
+            _add_customer(i, j)
+            d += 1
+        return i
+
+    def _add_m_peering_link(m, _to_kind):
+        node_options = nodes_by_kind["M"].difference(customers[m])
+        node_options = node_options.difference(providers[m])
+        if m in node_options:
+            node_options.remove(m)
+        for j in G.neighbors(m):
+            if j in node_options:
+                node_options.remove(j)
+        if len(node_options) > 0:
+            j = _choose_peer_pref_attach(node_options)
+            _add_edge(m, j, "peer")
+            G.nodes[m]["peers"] += 1
+            G.nodes[j]["peers"] += 1
+            return True
+        return False
+
+    def _add_cp_peering_link(cp, to_kind):
+        node_options = set()
+        for r in regions:
+            if cp in regions[r]:
+                node_options = node_options.union(regions[r])
+        node_options = nodes_by_kind[to_kind].intersection(node_options)
+        if cp in node_options:
+            node_options.remove(cp)
+        node_options = node_options.difference(providers[cp])
+        for j in G.neighbors(cp):
+            if j in node_options:
+                node_options.remove(j)
+        if len(node_options) > 0:
+            j = rng.sample(list(node_options), 1)[0]
+            _add_edge(cp, j, "peer")
+            G.nodes[cp]["peers"] += 1
+            G.nodes[j]["peers"] += 1
+            return True
+        return False
+
+    def _add_peering_links(from_kind, to_kind):
+        peer_link_method = None
+        if from_kind == "M":
+            peer_link_method = _add_m_peering_link
+            m = p_m_m
+        if from_kind == "CP":
+            peer_link_method = _add_cp_peering_link
+            m = p_cp_m if to_kind == "M" else p_cp_cp
+        for node_i in nodes_by_kind[from_kind]:
+            num = _uniform_int_from_avg(0, m)
+            for _ in range(num):
+                peer_link_method(node_i, to_kind)
+
+    for i in range(n_t):
+        G.add_node(i, type="T")
+        for r in regions:
+            regions[r].add(i)
+        for j in G.nodes():
+            if i != j:
+                _add_edge(i, j, "peer")
+        customers[i] = set()
+        providers[i] = set()
+    nodes_by_kind["T"] = set(G.nodes())
+
+    idx = len(nodes_by_kind["T"])
+    for _ in range(n_m):
+        nodes_by_kind["M"].add(_add_node(idx, "M", 0.2, d_m, t_m))
+        idx += 1
+    for _ in range(n_cp):
+        nodes_by_kind["CP"].add(_add_node(idx, "CP", 0.05, d_cp, t_cp))
+        idx += 1
+    for _ in range(n_c):
+        nodes_by_kind["C"].add(_add_node(idx, "C", 0, d_c, t_c))
+        idx += 1
+
+    _add_peering_links("M", "M")
+    _add_peering_links("CP", "M")
+    _add_peering_links("CP", "CP")
+    return G
 
 
 def _random_reference_inproc(G, niter=1, connectivity=True, seed=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.smallworld.random_reference(
-            H, niter=niter, connectivity=connectivity, seed=seed, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    from bisect import bisect_left
+
+    rng = _create_py_random_state(seed)
+    G = G.copy()
+    keys, degrees = zip(*G.degree())
+    total_deg = float(sum(degrees))
+    cdf = [0.0]
+    acc = 0.0
+    for deg in degrees:
+        acc += deg
+        cdf.append(acc / total_deg)
+    nnodes = len(G)
+    nedges = G.number_of_edges()
+    niter = niter * nedges
+    ntries = int(nnodes * nedges / (nnodes * (nnodes - 1) / 2))
+    swapcount = 0
+
+    for _ in range(niter):
+        n = 0
+        while n < ntries:
+            ai = bisect_left(cdf, rng.random()) - 1
+            ci = bisect_left(cdf, rng.random()) - 1
+            if ai == ci:
+                continue
+            a = keys[ai]
+            c = keys[ci]
+            b = rng.choice(list(G.neighbors(a)))
+            d = rng.choice(list(G.neighbors(c)))
+            if b in [a, c, d] or d in [a, b, c]:
+                continue
+
+            if (d not in G[a]) and (b not in G[c]):
+                G.add_edge(a, d)
+                G.add_edge(c, b)
+                G.remove_edge(a, b)
+                G.remove_edge(c, d)
+
+                if connectivity and not has_path(G, a, b):
+                    G.remove_edge(a, d)
+                    G.remove_edge(c, b)
+                    G.add_edge(a, b)
+                    G.add_edge(c, d)
+                else:
+                    swapcount += 1
+                    break
+            n += 1
+    return G

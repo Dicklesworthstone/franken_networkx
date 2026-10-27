@@ -1,19 +1,9 @@
 
 
 def random_reference(G, niter=1, connectivity=True, seed=None):
-    """Random reference graph preserving degree sequence (Maslov-Sneppen).
-
-    br-r37-c1-tqimg: nx is @not_implemented_for('directed',
-    'multigraph').
-
-    br-r37-c1-maq1r: nx's Maslov-Sneppen algorithm picks source
-    nodes weighted by degree (via the degree CDF) and rejects swaps
-    that disconnect the graph when ``connectivity=True``. The earlier
-    fnx implementation simply called ``double_edge_swap`` which picks
-    edges uniformly and does no connectivity check — a completely
-    different algorithm. Delegate to nx for byte-for-byte seed
-    parity, matching the upstream Maslov-Sneppen semantics.
-    """
+    """Random reference graph preserving degree sequence (Maslov-Sneppen)."""
+    rng = _create_py_random_state(seed)
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -22,11 +12,9 @@ def random_reference(G, niter=1, connectivity=True, seed=None):
         raise NetworkXError("Graph has fewer than four nodes.")
     if G.number_of_edges() < 2:
         raise NetworkXError("Graph has fewer that 2 edges")
-    nx_result = _random_reference_inproc(
-        G, niter=niter, connectivity=connectivity, seed=seed,
+    return _random_reference_inproc(
+        G, niter=niter, connectivity=connectivity, seed=rng,
     )
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx_result)
 
 
 def random_labeled_rooted_tree(n, *, seed=None):
@@ -146,42 +134,25 @@ def _partial_duplication_graph_impl(
     _validate_backend_dispatch_keywords(
         "partial_duplication_graph", backend, backend_kwargs
     )
-
-    # br-r37-c1-pdupnative: native byte-exact generation for the common case
-    # (default Graph, reproducible int/None seed) — reproduces nx's exact
-    # duplication loop and RNG draws (random.Random(seed).randint for the source
-    # node, seed.random() per neighbour and for the source edge) over a
-    # dict-of-lists adjacency that mirrors nx's adj-insertion order, then commits
-    # via ONE add_edges_from batch. Skips nx's per-edge add_edge + the nx->fnx
-    # conversion (~2.6x slower -> ~0.6x, beats nx). Validation messages match nx.
-    if create_using is None and (
-        seed is None or (isinstance(seed, int) and not isinstance(seed, bool))
-    ):
-        if p < 0 or p > 1 or q < 0 or q > 1:
-            raise NetworkXError(
-                "partial duplication graph must have 0 <= p, q <= 1."
-            )
-        if n > N:
-            raise NetworkXError("partial duplication graph must have n <= N.")
-        return _partial_duplication_native(N, n, p, q, seed)
-
-    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
-
-    nx_result = _nx.partial_duplication_graph(
-        N,
-        n,
-        p,
-        q,
-        seed=seed,
-        create_using=_to_nx_create_using(create_using),
-        backend="networkx",
+    rng = _generator_random_state(seed)
+    graph = _checked_create_using(
+        create_using,
+        directed=False,
+        multigraph=False,
+        default=Graph,
     )
-    return _from_nx_graph(nx_result, create_using=create_using)
+    if p < 0 or p > 1 or q < 0 or q > 1:
+        raise NetworkXError(
+            "partial duplication graph must have 0 <= p, q <= 1."
+        )
+    if n > N:
+        raise NetworkXError("partial duplication graph must have n <= N.")
+    return _partial_duplication_native(N, n, p, q, rng, result=graph)
 
 
-def _partial_duplication_native(N, n, p, q, seed):
+def _partial_duplication_native(N, n, p, q, seed, result=None):
     """br-r37-c1-pdupnative: see _partial_duplication_graph_impl. Reproduces nx's
-    partial_duplication_graph byte-for-byte for an int/None seed."""
+    partial_duplication_graph byte-for-byte."""
     import itertools as _it
 
     rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
@@ -205,7 +176,8 @@ def _partial_duplication_native(N, n, p, q, seed):
             adj[new_node].append(src)
             adj[src].append(new_node)
             edges.append((new_node, src))
-    result = Graph()
+    if result is None:
+        result = Graph()
     result.add_nodes_from(range(N))
     result.add_edges_from(edges)
     return result
@@ -411,40 +383,44 @@ def _uniform_random_intersection_graph_impl(
     # ~0.5x). br-r37-c1-cdf1v: every seed kind - _generator_random_state is
     # nx's py_random_state, so a random.Random / numpy seed draws the same
     # stream here as in networkx and no longer delegates.
-    if 0 < p < 1:
-        import math as _m
-
-        rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
+    rng = _generator_random_state(seed)  # br-r37-c1-cdf1v: nx's py_random_state
+    if p <= 0:
         G = Graph()
         G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
-        # nx's bipartite.random_graph sets this name; projected_graph carries it.
         G.graph["name"] = f"fast_gnp_random_graph({n},{m},{p})"
-        lp = _m.log(1.0 - p)
-        drawn = [[] for _ in range(n)]
-        holders = {}
-        v = 0
-        w = -1
-        while v < n:
-            w = w + 1 + int(_m.log(1.0 - rng.random()) / lp)
-            while w >= m and v < n:
-                w -= m
-                v += 1
-            if v < n:
-                drawn[v].append(w)
-                holders.setdefault(w, []).append(v)
-        G.add_edges_from(_intersection_projection_edges(drawn, holders))
+        return G
+    if p >= 1:
+        if n < 0 or m < 0:
+            raise NetworkXError("Must have n >= 0 and m >= 0")
+        G = Graph()
+        G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
+        if m > 0:
+            drawn = [list(range(m)) for _ in range(n)]
+            holders = {w: list(range(n)) for w in range(m)}
+            G.add_edges_from(_intersection_projection_edges(drawn, holders))
         return G
 
-    from franken_networkx.readwrite import _from_nx_graph
+    import math as _m
 
-    nx_result = _nx.uniform_random_intersection_graph(
-        n,
-        m,
-        p,
-        seed=seed,
-        backend="networkx",
-    )
-    return _from_nx_graph(nx_result, create_using=Graph())
+    G = Graph()
+    G.add_nodes_from((v, {"bipartite": 0}) for v in range(n))
+    # nx's bipartite.random_graph sets this name; projected_graph carries it.
+    G.graph["name"] = f"fast_gnp_random_graph({n},{m},{p})"
+    lp = _m.log(1.0 - p)
+    drawn = [[] for _ in range(n)]
+    holders = {}
+    v = 0
+    w = -1
+    while v < n:
+        w = w + 1 + int(_m.log(1.0 - rng.random()) / lp)
+        while w >= m and v < n:
+            w -= m
+            v += 1
+        if v < n:
+            drawn[v].append(w)
+            holders.setdefault(w, []).append(v)
+    G.add_edges_from(_intersection_projection_edges(drawn, holders))
+    return G
 
 
 def general_random_intersection_graph(
@@ -533,23 +509,61 @@ def geometric_soft_configuration_graph(
 
 
 def _geometric_soft_configuration_graph_via_nx(beta, n, gamma, mean_degree, kappas, seed):
-    """br-r37-c1-ec18d: private helper keeps the public function
-    classified as PY_WRAPPER in the coverage matrix."""
-    nx_graph = _nx.geometric_soft_configuration_graph(
-        beta=beta,
-        n=n,
-        gamma=gamma,
-        mean_degree=mean_degree,
-        kappas=kappas,
-        seed=seed,
-        backend="networkx",
-    )
-    # Convert nx → fnx so the result is a fnx.Graph instance
-    fnx_graph = Graph()
-    fnx_graph.add_nodes_from(nx_graph.nodes(data=True))
-    fnx_graph.add_edges_from(nx_graph.edges(data=True))
-    fnx_graph.graph.update(dict(nx_graph.graph))
-    return fnx_graph
+    """In-process S^1 / H^2 geometric soft configuration model."""
+    rng = _generator_random_state(seed)
+    if beta <= 0:
+        raise NetworkXError("The parameter beta cannot be smaller or equal to 0.")
+
+    if kappas is not None:
+        if not all((n is None, gamma is None, mean_degree is None)):
+            raise NetworkXError(
+                "When kappas is input, n, gamma and mean_degree must not be."
+            )
+        n = len(kappas)
+        mean_degree = sum(kappas) / len(kappas)
+    else:
+        if any((n is None, gamma is None, mean_degree is None)):
+            raise NetworkXError(
+                "Please provide either kappas, or all 3 of: n, gamma and mean_degree."
+            )
+        gam_ratio = (gamma - 2) / (gamma - 1)
+        kappa_0 = mean_degree * gam_ratio * (1 - 1 / n) / (1 - 1 / n**gam_ratio)
+        base = 1 - 1 / n
+        power = 1 / (1 - gamma)
+        kappas = {i: kappa_0 * (1 - rng.random() * base) ** power for i in range(n)}
+
+    G = Graph()
+    R = n / (2 * _math.pi)
+
+    if beta > 1:
+        mu = beta * _math.sin(_math.pi / beta) / (2 * _math.pi * mean_degree)
+    elif beta == 1:
+        mu = 1 / (2 * mean_degree * _math.log(n))
+    else:
+        mu = (1 - beta) / (2**beta * mean_degree * n ** (1 - beta))
+
+    thetas = {k: rng.uniform(0, 2 * _math.pi) for k in kappas}
+
+    for u in kappas:
+        for v in list(G):
+            angle = _math.pi - _math.fabs(_math.pi - _math.fabs(thetas[u] - thetas[v]))
+            dij = _math.pow(R * angle, beta)
+            mu_kappas = _math.pow(mu * kappas[u] * kappas[v], max(1, beta))
+            p_ij = 1 / (1 + dij / mu_kappas)
+            if rng.random() < p_ij:
+                G.add_edge(u, v)
+        G.add_node(u)
+
+    set_node_attributes(G, thetas, "theta")
+    set_node_attributes(G, kappas, "kappa")
+
+    zeta = 1 if beta > 1 else 1 / beta
+    kappa_min = min(kappas.values())
+    R_c = 2 * max(1, beta) / (beta * zeta)
+    R_hat = (2 / zeta) * _math.log(n / _math.pi) - R_c * _math.log(mu * kappa_min)
+    radii = {node: R_hat - R_c * _math.log(kappa) for node, kappa in kappas.items()}
+    set_node_attributes(G, radii, "radius")
+    return G
 
 
 _GRAPH_ATLAS_NUM_GRAPHS = 1253
@@ -820,7 +834,7 @@ def find_asteroidal_triple(G, *, backend=None, **backend_kwargs):
     return None
 
 
-def is_perfect_graph(G):
+def is_perfect_graph(G, *, backend=None, **backend_kwargs):
     """Check if G is perfect (no odd holes or odd anti-holes >= 5).
 
     Uses the Strong Perfect Graph Theorem: a graph is perfect iff neither
@@ -833,6 +847,7 @@ def is_perfect_graph(G):
     br-r37-c1-tqimg: nx is @not_implemented_for('directed',
     'multigraph').
     """
+    _validate_backend_dispatch_keywords("is_perfect_graph", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():

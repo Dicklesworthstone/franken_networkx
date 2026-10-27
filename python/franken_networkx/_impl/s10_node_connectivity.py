@@ -1,6 +1,6 @@
 
 
-def node_connectivity(G, s=None, t=None, flow_func=None):
+def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Return the node connectivity of the graph.
 
     Parameters
@@ -19,6 +19,7 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
     int
         The node connectivity of G.
     """
+    _validate_backend_dispatch_keywords("node_connectivity", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
@@ -95,7 +96,7 @@ def _edge_connectivity_inproc(G, s=None, t=None, flow_func=None, cutoff=None):
         _raise_translated_networkx_exception(exc)
 
 
-def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
+def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend=None, **backend_kwargs):
     """Return the edge connectivity of the graph.
 
     Parameters
@@ -116,6 +117,7 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
     int
         The edge connectivity of G.
     """
+    _validate_backend_dispatch_keywords("edge_connectivity", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
@@ -289,17 +291,51 @@ def _multigraph_degree_assortativity_coefficient(G, weight):
 
 
 def _degree_assortativity_inproc(G, x="out", y="in", weight=None, nodes=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.assortativity.correlation.degree_assortativity_coefficient(
-            H, x=x, y=y, weight=weight, nodes=nodes, backend="networkx"
+    import numpy as _np
+
+    if nodes is None:
+        nodes = G.nodes
+    if G.is_directed():
+        indeg = (
+            {d for _, d in G.in_degree(nodes, weight=weight)}
+            if "in" in (x, y)
+            else set()
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+        outdeg = (
+            {d for _, d in G.out_degree(nodes, weight=weight)}
+            if "out" in (x, y)
+            else set()
+        )
+        degrees = set.union(indeg, outdeg)
+    else:
+        degrees = {d for _, d in G.degree(nodes, weight=weight)}
+    mapping = {d: i for i, d in enumerate(degrees)}
+    matrix = degree_mixing_matrix(
+        G, x=x, y=y, nodes=nodes, weight=weight, mapping=mapping
+    )
+    if matrix.size == 0:
+        return float("nan")
+    if matrix.sum() != 1.0:
+        total = matrix.sum()
+        if total == 0.0:
+            return float("nan")
+        matrix = matrix / total
+    x_arr = _np.array(list(mapping.keys()))
+    y_arr = x_arr
+    idx = list(mapping.values())
+    a = matrix.sum(axis=0)
+    b = matrix.sum(axis=1)
+    vara = (a[idx] * x_arr**2).sum() - ((a[idx] * x_arr).sum()) ** 2
+    varb = (b[idx] * y_arr**2).sum() - ((b[idx] * y_arr).sum()) ** 2
+    xy = _np.outer(x_arr, y_arr)
+    ab = _np.outer(a[idx], b[idx])
+    with _np.errstate(divide="ignore", invalid="ignore"):
+        return float((xy * (matrix - ab)).sum() / _np.sqrt(vara * varb))
 
 
-def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None):
+def degree_assortativity_coefficient(
+    G, x="out", y="in", weight=None, nodes=None, *, backend=None, **backend_kwargs
+):
     """Compute degree assortativity of graph.
 
     br-assortkw: accepts nx's full parameter surface (``x``, ``y``,
@@ -309,6 +345,9 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     mixing-matrix evaluation is bit-for-bit identical (``==``) to NetworkX's
     ``numeric_assortativity_coefficient`` pipeline with zero NetworkX frames.
     """
+    _validate_backend_dispatch_keywords(
+        "degree_assortativity_coefficient", backend, backend_kwargs
+    )
     G = _coerce_arg_to_fnx_graph(G)
     if (
         x == "out"
@@ -794,6 +833,67 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     return _raw_degree_centrality(G)
 
 
+def _single_source_betweenness_dijkstra(G, source, weight):
+    """Count weighted shortest paths without coercing Python edge arithmetic.
+
+    Full Brandes retains equal-distance predecessors even after settlement.
+    This matters for zero-weight edges, including self-loops. Unlike general
+    Dijkstra, a weight of ``None`` is an arithmetic error, not a hidden edge.
+    """
+    weight_fn = _centrality_weight_function(G, weight)
+    stack = []
+    predecessors = {node: [] for node in G}
+    sigma = dict.fromkeys(G, 0.0)
+    sigma[source] = 1.0
+    distances = {}
+    seen = {source: 0}
+    counter = _count()
+    queue = [(0, next(counter), source, source)]
+    while queue:
+        distance, _, parent, node = _heappop(queue)
+        if node in distances:
+            continue
+        sigma[node] += sigma[parent]
+        stack.append(node)
+        distances[node] = distance
+        for neighbor, edge_data in G[node].items():
+            candidate = distance + weight_fn(node, neighbor, edge_data)
+            if neighbor not in distances and (
+                neighbor not in seen or candidate < seen[neighbor]
+            ):
+                seen[neighbor] = candidate
+                sigma[neighbor] = 0.0
+                predecessors[neighbor] = [node]
+                _heappush(queue, (candidate, next(counter), node, neighbor))
+            elif candidate == seen[neighbor]:
+                sigma[neighbor] += sigma[node]
+                predecessors[neighbor].append(node)
+    return stack, predecessors, sigma, distances
+
+
+def _rescale_betweenness_legacy_local(
+    betweenness, n, *, normalized, directed, endpoints=False, k=None
+):
+    """Uniform scaling used before the source-aware node/edge estimators."""
+    if normalized:
+        if endpoints and n >= 2:
+            scale = 1 / (n * (n - 1))
+        elif not endpoints and n > 2:
+            scale = 1 / ((n - 1) * (n - 2))
+        else:
+            scale = None
+    else:
+        scale = None if directed else 0.5
+    if scale is not None:
+        if k is not None:
+            # Keep this association: scale * (n / k) changes float bits and
+            # the exception text for an empty source sample.
+            scale = scale * n / k
+        for node in betweenness:
+            betweenness[node] *= scale
+    return betweenness
+
+
 def _betweenness_centrality_inproc(
     G,
     k=None,
@@ -802,30 +902,70 @@ def _betweenness_centrality_inproc(
     endpoints=False,
     seed=None,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.centrality.betweenness.betweenness_centrality(
-            H,
-            k=k,
-            normalized=normalized,
-            weight=weight,
-            endpoints=endpoints,
-            seed=seed,
-            backend="networkx",
+    """Owned Brandes for multigraphs and general Python weight values."""
+    rng = _create_py_random_state(seed)
+    n = len(G)
+    betweenness = dict.fromkeys(G, 0.0)
+    source_aware = _networkx_release() >= (3, 5)
+    sampled_nodes = None
+    if k is not None and not (source_aware and k == n):
+        sampled_nodes = _betweenness_sampled_sources(
+            G, rng, k, endpoints, normalized, source_aware
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    sources = G if sampled_nodes is None else sampled_nodes
+    for source in sources:
+        if weight is None:
+            stack, predecessors, sigma, _ = _single_source_shortest_path_basic_local(
+                G, source
+            )
+        else:
+            stack, predecessors, sigma, _ = _single_source_betweenness_dijkstra(
+                G, source, weight
+            )
+        if endpoints:
+            _accumulate_endpoints_local(
+                betweenness, stack, predecessors, sigma, source
+            )
+            continue
+        delta = dict.fromkeys(stack, 0.0)
+        while stack:
+            node = stack.pop()
+            coefficient = (1.0 + delta[node]) / sigma[node]
+            for parent in predecessors[node]:
+                delta[parent] += sigma[parent] * coefficient
+            if node != source:
+                betweenness[node] += delta[node]
+    if source_aware:
+        return _rescale_betweenness_local(
+            betweenness, n, normalized=normalized, directed=G.is_directed(),
+            endpoints=endpoints, sampled_nodes=sampled_nodes,
+        )
+    return _rescale_betweenness_legacy_local(
+        betweenness, n, normalized=normalized, directed=G.is_directed(),
+        endpoints=endpoints, k=k,
+    )
+
+
+def _compute_networkx_release():
+    import importlib.metadata as _im
+    import re
+
+    try:
+        ver = _im.version("networkx")
+    except Exception:
+        ver = str(getattr(_sys.modules.get("networkx"), "__version__", "3.6"))
+    match = re.match(r"^(\d+)\.(\d+)", ver)
+    if match is None:
+        return (3, 6)
+    return tuple(map(int, match.groups()))
+
+
+_CACHED_NX_RELEASE = _compute_networkx_release()
 
 
 def _networkx_release():
     """Major/minor of the actual oracle, including prerelease/dev versions."""
-    import re
-
-    match = re.match(r"^(\d+)\.(\d+)", _nx.__version__)
-    if match is None:
-        raise RuntimeError("Cannot determine NetworkX oracle release.")
-    return tuple(map(int, match.groups()))
+    return _CACHED_NX_RELEASE
 
 
 def betweenness_centrality(
@@ -863,7 +1003,7 @@ def betweenness_centrality(
     # (nx requires weights > 0 for betweenness). The shared live-dict checker
     # also rejects custom arithmetic, NaNs and oversized integer sums: the
     # old three store-only gates lost those distinctions during projection.
-    # Out-of-contract inputs delegate to nx for exact parity.
+    # Other inputs retain their Python arithmetic in the owned Brandes path.
     # br-r37-c1-quim8: a k-sampled call takes it too, over the sources
     # networkx samples.
     if isinstance(weight, str) and not G.is_multigraph():
@@ -1085,7 +1225,7 @@ def maximal_matching(G):
     return _raw_maximal_matching(G)
 
 
-def min_weight_matching(G, weight="weight"):
+def min_weight_matching(G, weight="weight", *, backend=None, **backend_kwargs):
     """Compute a minimum-weight matching in the graph.
 
     Returns a set of edges (2-tuples).
@@ -1107,6 +1247,7 @@ def min_weight_matching(G, weight="weight"):
     Sister of br-r37-c1-mwm-mg (which fixed max_weight_matching);
     mirror the same eager rejection here.
     """
+    _validate_backend_dispatch_keywords("min_weight_matching", backend, backend_kwargs)
     # Check directed first to match nx's decorator ordering.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
@@ -1144,6 +1285,9 @@ def min_weight_matching(G, weight="weight"):
     return _max_weight_matching_structural_nx(
         inverted, maxcardinality=True, weight=weight
     )
+
+
+_min_weight_matching_impl = min_weight_matching
 
 
 def _max_weight_matching_native(G, maxcardinality, weight, min_weight=False):
@@ -1198,7 +1342,7 @@ def _max_weight_matching_structural_nx(G, maxcardinality, weight):
         _raise_translated_networkx_exception(exc)
 
 
-def max_weight_matching(G, maxcardinality=False, weight="weight"):
+def max_weight_matching(G, maxcardinality=False, weight="weight", *, backend=None, **backend_kwargs):
     """Compute a maximum-weight matching in the graph.
 
     Returns a set of edges (2-tuples).
@@ -1222,6 +1366,7 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
     parity family — this is a behavioural-parity sister.
     Mirror nx's eager rejection.
     """
+    _validate_backend_dispatch_keywords("max_weight_matching", backend, backend_kwargs)
     # Check directed first (matches nx's @not_implemented_for
     # decorator ordering: ``directed`` decorator was applied last,
     # so it fires first when both directed AND multigraph apply).
@@ -1237,7 +1382,10 @@ def max_weight_matching(G, maxcardinality=False, weight="weight"):
     )
 
 
-def min_edge_cover(G, matching_algorithm=None):
+_max_weight_matching_impl = max_weight_matching
+
+
+def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs):
     """Return a minimum edge cover of the graph.
 
     Parameters
@@ -1257,6 +1405,7 @@ def min_edge_cover(G, matching_algorithm=None):
         algorithms (dict-returning) produce both ``(u, v)`` and
         ``(v, u)`` directions per edge, matching nx's contract.
     """
+    _validate_backend_dispatch_keywords("min_edge_cover", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -1458,31 +1607,59 @@ def _check_flow_endpoints(flowG, source, sink):
         raise NetworkXError(f"node {sink} not in graph")
 
 
-def _maximum_flow_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(flowG)
-    kwargs.setdefault("backend", "networkx")
+def _flow_residual_inproc(
+    flowG, source, target, capacity, flow_func, kwargs, value_only, cut
+):
+    """Run the selected residual solver on the original graph.
+
+    The Python solvers retain exact capacities (including arbitrary integers,
+    Fraction, and Decimal) and can reuse a caller-owned residual network. Do
+    not copy either graph: callbacks and residual attributes are observable.
+    """
+    from franken_networkx.flow import preflow_push
+
+    if flow_func is None:
+        if kwargs:
+            raise NetworkXError(
+                "You have to explicitly set a flow_func if you need to pass "
+                "parameters via kwargs."
+            )
+        flow_func = preflow_push
+    _validate_flow_func_selector(flow_func)
+    if (
+        cut
+        and "cutoff" in kwargs
+        and (
+            flow_func is preflow_push
+            or flow_func is _nx.algorithms.flow.preflow_push
+        )
+    ):
+        raise NetworkXError("cutoff should not be specified.")
     try:
-        return _nx.algorithms.flow.maxflow.maximum_flow(
-            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
+        return flow_func(
+            flowG, source, target, capacity=capacity, value_only=value_only, **kwargs
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
+
+
+def _maximum_flow_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    from franken_networkx.flow import build_flow_dict
+
+    residual = _flow_residual_inproc(
+        flowG, _s, _t, capacity, flow_func, kwargs, False, False
+    )
+    return residual.graph["flow_value"], build_flow_dict(flowG, residual)
 
 
 def _maximum_flow_value_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(flowG)
-    kwargs.setdefault("backend", "networkx")
-    try:
-        return _nx.algorithms.flow.maxflow.maximum_flow_value(
-            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    residual = _flow_residual_inproc(
+        flowG, _s, _t, capacity, flow_func, kwargs, True, False
+    )
+    return residual.graph["flow_value"]
 
 
-def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
 
     Native preflow preserves Python int/float arithmetic in both the
@@ -1490,6 +1667,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     domain stay in Python, retaining arbitrary integer precision and
     the arithmetic of Fraction, Decimal, and custom numeric types.
     """
+    _validate_backend_dispatch_keywords("maximum_flow", backend, {})
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
@@ -1512,8 +1690,9 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     return _coerce_flow_value(flow_value, all_int), _coerce_flow_dict(flow_dict, all_int)
 
 
-def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Return just the max-flow value. nx-int parity when all caps int."""
+    _validate_backend_dispatch_keywords("maximum_flow_value", backend, {})
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
     _reject_multigraph_flow(flowG)
@@ -1562,12 +1741,25 @@ def _validate_flow_func_selector(flow_func):
 
 
 def _minimum_cut_inproc(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(flowG)
-    kwargs.setdefault("backend", "networkx")
-    try:
-        return _nx.algorithms.flow.maxflow.minimum_cut(
-            H, _s, _t, capacity=capacity, flow_func=flow_func, **kwargs
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    residual = _flow_residual_inproc(
+        flowG, _s, _t, capacity, flow_func, kwargs, True, True
+    )
+    # A value-only preflow can retain excess away from the sink. The sink side
+    # is therefore all nodes that can still reach t across unsaturated arcs,
+    # rather than the complement of a forward walk from s. This also places
+    # disconnected nodes on NetworkX's source side. Inspect the residual in
+    # place without removing/re-adding edges, which would invalidate held
+    # attribute dictionaries and reorder a caller-supplied residual.
+    sink_side = {_t}
+    frontier = [_t]
+    predecessors = residual.pred
+    while frontier:
+        node = frontier.pop()
+        for predecessor, attrs in predecessors[node].items():
+            if (
+                predecessor not in sink_side
+                and attrs["flow"] != attrs["capacity"]
+            ):
+                sink_side.add(predecessor)
+                frontier.append(predecessor)
+    return residual.graph["flow_value"], (set(flowG) - sink_side, sink_side)

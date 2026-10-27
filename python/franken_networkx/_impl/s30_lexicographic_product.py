@@ -465,11 +465,12 @@ def kemeny_constant(G, *, weight=None, backend=None, **backend_kwargs):
 
 def _label_propagation_communities_via_nx(G):
     """br-r37-c1-17uhk: private wrapper so non_randomness stays PY_WRAPPER."""
-    return _nx.community.label_propagation_communities(G, backend="networkx")
+    return community.label_propagation_communities(G)
 
 
-def non_randomness(G, k=None, weight="weight"):
+def non_randomness(G, k=None, weight="weight", *, backend=None, **backend_kwargs):
     """Compute the non-randomness of a graph."""
+    _validate_backend_dispatch_keywords("non_randomness", backend, backend_kwargs)
     import numpy as np
 
     if G.is_multigraph():
@@ -574,14 +575,21 @@ def is_distance_regular(G):
 
 
 def _sigma_inproc(G, niter=100, nrand=10, seed=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.smallworld.sigma(
-            H, niter=niter, nrand=nrand, seed=seed, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import numpy as np
+
+    rng = _create_py_random_state(seed)
+    rand_c = []
+    rand_l = []
+    for _ in range(nrand):
+        Gr = random_reference(G, niter=niter, seed=rng)
+        rand_c.append(transitivity(Gr))
+        rand_l.append(average_shortest_path_length(Gr))
+
+    C = transitivity(G)
+    L = average_shortest_path_length(G)
+    Cr = np.mean(rand_c)
+    Lr = np.mean(rand_l)
+    return float((C / Cr) / (L / Lr))
 
 
 def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
@@ -589,14 +597,6 @@ def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 
     sigma = (C/C_rand) / (L/L_rand) where C is clustering, L is avg path.
     sigma > 1 indicates small-world structure.
-
-    br-smallrng: nx threads a single stateful @py_random_state RNG
-    through all inner random_reference calls, so each of the ``nrand``
-    iterations draws different reference graphs and the resulting
-    sigma depends on nrand and seed in a specific way. fnx's local
-    loop used Python's stdlib Random + per-iteration seed derivation,
-    producing diverging numeric results for the same (G, seed, nrand)
-    inputs. Delegate to nx so the scalar matches exactly.
     """
     _validate_backend_dispatch_keywords("sigma", backend, backend_kwargs)
     if G.is_multigraph():
@@ -611,14 +611,26 @@ def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 
 
 def _omega_inproc(G, niter=5, nrand=10, seed=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.smallworld.omega(
-            H, niter=niter, nrand=nrand, seed=seed, backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import numpy as np
+
+    rng = _create_py_random_state(seed)
+    rand_l = []
+    Cl = average_clustering(G)
+    niter_lattice_reference = niter
+    niter_random_reference = niter * 2
+
+    for _ in range(nrand):
+        Gr = random_reference(G, niter=niter_random_reference, seed=rng)
+        rand_l.append(average_shortest_path_length(Gr))
+        Gl = lattice_reference(G, niter=niter_lattice_reference, seed=rng)
+        Cl_temp = average_clustering(Gl)
+        if Cl_temp > Cl:
+            Cl = Cl_temp
+
+    C = average_clustering(G)
+    L = average_shortest_path_length(G)
+    Lr = np.mean(rand_l)
+    return float((Lr / L) - (C / Cl))
 
 
 def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
@@ -652,52 +664,83 @@ def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 def _edge_disjoint_paths_inproc(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
+    """Decompose an owned unit-capacity flow without copying supplied state."""
+    from franken_networkx.connectivity import build_auxiliary_edge_connectivity
+    from franken_networkx.flow import (
+        edmonds_karp,
+        preflow_push,
+        shortest_augmenting_path,
+    )
+
+    if s not in G:
+        raise NetworkXError(f"node {s} not in graph")
+    if t not in G:
+        raise NetworkXError(f"node {t} not in graph")
+    H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
+    possible = min(H.out_degree(s), H.in_degree(t))
+    if not possible:
+        raise NetworkXNoPath
+    limit = possible if cutoff is None else min(cutoff, possible)
+    if flow_func is None:
+        flow_func = edmonds_karp
+
+    # Retain the callback protocol and its original auxiliary/residual objects.
+    # Value-only preflows can leave excess away from t; reconstruction below
+    # discards walks that do not reach t. Special options belong to known
+    # solvers, not unrelated callables that happen to have the same name.
+    options = {
+        "capacity": "capacity", "residual": residual,
+        "cutoff": limit, "value_only": True,
+    }
+    if flow_func is preflow_push or flow_func is _nx.algorithms.flow.preflow_push:
+        options.pop("cutoff")
+    elif (
+        flow_func is shortest_augmenting_path
+        or flow_func is _nx.algorithms.flow.shortest_augmenting_path
+    ):
+        options["two_phase"] = True
     try:
-        gen = _nx.algorithms.connectivity.disjoint_paths.edge_disjoint_paths(
-            H, s, t,
-            flow_func=flow_func, cutoff=cutoff,
-            auxiliary=auxiliary, residual=residual,
-            backend="networkx",
-        )
+        result = flow_func(H, s, t, **options)
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
+    if result.graph["flow_value"] == 0:
+        raise NetworkXNoPath
 
-    try:
-        for path in gen:
+    # Match the established native decomposition: source arcs retain their
+    # residual insertion order, while subsequent steps consume each row from
+    # its end. Only these local dictionaries are consumed; callers can reuse
+    # the residual immediately for another pair of terminals.
+    outgoing = {
+        node: {
+            neighbor: None
+            for neighbor, attrs in result[node].items()
+            if attrs["capacity"] == attrs["flow"] and attrs["flow"] > 0
+        }
+        for node in result
+    }
+    completed = 0
+    for first in list(outgoing[s]):
+        if completed >= limit:
+            break
+        if first == t:
+            # The established generator does not count a direct edge against
+            # the number of longer paths reconstructed from a full preflow.
+            yield [s, t]
+            continue
+        path = [s, first]
+        while path[-1] != t:
+            row = outgoing[path[-1]]
+            if not row:
+                break
+            path.append(row.popitem()[0])
+        else:
             yield path
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+            completed += 1
 
 
-def edge_disjoint_paths(
+def _edge_disjoint_paths_gen(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    """Find edge-disjoint paths from s to t via max-flow decomposition.
-
-    br-disjointkw: accepts nx's ``auxiliary`` and ``residual`` kwargs at
-    the public surface so ``edge_disjoint_paths(G, s, t, residual=R)``
-    doesn't TypeError. The Rust path still computes the decomposition
-    without reusing a pre-built residual network; a future native
-    improvement can thread these through.
-
-    br-r37-c1-edp-validate: nx raises NetworkXError on bad inputs;
-    fnx's Rust binding silently yielded an empty generator.  Match
-    nx's typed-error contract for missing-node + same-source-sink.
-
-    br-r37-c1-edp-cutoff: nx honours ``cutoff`` (max number of
-    augmenting paths) and raises ``NetworkXNoPath`` for cutoff
-    values below 1 (NaN / -inf / negative / 0).  fnx's Rust path
-    silently ignored cutoff.  Delegate any advanced-kwarg case
-    (cutoff / flow_func / auxiliary / residual) to nx so the
-    documented contract holds.
-
-    br-r37-c1-r6ce1: the native kernel is networkx's algorithm step for
-    step, so the paths and their order are networkx's. It also decides
-    s == t in networkx's order: NetworkXNoPath when the node has no
-    edge, else "source and sink are the same node".
-    """
     if s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
@@ -716,45 +759,51 @@ def edge_disjoint_paths(
     yield from paths
 
 
+def edge_disjoint_paths(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs
+):
+    """Find edge-disjoint paths from s to t via max-flow decomposition."""
+    _validate_backend_dispatch_keywords("edge_disjoint_paths", backend, backend_kwargs)
+    return _edge_disjoint_paths_gen(
+        G, s, t,
+        flow_func=flow_func, cutoff=cutoff,
+        auxiliary=auxiliary, residual=residual,
+    )
+
+
 def _node_disjoint_paths_inproc(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        gen = _nx.algorithms.connectivity.disjoint_paths.node_disjoint_paths(
-            H, s, t,
-            flow_func=flow_func, cutoff=cutoff,
-            auxiliary=auxiliary, residual=residual,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    """Recover original nodes from edge-disjoint paths in a split graph."""
+    from franken_networkx.connectivity import build_auxiliary_node_connectivity
 
-    try:
-        for path in gen:
-            yield path
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
+    mapping = H.graph.get("mapping")
+    if mapping is None:
+        raise NetworkXError("Invalid auxiliary digraph.")
+    source, target = f"{mapping[s]}B", f"{mapping[t]}A"
+    possible = min(H.out_degree(source), H.in_degree(target))
+    if not possible:
+        raise NetworkXNoPath
+    limit = possible if cutoff is None else min(cutoff, possible)
+    paths = _edge_disjoint_paths_inproc(
+        H, source, target, flow_func=flow_func,
+        cutoff=limit, auxiliary=H, residual=residual,
+    )
+    for path in paths:
+        seen = set()
+        original_path = []
+        for node in path:
+            original = H.nodes[node]["id"]
+            if original not in seen:
+                seen.add(original)
+                original_path.append(original)
+        yield original_path
 
 
-def node_disjoint_paths(
+def _node_disjoint_paths_gen(
     G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
 ):
-    """Find node-disjoint paths from s to t via node-splitting.
-
-    br-disjointkw: see ``edge_disjoint_paths`` — parity kwargs added at
-    the public surface.
-
-    br-r37-c1-edp-validate: same input validation as
-    ``edge_disjoint_paths`` for missing nodes.  nx accepts the
-    same-source-sink case and yields a degenerate path, so leave
-    that path through — only validate node membership.
-
-    br-r37-c1-edp-cutoff: same delegation pattern as
-    ``edge_disjoint_paths`` — nx honours cutoff but the Rust path
-    ignores it.
-    """
     if s not in G:
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
@@ -767,16 +816,31 @@ def node_disjoint_paths(
             auxiliary=auxiliary, residual=residual,
         )
         return
-    # br-r37-c1-r6ce1: networkx's algorithm natively, s == t included (the
-    # cycles through s); None is its NetworkXNoPath.
     paths = _fnx.node_disjoint_paths_rust(G, s, t)
     if paths is None:
         raise NetworkXNoPath
     yield from paths
 
 
-def all_node_cuts(G, k=None, flow_func=None):
+def node_disjoint_paths(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None, *, backend=None, **backend_kwargs
+):
+    """Find node-disjoint paths from s to t via node-splitting."""
+    _validate_backend_dispatch_keywords("node_disjoint_paths", backend, backend_kwargs)
+    return _node_disjoint_paths_gen(
+        G, s, t,
+        flow_func=flow_func, cutoff=cutoff,
+        auxiliary=auxiliary, residual=residual,
+    )
+
+
+def all_node_cuts(G, k=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Enumerate all minimum node cuts."""
+    _validate_backend_dispatch_keywords("all_node_cuts", backend, backend_kwargs)
+    return _all_node_cuts_gen(G, k=k, flow_func=flow_func)
+
+
+def _all_node_cuts_gen(G, k=None, flow_func=None):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
@@ -785,6 +849,13 @@ def all_node_cuts(G, k=None, flow_func=None):
     if density(G) == 1:
         return
 
+    from franken_networkx.connectivity import build_auxiliary_node_connectivity
+    from franken_networkx import flow as _flow
+
+    connectivity_flow_func = flow_func
+    if flow_func is None:
+        flow_func = _flow.edmonds_karp
+
     def is_separating_set(cut):
         if len(cut) == len(G) - 1:
             return True
@@ -792,51 +863,24 @@ def all_node_cuts(G, k=None, flow_func=None):
         # the restricted view to a concrete Graph before dispatching.
         return not is_connected(restricted_view(G, cut, []).copy())
 
-    def build_auxiliary_node_connectivity_graph(graph):
-        auxiliary = DiGraph()
-        mapping = {}
-
-        for index, node in enumerate(graph):
-            mapping[node] = index
-            auxiliary.add_node(f"{index}A", id=node)
-            auxiliary.add_node(f"{index}B", id=node)
-            auxiliary.add_edge(f"{index}A", f"{index}B", capacity=1)
-
-        for source, target in graph.edges():
-            auxiliary.add_edge(f"{mapping[source]}B", f"{mapping[target]}A", capacity=1)
-            auxiliary.add_edge(f"{mapping[target]}B", f"{mapping[source]}A", capacity=1)
-
-        auxiliary.graph["mapping"] = mapping
-        return auxiliary
-
-    def residual_after_flow(auxiliary, flow_dict):
-        # br-r37-c1-anodecutsresid: the residual's EDGE attrs (capacity) are never
-        # read downstream — transitive_closure / condensation / antichains and the
-        # cut logic use STRUCTURE plus the *auxiliary* node "id" only. Drop the
-        # per-edge attr copy and batch the insert: lighter adjacency to materialize
-        # (the per-flow _native_adjacency_dict hotspot) + one bulk build instead of
-        # an O(E) add_edge loop. Byte-identical cuts (structure-only consumers).
-        residual = DiGraph()
-        residual.add_nodes_from(auxiliary.nodes(data=True))
-        residual.add_edges_from(
-            (left, right)
-            for left, right, attrs in auxiliary.edges(data=True)
-            if (cap := attrs.get("capacity", 1)) != flow_dict.get(left, {}).get(right, 0)
-            and cap != 0
-        )
-        return residual
-
-    if k is None:
-        k = node_connectivity(G)
-    elif not isinstance(k, int):
-        raise TypeError("k must be an integer or None")
-
     seen = set()
-    auxiliary = build_auxiliary_node_connectivity_graph(G)
+    auxiliary = build_auxiliary_node_connectivity(G)
     mapping = auxiliary.graph["mapping"]
     original_predecessors = {
         node: set(auxiliary.predecessors(node)) for node in auxiliary.nodes()
     }
+    residual = _flow.build_residual_network(auxiliary, "capacity")
+    kwargs = {"capacity": "capacity", "residual": residual}
+    if (
+        flow_func is _flow.shortest_augmenting_path
+        or flow_func is _nx.algorithms.flow.shortest_augmenting_path
+    ):
+        kwargs["two_phase"] = True
+
+    if k is None:
+        k = node_connectivity(G, flow_func=connectivity_flow_func)
+    elif not isinstance(k, int):
+        raise TypeError("k must be an integer or None")
 
     highest_degree_nodes = {
         node
@@ -851,24 +895,31 @@ def all_node_cuts(G, k=None, flow_func=None):
     for source in highest_degree_nodes:
         non_adjacent = set(G) - {source} - set(G.neighbors(source))
         for target in non_adjacent:
-            flow_value, flow_dict = maximum_flow(
+            residual = flow_func(
                 auxiliary,
                 f"{mapping[source]}B",
                 f"{mapping[target]}A",
-                capacity="capacity",
+                **kwargs,
             )
 
-            if flow_value != k:
+            if residual.graph["flow_value"] != k:
                 continue
 
             flowed_edges = [
                 (left, right)
-                for left, outgoing in flow_dict.items()
-                for right, flow in outgoing.items()
-                if flow != 0
+                for left, right, attrs in residual.edges(data=True)
+                if attrs["flow"] != 0
             ]
             incident_components = {node for edge in flowed_edges for node in edge}
-            residual = residual_after_flow(auxiliary, flow_dict)
+            # Keep the solver's residual across pairs. Its saturated and
+            # zero-capacity reverse arcs are excluded only while enumerating
+            # closed sets, then restored before the next flow computation.
+            saturated_edges = [
+                (left, right, dict(attrs))
+                for left, right, attrs in residual.edges(data=True)
+                if attrs["capacity"] == attrs["flow"] or attrs["capacity"] == 0
+            ]
+            residual.remove_edges_from(saturated_edges)
             closure = transitive_closure(residual)
             condensed = condensation(residual)
 
@@ -924,8 +975,15 @@ def all_node_cuts(G, k=None, flow_func=None):
                 seen.add(frozen)
                 yield node_cut
 
-            auxiliary.add_edge(f"{mapping[source]}B", f"{mapping[target]}A", capacity=1)
-            auxiliary.add_edge(f"{mapping[target]}B", f"{mapping[source]}A", capacity=1)
+            for left, right in (
+                (f"{mapping[source]}B", f"{mapping[target]}A"),
+                (f"{mapping[target]}B", f"{mapping[source]}A"),
+            ):
+                auxiliary.add_edge(left, right, capacity=1)
+                original_predecessors[right].add(left)
+                residual.add_edge(left, right, capacity=1)
+                residual.add_edge(right, left, capacity=0)
+            residual.add_edges_from(saturated_edges)
 
 
 def connected_dominating_set(G, *, backend=None, **backend_kwargs):
@@ -1529,23 +1587,58 @@ def _approximate_current_flow_betweenness_centrality_inproc(
     *,
     sample_weight=1,
 ):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.centrality.current_flow_betweenness.approximate_current_flow_betweenness_centrality(
-            H,
-            normalized=normalized,
-            weight=weight,
-            dtype=dtype,
-            solver=solver,
-            epsilon=epsilon,
-            kmax=kmax,
-            seed=seed,
-            sample_weight=sample_weight,
-            backend="networkx",
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import numpy as np
+
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    rng = _create_py_random_state(seed)
+    if not is_connected(G):
+        raise NetworkXError("Graph not connected.")
+
+    n = G.number_of_nodes()
+    if n < 3:
+        return dict.fromkeys(G, 0.0)
+    if epsilon <= 0:
+        raise NetworkXError(f"Epsilon must be positive. Got {epsilon=}.")
+    if sample_weight <= 0:
+        raise NetworkXError(f"Sample weight must be positive. Got {sample_weight=}.")
+
+    nb = (n - 1.0) * (n - 2.0)
+    cstar = n * (n - 1) / nb
+    k = int(sample_weight * np.ceil((cstar / epsilon) ** 2 * np.log(n)))
+    if k > kmax:
+        msg = f"Number random pairs k>kmax ({k}>{kmax}) "
+        raise NetworkXError(msg, "Increase kmax or epsilon")
+
+    solvername = {
+        "full": _FullInverseLaplacian,
+        "lu": _SuperLUInverseLaplacian,
+        "cg": _CGInverseLaplacian,
+    }
+    if solver not in solvername:
+        raise NetworkXError(f"Unknown solver: {solver}.")
+    ordering = _current_flow_rcm_ordering(G)
+    H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
+    L = laplacian_matrix(H, nodelist=range(n), weight=weight).asformat("csc")
+    L = L.astype(dtype)
+    C = solvername[solver](L, dtype=dtype)
+    betweenness = dict.fromkeys(H, 0.0)
+    cstar2k = cstar / (2 * k)
+    for _ in range(k):
+        s, t = pair = rng.sample(range(n), 2)
+        b = np.zeros(n, dtype=dtype)
+        b[s] = 1
+        b[t] = -1
+        p = C.solve(b)
+        for v in H:
+            if v in pair:
+                continue
+            for nbr in H[v]:
+                w = H[v][nbr].get(weight, 1.0)
+                betweenness[v] += float(w * np.abs(p[v] - p[nbr]) * cstar2k)
+    factor = 1.0 if normalized else nb / 2.0
+    return {ordering[k_node]: val * factor for k_node, val in betweenness.items()}
 
 
 def approximate_current_flow_betweenness_centrality(

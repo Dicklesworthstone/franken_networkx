@@ -461,6 +461,14 @@ def _view_filter_cache_token(view):
     if type(node_filter) is _NodeSetFilter and type(node_filter.nodes) is set:
         nodes = tuple(node_filter.nodes)
         return tuple(map(id, nodes)), nodes
+    if (
+        isinstance(node_filter, _types.FunctionType)
+        and not node_filter.__closure__
+        and not node_filter.__defaults__
+        and not node_filter.__kwdefaults__
+        and not node_filter.__code__.co_names
+    ):
+        return (id(node_filter), node_filter.__code__), node_filter
     return None
 
 

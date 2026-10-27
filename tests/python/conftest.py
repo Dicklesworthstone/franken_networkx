@@ -18,23 +18,34 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PYTHON = REPO_ROOT / "python"
 
-# If franken_networkx is already importable with its compiled native extension
-# (e.g. wheel testing in CI/release from site-packages), avoid shadowing it with
-# the uncompiled repository python/ source directory.
-try:
-    import franken_networkx._fnx  # noqa: F401
-    _has_installed_fnx = True
-except ImportError:
-    _has_installed_fnx = False
-
-if _has_installed_fnx:
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.append(str(REPO_ROOT))
-else:
-    for path in (REPO_PYTHON, REPO_ROOT):
+# If the repository checkout has its compiled native extension, front-load
+# `<repo>/python` so pytest always tests the repo checkout (see
+# test_the_import_pytest_resolves_is_the_repo_checkout). Otherwise, if
+# franken_networkx is already importable from site-packages (e.g. wheel testing
+# against an uncompiled source tree), avoid shadowing it with the uncompiled
+# repository python/ directory.
+if (REPO_PYTHON / "franken_networkx" / "_fnx.abi3.so").is_file():
+    for path in (REPO_ROOT, REPO_PYTHON):
         path_text = str(path)
-        if path_text not in sys.path:
-            sys.path.insert(0, path_text)
+        while path_text in sys.path:
+            sys.path.remove(path_text)
+        sys.path.insert(0, path_text)
+    import franken_networkx._fnx  # noqa: F401
+else:
+    try:
+        import franken_networkx._fnx  # noqa: F401
+        _has_installed_fnx = True
+    except ImportError:
+        _has_installed_fnx = False
+
+    if _has_installed_fnx:
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.append(str(REPO_ROOT))
+    else:
+        for path in (REPO_PYTHON, REPO_ROOT):
+            path_text = str(path)
+            if path_text not in sys.path:
+                sys.path.insert(0, path_text)
 
 import pytest
 

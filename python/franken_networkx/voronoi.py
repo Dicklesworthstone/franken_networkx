@@ -27,6 +27,10 @@ def voronoi_cells(
 
 
 def __getattr__(name):
+    if name == "groups":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.groups
     try:
         return getattr(_nx_voronoi, name)
     except AttributeError as exc:

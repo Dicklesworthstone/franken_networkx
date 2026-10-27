@@ -13,8 +13,6 @@ larger share at scale. Any other attribute delegates to
 """
 
 import franken_networkx as _fnx
-import networkx as _nx
-from networkx.utils import not_implemented_for as _not_implemented_for
 
 __all__ = ["harmonic_function", "local_and_global_consistency"]
 
@@ -41,7 +39,6 @@ def _get_label_info(G, label_name):
     return (labels, label_dict)
 
 
-@_not_implemented_for("directed")
 def harmonic_function(
     G, max_iter=30, label_name="label", *, backend=None, **backend_kwargs
 ):
@@ -52,10 +49,12 @@ def harmonic_function(
     _fnx._validate_backend_dispatch_keywords(
         "harmonic_function", backend, backend_kwargs
     )
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
     X = _fnx.to_scipy_sparse_array(G)  # adjacency matrix (fnx native, fast)
     labels, label_dict = _get_label_info(G, label_name)
     if labels.shape[0] == 0:
-        raise _nx.NetworkXError(
+        raise _fnx.NetworkXError(
             f"No node on the input graph is labeled by '{label_name}'."
         )
     n_samples = X.shape[0]
@@ -75,7 +74,6 @@ def harmonic_function(
     return label_dict[_np.argmax(F, axis=1)].tolist()
 
 
-@_not_implemented_for("directed")
 def local_and_global_consistency(
     G, alpha=0.99, max_iter=30, label_name="label", *, backend=None, **backend_kwargs
 ):
@@ -86,10 +84,12 @@ def local_and_global_consistency(
     _fnx._validate_backend_dispatch_keywords(
         "local_and_global_consistency", backend, backend_kwargs
     )
+    if G.is_directed():
+        raise _fnx.NetworkXNotImplemented("not implemented for directed type")
     X = _fnx.to_scipy_sparse_array(G)  # adjacency matrix (fnx native, fast)
     labels, label_dict = _get_label_info(G, label_name)
     if labels.shape[0] == 0:
-        raise _nx.NetworkXError(
+        raise _fnx.NetworkXError(
             f"No node on the input graph is labeled by '{label_name}'."
         )
     n_samples = X.shape[0]

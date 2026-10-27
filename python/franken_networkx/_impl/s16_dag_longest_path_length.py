@@ -1110,6 +1110,9 @@ def maximal_independent_set(G, nodes=None, seed=None, *, backend=None, **backend
     return indep_nodes
 
 
+_maximal_independent_set_impl = maximal_independent_set
+
+
 def spanner(G, stretch, weight=None, seed=None):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``.
 

@@ -307,7 +307,34 @@ def hnm_harary_graph(n, m, create_using=None):
     return _harary_graph_from_edges(n, edges, create_using=create_using)
 
 
-def gomory_hu_tree(G, capacity="capacity", flow_func=None):
+def _gomory_hu_prepare_fallback(G, capacity, flow_func):
+    from franken_networkx.flow import build_residual_network, edmonds_karp
+
+    if flow_func is None:
+        flow_func = edmonds_karp
+    # Keep the caller's graph and one exact-capacity residual for all cuts.
+    # In particular, custom solvers must see the original graph object and
+    # capacities must never pass through an f64 projection or an nx copy.
+    residual = build_residual_network(G, capacity)
+    return G, flow_func, residual
+
+
+def _gomory_hu_cut_fallback(
+    python_graph, source, target, capacity, flow_func, residual
+):
+    return _minimum_cut_inproc(
+        python_graph,
+        source,
+        target,
+        capacity=capacity,
+        flow_func=flow_func,
+        residual=residual,
+    )
+
+
+def gomory_hu_tree(
+    G, capacity="capacity", flow_func=None, *, backend=None, **backend_kwargs
+):
     """Return the Gomory-Hu tree of an undirected graph.
 
     Tree construction preserves Python node identities and exact cut
@@ -315,6 +342,7 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     other numeric domains and custom flow functions share one Python
     residual network across the pairwise cuts.
     """
+    _validate_backend_dispatch_keywords("gomory_hu_tree", backend, backend_kwargs)
     _validate_flow_func_selector(flow_func)
 
     if G.is_directed():
@@ -389,17 +417,9 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     if native:
         _sync_rust_edge_attrs(G, edge_only=True)
     else:
-        from franken_networkx.backend import _fnx_to_nx
-
-        python_graph = _fnx_to_nx(G)
-        if flow_func is None:
-            flow_func = _nx.algorithms.flow.edmonds_karp
-        try:
-            residual = _nx.algorithms.flow.build_residual_network(
-                python_graph, capacity
-            )
-        except Exception as exc:
-            _raise_translated_networkx_exception(exc)
+        python_graph, flow_func, residual = _gomory_hu_prepare_fallback(
+            G, capacity, flow_func
+        )
 
     tree = {}
     labels = {}
@@ -416,18 +436,9 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
             )
             cut_value = _coerce_flow_value(cut_value, True)
         else:
-            try:
-                cut_value, partition = _nx.algorithms.flow.maxflow.minimum_cut(
-                    python_graph,
-                    source,
-                    target,
-                    capacity=capacity,
-                    flow_func=flow_func,
-                    residual=residual,
-                    backend="networkx",
-                )
-            except Exception as exc:
-                _raise_translated_networkx_exception(exc)
+            cut_value, partition = _gomory_hu_cut_fallback(
+                python_graph, source, target, capacity, flow_func, residual
+            )
         labels[(source, target)] = cut_value
 
         for node in partition[0]:
@@ -484,30 +495,38 @@ def random_k_out_graph(n, k, alpha, self_loops=True, seed=None):
 
 
 def _random_k_out_graph_impl(n, k, alpha, self_loops=True, seed=None):
-    """Private nx parity helper so the public wrapper stays PY_WRAPPER."""
-    # br-r37-c1-koutnative: de-delegate the default (numpy) path. nx's
-    # _random_k_out_graph_numpy is @np_random_state-seeded, so
-    # ``networkx.utils.create_random_state(seed)`` reproduces its EXACT numpy draw
-    # sequence (uniform seed.choice over remaining sources + weighted
-    # seed.choice(p=weights/total) preferential targets, with the in-place weight /
-    # out-strength / remaining-mask updates). Run the algorithm verbatim to collect
-    # edges in nx's exact order and build the fnx MultiDiGraph directly, skipping
-    # nx's per-edge add_edge AND the nx->fnx conversion. If numpy is unavailable nx
-    # uses its pure-Python variant -> delegate so the draw model still matches.
+    """In-process random_k_out_graph matching NetworkX's numpy and pure-Python paths."""
     if alpha < 0:
         raise ValueError("alpha must be positive")
     try:
         import numpy as _np
-        from networkx.utils import create_random_state as _create_random_state
     except ImportError:
-        from franken_networkx.readwrite import _from_nx_graph
+        rng = _create_py_random_state(seed)
+        G = MultiDiGraph()
+        G.add_nodes_from(range(n))
+        weights = _Counter({v: alpha for v in G})
+        out_strengths = _Counter({v: 0 for v in G})
+        for _ in range(k * n):
+            u = rng.choice(list(out_strengths.keys()))
+            if not self_loops:
+                uweight = weights.pop(u)
+            rnd = rng.random() * sum(weights.values())
+            v = None
+            for k_node, w_val in weights.items():
+                rnd -= w_val
+                if rnd < 0:
+                    v = k_node
+                    break
+            if not self_loops:
+                weights[u] = uweight
+            G.add_edge(u, v)
+            weights[v] += 1
+            out_strengths[u] += 1
+            if out_strengths[u] == k:
+                out_strengths.pop(u)
+        return G
 
-        nx_result = _nx.random_k_out_graph(
-            n, k, alpha, self_loops=self_loops, seed=seed, backend="networkx"
-        )
-        return _from_nx_graph(nx_result, create_using=MultiDiGraph())
-
-    rng = _create_random_state(seed)
+    rng = _numpy_random_state(seed)
     G = MultiDiGraph()
     G.add_nodes_from(range(n))
     nodes = _np.arange(n)
@@ -614,11 +633,7 @@ def _simrank_impl(G, *, source, target, importance_factor, max_iterations, toler
             break
 
     if its + 1 == max_iterations:
-        # br-r37-c1-s13m9: ExceededMaxIterations is not in this module's
-        # namespace — referencing it raised NameError instead of nx's
-        # exception. Import the upstream class so callers catching
-        # ``nx.ExceededMaxIterations`` work (same pattern as elsewhere).
-        from networkx import ExceededMaxIterations
+        from networkx.exception import ExceededMaxIterations
 
         raise ExceededMaxIterations(
             f"simrank did not converge after {max_iterations} iterations."
@@ -638,7 +653,7 @@ def _numpy_random_state(seed):
         return np.random.mtrand._rand
     if isinstance(seed, np.random.RandomState | np.random.Generator):
         return seed
-    if isinstance(seed, int):
+    if isinstance(seed, _numbers.Integral):
         return np.random.RandomState(seed)
     # br-r37-c1-cdf1v: networkx's create_random_state wording.
     raise ValueError(

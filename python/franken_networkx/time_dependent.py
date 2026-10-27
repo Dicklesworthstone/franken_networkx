@@ -19,6 +19,10 @@ __all__ = list(getattr(_nx_time_dependent, "__all__", ("cd_index",)))
 
 
 def __getattr__(name):
+    if name == "not_implemented_for":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.not_implemented_for
     try:
         return getattr(_nx_time_dependent, name)
     except AttributeError as exc:

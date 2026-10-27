@@ -61,75 +61,48 @@ def read_edgelist(
         if native is not None:
             return native
 
-    # br-r37-c1-rdedgenative: route to the native parse_edgelist (bulk build,
-    # byte-exact incl edge data) instead of the nx parse+convert delegation
-    # (0.67x). parse_edgelist covers comments/delimiter/create_using/nodetype/data
-    # exactly; the rare ``edgetype`` arg (not a parse_edgelist param) stays on the
-    # nx path so its conversion contract is preserved.
-    if edgetype is None:
-        from .readwrite import parse_edgelist as _parse_edgelist
+    from .readwrite import parse_edgelist as _parse_edgelist
 
-        return _read_decoded_lines_via_open_file(
-            path,
-            encoding,
-            lambda lines: _parse_edgelist(
-                lines,
-                comments=comments,
-                delimiter=delimiter,
-                create_using=create_using,
-                nodetype=nodetype,
-                data=data,
-            ),
-            keep_str_lines=True,
-        )
-    return _read_edgelist_via_nx(
+    return _read_decoded_lines_via_open_file(
         path,
-        comments=comments,
-        delimiter=delimiter,
-        create_using=create_using,
-        nodetype=nodetype,
-        data=data,
-        edgetype=edgetype,
-        encoding=encoding,
+        encoding,
+        lambda lines: _parse_edgelist(
+            lines,
+            comments=comments,
+            delimiter=delimiter,
+            create_using=create_using,
+            nodetype=nodetype,
+            data=data,
+        ),
+        keep_str_lines=True,
     )
 
 
 def _read_decoded_lines_via_open_file(path, encoding, parse, *, keep_str_lines=False):
-    """Open ``path`` under nx's ``open_file`` contract (str/Path/file handle,
-    gzip/bz2 by suffix) and feed decoded lines to ``parse``. Private plumbing
-    shared by the native readers — keeps nx's path/compression semantics
-    without putting a networkx reference in any public function's source
-    (the coverage classifier forbids NX_DELEGATED public exports).
+    """Open ``path`` under the ``open_file`` contract (str/Path/file handle,
+    gzip/bz2 by suffix) and feed decoded lines to ``parse``.
 
     ``keep_str_lines``: a text-mode handle yields str lines, which nx's
     read_edgelist passes through undecoded; its adjlist readers decode every
     line, so they raise on one (br-r37-c1-6luun)."""
-    from networkx.utils import open_file as _open_file
 
-    @_open_file(0, mode="rb")
-    def _read(path):
+    def _read(fobj):
         if keep_str_lines:
             return parse(
-                line if isinstance(line, str) else line.decode(encoding) for line in path
+                line if isinstance(line, str) else line.decode(encoding) for line in fobj
             )
-        return parse(line.decode(encoding) for line in path)
+        return parse(line.decode(encoding) for line in fobj)
 
-    return _read(path)
+    return _open_path_and_call(path, "rb", _read)
 
 
 def _read_edgelist_simple_via_open_file(path, encoding, mode):
-    """Bulk-decode a default edge list and hand one payload to Rust.
+    """Bulk-decode a default edge list and hand one payload to Rust."""
 
-    ``networkx.utils.open_file`` retains the public gzip/bzip2/path contract;
-    the parser itself crosses Python once instead of once per input line.
-    """
-    from networkx.utils import open_file as _open_file
+    def _read(fobj):
+        return _fnx.parse_edgelist_simple_text(fobj.read().decode(encoding), mode)
 
-    @_open_file(0, mode="rb")
-    def _read(path):
-        return _fnx.parse_edgelist_simple_text(path.read().decode(encoding), mode)
-
-    return _read(path)
+    return _open_path_and_call(path, "rb", _read)
 
 
 def read_adjlist(
@@ -295,13 +268,9 @@ def _validate_graph_graphml_attrs(graph_attrs):
             )
 
 
-from networkx.utils import open_file as _graphml_open_file
-
-
-@_graphml_open_file(0, mode="rb")
 def _read_graphml_mode_payload(path):
     """Read once with NetworkX's path/compression and file-ownership contract."""
-    return path.read()
+    return _open_path_and_call(path, "rb", lambda fobj: fobj.read())
 
 
 def _graphml_from_mode_payload(
@@ -654,17 +623,45 @@ def star_graph(n, create_using=None):
 # nx emits.
 
 
-def projected_graph(B, nodes, multigraph=False):
+def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwargs):
     """Return the projection of a bipartite graph onto one set of nodes.
 
     Two nodes in the projection are connected if they share a neighbor
     in the original bipartite graph. If multigraph=True, one edge is
     added per shared neighbor (returns MultiGraph).
     """
+    _validate_backend_dispatch_keywords("projected_graph", backend, backend_kwargs)
     if B.is_multigraph():
         raise NetworkXError("not defined for multigraphs")
 
     nodes = list(nodes)
+    nak = getattr(B, "_native_adjacency_keys", None)
+    if nak is not None and type(B) in (Graph, DiGraph):
+        directed = type(B) is DiGraph
+        adj = {node: list(nbrs) for node, nbrs in nak()}
+        if multigraph:
+            pred = {n: set(B.pred[n]) for n in B} if directed else None
+            G = MultiDiGraph() if directed else MultiGraph()
+            G.graph.update(B.graph)
+            G.add_nodes_from((n, B.nodes[n]) for n in nodes)
+            for u in nodes:
+                au = set(adj[u])
+                nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
+                for n in nbrs2:
+                    links = au & (pred[n] if directed else set(adj[n]))
+                    for l in links:
+                        if not G.has_edge(u, n, l):
+                            G.add_edge(u, n, key=l)
+            return G
+        G = DiGraph() if directed else Graph()
+        G.graph.update(B.graph)
+        G.add_nodes_from((n, B.nodes[n]) for n in nodes)
+        proj_edges = []
+        for u in nodes:
+            nbrs2 = {v for nbr in adj[u] for v in adj[nbr] if v != u}
+            proj_edges.extend((u, n) for n in nbrs2)
+        G.add_edges_from(proj_edges)
+        return G
 
     if multigraph:
         G = MultiDiGraph() if B.is_directed() else MultiGraph()

@@ -77,21 +77,17 @@ def _ordered_two_clique_bridge_k_components(G):
 
 
 def _k_components_inproc(G, flow_func=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.connectivity.kcomponents.k_components(
-            H, flow_func=flow_func, backend="networkx"
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    return _k_components_moody_white_fnx(G, flow_func=flow_func)
 
 
-def k_components(G, flow_func=None):
+def k_components(G, flow_func=None, *, backend=None, **backend_kwargs):
     """Return k-connected component structure.
 
-    br-kcompalgo: delegated to nx for correctness outside narrow exact
-    fast paths. The previous bespoke Python implementation treated
+    The general path uses the owned Moody-White decomposition, forwarding
+    custom flow functions through connectivity and minimum-cut enumeration.
+    The previous bespoke Python implementation treated
     ``k_components`` as ``{k: components_with_node_connectivity_at_least_k(G)}``
     and missed Moody-White recursive substructures. Complete graphs,
     simple-cycle components, forests, clique-block graphs, complete
@@ -99,12 +95,11 @@ def k_components(G, flow_func=None):
     ordered prism components, wheel components, tuple-label hypercube
     components, ordered two-clique bridge components, plus bounded simple
     cubic/quartic/quintic/six-/seven-/eight-/nine-regular components whose
-    connectivity is certified by vertex-removal BFS, are the safe exceptions: their
-    k-component lattices are closed form. Complete multipartite, 2-degenerate,
-    prism, wheel, hypercube, two-clique bridge, cubic, quartic, quintic, and
-    six-/seven-/eight-/nine-regular residual components still delegate when a custom
-    ``flow_func`` is supplied because nx calls it there.
+    connectivity is certified by vertex-removal BFS, have closed-form
+    k-component lattices. Where a custom ``flow_func`` needs to run, the
+    general decomposition retains the callback's execution and exceptions.
     """
+    _validate_backend_dispatch_keywords("k_components", backend, backend_kwargs)
     if type(G) is Graph:
         node_count = len(G)
         if node_count < 2:
@@ -262,7 +257,7 @@ def _k_components_reconstruct_fnx(k_comps):
     return result
 
 
-def _k_components_moody_white_fnx(G):
+def _k_components_moody_white_fnx(G, flow_func=None):
     k_comps = _defaultdict(list)
     for component in connected_components(G):
         comp = set(component)
@@ -276,20 +271,20 @@ def _k_components_moody_white_fnx(G):
     for B in bicomponents:
         if len(B) <= 2:
             continue
-        k = node_connectivity(B)
+        k = node_connectivity(B, flow_func=flow_func)
         if k > 2:
             k_comps[k].append(set(B))
-        cuts = list(all_node_cuts(B, k=k))
+        cuts = list(all_node_cuts(B, k=k, flow_func=flow_func))
         stack = [(k, _k_components_generate_partition_fnx(B, cuts, k))]
         while stack:
             parent_k, partition = stack[-1]
             try:
                 nodes = next(partition)
                 C = B.subgraph(nodes).copy()
-                this_k = node_connectivity(C)
+                this_k = node_connectivity(C, flow_func=flow_func)
                 if this_k > parent_k and this_k > 2:
                     k_comps[this_k].append(set(C))
-                cuts = list(all_node_cuts(C, k=this_k))
+                cuts = list(all_node_cuts(C, k=this_k, flow_func=flow_func))
                 if cuts:
                     stack.append(
                         (this_k, _k_components_generate_partition_fnx(C, cuts, this_k))
@@ -299,7 +294,7 @@ def _k_components_moody_white_fnx(G):
     return _k_components_reconstruct_fnx(k_comps)
 
 
-def k_factor(G, k, matching_weight="weight"):
+def k_factor(G, k, matching_weight="weight", *, backend=None, **backend_kwargs):
     """Compute a k-factor of a graph.
 
     A k-factor of a graph is a spanning k-regular subgraph.
@@ -307,6 +302,7 @@ def k_factor(G, k, matching_weight="weight"):
     each node of G and a subset of the edges of G such that each
     node has degree k.
     """
+    _validate_backend_dispatch_keywords("k_factor", backend, backend_kwargs)
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -426,12 +422,36 @@ def spectral_graph_forge(G, alpha, transformation="identity", seed=None):
 
 
 def _tutte_polynomial_inproc(G):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.polynomials.tutte_polynomial(H, backend="networkx")
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    import sympy
+
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    x = sympy.Symbol("x")
+    y = sympy.Symbol("y")
+    stack = _deque()
+    stack.append(MultiGraph(G))
+
+    polynomial = 0
+    while stack:
+        curr = stack.pop()
+        curr_bridges = set(bridges(curr))
+
+        e = None
+        for i in curr.edges:
+            if (i[0], i[1]) not in curr_bridges and i[0] != i[1]:
+                e = i
+                break
+        if not e:
+            loops = list(selfloop_edges(curr, keys=True))
+            polynomial += x ** len(curr_bridges) * y ** len(loops)
+        else:
+            C = contracted_edge(curr, e, self_loops=True)
+            C.remove_edge(e[0], e[0])
+            curr.remove_edge(*e)
+            stack.append(curr)
+            stack.append(C)
+    return sympy.simplify(polynomial)
 
 
 def tutte_polynomial(G, *, backend=None, **backend_kwargs):
@@ -573,8 +593,6 @@ def tree_all_pairs_lowest_common_ancestor(
 def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a random graph based on the specified kernel.
 
-    Delegates to NetworkX's random_kernel_graph implementation.
-
     Parameters
     ----------
     n : int
@@ -591,59 +609,30 @@ def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, crea
         Backend dispatch (ignored, for compatibility).
     """
     _validate_backend_dispatch_keywords("random_kernel_graph", backend, backend_kwargs)
-    return _random_kernel_graph_via_parity(
-        n,
-        kernel_integral,
-        kernel_root=kernel_root,
-        seed=seed,
-        create_using=create_using,
-        backend=backend,
-        **backend_kwargs,
-    )
+    rng = _generator_random_state(seed)
+    graph = _checked_create_using(create_using, directed=False, multigraph=False)
+    if kernel_root is None:
+        import scipy as sp
 
+        def kernel_root(y, a, r):
+            def my_function(b):
+                return kernel_integral(y, a, b) - r
 
-def _random_kernel_graph_via_parity(
-    n,
-    kernel_integral,
-    *,
-    kernel_root=None,
-    seed=None,
-    create_using=None,
-    backend=None,
-    **backend_kwargs,
-):
-    """Helper — keeps ``random_kernel_graph`` classified as PY_WRAPPER.
+            return sp.optimize.brentq(my_function, a, 1)
 
-    Normalises fnx graph classes/instances to their upstream nx
-    equivalents before delegating (upstream's descriptor path crashes
-    on fnx's Rust-bound classes otherwise).
-    """
-    import networkx as _nx_mod
-    from franken_networkx.readwrite import _from_nx_graph
+    graph.add_nodes_from(range(n))
+    edges = []
+    (i, j) = (1, 1)
+    while i < n:
+        r = -_math.log(1 - rng.random())  # (1-rng.random()) in (0, 1]
+        if kernel_integral(i / n, j / n, 1) <= r:
+            i, j = i + 1, i + 1
+        else:
+            j = _math.ceil(n * kernel_root(i / n, j / n, r))
+            edges.append((i - 1, j - 1))
+    graph.add_edges_from(edges)
+    return graph
 
-    _FNX_TO_NX_CLASS = {
-        Graph: _nx_mod.Graph,
-        DiGraph: _nx_mod.DiGraph,
-        MultiGraph: _nx_mod.MultiGraph,
-        MultiDiGraph: _nx_mod.MultiDiGraph,
-    }
-    if isinstance(create_using, type) and create_using in _FNX_TO_NX_CLASS:
-        create_using = _FNX_TO_NX_CLASS[create_using]
-    elif isinstance(create_using, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
-        nx_cls = _FNX_TO_NX_CLASS.get(type(create_using))
-        if nx_cls is not None:
-            create_using = nx_cls()
-
-    g = _nx_mod.random_kernel_graph(
-        n,
-        kernel_integral,
-        kernel_root=kernel_root,
-        seed=seed,
-        create_using=create_using,
-        backend="networkx",
-        **backend_kwargs,
-    )
-    return _from_nx_graph(g)
 
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
@@ -1193,10 +1182,20 @@ def _tree_edges_local(n, r):
 
 def _classic_default_graph_type(default):
     """Map a default graph constructor or instance to the Franken graph surface."""
-    if default is None:
+    if default is None or default is _NETWORKX_GRAPH_DEFAULT:
         return Graph
     if default in (Graph, DiGraph, MultiGraph, MultiDiGraph):
         return default
+    if isinstance(default, type) and getattr(default, "__module__", "").startswith("networkx."):
+        name = getattr(default, "__name__", "")
+        if name == "Graph":
+            return Graph
+        if name == "DiGraph":
+            return DiGraph
+        if name == "MultiGraph":
+            return MultiGraph
+        if name == "MultiDiGraph":
+            return MultiDiGraph
 
     probe = default() if isinstance(default, type) else default
     if probe.is_multigraph():

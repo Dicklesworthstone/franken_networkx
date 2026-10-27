@@ -111,6 +111,10 @@ def common_neighbor_centrality(
 
 
 def __getattr__(name):
+    if name == "not_implemented_for":
+        from franken_networkx import utils as _fnx_utils
+
+        return _fnx_utils.not_implemented_for
     try:
         return getattr(_nx_link_prediction, name)
     except AttributeError as exc:

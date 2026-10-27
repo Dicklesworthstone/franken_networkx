@@ -10,8 +10,10 @@ br-r37-c1-ktky5
 from __future__ import annotations
 
 import random
+from types import MappingProxyType
 
 import franken_networkx as fnx
+import franken_networkx.backend as fnx_backend
 import networkx as nx
 import pytest
 
@@ -216,10 +218,12 @@ def test_optional_vectors_share_matrix_with_default_and_other_vectors(
         _assert_matrix_rank_exact(actual, nx.pagerank(ng, weight=weight, **kwargs))
         assert vars(fg)["_fnx_pagerank_scipy_matrix_cache"] is cache
         assert "to_scipy_sparse_array" not in names
+        assert "_pagerank_needs_networkx_weight_parity" not in names
         assert not any("adjacency_csr_bytes" in name for name in names)
         assert not any("adjacency_default_order_arrays" in name for name in names)
-    fnx.pagerank(fg, weight=weight)
+    _, names = _profile_matrix_rank(fg, weight=weight)
     assert vars(fg)["_fnx_pagerank_scipy_matrix_cache"] is cache
+    assert "_pagerank_needs_networkx_weight_parity" not in names
 
 
 @pytest.mark.parametrize("graph_name", ["Graph", "DiGraph"])
@@ -604,3 +608,121 @@ def test_multigraph_optional_loop_association_matches_float_bits(graph_name, see
     kwargs = vectors if variant == "combined" else {variant: vectors[variant]}
     kwargs = dict(kwargs, max_iter=250, tol=1.0e-10)
     _assert_matrix_rank_exact(fnx.pagerank(fg, **kwargs), nx.pagerank(ng, **kwargs))
+
+
+class _GetOnlyRankVector:
+    """PageRank's vector protocol requires get(), not iteration or items()."""
+
+    def __init__(self, values):
+        self.values = values
+
+    def get(self, key, default=None):
+        return self.values.get(key, default)
+
+
+def _callable_rank_weight(*args):
+    raise AssertionError("PageRank treats callable weight as an attribute key")
+
+
+def _forbid_pagerank_delegate(*args, **kwargs):
+    raise AssertionError("PageRank must execute without NetworkX conversion or algorithms")
+
+
+def _block_pagerank_delegation(monkeypatch):
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _forbid_pagerank_delegate)
+    monkeypatch.setattr(nx, "pagerank", _forbid_pagerank_delegate)
+    monkeypatch.setattr(
+        nx.algorithms.link_analysis.pagerank_alg,
+        "pagerank",
+        _forbid_pagerank_delegate,
+    )
+    monkeypatch.setattr(nx, "to_scipy_sparse_array", _forbid_pagerank_delegate)
+    monkeypatch.setattr(
+        nx.convert_matrix, "to_scipy_sparse_array", _forbid_pagerank_delegate
+    )
+
+
+def _general_rank_pair(graph_name):
+    if graph_name.startswith("Multi"):
+        return _multigraph_optional_pair(graph_name)
+    return _matrix_pair(graph_name)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [17, ("rank", "weight"), _callable_rank_weight])
+@pytest.mark.parametrize("vector_class", [dict, MappingProxyType, _GetOnlyRankVector])
+def test_generic_pagerank_owns_custom_weight_keys_and_vector_protocol(
+    monkeypatch, graph_name, weight, vector_class
+):
+    fg, ng = _general_rank_pair(graph_name)
+    for graph in (fg, ng):
+        for _, _, attrs in graph.edges(data=True):
+            attrs[weight] = attrs.get("weight", 1)
+    kwargs = dict(_matrix_kwargs(), weight=weight)
+    for parameter in ("personalization", "nstart", "dangling"):
+        kwargs[parameter] = vector_class(kwargs[parameter])
+    expected = nx.pagerank(ng, **kwargs)
+    _block_pagerank_delegation(monkeypatch)
+    _assert_matrix_rank_exact(fnx.pagerank(fg, **kwargs), expected)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("personalized", [False, True])
+@pytest.mark.parametrize("edge_weight", ["2.5", "heavy", float("inf"), float("nan"), 10**400])
+def test_generic_pagerank_preserves_weight_outcomes_without_networkx(
+    monkeypatch, graph_name, personalized, edge_weight
+):
+    fg, ng = _general_rank_pair(graph_name)
+    for graph in (fg, ng):
+        if graph.is_multigraph():
+            graph[("root", 2)]["sink"]["parallel"]["weight"] = edge_weight
+        else:
+            graph[("root", 2)]["sink"]["weight"] = edge_weight
+    kwargs = _matrix_kwargs() if personalized else {"max_iter": 250, "tol": 1.0e-10}
+    expected = _matrix_outcome(nx, ng, kwargs)
+    _block_pagerank_delegation(monkeypatch)
+    assert _matrix_outcome(fnx, fg, kwargs) == expected
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "MultiDiGraph"])
+@pytest.mark.parametrize("parameter", ["personalization", "nstart", "dangling"])
+@pytest.mark.parametrize("values", [{}, {"outside": 1.0}, {"sink": 0.0}])
+def test_generic_pagerank_zero_vector_outcomes_match_oracle(
+    monkeypatch, graph_name, parameter, values
+):
+    fg, ng = _general_rank_pair(graph_name)
+    kwargs = dict(_matrix_kwargs(), **{parameter: _GetOnlyRankVector(values)})
+    expected = _matrix_outcome(nx, ng, kwargs)
+    _block_pagerank_delegation(monkeypatch)
+    assert _matrix_outcome(fnx, fg, kwargs) == expected
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("view_kind", ["subgraph", "reverse"])
+def test_generic_pagerank_reads_held_edge_mutations_through_views(
+    monkeypatch, graph_name, view_kind
+):
+    fg, ng = _general_rank_pair(graph_name)
+    weight = ("live", "rank")
+    held = []
+    for graph in (fg, ng):
+        for _, _, attrs in graph.edges(data=True):
+            attrs[weight] = attrs.get("weight", 1)
+        attrs = graph[("root", 2)]["sink"]
+        held.append(attrs["parallel"] if graph.is_multigraph() else attrs)
+    if view_kind == "subgraph":
+        nodes = [node for node in ng if node != 7]
+        fg, ng = fg.subgraph(nodes), ng.subgraph(nodes)
+    else:
+        if not fg.is_directed():
+            fg, ng = fg.to_directed(as_view=True), ng.to_directed(as_view=True)
+        fg, ng = fg.reverse(copy=False), ng.reverse(copy=False)
+    kwargs = dict(_matrix_kwargs(), weight=weight)
+    expected = []
+    for value in (0.125, 9.5, 2.25):
+        held[1][weight] = value
+        expected.append(nx.pagerank(ng, **kwargs))
+    _block_pagerank_delegation(monkeypatch)
+    for value, oracle in zip((0.125, 9.5, 2.25), expected):
+        held[0][weight] = value
+        _assert_matrix_rank_exact(fnx.pagerank(fg, **kwargs), oracle)

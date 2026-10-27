@@ -31,6 +31,10 @@ def is_edge_cover(G, cover, *, backend=None, **backend_kwargs):
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "arbitrary_element"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_covering, name)
     except AttributeError as exc:

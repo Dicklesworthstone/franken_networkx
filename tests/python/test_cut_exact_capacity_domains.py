@@ -95,6 +95,8 @@ def test_custom_flow_solver_is_called_with_one_reused_residual(monkeypatch):
     calls = []
 
     def flow_solver(graph, source, target, capacity, residual=None, **kwargs):
+        assert graph is actual
+        assert isinstance(residual, fnx.DiGraph)
         calls.append((source, target, residual))
         return nx.algorithms.flow.edmonds_karp(
             graph,
@@ -116,7 +118,7 @@ def test_custom_flow_solver_is_called_with_one_reused_residual(monkeypatch):
     assert all(residual is calls[0][2] for _, _, residual in calls)
 
 
-def test_custom_stoer_wagner_heap_is_used():
+def test_custom_stoer_wagner_heap_is_used(monkeypatch):
     reference, actual = _graphs([(0, 1, 3), (1, 2, 5), (0, 2, 2)], "weight")
     calls = []
 
@@ -125,8 +127,10 @@ def test_custom_stoer_wagner_heap_is_used():
             calls.append(True)
             super().__init__(*args, **kwargs)
 
+    expected = nx.stoer_wagner(reference)
+    _reject_cut_delegation(monkeypatch)
     result = fnx.stoer_wagner(actual, heap=RecordingHeap)
-    assert result == nx.stoer_wagner(reference)
+    assert result == expected
     assert calls
 
 
@@ -189,3 +193,64 @@ def test_self_loop_weights_do_not_change_cut_or_result_type():
     result = fnx.stoer_wagner(actual)
     assert result == expected
     assert type(result[0]) is type(expected[0]) is int
+
+
+def _reject_cut_delegation(monkeypatch):
+    import franken_networkx.backend as backend
+
+    def reject(*args, **kwargs):
+        raise AssertionError("cut algorithms must run locally")
+
+    for module, name in (
+        (backend, "_fnx_to_nx"),
+        (nx.algorithms.connectivity.stoerwagner, "stoer_wagner"),
+        (nx.algorithms.flow.maxflow, "minimum_cut"),
+        (nx.algorithms.flow, "build_residual_network"),
+        (nx.algorithms.flow, "edmonds_karp"),
+    ):
+        monkeypatch.setattr(module, name, reject)
+
+
+@pytest.mark.parametrize("capacity", EXACT_CAPACITIES)
+def test_exact_global_cuts_execute_without_networkx(monkeypatch, capacity):
+    edges = [(u, v, capacity) for u, v in [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]]
+    reference, actual = _graphs(edges, "amount")
+    expected = nx.stoer_wagner(reference, weight="amount")
+    tree = nx.gomory_hu_tree(reference, capacity="amount")
+    _reject_cut_delegation(monkeypatch)
+    assert fnx.stoer_wagner(actual, weight="amount") == expected
+    assert _tree_weights(fnx.gomory_hu_tree(actual, capacity="amount")) == _tree_weights(tree)
+
+
+@pytest.mark.parametrize("heap_name", ["BinaryHeap", "PairingHeap"])
+@pytest.mark.parametrize("seed", range(6))
+def test_stoer_wagner_partition_order_with_colliding_nodes(monkeypatch, heap_name, seed):
+    import random
+
+    class Collision:
+        def __init__(self, label):
+            self.label = label
+
+        def __hash__(self):
+            return 0
+
+        def __repr__(self):
+            return f"Collision({self.label})"
+
+    labels = [Collision(i) for i in range(6)]
+    rng = random.Random(seed)
+    order = list(labels)
+    rng.shuffle(order)
+    reference, actual = nx.Graph(), fnx.Graph()
+    for graph in (reference, actual):
+        graph.add_nodes_from(order)
+    edges = list(combinations(labels, 2))
+    rng.shuffle(edges)
+    for u, v in edges:
+        weight = Fraction(rng.randrange(5), 3)
+        reference.add_edge(u, v, weight=weight)
+        actual.add_edge(u, v, weight=weight)
+    expected = nx.stoer_wagner(reference, heap=getattr(nx.utils, heap_name))
+    _reject_cut_delegation(monkeypatch)
+    result = fnx.stoer_wagner(actual, heap=getattr(fnx.utils, heap_name))
+    assert result == expected

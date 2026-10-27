@@ -180,9 +180,8 @@ def random_tournament(n, seed=None, *, backend=None, **backend_kwargs):
     # (node order = edge appearance). Reproduce the exact draw sequence + edge
     # construction directly instead of nx build + _from_nx_graph.
     from itertools import combinations as _combinations
-    from networkx.utils import create_py_random_state
 
-    rng = create_py_random_state(seed)
+    rng = _fnx._generator_random_state(seed)
     coins = (rng.random() for _ in range((n * (n - 1)) // 2))
     pairs = _combinations(range(n), 2)
     edges = [(u, v) if r < 0.5 else (v, u) for (u, v), r in zip(pairs, coins)]

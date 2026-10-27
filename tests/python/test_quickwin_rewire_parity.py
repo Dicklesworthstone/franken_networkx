@@ -122,6 +122,9 @@ def test_all_pairs_node_connectivity_preserves_networkx_iteration_order(monkeypa
     graph = fnx.complete_graph(4)
     expected = nx.complete_graph(4)
     expected_result = nx.all_pairs_node_connectivity(expected)
+    expected_subset = nx.all_pairs_node_connectivity(
+        nx.complete_graph([3, 1, 2, 0]), nbunch=[3, 1]
+    )
 
     monkeypatch.setattr(
         nx,
@@ -154,9 +157,11 @@ def test_all_pairs_node_connectivity_preserves_networkx_iteration_order(monkeypa
 
     subset = fnx.all_pairs_node_connectivity(reordered, nbunch=[3, 1])
 
-    assert list(subset) == [3, 1]
-    assert list(subset[3]) == [1]
-    assert list(subset[1]) == [3]
+    assert subset == expected_subset
+    assert list(subset) == list(expected_subset)
+    assert {node: list(row) for node, row in subset.items()} == {
+        node: list(row) for node, row in expected_subset.items()
+    }
 
 
 @pytest.mark.parametrize("nbunch", [None, [0, 2, 3]])
@@ -203,3 +208,112 @@ def test_all_pairs_node_connectivity_validates_flow_func():
         fnx.all_pairs_node_connectivity(graph, flow_func=1)
 
     assert str(actual_error.value) == str(expected_error.value)
+
+
+def _all_pairs_graph(module, graph_type):
+    graph = getattr(module, graph_type)()
+    graph.add_nodes_from([3, 1, 5, 0, 4, 2])
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (3, 4)])
+    if graph.is_multigraph():
+        graph.add_edge(0, 1)
+    return graph
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "nbunch",
+    [[], [0], [0, 2], [3, 1, 2, 0], [3, 1, 5, 0, 4, 2], [3, 1, 3, 2, 0], [99]],
+)
+def test_all_pairs_node_connectivity_consumes_nbunch_once(graph_type, nbunch):
+    expected = nx.all_pairs_node_connectivity(
+        _all_pairs_graph(nx, graph_type), nbunch=iter(nbunch)
+    )
+    actual = fnx.all_pairs_node_connectivity(
+        _all_pairs_graph(fnx, graph_type), nbunch=iter(nbunch)
+    )
+
+    assert actual == expected
+    assert list(actual) == list(expected)
+    assert {node: list(row) for node, row in actual.items()} == {
+        node: list(row) for node, row in expected.items()
+    }
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_all_pairs_node_connectivity_unknown_node_in_one_shot_nbunch(graph_type):
+    with pytest.raises(KeyError) as expected_error:
+        nx.all_pairs_node_connectivity(
+            _all_pairs_graph(nx, graph_type), nbunch=iter([0, 99])
+        )
+    with pytest.raises(KeyError) as actual_error:
+        fnx.all_pairs_node_connectivity(
+            _all_pairs_graph(fnx, graph_type), nbunch=iter([0, 99])
+        )
+    assert actual_error.value.args == expected_error.value.args
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("nbunch", [None, [3, 1, 0]])
+def test_all_pairs_directed_connectivity_stays_owned(monkeypatch, graph_type, nbunch):
+    import franken_networkx.backend as fnx_backend
+
+    expected = nx.all_pairs_node_connectivity(
+        _all_pairs_graph(nx, graph_type), nbunch=nbunch
+    )
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("all-pairs connectivity used a NetworkX fallback")
+
+    monkeypatch.setattr(nx, "all_pairs_node_connectivity", blocked)
+    monkeypatch.setattr(
+        nx.algorithms.connectivity.connectivity, "all_pairs_node_connectivity", blocked
+    )
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", blocked)
+    actual = fnx.all_pairs_node_connectivity(
+        _all_pairs_graph(fnx, graph_type), nbunch=nbunch
+    )
+    assert actual == expected
+    assert list(actual) == list(expected)
+    assert {node: list(row) for node, row in actual.items()} == {
+        node: list(row) for node, row in expected.items()
+    }
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("nbunch", [None, [3, 1, 0]])
+def test_all_pairs_connectivity_reuses_auxiliary_and_residual(monkeypatch, graph_type, nbunch):
+    import franken_networkx.backend as fnx_backend
+    from franken_networkx.flow import edmonds_karp
+
+    expected_calls = []
+    actual_calls = []
+
+    def reference_solver(graph, source, target, **kwargs):
+        expected_calls.append((source, target, {k: v for k, v in kwargs.items() if k != "residual"}))
+        return nx.algorithms.flow.edmonds_karp(graph, source, target, **kwargs)
+
+    expected = nx.all_pairs_node_connectivity(
+        _all_pairs_graph(nx, graph_type), nbunch=nbunch, flow_func=reference_solver
+    )
+
+    def owned_solver(graph, source, target, **kwargs):
+        assert type(graph) is fnx.DiGraph
+        residual = kwargs["residual"]
+        assert type(residual) is fnx.DiGraph
+        actual_calls.append(
+            (graph, residual, source, target, {k: v for k, v in kwargs.items() if k != "residual"})
+        )
+        return edmonds_karp(graph, source, target, **kwargs)
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("custom-flow connectivity converted to NetworkX")
+
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", blocked)
+    actual = fnx.all_pairs_node_connectivity(
+        _all_pairs_graph(fnx, graph_type), nbunch=nbunch, flow_func=owned_solver
+    )
+    assert actual == expected
+    assert len(actual_calls) > 1
+    auxiliary, residual = actual_calls[0][:2]
+    assert all(graph is auxiliary and work is residual for graph, work, *_ in actual_calls)
+    assert [(source, target, kwargs) for _, _, source, target, kwargs in actual_calls] == expected_calls

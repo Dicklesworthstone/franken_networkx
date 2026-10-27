@@ -111,20 +111,16 @@ def _transitive_closure_dag_inproc(G, topo_order):
 
 
 def _transitive_closure_dag_via_parity(G, topo_order):
-    """br-r37-c1-nhz31: private helper keeps the public
-    ``transitive_closure_dag`` classified as PY_WRAPPER in the
-    coverage matrix.
-    """
-    kwargs = {}
-    if topo_order is not None:
-        kwargs["topo_order"] = topo_order
-    nx_result = _nx.transitive_closure_dag(
-        _networkx_graph_for_parity(G), backend="networkx", **kwargs,
-    )
-    from franken_networkx.readwrite import _from_nx_graph
-    # br-r37-c1-lblzk: cycle-225 family — SubgraphView can't be empty-constructed.
-    cls = _concrete_class_for(G)()
-    return _from_nx_graph(nx_result, create_using=cls)
+    """In-process transitive_closure_dag for multigraphs, views, and subclasses."""
+    G = _coerce_arg_to_fnx_graph(G)
+    if topo_order is None:
+        topo_order = list(topological_sort(G))
+    else:
+        topo_order = list(topo_order)
+    TC = G.copy()
+    for v in reversed(topo_order):
+        TC.add_edges_from((v, u) for u in descendants_at_distance(TC, v, 2))
+    return TC
 
 
 # ---------------------------------------------------------------------------
@@ -1442,22 +1438,3 @@ def _coerce_flow_dict_to_int(flow_dict):
         out[u] = {v: (int(f) if isinstance(f, float) and f.is_integer() else f)
                   for v, f in inner.items()}
     return out
-
-
-def _min_cost_flow_network_simplex_nx(G, demand, capacity, weight):
-    # br-r37-c1-hf7zh: the multigraph network-simplex delegation (the only
-    # direct nx reference in the min_cost_flow family) lives in this private
-    # helper so the public ``min_cost_flow`` wrapper stays free of direct
-    # ``_nx.*`` references (classifier keeps it PY_WRAPPER, not NX_DELEGATED).
-    # Returns ``(flow, handled)``; ``handled`` is False when nx's
-    # ``network_simplex.__wrapped__`` is unavailable so the caller falls back
-    # to the successive-shortest-paths path.
-    import networkx as _nx_local
-
-    _network_simplex = getattr(_nx_local.network_simplex, "__wrapped__", None)
-    if _network_simplex is None:
-        return None, False
-    _cost, flow = _network_simplex(
-        G, demand=demand, capacity=capacity, weight=weight
-    )
-    return flow, True

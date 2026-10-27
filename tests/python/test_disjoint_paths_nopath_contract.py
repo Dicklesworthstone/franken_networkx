@@ -23,13 +23,17 @@ import random
 
 import pytest
 import networkx as nx
+import networkx.algorithms.connectivity.disjoint_paths as nx_disjoint
 from networkx.exception import NetworkXNoPath
 import franken_networkx as fnx
+import franken_networkx.backend as fnx_backend
+import franken_networkx.connectivity as fnx_connectivity
+import franken_networkx.flow as fnx_flow
 
 
-def _outcome(fn, *args):
+def _outcome(fn, *args, **kwargs):
     try:
-        return ("ok", list(fn(*args)))
+        return ("ok", list(fn(*args, **kwargs)))
     except Exception as exc:  # noqa: BLE001 — exception parity is the point
         return ("err", type(exc).__name__, exc.args)
 
@@ -158,3 +162,222 @@ def test_mixed_label_types_keep_networkx_order():
         for s in NG:
             for t in NG:
                 _assert_same(G, NG, s, t)
+
+
+_DISJOINT_APIS = ["edge_disjoint_paths", "node_disjoint_paths"]
+_DISJOINT_GRAPH_TYPES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+_DISJOINT_FLOW_SOLVERS = [
+    "edmonds_karp", "shortest_augmenting_path", "preflow_push",
+    "dinitz", "boykov_kolmogorov",
+]
+
+
+def _optional_disjoint_pair(graph_type):
+    source = ("source",)
+    edges = [
+        (source, "a"), (source, 3), (source, ("middle",)), (source, "sink"),
+        ("a", "sink"), (3, "sink"), (("middle",), "sink"),
+        ("a", 3), (3, "a"), (("middle",), "a"), ("a", "a"),
+        (source, "dead"), ("dead", "stuck"),
+    ]
+    graphs = (getattr(fnx, graph_type)(), getattr(nx, graph_type)())
+    for graph in graphs:
+        graph.add_nodes_from([
+            source, "a", 3, ("middle",), "sink", "isolated", "dead", "stuck",
+        ])
+        graph.add_edges_from(edges)
+        if graph.is_multigraph():
+            graph.add_edges_from([(source, "a"), (3, "sink")])
+    return graphs
+
+
+def _forbid_disjoint_delegation(*args, **kwargs):
+    raise AssertionError("optional disjoint paths must use owned auxiliary flow")
+
+
+def _block_disjoint_delegation(monkeypatch):
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _forbid_disjoint_delegation)
+    for name in _DISJOINT_APIS:
+        monkeypatch.setattr(nx, name, _forbid_disjoint_delegation)
+        monkeypatch.setattr(nx_disjoint, name, _forbid_disjoint_delegation)
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("graph_type", _DISJOINT_GRAPH_TYPES)
+@pytest.mark.parametrize("solver_name", _DISJOINT_FLOW_SOLVERS)
+@pytest.mark.parametrize("cutoff", [None, 1, 2.5])
+def test_owned_disjoint_paths_keep_solver_specific_path_sequence(
+    monkeypatch, name, graph_type, solver_name, cutoff
+):
+    actual, reference = _optional_disjoint_pair(graph_type)
+    expected = _outcome(
+        getattr(nx, name), reference, ("source",), "sink", cutoff=cutoff,
+        flow_func=getattr(nx.algorithms.flow, solver_name),
+    )
+    _block_disjoint_delegation(monkeypatch)
+    assert _outcome(
+        getattr(fnx, name), actual, ("source",), "sink", cutoff=cutoff,
+        flow_func=getattr(fnx_flow, solver_name),
+    ) == expected
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiGraph"])
+@pytest.mark.parametrize("cutoff", [-1, 0, 0.5, 2.5, 20, float("inf"), float("nan"), "2"])
+def test_owned_disjoint_default_cutoff_outcomes(
+    monkeypatch, name, graph_type, cutoff
+):
+    actual, reference = _optional_disjoint_pair(graph_type)
+    expected = _outcome(
+        getattr(nx, name), reference, ("source",), "sink", cutoff=cutoff
+    )
+    _block_disjoint_delegation(monkeypatch)
+    assert _outcome(
+        getattr(fnx, name), actual, ("source",), "sink", cutoff=cutoff
+    ) == expected
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("graph_type", _DISJOINT_GRAPH_TYPES)
+@pytest.mark.parametrize("callback_name", ["custom", "preflow_push", "shortest_augmenting_path"])
+def test_owned_disjoint_callbacks_reuse_auxiliary_residual_and_exact_options(
+    monkeypatch, name, graph_type, callback_name
+):
+    actual, reference = _optional_disjoint_pair(graph_type)
+    builder = (
+        "build_auxiliary_node_connectivity" if name == "node_disjoint_paths"
+        else "build_auxiliary_edge_connectivity"
+    )
+    auxiliary = getattr(fnx_connectivity, builder)(actual)
+    oracle_auxiliary = getattr(nx.algorithms.connectivity, builder)(reference)
+    residual = fnx_flow.build_residual_network(auxiliary, "capacity")
+    oracle_residual = nx.algorithms.flow.build_residual_network(
+        oracle_auxiliary, "capacity"
+    )
+    marker = object()
+    residual.graph["caller_marker"] = marker
+    edge_order = list(residual.edges())
+    edge = edge_order[0]
+    held_attrs = residual[edge[0]][edge[1]]
+    actual_calls, expected_calls = [], []
+
+    def actual_solver(graph, source, target, **kwargs):
+        actual_calls.append((graph, source, target, dict(kwargs)))
+        return fnx_flow.edmonds_karp(graph, source, target, **kwargs)
+
+    def oracle_solver(graph, source, target, **kwargs):
+        expected_calls.append((graph, source, target, dict(kwargs)))
+        return nx.algorithms.flow.edmonds_karp(graph, source, target, **kwargs)
+
+    actual_solver.__name__ = oracle_solver.__name__ = callback_name
+    pairs = [(("source",), "sink"), ("a", "sink"), (3, "sink")]
+    expected = [
+        _outcome(
+            getattr(nx, name), reference, source, target, flow_func=oracle_solver,
+            cutoff=2, auxiliary=oracle_auxiliary, residual=oracle_residual,
+        )
+        for source, target in pairs
+    ]
+    _block_disjoint_delegation(monkeypatch)
+    for (source, target), expected_paths in zip(pairs, expected):
+        before = len(actual_calls)
+        result = getattr(fnx, name)(
+            actual, source, target, flow_func=actual_solver, cutoff=2,
+            auxiliary=auxiliary, residual=residual,
+        )
+        assert len(actual_calls) == before
+        assert _outcome(lambda: result) == expected_paths
+        assert len(actual_calls) == before + 1
+    assert len(actual_calls) == len(expected_calls) == len(pairs)
+    for actual_call, expected_call in zip(actual_calls, expected_calls):
+        assert actual_call[0] is auxiliary
+        assert actual_call[1:3] == expected_call[1:3]
+        assert actual_call[3]["residual"] is residual
+        assert {k: v for k, v in actual_call[3].items() if k != "residual"} == {
+            k: v for k, v in expected_call[3].items() if k != "residual"
+        }
+    assert residual.graph["caller_marker"] is marker
+    assert list(residual.edges()) == edge_order
+    assert residual[edge[0]][edge[1]] is held_attrs
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("graph_type", _DISJOINT_GRAPH_TYPES)
+@pytest.mark.parametrize("source,target", [
+    (("source",), ("source",)), ("isolated", "isolated"),
+    (("source",), "isolated"), ("outside", "sink"), (("source",), "outside"),
+])
+def test_owned_disjoint_optional_endpoint_errors_remain_lazy(
+    monkeypatch, name, graph_type, source, target
+):
+    actual, reference = _optional_disjoint_pair(graph_type)
+    expected = _outcome(
+        getattr(nx, name), reference, source, target, cutoff=1
+    )
+    _block_disjoint_delegation(monkeypatch)
+    paths = getattr(fnx, name)(actual, source, target, cutoff=1)
+    assert iter(paths) is paths
+    assert _outcome(lambda: paths) == expected
+
+
+@pytest.mark.parametrize("damage", ["absent", "none", "empty", "missing_split_node", "missing_id"])
+def test_owned_node_disjoint_rejects_invalid_auxiliary_like_oracle(monkeypatch, damage):
+    actual, reference = _optional_disjoint_pair("DiGraph")
+    auxiliary = fnx_connectivity.build_auxiliary_node_connectivity(actual)
+    oracle_auxiliary = nx.algorithms.connectivity.build_auxiliary_node_connectivity(reference)
+    for graph in (auxiliary, oracle_auxiliary):
+        if damage == "absent":
+            del graph.graph["mapping"]
+        elif damage == "none":
+            graph.graph["mapping"] = None
+        elif damage == "empty":
+            graph.graph["mapping"] = {}
+        elif damage == "missing_split_node":
+            graph.graph["mapping"][("source",)] = "missing"
+        else:
+            index = graph.graph["mapping"][("source",)]
+            del graph.nodes[f"{index}B"]["id"]
+    expected = _outcome(
+        nx.node_disjoint_paths, reference, ("source",), "sink", auxiliary=oracle_auxiliary
+    )
+    _block_disjoint_delegation(monkeypatch)
+    assert _outcome(
+        fnx.node_disjoint_paths, actual, ("source",), "sink", auxiliary=auxiliary
+    ) == expected
+
+
+def test_owned_edge_disjoint_custom_residual_cycle_through_source(monkeypatch):
+    edges = [
+        ("s", "a"), ("a", "b"), ("b", "s"),
+        ("s", "t"), ("s", "u"), ("u", "t"),
+    ]
+    actual, reference = fnx.DiGraph(edges), nx.DiGraph(edges)
+    auxiliary = fnx_connectivity.build_auxiliary_edge_connectivity(actual)
+    oracle_auxiliary = nx.algorithms.connectivity.build_auxiliary_edge_connectivity(reference)
+    residual = fnx_flow.build_residual_network(auxiliary, "capacity")
+    oracle_residual = nx.algorithms.flow.build_residual_network(oracle_auxiliary, "capacity")
+    for graph in (residual, oracle_residual):
+        for _, _, attrs in graph.edges(data=True):
+            attrs["flow"] = 0
+        for source, target in edges:
+            graph[source][target]["flow"] = 1
+            graph[target][source]["flow"] = -1
+        graph.graph["flow_value"] = 2
+
+    def circulation(graph, source, target, **kwargs):
+        return kwargs["residual"]
+
+    expected = _outcome(
+        nx.edge_disjoint_paths, reference, "s", "t", flow_func=circulation,
+        auxiliary=oracle_auxiliary, residual=oracle_residual,
+    )
+    assert expected[0] == "ok"
+    assert len(expected[1]) == 2
+    assert any(path.count("s") > 1 for path in expected[1])
+    _block_disjoint_delegation(monkeypatch)
+    assert _outcome(
+        fnx.edge_disjoint_paths, actual, "s", "t", flow_func=circulation,
+        auxiliary=auxiliary, residual=residual,
+    ) == expected
+
+

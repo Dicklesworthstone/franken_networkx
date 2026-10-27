@@ -74,6 +74,10 @@ def girth(G, *, backend=None, **backend_kwargs):
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "arbitrary_element", "pairwise"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_cycles, name)
     except AttributeError as exc:

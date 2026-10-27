@@ -452,32 +452,35 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
 def _spanning_tree_from_edges(G, edges):
     """networkx's spanning-tree construction: ``G.__class__()``, G's graph and
     node data, then the spanning edges in the order given."""
-    T = G.__class__()
+    cls = (
+        G.__class__
+        if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+        else _concrete_class_for(G)
+    )
+    T = cls()
     if G.graph:
         T.graph.update(dict(G.graph))
-    T.add_nodes_from(G.nodes(data=True))
-    T.add_edges_from(edges)
+    T.add_nodes_from((n, dict(d)) for n, d in G.nodes(data=True))
+    if T.is_multigraph():
+        T.add_edges_from((u, v, k, dict(d)) for u, v, k, d in edges)
+    else:
+        T.add_edges_from((u, v, dict(d)) for u, v, d in edges)
     return T
 
 
 def _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
-    """br-r37-c1-nhz31: private helper keeps the public
-    ``minimum_spanning_tree`` classified as PY_WRAPPER in the
-    coverage matrix.
-    """
-    nx_result = _nx.minimum_spanning_tree(
-        _networkx_graph_for_parity(G),
-        weight=weight,
-        algorithm=algorithm,
-        ignore_nan=ignore_nan,
-        backend="networkx",
+    """Build the minimum spanning tree in-process from minimum_spanning_edges."""
+    edges = list(
+        minimum_spanning_edges(
+            G,
+            algorithm=algorithm,
+            weight=weight,
+            keys=True,
+            data=True,
+            ignore_nan=ignore_nan,
+        )
     )
-    from franken_networkx.readwrite import _from_nx_graph
-    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
-        create_using = type(G)()
-    else:
-        create_using = None
-    return _from_nx_graph(nx_result, create_using=create_using)
+    return _spanning_tree_from_edges(G, edges)
 
 
 def _mst_has_weight_edge_attr(G, weight):
@@ -583,23 +586,18 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
 
 
 def _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
-    """br-r37-c1-nhz31: private helper keeps the public
-    ``maximum_spanning_tree`` classified as PY_WRAPPER in the
-    coverage matrix.
-    """
-    nx_result = _nx.maximum_spanning_tree(
-        _networkx_graph_for_parity(G),
-        weight=weight,
-        algorithm=algorithm,
-        ignore_nan=ignore_nan,
-        backend="networkx",
+    """Build the maximum spanning tree in-process from maximum_spanning_edges."""
+    edges = list(
+        maximum_spanning_edges(
+            G,
+            algorithm=algorithm,
+            weight=weight,
+            keys=True,
+            data=True,
+            ignore_nan=ignore_nan,
+        )
     )
-    from franken_networkx.readwrite import _from_nx_graph
-    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
-        create_using = type(G)()
-    else:
-        create_using = None
-    return _from_nx_graph(nx_result, create_using=create_using)
+    return _spanning_tree_from_edges(G, edges)
 
 
 def _greedy_color_structural_nx(G, strategy, interchange):
@@ -626,7 +624,9 @@ def _greedy_color_structural_nx(G, strategy, interchange):
         _raise_translated_networkx_exception(exc)
 
 
-def greedy_color(G, strategy="largest_first", interchange=False):
+def greedy_color(
+    G, strategy="largest_first", interchange=False, *, backend=None, **backend_kwargs
+):
     """Color a graph using various greedy strategies.
 
     Parameters
@@ -645,6 +645,7 @@ def greedy_color(G, strategy="largest_first", interchange=False):
     dict
         Dictionary mapping nodes to colors (integers starting at 0).
     """
+    _validate_backend_dispatch_keywords("greedy_color", backend, backend_kwargs)
     # br-r37-c1-gr1ct: materialize SubgraphView so the Rust shortcut
     # sees the filtered nodes/edges (view family).
     G = _coerce_arg_to_fnx_graph(G)

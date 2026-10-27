@@ -54,6 +54,10 @@ def lowest_common_ancestor(
 
 
 def __getattr__(name):
+    if name in ("not_implemented_for", "arbitrary_element"):
+        from franken_networkx import utils as _fnx_utils
+
+        return getattr(_fnx_utils, name)
     try:
         return getattr(_nx_lca, name)
     except AttributeError as exc:

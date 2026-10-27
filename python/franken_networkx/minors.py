@@ -89,34 +89,58 @@ def quotient_graph(
 def contracted_nodes(G, u, v, self_loops=True, copy=True, *, store_contraction_as="contraction", backend=None, **backend_kwargs):
     """Return the graph with nodes u and v contracted.
 
-    Wraps ``networkx.algorithms.minors.contracted_nodes``. ``copy=False``
+    Routes to ``franken_networkx.contracted_nodes``. ``copy=False``
     preserves NetworkX's in-place return identity; copy-producing calls convert
     the result to an fnx graph type for drop-in compatibility.
     """
-    _fnx._validate_backend_dispatch_keywords("contracted_nodes", backend, backend_kwargs)
-    nx_result = _nx_minors.contracted_nodes(G, u, v, self_loops=self_loops, copy=copy, store_contraction_as=store_contraction_as)
-    return _convert_contraction_result(nx_result, copy=copy)
+    result = _fnx.contracted_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+    return _convert_contraction_result(result, copy=copy)
 
 
 def contracted_edge(G, edge, self_loops=True, copy=True, *, store_contraction_as="contraction", backend=None, **backend_kwargs):
     """Return the graph with the specified edge contracted.
 
-    Wraps ``networkx.algorithms.minors.contracted_edge``. ``copy=False``
+    Routes to ``franken_networkx.contracted_edge``. ``copy=False``
     preserves NetworkX's in-place return identity; copy-producing calls convert
     the result to an fnx graph type for drop-in compatibility.
     """
-    _fnx._validate_backend_dispatch_keywords("contracted_edge", backend, backend_kwargs)
-    nx_result = _nx_minors.contracted_edge(G, edge, self_loops=self_loops, copy=copy, store_contraction_as=store_contraction_as)
-    return _convert_contraction_result(nx_result, copy=copy)
+    result = _fnx.contracted_edge(
+        G,
+        edge,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+    return _convert_contraction_result(result, copy=copy)
 
 
 def identified_nodes(G, u, v, self_loops=True, copy=True, *, store_contraction_as="contraction", backend=None, **backend_kwargs):
     """Return the graph with nodes u and v identified (contracted).
 
-    Wraps ``networkx.algorithms.minors.identified_nodes``. ``copy=False``
+    Routes to ``franken_networkx.identified_nodes``. ``copy=False``
     preserves NetworkX's in-place return identity; copy-producing calls convert
     the result to an fnx graph type for drop-in compatibility.
     """
-    _fnx._validate_backend_dispatch_keywords("identified_nodes", backend, backend_kwargs)
-    nx_result = _nx_minors.identified_nodes(G, u, v, self_loops=self_loops, copy=copy, store_contraction_as=store_contraction_as)
-    return _convert_contraction_result(nx_result, copy=copy)
+    result = _fnx.identified_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+    return _convert_contraction_result(result, copy=copy)
+

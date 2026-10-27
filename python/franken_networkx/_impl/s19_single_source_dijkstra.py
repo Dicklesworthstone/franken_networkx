@@ -1350,22 +1350,45 @@ def _edgelist_native_writer_preserves_node_labels(G):
     return not any(isinstance(node, str) for node in G.nodes())
 
 
+def _open_path_and_call(path, mode, fn):
+    """Open path (str/Path, supporting .gz/.gzip/.bz2) or use file-like object."""
+    import bz2 as _bz2
+    import gzip as _gzip
+    import os as _os
+    import pathlib as _pathlib
+
+    if isinstance(path, str):
+        ext = _os.path.splitext(path)[1]
+    elif isinstance(path, _pathlib.Path):
+        ext = path.suffix
+        path = str(path)
+    else:
+        return fn(path)
+
+    if ext in (".gz", ".gzip"):
+        fobj = _gzip.open(path, mode=mode)
+    elif ext == ".bz2":
+        fobj = _bz2.BZ2File(path, mode=mode)
+    else:
+        fobj = open(path, mode=mode)
+    try:
+        return fn(fobj)
+    finally:
+        fobj.close()
+
+
 def _write_edgelist_generate_fast(G, path, delimiter, data, encoding):
     # br-cc-wredge-genfast: string/tuple-labelled graphs bail the native
     # `_rust_write_edgelist` and previously fell to `_write_edgelist_via_nx`,
     # which pays a full `_to_nx(G)` conversion (0.27x vs nx). fnx's own
     # `generate_edgelist` is a WIN and byte-identical to networkx's, and
     # `nx.write_edgelist` is exactly this loop over it — so drive that loop
-    # directly, skipping the conversion. `open_file` matches nx's filename-or-
-    # file-object contract (byte-exact 48/48 incl. directed + mixed attrs).
-    from networkx.utils import open_file as _open_file
-
-    @_open_file(1, mode="wb")
-    def _emit(G, path):
+    # directly, skipping the conversion.
+    def _emit(fobj):
         for line in generate_edgelist(G, delimiter, data):
-            path.write((line + "\n").encode(encoding))
+            fobj.write((line + "\n").encode(encoding))
 
-    _emit(G, path)
+    _open_path_and_call(path, "wb", _emit)
 
 
 def _write_adjlist_generate_fast(G, path, comments, delimiter, encoding):
@@ -1376,10 +1399,7 @@ def _write_adjlist_generate_fast(G, path, comments, delimiter, encoding):
     import sys
     import time
 
-    from networkx.utils import open_file as _open_file
-
-    @_open_file(1, mode="wb")
-    def _emit(G, path):
+    def _emit(fobj):
         pargs = comments + " ".join(sys.argv) + "\n"
         header = (
             pargs
@@ -1388,66 +1408,25 @@ def _write_adjlist_generate_fast(G, path, comments, delimiter, encoding):
             + comments
             + f" {G.name}\n"
         )
-        path.write(header.encode(encoding))
+        fobj.write(header.encode(encoding))
         for line in generate_adjlist(G, delimiter):
-            path.write((line + "\n").encode(encoding))
+            fobj.write((line + "\n").encode(encoding))
 
-    _emit(G, path)
+    _open_path_and_call(path, "wb", _emit)
 
 
 def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"):
-    """Write a graph as a list of edges.
-
-    The default surface uses either the Rust-native writer (simple graphs) or the
-    exact local generate/write loop. Non-default formatting kwargs and non-bool
-    ``data`` delegate to NetworkX so their public semantics remain exact.
-    """
-    if comments == "#" and delimiter == " " and encoding == "utf-8":
-        if data is False:
-            # br-r37-c1-04z53.9187: omitting attrs needs only the exact local
-            # generate/write loop; converting the whole graph through `_to_nx`
-            # made real output-heavy jobs lose increasingly badly with size.
-            return _write_edgelist_generate_fast(G, path, delimiter, data, encoding)
-        if data is not True:
-            return _write_edgelist_via_nx(
-                G,
-                path,
-                comments=comments,
-                delimiter=delimiter,
-                data=data,
-                encoding=encoding,
-            )
-        # br-r37-c1-ton6l: the multigraph half of br-r37-c1-04z53.9187.
-        # That lever removed the `_to_nx(G)` conversion for SIMPLE graphs only -
-        # 570.136ms to 30.158ms on a real n=10k export - and left
-        # `not G.is_multigraph()` on the outer gate, so every multigraph export
-        # still paid the whole-graph conversion for output networkx produces from
-        # a plain loop. nx's `write_edgelist` is that loop for EVERY class:
-        #
-        #     for line in generate_edgelist(G, delimiter, data):
-        #         path.write((line + "\n").encode(encoding))
-        #
-        # and fnx's `generate_edgelist` is byte-identical to networkx's for the
-        # multigraph classes - verified over 96 class x data-spelling x delimiter
-        # combinations, and as WRITTEN BYTES for both bool spellings, after
-        # br-r37-c1-5xl85 fixed the missing-key divergence found doing exactly
-        # this check. So the conversion buys nothing here either.
-        #
-        # The NATIVE writer stays simple-graph-only: it has no parallel-edge key
-        # handling, and nothing about this change asks it to grow one. It writes
-        # each edge's own dict where it has one and the stored attributes
-        # otherwise - kept in insertion order since br-r37-c1-6hyf1, so an edge
-        # with several attributes no longer needs the generate path
-        # (br-r37-c1-x5l4x).
-        if not G.is_multigraph() and _edgelist_native_writer_preserves_node_labels(G):
-            return _rust_write_edgelist(G, path)
-        # br-cc-wredge-genfast: default-args string/tuple-node graphs no longer
-        # pay the _to_nx(G) conversion in _write_edgelist_via_nx — drive nx's
-        # exact write loop over fnx's fast, byte-identical generate_edgelist.
-        return _write_edgelist_generate_fast(G, path, delimiter, data, encoding)
-    return _write_edgelist_via_nx(
-        G, path, comments=comments, delimiter=delimiter, data=data, encoding=encoding
-    )
+    """Write a graph as a list of edges."""
+    if (
+        comments == "#"
+        and delimiter == " "
+        and encoding == "utf-8"
+        and data is True
+        and not G.is_multigraph()
+        and _edgelist_native_writer_preserves_node_labels(G)
+    ):
+        return _rust_write_edgelist(G, path)
+    return _write_edgelist_generate_fast(G, path, delimiter, data, encoding)
 
 
 _EDGELIST_LINE_SKIP = object()

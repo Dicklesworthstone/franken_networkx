@@ -332,6 +332,140 @@ def _tracemin_fiedler_pcg(L, X, normalized, tol):
     return sigma[0], np.asarray(X)[:, 0]
 
 
+def _spectral_preprocess_graph(G, weight):
+    if G.is_directed():
+        H = MultiGraph()
+        H.add_nodes_from(G)
+        H.add_weighted_edges_from(
+            ((u, v, e.get(weight, 1.0)) for u, v, e in G.edges(data=True) if u != v),
+            weight=weight,
+        )
+        G = H
+    if not G.is_multigraph():
+        edges = (
+            (u, v, abs(e.get(weight, 1.0))) for u, v, e in G.edges(data=True) if u != v
+        )
+    else:
+        edges = (
+            (u, v, sum(abs(e.get(weight, 1.0)) for e in G[u][v].values()))
+            for u, v in G.edges()
+            if u != v
+        )
+    H = Graph()
+    H.add_nodes_from(G)
+    H.add_weighted_edges_from((u, v, e) for u, v, e in edges if e != 0)
+    return H
+
+
+def _spectral_rcm_estimate(G, nodelist):
+    import numpy as np
+
+    sub = G.subgraph(nodelist)
+    order = reverse_cuthill_mckee_ordering(sub)
+    n = len(nodelist)
+    index = dict(zip(nodelist, range(n)))
+    x = np.ndarray(n, dtype=float)
+    for i, u in enumerate(order):
+        x[index[u]] = i
+    x -= (n - 1) / 2.0
+    return x
+
+
+def _spectral_tracemin_fiedler_lu(L, X, normalized, tol):
+    import numpy as np
+    import scipy as sp
+
+    n = X.shape[0]
+    if normalized:
+        e = np.sqrt(L.diagonal())
+        D = sp.sparse.dia_array((1 / e, 0), shape=(n, n)).tocsr()
+        L = D @ L @ D
+        e *= 1.0 / np.linalg.norm(e, 2)
+
+        def project(X_arr):
+            X_arr = np.asarray(X_arr)
+            for j in range(X_arr.shape[1]):
+                X_arr[:, j] -= (X_arr[:, j] @ e) * e
+    else:
+        def project(X_arr):
+            X_arr = np.asarray(X_arr)
+            for j in range(X_arr.shape[1]):
+                X_arr[:, j] -= X_arr[:, j].sum() / n
+
+    A = sp.sparse.csc_array(L, dtype=float, copy=True)
+    i = (A.indptr[1:] - A.indptr[:-1]).argmax()
+    A[i, i] = np.inf
+    lu = sp.sparse.linalg.splu(
+        A,
+        permc_spec="MMD_AT_PLUS_A",
+        diag_pivot_thresh=0.0,
+        options={"Equil": True, "SymmetricMode": True},
+    )
+
+    Lnorm = abs(L).sum(axis=1).flatten().max()
+    project(X)
+    W = np.ndarray(X.shape, order="F")
+
+    while True:
+        X = np.linalg.qr(X)[0]
+        W[:, :] = L @ X
+        H = X.T @ W
+        sigma, Y = sp.linalg.eigh(H, overwrite_a=True)
+        X = X @ Y
+        res = sp.linalg.blas.dasum(W @ Y[:, 0] - sigma[0] * X[:, 0]) / Lnorm
+        if res < tol:
+            break
+        B = np.asarray(X)
+        for j in range(B.shape[1]):
+            W[:, j] = lu.solve(B[:, j])
+        X = (sp.linalg.inv(W.T @ X) @ W.T).T
+        project(X)
+
+    return sigma[0], np.asarray(X)[:, 0]
+
+
+def _spectral_get_fiedler_func(method):
+    import numpy as np
+
+    if method == "tracemin":
+        method = "tracemin_pcg"
+    if method in ("tracemin_pcg", "tracemin_lu"):
+        def find_fiedler(L, x, normalized, tol, seed):
+            q = 1 if method == "tracemin_pcg" else min(4, L.shape[0] - 1)
+            X = np.asarray(seed.normal(size=(q, L.shape[0]))).T
+            if method == "tracemin_pcg":
+                return _tracemin_fiedler_pcg(L, X, normalized, tol)
+            return _spectral_tracemin_fiedler_lu(L, X, normalized, tol)
+    elif method in ("lanczos", "lobpcg"):
+        def find_fiedler(L, x, normalized, tol, seed):
+            import scipy as sp
+
+            L = sp.sparse.csc_array(L, dtype=float)
+            n = L.shape[0]
+            if normalized:
+                D = sp.sparse.dia_array(
+                    (1.0 / np.sqrt(L.diagonal()), 0), shape=(n, n)
+                ).tocsc()
+                L = D @ L @ D
+            if method == "lanczos" or n < 10:
+                sigma, X = sp.sparse.linalg.eigsh(
+                    L, 2, which="SM", tol=tol, return_eigenvectors=True
+                )
+                return sigma[1], X[:, 1]
+            X = np.asarray(np.atleast_2d(x).T)
+            M = sp.sparse.dia_array((1.0 / L.diagonal(), 0), shape=(n, n)).tocsr()
+            Y = np.ones(n)
+            if normalized:
+                Y /= D.diagonal()
+            sigma, X = sp.sparse.linalg.lobpcg(
+                L, X, M=M, Y=np.atleast_2d(Y).T, tol=tol, maxiter=n, largest=False
+            )
+            return sigma[0], X[:, 0]
+    else:
+        raise NetworkXError(f"unknown method {method!r}.")
+    return find_fiedler
+
+
 def _spectral_ordering_inproc(
     G,
     weight="weight",
@@ -340,33 +474,29 @@ def _spectral_ordering_inproc(
     method="tracemin_pcg",
     seed=None,
 ):
-    try:
-        seed = _numpy_random_state(seed)
-        if len(G) == 0:
-            raise NetworkXError("graph is empty.")
-        import numpy as np
-        import networkx.linalg.algebraicconnectivity as ac
+    seed = _numpy_random_state(seed)
+    if len(G) == 0:
+        raise NetworkXError("graph is empty.")
+    import numpy as np
 
-        G_prep = ac._preprocess_graph(G, weight)
-        find_fiedler = ac._get_fiedler_func(method)
-        order = []
-        for component in connected_components(G_prep):
-            size = len(component)
-            if size > 2:
-                L = laplacian_matrix(G_prep, component)
-                if method in ("tracemin_pcg", "tracemin"):
-                    X = np.asarray(seed.normal(size=(1, L.shape[0]))).T
-                    sigma, fiedler = _tracemin_fiedler_pcg(L, X, normalized, tol)
-                else:
-                    x = None if method != "lobpcg" else ac._rcm_estimate(G_prep, component)
-                    sigma, fiedler = find_fiedler(L, x, normalized, tol, seed)
-                sort_info = zip(fiedler, range(size), component)
-                order.extend(u for x, c, u in sorted(sort_info))
+    G_prep = _spectral_preprocess_graph(G, weight)
+    find_fiedler = _spectral_get_fiedler_func(method)
+    order = []
+    for component in connected_components(G_prep):
+        size = len(component)
+        if size > 2:
+            L = laplacian_matrix(G_prep, component)
+            if method in ("tracemin_pcg", "tracemin"):
+                X = np.asarray(seed.normal(size=(1, L.shape[0]))).T
+                sigma, fiedler = _tracemin_fiedler_pcg(L, X, normalized, tol)
             else:
-                order.extend(component)
-        return order
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+                x = None if method != "lobpcg" else _spectral_rcm_estimate(G_prep, component)
+                sigma, fiedler = find_fiedler(L, x, normalized, tol, seed)
+            sort_info = zip(fiedler, range(size), component)
+            order.extend(u for x, c, u in sorted(sort_info))
+        else:
+            order.extend(component)
+    return order
 
 
 def spectral_ordering(
@@ -376,18 +506,12 @@ def spectral_ordering(
     tol=1e-08,
     method="tracemin_pcg",
     seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
-    """Return nodes ordered by the Fiedler vector (spectral bisection ordering).
-
-    br-r37-c1-xiqgr: the local fiedler_vector + argsort path picked
-    the eigenvector with whichever sign scipy's eigensolver returned,
-    which differed from nx's choice on many graphs (giving e.g.
-    [4,3,2,1,0] instead of nx's [0,1,2,3,4] on a path graph). The
-    Fiedler vector is sign-ambiguous so both are mathematically
-    valid, but drop-in code comparing the ordering to nx's reference
-    broke. Delegate to nx so the chosen sign + tie-break match
-    exactly.
-    """
+    """Return nodes ordered by the Fiedler vector (spectral bisection ordering)."""
+    _validate_backend_dispatch_keywords("spectral_ordering", backend, backend_kwargs)
     return _spectral_ordering_inproc(
         G,
         weight=weight,
@@ -1449,7 +1573,9 @@ def binomial_tree(n, create_using=None):
     return G
 
 
-def complete_bipartite_graph(n1, n2, create_using=None):
+def complete_bipartite_graph(
+    n1, n2, create_using=None, *, backend=None, **backend_kwargs
+):
     """Return the complete bipartite graph K_(n1,n2).
 
     br-bipartiteattr: the Rust fast path omitted the per-node
@@ -1459,6 +1585,9 @@ def complete_bipartite_graph(n1, n2, create_using=None):
     partitions. Always take the Python path so these parity-critical
     attributes are set.
     """
+    _validate_backend_dispatch_keywords(
+        "complete_bipartite_graph", backend, backend_kwargs
+    )
     n1_value, top = _nodes_or_number_local(n1)
     n2_value, bottom = _nodes_or_number_local(n2)
 
@@ -1469,10 +1598,8 @@ def complete_bipartite_graph(n1, n2, create_using=None):
     if isinstance(n1_value, _numbers.Integral) and isinstance(n2_value, _numbers.Integral):
         bottom = [n1_value + i for i in bottom]
 
-    for node in top:
-        G.add_node(node, bipartite=0)
-    for node in bottom:
-        G.add_node(node, bipartite=1)
+    G.add_nodes_from((node, {"bipartite": 0}) for node in top)
+    G.add_nodes_from((node, {"bipartite": 1}) for node in bottom)
     if len(G) != len(top) + len(bottom):
         raise NetworkXError("Inputs n1 and n2 must contain distinct nodes")
     G.add_edges_from((u, v) for u in top for v in bottom)

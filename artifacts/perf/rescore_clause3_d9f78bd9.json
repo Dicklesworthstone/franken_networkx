@@ -1,0 +1,84 @@
+{
+  "bead_id": "br-r37-c1-d4xot",
+  "capture_path": "artifacts/perf/claim_incumbent_full_d9f78bd9.json",
+  "capture_sha256": "fa4975227c817efb7f12264f3d61845e0ae4744c4c05bc671f4c796affceaa10",
+  "current_summary": {
+    "decidable_count": 25,
+    "decidable_loses": 3,
+    "decidable_wins": 22,
+    "vetoed_count": 2
+  },
+  "decision": "KEEP_CURRENT_GATE_UNCHANGED: all three candidate variants admit 2 WIN and 0 LOSE (because all 3 suite losses already clear current MAX_NULL_MEDIAN_BIAS=0.02), so per the br-r37-c1-d4xot integrity predicate any change is rejected as a win-only loosening.",
+  "fnx_so_sha256": "d9f78bd90f5218d7c0d96e93421be3dbbffbe45188527a18734a185e73eaa19a",
+  "schema": "fnx-rescore-clause3-report-v1",
+  "total_rows": 27,
+  "usable_rows": 27,
+  "variants": {
+    "ci": {
+      "newly_undecidable": [],
+      "newly_undecidable_count": 0,
+      "previously_vetoed_now_decidable": [
+        {
+          "label": "claim/minimum_branching n=800 m=4000 seed=11 weights=1..20 directed=True [nx/fnx]",
+          "outcome": "WIN",
+          "ratio_p50": 4.697429638823214
+        },
+        {
+          "label": "claim/read_multiline_adjlist source_n=1200 source_m=6000 source_seed=11 input=path then=sorted(edges) [nx/fnx]",
+          "outcome": "WIN",
+          "ratio_p50": 4.109113043806043
+        }
+      ],
+      "previously_vetoed_now_decidable_count": 2,
+      "previously_vetoed_now_decidable_loses": 0,
+      "previously_vetoed_now_decidable_wins": 2,
+      "rows_rescored": 27,
+      "unchanged": 25,
+      "variant": "ci"
+    },
+    "pooled": {
+      "newly_undecidable": [],
+      "newly_undecidable_count": 0,
+      "previously_vetoed_now_decidable": [
+        {
+          "label": "claim/minimum_branching n=800 m=4000 seed=11 weights=1..20 directed=True [nx/fnx]",
+          "outcome": "WIN",
+          "ratio_p50": 4.697429638823214
+        },
+        {
+          "label": "claim/read_multiline_adjlist source_n=1200 source_m=6000 source_seed=11 input=path then=sorted(edges) [nx/fnx]",
+          "outcome": "WIN",
+          "ratio_p50": 4.109113043806043
+        }
+      ],
+      "previously_vetoed_now_decidable_count": 2,
+      "previously_vetoed_now_decidable_loses": 0,
+      "previously_vetoed_now_decidable_wins": 2,
+      "rows_rescored": 27,
+      "unchanged": 25,
+      "variant": "pooled"
+    },
+    "relative": {
+      "newly_undecidable": [],
+      "newly_undecidable_count": 0,
+      "previously_vetoed_now_decidable": [
+        {
+          "label": "claim/minimum_branching n=800 m=4000 seed=11 weights=1..20 directed=True [nx/fnx]",
+          "outcome": "WIN",
+          "ratio_p50": 4.697429638823214
+        },
+        {
+          "label": "claim/read_multiline_adjlist source_n=1200 source_m=6000 source_seed=11 input=path then=sorted(edges) [nx/fnx]",
+          "outcome": "WIN",
+          "ratio_p50": 4.109113043806043
+        }
+      ],
+      "previously_vetoed_now_decidable_count": 2,
+      "previously_vetoed_now_decidable_loses": 0,
+      "previously_vetoed_now_decidable_wins": 2,
+      "rows_rescored": 27,
+      "unchanged": 25,
+      "variant": "relative"
+    }
+  }
+}

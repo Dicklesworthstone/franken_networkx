@@ -1208,72 +1208,100 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     )
 
 
-def tree_isomorphism(t1, t2, *, backend=None, **backend_kwargs):
-    """Return an isomorphism mapping between two trees t1 and t2.
+def _root_trees_inproc(t1, root1, t2, root2):
+    dT = DiGraph()
+    newroot1 = 1
+    newroot2 = t1.number_of_nodes() + 1
+    namemap1 = {root1: newroot1}
+    namemap2 = {root2: newroot2}
+    dT.add_edge(0, namemap1[root1])
+    dT.add_edge(0, namemap2[root2])
+    for i, (v1, v2) in enumerate(bfs_edges(t1, root1)):
+        namemap1[v2] = i + namemap1[root1] + 1
+        dT.add_edge(namemap1[v1], namemap1[v2])
+    for i, (v1, v2) in enumerate(bfs_edges(t2, root2)):
+        namemap2[v2] = i + namemap2[root2] + 1
+        dT.add_edge(namemap2[v1], namemap2[v2])
+    namemap = {}
+    for old, new in namemap1.items():
+        namemap[new] = old
+    for old, new in namemap2.items():
+        namemap[new] = old
+    return (dT, namemap, newroot1, newroot2)
 
-    br-r37-c1-l6zub: parity with nx.isomorphism.tree_isomorphism.
-    Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
-    """
+
+def tree_isomorphism(t1, t2, *, backend=None, **backend_kwargs):
+    """Return an isomorphism mapping between two trees t1 and t2."""
     _validate_backend_dispatch_keywords(
         "tree_isomorphism",
         backend,
         backend_kwargs,
     )
-    import networkx as nx
-    # br-r37-c1-treeisocheck (cc): nx's tree_isomorphism itself runs is_tree +
-    # faster_could_be_isomorphic (degree-sequence reject) BEFORE the AHU, but the
-    # delegate paid a 2x whole-graph fnx->nx conversion first — even for the
-    # common case of non-isomorphic trees nx rejects in O(n) (39/39 random
-    # distinct trees differ in degree sequence). Do those cheap checks in-process
-    # so non-iso short-circuits without converting. Byte-identical: same
-    # NotATree contract, [] for non-iso (0 fails / 64 pairs + edge cases vs nx),
-    # and the isomorphic-mapping path is unchanged (still the delegate). 0.13x ->
-    # 9.61x on the non-iso path.
+    if t1.is_directed() or t2.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if t1.is_multigraph() or t2.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if not is_tree(t1):
         raise NetworkXError("t1 is not a tree")
     if not is_tree(t2):
         raise NetworkXError("t2 is not a tree")
     if not faster_could_be_isomorphic(t1, t2):
         return []
-    return nx.algorithms.isomorphism.tree_isomorphism(
-        _networkx_graph_for_parity(t1),
-        _networkx_graph_for_parity(t2),
-        backend="networkx",
-    )
+    center1 = center(t1)
+    center2 = center(t2)
+    if len(center1) != len(center2):
+        return []
+    if len(center1) == 1:
+        return rooted_tree_isomorphism(t1, center1[0], t2, center2[0])
+    attempts = rooted_tree_isomorphism(t1, center1[0], t2, center2[0])
+    if len(attempts) > 0:
+        return attempts
+    return rooted_tree_isomorphism(t1, center1[0], t2, center2[1])
 
 
 def rooted_tree_isomorphism(t1, root1, t2, root2, *, backend=None, **backend_kwargs):
-    """Return an isomorphism mapping between rooted trees.
-
-    br-r37-c1-07kwm: parity with nx.isomorphism.rooted_tree_isomorphism.
-    Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
-    """
+    """Return an isomorphism mapping between rooted trees."""
     _validate_backend_dispatch_keywords(
         "rooted_tree_isomorphism",
         backend,
         backend_kwargs,
     )
-    import networkx as nx
-    # br-r37-c1-treeisocheck (cc): cheap in-process pre-reject before the 2x
-    # fnx->nx conversion + AHU (sibling of tree_isomorphism). A rooted iso is an
-    # unrooted iso that maps root->root, so faster_could_be_isomorphic (degree
-    # sequence) is a sound necessary condition; non-iso (different degree seq)
-    # short-circuits without converting. Byte-identical: NotATree contract + []
-    # for non-iso (0 fails vs nx incl varied roots/edge cases); iso-mapping path
-    # unchanged. 0.50x -> 66.62x on the non-iso path.
     if not is_tree(t1):
         raise NetworkXError("t1 is not a tree")
     if not is_tree(t2):
         raise NetworkXError("t2 is not a tree")
     if not faster_could_be_isomorphic(t1, t2):
         return []
-    return nx.algorithms.isomorphism.rooted_tree_isomorphism(
-        _networkx_graph_for_parity(t1),
-        root1,
-        _networkx_graph_for_parity(t2),
-        root2,
-        backend="networkx",
-    )
+    from collections import defaultdict as _defaultdict
+
+    dT, namemap, newroot1, newroot2 = _root_trees_inproc(t1, root1, t2, root2)
+    L = _defaultdict(list)
+    for n, dist in shortest_path_length(dT, source=0).items():
+        L[dist].append(n)
+    h = max(L)
+    label = {v: 0 for v in dT}
+    ordered_labels = {v: () for v in dT}
+    ordered_children = {v: () for v in dT}
+    for i in range(h - 1, 0, -1):
+        for v in L[i]:
+            if dT.out_degree(v) > 0:
+                s = sorted(((label[u], u) for u in dT.successors(v)), reverse=True)
+                ordered_labels[v], ordered_children[v] = list(zip(*s))
+        forlabel = sorted((ordered_labels[v], v) for v in L[i])
+        current = 0
+        for idx, (ol, v) in enumerate(forlabel):
+            if idx != 0 and ol != forlabel[idx - 1][0]:
+                current += 1
+            label[v] = current
+    isomorphism = []
+    if label[newroot1] == 0 and label[newroot2] == 0:
+        stack = [(newroot1, newroot2)]
+        while stack:
+            curr_v, curr_w = stack.pop()
+            isomorphism.append((curr_v, curr_w))
+            stack.extend(zip(ordered_children[curr_v], ordered_children[curr_w]))
+        isomorphism = [(namemap[u], namemap[v]) for (u, v) in isomorphism]
+    return isomorphism
 
 
 
@@ -1318,6 +1346,174 @@ _ISOMORPHISM_MATCHER_HELPERS = (
 
 
 def _build_isomorphism_module():
+    from itertools import permutations as _iso_permutations
+
+    def _iso_copyfunc(f, name=None):
+        return _types.FunctionType(
+            f.__code__, f.__globals__, name or f.__name__, f.__defaults__, f.__closure__
+        )
+
+    def _iso_allclose(x, y, rtol=1.0000000000000001e-05, atol=1e-08):
+        return all(
+            _math.isclose(xi, yi, rel_tol=rtol, abs_tol=atol) for xi, yi in zip(x, y)
+        )
+
+    def categorical_node_match(attr, default):
+        if isinstance(attr, str):
+
+            def match(data1, data2):
+                return data1.get(attr, default) == data2.get(attr, default)
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(data1, data2):
+                return all(data1.get(attr, d) == data2.get(attr, d) for attr, d in attrs)
+
+        return match
+
+    categorical_edge_match = _iso_copyfunc(
+        categorical_node_match, "categorical_edge_match"
+    )
+
+    def categorical_multiedge_match(attr, default):
+        if isinstance(attr, str):
+
+            def match(datasets1, datasets2):
+                values1 = {data.get(attr, default) for data in datasets1.values()}
+                values2 = {data.get(attr, default) for data in datasets2.values()}
+                return values1 == values2
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(datasets1, datasets2):
+                values1 = set()
+                for data1 in datasets1.values():
+                    x = tuple(data1.get(attr, d) for attr, d in attrs)
+                    values1.add(x)
+                values2 = set()
+                for data2 in datasets2.values():
+                    x = tuple(data2.get(attr, d) for attr, d in attrs)
+                    values2.add(x)
+                return values1 == values2
+
+        return match
+
+    def numerical_node_match(attr, default, rtol=1.0000000000000001e-05, atol=1e-08):
+        if isinstance(attr, str):
+
+            def match(data1, data2):
+                return _math.isclose(
+                    data1.get(attr, default),
+                    data2.get(attr, default),
+                    rel_tol=rtol,
+                    abs_tol=atol,
+                )
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(data1, data2):
+                values1 = [data1.get(attr, d) for attr, d in attrs]
+                values2 = [data2.get(attr, d) for attr, d in attrs]
+                return _iso_allclose(values1, values2, rtol=rtol, atol=atol)
+
+        return match
+
+    numerical_edge_match = _iso_copyfunc(numerical_node_match, "numerical_edge_match")
+
+    def numerical_multiedge_match(
+        attr, default, rtol=1.0000000000000001e-05, atol=1e-08
+    ):
+        if isinstance(attr, str):
+
+            def match(datasets1, datasets2):
+                values1 = sorted(data.get(attr, default) for data in datasets1.values())
+                values2 = sorted(data.get(attr, default) for data in datasets2.values())
+                return _iso_allclose(values1, values2, rtol=rtol, atol=atol)
+
+        else:
+            attrs = list(zip(attr, default))
+
+            def match(datasets1, datasets2):
+                values1 = []
+                for data1 in datasets1.values():
+                    x = tuple(data1.get(attr, d) for attr, d in attrs)
+                    values1.append(x)
+                values2 = []
+                for data2 in datasets2.values():
+                    x = tuple(data2.get(attr, d) for attr, d in attrs)
+                    values2.append(x)
+                values1.sort()
+                values2.sort()
+                for xi, yi in zip(values1, values2):
+                    if not _iso_allclose(xi, yi, rtol=rtol, atol=atol):
+                        return False
+                else:
+                    return True
+
+        return match
+
+    def generic_node_match(attr, default, op):
+        if isinstance(attr, str):
+
+            def match(data1, data2):
+                return op(data1.get(attr, default), data2.get(attr, default))
+
+        else:
+            attrs = list(zip(attr, default, op))
+
+            def match(data1, data2):
+                for attr, d, operator in attrs:
+                    if not operator(data1.get(attr, d), data2.get(attr, d)):
+                        return False
+                else:
+                    return True
+
+        return match
+
+    generic_edge_match = _iso_copyfunc(generic_node_match, "generic_edge_match")
+
+    def generic_multiedge_match(attr, default, op):
+        if isinstance(attr, str):
+            attr = [attr]
+            default = [default]
+            op = [op]
+        attrs = list(zip(attr, default))
+
+        def match(datasets1, datasets2):
+            values1 = []
+            for data1 in datasets1.values():
+                x = tuple(data1.get(attr, d) for attr, d in attrs)
+                values1.append(x)
+            values2 = []
+            for data2 in datasets2.values():
+                x = tuple(data2.get(attr, d) for attr, d in attrs)
+                values2.append(x)
+            for vals2 in _iso_permutations(values2):
+                for xi, yi in zip(values1, vals2):
+                    if not all(map(lambda x, y, z: z(x, y), xi, yi, op)):
+                        break
+                else:
+                    return True
+            else:
+                return False
+
+        return match
+
+    matchers = {
+        "categorical_node_match": categorical_node_match,
+        "categorical_edge_match": categorical_edge_match,
+        "categorical_multiedge_match": categorical_multiedge_match,
+        "generic_node_match": generic_node_match,
+        "generic_edge_match": generic_edge_match,
+        "generic_multiedge_match": generic_multiedge_match,
+        "numerical_node_match": numerical_node_match,
+        "numerical_edge_match": numerical_edge_match,
+        "numerical_multiedge_match": numerical_multiedge_match,
+    }
+
     module = _types.ModuleType(f"{__name__}.isomorphism")
     module.__doc__ = "FrankenNetworkX graph isomorphism API."
     module.__package__ = __name__
@@ -1325,10 +1521,8 @@ def _build_isomorphism_module():
     module.__all__ = all_exports
     for export_name in _ISOMORPHISM_MODULE_EXPORTS:
         setattr(module, export_name, globals()[export_name])
-    # br-r37-c1-4cmv8: isomorphism matcher helpers from nx (not at fnx top-level)
-    from networkx.algorithms import isomorphism as _nx_iso
-    for helper_name in _ISOMORPHISM_MATCHER_HELPERS:
-        setattr(module, helper_name, getattr(_nx_iso, helper_name))
+    for helper_name, helper_fn in matchers.items():
+        setattr(module, helper_name, helper_fn)
     return module
 
 
@@ -1338,24 +1532,15 @@ _sys.modules[f"{__name__}.isomorphism"] = isomorphism
 
 # Tree/Forest Utilities (br-xkr)
 def _junction_tree_nx(G):
-    # br-r37-c1-jtchord / br-r37-c1-hf7zh: the in-process nx clique-graph /
-    # maximum-spanning-tree assembly lives in this private helper so the
-    # public ``junction_tree`` wrapper stays free of direct ``_nx.*``
-    # references (classifier keeps it PY_WRAPPER, not NX_DELEGATED).
     from itertools import combinations
 
-    from franken_networkx.backend import _fnx_to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    clique_graph = _nx.Graph()
+    clique_graph = Graph()
     if G.is_directed():
         G = moral_graph(G)
     chordal_graph, _ = complete_to_chordal_graph(G)
     cliques = [
         tuple(sorted(i))
-        for i in _nx.chordal_graph_cliques(
-            _fnx_to_nx(chordal_graph), backend="networkx"
-        )
+        for i in _chordal_graph_cliques_inprocess(chordal_graph)
     ]
     clique_graph.add_nodes_from(cliques, type="clique")
     for edge in combinations(cliques, 2):
@@ -1366,13 +1551,13 @@ def _junction_tree_nx(G):
             clique_graph.add_edge(
                 edge[0], edge[1], weight=len(sepset), sepset=sepset
             )
-    jt = _nx.maximum_spanning_tree(clique_graph, backend="networkx")
+    jt = maximum_spanning_tree(clique_graph)
     for edge in list(jt.edges(data=True)):
         jt.add_node(edge[2]["sepset"], type="sepset")
         jt.add_edge(edge[0], edge[2]["sepset"])
         jt.add_edge(edge[1], edge[2]["sepset"])
         jt.remove_edge(edge[0], edge[1])
-    return _from_nx_graph(jt)
+    return jt
 
 
 def junction_tree(G):
