@@ -1015,17 +1015,36 @@ def generalized_degree(G, nodes=None):
 
 
 def _all_pairs_node_connectivity_inproc(G, nbunch=None, flow_func=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.connectivity.connectivity.all_pairs_node_connectivity(
-            H,
-            nbunch=nbunch,
-            flow_func=flow_func,
-            backend="networkx",
+    from franken_networkx.connectivity import (
+        build_auxiliary_node_connectivity,
+        local_node_connectivity,
+    )
+    from franken_networkx.flow import build_residual_network, edmonds_karp
+
+    nodes = list(G) if nbunch is None else set(nbunch)
+    result = {node: {} for node in nodes}
+    auxiliary = build_auxiliary_node_connectivity(G)
+    residual = build_residual_network(auxiliary, "capacity")
+    solver = edmonds_karp if flow_func is None else flow_func
+    directed = G.is_directed()
+    pairs = (
+        _itertools.permutations(nodes, 2)
+        if directed
+        else _itertools.combinations(nodes, 2)
+    )
+    for source, target in pairs:
+        value = local_node_connectivity(
+            G,
+            source,
+            target,
+            flow_func=solver,
+            auxiliary=auxiliary,
+            residual=residual,
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+        result[source][target] = value
+        if not directed:
+            result[target][source] = value
+    return result
 
 
 def all_pairs_node_connectivity(
@@ -1044,48 +1063,29 @@ def all_pairs_node_connectivity(
     _validate_flow_func_selector(flow_func)
     # br-r37-c1-1y7h1: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    # Directed graphs: the Rust fast path over-reports connectivity (it
-    # silently treats some anti-parallel / alternate-direction paths as
-    # independent). Concrete reproducer: DiGraph on edges [(0,1),(1,2),
-    # (2,3),(3,0),(0,2)] — local_node_connectivity(3,0)=1 but the
-    # bulk Rust helper emitted 2 for that entry. Delegate directed
-    # inputs to networkx, where local_node_connectivity is correct.
+    # The bulk Rust helper projects onto an undirected graph. Directed inputs
+    # need ordered pairs over the node-split digraph, while a caller's solver
+    # must compute every pair. Reuse one auxiliary and residual graph for both
+    # cases so the callback sees the same graph objects throughout the batch.
     if G.is_directed() or flow_func is not None:
         return _all_pairs_node_connectivity_inproc(
             G,
             nbunch=nbunch,
             flow_func=flow_func,
         )
-    # br-r37-c1-apncnbunch (cc): all_pairs_node_connectivity_rust computes the FULL
-    # O(V^2) pair set regardless of nbunch; for a small nbunch that is hugely wasteful
-    # (a 4-node nbunch on n=120 computed all 7140 pairs -> 2839ms vs nx's 6ms, which runs
-    # only C(k,2) flows on a reused auxiliary graph). Delegate clean small-subset nbunch
-    # to nx; keep the native kernel for the all-pairs / near-full case where its Rust
-    # per-flow speed dominates. Gate on all-in-G so the KeyError contract is unchanged.
-    if nbunch is not None:
-        wanted = set(nbunch)
-        in_g = [n for n in wanted if n in G]
-        if len(in_g) == len(wanted) and len(in_g) <= len(G) // 2:
-            nodes = [node for node in G if node in wanted]
-            if type(G) is Graph:
-                # br-r37-c1-qktr5: run only these C(k, 2) pairs in the native
-                # index kernel. The previous branch crossed the full adjacency
-                # into Python dicts and spent nearly all of its time in the
-                # per-pair Python bidirectional-BFS loop.
-                flat = _fnx.all_pairs_node_connectivity_rust(G, nodes)
-                result = {node: {} for node in nodes}
-                for left, right in _itertools.combinations(nodes, 2):
-                    conn = flat[(left, right)]
-                    result[left][right] = conn
-                    result[right][left] = conn
-                return result
-    flat = _fnx.all_pairs_node_connectivity_rust(G)
-    if nbunch is None:
-        nodes = list(G)
+    # NetworkX normalizes an explicit nbunch to a set, including its iteration
+    # order. Materialize it once: consuming a generator again below previously
+    # made the full/near-full and multigraph routes return an empty result.
+    nodes = list(G) if nbunch is None else list(set(nbunch))
+    if (
+        nbunch is not None
+        and type(G) is Graph
+        and len(nodes) <= len(G) // 2
+        and all(node in G for node in nodes)
+    ):
+        flat = _fnx.all_pairs_node_connectivity_rust(G, nodes)
     else:
-        wanted = set(nbunch)
-        nodes = [node for node in G if node in wanted]
-        nodes.extend(node for node in wanted if node not in G)
+        flat = _fnx.all_pairs_node_connectivity_rust(G)
 
     result = {node: {} for node in nodes}
     missing = object()
