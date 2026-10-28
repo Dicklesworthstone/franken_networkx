@@ -132,3 +132,34 @@ def test_multidigraph_bellman_ford_collapse_cache_invalidation():
     assert fnx.bellman_ford_path_length(mg, "x", "z", weight="weight") == 30.0
     mg["x"]["y"][0]["weight"] = 50.0
     assert fnx.bellman_ford_path_length(mg, "x", "z", weight="weight") == 70.0
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+def test_multigraph_bellman_ford_collapse_cache_hits_on_an_unchanged_graph(graph_class):
+    """The cache above is only worth its invalidation rules if it ever HITS.
+
+    7c93b9d86 (urjxk) added attr_rewrites to the revision token and to the lookup key, but
+    the stores kept the old 3-item key, so for a month every call missed and paid the full
+    collapse (75.3% of bellman_ford_path_length per mg7hw). An unchanged graph must get the
+    very same collapse back; a weight write must not.
+    """
+    from franken_networkx._impl.s19_single_source_dijkstra import (
+        _multigraph_collapse_min_weight_bellman as collapse,
+    )
+
+    g = getattr(fnx, graph_class)()
+    g.add_edge("a", "b", weight=5.0)
+    g.add_edge("a", "b", weight=2.0)
+    g.add_edge("b", "c", weight=1.0)
+
+    first = collapse(g, "weight")
+    assert first[1] is False
+    assert collapse(g, "weight") is first
+
+    # A write through an escaped edge dict raises edge_attrs_dirty, which turns the cache
+    # off for this graph: the collapse is rebuilt and sees the new weight.
+    g["a"]["b"][0]["weight"] = 0.5
+    refreshed = collapse(g, "weight")
+    assert refreshed is not first
+    assert refreshed[0]["a"]["b"]["weight"] == 0.5
+    assert fnx.bellman_ford_path_length(g, "a", "c", weight="weight") == 1.5

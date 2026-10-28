@@ -265,6 +265,9 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
             token = _native_dijkstra_weight_cache_token(G)
         except Exception:
             token = None
+    # One key for the lookup and every store: when urjxk added attr_rewrites to the token,
+    # the lookup took it and the stores did not, so the cache never hit.
+    _cache_key = None
     if token is not None:
         _n_seq, _e_seq, _edge_attrs_dirty, _attr_rewrites = token
         if not _edge_attrs_dirty:
@@ -288,27 +291,27 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
                 int_total += abs(_value)
                 if int_total > 2**53:
                     res = (None, True)
-                    if token is not None and not token[2]:
-                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    if _cache_key is not None:
+                        vars(G)["_fnx_bellman_collapse_cache"] = (_cache_key, res)
                     return res
             elif _vt is float:
                 if _math.isnan(_value) or _math.isinf(_value):
                     res = (None, True)
-                    if token is not None and not token[2]:
-                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    if _cache_key is not None:
+                        vars(G)["_fnx_bellman_collapse_cache"] = (_cache_key, res)
                     return res
             elif not isinstance(_value, bool):
                 if not isinstance(_value, _numbers.Real):
                     res = (None, True)
-                    if token is not None and not token[2]:
-                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    if _cache_key is not None:
+                        vars(G)["_fnx_bellman_collapse_cache"] = (_cache_key, res)
                     return res
                 if isinstance(_value, float) and (
                     _math.isnan(_value) or _math.isinf(_value)
                 ):
                     res = (None, True)
-                    if token is not None and not token[2]:
-                        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+                    if _cache_key is not None:
+                        vars(G)["_fnx_bellman_collapse_cache"] = (_cache_key, res)
                     return res
         _val = _attrs.get(weight, 1)
         # br-r37-c1-3dtn4: a weight whose TYPE cannot survive an f64 kernel
@@ -320,8 +323,8 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
         # nothing.
         if not _sp_weight_type_survives_the_f64_kernel(_val):
             res = (None, True)
-            if token is not None and not token[2]:
-                vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+            if _cache_key is not None:
+                vars(G)["_fnx_bellman_collapse_cache"] = (_cache_key, res)
             return res
         _pair = (_u, _v)
         _cur = best.get(_pair)
@@ -329,8 +332,8 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
             best[_pair] = _val
     simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in best.items())
     res = (simple, False)
-    if token is not None and not token[2]:
-        vars(G)["_fnx_bellman_collapse_cache"] = ((weight, token[0], token[1]), res)
+    if _cache_key is not None:
+        vars(G)["_fnx_bellman_collapse_cache"] = (_cache_key, res)
     return res
 
 
