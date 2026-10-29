@@ -4876,13 +4876,27 @@ def test_isomorphism_match_helpers_only_at_algorithms_isomorphism():
         with pytest.raises(AttributeError, match=fr"has no attribute '{name}'"):
             getattr(nx, name)
 
-    # Namespaced versions still callable factories
+    # The namespaced factories are fnx's own since the isomorphism
+    # de-delegation (91ad35ff4); the matchers they build answer as
+    # networkx's do, mismatches included.
+    import operator
+
+    same, other = {"color": "blue", "w": 1.0}, {"color": "green", "w": 2.0}
+    near = {"color": "blue", "w": 1.0 + 1e-9}
     for name in matchers:
         f = getattr(fnx.algorithms.isomorphism, name)
         n = getattr(nx.algorithms.isomorphism, name)
         assert callable(f)
-        assert callable(n)
-        assert f is n  # fnx.algorithms.isomorphism is nx's module
+        assert f is not n
+        attr, default = ("w", 1.0) if name.startswith("numerical") else ("color", "red")
+        extra = (operator.eq,) if name.startswith("generic") else ()
+        f_match, n_match = f(attr, default, *extra), n(attr, default, *extra)
+        pairs = [(same, same), (same, near), (same, other), (same, {}), ({}, {})]
+        if "multiedge" in name:
+            pairs = [({0: a}, {1: b}) for a, b in pairs]
+        answers = [f_match(a, b) for a, b in pairs]
+        assert answers == [n_match(a, b) for a, b in pairs], name
+        assert True in answers and False in answers, name
 
 
 def test_branching_weight_minimal_branching_only_at_branchings_namespace():
@@ -5701,9 +5715,21 @@ def test_algorithms_submodule_import_paths_match_nx():
 
     assert maximum_flow is fnx_flow_mod.maximum_flow
     assert maximum_flow is not nx_mod.algorithms.flow.maximum_flow
+    # approximation is fnx-native since 4f290de5c: the import path is the
+    # native module's function, and it answers as networkx's does.
     assert (
         min_weighted_vertex_cover
-        is nx_mod.algorithms.approximation.min_weighted_vertex_cover
+        is sys.modules["franken_networkx.approximation"].min_weighted_vertex_cover
+    )
+    assert (
+        min_weighted_vertex_cover
+        is not nx_mod.algorithms.approximation.min_weighted_vertex_cover
+    )
+    fg, ng = fnx.cycle_graph(7), nx_mod.cycle_graph(7)
+    for node in range(7):
+        fg.nodes[node]["w"] = ng.nodes[node]["w"] = (node * 3) % 5 + 1
+    assert min_weighted_vertex_cover(fg, weight="w") == (
+        nx_mod.algorithms.approximation.min_weighted_vertex_cover(ng, weight="w")
     )
     assert (
         branching_weight is nx_mod.algorithms.tree.branchings.branching_weight

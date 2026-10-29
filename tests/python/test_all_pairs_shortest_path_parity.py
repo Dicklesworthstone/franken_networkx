@@ -575,12 +575,14 @@ def test_reverse_all_pairs_empty_and_namespace_routes(graph_type, name):
     function = getattr(fnx, name)
     assert getattr(nx.algorithms, name) is getattr(nx, name)
     assert getattr(unweighted, name) is function
-    assert getattr(fnx.algorithms, name) is function
     assert list(function(getattr(fnx, graph_type)().reverse(copy=False))) == []
     fg, ng = _reverse_all_pairs_graphs(graph_type)
-    assert _reverse_all_pairs_ordered(getattr(unweighted, name)(fg.reverse(copy=False))) == (
-        _reverse_all_pairs_ordered(getattr(nx, name)(ng.reverse(copy=False)))
-    )
+    expected = _reverse_all_pairs_ordered(getattr(nx, name)(ng.reverse(copy=False)))
+    assert _reverse_all_pairs_ordered(getattr(unweighted, name)(fg.reverse(copy=False))) == expected
+    # fnx.algorithms.X routes to fnx.X at call time rather than being it, so
+    # that patching fnx.X reaches it too (br-r37-c1-9r8xg's routing test); it
+    # must answer the same (br-r37-c1-7jhpr).
+    assert _reverse_all_pairs_ordered(getattr(fnx.algorithms, name)(fg.reverse(copy=False))) == expected
 
 
 @pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
