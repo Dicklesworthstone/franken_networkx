@@ -176,39 +176,7 @@ def test_unhashable_key_is_a_typeerror_not_a_keyerror(cls_name, key):
 # --------------------------------------------------------- filtered atlases
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        "Graph",
-        "DiGraph",
-        pytest.param(
-            "MultiGraph",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-2ndmw: k4nsd's FilterAtlas wording was never "
-                "mirrored to the multigraph subgraph row — fnx raises "
-                "KeyError('s1') where nx raises KeyError('Key s1 not found'). "
-                "PRE-EXISTING: reproduced identically against unmodified HEAD, "
-                "so it is not the existence-probe change. The multigraph "
-                "subgraph row reaches AdjacencyView.__getitem__ with owner=None "
-                "and an atlas that is itself a nested Python AdjacencyView, so "
-                "BOTH signals _missing_node_key_error decides on "
-                "(_graph_is_filtered / _atlas_is_filtered) read False. Fixing it "
-                "means threading the filtered signal through that construction, "
-                "which is a separate change from this one.",
-            ),
-        ),
-        pytest.param(
-            "MultiDiGraph",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-2ndmw: see MultiGraph — same lost filtered "
-                "signal on the multigraph subgraph row, same pre-existing "
-                "reproduction against unmodified HEAD.",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 def test_subgraph_view_cells_agree_including_the_filtered_absent_wording(cls_name):
     """br-r37-c1-k4nsd: a filtered atlas raises nx's own FilterAtlas wording,
     which the probe change must not flatten to a bare key.
