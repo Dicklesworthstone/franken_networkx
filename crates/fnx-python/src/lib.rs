@@ -3165,6 +3165,60 @@ pub(crate) fn attr_dict_is_batch_lossless(d: &Bound<'_, PyDict>) -> bool {
         .all(|(k, v)| k.is_exact_instance_of::<PyString>() && attr_value_is_batch_lossless(&v))
 }
 
+/// Check a live mirror against the native store without allocating another
+/// snapshot or invoking Python equality/conversion callbacks. Dict subclasses
+/// cannot observe explicit base-dict mutations, so their write hooks alone are
+/// insufficient proof that cached native attributes remain authoritative.
+///
+/// Compare key order as well as exact scalar types and values. In particular,
+/// bool/int and signed zero must not compare equal here; NaN and values that
+/// cannot round-trip losslessly always leave the Python mirror authoritative.
+pub(crate) fn attr_dict_matches_store(dict: &Bound<'_, PyDict>, stored: Option<&AttrMap>) -> bool {
+    let Some(stored) = stored else {
+        return false;
+    };
+    if dict.len() != stored.len() {
+        return false;
+    }
+    dict.iter()
+        .zip(stored)
+        .all(|((key, value), (stored_key, stored_value))| {
+            if !key
+                .downcast_exact::<PyString>()
+                .is_ok_and(|key| key.to_str().is_ok_and(|key| key == stored_key.as_str()))
+            {
+                return false;
+            }
+            match stored_value {
+                CgseValue::Bool(expected) => {
+                    value.is_exact_instance_of::<PyBool>()
+                        && value
+                            .extract::<bool>()
+                            .is_ok_and(|actual| actual == *expected)
+                }
+                CgseValue::Int(expected) => {
+                    value.is_exact_instance_of::<PyInt>()
+                        && value
+                            .extract::<i64>()
+                            .is_ok_and(|actual| actual == *expected)
+                }
+                CgseValue::Float(expected) => {
+                    value.downcast_exact::<PyFloat>().is_ok_and(|actual| {
+                        !actual.value().is_nan() && actual.value().to_bits() == expected.to_bits()
+                    })
+                }
+                CgseValue::String(expected) => {
+                    value.downcast_exact::<PyString>().is_ok_and(|actual| {
+                        actual
+                            .to_str()
+                            .is_ok_and(|actual| actual == expected.as_str())
+                    })
+                }
+                CgseValue::Map(_) => false,
+            }
+        })
+}
+
 fn attr_value_is_batch_lossless(v: &Bound<'_, PyAny>) -> bool {
     v.is_exact_instance_of::<PyBool>()
         || v.downcast_exact::<PyFloat>()
@@ -4185,14 +4239,16 @@ impl<'py> AttrKeyStrings<'py> {
 /// d["weight"] = 5` - and that write runs no exposure site. A sync used to
 /// lift `edges_dirty` and trust the store again, so every native read after
 /// such a write computed on the old weights. The graph's edge attr dicts are
-/// `_EdgeAttrDict`s that report their writes to this graph's `EdgeAttrWatch`;
-/// `refresh_edges_dirty` turns the reported dicts back into dirty edges before
-/// any reader trusts the store, in O(1) when nothing was written.
+/// `_EdgeAttrDict`s that report their writes to this graph's `EdgeAttrWatch`.
+/// Explicit base-dict mutators bypass those reports, so `refresh_edges_dirty`
+/// also compares materialized mirrors with the existing typed store before a
+/// reader trusts it. This is O(materialized attributes), with no extra retained
+/// snapshots; graphs without edge mirrors retain their O(1) check.
 ///
-/// (An identity snapshot of every escaped dict, checked before each read, was
-/// built first and rejected: the check is O(escaped dicts), memory-bound, and
-/// one public call runs several readers - weighted dijkstra on 50k escaped
-/// edges went 8 ms -> 42 ms.)
+/// A public operation can perform several freshness checks. This scan is a
+/// correctness cost of observing unhooked writes through real Python dicts;
+/// it does not retain the hook-only path's constant-time checks once mirrors
+/// are materialized, even when their contents are unchanged.
 pub(crate) struct EdgeAttrWrites {
     watch: pyo3::sync::PyOnceLock<Py<EdgeAttrWatch>>,
     /// br-r37-c1-1rouu: per-graph slotless `_EdgeAttrDict` subclass with
@@ -4210,6 +4266,10 @@ pub(crate) struct EdgeAttrWrites {
     /// bulk paths), which set items through the C-level dict API and so run
     /// no `_EdgeAttrDict` mutator.
     native_writes: u64,
+    /// Freshness reads for mirrors whose writes cannot be fully observed.
+    /// Explicit `dict.__setitem__` and the other base-dict mutators bypass
+    /// `_EdgeAttrDict`, so a cached copy cannot reuse a write-only epoch.
+    untracked_reads: std::sync::atomic::AtomicU64,
     /// Tracks `nodes_seq` when every node ever added to this graph was an exact
     /// Python `int` or `str`.
     pub(crate) exact_int_or_str_nodes_seq: u64,
@@ -4223,6 +4283,7 @@ impl Default for EdgeAttrWrites {
             created_count: AtomicUsize::new(0),
             rewrites: 0,
             native_writes: 0,
+            untracked_reads: std::sync::atomic::AtomicU64::new(0),
             exact_int_or_str_nodes_seq: 0,
         }
     }
@@ -4284,6 +4345,22 @@ impl EdgeAttrWrites {
                 .load(std::sync::atomic::Ordering::Relaxed)
         });
         noted.wrapping_add(self.native_writes)
+    }
+
+    /// A cache token for an attribute snapshot. Dirty mirrors cannot be cached;
+    /// after synchronization, the rewrite count carries an unhooked write into
+    /// the next clean token even if no snapshot read saw the dirty state.
+    pub(crate) fn snapshot_epoch(&self, py: Python<'_>, untracked: bool) -> u64 {
+        let reads = if untracked {
+            self.untracked_reads
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_add(1)
+        } else {
+            self.untracked_reads.load(Ordering::Relaxed)
+        };
+        self.epoch(py)
+            .wrapping_add(self.rewrites)
+            .wrapping_add(reads)
     }
 
     /// A new, empty attr dict for an edge of this graph that reports its writes
@@ -5746,22 +5823,20 @@ impl PyGraph {
         *self.exposed_edges.lock().unwrap() = None;
     }
 
-    /// br-r37-c1-urjxk: mark the edges whose escaped attr dicts were written
-    /// since the last call (see `EdgeAttrWrites`).
+    /// Revalidate whether the native attribute store can be trusted.
     ///
-    /// A clean flag, or a narrow escape scope, was trusted until the next
-    /// exposure site ran, but a caller that kept a dict writes it without one.
-    /// Every reader that trusts the store calls this first. Nothing written is
-    /// one lock and an emptiness test; each written dict is marked as a single
-    /// exposed edge, so a narrow scope stays narrow and its readers take that
-    /// edge's live dict.
+    /// A real Python dict remains writable through `dict.__setitem__`,
+    /// `dict.update`, etc., without invoking `_EdgeAttrDict`'s hooks. Bulk
+    /// handouts also need not populate `exposed_edges`. Verify every mirror
+    /// against the native store and include changed or non-lossless mirrors in
+    /// the exposure scope. Unchanged scalar mirrors remain on the clean path;
+    /// a graph without mirrors pays no attribute scan at all.
     pub(crate) fn refresh_edges_dirty(&self, py: Python<'_>) {
         let written = self.edge_attr_writes.take_written(py);
-        if written.is_empty() {
-            return;
-        }
         for ((u, v), dict) in &self.edge_py_attrs {
-            if written.contains(&(dict.as_ptr() as usize)) {
+            if written.contains(&(dict.as_ptr() as usize))
+                || !attr_dict_matches_store(dict.bind(py), self.inner.edge_attrs(u, v))
+            {
                 self.mark_edge_exposed_by_name(u, v);
             }
         }
@@ -8946,7 +9021,12 @@ impl PyMultiGraph {
     }
 
     pub(crate) fn refresh_edges_dirty(&self, py: Python<'_>) {
-        if !self.edge_attr_writes.take_written(py).is_empty() {
+        if !self.edge_attr_writes.take_written(py).is_empty()
+            || (!self.edge_mirrors_stale
+                && self.edge_py_attrs.iter().any(|((u, v, key), dict)| {
+                    !attr_dict_matches_store(dict.bind(py), self.inner.edge_attrs(u, v, *key))
+                }))
+        {
             self.mark_edges_dirty();
         }
     }
@@ -20992,11 +21072,9 @@ impl PyGraph {
     /// preserves the same persistent dirty-edge semantics while leaving full
     /// node+edge sync available for callers that need node attributes.
     ///
-    /// br-r37-c1-urjxk: writes reported by the escaped dicts are collected
-    /// first, and the flag is lifted only when every escaped dict reports its
-    /// writes to this graph - one that does not (a dict another graph shares,
-    /// or one a build path made plain) could be written unseen, so the store is
-    /// not trusted while it escaped.
+    /// Lossless dictionaries may become clean after synchronization because
+    /// every subsequent freshness check compares their contents with the store,
+    /// including writes that bypassed the Python mutator hooks.
     fn _fnx_sync_edge_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
         self.refresh_edges_dirty(py);
         if !self.edges_dirty.load(Ordering::Relaxed) {

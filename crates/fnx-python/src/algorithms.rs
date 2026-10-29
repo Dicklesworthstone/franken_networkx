@@ -5355,20 +5355,36 @@ pub fn dijkstra_weight_cache_token(
     }
 }
 
-/// br-r37-c1-u9a13: a number that moves on every write of `g`'s edge
-/// attributes - through any of its attr dicts, held or fresh, or natively -
-/// and on nothing else (`EdgeAttrWrites::epoch`). What a cache of a copy of
-/// `g`'s attributes keys on.
+/// Freshness token for a cached copy of `g`'s edge attributes. Python mirrors
+/// are revalidated against the store, and dirty snapshots have a
+/// volatile token. Clean snapshots include the rewrite counter so a base-dict
+/// write followed by synchronization cannot revive an older cached copy.
 #[pyfunction]
 #[pyo3(signature = (g))]
 pub fn edge_attr_epoch(g: &Bound<'_, PyAny>) -> PyResult<u64> {
     let py = g.py();
     let gr = extract_graph(g)?;
     Ok(match &gr {
-        GraphRef::Undirected(pg) => pg.edge_attr_writes.epoch(py),
-        GraphRef::Directed { dg, .. } => dg.edge_attr_writes.epoch(py),
-        GraphRef::MultiUndirected { mg, .. } => mg.edge_attr_writes.epoch(py),
-        GraphRef::MultiDirected { mdg, .. } => mdg.edge_attr_writes.epoch(py),
+        GraphRef::Undirected(pg) => {
+            pg.refresh_edges_dirty(py);
+            pg.edge_attr_writes
+                .snapshot_epoch(py, pg.edges_dirty.load(Ordering::Relaxed))
+        }
+        GraphRef::Directed { dg, .. } => {
+            dg.refresh_edges_dirty(py);
+            dg.edge_attr_writes
+                .snapshot_epoch(py, dg.edges_dirty.load(Ordering::Relaxed))
+        }
+        GraphRef::MultiUndirected { mg, .. } => {
+            mg.refresh_edges_dirty(py);
+            mg.edge_attr_writes
+                .snapshot_epoch(py, mg.edges_dirty.load(Ordering::Relaxed))
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            mdg.refresh_edges_dirty(py);
+            mdg.edge_attr_writes
+                .snapshot_epoch(py, mdg.edges_dirty.load(Ordering::Relaxed))
+        }
     })
 }
 

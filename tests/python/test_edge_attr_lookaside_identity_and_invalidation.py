@@ -306,3 +306,212 @@ def test_a_dict_handed_out_by_nbunch_is_watched_by_weighted_reads(class_name):
         lengths.append(lib.shortest_path_length(graph, 0, 12, weight="weight"))
     unwritten = nx.shortest_path_length(reference, 0, 12, weight="weight")
     assert lengths[0] == lengths[1] != unwritten
+
+
+BYPASS_CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+
+
+def _bypass_graph(module, class_name, weight="weight"):
+    graph = getattr(module, class_name)()
+    graph.add_edges_from(
+        [(0, 1, {"other": 7, weight: 2}), (1, 2, {weight: 2}), (0, 2, {weight: 5})]
+    )
+    graph.add_nodes_from(range(3, 12))
+    return graph
+
+
+def _held_edge(graph, accessor):
+    if accessor == "adjacency":
+        return graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+    if accessor == "edge_subscript":
+        return graph.edges[0, 1, 0] if graph.is_multigraph() else graph.edges[0, 1]
+    if accessor == "get_edge_data":
+        return graph.get_edge_data(0, 1, 0) if graph.is_multigraph() else graph.get_edge_data(0, 1)
+    if accessor == "whole_edge_view":
+        rows = graph.edges(data=True)
+    elif accessor == "small_nbunch":
+        rows = graph.edges([0], data=True)
+    else:
+        rows = graph.edges(list(range(12)), data=True)
+    return next(attrs for u, v, attrs in rows if (u, v) == (0, 1))
+
+
+def _bypass_write(attrs, operation, weight):
+    if operation == "setitem":
+        dict.__setitem__(attrs, weight, 9)
+    elif operation == "update":
+        dict.update(attrs, {weight: 9})
+    elif operation == "ior":
+        dict.__ior__(attrs, {weight: 9})
+    elif operation == "init":
+        dict.__init__(attrs, {weight: 9})
+    elif operation == "setdefault":
+        dict.pop(attrs, weight)
+        dict.setdefault(attrs, weight, 9)
+    elif operation == "delitem":
+        dict.__delitem__(attrs, weight)
+    elif operation == "pop":
+        dict.pop(attrs, weight)
+    elif operation == "popitem":
+        assert dict.popitem(attrs)[0] == weight
+    else:
+        dict.clear(attrs)
+
+
+def _weighted_answers(module, graph, weight):
+    return (
+        module.shortest_path_length(graph, 0, 2, weight=weight),
+        module.dijkstra_path(graph, 0, 2, weight=weight),
+        module.bellman_ford_path_length(graph, 0, 2, weight=weight),
+        module.single_source_dijkstra_path_length(graph, 0, weight=weight),
+        dict(graph.degree(weight=weight)),
+        graph.size(weight=weight),
+        module.dijkstra_path_length(graph.copy(), 0, 2, weight=weight),
+    )
+
+
+@pytest.mark.parametrize("class_name", BYPASS_CLASSES)
+@pytest.mark.parametrize("weight", ["weight", "cost"])
+@pytest.mark.parametrize(
+    "accessor",
+    ["adjacency", "edge_subscript", "get_edge_data", "whole_edge_view", "small_nbunch", "large_nbunch"],
+)
+@pytest.mark.parametrize(
+    "operation", ["setitem", "update", "ior", "init", "setdefault", "delitem", "pop", "popitem", "clear"]
+)
+def test_base_dict_mutations_reach_weighted_reads(class_name, weight, accessor, operation):
+    """Every dict handout remains live even when a caller bypasses its hooks."""
+    outcomes = []
+    for module in (fnx, nx):
+        graph = _bypass_graph(module, class_name, weight)
+        attrs = _held_edge(graph, accessor)
+        before = _weighted_answers(module, graph, weight)
+        _bypass_write(attrs, operation, weight)
+        after = _weighted_answers(module, graph, weight)
+        assert before[0] != after[0], "the mutation must change the shortest path"
+
+        # A second mutation of the SAME dict, after the first weighted reads
+        # synchronized the store, must not revive the previous cached weights.
+        dict.__setitem__(attrs, weight, 4)
+        repeated = _weighted_answers(module, graph, weight)
+        outcomes.append((before, after, repeated))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("class_name", BYPASS_CLASSES)
+@pytest.mark.parametrize("sync_before_read", [False, True])
+def test_base_dict_writes_invalidate_materialized_view_caches(class_name, sync_before_read):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = _bypass_graph(module, class_name)
+        attrs = _held_edge(graph, "whole_edge_view")
+        view = graph.subgraph([0, 1, 2])
+        rows = [module.dijkstra_path_length(view, 0, 2)]
+        for value in (9, 1, 7):
+            dict.__setitem__(attrs, "weight", value)
+            if sync_before_read and module is fnx:
+                graph._fnx_sync_edge_attrs_to_inner()
+            rows.append(module.dijkstra_path_length(view, 0, 2))
+        outcomes.append(rows)
+    assert outcomes[0] == outcomes[1] == [4, 5, 3, 5]
+
+
+@pytest.mark.parametrize("class_name", BYPASS_CLASSES)
+def test_base_dict_writes_invalidate_sparse_and_pagerank_caches(class_name):
+    pytest.importorskip("scipy")
+    graphs = [_bypass_graph(module, class_name) for module in (fnx, nx)]
+    held = [_held_edge(graph, "whole_edge_view") for graph in graphs]
+    for value in (2, 9, 1, 7):
+        arrays = []
+        ranks = []
+        for module, graph, attrs in zip((fnx, nx), graphs, held):
+            dict.update(attrs, {"weight": value})
+            arrays.append(module.to_scipy_sparse_array(graph, nodelist=[0, 1, 2]).toarray().tolist())
+            ranks.append(module.pagerank(graph, tol=1e-12, max_iter=1000))
+        assert arrays[0] == arrays[1]
+        assert ranks[0] == pytest.approx(ranks[1], abs=1e-13, rel=1e-13)
+
+
+@pytest.mark.parametrize("class_name", BYPASS_CLASSES)
+def test_scalar_mirrors_remain_clean_until_a_real_bypassed_change(class_name):
+    graph = _bypass_graph(fnx, class_name)
+    native = fnx._fnx
+    graph._fnx_sync_edge_attrs_to_inner()
+    clean = native.dijkstra_weight_cache_token(graph)
+    assert not clean[2]
+    attrs = _held_edge(graph, "whole_edge_view")
+    assert not native.dijkstra_weight_cache_token(graph)[2]
+    epoch = native.edge_attr_epoch(graph)
+    assert native.edge_attr_epoch(graph) == epoch
+
+    dict.__setitem__(attrs, "weight", 9)
+    assert native.dijkstra_weight_cache_token(graph)[2]
+    graph._fnx_sync_edge_attrs_to_inner()
+    assert not native.dijkstra_weight_cache_token(graph)[2]
+    assert native.edge_attr_epoch(graph) != epoch
+    assert fnx.dijkstra_path_length(graph, 0, 2) == 5
+
+
+@pytest.mark.parametrize("class_name", BYPASS_CLASSES)
+@pytest.mark.parametrize("change", ["int_to_float", "int_to_bool", "key_order", "negative_zero"])
+def test_mirror_validation_checks_types_order_and_signed_zero(class_name, change):
+    graph = _bypass_graph(fnx, class_name)
+    attrs = _held_edge(graph, "get_edge_data")
+    if change == "negative_zero":
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, key=0, weight=0.0)
+        else:
+            graph.add_edge(0, 1, weight=0.0)
+    elif change == "int_to_bool":
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, key=0, other=1)
+        else:
+            graph.add_edge(0, 1, other=1)
+    graph._fnx_sync_edge_attrs_to_inner()
+    assert not fnx._fnx.dijkstra_weight_cache_token(graph)[2]
+    if change == "int_to_float":
+        dict.__setitem__(attrs, "weight", 2.0)
+    elif change == "int_to_bool":
+        dict.__setitem__(attrs, "other", True)
+    elif change == "key_order":
+        dict.__setitem__(attrs, "other", dict.pop(attrs, "other"))
+    else:
+        dict.__setitem__(attrs, "weight", -0.0)
+    assert fnx._fnx.dijkstra_weight_cache_token(graph)[2]
+    graph._fnx_sync_edge_attrs_to_inner()
+    # Native AttrMap equality ignores insertion order and the sign of zero,
+    # so its replacement shortcut cannot represent these two changes. Keep
+    # consulting the authoritative mirror even after a sync in those cases.
+    stays_dirty = change in {"key_order", "negative_zero"}
+    assert fnx._fnx.dijkstra_weight_cache_token(graph)[2] == stays_dirty
+    if stays_dirty:
+        epoch = fnx._fnx.edge_attr_epoch(graph)
+        assert fnx._fnx.edge_attr_epoch(graph) != epoch
+    copied = _held_edge(graph.copy(), "get_edge_data")
+    assert list(copied) == list(attrs)
+    # ubs:ignore[py.comparison.type-equality,py.type-equality] Exact scalar type is the regression contract; isinstance accepts bool as int.
+    assert type(copied["weight"]) is type(attrs["weight"])
+    # ubs:ignore[py.comparison.type-equality,py.type-equality] Exact scalar type is the regression contract; isinstance accepts bool as int.
+    assert type(copied["other"]) is type(attrs["other"])
+    if change == "negative_zero":
+        assert copied["weight"].hex() == "-0x0.0p+0"
+
+
+@pytest.mark.parametrize("class_name", BYPASS_CLASSES)
+def test_mirror_validation_never_calls_custom_numeric_protocols(class_name):
+    class CustomInt(int):
+        def __eq__(self, other):
+            raise AssertionError("freshness validation invoked Python equality")
+
+        def __int__(self):
+            raise AssertionError("freshness validation invoked Python conversion")
+
+        def __float__(self):
+            raise AssertionError("freshness validation invoked Python conversion")
+
+    graph = _bypass_graph(fnx, class_name)
+    attrs = _held_edge(graph, "get_edge_data")
+    dict.__setitem__(attrs, "weight", CustomInt(2))
+    assert fnx._fnx.dijkstra_weight_cache_token(graph)[2]
+    first = fnx._fnx.edge_attr_epoch(graph)
+    assert fnx._fnx.edge_attr_epoch(graph) != first

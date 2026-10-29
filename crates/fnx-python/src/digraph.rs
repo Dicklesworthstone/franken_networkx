@@ -3445,21 +3445,21 @@ impl PyMultiDiGraph {
         *self.edges_data_attr_cache.lock().unwrap() = None;
     }
 
-    /// br-r37-c1-urjxk: mark the edges whose escaped attr dicts were written
-    /// since the last call (see PyGraph's twin). The granular set trusted the
-    /// store for every edge not in it until the next exposure site ran, but a
-    /// caller that kept `d = G[u][v][k]` writes it without one. Each written
-    /// dict is marked on its own key, so the next sync still rewrites just
-    /// those; nothing written is one lock and an emptiness test.
+    /// Mark reported writes and mirrors whose exact contents no longer match
+    /// the store. Base-dict mutators bypass the Python hooks; the granular set
+    /// must include those edges before a sync or cached projection trusts it.
     pub(crate) fn refresh_edges_dirty(&self, py: Python<'_>) {
         let written = self.edge_attr_writes.take_written(py);
-        if written.is_empty() {
-            return;
-        }
         let changed: Vec<(String, String, usize)> = self
             .edge_py_attrs
             .iter()
-            .filter(|(_, dict)| written.contains(&(dict.as_ptr() as usize)))
+            .filter(|((u, v, key), dict)| {
+                written.contains(&(dict.as_ptr() as usize))
+                    || !crate::attr_dict_matches_store(
+                        dict.bind(py),
+                        self.inner.edge_attrs(u, v, *key),
+                    )
+            })
             .map(|((u, v, key), _)| (u.clone(), v.clone(), *key))
             .collect();
         for (u, v, key) in changed {
@@ -14073,12 +14073,15 @@ impl PyDiGraph {
         *self.edges_data_attr_cache.lock().unwrap() = None;
     }
 
-    /// br-r37-c1-urjxk: raise `edges_dirty` when an escaped attr dict was
-    /// written since the last call (see PyGraph's twin). A clean flag was
-    /// trusted until the next exposure site ran, but a caller that kept
-    /// `d = G[u][v]` writes it without one.
+    /// Mirror dictionaries can be mutated through the base `dict` methods,
+    /// bypassing their Python write hooks. Verify their contents against the
+    /// store before trusting a clean flag, as in PyGraph.
     pub(crate) fn refresh_edges_dirty(&self, py: Python<'_>) {
-        if !self.edge_attr_writes.take_written(py).is_empty() {
+        if !self.edge_attr_writes.take_written(py).is_empty()
+            || self.edge_py_attrs.iter().any(|((u, v), dict)| {
+                !crate::attr_dict_matches_store(dict.bind(py), self.inner.edge_attrs(u, v))
+            })
+        {
             self.mark_edges_dirty();
         }
     }
@@ -17472,11 +17475,8 @@ impl PyDiGraph {
     /// mirror and the scipy matrix cache never engaged - DiGraph weighted
     /// pagerank was ~20x slower than undirected Graph.
     ///
-    /// br-r37-c1-urjxk: clearing it assumed a later write re-exposes the dict
-    /// ("a subsequent G[u][v] access re-marks dirty"); a caller holding the dict
-    /// writes it without one. The dicts report their writes, which are
-    /// collected first, and the flag is lifted only when every escaped dict
-    /// reports to this graph.
+    /// Lossless mirrors may become clean because every subsequent native
+    /// freshness check verifies their contents, including unhooked writes.
     fn _fnx_sync_edge_attrs_to_inner(&mut self, py: Python<'_>) -> PyResult<()> {
         self.refresh_edges_dirty(py);
         if !self.edges_dirty.load(Ordering::Relaxed) {
