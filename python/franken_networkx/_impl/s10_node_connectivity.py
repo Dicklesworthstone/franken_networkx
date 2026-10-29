@@ -684,8 +684,13 @@ def harmonic_centrality(
         Dictionary of nodes with harmonic centrality as value.
     """
     _validate_backend_dispatch_keywords("harmonic_centrality", backend, backend_kwargs)
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    # Keep assigned adjacency live while consuming nbunch/sources. The generic
+    # coercer materializes private roots (and their views), which both erases
+    # the private-row guard below and snapshots topology before lazy selections
+    # can change it. The shortest-path helpers already read those rows directly.
+    # Ordinary native graphs and NetworkX inputs retain their existing routes.
+    if not _point_query_uses_private_rows(G):
+        G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-19lrl: harmonic_centrality(G, nbunch=[few]) previously delegated
     # to networkx, paying a full fnx->nx O(V+E) conversion just to run one BFS per

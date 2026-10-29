@@ -847,3 +847,66 @@ def test_harmonic_target_source_batch_private_public_variants(graph_type, kind):
     assert actual["isolated"] == 0 and type(actual["isolated"]) is int
     assert any(score > 0 for score in actual.values()), "positive private rows must be exercised"
     assert not native_calls
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("selection", ["nbunch", "sources"])
+@pytest.mark.parametrize("transposed", [False, True], ids=["forward", "transposed"])
+@pytest.mark.parametrize("as_view", [False, True], ids=["private-root", "private-subgraph"])
+@pytest.mark.parametrize("distance", [None, "distance"], ids=["unweighted", "weighted"])
+def test_harmonic_private_rows_follow_lazy_selection_mutation(
+    graph_type, selection, transposed, as_view, distance
+):
+    """Selection iterables can edit assigned adjacency after harmonic starts.
+
+    Materializing the graph at entry snapshots the old path, even though the
+    generator adds a shorter edge before any traversal should run. Exercise
+    both accumulation directions, including a view rooted in private storage.
+    """
+    graphs, roots = [], []
+    for lib in (fnx, nx):
+        root = getattr(lib, graph_type)([(0, 1), (1, 2), (2, 3)])
+        root.add_node("isolated")
+        rows = {node: {} for node in root}
+        for u, v, length in ((0, 1, 2), (1, 2, 3), (2, 3, 4)):
+            attrs = {"distance": length}
+            edge_data = {0: attrs} if root.is_multigraph() else attrs
+            rows[u][v] = edge_data
+            if not root.is_directed():
+                rows[v][u] = edge_data
+        root._adj = rows
+        if root.is_directed():
+            root._succ = rows
+            pred = {node: {} for node in root}
+            for u, neighbors in rows.items():
+                for v, edge_data in neighbors.items():
+                    pred[v][u] = edge_data
+            root._pred = pred
+        roots.append(root)
+        graphs.append(root.subgraph(list(root)) if as_view else root)
+
+    targets = [3] if transposed else [2, 3, "isolated"]
+    sources = [0, 1, 2, 3] if transposed else [0]
+    options = {"nbunch": targets, "sources": sources, "distance": distance}
+    before = nx.harmonic_centrality(graphs[1], **options)
+
+    def changing_selection(root, nodes):
+        attrs = {"distance": 1}
+        edge_data = {0: attrs} if root.is_multigraph() else attrs
+        root._adj[0][3] = edge_data
+        if root.is_directed():
+            root._pred[3][0] = edge_data
+        else:
+            root._adj[3][0] = edge_data
+        yield from nodes
+
+    answers = []
+    for lib, graph, root in zip((fnx, nx), graphs, roots):
+        lazy_options = dict(options)
+        lazy_options[selection] = changing_selection(root, options[selection])
+        answers.append(lib.harmonic_centrality(graph, **lazy_options))
+    actual, expected = answers
+    assert _centrality_items_exact(actual) == _centrality_items_exact(expected)
+    assert actual[3] > before[3], "the added edge must affect the computed score"
+    if not transposed:
+        assert actual["isolated"] == 0 and type(actual["isolated"]) is int
