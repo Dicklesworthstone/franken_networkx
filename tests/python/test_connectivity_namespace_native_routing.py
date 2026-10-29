@@ -76,3 +76,42 @@ def test_connectivity_values_match_networkx():
     assert len(list(fnx_conn.edge_disjoint_paths(g, 0, 4))) == (
         len(list(nx.edge_disjoint_paths(ng, 0, 4)))
     )
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_default_flow_function_paths_match_networkx(directed):
+    """flow_func=None with a cutoff, an auxiliary digraph or a residual network
+    takes networkx's default, edmonds_karp; it was looked up at fnx's top level,
+    which neither library exports it from, so every such call raised
+    AttributeError (br-r37-c1-7jhpr)."""
+    from networkx.algorithms import connectivity as nx_conn
+    from networkx.algorithms.flow import build_residual_network as nx_residual
+
+    from franken_networkx.flow import build_residual_network as fnx_residual
+
+    edges = [(0, 1), (0, 2), (1, 2), (1, 3), (2, 4), (3, 4), (3, 5), (4, 5), (0, 5)]
+    fg = (fnx.DiGraph if directed else fnx.Graph)(edges)
+    ng = (nx.DiGraph if directed else nx.Graph)(edges)
+    f_node_aux = fnx_conn.build_auxiliary_node_connectivity(fg)
+    n_node_aux = nx_conn.build_auxiliary_node_connectivity(ng)
+    f_edge_aux = fnx_conn.build_auxiliary_edge_connectivity(fg)
+    n_edge_aux = nx_conn.build_auxiliary_edge_connectivity(ng)
+    for cutoff in (1, 2, None):
+        assert fnx_conn.local_node_connectivity(fg, 0, 5, cutoff=cutoff, auxiliary=f_node_aux) == (
+            nx_conn.local_node_connectivity(ng, 0, 5, cutoff=cutoff, auxiliary=n_node_aux)
+        )
+        assert fnx_conn.local_edge_connectivity(fg, 0, 5, cutoff=cutoff, auxiliary=f_edge_aux) == (
+            nx_conn.local_edge_connectivity(ng, 0, 5, cutoff=cutoff, auxiliary=n_edge_aux)
+        )
+    f_cut = fnx_conn.minimum_st_edge_cut(
+        fg, 0, 5, auxiliary=f_edge_aux, residual=fnx_residual(f_edge_aux, "capacity")
+    )
+    n_cut = nx_conn.minimum_st_edge_cut(
+        ng, 0, 5, auxiliary=n_edge_aux, residual=nx_residual(n_edge_aux, "capacity")
+    )
+    assert len(f_cut) == len(n_cut)
+    cut_graph = fg.copy()
+    cut_graph.remove_edges_from(f_cut)
+    assert not fnx.has_path(cut_graph, 0, 5)
+    with pytest.raises(KeyError):
+        fnx_conn.local_node_connectivity(fg, 99, 5, cutoff=1)

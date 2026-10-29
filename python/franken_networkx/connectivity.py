@@ -133,7 +133,11 @@ def local_node_connectivity(
     ):
         return _fnx.node_connectivity(G, s, t)
     if flow_func is None:
-        flow_func = _fnx.edmonds_karp
+        # networkx's default flow function; neither networkx nor fnx exports
+        # edmonds_karp at top level (br-r37-c1-7jhpr).
+        from franken_networkx.flow import edmonds_karp
+
+        flow_func = edmonds_karp
     H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
     mapping = H.graph.get("mapping", None)
     if mapping is None:
@@ -173,7 +177,9 @@ def local_edge_connectivity(
     ):
         return _fnx.edge_connectivity(G, s, t)
     if flow_func is None:
-        flow_func = _fnx.edmonds_karp
+        from franken_networkx.flow import edmonds_karp
+
+        flow_func = edmonds_karp
     H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
     kwargs = {"flow_func": flow_func, "residual": residual}
     if getattr(flow_func, "__name__", None) != "preflow_push":
@@ -276,7 +282,9 @@ def minimum_st_edge_cut(
         )
     else:
         if flow_func is None:
-            flow_func = _fnx.edmonds_karp
+            from franken_networkx.flow import edmonds_karp
+
+            flow_func = edmonds_karp
         _, (reachable, non_reachable) = _fnx.minimum_cut(
             H, s, t, capacity="capacity", flow_func=flow_func, residual=residual
         )
