@@ -894,7 +894,6 @@ def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords(
         "k_clique_communities", backend, backend_kwargs
     )
-    G = _fnx._coerce_arg_to_fnx_graph(G)
 
     from collections import defaultdict
     from itertools import count
@@ -904,15 +903,23 @@ def k_clique_communities(G, k, cliques=None, *, backend=None, **backend_kwargs):
             raise _fnx.NetworkXError(f"k={k}, k must be greater than 1.")
         nonlocal cliques
         if cliques is None:
+            # find_cliques performs graph conversion here, when iteration
+            # starts. Converting at call time snapshots views and NetworkX
+            # inputs before the caller's pending graph edits can take effect.
             unique = [frozenset(c) for c in _fnx.find_cliques(G) if len(c) >= k]
         else:
             unique = list(dict.fromkeys(frozenset(c) for c in cliques if len(c) >= k))
         if not unique:
             return
+        # Counts are integral, so the ordinary float threshold has the same
+        # effect as its ceiling. Keep the original comparison above first:
+        # inf and NaN select no cliques and must not reach ceil(). Exact type
+        # admission avoids invoking custom numeric conversion callbacks.
+        native_k = _math.ceil(k) if type(k) is float else k
         node_id = defaultdict(count().__next__).__getitem__
         clique_nodes = [[node_id(u) for u in c] for c in unique]
         clique_hashes = [hash(c) for c in unique]
-        for comp in _fnx._fnx.k_clique_percolation_components(clique_nodes, clique_hashes, k):
+        for comp in _fnx._fnx.k_clique_percolation_components(clique_nodes, clique_hashes, native_k):
             yield frozenset.union(*(unique[i] for i in comp))
 
     return _gen()

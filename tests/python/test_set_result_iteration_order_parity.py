@@ -186,6 +186,60 @@ def test_k_clique_communities_takes_what_networkx_takes():
         next(communities)
 
 
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("kind", ["native", "networkx", "private-root", "subgraph"])
+@pytest.mark.parametrize("mutation", ["add", "remove"])
+def test_k_clique_communities_reads_graph_when_iteration_starts(cls, kind, mutation):
+    graphs, roots = [], []
+    for lib in (fnx, nx):
+        graph_lib = nx if kind == "networkx" else lib
+        root = getattr(graph_lib, cls)([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4)])
+        if mutation == "remove":
+            root.add_edge(2, 4)
+        if kind == "private-root":
+            rows = {node: {} for node in root}
+            for u, v in root.edges():
+                attrs = {0: {}} if root.is_multigraph() else {}
+                rows[u][v] = rows[v][u] = attrs
+            root._adj = rows
+        roots.append(root)
+        graphs.append(root.subgraph(list(root)) if kind == "subgraph" else root)
+
+    before = set(nx.community.k_clique_communities(graphs[1], 3))
+    actual = fnx.community.k_clique_communities(graphs[0], 3)
+    expected = nx.community.k_clique_communities(graphs[1], 3)
+    for root in roots:
+        if kind == "private-root":
+            if mutation == "add":
+                attrs = {0: {}} if root.is_multigraph() else {}
+                root._adj[2][4] = root._adj[4][2] = attrs
+            else:
+                del root._adj[2][4]
+                del root._adj[4][2]
+        elif mutation == "add":
+            root.add_edge(2, 4)
+        else:
+            root.remove_edge(2, 4)
+
+    wanted = list(expected)
+    assert set(wanted) != before, "the edit must change the community partition"
+    assert _ordered(actual) == _ordered(wanted)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("given_cliques", [False, True])
+@pytest.mark.parametrize("k", [2.0, 2.25, 3.0, 3.75, 4.0, float("inf"), float("nan")])
+def test_k_clique_communities_float_threshold_matches_networkx(cls, given_cliques, k):
+    from itertools import combinations
+
+    cliques = [[0, 1, 2], [2, 3, 4], [2, 4, 5, 6], [4, 5, 6, 7], [10, 11, 12]]
+    edges = [edge for clique in cliques for edge in combinations(clique, 2)]
+    fg, ng = getattr(fnx, cls)(edges), getattr(nx, cls)(edges)
+    options = {"cliques": cliques} if given_cliques else {}
+    expected = _ordered(nx.community.k_clique_communities(ng, k, **options))
+    assert _ordered(fnx.community.k_clique_communities(fg, k, **options)) == expected
+
+
 def test_k_clique_communities_is_not_combinatorial_in_clique_size():
     # One 28-clique, k=14: networkx tests one clique; the (k-1)-subset
     # union-find walked C(28, 13) = 37 million subsets (16 s here).
