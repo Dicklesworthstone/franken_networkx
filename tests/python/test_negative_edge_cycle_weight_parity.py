@@ -128,3 +128,92 @@ def test_negative_edge_cycle_answers_on_every_class(cls, sign, weight):
         except Exception as exc:  # noqa: BLE001 - the raise is the defect
             outcomes[name] = ("raise", type(exc).__name__)
     assert outcomes["fnx"] == outcomes["nx"]
+
+
+# The native search (simple Graph / DiGraph, string weight, numbers the f64
+# search adds exactly) against networkx on random graphs: the answer is a
+# bool, so it must agree whatever detector found it. The directed graphs used
+# to run an in-process SPFA without networkx's early exit (0.12x networkx).
+def _random_twins(seed):
+    import random
+
+    r = random.Random(seed)
+    n = r.choice((5, 12, 40))
+    directed = seed % 3 != 0
+    kind = r.choice(["int", "float", "mixed", "missing", "mostly_positive"])
+
+    def weight():
+        if kind == "int":
+            return r.randint(-3, 9)
+        if kind == "float":
+            return r.choice([-1.5, 0.5, 2.25, 4.0, -0.25])
+        if kind == "mixed":
+            return r.choice([-1, 2.5, 3, -0.5])
+        if kind == "missing":
+            return None if r.random() < 0.5 else r.randint(-1, 5)
+        return r.randint(-1, 20)
+
+    edges = []
+    for _ in range(r.choice((n, 2 * n, 4 * n))):
+        w = weight()
+        edges.append((r.randrange(n), r.randrange(n), {} if w is None else {"weight": w}))
+    graphs = []
+    for lib in (fnx, nx):
+        g = (lib.DiGraph if directed else lib.Graph)()
+        g.add_nodes_from(range(n))
+        g.add_edges_from(edges)
+        graphs.append(g)
+    return graphs
+
+
+@pytest.mark.parametrize("seed", range(120))
+def test_negative_edge_cycle_matches_networkx_on_random_graphs(seed):
+    fg, ng = _random_twins(seed)
+    assert fnx.negative_edge_cycle(fg) == nx.negative_edge_cycle(ng)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf"), "-3", 2**60, -(2**60), -(2**70)],
+)
+def test_weights_the_native_search_cannot_add_keep_networkx_answer(value):
+    edges = [(0, 1, {"weight": 1}), (1, 2, {"weight": value}), (2, 0, {"weight": 1})]
+    for directed in (True, False):
+        fg = (fnx.DiGraph if directed else fnx.Graph)(edges)
+        ng = (nx.DiGraph if directed else nx.Graph)(edges)
+        try:
+            want = ("ok", nx.negative_edge_cycle(ng))
+        except Exception as exc:  # noqa: BLE001 - the exception type is the answer
+            want = ("raise", type(exc).__name__)
+        try:
+            got = ("ok", fnx.negative_edge_cycle(fg))
+        except Exception as exc:  # noqa: BLE001
+            got = ("raise", type(exc).__name__)
+        assert got == want, (directed, value)
+
+
+@pytest.mark.parametrize("kind", ["Fraction", "Decimal"])
+def test_an_exact_zero_cycle_f64_would_round_negative_keeps_networkx_answer(kind):
+    # 3/10 - 1/10 - 2/10 is exactly 0, so networkx finds no negative cycle; added
+    # as f64 the same cycle comes out at about -2.8e-17. The native search adds
+    # in f64, so these weights must stay on the exact route.
+    from decimal import Decimal
+    from fractions import Fraction
+
+    exact = Fraction if kind == "Fraction" else (lambda p, q: Decimal(p) / Decimal(q))
+    edges = [
+        (0, 1, {"weight": exact(3, 10)}),
+        (1, 2, {"weight": exact(-1, 10)}),
+        (2, 0, {"weight": exact(-2, 10)}),
+    ]
+    fg, ng = fnx.DiGraph(edges), nx.DiGraph(edges)
+    assert fnx.negative_edge_cycle(fg) == nx.negative_edge_cycle(ng)
+
+
+def test_the_directed_answer_comes_from_the_native_search(monkeypatch):
+    # A planted fault in the native route must show: the tests above reach it.
+    import franken_networkx as package
+
+    fg = fnx.DiGraph([(0, 1, {"weight": -2}), (1, 0, {"weight": 1})])
+    monkeypatch.setattr(package, "_raw_negative_edge_cycle", lambda G, weight: "native")
+    assert fnx.negative_edge_cycle(fg) == "native"

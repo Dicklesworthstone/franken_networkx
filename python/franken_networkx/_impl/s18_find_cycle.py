@@ -1196,6 +1196,20 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
 def negative_edge_cycle(G, weight="weight", heuristic=True):
     """Return ``True`` if ``G`` contains a negative-weight cycle."""
     G = _coerce_arg_to_fnx_graph(G)
+    # The answer is a bool, so the native search agrees with networkx's whenever it
+    # adds the weights as networkx does: the Bellman-Ford weight gate keeps
+    # non-numeric, non-finite and past-2**53 int weights on the in-process route
+    # below. A directed graph's native search starts from a virtual node joined to
+    # every node, as networkx's does; the in-process SPFA runs without networkx's
+    # early-exit heuristic (0.12x networkx on directed graphs).
+    if (
+        type(G) in (Graph, DiGraph)
+        and isinstance(weight, str)
+        and G.number_of_edges()
+        and not _has_networkx_private_storage(G)
+        and not _should_delegate_bellman_ford_path_to_networkx(G, weight)
+    ):
+        return _raw_negative_edge_cycle(G, weight)
     return _negative_edge_cycle_inprocess(G, weight)
 
 

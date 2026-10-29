@@ -39588,6 +39588,83 @@ pub fn negative_edge_cycle(graph: &Graph, weight_attr: &str) -> bool {
     graph_has_negative_edge_weight(graph, weight_attr)
 }
 
+/// `networkx.negative_edge_cycle` on a directed graph: networkx adds a new
+/// node with an edge of the default weight 1 to every node and runs
+/// Bellman-Ford from it, so the answer is whether any negative-weight cycle
+/// exists. The search here starts from that virtual node - every node at
+/// distance 1, queued in node order - and is SPFA. A cycle in the
+/// predecessor graph is a negative cycle, so the predecessor graph is
+/// checked once every `node_count` relaxations (O(1) a relaxation, amortised):
+/// the early exit networkx's heuristic gives it, without which the search
+/// circles the cycle until a path passes `node_count` edges. That path-length
+/// bound stays as the backstop. The answer is a bool, so any correct detector
+/// agrees with networkx's; the caller keeps weights the f64 search cannot add
+/// as Python does (non-numeric, non-finite, ints past 2**53) on networkx's
+/// route.
+#[must_use]
+pub fn negative_edge_cycle_directed(digraph: &DiGraph, weight_attr: &str) -> bool {
+    const SOURCE: usize = usize::MAX;
+    let n = digraph.node_count();
+    let mut dist = vec![1.0f64; n];
+    let mut pred = vec![SOURCE; n];
+    let mut hops = vec![1usize; n];
+    let mut queued = vec![true; n];
+    let mut queue: VecDeque<usize> = (0..n).collect();
+    let mut row = Vec::new();
+    let mut since_check = 0usize;
+    while let Some(u) = queue.pop_front() {
+        queued[u] = false;
+        row.clear();
+        signed_successor_row(digraph, u, weight_attr, &mut row);
+        for &(v, weight, _) in &row {
+            let candidate = dist[u] + weight;
+            if candidate < dist[v] {
+                dist[v] = candidate;
+                pred[v] = u;
+                hops[v] = hops[u] + 1;
+                if hops[v] > n {
+                    return true;
+                }
+                since_check += 1;
+                if since_check >= n {
+                    since_check = 0;
+                    if predecessor_cycle(&pred, SOURCE) {
+                        return true;
+                    }
+                }
+                if !queued[v] {
+                    queued[v] = true;
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Whether following `pred` (one parent a node, `root` for none) from some
+/// node comes back to it.
+fn predecessor_cycle(pred: &[usize], root: usize) -> bool {
+    // 0: not seen, 1: on the walk in hand, 2: known to reach the root.
+    let mut state = vec![0u8; pred.len()];
+    for start in 0..pred.len() {
+        let mut v = start;
+        while v != root && state[v] == 0 {
+            state[v] = 1;
+            v = pred[v];
+        }
+        if v != root && state[v] == 1 {
+            return true;
+        }
+        let mut w = start;
+        while w != root && state[w] == 1 {
+            state[w] = 2;
+            w = pred[w];
+        }
+    }
+    false
+}
+
 /// Frozen pre-br-r37-c1-yg26j implementation for parity and same-binary A/B.
 #[cfg(test)]
 fn negative_edge_cycle_orig_bellman_ford(graph: &Graph, weight_attr: &str) -> bool {
@@ -58101,6 +58178,7 @@ mod tests {
         // Connectivity and cuts — additional
         navigable_small_world_graph,
         negative_edge_cycle,
+        negative_edge_cycle_directed,
         networkx_greedy_modularity_merges,
         networkx_maximum_branching_plan,
         node_boundary,
@@ -82260,6 +82338,39 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "-3.0")]));
         let _ = g.add_edge_with_attrs("c", "a", attrs([("weight", "-1.0")]));
         assert!(negative_edge_cycle(&g, "weight"));
+    }
+
+    #[test]
+    fn negative_edge_cycle_directed_needs_a_negative_cycle_not_an_edge() {
+        let weighted = |edges: &[(&str, &str, &str)]| {
+            let mut g = DiGraph::strict();
+            for &(u, v, w) in edges {
+                let _ = g.add_edge_with_attrs(u, v, attrs([("weight", w)]));
+            }
+            g
+        };
+        // Negative edges on a DAG, and a cycle that sums to zero: no.
+        let dag = weighted(&[("a", "b", "-5"), ("b", "c", "-5"), ("a", "c", "1")]);
+        assert!(!negative_edge_cycle_directed(&dag, "weight"));
+        let zero = weighted(&[("a", "b", "-2"), ("b", "c", "1"), ("c", "a", "1")]);
+        assert!(!negative_edge_cycle_directed(&zero, "weight"));
+        // The same cycle one lower, reachable only from a node no edge enters
+        // later in node order, and a lone negative self-loop: yes.
+        let neg = weighted(&[
+            ("x", "a", "9"),
+            ("a", "b", "-2"),
+            ("b", "c", "1"),
+            ("c", "a", "0"),
+        ]);
+        assert!(negative_edge_cycle_directed(&neg, "weight"));
+        let loop_only = weighted(&[("a", "a", "-1"), ("a", "b", "3")]);
+        assert!(negative_edge_cycle_directed(&loop_only, "weight"));
+        // Missing weights are networkx's default 1; an empty graph has none.
+        let mut unweighted = DiGraph::strict();
+        let _ = unweighted.add_edge("a", "b");
+        let _ = unweighted.add_edge("b", "a");
+        assert!(!negative_edge_cycle_directed(&unweighted, "weight"));
+        assert!(!negative_edge_cycle_directed(&DiGraph::strict(), "weight"));
     }
 
     #[test]

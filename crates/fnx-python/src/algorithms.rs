@@ -25419,6 +25419,12 @@ fn bidirectional_shortest_path(
 fn negative_edge_cycle(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<bool> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
+    // A directed graph: the virtual-source search over its successor rows
+    // (the Python wrapper's in-process SPFA ran at 0.12x networkx).
+    if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        return Ok(py.allow_threads(|| fnx_algorithms::negative_edge_cycle_directed(__wp, weight)));
+    }
     require_undirected(&gr, "negative_edge_cycle")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
     Ok({

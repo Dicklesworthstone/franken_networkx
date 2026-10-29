@@ -198,9 +198,6 @@ TRIAGE = {
     "_raw_has_eulerian_path": ("keep-public-api",
         "wrapper handles directed graphs and degree parity checks; "
         "raw kept as direct-Rust API"),
-    "_raw_negative_edge_cycle": ("keep-public-api",
-        "wrapper routes through inprocess cycle detection for heuristic and "
-        "weight handling; raw kept as direct-Rust API"),
     "_raw_all_pairs_dijkstra_path": ("keep-public-api",
         "br-r37-c1-rc0923-epic-security-durability-conformance-csmqh.6: wrapper "
         "yields per-source _raw_single_source_dijkstra_path for O(n) streaming "
