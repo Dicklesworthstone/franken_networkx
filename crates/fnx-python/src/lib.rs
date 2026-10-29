@@ -18292,9 +18292,17 @@ impl PyGraph {
     // br-r37-c1-addnoden follow-up: nx names these u_of_edge/v_of_edge;
     // a bare u/v collides with an edge attr keyed 'u' or 'v'
     // (add_edge(0, 1, u=5)). Match nx's names; alias to u/v for the body.
+    //
+    // `weight` stays in **attr: networkx keeps the caller's keyword order in
+    // the edge dict, and a keyword-only `weight` parameter lost its position -
+    // add_edge(u, v, alpha=1, weight=2.0) stored weight first. A lone `weight=`
+    // still takes the dict-free route below. The kwargs dict pyo3 now builds
+    // costs a weight-only call ~5-10% (Graph 1.10x -> 0.99x networkx in a
+    // 12-process A/B); do not move `weight` back out of **attr unless the
+    // replacement keeps the caller's order (br-r37-c1-faj9l).
     #[pyo3(
         name = "add_edge",
-        signature = (u_of_edge, v_of_edge, *, weight=OptionalWeightKwarg::Omitted, **attr),
+        signature = (u_of_edge, v_of_edge, **attr),
         text_signature = "($self, u_of_edge, v_of_edge, **attr)"
     )]
     fn py_add_edge(
@@ -18302,9 +18310,16 @@ impl PyGraph {
         py: Python<'_>,
         u_of_edge: &Bound<'_, PyAny>,
         v_of_edge: &Bound<'_, PyAny>,
-        weight: OptionalWeightKwarg<'_, '_>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
+        if let Some(a) = attr
+            && a.len() == 1
+            && let Some(w) = a.get_item(intern!(py, "weight"))?
+        {
+            let weight = OptionalWeightKwarg::Provided(w.as_borrowed());
+            return self.add_edge_with_optional_weight(py, u_of_edge, v_of_edge, weight, None);
+        }
+        let weight = OptionalWeightKwarg::Omitted;
         self.add_edge_with_optional_weight(py, u_of_edge, v_of_edge, weight, attr)
     }
 

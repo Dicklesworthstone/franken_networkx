@@ -15535,9 +15535,13 @@ impl PyDiGraph {
     // br-r37-c1-addnoden follow-up: nx names these u_of_edge/v_of_edge;
     // a bare u/v collides with an edge attr keyed 'u' or 'v'
     // (add_edge(0, 1, u=5)). Match nx's names; alias to u/v for the body.
+    //
+    // `weight` stays in **attr so the edge dict keeps the caller's keyword
+    // order, as networkx's does; a lone `weight=` still takes the dict-free
+    // route (br-r37-c1-faj9l, see PyGraph::py_add_edge).
     #[pyo3(
         name = "add_edge",
-        signature = (u_of_edge, v_of_edge, *, weight=crate::OptionalWeightKwarg::Omitted, **attr),
+        signature = (u_of_edge, v_of_edge, **attr),
         text_signature = "($self, u_of_edge, v_of_edge, **attr)"
     )]
     fn py_add_edge(
@@ -15545,9 +15549,16 @@ impl PyDiGraph {
         py: Python<'_>,
         u_of_edge: &Bound<'_, PyAny>,
         v_of_edge: &Bound<'_, PyAny>,
-        weight: crate::OptionalWeightKwarg<'_, '_>,
         attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
+        if let Some(a) = attr
+            && a.len() == 1
+            && let Some(w) = a.get_item(pyo3::intern!(py, "weight"))?
+        {
+            let weight = crate::OptionalWeightKwarg::Provided(w.as_borrowed());
+            return self.add_edge_with_optional_weight(py, u_of_edge, v_of_edge, weight, None);
+        }
+        let weight = crate::OptionalWeightKwarg::Omitted;
         self.add_edge_with_optional_weight(py, u_of_edge, v_of_edge, weight, attr)
     }
 

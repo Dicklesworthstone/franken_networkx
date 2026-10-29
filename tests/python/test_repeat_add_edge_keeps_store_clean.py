@@ -295,3 +295,27 @@ def test_new_attributed_edge_keeps_keyword_order(cls_name, attrs):
             [list(d) for _u, _v, d in graph.edges(data=True)],
         )
     assert outcomes["fnx"] == outcomes["nx"]
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_weight_keeps_its_keyword_position_on_new_and_existing_edges(cls_name):
+    """`weight` is an ordinary keyword: it lands where the caller put it, on a
+    new edge and on an update, alone or among others (br-r37-c1-faj9l). A
+    keyword-only `weight` parameter put it first whenever another keyword came
+    with it."""
+    calls = [
+        {"alpha": 1, "weight": 2.0},
+        {"weight": 3},
+        {"beta": "b", "weight": 4.5, "alpha": 0},
+        {"weight": None},
+        {"zeta": 1},
+    ]
+    outcomes = {}
+    for name, module in (("nx", nx), ("fnx", fnx)):
+        graph = getattr(module, cls_name)()
+        graph.add_edge("a", "b", c=1)
+        for kwargs in calls:
+            graph.add_edge("a", "b", **kwargs)
+        graph.add_edge("c", "d", beta="b", weight=4.5, alpha=0)
+        outcomes[name] = [list(d.items()) for _u, _v, d in graph.edges(data=True)]
+    assert outcomes["fnx"] == outcomes["nx"]
