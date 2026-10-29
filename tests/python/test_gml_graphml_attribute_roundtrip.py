@@ -38,6 +38,266 @@ def _assert_graphml_matches(actual, expected):
     assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
     kwargs = {"keys": True} if expected.is_multigraph() else {}
     assert list(actual.edges(data=True, **kwargs)) == list(expected.edges(data=True, **kwargs))
+    for node in expected:
+        assert list(actual.adj[node]) == list(expected.adj[node])
+        if expected.is_directed():
+            assert list(actual.pred[node]) == list(expected.pred[node])
+
+
+def _typed_graphml_payload(directed):
+    graph = nx.DiGraph() if directed else nx.Graph()
+    graph.graph["name"] = "native integer labels"
+    graph.add_nodes_from([(12, {"color": "red"}), (2, {"color": "blue"}), (7, {})])
+    graph.add_edge(12, 2, weight=3.5)
+    graph.add_edge(2, 7, kind="next")
+    graph.add_edge(7, 7, weight=2)
+    output = io.BytesIO()
+    nx.write_graphml(graph, output)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("as_bytes", [False, True])
+def test_integer_graphml_parsing_uses_native_storage(parser, directed, as_bytes, monkeypatch):
+    payload = _typed_graphml_payload(directed)
+    if not as_bytes:
+        payload = payload.decode("utf-8")
+    expected = nx.parse_graphml(payload, node_type=int)
+
+    def no_fallback(*args, **kwargs):
+        pytest.fail("integer-labeled simple GraphML used the NetworkX parser")
+
+    monkeypatch.setattr(nx, "parse_graphml", no_fallback)
+    monkeypatch.setattr(nx, "read_graphml", no_fallback)
+    actual = parser(payload, node_type=int)
+    _assert_graphml_matches(actual, expected)
+    assert all(type(node) is int for node in actual)
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("source", ["bytes", "text", "path", "gz", "bz2"])
+def test_integer_graphml_reads_share_native_parser(
+    reader, directed, source, monkeypatch, tmp_path
+):
+    import bz2
+    import gzip
+
+    payload = _typed_graphml_payload(directed)
+    expected = nx.read_graphml(io.BytesIO(payload), node_type=int)
+    if source == "bytes":
+        path = io.BytesIO(payload)
+    elif source == "text":
+        path = io.StringIO(payload.decode("utf-8"))
+    else:
+        path = tmp_path / ("typed.graphml" + ("." + source if source != "path" else ""))
+        encoded = gzip.compress(payload) if source == "gz" else (
+            bz2.compress(payload) if source == "bz2" else payload
+        )
+        path.write_bytes(encoded)
+
+    def no_fallback(*args, **kwargs):
+        pytest.fail("integer-labeled simple GraphML used the NetworkX parser")
+
+    monkeypatch.setattr(nx, "parse_graphml", no_fallback)
+    monkeypatch.setattr(nx, "read_graphml", no_fallback)
+    actual = reader(path, node_type=int)
+    _assert_graphml_matches(actual, expected)
+    if source in ("bytes", "text"):
+        assert not path.closed, "reading must not close a caller-owned stream"
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("directed", [False, True])
+def test_integer_graphml_merge_without_edge_ids_keeps_parallel_edges(parser, directed):
+    direction = "directed" if directed else "undirected"
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="w" for="edge" attr.name="weight" attr.type="int"/>'
+        f'<graph edgedefault="{direction}">'
+        '<node id="01"/><node id="1"/><node id="2"/>'
+        '<edge source="01" target="2"><data key="w">3</data></edge>'
+        '<edge source="1" target="2"><data key="w">7</data></edge>'
+        '</graph></graphml>'
+    )
+    expected = nx.parse_graphml(payload, node_type=int)
+    actual = parser(payload, node_type=int)
+    _assert_graphml_matches(actual, expected)
+    assert actual.is_multigraph()
+    assert actual.number_of_edges() == 2
+
+
+_GRAPHML_NATIVE_GUARD_CASES = {
+    "defaults": (
+        '<key id="n" for="node" attr.name="color" attr.type="string">'
+        '<default>red</default></key>'
+        '<key id="e" for="edge" attr.name="weight" attr.type="int">'
+        '<default>7</default></key>'
+        '<graph edgedefault="undirected"><node id="1"/><node id="2"/>'
+        '<edge source="1" target="2"/></graph>'
+    ),
+    "later_edge_id": (
+        '<graph edgedefault="directed"><node id="1"/><node id="2"/><node id="3"/>'
+        '<edge source="1" target="2"/><edge source="2" target="3" id="007"/></graph>'
+    ),
+    "escaped_labels": (
+        '<graph edgedefault="undirected"><node id="&#49;"/><node id="2"/>'
+        '<edge source="&#49;" target="2"/></graph>'
+    ),
+    "late_node": (
+        '<graph edgedefault="undirected"><node id="1"/>'
+        '<edge source="1" target="3"/><node id="2"/><node id="3"/></graph>'
+    ),
+    "multiple_graphs": (
+        '<graph edgedefault="undirected"><node id="1"/></graph>'
+        '<graph edgedefault="directed"><node id="2"/></graph>'
+    ),
+    "missing_graph": "",
+    "string_whitespace": (
+        '<key id="s" for="node" attr.name="label" attr.type="string"/>'
+        '<graph edgedefault="undirected"><node id="1">'
+        '<data key="s">  keep these spaces  </data></node></graph>'
+    ),
+}
+
+
+def _check_graphml_outcome(actual_parser, reference_parser, payload, node_type):
+    try:
+        expected = reference_parser(payload, node_type=node_type)
+    except Exception as expected_error:
+        with pytest.raises(type(expected_error)) as actual_error:
+            actual_parser(payload, node_type=node_type)
+        assert str(actual_error.value) == str(expected_error)
+    else:
+        _assert_graphml_matches(actual_parser(payload, node_type=node_type), expected)
+
+
+@pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("node_type", [str, int])
+@pytest.mark.parametrize("as_bytes", [False, True])
+@pytest.mark.parametrize("body", _GRAPHML_NATIVE_GUARD_CASES.values(), ids=_GRAPHML_NATIVE_GUARD_CASES)
+def test_graphml_native_guard_preserves_document_semantics(parser, node_type, as_bytes, body):
+    payload = '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">' + body + '</graphml>'
+    if as_bytes:
+        payload = payload.encode()
+    _check_graphml_outcome(parser, nx.parse_graphml, payload, node_type)
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("node_type", [str, int])
+@pytest.mark.parametrize("namespace", ["", ' xmlns="urn:not-graphml"'])
+def test_graphml_file_namespace_recovery_keeps_read_contract(reader, node_type, namespace):
+    payload = (
+        f'<graphml{namespace}><graph edgedefault="undirected">'
+        '<node id="1"/><node id="2"/><edge source="1" target="2" id="01"/>'
+        '</graph></graphml>'
+    ).encode()
+    _check_graphml_outcome(
+        lambda content, **options: reader(io.BytesIO(content), **options),
+        lambda content, **options: nx.read_graphml(io.BytesIO(content), **options),
+        payload, node_type,
+    )
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("encoding", ["ISO-8859-1", "unknown-encoding"])
+def test_graphml_file_bytes_honor_xml_encoding(reader, encoding):
+    payload = (
+        f'<?xml version="1.0" encoding="{encoding}"?>'
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<graph edgedefault="undirected"><node id="café"/></graph></graphml>'
+    ).encode("utf-8")
+    _check_graphml_outcome(
+        lambda content, **options: reader(io.BytesIO(content), **options),
+        lambda content, **options: nx.read_graphml(io.BytesIO(content), **options),
+        payload, str,
+    )
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+def test_integer_graphml_custom_pathlike(reader, tmp_path):
+    path = tmp_path / "typed.graphml"
+    path.write_bytes(_typed_graphml_payload(False))
+
+    class GraphPath:
+        def __fspath__(self):
+            return str(path)
+
+    _assert_graphml_matches(
+        reader(GraphPath(), node_type=int), nx.read_graphml(GraphPath(), node_type=int)
+    )
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("node_type", [str, int])
+@pytest.mark.parametrize("suffix", [".graphml", ".graphml.gz"])
+def test_graphml_bytes_path_is_opened_literally(reader, node_type, suffix, tmp_path):
+    # NetworkX passes bytes filenames to ElementTree, so even a .gz suffix
+    # names literal XML rather than requesting gzip decompression.
+    path = tmp_path / ("typed" + suffix)
+    path.write_bytes(_typed_graphml_payload(False))
+    source = os.fsencode(path)
+    _assert_graphml_matches(
+        reader(source, node_type=node_type), nx.read_graphml(source, node_type=node_type)
+    )
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("node_type", [str, int])
+@pytest.mark.parametrize("source_kind", ["bytes", "custom-path"])
+@pytest.mark.parametrize("document", ["malformed", "missing-namespace"])
+def test_graphml_literal_path_errors_keep_original_source(
+    reader, node_type, source_kind, document, tmp_path
+):
+    payload = "<graphml>" if document == "malformed" else (
+        '<graphml><graph edgedefault="undirected"><node id="1"/></graph></graphml>'
+    )
+    path = tmp_path / "invalid.graphml"
+    path.write_text(payload, encoding="utf-8")
+
+    class GraphPath:
+        def __fspath__(self):
+            return str(path)
+
+    def source():
+        return os.fsencode(path) if source_kind == "bytes" else GraphPath()
+
+    # Give each reader a fresh path object for the same file. Neither invocation
+    # can consume the other's input or turn literal-path recovery into a seekable
+    # buffered-stream recovery.
+    with pytest.raises(Exception) as reference_error:
+        nx.read_graphml(source(), node_type=node_type)
+    with pytest.raises(type(reference_error.value)) as actual_error:
+        reader(source(), node_type=node_type)
+    assert str(actual_error.value) == str(reference_error.value)
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("node_type", [str, int])
+def test_graphml_none_source_preserves_reader_error(reader, node_type):
+    _check_graphml_outcome(reader, nx.read_graphml, None, node_type)
+
+
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("text", [False, True])
+def test_integer_graphml_read_size_stream_with_short_reads(reader, text):
+    payload = _typed_graphml_payload(False)
+    if text:
+        payload = payload.decode("utf-8")
+
+    class ChunkedStream:
+        def __init__(self):
+            self.stream = io.StringIO(payload) if text else io.BytesIO(payload)
+
+        def read(self, size):
+            return self.stream.read(min(size, 19))
+
+    source = ChunkedStream()
+    _assert_graphml_matches(
+        reader(source, node_type=int), nx.read_graphml(ChunkedStream(), node_type=int)
+    )
+    assert not source.stream.closed
 
 
 @pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)

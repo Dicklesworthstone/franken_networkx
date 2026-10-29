@@ -269,8 +269,29 @@ def _validate_graph_graphml_attrs(graph_attrs):
 
 
 def _read_graphml_mode_payload(path):
-    """Read once with NetworkX's path/compression and file-ownership contract."""
-    return _open_path_and_call(path, "rb", lambda fobj: fobj.read())
+    """Buffer input with NetworkX's path/compression and ownership contract."""
+    from pathlib import Path
+
+    def read_all(stream):
+        # ElementTree accepts read(size)-only streams and keeps reading after
+        # short reads. Buffer them the same way before choosing a parser.
+        first = stream.read(65536)
+        if not first:
+            return first
+        chunks = [first]
+        while True:
+            chunk = stream.read(65536)
+            if not chunk:
+                return first[:0].join(chunks)
+            chunks.append(chunk)
+
+    # NetworkX's decorator opens str/Path arguments with suffix decompression.
+    # ElementTree opens other non-file-like sources literally, including bytes
+    # paths, arbitrary PathLike objects, and file descriptors.
+    if not isinstance(path, (str, Path)) and not hasattr(path, "read"):
+        with open(path, "rb") as stream:
+            return read_all(stream)
+    return _open_path_and_call(path, "rb", read_all)
 
 
 def _graphml_from_mode_payload(
@@ -346,9 +367,9 @@ def read_graphml(
 ):
     """Read a graph in GraphML format.
 
-    Default strict reads delegate to NetworkX for its full option surface.
+    Strict reads share the string parser's native route and option guards.
     Explicit modes and hardened reads use the native recovery policy; typed
-    node labels must retain that policy and its decision ledger.
+    node labels retain that policy and its decision ledger.
     """
     mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
@@ -358,35 +379,22 @@ def read_graphml(
             edge_key_type=edge_key_type, force_multigraph=force_multigraph,
             mode=mode,
         )
-    # br-cc-graphml: for the DEFAULT case, read a FILENAME/Path into memory and
-    # route through parse_graphml's native fast path (2x nx via `_fnx.read_graphml`
-    # guarded against parallel-edge collapse; see parse_graphml). File-object
-    # inputs (incl. the BytesIO that parse_graphml's own fallback passes back
-    # here) are not filenames, so they skip this and delegate — no recursion, no
-    # double-parse. 0.78x -> ~2x on read_graphml(<file>).
+    # Use the same parser for str/Path inputs and caller-owned streams.
+    # Its guards retain the full decoder for parallel edges and merging labels.
+    # The parser's fallback calls NetworkX directly, so this cannot recurse.
+    # Literal bytes/custom paths retain the original reader: its namespace
+    # recovery tries to seek the original source, which is observable on errors.
+    from pathlib import Path
+
     if (
-        node_type is str
+        (node_type is str or node_type is int)
         and edge_key_type is int
         and not force_multigraph
+        and (isinstance(path, (str, Path)) or hasattr(path, "read"))
     ):
-        _content = None
-        if isinstance(path, str) or hasattr(path, "__fspath__"):
-            if not str(path).endswith((".gz", ".bz2", ".xz")):
-                try:
-                    with open(path, "rb") as _fh:
-                        _content = _fh.read()
-                except Exception:
-                    _content = None
-        elif hasattr(path, "read"):
-            try:
-                _raw = path.read()
-                _content = (
-                    _raw.encode("utf-8") if isinstance(_raw, str) else bytes(_raw)
-                )
-            except Exception:
-                _content = None
-        if _content is not None:
-            return parse_graphml(_content)
+        return _parse_graphml_payload(
+            _read_graphml_mode_payload(path), node_type=node_type, parse_string=False
+        )
     return _read_graphml_via_nx(
         path,
         node_type=node_type,

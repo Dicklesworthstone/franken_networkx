@@ -1322,39 +1322,13 @@ def read_graphml(
     """Read GraphML with full NetworkX options and explicit native mode policy."""
     import franken_networkx as fnx
 
-    if "mode" in backend_kwargs:
-        return fnx.read_graphml(
-            path,
-            node_type=node_type,
-            edge_key_type=edge_key_type,
-            force_multigraph=force_multigraph,
-            backend=backend,
-            **backend_kwargs,
-        )
-
-    fnx._validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
-
-    if (
-        node_type is str
-        and edge_key_type is int
-        and not force_multigraph
-        and (isinstance(path, str) or hasattr(path, "__fspath__"))
-    ):
-        try:
-            with open(path, "rb") as _fh:
-                _content = _fh.read()
-        except Exception:
-            _content = None
-        if _content is not None:
-            # Default file reads keep the full NetworkX encoding and numeric
-            # surface. Explicit mode requests use the policy-aware reader above.
-            return _read_graphml_via_nx(_BytesIO(_content))
-
-    return _read_graphml_via_nx(
+    return fnx.read_graphml(
         path,
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,
+        backend=backend,
+        **backend_kwargs,
     )
 
 

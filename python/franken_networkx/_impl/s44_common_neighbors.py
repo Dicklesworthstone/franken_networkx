@@ -841,6 +841,130 @@ def _goldberg_radzik_simple_inprocess(G, source, weight):
     return pred, d
 
 
+def _graphml_native_edge_count(payload):
+    """Admit only XML shapes whose native decoding matches the full reader.
+
+    ElementTree checks structure without constructing a NetworkX graph. This
+    is deliberately conservative: defaults, extension data, unusual encodings,
+    and XML constructs normalized differently by the two readers fall back.
+    """
+    import re
+    from xml.etree.ElementTree import fromstring
+
+    if type(payload) not in (str, bytes):
+        return None
+    try:
+        text = payload.decode("utf-8") if type(payload) is bytes else payload
+    except UnicodeDecodeError:
+        return None
+    if any(marker in text for marker in ("&", "<!", "\r", "\x00")):
+        return None
+    declaration = re.match(r"\A(?:\ufeff)?<\?xml\s+[^?]*\?>", text)
+    if declaration is not None:
+        encoding = re.search(r"\bencoding\s*=\s*(['\"])(.*?)\1", declaration[0])
+        if encoding is not None:
+            name = encoding[2].lower()
+            if name not in {"utf-8", "utf8", "ascii", "us-ascii"}:
+                return None
+            if name in {"ascii", "us-ascii"} and not text.isascii():
+                return None
+    if "<?" in text[declaration.end() if declaration is not None else 0:]:
+        return None
+    # ElementTree removes namespace declarations, but native attribute lookup
+    # uses local names: xmlns:id can otherwise overwrite an ordinary node id.
+    if any(prefix != "xsi" for prefix in re.findall(r"\bxmlns:([^\s=]+)\s*=", text)):
+        return None
+    try:
+        root = fromstring(payload)
+    except Exception:
+        # Let the requested public decoder raise its own exception and wording.
+        return None
+    ns = "{http://graphml.graphdrawing.org/xmlns}"
+    if root.tag != ns + "graphml" or set(root.attrib) - {
+        "{http://www.w3.org/2001/XMLSchema-instance}schemaLocation"
+    }:
+        return None
+    keys = {}
+    graph = None
+    scalar_types = {"boolean", "int", "long", "float", "double", "string"}
+    for child in root:
+        if child.tag == ns + "graph" and graph is None:
+            graph = child
+        elif child.tag == ns + "key" and graph is None:
+            if set(child.attrib) != {"id", "for", "attr.name", "attr.type"} or len(child):
+                return None
+            key_id, scope = child.get("id"), child.get("for")
+            name, value_type = child.get("attr.name"), child.get("attr.type")
+            if (
+                not key_id or not name or key_id in keys
+                or any(char.isspace() for char in key_id + name)
+                or scope not in {"graph", "node", "edge"}
+                or value_type not in scalar_types
+                or (scope == "graph" and name in {"node_default", "edge_default"})
+            ):
+                return None
+            keys[key_id] = (scope, value_type)
+        else:
+            return None
+    if graph is None or set(graph.attrib) != {"edgedefault"}:
+        return None
+    if graph.get("edgedefault") not in {"directed", "undirected"}:
+        return None
+    nodes = set()
+    edge_count = 0
+    for child in graph:
+        if child.tag == ns + "node":
+            node_id = child.get("id")
+            if (
+                edge_count or set(child.attrib) != {"id"} or not node_id
+                or node_id in nodes or any(char.isspace() for char in node_id)
+            ):
+                return None
+            nodes.add(node_id)
+        elif child.tag == ns + "edge":
+            if set(child.attrib) != {"source", "target"}:
+                return None
+            if child.get("source") not in nodes or child.get("target") not in nodes:
+                return None
+            edge_count += 1
+        elif child.tag != ns + "data":
+            return None
+    for element in root.iter():
+        if element.tail and element.tail.strip():
+            return None
+        if element.tag != ns + "data" and element.text and element.text.strip():
+            return None
+        if element.tag in {ns + "graph", ns + "node", ns + "edge"}:
+            scope = element.tag[len(ns):]
+            for data in element:
+                if element is graph and data.tag in {ns + "node", ns + "edge"}:
+                    continue
+                if data.tag != ns + "data" or set(data.attrib) != {"key"} or len(data):
+                    return None
+                key = keys.get(data.get("key"))
+                value = data.text
+                if key is None or key[0] != scope or not value or value != value.strip():
+                    return None
+                if key[1] == "boolean" and value.lower() not in {"true", "false", "0", "1"}:
+                    return None
+                if key[1] in {"int", "long"}:
+                    if re.fullmatch(r"[+-]?[0-9]+", value) is None:
+                        return None
+                    try:
+                        fits_native = -(1 << 63) <= int(value) < (1 << 63)
+                    except ValueError:
+                        return None
+                    if not fits_native:
+                        return None
+                if key[1] in {"float", "double"}:
+                    try:
+                        if not _math.isfinite(float(value)):
+                            return None
+                    except ValueError:
+                        return None
+    return edge_count
+
+
 def parse_graphml(
     graphml_string,
     node_type=str,
@@ -852,57 +976,26 @@ def parse_graphml(
 ):
     """Parse a GraphML string."""
     _validate_backend_dispatch_keywords("parse_graphml", backend, backend_kwargs)
-    if isinstance(graphml_string, str):
-        payload = graphml_string
-        stream_type = _io.StringIO
-        _text = graphml_string
-    else:
-        payload = graphml_string
-        stream_type = _io.BytesIO
-        try:
-            _text = bytes(graphml_string).decode("utf-8")
-        except Exception:
-            _text = None
+    return _parse_graphml_payload(
+        graphml_string, node_type=node_type,
+        edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+    )
 
-    # br-cc-graphml: default-kwargs fast path via the native `_fnx.read_graphml`
-    # (2x nx, vs the 0.77x nx-delegation). The native reader COLLAPSES parallel
-    # edges to a simple graph (that is why read_graphml delegates), but nx only
-    # promotes to a multigraph when it actually SEES parallel edges (a multigraph
-    # with no parallels round-trips to a simple graph in nx too — verified). So
-    # count the `<edge>` elements: if the native graph kept them ALL
-    # (number_of_edges == element count) no parallels were collapsed and the
-    # result is byte-identical to nx's; otherwise fall back to the nx delegation.
+
+def _parse_graphml_payload(
+    payload, *, node_type=str, edge_key_type=int, force_multigraph=False,
+    parse_string=True,
+):
+    """Share native admission while retaining string/file decoder contracts."""
+    stream_type = _io.StringIO if isinstance(payload, str) else _io.BytesIO
     if (
-        node_type is str
+        (node_type is str or node_type is int)
         and edge_key_type is int
         and not force_multigraph
-        and _text is not None
         and _rust_get_compatibility_mode() != "hardened"
     ):
-        # Cheap pre-check to AVOID double-parsing an nx-written multigraph: nx
-        # emits an ``id=`` attribute on every edge ONLY for multigraphs, so if the
-        # first edge element carries one, skip the native attempt and go straight
-        # to the nx delegation. (Correctness does not depend on this — the
-        # element-count check below is the backstop for any other multigraph
-        # source — it is purely to not pay a wasted native parse before falling
-        # back.)
-        _first_edge = _text.find("<edge ")
-        _skip_native = False
-        if _first_edge != -1:
-            _tag_end = _text.find(">", _first_edge)
-            _skip_native = _tag_end != -1 and "id=" in _text[_first_edge:_tag_end]
-        if not _skip_native:
-            # Count `<edge>` ELEMENTS (not `<edgedefault>`): the char after "edge"
-            # must be a space/`>`/`/` for a real edge element. The native reader
-            # collapses parallel edges to a simple graph; if it kept ALL edge
-            # elements (count matches) no parallels were collapsed and the result
-            # is byte-identical to nx's (which also down-converts a parallel-free
-            # multigraph to a simple graph).
-            _edge_elems = (
-                _text.count("<edge ")
-                + _text.count("<edge>")
-                + _text.count("<edge/")
-            )
+        edge_count = _graphml_native_edge_count(payload)
+        if edge_count is not None:
             try:
                 _native = _fnx.read_graphml(stream_type(payload))
             except Exception:
@@ -910,9 +1003,18 @@ def parse_graphml(
             if (
                 _native is not None
                 and not _native.is_multigraph()
-                and _native.number_of_edges() == _edge_elems
+                and _native.number_of_edges() == edge_count
             ):
-                return _native
+                if node_type is str:
+                    return _native
+                # Integer labels can use the same native parser when the
+                # conversion is one-to-one. A merge ("01" and "1") must be
+                # decoded from the original XML: relabeling the simple graph
+                # would otherwise collapse edges before multigraph detection.
+                mapping = {node: int(node) for node in _native}
+                converted = _native._native_relabel_copy(mapping)
+                if converted is not None:
+                    return converted
 
     # Apply conversion options while the document still has its original IDs.
     # Parsing first with defaults irreversibly merges lexical edge keys such
@@ -923,12 +1025,17 @@ def parse_graphml(
         return _graphml_from_mode_payload(
             payload, node_type=node_type,
             edge_key_type=edge_key_type, force_multigraph=force_multigraph,
-            parse_string=True,
+            parse_string=parse_string,
         )
-    from .readwrite import _parse_graphml_via_nx
+    if parse_string:
+        from .readwrite import _parse_graphml_via_nx
 
-    return _parse_graphml_via_nx(
-        payload,
+        return _parse_graphml_via_nx(
+            payload, node_type=node_type,
+            edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+        )
+    return _read_graphml_via_nx(
+        stream_type(payload),
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,
