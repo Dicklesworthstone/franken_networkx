@@ -95,14 +95,15 @@ def test_the_python_view_is_correct_either_way():
         assert [graph[u][v]["weight"] for u, v in (("s", "m"), ("m", "t"))] == [1, 1]
 
 
-def test_copy_does_NOT_repair_the_edge_side():
-    """The discriminator against br-r37-c1-303zo, pinned so it cannot be assumed.
-
-    If this ever starts failing, the edge gap has acquired the node side's
-    rebuild behaviour and the two beads have converged.
-    """
+def test_copy_repairs_the_edge_side_too():
+    """Was the discriminator against br-r37-c1-303zo: copy() did NOT repair the
+    edge side, and this pinned that so it could not be assumed. The pin said a
+    failure would mean the edge gap had acquired the node side's rebuild
+    behaviour and the two beads had converged - which they have: raw kernels now
+    synchronize live edge dicts (the test above), and a copy answers correctly
+    too (br-r37-c1-faj9l)."""
     graph = _flow_graph("written_after")
-    assert float(fnx._fnx.min_cost_flow_cost(graph.copy())) != CORRECT_COST
+    assert float(fnx._fnx.min_cost_flow_cost(graph.copy())) == CORRECT_COST
 
 
 def test_flush_repairs_the_edge_side():

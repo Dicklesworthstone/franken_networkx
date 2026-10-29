@@ -349,10 +349,17 @@ def test_add_nodes_from_stops_pulling_at_the_element_networkx_rejects(cls):
 
 def _add_node_calls(G, argument):
     calls = 0
+    # fnx's add_node lives in an _impl part since the __init__.py decomposition
+    # (af41b7c50), so match the package directory, not __init__.py itself.
+    package_dir = fnx.__file__.rsplit("/", 1)[0] + "/"
 
     def count(frame, event, arg):
         nonlocal calls
-        if event == "call" and frame.f_code.co_name == "add_node" and frame.f_code.co_filename == fnx.__file__:
+        if (
+            event == "call"
+            and frame.f_code.co_name == "add_node"
+            and frame.f_code.co_filename.startswith(package_dir)
+        ):
             calls += 1
 
     import sys
