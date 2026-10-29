@@ -974,10 +974,15 @@ def _generic_filtered_graph_view(graph, *, filter_node=None, filter_edge=None):
     if getattr(g_type, "_fnx_subclass_filtered_view", False):
         view_type = g_type
     elif g_type in _FILTERED_GRAPH_VIEW_TYPES_SOURCE_TYPES or issubclass(
-        g_type, _FilteredGraphView
+        g_type, (_FilteredGraphView, _ReverseDirectedViewBase, _ConversionGraphViewBase)
     ):
         # Fast path: canonical graph types or already-filtered canonical
-        # views (no user subclass) use the precomputed view type.
+        # views (no user subclass) use the precomputed view type. So do our
+        # reverse and conversion views, which are not user subclasses: a class
+        # built on one inherited its methods, which read _graph as the graph
+        # they reverse or convert - the unfiltered one - so a subgraph of a
+        # reverse view reversed to the whole graph and listed filtered-out
+        # nodes (br-r37-c1-7jhpr).
         view_type = _FILTERED_GRAPH_VIEW_TYPES[
             (graph.is_directed(), graph.is_multigraph())
         ]

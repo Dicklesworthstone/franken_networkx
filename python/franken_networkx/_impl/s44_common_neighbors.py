@@ -769,9 +769,12 @@ def _goldberg_radzik_simple_inprocess(G, source, weight):
     # Adjacency snapshot {u: {v: w}} in fnx adjacency order (== what nx iterates).
     # Use the native to_dict_of_dicts bulk reader (kernel, ~22x cheaper than walking
     # G.adj[u] per node, which otherwise dominates and leaves us 3x slower than nx).
+    # A view walks its own adjacency: to_dict_of_dicts raises on a filtered view,
+    # as networkx's does (br-r37-c1-7jhpr).
+    rows = to_dict_of_dicts(G) if type(G) in (Graph, DiGraph) else dict(G.adjacency())
     g_succ = {
         u: {v: attrs.get(weight, 1) for v, attrs in row.items()}
-        for u, row in to_dict_of_dicts(G).items()
+        for u, row in rows.items()
     }
 
     # Self-loop of negative weight is a negative cycle (matches nx).

@@ -91,3 +91,52 @@ def test_directed_subgraph_independent_of_source(fcls, ncls, seed):
     assert _nattrs(fs) == before_n
     assert _eattrs(fs) == before_e
     assert "brand_new" not in set(fs.nodes())
+
+
+def _view_chains(lib, g, keep, drop):
+    """Views nested through a reverse view (br-r37-c1-7jhpr). A filtered view
+    over a reverse view inherited the reverse view's methods, which read its
+    _graph as the un-reversed graph: the subgraph reversed to the whole graph
+    and its reverse listed the filtered-out nodes."""
+    r = g.reverse(copy=False)
+    rs = r.subgraph(keep)
+    edges = list(r.edges(keys=True)) if g.is_multigraph() else list(r.edges)
+    return {
+        "R.sub": rs,
+        "R.sub.R": rs.reverse(copy=False),
+        "R.sub.R.sub": rs.reverse(copy=False).subgraph(keep[: max(2, len(keep) - 1)]),
+        "R.edge_sub": r.edge_subgraph(edges[::2]),
+        "R.restricted": lib.restricted_view(r, [drop], []),
+    }
+
+
+def _observe(view):
+    return {
+        "nodes": sorted(view),
+        "edges": _eattrs(view),
+        "rows": {u: sorted(nbrs) for u, nbrs in view.adj.items()},
+        "in_degree": dict(view.in_degree(weight="weight")),
+        "out_degree": dict(view.out_degree()),
+        "nbunch": sorted(view.nbunch_iter(list(range(12)))),
+        "reverse": _eattrs(view.reverse(copy=False)),
+        "edge_data": [view.get_edge_data(u, v) is not None for u in range(12) for v in range(12)],
+    }
+
+
+@pytest.mark.parametrize("fcls,ncls", _TYPES)
+@pytest.mark.parametrize("seed", range(12))
+def test_views_nested_through_a_reverse_view_match_networkx(fcls, ncls, seed):
+    fg, ng, n, r = _build(fcls, ncls, seed)
+    keep = sorted(r.sample(range(n), r.randint(2, n - 1)))
+    drop = next(node for node in range(n) if node not in keep)
+    f_views = _view_chains(fnx, fg, keep, drop)
+    n_views = _view_chains(nx, ng, keep, drop)
+    for name in f_views:
+        assert _observe(f_views[name]) == _observe(n_views[name]), name
+        if 0 in n_views[name]:
+            assert fnx.single_source_shortest_path_length(f_views[name], 0) == (
+                nx.single_source_shortest_path_length(n_views[name], 0)
+            ), name
+            assert fnx.goldberg_radzik(f_views[name], 0) == nx.goldberg_radzik(
+                n_views[name], 0
+            ), name

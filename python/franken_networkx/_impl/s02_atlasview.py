@@ -629,7 +629,11 @@ def _atlas_is_filtered(atlas):
     )
     wrappers = tuple(
         cls
-        for cls in (globals().get("AdjacencyView"), globals().get("MultiAdjacencyView"))
+        for cls in (
+            globals().get("AdjacencyView"),
+            globals().get("MultiAdjacencyView"),
+            globals().get("AtlasView"),
+        )
         if cls is not None
     )
     seen = set()
@@ -638,8 +642,10 @@ def _atlas_is_filtered(atlas):
             return True
         if not isinstance(atlas, wrappers):
             return False
-        # Filtered multigraph rows can have two public AdjacencyView layers.
-        # Only unwrap our known mappings, and stop if an assigned getter cycles.
+        # Filtered multigraph rows can have two public AdjacencyView layers,
+        # and a simple filtered graph's pred rows two AtlasView layers
+        # (br-r37-c1-7jhpr). Only unwrap our known mappings, and stop if an
+        # assigned getter cycles.
         seen.add(id(atlas))
         atlas = atlas._atlas()
     return False
