@@ -14085,8 +14085,14 @@ impl PyMultiGraph {
         // nx's `self._adj[n]` hashes `n` first, so an unhashable node raises
         // TypeError rather than reporting absence (br-r37-c1-lvlu7).
         require_hashable_node_key(n)?;
-        if slf.borrow().instance_dict_gc.has_private_override() {
-            let adjacency = slf.getattr(intern!(py, "adj"))?;
+        // Only an ASSIGNED `_adj` is read here: networkx's `neighbors(n)` is
+        // `iter(self._adj[n])`, so an assigned `_node` alone changes nothing.
+        // Sending every private override through the public `adj` recursed
+        // without bound when `_node` was assigned after `G.adj[n]` had been
+        // cached, because that cached row iterates through this method
+        // (br-r37-c1-faj9l). The borrow is dropped before any Python call.
+        let assigned = slf.borrow().instance_dict_gc.private_adj_mapping(py)?;
+        if let Some(adjacency) = assigned {
             return match adjacency.get_item(n) {
                 Ok(row) => Ok(row.try_iter()?.into_any().unbind()),
                 Err(err) if err.is_instance_of::<PyKeyError>(py) => Err(NetworkXError::new_err(
