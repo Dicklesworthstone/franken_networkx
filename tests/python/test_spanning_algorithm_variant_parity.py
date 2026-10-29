@@ -121,3 +121,35 @@ def test_gomory_hu_tree_weight_types_match_networkx(spelling, caps, isolated):
         fn = getattr(fn, part)
     expected = _typed_tree(nx.gomory_hu_tree(_ght_graph(nx, caps, isolated)))
     assert _typed_tree(fn(_ght_graph(fnx, caps, isolated))) == expected
+
+
+@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize("route", ["minimum_spanning_edges", "maximum_spanning_edges"])
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("ignore_nan", [False, True])
+def test_nonfinite_weights_match_networkx_edge_for_edge(seed, route, algorithm, ignore_nan):
+    """NaN and +/-inf weights: the same edges in the same order, or the same
+    ValueError. Prim takes its native selector on them; Kruskal's native
+    selector misorders the infinities, so they keep it on the exact path
+    (br-r37-c1-7jhpr)."""
+    import random
+
+    rng = random.Random(seed)
+    specials = [float("nan"), float("inf"), -float("inf")]
+    gf, gn = fnx.Graph(), nx.Graph()
+    for g in (gf, gn):
+        g.add_nodes_from(range(12))
+    for u in range(12):
+        for v in range(u + 1, 12):
+            if rng.random() < 0.4:
+                w = rng.choice(specials) if rng.random() < 0.2 else rng.randint(-5, 9)
+                gf.add_edge(u, v, weight=w)
+                gn.add_edge(u, v, weight=w)
+
+    def outcome(lib, g):
+        try:
+            return list(getattr(lib, route)(g, algorithm=algorithm, ignore_nan=ignore_nan))
+        except ValueError as exc:
+            return ("ValueError", str(exc))
+
+    assert repr(outcome(fnx, gf)) == repr(outcome(nx, gn))

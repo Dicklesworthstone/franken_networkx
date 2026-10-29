@@ -953,8 +953,13 @@ def _check_spanning_edge_algorithm(algorithm):
         raise ValueError(f"{algorithm} is not a valid choice for an algorithm.")
 
 
-def _spanning_weights_native_safe(G, weight):
-    """Keep exact Python comparisons out of the f64 spanning selectors."""
+def _spanning_weights_native_safe(G, weight, nonfinite_ok=False):
+    """Keep exact Python comparisons out of the f64 spanning selectors.
+
+    ``nonfinite_ok`` admits NaN and the infinities, which are exact in f64:
+    the native Prim selector orders them and applies the NaN rule as networkx
+    does; the native Kruskal selector misorders the infinities, so it keeps
+    the finite envelope (br-r37-c1-7jhpr)."""
     if not isinstance(weight, str):
         return False
     # The shared scan reads live mirrors and store-only edges, and caches only
@@ -963,7 +968,14 @@ def _spanning_weights_native_safe(G, weight):
     # weights are valid for spanning trees, so ignore the first flag.
     scan = _cached_native_weight_scan(G, weight)
     if scan is not None:
-        return not (scan[1] or scan[2])
+        if scan[2]:
+            return False
+        if not scan[1]:
+            return True
+        if not nonfinite_ok:
+            return False
+        # The non-finite flag also covers an inexact integer: let the integers
+        # decide below.
 
     # Retain the same conservative exact-integer envelope when the native
     # scanner is unavailable. Never decide from a lossy float(value) coercion.
@@ -974,7 +986,7 @@ def _spanning_weights_native_safe(G, weight):
             integer_magnitude += abs(value)
             if integer_magnitude > 2**53:
                 return False
-        elif kind is not float or not _math.isfinite(value):
+        elif kind is not float or not (nonfinite_ok or _math.isfinite(value)):
             return False
     return True
 
@@ -1023,7 +1035,9 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         )
         if native_weights:
             _sync_rust_edge_attrs(G, edge_only=True)
-            native_weights = _spanning_weights_native_safe(G, weight)
+            native_weights = _spanning_weights_native_safe(
+                G, weight, nonfinite_ok=algorithm == "prim"
+            )
         if algorithm == "kruskal" and native_weights:
             # The kernel selects on the native store and emits each edge's data
             # from its mirror, or from the store when the edge has none
@@ -1133,7 +1147,9 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         )
         if native_weights:
             _sync_rust_edge_attrs(G, edge_only=True)
-            native_weights = _spanning_weights_native_safe(G, weight)
+            native_weights = _spanning_weights_native_safe(
+                G, weight, nonfinite_ok=algorithm == "prim"
+            )
         if algorithm == "kruskal" and native_weights:
             # Edge data comes from the mirror or, without one, the store (see
             # minimum_spanning_edges).
