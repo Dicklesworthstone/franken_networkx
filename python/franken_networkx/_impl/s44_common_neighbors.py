@@ -984,7 +984,7 @@ def parse_graphml(
 
 def _parse_graphml_payload(
     payload, *, node_type=str, edge_key_type=int, force_multigraph=False,
-    parse_string=True,
+    parse_string=True, file_source=None,
 ):
     """Share native admission while retaining string/file decoder contracts."""
     stream_type = _io.StringIO if isinstance(payload, str) else _io.BytesIO
@@ -1035,7 +1035,7 @@ def _parse_graphml_payload(
             edge_key_type=edge_key_type, force_multigraph=force_multigraph,
         )
     return _read_graphml_via_nx(
-        stream_type(payload),
+        stream_type(payload) if file_source is None else _GraphMLBufferedInput(payload, file_source),
         node_type=node_type,
         edge_key_type=edge_key_type,
         force_multigraph=force_multigraph,

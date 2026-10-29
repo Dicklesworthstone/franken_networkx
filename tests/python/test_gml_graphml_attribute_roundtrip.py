@@ -300,6 +300,48 @@ def test_integer_graphml_read_size_stream_with_short_reads(reader, text):
     assert not source.stream.closed
 
 
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+@pytest.mark.parametrize("node_type", [str, int])
+@pytest.mark.parametrize("source_kind", ["nonseekable", "offset", "sized-only"])
+def test_graphml_namespace_recovery_retains_original_stream_contract(
+    reader, node_type, source_kind
+):
+    payload = (
+        b'<graphml><graph edgedefault="undirected">'
+        b'<node id="1"/></graph></graphml>'
+    )
+
+    class Nonseekable:
+        def __init__(self):
+            self.stream = io.BytesIO(payload)
+
+        def read(self, size=-1):
+            return self.stream.read(size)
+
+    class SizedOnly(Nonseekable):
+        def read(self, size):
+            return self.stream.read(size)
+
+        def seek(self, offset):
+            return self.stream.seek(offset)
+
+    def source():
+        if source_kind == "nonseekable":
+            return Nonseekable()
+        if source_kind == "sized-only":
+            return SizedOnly()
+        prefix = b"not XML\n"
+        stream = io.BytesIO(prefix + payload)
+        stream.seek(len(prefix))
+        return stream
+
+    _check_graphml_outcome(
+        lambda _, **options: reader(source(), **options),
+        lambda _, **options: nx.read_graphml(source(), **options),
+        None, node_type,
+    )
+
+
 @pytest.mark.parametrize("parser", GRAPHML_PARSERS, ids=GRAPHML_READER_IDS)
 @pytest.mark.parametrize("mode", ["strict", "hardened"])
 @pytest.mark.parametrize("directed", [False, True])

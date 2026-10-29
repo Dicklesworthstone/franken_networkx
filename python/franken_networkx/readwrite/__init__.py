@@ -1322,6 +1322,16 @@ def read_graphml(
     """Read GraphML with full NetworkX options and explicit native mode policy."""
     import franken_networkx as fnx
 
+    if "mode" not in backend_kwargs and fnx._rust_get_compatibility_mode() == "hardened":
+        # These namespace readers have always retained the full decoder when
+        # only the ambient mode is set, including XML encodings and wide ints.
+        # An explicit mode request uses the native validation/recovery policy.
+        fnx._validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
+        return _read_graphml_via_nx(
+            path, node_type=node_type,
+            edge_key_type=edge_key_type, force_multigraph=force_multigraph,
+        )
+
     return fnx.read_graphml(
         path,
         node_type=node_type,

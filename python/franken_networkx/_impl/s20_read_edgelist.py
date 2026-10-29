@@ -294,6 +294,31 @@ def _read_graphml_mode_payload(path):
     return _open_path_and_call(path, "rb", read_all)
 
 
+class _GraphMLBufferedInput:
+    """Replay the first read while retaining the original recovery protocol."""
+
+    def __init__(self, payload, source):
+        stream_type = _io.StringIO if isinstance(payload, str) else _io.BytesIO
+        self._replay = stream_type(payload)
+        self._source = source
+
+    def read(self, *args, **kwargs):
+        stream = self._source if self._replay is None else self._replay
+        return stream.read(*args, **kwargs)
+
+    def __getattr__(self, name):
+        attribute = getattr(self._source, name)
+        if name != "seek":
+            return attribute
+
+        def seek(*args, **kwargs):
+            result = attribute(*args, **kwargs)
+            self._replay = None
+            return result
+
+        return seek
+
+
 def _graphml_from_mode_payload(
     payload, *, node_type=str, edge_key_type=int, force_multigraph=False,
     mode=None, parse_string=False,
@@ -392,9 +417,16 @@ def read_graphml(
         and not force_multigraph
         and (isinstance(path, (str, Path)) or hasattr(path, "read"))
     ):
-        return _parse_graphml_payload(
-            _read_graphml_mode_payload(path), node_type=node_type, parse_string=False
-        )
+        def read(source):
+            payload = _read_graphml_mode_payload(source)
+            return _parse_graphml_payload(
+                payload, node_type=node_type, parse_string=False, file_source=source
+            )
+
+        # Keep owned files open through fallback. NetworkX's missing-namespace
+        # recovery seeks the original stream to zero, which can expose a prefix
+        # before its initial position or raise on a nonseekable/sized-only stream.
+        return _open_path_and_call(path, "rb", read)
     return _read_graphml_via_nx(
         path,
         node_type=node_type,
