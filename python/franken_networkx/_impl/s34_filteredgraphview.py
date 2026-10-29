@@ -1373,6 +1373,15 @@ def _assigned_private_number_of_nodes(self):
     return len(self)
 
 
+def _private_native_method(graph, methods):
+    """Find the inherited native writer for the unassigned half of storage."""
+    for base in type(graph).__mro__:
+        method = methods.get(base)
+        if method is not None:
+            return method
+    return None
+
+
 def _assigned_private_add_node(
     self, node_for_adding, *, _sync_native=True, _preserve_assigned_row=False, **attr
 ):
@@ -1412,7 +1421,7 @@ def _assigned_private_add_node(
     # `_adj` can therefore contain a stale row for a node which is new to the
     # graph.  NetworkX replaces that row rather than merging it.
     known_to_node_store = node_for_adding in self._node
-    raw = _RAW_ADD_NODE_BY_CLASS.get(type(target))
+    raw = _private_native_method(target, _RAW_ADD_NODE_BY_CLASS)
     if _sync_native and raw is not None:
         raw(target, node_for_adding, **attr)
 
@@ -1572,14 +1581,7 @@ def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
         return owner.add_edge(u_of_edge, v_of_edge, **attr)
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
-    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(target))
-    if raw is None:
-        # A subclass can inherit the native writer while carrying only a
-        # private node mapping; its native adjacency still needs the write.
-        for graph_class in type(target).__mro__[1:]:
-            raw = _RAW_ADD_EDGE_BY_CLASS.get(graph_class)
-            if raw is not None:
-                break
+    raw = _private_native_method(target, _RAW_ADD_EDGE_BY_CLASS)
     if not python_only and raw is not None:
         raw(target, u_of_edge, v_of_edge, **attr)
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, None, attr, storage)
@@ -1600,14 +1602,7 @@ def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **att
         return owner.add_edge(u_of_edge, v_of_edge, key, **attr)
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
-    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(target))
-    if raw is None:
-        # The shadow installer also handles subclasses inheriting the native
-        # add_edge. With only _node assigned, the adjacency is still native.
-        for graph_class in type(target).__mro__[1:]:
-            raw = _RAW_ADD_EDGE_BY_CLASS.get(graph_class)
-            if raw is not None:
-                break
+    raw = _private_native_method(target, _RAW_ADD_EDGE_BY_CLASS)
     if not python_only and raw is not None:
         if key is None:
             key = raw(target, u_of_edge, v_of_edge, **attr)

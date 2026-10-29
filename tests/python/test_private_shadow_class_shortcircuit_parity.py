@@ -8,15 +8,10 @@ one walked the whole body and called `install()` four times — twelve calls per
 `reverse(copy=False)` that could never install anything.
 
 They could never install anything because ELIGIBILITY IS A PROPERTY OF THE CLASS,
-and a reverse view's class overrides those methods in Python, so none of them is
-the raw PyO3 descriptor the installer is permitted to shadow. Measured over the
-seven names the installer handles:
-
-    reverse-view class    NONE eligible
-    DiGraph               all 7
-    Graph                 5
-
-    reverse(copy=False)   DiGraph 0.482x -> 0.579x, MultiDiGraph 0.491x -> 0.582x
+and a reverse view's class overrides both readers and writers in Python, so none
+of them is a raw descriptor the installer is permitted to shadow. A subclass
+that overrides readers but inherits native mutation methods still needs those
+writers redirected to its assigned mappings.
 
 The danger of a class-level short-circuit is over-reach: skipping the installer
 for a class that DOES need it would silently restore raw dispatch on a graph
@@ -50,8 +45,19 @@ def test_the_predicate_agrees_with_a_direct_eligibility_scan():
         ("order", fnx._RAW_NUMBER_OF_NODES_METHODS),
         ("has_edge", fnx._RAW_HAS_EDGE_METHODS),
         ("get_edge_data", fnx._RAW_GET_EDGE_DATA_METHODS),
-        ("neighbors", fnx._RAW_DIGRAPH_NEIGHBOR_METHODS),
+        ("neighbors", fnx._RAW_DIGRAPH_NEIGHBOR_METHODS + fnx._RAW_MULTIGRAPH_NEIGHBOR_METHODS),
         ("successors", fnx._RAW_DIGRAPH_NEIGHBOR_METHODS),
+        ("predecessors", fnx._RAW_DIRECTED_PREDECESSOR_METHODS),
+        ("add_node", fnx._RAW_ADD_NODE_METHODS),
+        ("add_nodes_from", fnx._RAW_ADD_NODES_FROM_METHODS),
+        ("add_edge", fnx._RAW_ADD_EDGE_METHODS),
+        ("add_edges_from", fnx._RAW_ADD_EDGES_FROM_METHODS),
+        ("add_weighted_edges_from", fnx._RAW_ADD_WEIGHTED_METHODS),
+        ("remove_node", fnx._RAW_REMOVE_NODE_METHODS),
+        ("remove_edge", fnx._RAW_REMOVE_EDGE_METHODS),
+        ("remove_edges_from", fnx._RAW_REMOVE_EDGES_FROM_METHODS),
+        ("clear", fnx._RAW_CLEAR_METHODS),
+        ("clear_edges", fnx._RAW_CLEAR_EDGES_METHODS),
     ]
 
     def scan(cls):
@@ -177,7 +183,7 @@ def test_a_subclass_gets_its_own_memo_entry():
 
     assert not fnx._class_shadows_nothing(Sub)
 
-    class Shadowless(fnx.DiGraph):
+    class CustomReaders(fnx.DiGraph):
         def has_node(self, n):
             return False
 
@@ -198,6 +204,25 @@ def test_a_subclass_gets_its_own_memo_entry():
 
         def successors(self, n):
             return iter(())
+
+        def predecessors(self, n):
+            return iter(())
+
+    assert not fnx._class_shadows_nothing(CustomReaders)
+
+    class Shadowless(CustomReaders):
+        def add_node(self, *args, **kwargs):
+            pass
+
+        add_nodes_from = add_node
+        add_edge = add_node
+        add_edges_from = add_node
+        add_weighted_edges_from = add_node
+        remove_node = add_node
+        remove_edge = add_node
+        remove_edges_from = add_node
+        clear = add_node
+        clear_edges = add_node
 
     assert fnx._class_shadows_nothing(Shadowless)
     assert not fnx._class_shadows_nothing(Sub), "memo leaked between subclasses"

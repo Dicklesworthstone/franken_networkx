@@ -398,9 +398,8 @@ def _coerce_arg_to_fnx_graph(G):
     # must be tested before the `isinstance` branch at the end. `type(G) in ...`
     # cannot match a subclass, so a view can never take this path.
     #
-    # Behaviour is unchanged for everything else, including a user subclass of
-    # fnx.Graph: it misses this check, finds all three view checks False, and
-    # reaches the same `isinstance` pass-through it does today.
+    # User subclasses fall through the view checks to the graph branch below,
+    # which also materializes any assigned private mappings before native use.
     if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
         owner = _shared_unsplit_owner(G)
         if owner is not None:
@@ -432,6 +431,13 @@ def _coerce_arg_to_fnx_graph(G):
     if isinstance(G, _ConversionGraphViewBase):
         return _materialize_view(G)
     if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        # Subclasses can assign the same private mappings as concrete graphs.
+        # Their inherited Rust storage then ceases to be authoritative too.
+        owner = _shared_unsplit_owner(G)
+        if owner is not None:
+            return owner
+        if _has_networkx_private_storage(G):
+            return _materialize_view(G)
         return G
     try:
         import networkx as _nx_for_coerce

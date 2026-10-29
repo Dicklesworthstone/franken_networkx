@@ -36,6 +36,7 @@ def _assigned_private_add_edges_from(self, ebunch_to_add, **attr):
             return raw(owner, ebunch_to_add, **attr)
         return owner.add_edges_from(ebunch_to_add, **attr)
     multi = self.is_multigraph()
+    keys = [] if multi else None
     for e in ebunch_to_add:
         ne = len(e)
         key = None
@@ -55,9 +56,10 @@ def _assigned_private_add_edges_from(self, ebunch_to_add, **attr):
         merged = dict(attr)
         merged.update(dd)
         if multi:
-            _assigned_private_add_edge_multi(self, u, v, key, **merged)
+            keys.append(_assigned_private_add_edge_multi(self, u, v, key, **merged))
         else:
             _assigned_private_add_edge_simple(self, u, v, **merged)
+    return keys
 
 
 def _assigned_private_add_weighted_edges_from(
@@ -159,7 +161,7 @@ def _assigned_private_remove_node(self, n):
         )
         directed_mapping_data = (forward, backward, successors, predecessors)
 
-    raw = _RAW_REMOVE_NODE_BY_CLASS.get(type(target))
+    raw = _private_native_method(target, _RAW_REMOVE_NODE_BY_CLASS)
     if raw is not None:
         try:
             raw(target, n)
@@ -222,7 +224,7 @@ def _assigned_private_remove_edge(self, u, v, key=None):
     # Assigning `_node` does not replace the edge mapping.  In that split state
     # the native adjacency remains NetworkX's authority for remove_edge.
     if not targets:
-        raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(target))
+        raw = _private_native_method(target, _RAW_REMOVE_EDGE_BY_CLASS)
         if raw is not None:
             return raw(target, u, v, key) if (multi and key is not None) else raw(target, u, v)
 
@@ -230,10 +232,31 @@ def _assigned_private_remove_edge(self, u, v, key=None):
     if forward_mapping is None or forward_v not in forward_mapping.get(forward_u, {}):
         raise NetworkXError(f"The edge {u}-{v} is not in the graph.")
 
-    raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(target))
+    removed_keydicts = set()
+    if multi:
+        keydict = forward_mapping[forward_u][forward_v]
+        # Select once from the authoritative private row. Both directions can
+        # share this same dictionary, so popping once per row removes two
+        # parallel edges (or raises after removing the last one).
+        if key is None:
+            key, _ = keydict.popitem()
+        else:
+            try:
+                del keydict[key]
+            except KeyError as exc:
+                raise NetworkXError(
+                    f"The edge {u}-{v} with key {key} is not in the graph."
+                ) from exc
+        removed_keydicts.add(id(keydict))
+
+    # The public wrapper checks has_edge(), which now observes the already
+    # removed private key. Update the native half through its underlying
+    # writer and perform the wrapper's cache invalidation ourselves.
+    raw = _private_native_method(target, _NATIVE_REMOVE_EDGE_BY_CLASS)
     if raw is not None:
         try:
             raw(target, u, v, key) if (multi and key is not None) else raw(target, u, v)
+            _invalidate_adjacency_row_caches(target)
         except Exception:  # noqa: BLE001 - the assigned mapping is the authority
             pass
 
@@ -247,10 +270,9 @@ def _assigned_private_remove_edge(self, u, v, key=None):
             continue
         if multi:
             keydict = row[b]
-            if key is None:
-                keydict.popitem()
-            else:
+            if id(keydict) not in removed_keydicts:
                 keydict.pop(key, None)
+                removed_keydicts.add(id(keydict))
             if not keydict:
                 row.pop(b, None)
         else:
@@ -265,10 +287,14 @@ def _assigned_private_remove_edges_from(self, ebunch):
         if raw is not None:
             return raw(owner, ebunch)
         return owner.remove_edges_from(ebunch)
+    multi = self.is_multigraph()
     for edge in ebunch:
-        u, v = edge[:2]
         try:
-            _assigned_private_remove_edge(self, u, v)
+            if multi:
+                _assigned_private_remove_edge(self, *edge[:3])
+            else:
+                u, v = edge[:2]
+                _assigned_private_remove_edge(self, u, v)
         except NetworkXError:
             # ``remove_edges_from`` ignores edges that are absent at the time
             # each entry is visited; singular ``remove_edge`` must still raise.
@@ -288,7 +314,7 @@ def _assigned_private_clear(self):
         self.graph.clear()
         return
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
-    raw = _RAW_CLEAR_BY_CLASS.get(type(target))
+    raw = _private_native_method(target, _RAW_CLEAR_BY_CLASS)
     if raw is not None:
         raw(target)
     self.graph.clear()
@@ -309,7 +335,7 @@ def _assigned_private_clear_edges(self):
             return raw(owner)
         return owner.clear_edges()
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
-    raw = _RAW_CLEAR_EDGES_BY_CLASS.get(type(target))
+    raw = _private_native_method(target, _RAW_CLEAR_EDGES_BY_CLASS)
     if raw is not None:
         raw(target)
     for mapping in _assigned_private_mappings(self, storage):
@@ -332,6 +358,13 @@ _RAW_REMOVE_EDGE_BY_CLASS = {
     MultiDiGraph: MultiDiGraph.remove_edge,
 }
 _RAW_REMOVE_EDGE_METHODS = tuple(_RAW_REMOVE_EDGE_BY_CLASS.values())
+
+_NATIVE_REMOVE_EDGE_BY_CLASS = {
+    Graph: _GRAPH_REMOVE_EDGE,
+    DiGraph: _DIGRAPH_REMOVE_EDGE,
+    MultiGraph: _MULTIGRAPH_REMOVE_EDGE,
+    MultiDiGraph: _MULTIDIGRAPH_REMOVE_EDGE,
+}
 
 _RAW_REMOVE_EDGES_FROM_BY_CLASS = {
     Graph: Graph.remove_edges_from,
@@ -503,54 +536,17 @@ _CLASS_SHADOWS_NOTHING_CACHE = {}
 
 
 def _class_shadows_nothing(owner_type):
-    """True when NO name this installer handles is shadowable on this class.
+    """True when neither a reader nor a writer can be shadowed on this class.
 
-    br-r37-c1-vaayu. br-r37-c1-8itxk memoised the per-(class, name) eligibility
-    inside ``install()``, which removed the MRO walks. What it could not remove
-    is the call itself: a reverse view assigns three private overrides at
-    construction, and each one still walks the whole installer body and calls
-    ``install()`` four times — twelve calls per ``reverse(copy=False)`` that can
-    never install anything.
-
-    They can never install anything because ELIGIBILITY IS A PROPERTY OF THE
-    CLASS, and a reverse view's class overrides those methods in Python, so none
-    of them is the raw PyO3 descriptor the installer is allowed to shadow.
-    Measured on the seven names this function handles:
-
-        reverse-view class    NONE eligible
-        DiGraph               all 7
-        Graph                 5
-
-    So the whole body is answerable once per class. Same memo key as
-    br-r37-c1-8itxk, therefore the same and no new staleness risk: it goes stale
-    only if a CLASS's binding for one of these names is replaced after the first
-    instance of that class has been used, and module-level patching all happens
-    at import, before any instance exists.
+    The widest installation plan includes every candidate in narrower states.
+    Sharing that plan avoids a second, incomplete eligibility list: overriding
+    all read methods does not make inherited native mutation methods safe for
+    assigned storage. Reverse views still have an empty plan because their
+    classes override readers and mutation methods alike.
     """
     known = _CLASS_SHADOWS_NOTHING_CACHE.get(owner_type)
     if known is None:
-        known = True
-        for name, raw_methods in (
-            ("has_node", _RAW_HAS_NODE_METHODS),
-            ("number_of_nodes", _RAW_NUMBER_OF_NODES_METHODS),
-            ("order", _RAW_NUMBER_OF_NODES_METHODS),
-            ("has_edge", _RAW_HAS_EDGE_METHODS),
-            ("get_edge_data", _RAW_GET_EDGE_DATA_METHODS),
-            ("neighbors", _RAW_DIGRAPH_NEIGHBOR_METHODS + _RAW_MULTIGRAPH_NEIGHBOR_METHODS),
-            ("successors", _RAW_DIGRAPH_NEIGHBOR_METHODS),
-            ("predecessors", _RAW_DIRECTED_PREDECESSOR_METHODS),
-        ):
-            class_method = next(
-                (
-                    base.__dict__[name]
-                    for base in owner_type.__mro__
-                    if name in base.__dict__
-                ),
-                None,
-            )
-            if any(class_method is raw_method for raw_method in raw_methods):
-                known = False
-                break
+        known = not _shadow_plan(owner_type, True, True)
         _CLASS_SHADOWS_NOTHING_CACHE[owner_type] = known
     return known
 
