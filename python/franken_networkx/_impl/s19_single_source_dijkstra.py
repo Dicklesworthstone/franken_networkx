@@ -243,6 +243,45 @@ def _multigraph_collapse_min_weight(G, weight):
     return simple, False
 
 
+def _collapsed_edges_in_row_order(G, best, weight):
+    """br-r37-c1-yqfw9: the edges of an UNDIRECTED collapse, in an order that gives every
+    node of the collapsed graph the same neighbour order as its row in ``G``.
+
+    An undirected row lists neighbours in the order their first edge was added. Adding the
+    pairs in ``G.edges`` order (node by node) instead puts each node's earlier-visited
+    neighbours first, the kernel relaxes rows in order, and equal-distance nodes then
+    entered single_source_bellman_ford_path_length's dict in another order than
+    networkx's (44 of 120 random MultiGraphs). Kahn's algorithm over the rows: a pair is
+    added once it heads what is left of both its endpoints' rows.
+    """
+    rows = {x: list(nbrs) for x, nbrs in G.adjacency()}
+    at = dict.fromkeys(rows, 0)
+    edges = []
+    pending = list(rows)
+    while pending:
+        x = pending.pop()
+        i = at[x]
+        row = rows[x]
+        if i >= len(row):
+            continue
+        y = row[i]
+        if y != x:
+            j = at[y]
+            if rows[y][j] != x:
+                continue  # resumes when y's row reaches x
+            at[y] = j + 1
+            pending.append(y)
+        at[x] = i + 1
+        pending.append(x)
+        w = best.get((x, y))
+        edges.append((x, y, {weight: best[(y, x)] if w is None else w}))
+    # Rows grown by add/remove always admit such an order; should a graph's rows ever not,
+    # keep every pair (the lengths stay right) in the old order rather than drop any.
+    if len(edges) != len(best):
+        return [(u, v, {weight: w}) for (u, v), w in best.items()]
+    return edges
+
+
 def _multigraph_collapse_min_weight_bellman(G, weight):
     """br-cc-mgdijkstra: Bellman-Ford variant of the min-weight collapse. Bellman-Ford
     KEEPS negative weights (valid), so validate + delegate only on NaN / +/-inf /
@@ -330,7 +369,10 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
         _cur = best.get(_pair)
         if _cur is None or _val < _cur:
             best[_pair] = _val
-    simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in best.items())
+    if G.is_directed():
+        simple.add_edges_from((_u, _v, {weight: _w}) for (_u, _v), _w in best.items())
+    else:
+        simple.add_edges_from(_collapsed_edges_in_row_order(G, best, weight))
     res = (simple, False)
     if _cache_key is not None:
         vars(G)["_fnx_bellman_collapse_cache"] = (_cache_key, res)
