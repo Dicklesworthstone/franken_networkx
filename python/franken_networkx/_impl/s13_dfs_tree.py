@@ -915,7 +915,7 @@ from franken_networkx._fnx import (
     is_empty,
     non_neighbors,
     all_triangles as _rust_all_triangles,
-    enumerate_all_cliques as _raw_enumerate_all_cliques,
+    enumerate_all_cliques_iter as _raw_enumerate_all_cliques,
     find_cliques_recursive as _raw_find_cliques_recursive,
     chordal_graph_cliques as _raw_chordal_graph_cliques,
     chordal_graph_treewidth as _rust_chordal_graph_treewidth,

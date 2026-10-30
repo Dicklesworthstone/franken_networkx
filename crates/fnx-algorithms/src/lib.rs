@@ -41643,60 +41643,69 @@ pub fn node_clique_number(graph: &Graph) -> HashMap<String, usize> {
     result
 }
 
-/// Enumerate all cliques (not just maximal) in a graph.
-/// Returns all cliques starting from size 1 up.
-/// Index-space core of [`enumerate_all_cliques`] (br-r37-c1-eaclidx). Returns the
-/// cliques as node-INDEX vectors. The algorithm was already index-native; this
-/// just stops materializing a `String` per clique-node (every node appears in
-/// many cliques, so the binding resolves each Python object once and reuses it).
+/// Enumerate node-index cliques in breadth-first order from an owned snapshot.
+/// Only the adjacency and the pending frontier are retained, so consuming a
+/// prefix does not materialize the graph's entire set of cliques.
 #[must_use]
-pub fn enumerate_all_cliques_index(graph: &Graph) -> Vec<Vec<usize>> {
-    let n = graph.node_count();
-    if n == 0 {
-        return vec![];
-    }
+pub struct AllCliquesIndexIter {
+    adj: Vec<HashSet<usize>>,
+    queue: VecDeque<(Vec<usize>, Vec<usize>)>,
+}
 
-    // Adjacency sets over node indices (``neighbors_indices`` — no String hashing
-    // and no node_to_idx map). Membership only, so neighbour order is irrelevant.
-    let mut adj = vec![HashSet::new(); n];
-    for (i, set) in adj.iter_mut().enumerate() {
-        if let Some(neighbors) = graph.neighbors_indices(i) {
-            set.extend(neighbors.iter().copied());
+impl AllCliquesIndexIter {
+    /// Snapshot adjacency and node order without retaining a borrow of `graph`.
+    pub fn new(graph: &Graph) -> Self {
+        let n = graph.node_count();
+
+        // Adjacency membership uses node indices, with no String hashing or
+        // node-to-index map. The order within each set is irrelevant.
+        let mut adj = vec![HashSet::new(); n];
+        for (i, set) in adj.iter_mut().enumerate() {
+            if let Some(neighbors) = graph.neighbors_indices(i) {
+                set.extend(neighbors.iter().copied());
+            }
         }
-    }
 
-    // br-r37-c1-j9pwo: nx-style incremental candidate-set BFS. Each queue entry
-    // carries (clique, cnbrs) where ``cnbrs`` is the ascending list of
-    // higher-index common neighbours that can still extend the clique. Extending
-    // the clique with ``cnbrs[i]`` produces the child candidate set
-    // ``cnbrs[i+1..] ∩ N(cnbrs[i])`` — O(|cnbrs|) per extension, versus the old
-    // O(|clique| · n) re-scan that tested every node in ``(last+1)..n`` against
-    // every clique member. The yield order is identical to the old level-order
-    // kernel (singles in node order, then each level in generation order), so the
-    // emitted clique sequence is byte-for-byte unchanged.
-    let mut result: Vec<Vec<usize>> = Vec::new();
-    let mut queue: VecDeque<(Vec<usize>, Vec<usize>)> = VecDeque::with_capacity(n);
-    for u in 0..n {
-        let mut cnbrs: Vec<usize> = adj[u].iter().copied().filter(|&v| v > u).collect();
-        cnbrs.sort_unstable();
-        queue.push_back((vec![u], cnbrs));
-    }
+        // br-r37-c1-j9pwo: keep the same incremental candidate-set BFS. Each
+        // entry holds a clique and its ascending higher-index common neighbours.
+        // This preserves singles in node order, then each level in generation
+        // order, without collecting every level before returning to the caller.
+        let mut queue = VecDeque::with_capacity(n);
+        for u in 0..n {
+            let mut cnbrs: Vec<usize> = adj[u].iter().copied().filter(|&v| v > u).collect();
+            cnbrs.sort_unstable();
+            queue.push_back((vec![u], cnbrs));
+        }
 
-    while let Some((base, cnbrs)) = queue.pop_front() {
+        Self { adj, queue }
+    }
+}
+
+impl Iterator for AllCliquesIndexIter {
+    type Item = Vec<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (base, cnbrs) = self.queue.pop_front()?;
         for (i, &u) in cnbrs.iter().enumerate() {
             let mut base_u = base.clone();
             base_u.push(u);
             let cnbrs_u: Vec<usize> = cnbrs[i + 1..]
                 .iter()
                 .copied()
-                .filter(|&v| adj[u].contains(&v))
+                .filter(|&v| self.adj[u].contains(&v))
                 .collect();
-            queue.push_back((base_u, cnbrs_u));
+            self.queue.push_back((base_u, cnbrs_u));
         }
-        result.push(base);
+        Some(base)
     }
+}
 
-    result
+/// Collect all cliques as node-index vectors, starting from size one.
+/// This preserves the collecting API for callers that need the entire result;
+/// prefix consumers can use [`AllCliquesIndexIter`] directly.
+#[must_use]
+pub fn enumerate_all_cliques_index(graph: &Graph) -> Vec<Vec<usize>> {
+    AllCliquesIndexIter::new(graph).collect()
 }
 
 pub fn enumerate_all_cliques(graph: &Graph) -> Vec<Vec<String>> {
@@ -85025,6 +85034,76 @@ mod tests {
         let cliques = enumerate_all_cliques(&g);
         // 3 nodes + 2 edges = 5
         assert_eq!(cliques.len(), 5);
+    }
+
+    #[test]
+    fn test_enumerate_all_cliques_index_iter_order_and_exhaustion() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_edge("a", "b");
+        let _ = graph.add_edge("b", "c");
+        let _ = graph.add_edge("c", "a");
+        let _ = graph.add_edge("b", "b");
+        let _ = graph.add_node("isolated");
+        let mut cliques = super::AllCliquesIndexIter::new(&graph);
+        assert_eq!(
+            cliques.by_ref().collect::<Vec<_>>(),
+            vec![
+                vec![0],
+                vec![1],
+                vec![2],
+                vec![3],
+                vec![0, 1],
+                vec![0, 2],
+                vec![1, 2],
+                vec![0, 1, 2],
+            ]
+        );
+        assert_eq!(cliques.next(), None);
+        assert_eq!(cliques.next(), None);
+    }
+
+    #[test]
+    fn test_enumerate_all_cliques_index_iter_empty_is_exhausted() {
+        let mut graph = Graph::strict();
+        let mut cliques = super::AllCliquesIndexIter::new(&graph);
+        assert_eq!(cliques.next(), None);
+        let _ = graph.add_node("later");
+        assert_eq!(cliques.next(), None);
+    }
+
+    #[test]
+    fn test_enumerate_all_cliques_index_iter_owns_snapshot() {
+        let cliques = {
+            let mut graph = Graph::strict();
+            let _ = graph.add_edge("a", "b");
+            let _ = graph.add_edge("b", "c");
+            let cliques = super::AllCliquesIndexIter::new(&graph);
+            assert!(graph.remove_node("b"));
+            let _ = graph.add_edge("a", "c");
+            cliques
+        };
+        assert_eq!(
+            cliques.collect::<Vec<_>>(),
+            vec![vec![0], vec![1], vec![2], vec![0, 1], vec![1, 2]]
+        );
+    }
+
+    #[test]
+    fn test_enumerate_all_cliques_index_iter_large_graph_prefix() {
+        let mut graph = Graph::strict();
+        for node in 0..32 {
+            let _ = graph.add_node(node.to_string());
+        }
+        for u in 0..32 {
+            for v in u + 1..32 {
+                let _ = graph.add_edge(u.to_string(), v.to_string());
+            }
+        }
+        let mut cliques = super::AllCliquesIndexIter::new(&graph);
+        let mut expected: Vec<Vec<usize>> = (0..32).map(|node| vec![node]).collect();
+        expected.extend((1..9).map(|node| vec![0, node]));
+        assert_eq!(cliques.by_ref().take(40).collect::<Vec<_>>(), expected);
+        assert_eq!(cliques.next(), Some(vec![0, 9]));
     }
 
     #[test]

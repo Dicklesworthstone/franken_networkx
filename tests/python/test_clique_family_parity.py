@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import importlib
 import random
+import sys
 
 import pytest
 import networkx as nx
@@ -70,6 +71,137 @@ def test_enumerate_all_cliques_matches_networkx(seed):
     assert _clique_set(fnx.enumerate_all_cliques(fg)) == _clique_set(
         nx.enumerate_all_cliques(ng)
     )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="memory bound requires Linux /proc")
+def test_enumerate_all_cliques_yields_bounded_prefix_of_dense_graph():
+    import subprocess
+    import textwrap
+
+    # A complete 32-node graph has billions of cliques, but a caller may only
+    # request its first few. Bound the child so an eager implementation cannot
+    # exhaust the test runner while trying to materialize the entire result.
+    script = textwrap.dedent(
+        """
+        from itertools import islice
+        from pathlib import Path
+        import os
+        import resource
+
+        import franken_networkx as fnx
+        import networkx as nx
+
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        vm_pages = int(Path("/proc/self/statm").read_text().split()[0])
+        memory_limit = vm_pages * os.sysconf("SC_PAGE_SIZE") + 256 * 1024 * 1024
+        _, hard_limit = resource.getrlimit(resource.RLIMIT_AS)
+        if hard_limit != resource.RLIM_INFINITY:
+            memory_limit = min(memory_limit, hard_limit)
+        resource.setrlimit(resource.RLIMIT_AS, (memory_limit, hard_limit))
+
+        expected = list(islice(nx.enumerate_all_cliques(nx.complete_graph(32)), 40))
+        actual = list(islice(fnx.enumerate_all_cliques(fnx.complete_graph(32)), 40))
+        assert actual == expected
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("seed", range(8))
+def test_enumerate_all_cliques_preserves_order_with_mixed_labels(cls, seed):
+    rng = random.Random(seed)
+    labels = [0, 1024, "a", "b", (1, "x"), (2, "y"), -4096, "isolated"]
+    rng.shuffle(labels)
+    edges = [
+        (u, v)
+        for index, u in enumerate(labels)
+        for v in labels[index + 1:]
+        if rng.random() < 0.5
+    ]
+    fg, ng = getattr(fnx, cls)(), getattr(nx, cls)()
+    for graph in (fg, ng):
+        graph.add_nodes_from(labels)
+        graph.add_edges_from(edges)
+        graph.add_edge(labels[0], labels[0])
+        graph.remove_node(labels[2])
+        graph.add_edge(labels[2], labels[-1])
+        if edges:
+            graph.add_edge(*edges[-1])
+
+    assert list(fnx.enumerate_all_cliques(fg)) == list(nx.enumerate_all_cliques(ng))
+
+
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+def test_enumerate_all_cliques_keeps_snapshot_after_first_yield(cls):
+    a, b, c, d, new = (object() for _ in range(5))
+    edges = [(a, b), (b, c), (c, a), (c, d)]
+    fg, ng = getattr(fnx, cls)(edges), getattr(nx, cls)(edges)
+    actual = fnx.enumerate_all_cliques(fg)
+    expected = nx.enumerate_all_cliques(ng)
+    assert next(actual) == next(expected)
+    for graph in (fg, ng):
+        graph.clear()
+        graph.add_edge(a, new)
+    assert list(actual) == list(expected)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+def test_enumerate_all_cliques_native_iterator_owns_keys_and_preserves_collector(cls):
+    class Label(str):
+        pass
+
+    a, b = Label("a"), Label("b")
+    graph = getattr(fnx, cls)([(a, b)])
+    expected = [[a], [b], [a, b]]
+    collected = fnx._fnx.enumerate_all_cliques(graph)
+    assert isinstance(collected, list)
+    assert collected == expected
+
+    iterator = fnx._fnx.enumerate_all_cliques_iter(graph)
+    assert iter(iterator) is iterator
+    graph.clear()
+    actual = list(iterator)
+    assert actual == expected
+    for clique, wanted in zip(actual, expected, strict=True):
+        assert all(node is original for node, original in zip(clique, wanted, strict=True))
+    assert next(iterator, None) is None
+    assert next(iterator, None) is None
+
+
+def test_enumerate_all_cliques_native_iterator_empty_snapshot_stays_empty():
+    graph = fnx.Graph()
+    iterator = fnx._fnx.enumerate_all_cliques_iter(graph)
+    graph.add_edge("later", "node")
+    assert next(iterator, None) is None
+    assert next(iterator, None) is None
+
+
+def test_enumerate_all_cliques_native_iterator_collects_node_reference_cycle():
+    import gc
+    import weakref
+
+    class Label(str):
+        pass
+
+    node = Label("cycle-node")
+    graph = fnx.Graph([(node, "other")])
+    iterator = fnx._fnx.enumerate_all_cliques_iter(graph)
+    yielded = next(iterator)
+    assert yielded[0] is node
+    del yielded
+    node.iterator = iterator
+    reference = weakref.ref(node)
+    del node, graph, iterator
+    gc.collect()
+    assert reference() is None
 
 
 @pytest.mark.parametrize("seed", range(50))

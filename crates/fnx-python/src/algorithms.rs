@@ -17,6 +17,7 @@ use pyo3::exceptions::{
     PyException, PyIndexError, PyKeyError, PyMemoryError, PyRuntimeError, PyTypeError,
     PyValueError, PyZeroDivisionError,
 };
+use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::{
     PyBool, PyBytes, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
@@ -15788,6 +15789,70 @@ pub fn enumerate_all_cliques(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<V
     Ok(out)
 }
 
+/// Own the indexed frontier and Python node identities across iterator steps.
+#[pyclass(name = "_AllCliquesIterator", module = "franken_networkx._fnx")]
+pub struct AllCliquesIterator {
+    state: Option<fnx_algorithms::AllCliquesIndexIter>,
+    keys: Vec<PyObject>,
+}
+
+#[pymethods]
+impl AllCliquesIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self, py: Python<'_>) -> Option<Vec<PyObject>> {
+        let state = self.state.as_mut()?;
+        let clique = py.allow_threads(|| state.next());
+        if let Some(clique) = clique {
+            Some(
+                clique
+                    .into_iter()
+                    .map(|index| self.keys[index].clone_ref(py))
+                    .collect(),
+            )
+        } else {
+            self.__clear__();
+            None
+        }
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in &self.keys {
+            visit.call(key)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        self.state = None;
+        self.keys.clear();
+    }
+}
+
+/// Stream cliques from a snapshot without retaining a graph borrow or all outputs.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+pub fn enumerate_all_cliques_iter(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<AllCliquesIterator> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "enumerate_all_cliques")?;
+    let inner = gr.undirected();
+    let state = py.allow_threads(|| fnx_algorithms::AllCliquesIndexIter::new(inner));
+    let keys = inner
+        .nodes_ordered()
+        .into_iter()
+        .map(|name| gr.py_node_key(py, name))
+        .collect();
+    Ok(AllCliquesIterator {
+        state: Some(state),
+        keys,
+    })
+}
+
 /// Find all maximal cliques using a recursive Bron-Kerbosch algorithm.
 #[pyfunction]
 #[pyo3(signature = (g,))]
@@ -30767,6 +30832,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(all_triangles, m)?)?;
     m.add_function(wrap_pyfunction!(node_clique_number, m)?)?;
     m.add_function(wrap_pyfunction!(enumerate_all_cliques, m)?)?;
+    m.add_class::<AllCliquesIterator>()?;
+    m.add_function(wrap_pyfunction!(enumerate_all_cliques_iter, m)?)?;
     m.add_function(wrap_pyfunction!(find_cliques_recursive, m)?)?;
     m.add_function(wrap_pyfunction!(chordal_graph_cliques, m)?)?;
     m.add_function(wrap_pyfunction!(chordal_graph_treewidth, m)?)?;
