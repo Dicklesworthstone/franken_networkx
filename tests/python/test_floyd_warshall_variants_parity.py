@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 import networkx as nx
 import franken_networkx as fnx
+import franken_networkx.algorithms as fnx_algorithms
 
 
 def _valid_pair(seed, negatives=True):
@@ -99,3 +100,76 @@ def test_floyd_warshall_numpy_takes_the_lightest_parallel_edge(seed, cls):
         fnx.floyd_warshall_numpy(fg, nodelist=nodelist),
         nx.floyd_warshall_numpy(ng, nodelist=nodelist),
     )
+
+
+def _floyd_distance_state(distances):
+    # Preserve ordering, scalar types, signed infinities, and NaNs without
+    # treating NaN's intentionally unequal comparison as a parity failure.
+    return [
+        (
+            source,
+            [
+                (target, type(value), value.hex() if type(value) is float else value)
+                for target, value in row.items()
+            ],
+        )
+        for source, row in distances.items()
+    ]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+@pytest.mark.parametrize(
+    "edges",
+    [
+        pytest.param([(0, 0, -2), (0, 1, 3), (1, 2, 1)], id="negative-self-loop-int"),
+        pytest.param([(0, 0, -2.0), (0, 1, 3.0), (1, 2, 1.0)], id="negative-self-loop-float"),
+        pytest.param([(0, 1, -2), (1, 0, 1), (1, 2, 3)], id="negative-cycle-int"),
+        pytest.param([(0, 1, -2.0), (1, 0, 1.0), (1, 2, 3.0)], id="negative-cycle-float"),
+        pytest.param([(0, 1, -float("inf")), (1, 2, 1.0)], id="negative-infinity"),
+        pytest.param([(0, 1, float("nan")), (1, 2, 1.0)], id="nan-edge"),
+        pytest.param([(0, 1, float("inf")), (1, 2, 1.0)], id="positive-infinity"),
+        pytest.param([(0, 1, -2.0), (1, 2, 3.0), (0, 2, 4.0)], id="finite-weights"),
+        pytest.param([(0, 2, -1e308), (2, 1, -1e308)], id="finite-underflow"),
+    ],
+)
+def test_floyd_warshall_dictionary_numeric_contract(kind, mode, namespace, edges):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        # The isolated node exposes NaNs propagated into unreachable rows.
+        graph.add_nodes_from(range(4))
+        for source, target, value in edges:
+            graph.add_edge(source, target, cost=value)
+    expected = nx.floyd_warshall(graphs[1], weight="cost")
+    with fnx.compatibility_mode(mode):
+        actual = namespace.floyd_warshall(graphs[0], weight="cost")
+    assert _floyd_distance_state(actual) == _floyd_distance_state(expected)
+
+
+@pytest.mark.parametrize("scalar", [int, float])
+def test_floyd_warshall_finite_negative_dag_keeps_matrix_route(monkeypatch, scalar):
+    graphs = [module.DiGraph() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(range(4))
+        for source, target, value in [(0, 1, -2), (1, 2, 3), (0, 2, 4)]:
+            graph.add_edge(source, target, cost=scalar(value))
+    namespace = fnx.floyd_warshall.__globals__
+    matrix_solver = namespace["_floyd_warshall_numpy"]
+    calls = []
+
+    def record_matrix(graph, weight):
+        calls.append(graph)
+        return matrix_solver(graph, weight)
+
+    def reject_fallback(*args, **kwargs):
+        raise AssertionError("Finite negative DAG unnecessarily left the matrix route")
+
+    monkeypatch.setitem(namespace, "_floyd_warshall_numpy", record_matrix)
+    monkeypatch.setitem(
+        namespace, "_floyd_warshall_predecessor_and_distance_inproc", reject_fallback
+    )
+    actual = fnx.floyd_warshall(graphs[0], weight="cost")
+    expected = nx.floyd_warshall(graphs[1], weight="cost")
+    assert calls == [graphs[0]]
+    assert _floyd_distance_state(actual) == _floyd_distance_state(expected)

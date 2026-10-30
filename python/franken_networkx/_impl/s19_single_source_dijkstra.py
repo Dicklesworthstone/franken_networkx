@@ -696,7 +696,7 @@ def _fw_weight_kind(G, weight):
     """Classify edge-weight homogeneity for floyd_warshall: ``"int"`` (every
     edge carries an integer weight), ``"float"`` (every edge is float OR uses
     the default 1.0 because the attr is absent), or ``"mixed"`` (a blend of int
-    and float — or a bool / non-numeric weight). nx's Floyd-Warshall preserves
+    and float — or a bool / non-numeric / nonfinite weight). nx's Floyd-Warshall preserves
     Python int arithmetic, so an all-int graph yields int distances and a
     unit/float graph yields float distances; ``"mixed"`` is delegated because
     the per-pair value type would be shortest-path-dependent.
@@ -706,6 +706,8 @@ def _fw_weight_kind(G, weight):
     past 2**53 came back rounded - 2**62 weights summed one off - where
     networkx adds Python ints exactly. The total bounds every path sum.
     """
+    import math as _math
+
     saw_int = False
     saw_float = False
     int_total = 0
@@ -720,6 +722,10 @@ def _fw_weight_kind(G, weight):
                 if int_total > 2**53:
                     return "mixed"
             elif isinstance(value, float):
+                # Matrix minimum propagates NaNs where dictionary comparisons
+                # leave unrelated distances unchanged. Preserve that contract.
+                if not _math.isfinite(value):
+                    return "mixed"
                 saw_float = True
             else:
                 return "mixed"
@@ -739,6 +745,10 @@ def _floyd_warshall_numpy(G, weight):
     each ``dist[u]`` starts with ``u`` (the int-0 diagonal), then its
     edge-neighbours in ``G.edges()`` yield order, then the remaining nodes in
     ``G.nodes()`` order — matching nx's ``defaultdict`` access pattern.
+
+    Negative cycles and nonfinite intermediate arithmetic require the owned
+    dictionary solver's ordered relaxations. The public floyd_warshall_numpy
+    API has its own matrix contract and does not call this helper.
     """
     import math as _math
     import numpy as _np
@@ -750,11 +760,20 @@ def _floyd_warshall_numpy(G, weight):
         return {}
     index_of = {node: i for i, node in enumerate(nodes)}
     matrix = to_numpy_array(G, nodelist=nodes, weight=weight, nonedge=_np.inf)
-    _np.fill_diagonal(matrix, 0.0)
-    for k in range(n):
-        matrix = _np.minimum(
-            matrix, matrix[:, k][:, None] + matrix[k, :][None, :]
-        )
+    # The dictionary API retains negative self-loops when seeding distances.
+    # Python float arithmetic is quiet on overflow; inspect the result below.
+    _np.fill_diagonal(matrix, _np.minimum(matrix.diagonal(), 0.0))
+    with _np.errstate(over="ignore", invalid="ignore"):
+        for k in range(n):
+            matrix = _np.minimum(
+                matrix, matrix[:, k][:, None] + matrix[k, :][None, :]
+            )
+    if (
+        _np.any(matrix.diagonal() < 0)
+        or _np.isnan(matrix).any()
+        or _np.isneginf(matrix).any()
+    ):
+        return _floyd_warshall_predecessor_and_distance_inproc(G, weight=weight)[1]
     as_int = _fw_weight_kind(G, weight) == "int"
 
     dist = _defaultdict(lambda: _defaultdict(lambda: float("inf")))
