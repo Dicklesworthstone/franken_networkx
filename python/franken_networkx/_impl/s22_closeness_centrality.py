@@ -79,11 +79,11 @@ def closeness_centrality(
 
     if distance is not None and u is None:
         H = G.reverse() if G.is_directed() else G
-        apl = dict(all_pairs_dijkstra_path_length(H, weight=distance))
         len_G = len(H)
         closeness_dict = {}
-        for n in H:
-            sp = apl.get(n, {n: 0})
+        # Each score needs one source row. Retaining every distance row makes
+        # weighted closeness require quadratic memory on connected graphs.
+        for n, sp in all_pairs_dijkstra_path_length(H, weight=distance):
             totsp = sum(sp.values())
             cc = 0.0
             if totsp > 0.0 and len_G > 1:

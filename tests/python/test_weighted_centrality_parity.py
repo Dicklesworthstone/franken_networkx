@@ -152,3 +152,81 @@ def test_weighted_directed_result_key_order_parity(seed):
         lambda L, G: dict(L.all_pairs_dijkstra_path_length(G, weight="weight")),
     ):
         assert list(call(fnx, g).keys()) == list(call(nx, ng).keys())
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("wf_improved", [False, True])
+@pytest.mark.parametrize("base_weight", [1, 0.25, 2**53 + 1])
+def test_weighted_closeness_source_rows_preserve_scores(
+    graph_type, wf_improved, base_weight
+):
+    graphs = []
+    for module in (nx, fnx):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from(range(8))
+        graph.add_weighted_edges_from(
+            [
+                (0, 1, base_weight),
+                (1, 2, base_weight + 1),
+                (2, 3, base_weight + 2),
+                (4, 5, base_weight),
+                (1, 1, base_weight),
+            ],
+            weight="distance",
+        )
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, distance=base_weight + 3)
+        graphs.append(graph)
+    expected = nx.closeness_centrality(
+        graphs[0], distance="distance", wf_improved=wf_improved
+    )
+    actual = fnx.closeness_centrality(
+        graphs[1], distance="distance", wf_improved=wf_improved
+    )
+    assert list(actual.items()) == list(expected.items())
+    for node in graphs[1]:
+        assert actual[node] == fnx.closeness_centrality(
+            graphs[1], u=node, distance="distance", wf_improved=wf_improved
+        )
+
+
+def _weighted_closeness_python_peak(module, graph):
+    import gc
+    import tracemalloc
+
+    warmup = graph.__class__()
+    warmup.add_edge("a", "b", distance=1.0)
+    module.closeness_centrality(warmup, distance="distance")
+    gc.collect()
+    tracemalloc.start()
+    try:
+        result = module.closeness_centrality(graph, distance="distance")
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return result, peak
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_weighted_closeness_retains_only_one_distance_row(graph_type):
+    # Both implementations run in this invocation on the same connected
+    # weighted graph. A modest star keeps the traversal cheap while exposing
+    # retention of the quadratic collection of Python distance dictionaries.
+    graphs = []
+    for module in (nx, fnx):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from(range(600))
+        for node in range(1, 600):
+            graph.add_edge(0, node, distance=1.0)
+            if graph.is_directed():
+                graph.add_edge(node, 0, distance=1.0)
+        graphs.append(graph)
+    expected, oracle_peak = _weighted_closeness_python_peak(nx, graphs[0])
+    actual, native_peak = _weighted_closeness_python_peak(fnx, graphs[1])
+    assert list(actual.items()) == list(expected.items())
+    # Allow normal per-graph caches and interpreter variance while rejecting
+    # retention of all 360,000 pairwise distances.
+    assert native_peak <= max(2 * 1024**2, 8 * oracle_peak), (
+        native_peak,
+        oracle_peak,
+    )
