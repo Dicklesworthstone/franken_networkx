@@ -1054,6 +1054,23 @@ def _graphml_xml_type(value):
     value_type = type(value)
     if value_type in _GRAPHML_XML_TYPES:
         return _GRAPHML_XML_TYPES[value_type]
+    # GraphML accepts NumPy's fixed-width integer and ordinary float scalars.
+    # Use exact types: bool_, complex, datetime, and extended floats have no
+    # corresponding entry in the format's scalar contract. Import lazily so
+    # ordinary graph serialization still works without NumPy installed.
+    try:
+        import numpy as np
+    except ImportError:
+        pass
+    else:
+        if value_type in (
+            np.int8, np.int16, np.int32, np.int64,
+            np.uint8, np.uint16, np.uint32, np.uint64,
+            np.int_, np.intc, np.intp,
+        ):
+            return "int"
+        if value_type in (np.float16, np.float32, np.float64):
+            return "float"
     raise TypeError(f"GraphML does not support type {value_type} as data values.")
 
 

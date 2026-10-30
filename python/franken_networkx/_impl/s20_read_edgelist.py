@@ -197,41 +197,12 @@ def write_graphml(
     named_key_ids=False,
     edge_id_from_attribute=None,
 ):
-    """Write a graph in GraphML format.
+    """Write GraphML with the full attribute and default-metadata contract.
 
-    br-r37-c1-wgml-parity: previously the simple-graph default path
-    used a Rust-native writer whose XML output diverged byte-wise
-    from nx's lxml-based writer:
-
-      * XML declaration quoting: fnx wrote `"1.0" encoding="UTF-8"`
-        (double quotes, uppercase encoding name); nx writes
-        `'1.0' encoding='utf-8'` (single quotes, lowercase).
-      * `<graph>` element: fnx added `id="G"`; nx omits the id.
-      * Self-closing tags: fnx wrote `<node id="0"/>` (no space
-        before slash); nx writes `<node id="0" />` (with space).
-
-    All three are observable byte-level differences. Tooling that
-    snapshot-diffs GraphML output across libraries OR strict XML
-    canonicalization saw spurious differences. Always delegate to
-    nx for byte-exact output. Same fix shape as br-r37-c1-eeawk
-    on `write_adjlist`.
-
-    The pre-flight type validation (br-graphmltype) is preserved
-    because the Rust path's silent str() coercion is a separate
-    correctness issue — running it before the nx delegate keeps
-    the strict-attribute-type contract that nx itself enforces
-    (and that fnx's prior code added explicitly because of the
-    Rust path's lax coercion).
+    The delegated writer preserves its backend's byte-level output. Keep
+    the existing simple-graph rejection of unsupported attribute values,
+    while admitting the numeric scalar types that GraphML can represent.
     """
-    # br-graphmltype: nx raises NetworkXError on attribute values
-    # whose type GraphML can't represent (None, set, tuple, list,
-    # etc.). nx's own check happens internally; the explicit
-    # pre-validation here was added when fnx's Rust path silently
-    # coerced via str(), so without it fnx would accept values nx
-    # rejects. Now that we delegate, nx would catch most cases on
-    # its own — but kept as belt-and-suspenders for predictable
-    # error wording (nx's error messages on bad types vary by
-    # backend codepath).
     _GRAPHML_OK_TYPES = (bool, int, float, str)
     if not G.is_multigraph():
         for src_iter in (G.nodes(data=True), G.edges(data=True)):
@@ -241,10 +212,13 @@ def write_graphml(
                     continue
                 for value in data.values():
                     if not isinstance(value, _GRAPHML_OK_TYPES):
-                        raise NetworkXError(
-                            f"GraphML writer does not support {type(value)} "
-                            f"as data values."
-                        )
+                        try:
+                            _graphml_xml_type(value)
+                        except TypeError:
+                            raise NetworkXError(
+                                f"GraphML writer does not support {type(value)} "
+                                f"as data values."
+                            ) from None
         _validate_graph_graphml_attrs(getattr(G, "graph", {}))
     return _write_graphml_via_nx(
         G,
@@ -261,11 +235,19 @@ def _validate_graph_graphml_attrs(graph_attrs):
     if not isinstance(graph_attrs, dict):
         return
     ok = (bool, int, float, str)
-    for value in graph_attrs.values():
+    for name, value in graph_attrs.items():
+        # Readers always create the default dictionaries, even when empty.
+        # The writer consumes these and the graph ID as control metadata,
+        # rather than serializing them as ordinary graph attribute values.
+        if name in {"id", "node_default", "edge_default"}:
+            continue
         if not isinstance(value, ok):
-            raise NetworkXError(
-                f"GraphML writer does not support {type(value)} as data values."
-            )
+            try:
+                _graphml_xml_type(value)
+            except TypeError:
+                raise NetworkXError(
+                    f"GraphML writer does not support {type(value)} as data values."
+                ) from None
 
 
 def _read_graphml_mode_payload(path):

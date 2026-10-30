@@ -183,6 +183,45 @@ class TestGraphmlWriterTypeValidation:
         assert round_trip.number_of_nodes() == 3
         assert round_trip.number_of_edges() == 1
 
+    @pytest.mark.parametrize("scope", ["graph", "node", "edge"])
+    def test_default_metadata_does_not_admit_dictionary_data_values(self, scope):
+        g = fnx.Graph()
+        g.graph["node_default"] = {"color": "blue"}
+        g.graph["edge_default"] = {"weight": 1}
+        g.add_edge("first", "last")
+        data = {
+            "graph": g.graph,
+            "node": g.nodes["first"],
+            "edge": g["first"]["last"],
+        }[scope]
+        data["payload"] = {"nested": "unsupported"}
+        with pytest.raises(fnx.NetworkXError, match=r"GraphML writer does not support .*dict"):
+            fnx.write_graphml(g, io.BytesIO())
+
+    @pytest.mark.parametrize("scalar_name,value", [("bool_", True), ("complex64", 1j)])
+    @pytest.mark.parametrize("scope", ["graph", "node", "edge"])
+    def test_unsupported_numpy_types_still_fail_closed(self, scalar_name, value, scope):
+        np = pytest.importorskip("numpy")
+        scalar = getattr(np, scalar_name)(value)
+        graphs = [nx.Graph(), fnx.Graph()]
+        for graph in graphs:
+            graph.add_edge("first", "last")
+            data = {
+                "graph": graph.graph,
+                "node": graph.nodes["first"],
+                "edge": graph["first"]["last"],
+            }[scope]
+            data["value"] = scalar
+        # NetworkX's optional lxml writer and its XML fallback use different
+        # exception classes, but both reject these unsupported scalar types.
+        with pytest.raises((TypeError, nx.NetworkXError), match="GraphML .*not support"):
+            nx.write_graphml(graphs[0], io.BytesIO())
+        with pytest.raises(fnx.NetworkXError, match="GraphML writer does not support"):
+            fnx.write_graphml(graphs[1], io.BytesIO())
+        for library, graph in zip((nx, fnx), graphs):
+            with pytest.raises((TypeError, library.NetworkXError), match="GraphML .*not support"):
+                list(library.generate_graphml(graph))
+
 
 class TestParseGmlLabelAndDestringizerParity:
     """parse_gml must accept the same ``label`` and ``destringizer``

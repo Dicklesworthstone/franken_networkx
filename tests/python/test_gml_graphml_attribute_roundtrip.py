@@ -543,6 +543,118 @@ def test_graphml_preserves_attributes(seed, tmpdir):
     assert rg.graph.get("level") == 3
 
 
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("with_defaults", [False, True])
+@pytest.mark.parametrize(
+    "writer",
+    [fnx.write_graphml, fnx.readwrite.write_graphml, fnx.readwrite.graphml.write_graphml],
+    ids=GRAPHML_READER_IDS,
+)
+def test_graphml_read_mutate_write_preserves_defaults(graph_type, with_defaults, writer):
+    """Reader metadata is valid writer input, including empty default maps."""
+    original = getattr(nx, graph_type)()
+    original.graph["name"] = "editable graph"
+    if with_defaults:
+        original.graph["node_default"] = {"color": "blue"}
+        original.graph["edge_default"] = {"weight": 2.5}
+    original.add_node("first", color="red")
+    original.add_node("last", color="green")
+    original.add_node("isolated")
+    original.add_edge("first", "last", weight=3.5)
+    if original.is_multigraph():
+        original.add_edge("first", "last", weight=4.5)
+    payload = io.BytesIO()
+    nx.write_graphml(original, payload)
+    expected = nx.read_graphml(io.BytesIO(payload.getvalue()))
+    actual = fnx.read_graphml(io.BytesIO(payload.getvalue()))
+    for graph in (expected, actual):
+        graph.graph["name"] = "edited graph"
+        graph.nodes["first"]["color"] = "purple"
+        graph.add_edge("last", "isolated", weight=7.5)
+    expected_output = io.BytesIO()
+    actual_output = io.BytesIO()
+    nx.write_graphml(expected, expected_output)
+    writer(actual, actual_output)
+    assert not actual_output.closed
+    assert actual_output.getvalue() == expected_output.getvalue()
+    _assert_graphml_matches(
+        nx.read_graphml(io.BytesIO(actual_output.getvalue())),
+        nx.read_graphml(io.BytesIO(expected_output.getvalue())),
+    )
+    assert actual.graph == expected.graph
+
+
+_GRAPHML_NUMPY_SCALARS = [
+    ("int8", -17),
+    ("int16", -32767),
+    ("int32", -(2**30)),
+    ("int64", -(2**62) + 1),
+    ("uint8", 255),
+    ("uint16", 65535),
+    ("uint32", 2**32 - 1),
+    ("uint64", 2**64 - 1),
+    ("float16", 1.25),
+    ("float32", 0.1),
+    ("float64", 2.25),
+]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("exporter", ["write_graphml", "generate_graphml"])
+@pytest.mark.parametrize("scalar_name,value", _GRAPHML_NUMPY_SCALARS)
+def test_graphml_numpy_scalars_preserve_types_and_values(graph_type, exporter, scalar_name, value):
+    """Array-derived graph, node and edge values retain GraphML's numeric types."""
+    np = pytest.importorskip("numpy")
+    scalar = getattr(np, scalar_name)(value)
+    original = getattr(nx, graph_type)()
+    actual = getattr(fnx, graph_type)()
+    for graph in (original, actual):
+        graph.graph["value"] = scalar
+        graph.add_node("first", value=scalar)
+        graph.add_node("last")
+        graph.add_edge("first", "last", value=scalar)
+        if graph.is_multigraph():
+            graph.add_edge("first", "last", value=scalar)
+    if exporter == "generate_graphml":
+        expected_payload = "\n".join(nx.generate_graphml(original))
+        actual_payload = "\n".join(fnx.generate_graphml(actual))
+    else:
+        expected_output = io.BytesIO()
+        actual_output = io.BytesIO()
+        nx.write_graphml(original, expected_output)
+        fnx.write_graphml(actual, actual_output)
+        expected_payload = expected_output.getvalue()
+        actual_payload = actual_output.getvalue()
+    assert actual_payload == expected_payload
+    _assert_graphml_matches(
+        nx.parse_graphml(actual_payload), nx.parse_graphml(expected_payload)
+    )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("infer_numeric_types", [False, True])
+def test_graphml_numpy_defaults_and_numeric_inference(graph_type, infer_numeric_types):
+    np = pytest.importorskip("numpy")
+    original = getattr(nx, graph_type)()
+    actual = getattr(fnx, graph_type)()
+    for graph in (original, actual):
+        graph.graph["node_default"] = {"score": np.float32(1.25)}
+        graph.graph["edge_default"] = {"weight": np.int64(3)}
+        graph.add_node("first", score=np.float32(2.5))
+        graph.add_node("last", score=np.float64(5.0))
+        graph.add_edge("first", "last", weight=np.int64(5))
+        graph.add_edge("last", "last", weight=np.float32(3.5))
+    expected_output = io.BytesIO()
+    actual_output = io.BytesIO()
+    nx.write_graphml(original, expected_output, infer_numeric_types=infer_numeric_types)
+    fnx.write_graphml(actual, actual_output, infer_numeric_types=infer_numeric_types)
+    assert actual_output.getvalue() == expected_output.getvalue()
+    _assert_graphml_matches(
+        nx.read_graphml(io.BytesIO(actual_output.getvalue())),
+        nx.read_graphml(io.BytesIO(expected_output.getvalue())),
+    )
+
+
 @pytest.mark.parametrize("mode", ["strict", "hardened"])
 @pytest.mark.parametrize("explicit_mode", [False, True])
 @pytest.mark.parametrize("directed", [False, True])
