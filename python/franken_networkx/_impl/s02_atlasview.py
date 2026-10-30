@@ -956,6 +956,23 @@ class AdjacencyView(_Mapping):
                     if getattr(self, "_fnx_write_kind", "adj") == "pred":
                         return multigraph_owner.get_edge_data(node, parent_node)
                     return multigraph_owner.get_edge_data(parent_node, node)
+                if parent_node is not None and getattr(self, "_fnx_write_kind", "adj") == "pred":
+                    storage = vars(multigraph_owner)
+                    if (
+                        _PRIVATE_PRED_OVERRIDE not in storage
+                        and (
+                            _PRIVATE_ADJ_OVERRIDE in storage
+                            or _PRIVATE_SUCC_OVERRIDE in storage
+                        )
+                    ):
+                        # Replacing only forward storage leaves this side
+                        # native. Public get_edge_data reads the assigned
+                        # forward pair, so obtain the native predecessor's
+                        # actual live keydict instead of wrapping it.
+                        target = storage.get(_SHARED_STORAGE_SOURCE, multigraph_owner)
+                        get_data = _private_native_method(target, _RAW_GET_EDGE_DATA_BY_CLASS)
+                        if get_data is not None:
+                            return get_data(target, node, parent_node)
                 view = _private_writable_class(AtlasView)(
                     lambda: self._atlas()[node],
                     owner=owner,

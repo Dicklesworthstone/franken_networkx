@@ -98,3 +98,18 @@ def test_ordinary_graphs_are_unchanged(cls):
     assert sorted(map(str, gfx.nodes)) == sorted(map(str, gnx.nodes))
     assert dict(gfx.nodes["iso"]) == dict(gnx.nodes["iso"])
     assert "add_node" not in vars(gfx)
+
+
+@pytest.mark.parametrize("cls", ALL)
+@pytest.mark.parametrize("storage,mapping", [("_node", NODE), ("_adj", ADJ)])
+@pytest.mark.parametrize(
+    "name,value", [("_sync_native", False), ("_preserve_assigned_row", True)]
+)
+def test_private_add_node_control_names_are_user_attributes(cls, storage, mapping, name, value):
+    want = build(nx, cls, storage, mapping)
+    got = build(fnx, cls, storage, mapping)
+    for graph in (want, got):
+        graph.add_node("QQ", before="first", **{name: value}, after="last")
+    assert list(got.nodes["QQ"].items()) == list(want.nodes["QQ"].items())
+    assert list(got._node) == list(want._node)
+    assert list(got._adj) == list(want._adj)

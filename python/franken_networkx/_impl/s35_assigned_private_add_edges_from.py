@@ -43,22 +43,23 @@ def _assigned_private_add_edges_from(self, ebunch_to_add, **attr):
         if ne == 4 and multi:
             u, v, key, dd = e
         elif ne == 3:
-            u, v, third = e
-            if multi and not isinstance(third, dict):
-                key, dd = third, {}
-            else:
-                dd = third
+            u, v, dd = e
         elif ne == 2:
             u, v = e
             dd = {}
         else:
             raise NetworkXError(f"Edge tuple {e!r} must be a 2-tuple, 3-tuple or 4-tuple.")
         merged = dict(attr)
-        merged.update(dd)
+        try:
+            merged.update(dd)
+        except (TypeError, ValueError):
+            if not multi or ne != 3:
+                raise
+            key = dd
         if multi:
-            keys.append(_assigned_private_add_edge_multi(self, u, v, key, **merged))
+            keys.append(_assigned_private_add_edge_multi_data(self, u, v, key, merged))
         else:
-            _assigned_private_add_edge_simple(self, u, v, **merged)
+            _assigned_private_add_edge_simple_data(self, u, v, merged)
     return keys
 
 
@@ -232,26 +233,25 @@ def _assigned_private_remove_edge(self, u, v, key=None):
     if forward_mapping is None or forward_v not in forward_mapping.get(forward_u, {}):
         raise NetworkXError(f"The edge {u}-{v} is not in the graph.")
 
-    removed_keydicts = set()
     if multi:
         keydict = forward_mapping[forward_u][forward_v]
-        # Select once from the authoritative private row. Both directions can
-        # share this same dictionary, so popping once per row removes two
-        # parallel edges (or raises after removing the last one).
+        # Select and validate without mutating a live native keydict yet.
+        # The native remover detaches its last key's row; deleting through the
+        # keydict first would leave a registered empty native ghost pair.
         if key is None:
-            key, _ = keydict.popitem()
+            if not keydict:
+                raise KeyError("popitem(): dictionary is empty")
+            key = next(reversed(keydict))
         else:
             try:
-                del keydict[key]
+                keydict[key]
             except KeyError as exc:
                 raise NetworkXError(
                     f"The edge {u}-{v} with key {key} is not in the graph."
                 ) from exc
-        removed_keydicts.add(id(keydict))
 
-    # The public wrapper checks has_edge(), which now observes the already
-    # removed private key. Update the native half through its underlying
-    # writer and perform the wrapper's cache invalidation ourselves.
+    # Use the underlying writer so validation remains with the assigned row,
+    # and perform the public wrapper's cache invalidation ourselves.
     raw = _private_native_method(target, _NATIVE_REMOVE_EDGE_BY_CLASS)
     if raw is not None:
         try:
@@ -261,6 +261,7 @@ def _assigned_private_remove_edge(self, u, v, key=None):
             pass
 
     seen = set()
+    removed_keydicts = set()
     for mapping, a, b in targets:
         if mapping is None or (id(mapping), a, b) in seen:
             continue

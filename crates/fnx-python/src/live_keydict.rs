@@ -17,6 +17,8 @@
 //!   later add_edge on the pair reuses it;
 //! - a node removal, ``clear()`` or ``clear_edges()``: the dict is detached with
 //!   its contents untouched (networkx drops the adjacency entry, not the keys).
+//! - replacing a pair's entire keydict: the old dict is detached intact and a
+//!   fresh dict becomes live, without removing the ordered neighbor cells.
 //!
 //! Detached means unregistered and ``_fnx_graph`` reset to ``None``, so later
 //! writes through it are plain dict writes, as on a networkx keydict that is no
@@ -137,6 +139,16 @@ impl LiveKeydictRows {
             .entry(target)
             .or_default()
             .insert(source);
+    }
+
+    /// Replace the pair's live row without changing a held old row's contents.
+    pub(crate) fn replace(&mut self, py: Python<'_>, source: &str, target: &str, row: Py<PyDict>) {
+        if let Some(previous) = self.get(py, source, target)
+            && !previous.bind(py).is(row.bind(py))
+        {
+            detach(py, &previous);
+        }
+        self.insert(source, target, row);
     }
 
     fn unregister(&mut self, source: &str, target: &str) -> Option<Py<PyDict>> {

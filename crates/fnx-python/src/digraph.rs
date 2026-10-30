@@ -5054,6 +5054,84 @@ impl MultiDiKeyDictView {
 /// every edge of a reversed graph, for instance).
 #[pymethods]
 impl PyMultiDiGraph {
+    /// Replace a pair with one fresh edge after the Python caller has prepared
+    /// both endpoint nodes. Assigned successor storage can introduce a new
+    /// pair while the native predecessor cell still holds an old keydict.
+    /// Keep that cell's position and detach its old dict without emptying it.
+    fn _fnx_replace_pair_with_edge(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+        key: &Bound<'_, PyAny>,
+        attrs: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        crate::hash_key_as_dict_would(u)?;
+        crate::hash_key_as_dict_would(v)?;
+        crate::hash_key_as_dict_would(key)?;
+        let source = node_key_to_string(py, u)?;
+        let target = node_key_to_string(py, v)?;
+
+        // Finish mapping conversion and Python key insertion before changing
+        // the graph. Copy even when attrs is a held old edge's live dict.
+        let incoming = crate::keydict_datadict(py, attrs)?;
+        let replacement_attrs = slf.borrow().edge_attr_writes.new_dict(py)?;
+        replacement_attrs.update(incoming.as_mapping())?;
+        let (rust_attrs, attrs_lossless) =
+            crate::py_dict_to_attr_map_with_lossless(&replacement_attrs)?;
+        let row = crate::live_keydict::new_row(py, slf.as_any(), &source, &target)?;
+        row.set_item(key, &replacement_attrs)?;
+
+        let mut graph = slf.borrow_mut();
+        if !graph.inner.has_node(&source) {
+            return Err(crate::missing_key_error(u));
+        }
+        if !graph.inner.has_node(&target) {
+            return Err(crate::missing_key_error(v));
+        }
+        let pair_was_present = graph.inner.has_edge(&source, &target);
+        let old_keys = graph.inner.edge_keys(&source, &target).unwrap_or_default();
+
+        // Insert at an unused internal key first. Core validation can then
+        // fail without deleting old data, and the pair never leaves either
+        // ordered direction row while its superseded keys are removed.
+        let internal_key = graph
+            .inner
+            .add_edge_with_attrs(source.clone(), target.clone(), rust_attrs)
+            .map_err(|error| NetworkXError::new_err(error.to_string()))?;
+        for old_key in old_keys {
+            graph
+                .inner
+                .remove_key_preserving_pair(&source, &target, old_key);
+            graph.remove_edge_metadata(&source, &target, old_key);
+        }
+        graph.remember_edge_key(py, &source, &target, internal_key, Some(key), false);
+        graph.edge_py_attrs.insert(
+            Self::edge_key(&source, &target, internal_key),
+            replacement_attrs.unbind(),
+        );
+        graph
+            .live_keydict_rows
+            .replace(py, &source, &target, row.clone().unbind());
+
+        if !pair_was_present {
+            graph.maybe_store_row_keys(py, &source, &target, u, v);
+            if graph.direction_rows_live() {
+                graph.cached_direction_row_set(py, &source, &target, true)?;
+                graph.cached_direction_row_set(py, &target, &source, false)?;
+            }
+        }
+        graph.bump_edges_seq();
+        if graph.direction_rows_live() {
+            graph.restamp_direction_rows();
+        }
+        if !attrs_lossless {
+            graph.mark_edges_dirty();
+        }
+        graph.edge_attr_writes.note_native_write();
+        Ok(row.unbind())
+    }
+
     /// `keydict[key] = datadict`: replace an existing key's attrs in place, or
     /// add the edge for a new key (as networkx's keydict insertion does).
     fn _fnx_keydict_store(

@@ -1353,6 +1353,18 @@ _RAW_GET_EDGE_DATA_METHODS = (
     _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
     _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
 )
+_RAW_NODE_VIEWS_BY_CLASS = {
+    Graph: _GRAPH_PRIVATE_AWARE_NODES,
+    DiGraph: _DIGRAPH_PRIVATE_AWARE_NODES,
+    MultiGraph: _MULTIGRAPH_PRIVATE_AWARE_NODES,
+    MultiDiGraph: _MULTIDIGRAPH_PRIVATE_AWARE_NODES,
+}
+_RAW_GET_EDGE_DATA_BY_CLASS = {
+    Graph: _GRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+    DiGraph: _DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+    MultiGraph: _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+    MultiDiGraph: _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA,
+}
 _RAW_DIGRAPH_NEIGHBOR_METHODS = (
     _DIGRAPH_NEIGHBORS,
     _DIGRAPH_SUCCESSORS,
@@ -1374,7 +1386,7 @@ def _assigned_private_number_of_nodes(self):
 
 
 def _private_native_method(graph, methods):
-    """Find the inherited native writer for the unassigned half of storage."""
+    """Find an inherited native method or descriptor for unassigned storage."""
     for base in type(graph).__mro__:
         method = methods.get(base)
         if method is not None:
@@ -1382,8 +1394,13 @@ def _private_native_method(graph, methods):
     return None
 
 
-def _assigned_private_add_node(
-    self, node_for_adding, *, _sync_native=True, _preserve_assigned_row=False, **attr
+def _assigned_private_add_node(self, node_for_adding, **attr):
+    # User attributes must never bind the internal synchronization controls.
+    return _assigned_private_add_node_data(self, node_for_adding, attr)
+
+
+def _assigned_private_add_node_data(
+    self, node_for_adding, attr, *, _sync_native=True, _preserve_assigned_row=False
 ):
     """add_node for a graph carrying assigned private storage (br-r37-c1-wv3cu).
 
@@ -1412,8 +1429,14 @@ def _assigned_private_add_node(
     if owner is not None:
         raw = _RAW_ADD_NODE_BY_CLASS.get(type(owner))
         if raw is not None:
-            return raw(owner, node_for_adding, **attr)
-        return owner.add_node(node_for_adding, **attr)
+            result = raw(owner, node_for_adding)
+            if attr:
+                raw_nodes = _private_native_method(owner, _RAW_NODE_VIEWS_BY_CLASS)
+                raw_nodes.__get__(owner, type(owner))[node_for_adding].update(attr)
+            return result
+        result = owner.add_node(node_for_adding)
+        owner.nodes[node_for_adding].update(attr)
+        return result
 
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
     # Record membership before the native call.  Graph.add_node decides whether
@@ -1423,7 +1446,10 @@ def _assigned_private_add_node(
     known_to_node_store = node_for_adding in self._node
     raw = _private_native_method(target, _RAW_ADD_NODE_BY_CLASS)
     if _sync_native and raw is not None:
-        raw(target, node_for_adding, **attr)
+        raw(target, node_for_adding)
+        if attr:
+            raw_nodes = _private_native_method(target, _RAW_NODE_VIEWS_BY_CLASS)
+            raw_nodes.__get__(target, type(target))[node_for_adding].update(attr)
 
     node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
     if node_map is not None:
@@ -1520,16 +1546,17 @@ def _assigned_private_prepare_edge_nodes(self, u, v, storage):
         and any(exists[node] and node not in self._node for node in (u, v))
     )
     for node in (u, v):
-        _assigned_private_add_node(
+        _assigned_private_add_node_data(
             self,
             node,
+            {},
             _sync_native=not (python_only and exists[node]),
             _preserve_assigned_row=python_only and exists[node],
         )
     return python_only
 
 
-def _assigned_private_write_edge(self, u, v, key, attr, storage):
+def _assigned_private_write_edge(self, u, v, key, attr, storage, native_data=None):
     """Put one edge into whichever assigned mappings this graph carries."""
     forward, backward = _assigned_private_edge_targets(self, storage)
     multi = self.is_multigraph()
@@ -1550,8 +1577,15 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
         if fwd_keys is not None:
             datadict = fwd_keys.get(key)
             if datadict is None:
-                datadict = fwd_keys[key] = {}
+                fwd_keys[key] = {}
+                # A live native keydict copies inserted attributes. Update
+                # its stored dictionary, not the temporary insertion value.
+                datadict = fwd_keys[key]
             datadict.update(attr)
+            if not new_pair:
+                # NetworkX edits only the existing forward keydict. A shared
+                # reverse row follows naturally; an independent one stays put.
+                return
         if backward is not None and (backward is not forward or u != v):
             back_row = row(backward, v)
             if new_pair:
@@ -1561,7 +1595,7 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
                 back_keys[key] = datadict if datadict is not None else dict(attr)
         return
 
-    datadict = None
+    datadict = native_data
     if forward is not None:
         fwd_row = row(forward, u)
         datadict = fwd_row.get(v)
@@ -1577,23 +1611,44 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
 
 
 def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
+    return _assigned_private_add_edge_simple_data(self, u_of_edge, v_of_edge, attr)
+
+
+def _assigned_private_add_edge_simple_data(self, u_of_edge, v_of_edge, attr):
     """add_edge for a graph carrying assigned private storage (br-r37-c1-wv3cu)."""
     storage = vars(self)
     owner = _shared_unsplit_owner(self, storage)
     if owner is not None:
         raw = _RAW_ADD_EDGE_BY_CLASS.get(type(owner))
         if raw is not None:
-            return raw(owner, u_of_edge, v_of_edge, **attr)
-        return owner.add_edge(u_of_edge, v_of_edge, **attr)
+            result = raw(owner, u_of_edge, v_of_edge)
+            if attr:
+                get_data = _private_native_method(owner, _RAW_GET_EDGE_DATA_BY_CLASS)
+                get_data(owner, u_of_edge, v_of_edge).update(attr)
+            return result
+        result = owner.add_edge(u_of_edge, v_of_edge)
+        owner.get_edge_data(u_of_edge, v_of_edge).update(attr)
+        return result
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     raw = _private_native_method(target, _RAW_ADD_EDGE_BY_CLASS)
+    native_data = None
     if not python_only and raw is not None:
-        raw(target, u_of_edge, v_of_edge, **attr)
-    _assigned_private_write_edge(self, u_of_edge, v_of_edge, None, attr, storage)
+        raw(target, u_of_edge, v_of_edge)
+        get_data = _private_native_method(target, _RAW_GET_EDGE_DATA_BY_CLASS)
+        native_data = get_data(target, u_of_edge, v_of_edge)
+        if attr:
+            native_data.update(attr)
+    _assigned_private_write_edge(
+        self, u_of_edge, v_of_edge, None, attr, storage, native_data
+    )
 
 
 def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **attr):
+    return _assigned_private_add_edge_multi_data(self, u_of_edge, v_of_edge, key, attr)
+
+
+def _assigned_private_add_edge_multi_data(self, u_of_edge, v_of_edge, key, attr):
     """Multigraph add_edge: the key is part of the address, not an attribute."""
     storage = vars(self)
     owner = _shared_unsplit_owner(self, storage)
@@ -1601,20 +1656,59 @@ def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **att
         raw = _RAW_ADD_EDGE_BY_CLASS.get(type(owner))
         if raw is not None:
             if key is None:
-                return raw(owner, u_of_edge, v_of_edge, **attr)
-            return raw(owner, u_of_edge, v_of_edge, key, **attr)
+                key = raw(owner, u_of_edge, v_of_edge)
+            else:
+                key = raw(owner, u_of_edge, v_of_edge, key)
+            if attr:
+                get_data = _private_native_method(owner, _RAW_GET_EDGE_DATA_BY_CLASS)
+                get_data(owner, u_of_edge, v_of_edge)[key].update(attr)
+            return key
         if key is None:
-            return owner.add_edge(u_of_edge, v_of_edge, **attr)
-        return owner.add_edge(u_of_edge, v_of_edge, key, **attr)
+            key = owner.add_edge(u_of_edge, v_of_edge)
+        else:
+            key = owner.add_edge(u_of_edge, v_of_edge, key)
+        owner.get_edge_data(u_of_edge, v_of_edge)[key].update(attr)
+        return key
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     if key is None:
         # Resolve against the live assigned rows, and preserve user overrides
         # of the public key generator, before synchronizing the native half.
         key = self.new_edge_key(u_of_edge, v_of_edge)
+    forward, backward = _assigned_private_edge_targets(self, storage)
+    existing_pair = v_of_edge in self._adj[u_of_edge]
+    if (
+        not python_only
+        and forward is not None
+        and backward is None
+        and not existing_pair
+    ):
+        # A new directed pair must share its keydict with the native
+        # predecessor row. Replace any stale native pair without carrying
+        # its old keys/attributes into the authoritative assigned mapping.
+        forward[u_of_edge][v_of_edge] = target._fnx_replace_pair_with_edge(
+            u_of_edge, v_of_edge, key, attr
+        )
+        return key
     raw = _private_native_method(target, _RAW_ADD_EDGE_BY_CLASS)
-    if not python_only and raw is not None:
-        raw(target, u_of_edge, v_of_edge, key, **attr)
+    native_keydict = None
+    if not python_only and raw is not None and (forward is None or not existing_pair):
+        native_key = raw(target, u_of_edge, v_of_edge, key)
+        if attr or (forward is None and backward is not None and not existing_pair):
+            get_data = _private_native_method(target, _RAW_GET_EDGE_DATA_BY_CLASS)
+            native_keydict = get_data(target, u_of_edge, v_of_edge)
+            if attr:
+                native_keydict[native_key].update(attr)
+    if forward is None:
+        if backward is not None and not existing_pair:
+            if native_keydict is not None:
+                # The native successor row is authoritative. Share its live
+                # keydict so later keys and attribute edits reach _pred too.
+                back_row = backward.setdefault(v_of_edge, {})
+                back_row[u_of_edge] = native_keydict
+            else:
+                _assigned_private_write_edge(self, u_of_edge, v_of_edge, key, attr, storage)
+        return key
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, key, attr, storage)
     return key
 
@@ -1632,10 +1726,13 @@ def _assigned_private_add_nodes_from(self, nodes_for_adding, **attr):
             return raw(owner, nodes_for_adding, **attr)
         return owner.add_nodes_from(nodes_for_adding, **attr)
     for node in nodes_for_adding:
-        if isinstance(node, tuple) and len(node) == 2 and isinstance(node[1], dict):
-            name, node_attr = node
+        try:
+            _HASH_PROBE.get(node)
+        except TypeError:
+            node, node_attr = node
+            _HASH_PROBE.get(node)
             merged = dict(attr)
             merged.update(node_attr)
-            _assigned_private_add_node(self, name, **merged)
         else:
-            _assigned_private_add_node(self, node, **attr)
+            merged = attr
+        _assigned_private_add_node_data(self, node, merged)
