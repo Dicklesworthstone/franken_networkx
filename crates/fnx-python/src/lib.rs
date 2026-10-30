@@ -977,20 +977,115 @@ impl CustomKeyRef {
             Self::Strong(obj) => Self::Strong(obj.clone_ref(py)),
         }
     }
+
+    fn identity(&self) -> (bool, usize) {
+        match self {
+            Self::Weak(wref) => (false, wref.as_ptr() as usize),
+            Self::Strong(obj) => (true, obj.as_ptr() as usize),
+        }
+    }
+
+    fn snapshot_is_live(&self, py: Python<'_>) -> PyResult<bool> {
+        match self {
+            Self::Weak(wref) => Ok(!wref.bind(py).call0()?.is_none()),
+            // The registry and its snapshot each own one reference. A graph,
+            // caller, or other live container must own another before this
+            // non-weak-referenceable key can still identify a stored node.
+            Self::Strong(obj) => Ok(obj.get_refcnt(py) > 2),
+        }
+    }
 }
 
+type CustomKeyBucket = Vec<(CustomKeyRef, String)>;
+type CustomKeySnapshot = Vec<(isize, CustomKeyBucket)>;
+
 struct CustomKeyInterner {
-    buckets: Option<rustc_hash::FxHashMap<isize, Vec<(CustomKeyRef, String)>>>,
+    buckets: Option<rustc_hash::FxHashMap<isize, CustomKeyBucket>>,
     next_id: u64,
+    generation: u64,
+    registrations_since_sweep: usize,
 }
 
 static CUSTOM_KEY_INTERNER: std::sync::Mutex<CustomKeyInterner> =
     std::sync::Mutex::new(CustomKeyInterner {
         buckets: None,
         next_id: 1,
+        generation: 0,
+        registrations_since_sweep: 0,
     });
 
-const CUSTOM_KEY_INTERNER_MAX_BUCKETS: usize = 65_536;
+const CUSTOM_KEY_INTERNER_SWEEP_INTERVAL: usize = 65_536;
+
+fn custom_key_snapshot(py: Python<'_>, hash: Option<isize>) -> (u64, CustomKeySnapshot) {
+    let guard = CUSTOM_KEY_INTERNER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(buckets) = guard.buckets.as_ref() else {
+        return (guard.generation, Vec::new());
+    };
+    let copy_bucket = |entries: &CustomKeyBucket| {
+        entries
+            .iter()
+            .map(|(key, base)| (key.clone_ref(py), base.clone()))
+            .collect()
+    };
+    let snapshot = if let Some(hash) = hash {
+        buckets
+            .get(&hash)
+            .map(|entries| vec![(hash, copy_bucket(entries))])
+            .unwrap_or_default()
+    } else {
+        buckets
+            .iter()
+            .map(|(&hash, entries)| (hash, copy_bucket(entries)))
+            .collect()
+    };
+    (guard.generation, snapshot)
+}
+
+fn prune_custom_key_snapshot(
+    py: Python<'_>,
+    snapshot: &[(isize, CustomKeyBucket)],
+) -> PyResult<()> {
+    let mut expired =
+        rustc_hash::FxHashMap::<isize, rustc_hash::FxHashSet<(bool, usize)>>::default();
+    for (hash, entries) in snapshot {
+        for (key, _) in entries {
+            if !key.snapshot_is_live(py)? {
+                expired.entry(*hash).or_default().insert(key.identity());
+            }
+        }
+    }
+    if expired.is_empty() {
+        return Ok(());
+    }
+
+    // All Python calls happen before taking the lock. The snapshot keeps
+    // removed references alive until AFTER the lock is released, so a key's
+    // finalizer can safely call back into graph operations. Remove by identity
+    // rather than snapshot position: equality callbacks may reenter and append
+    // to or prune the same bucket while the snapshot is being inspected.
+    let mut guard = CUSTOM_KEY_INTERNER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut changed = false;
+    if let Some(buckets) = guard.buckets.as_mut() {
+        for (hash, identities) in expired {
+            if let Some(bucket) = buckets.get_mut(&hash) {
+                let old_len = bucket.len();
+                bucket.retain(|(key, _)| !identities.contains(&key.identity()));
+                changed |= bucket.len() != old_len;
+                if bucket.is_empty() {
+                    buckets.remove(&hash);
+                }
+            }
+        }
+    }
+    if changed {
+        guard.generation = guard.generation.wrapping_add(1);
+    }
+    Ok(())
+}
 
 fn object_uses_identity_equality(py: Python<'_>, key: &Bound<'_, PyAny>) -> bool {
     let ty = key.get_type();
@@ -1095,110 +1190,103 @@ fn custom_object_canonical_key(
             Ok("int:-1".to_owned())
         };
     }
-    let snapshot: Vec<(CustomKeyRef, String)> = {
-        let guard = CUSTOM_KEY_INTERNER
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard
-            .buckets
-            .as_ref()
-            .and_then(|buckets| buckets.get(&h))
-            .map(|entries| {
-                entries
-                    .iter()
-                    .map(|(kref, base)| (kref.clone_ref(py), base.clone()))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let mut alive_mask = Vec::with_capacity(snapshot.len());
+    let mut observed = [(h, CustomKeyBucket::new())];
+    let mut identities = rustc_hash::FxHashSet::default();
     let mut matched_base: Option<String> = None;
-    for (kref, base) in &snapshot {
-        match kref {
-            CustomKeyRef::Weak(wref) => {
-                let referent = wref.bind(py).call0()?;
-                if referent.is_none() {
-                    alive_mask.push(false);
-                    continue;
-                }
-                alive_mask.push(true);
-                if matched_base.is_none() && (referent.is(key) || referent.eq(key)?) {
-                    matched_base = Some(base.clone());
-                }
-            }
-            CustomKeyRef::Strong(obj) => {
-                alive_mask.push(true);
-                if matched_base.is_none() && (obj.is(key) || obj.bind(py).eq(key)?) {
-                    matched_base = Some(base.clone());
+    let mut matched_referent: Option<PyObject> = None;
+    loop {
+        let (generation, snapshot) = custom_key_snapshot(py, Some(h));
+        let first_new = observed[0].1.len();
+        for (_, entries) in snapshot {
+            for entry in entries {
+                if identities.insert(entry.0.identity()) {
+                    observed[0].1.push(entry);
                 }
             }
         }
-    }
-    let has_dead = alive_mask.iter().any(|&alive| !alive);
-    if let Some(base) = matched_base {
-        if has_dead {
-            let mut guard = CUSTOM_KEY_INTERNER
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(buckets) = guard.buckets.as_mut()
-                && let Some(bucket) = buckets.get_mut(&h)
-            {
-                let mut idx = 0;
-                bucket.retain(|_| {
-                    let keep = alive_mask.get(idx).copied().unwrap_or(true);
-                    idx += 1;
-                    keep
-                });
-                if bucket.is_empty() {
-                    buckets.remove(&h);
+        let mut key_registered = false;
+        // Reentrant equality may register more keys. Compare only new
+        // identities on retry: repeating earlier callbacks could loop forever
+        // when each comparison adds an unrelated key with the same hash.
+        for (kref, base) in observed[0].1.iter().skip(first_new) {
+            match kref {
+                CustomKeyRef::Weak(wref) => {
+                    let referent = wref.bind(py).call0()?;
+                    if referent.is_none() {
+                        continue;
+                    }
+                    key_registered |= referent.is(key);
+                    if matched_base.is_none() && (referent.is(key) || referent.eq(key)?) {
+                        matched_base = Some(base.clone());
+                        matched_referent = Some(referent.unbind());
+                    }
+                }
+                CustomKeyRef::Strong(obj) => {
+                    if !kref.snapshot_is_live(py)? {
+                        continue;
+                    }
+                    key_registered |= obj.is(key);
+                    if matched_base.is_none() && (obj.is(key) || obj.bind(py).eq(key)?) {
+                        matched_base = Some(base.clone());
+                    }
                 }
             }
+        }
+        if key_registered && let Some(base) = matched_base.as_ref() {
+            prune_custom_key_snapshot(py, &observed)?;
+            return if prefix.is_empty() {
+                Ok(base.clone())
+            } else {
+                Ok(format!("{prefix}{base}"))
+            };
+        }
+
+        // Record every equal live representative, so collecting the first
+        // graph cannot invalidate an equal node held by another graph.
+        let weakref_ctor = py
+            .import(pyo3::intern!(py, "weakref"))?
+            .getattr(pyo3::intern!(py, "ref"))?;
+        let key_ref = match weakref_ctor.call1((key,)) {
+            Ok(wref) => CustomKeyRef::Weak(wref.unbind()),
+            Err(_) => CustomKeyRef::Strong(key.clone().unbind()),
+        };
+        let mut guard = CUSTOM_KEY_INTERNER
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if guard.generation != generation {
+            drop(guard);
+            continue;
+        }
+        let base = matched_base.unwrap_or_else(|| {
+            let id = guard.next_id;
+            guard.next_id = guard.next_id.wrapping_add(1);
+            format!("__fnx_obj:{id}")
+        });
+        let buckets = guard.buckets.get_or_insert_with(Default::default);
+        buckets.entry(h).or_default().push((key_ref, base.clone()));
+        guard.generation = guard.generation.wrapping_add(1);
+        guard.registrations_since_sweep += 1;
+        let sweep_due = guard.registrations_since_sweep >= CUSTOM_KEY_INTERNER_SWEEP_INTERVAL;
+        if sweep_due {
+            guard.registrations_since_sweep = 0;
+        }
+        drop(guard);
+        // Publish the identity before releasing dead keys: __del__ can reenter.
+        prune_custom_key_snapshot(py, &observed)?;
+        drop(observed);
+        // Keep a matched weak referent alive through publication even if its
+        // equality callback removed its last owner and armed a weakref callback.
+        drop(matched_referent);
+        // Graph identity cannot be evicted. Only dead references are reclaimed.
+        if sweep_due {
+            let (_, snapshot) = custom_key_snapshot(py, None);
+            prune_custom_key_snapshot(py, &snapshot)?;
         }
         return if prefix.is_empty() {
             Ok(base)
         } else {
             Ok(format!("{prefix}{base}"))
         };
-    }
-
-    let weakref_ctor = py
-        .import(pyo3::intern!(py, "weakref"))?
-        .getattr(pyo3::intern!(py, "ref"))?;
-    let key_ref = match weakref_ctor.call1((key,)) {
-        Ok(wref) => CustomKeyRef::Weak(wref.unbind()),
-        Err(_) => CustomKeyRef::Strong(key.clone().unbind()),
-    };
-
-    let base = {
-        let mut guard = CUSTOM_KEY_INTERNER
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let id = guard.next_id;
-        guard.next_id = guard.next_id.wrapping_add(1);
-        let base = format!("__fnx_obj:{id}");
-        let buckets = guard.buckets.get_or_insert_with(Default::default);
-        if buckets.len() >= CUSTOM_KEY_INTERNER_MAX_BUCKETS
-            && !buckets.contains_key(&h)
-            && let Some(&arbitrary_hash) = buckets.keys().next()
-        {
-            buckets.remove(&arbitrary_hash);
-        }
-        let bucket = buckets.entry(h).or_default();
-        if has_dead {
-            let mut idx = 0;
-            bucket.retain(|_| {
-                let keep = alive_mask.get(idx).copied().unwrap_or(true);
-                idx += 1;
-                keep
-            });
-        }
-        bucket.push((key_ref, base.clone()));
-        base
-    };
-    if prefix.is_empty() {
-        Ok(base)
-    } else {
-        Ok(format!("{prefix}{base}"))
     }
 }
 

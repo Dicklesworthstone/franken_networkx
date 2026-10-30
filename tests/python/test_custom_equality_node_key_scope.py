@@ -226,3 +226,288 @@ def test_remove_node_cleans_up_neighbor_aliases_and_preserves_other_edges(cls_na
     assert list(gfx.edges) == list(gnx.edges)
     assert dict(gfx[2]) == dict(gnx[2])
 
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("nested", [False, True], ids=["node", "tuple-node"])
+def test_equal_node_in_another_graph_survives_first_representative_collection(
+    cls_name, nested
+):
+    """Collecting one graph cannot invalidate an equal node in another graph."""
+    import gc
+    import weakref
+
+    for lib in (nx, fnx):
+        original = CustomNode(810001, "first graph")
+        survivor = CustomNode(810001, "second graph")
+        original_ref = weakref.ref(original)
+        first = getattr(lib, cls_name)()
+        second = getattr(lib, cls_name)()
+        first.add_edge((original, "node") if nested else original, "target")
+        key = (survivor, "node") if nested else survivor
+        second.add_edge(key, "target", weight=7)
+        del first, original
+        gc.collect()
+        assert original_ref() is None
+
+        alias = CustomNode(810001, "lookup")
+        alias_key = (alias, "node") if nested else alias
+        assert key in second
+        assert alias_key in second
+        assert second.has_edge(alias_key, "target")
+        assert list(second.neighbors(alias_key)) == ["target"]
+        assert lib.shortest_path(second, alias_key, "target") == [alias_key, "target"]
+        second.add_node(alias_key, retained=True)
+        assert second.number_of_nodes() == 2
+        assert second.nodes[key]["retained"] is True
+        second.remove_node(alias_key)
+        assert list(second) == ["target"]
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_equal_multiedge_key_survives_first_representative_collection(cls_name):
+    import gc
+    import weakref
+
+    for lib in (nx, fnx):
+        original = CustomNode(810002, "first graph")
+        survivor = CustomNode(810002, "second graph")
+        original_ref = weakref.ref(original)
+        first = getattr(lib, cls_name)()
+        second = getattr(lib, cls_name)()
+        first.add_edge("a", "b", key=original)
+        second.add_edge("a", "b", key=survivor, weight=9)
+        del first, original
+        gc.collect()
+        assert original_ref() is None
+
+        alias = CustomNode(810002, "lookup")
+        assert second.has_edge("a", "b", key=alias)
+        assert second.get_edge_data("a", "b", key=alias) == {"weight": 9}
+        second.remove_edge("a", "b", key=alias)
+        assert second.number_of_edges() == 0
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_live_custom_nodes_survive_global_interner_pressure(cls_name):
+    """A graph larger than the old cache limit must retain all of its nodes."""
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent(
+        """
+        import sys
+        import networkx as nx
+        import franken_networkx as fnx
+
+        class Node:
+            def __init__(self, value):
+                self.value = value
+            def __hash__(self):
+                return 900000 + self.value
+            def __eq__(self, other):
+                return isinstance(other, Node) and self.value == other.value
+
+        nodes = [Node(i) for i in range(65600)]
+        for lib in (nx, fnx):
+            graph = getattr(lib, sys.argv[1])()
+            graph.add_nodes_from(nodes)
+            assert graph.number_of_nodes() == len(nodes)
+            missing = sum(node not in graph for node in nodes)
+            assert missing == 0, (lib.__name__, missing)
+            graph.add_edge(nodes[0], nodes[-1], weight=3)
+            assert graph.number_of_nodes() == len(nodes)
+            assert graph.has_edge(Node(0), Node(len(nodes) - 1))
+            assert lib.shortest_path(graph, Node(0), Node(len(nodes) - 1)) == [
+                nodes[0], nodes[-1]
+            ]
+        """
+    )
+    env = dict(os.environ, OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
+    completed = subprocess.run(
+        [sys.executable, "-c", code, cls_name],
+        capture_output=True,
+        text=True,
+        timeout=45,
+        env=env,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def _custom_key_reentry_probe(lib, cls_name, case, weak_nodes):
+    import gc
+    import weakref
+
+    primary = getattr(lib, cls_name)()
+    secondary = getattr(lib, cls_name)()
+    callbacks = []
+    bucket = 19700317
+
+    class Payload:
+        pass
+
+    class NodeBase:
+        __slots__ = ("value", "bucket", "callback", "finalize", "payload")
+
+        def __init__(self, value, node_bucket=bucket):
+            self.value = value
+            self.bucket = node_bucket
+            self.callback = None
+            self.finalize = None
+            self.payload = None
+
+        def __hash__(self):
+            return self.bucket
+
+        def __eq__(self, other):
+            if not isinstance(other, NodeBase):
+                return False
+            if self.callback is not None:
+                self.callback(other)
+            return self.value == other.value
+
+        def __del__(self):
+            if self.finalize is not None:
+                self.finalize()
+
+    class WeakNode(NodeBase):
+        __slots__ = ("__weakref__",)
+
+    class StrongNode(NodeBase):
+        __slots__ = ()
+
+    Node = WeakNode if weak_nodes else StrongNode
+    anchor = Node(2 if case == "weakref_callback" else 1)
+    primary.add_node(anchor)
+
+    if case == "weakref_callback":
+        # A global equality comparison can release a representative held by
+        # another graph. Its weakref callback must reuse the published base.
+        holder = getattr(lib, cls_name)()
+        holder.add_node(anchor)
+        primary.clear()
+
+        def insert_from_weakref(_):
+            callbacks.append("weakref")
+            secondary.add_node(Node(2))
+
+        def release_anchor(other):
+            if other.value == 2:
+                holder.clear()
+
+        reference = weakref.ref(anchor, insert_from_weakref)
+        anchor.callback = release_anchor
+        del anchor
+        incoming = Node(2)
+        primary.add_node(incoming)
+        assert reference() is None
+        assert callbacks == ["weakref"]
+        assert incoming in primary
+        assert incoming in secondary
+        assert primary.number_of_nodes() == secondary.number_of_nodes() == 1
+        assert holder.number_of_nodes() == 0
+        return
+
+    if case == "weakref_node":
+        # The same weakref object can be a Weak registry reference and a
+        # distinct Strong graph key. Pruning one must preserve the other.
+        reference = weakref.ref(anchor)
+        primary.add_node(reference)
+        assert primary.number_of_nodes() == 2
+        assert reference in primary
+        assert anchor in primary
+        primary.remove_node(anchor)
+        del anchor
+        gc.collect()
+        assert reference() is None
+        assert reference in primary
+        assert primary.number_of_nodes() == 1
+        primary.remove_node(reference)
+        assert primary.number_of_nodes() == 0
+        return
+
+    if case == "finalizer":
+        def insert_from_finalizer():
+            callbacks.append("finalizer")
+            secondary.add_node(Node(2))
+
+        anchor.finalize = insert_from_finalizer
+        anchor.payload = Payload()
+        anchor_payload = weakref.ref(anchor.payload)
+        del anchor
+        primary.clear()
+        gc.collect()
+    else:
+        def insert_from_equality(other):
+            if other.value != 2:
+                return
+            callbacks.append("equality")
+            assert len(callbacks) <= 16, "unbounded equality retry"
+            if case in ("equal_alias", "same_object"):
+                anchor.callback = None
+                secondary.add_node(other if case == "same_object" else Node(2))
+            else:
+                other_bucket = bucket if case == "same_hash_unrelated" else bucket + len(callbacks)
+                secondary.add_node(Node(100 + len(callbacks), other_bucket))
+
+        anchor.callback = insert_from_equality
+
+    incoming = Node(2)
+    incoming.payload = Payload()
+    incoming_payload = weakref.ref(incoming.payload)
+    primary.add_node(incoming)
+    assert callbacks
+    if case != "finalizer":
+        anchor.callback = None
+    assert incoming in primary, (lib.__name__, case, "stored node is unreachable")
+    assert Node(2) in primary, (lib.__name__, case, "equal lookup misses")
+    assert primary.number_of_nodes() == (1 if case == "finalizer" else 2)
+    if case in ("equal_alias", "same_object", "finalizer"):
+        assert incoming in secondary
+        assert secondary.number_of_nodes() == 1
+    if case == "finalizer":
+        assert anchor_payload() is None
+        assert callbacks == ["finalizer"]
+
+    primary.clear()
+    secondary.clear()
+    del incoming
+    gc.collect()
+    primary.add_node(Node(3))
+    gc.collect()
+    assert incoming_payload() is None, (lib.__name__, case, "dead alias was retained")
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize(
+    "case,weak_nodes",
+    [
+        (case, weak)
+        for case in (
+            "equal_alias", "same_object", "same_hash_unrelated", "other_hash_unrelated"
+        )
+        for weak in (False, True)
+    ] + [("finalizer", False), ("weakref_node", True), ("weakref_callback", True)],
+)
+def test_custom_key_reentry_preserves_identity_and_lifetime(cls_name, case, weak_nodes):
+    import subprocess
+    import sys
+
+    code = (
+        "import runpy, sys\n"
+        "scope = runpy.run_path(sys.argv[1])\n"
+        # NetworkX has no global registry or cross-graph equality callback.
+        "names = ('fnx',) if sys.argv[3]=='weakref_callback' else ('nx', 'fnx')\n"
+        "for name in names:\n"
+        " scope['_custom_key_reentry_probe'](scope[name], *sys.argv[2:4], sys.argv[4]=='True')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, __file__, cls_name, case, str(weak_nodes)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

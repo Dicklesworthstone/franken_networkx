@@ -73,7 +73,7 @@ preserve NetworkX's `**attr` signature contract:
 
 ## Declared Scope Boundary: Node-Key Equivalence (`br-r37-c1-cow38`, updated in `br-r37-c1-epic-storage-architecture-yr2oc.5`)
 
-**Decision: non-primitive custom objects and tuples containing custom objects honor Python `__eq__`/`__hash__` (including hash collisions) via a bounded 65,536-entry canonical interner (`custom_object_canonical_key`, `yr2oc.5`), whereas subclasses of primitive types (`str`, `int`, `float`) that redefine `__eq__`/`__hash__` to make distinct primitive values compare equal remain canonicalized by primitive value (`br-r37-c1-cow38`).** This primitive-subclass boundary is a deliberate, recorded divergence, not an open defect.
+**Decision: non-primitive custom objects and tuples containing custom objects honor Python `__eq__`/`__hash__` (including hash collisions) via a canonical interner that retains every live representative (`custom_object_canonical_key`, `yr2oc.5`), whereas subclasses of primitive types (`str`, `int`, `float`) that redefine `__eq__`/`__hash__` to make distinct primitive values compare equal remain canonicalized by primitive value (`br-r37-c1-cow38`).** This primitive-subclass boundary is a deliberate, recorded divergence, not an open defect. Canonical identities are never evicted while live keys depend on them; dead references are reclaimed periodically. Equal keys held by different graphs retain their shared identity when the first representative is collected.
 
 networkx stores nodes in a `dict`, so a key's own `__eq__`/`__hash__` define the
 equivalence relation and any object hashing and comparing equal to a stored key
