@@ -16229,6 +16229,7 @@ impl PyMultiGraph {
             } else {
                 None
             };
+            let key = key.filter(|key| !key.is_none());
             let u_c = node_key_to_string(py, u)?;
             let v_c = node_key_to_string(py, v)?;
             // NetworkX skips missing-edge errors, not failures such as

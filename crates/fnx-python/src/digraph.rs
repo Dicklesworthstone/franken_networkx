@@ -5054,6 +5054,40 @@ impl MultiDiKeyDictView {
 /// every edge of a reversed graph, for instance).
 #[pymethods]
 impl PyMultiDiGraph {
+    /// Drop a native pair while preserving a held independent keydict. The
+    /// assigned-storage caller has already removed its forward keydict entry.
+    fn _fnx_remove_pair(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        crate::hash_key_as_dict_would(u)?;
+        crate::hash_key_as_dict_would(v)?;
+        let source = node_key_to_string(py, u)?;
+        let target = node_key_to_string(py, v)?;
+        let mut graph = slf.borrow_mut();
+        let old_keys = graph.inner.edge_keys(&source, &target).unwrap_or_default();
+        if !graph.inner.remove_pair(&source, &target) {
+            return Ok(false);
+        }
+        for key in old_keys {
+            graph.remove_edge_metadata(&source, &target, key);
+        }
+        graph.live_keydict_rows.pair_removed(py, &source, &target);
+        if graph.direction_rows_live() {
+            graph.cached_direction_row_remove(py, &source, &target, true)?;
+            graph.cached_direction_row_remove(py, &target, &source, false)?;
+        }
+        graph.succ_py_keys.remove(&(source.clone(), target.clone()));
+        graph.pred_py_keys.remove(&(target, source));
+        graph.bump_edges_seq();
+        if graph.direction_rows_live() {
+            graph.restamp_direction_rows();
+        }
+        Ok(true)
+    }
+
     /// Replace a pair with one fresh edge after the Python caller has prepared
     /// both endpoint nodes. Assigned successor storage can introduce a new
     /// pair while the native predecessor cell still holds an old keydict.
@@ -10774,6 +10808,7 @@ impl PyMultiDiGraph {
             } else {
                 None
             };
+            let key = key.filter(|key| !key.is_none());
             let u_c = node_key_to_string(py, u)?;
             let v_c = node_key_to_string(py, v)?;
             if self.inner.has_edge(&u_c, &v_c)

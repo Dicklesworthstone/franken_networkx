@@ -178,6 +178,13 @@ impl LiveKeydictRows {
         }
     }
 
+    /// Dropping a whole adjacency cell leaves its held keydict intact.
+    pub(crate) fn pair_removed(&mut self, py: Python<'_>, source: &str, target: &str) {
+        if let Some(row) = self.unregister(source, target) {
+            detach(py, &row);
+        }
+    }
+
     /// A node was removed: detach every row that has it as an endpoint, with
     /// its contents untouched.
     pub(crate) fn node_removed(&mut self, py: Python<'_>, node: &str) {
@@ -349,6 +356,31 @@ mod tests {
             Ok(())
         })
         .expect("held rows stay intact");
+    }
+
+    #[test]
+    fn whole_pair_removal_preserves_held_data_and_unrelated_rows() {
+        Python::initialize();
+        Python::attach(|py| -> PyResult<()> {
+            let mut rows = LiveKeydictRows::default();
+            let held = PyDict::new(py);
+            let attrs = PyDict::new(py);
+            attrs.set_item("value", 7)?;
+            held.set_item("edge", &attrs)?;
+            rows.insert("a", "b", held.clone().unbind());
+            rows.insert("a", "c", PyDict::new(py).unbind());
+            rows.insert("d", "b", PyDict::new(py).unbind());
+            rows.pair_removed(py, "a", "b");
+            assert!(!rows.contains("a", "b"));
+            assert!(rows.contains("a", "c"));
+            assert!(rows.contains("d", "b"));
+            assert!(!rows.sources_by_target["b"].contains("a"));
+            assert!(held.get_item("edge")?.expect("held edge").is(&attrs));
+            rows.pair_removed(py, "a", "b");
+            assert_eq!(held.len(), 1);
+            Ok(())
+        })
+        .expect("whole-pair removal preserves held attributes");
     }
 
     #[test]

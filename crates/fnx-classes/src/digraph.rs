@@ -4116,6 +4116,30 @@ impl MultiDiGraph {
         self.remove_edge_impl(source, target, key, false)
     }
 
+    /// Drop a whole adjacency pair, including a retained empty key bucket.
+    pub fn remove_pair(&mut self, source: &str, target: &str) -> bool {
+        let previous_revision = self.revision;
+        let edge_key = DirectedEdgeKeyRef::new(source, target);
+        let dropped_position = if self.edge_pair_index_is_live(previous_revision) {
+            self.edges.get_index_of(&edge_key)
+        } else {
+            None
+        };
+        let Some(bucket) = self.edges.swap_remove(&edge_key) else {
+            return false;
+        };
+        self.edge_count -= bucket.len();
+        if let Some(row) = self.successors.get_mut(source) {
+            row.shift_remove(target);
+        }
+        if let Some(row) = self.predecessors.get_mut(target) {
+            row.shift_remove(source);
+        }
+        self.revision = self.revision.saturating_add(1);
+        self.pair_index_note_edge_removed(previous_revision, source, target, dropped_position);
+        true
+    }
+
     /// Dictionary-side key deletion keeps an empty pair in both ordered
     /// direction rows; graph-side removal still drops the pair.
     pub fn remove_key_preserving_pair(&mut self, source: &str, target: &str, key: usize) -> bool {
@@ -4931,6 +4955,83 @@ mod tests {
                 assert!(graph.remove_edge("u", target, Some(9)));
                 assert!(!graph.has_edge_by_indices(u, v));
                 assert_eq!(graph.successors("u").unwrap(), vec!["before", "after"]);
+            }
+        }
+    }
+
+    #[test]
+    fn multidigraph_pair_removal_preserves_unrelated_order_and_indexes() {
+        for empty_pair in [false, true] {
+            for target in ["v", "u"] {
+                let mut graph = MultiDiGraph::new(CompatibilityMode::Strict);
+                graph.add_edge("u", "before").unwrap();
+                graph.add_edge("p-before", target).unwrap();
+                for key in [7, 2] {
+                    graph
+                        .add_edge_with_key_and_attrs("u", target, key, AttrMap::new())
+                        .unwrap();
+                }
+                graph.add_edge("p-after", target).unwrap();
+                graph.add_edge("u", "after").unwrap();
+                let u = graph.get_node_index("u").unwrap();
+                let v = graph.get_node_index(target).unwrap();
+                let after = graph.get_node_index("after").unwrap();
+                let node_count = graph.node_count();
+                for _ in 0..super::pair_index_warmup(graph.edges.len()) {
+                    assert!(graph.has_edge_by_indices(u, v));
+                }
+                assert!(graph.edge_pair_index_is_live(graph.revision()));
+                if empty_pair {
+                    for key in [7, 2] {
+                        assert!(graph.remove_key_preserving_pair("u", target, key));
+                    }
+                }
+                let old_csr = graph.csr();
+                assert!(old_csr.successors(u).contains(&u32::try_from(v).unwrap()));
+                assert!(graph.remove_pair("u", target));
+                assert_eq!(graph.node_count(), node_count);
+                assert_eq!(graph.edge_count(), 4);
+                assert_eq!(graph.out_degree("u"), 2);
+                assert_eq!(graph.in_degree(target), 2);
+                assert_eq!(graph.successors("u").unwrap(), vec!["before", "after"]);
+                assert_eq!(
+                    graph.predecessors(target).unwrap(),
+                    vec!["p-before", "p-after"]
+                );
+                assert_eq!(graph.edge_keys("u", target), None);
+                assert!(!graph.has_edge("u", target));
+                assert!(!graph.has_edge_by_indices(u, v));
+                assert!(graph.has_edge_by_indices(u, after));
+                assert!(graph.edge_attrs_by_indices(u, after, 0).is_some());
+                assert!(graph.edge_pair_index_is_live(graph.revision()));
+                assert!(
+                    !graph
+                        .csr()
+                        .successors(u)
+                        .contains(&u32::try_from(v).unwrap())
+                );
+                assert!(
+                    !graph
+                        .csr()
+                        .predecessors(v)
+                        .contains(&u32::try_from(u).unwrap())
+                );
+                let revision = graph.revision();
+                assert!(!graph.remove_pair("u", target));
+                assert_eq!(graph.revision(), revision);
+                graph
+                    .add_edge_with_key_and_attrs("u", target, 9, AttrMap::new())
+                    .unwrap();
+                assert_eq!(graph.edge_count(), 5);
+                assert_eq!(
+                    graph.successors("u").unwrap(),
+                    vec!["before", "after", target]
+                );
+                assert_eq!(
+                    graph.predecessors(target).unwrap(),
+                    vec!["p-before", "p-after", "u"]
+                );
+                assert!(graph.has_edge_by_indices(u, v));
             }
         }
     }

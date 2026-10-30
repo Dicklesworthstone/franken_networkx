@@ -768,7 +768,12 @@ class AdjacencyView(_Mapping):
     def __iter__(self):
         native_iter = self._fnx_native_iter
         if native_iter is not None:
-            return native_iter()
+            owner = self._fnx_multi_edge_owner
+            if owner is None or not _has_networkx_private_storage(owner):
+                return native_iter()
+            # A held row can itself become assigned private storage. The
+            # graph iterator then redispatches back into this row; iterate
+            # its captured native row instead of entering that cycle.
         # br-r37-c1-adjitype (cycle 219): nx's ``AdjacencyView.__iter__``
         # returns ``iter(self._atlas)`` where ``_atlas`` is a Python
         # dict, yielding a ``dict_keyiterator``.  fnx's ``_atlas()``
@@ -958,17 +963,11 @@ class AdjacencyView(_Mapping):
                     return multigraph_owner.get_edge_data(parent_node, node)
                 if parent_node is not None and getattr(self, "_fnx_write_kind", "adj") == "pred":
                     storage = vars(multigraph_owner)
-                    if (
-                        _PRIVATE_PRED_OVERRIDE not in storage
-                        and (
-                            _PRIVATE_ADJ_OVERRIDE in storage
-                            or _PRIVATE_SUCC_OVERRIDE in storage
-                        )
-                    ):
-                        # Replacing only forward storage leaves this side
-                        # native. Public get_edge_data reads the assigned
-                        # forward pair, so obtain the native predecessor's
-                        # actual live keydict instead of wrapping it.
+                    if _PRIVATE_PRED_OVERRIDE not in storage:
+                        # Replacing other storage leaves this side native.
+                        # Public get_edge_data may read assigned forward
+                        # storage, so obtain this predecessor's actual live
+                        # keydict, including its post-removal detachment.
                         target = storage.get(_SHARED_STORAGE_SOURCE, multigraph_owner)
                         get_data = _private_native_method(target, _RAW_GET_EDGE_DATA_BY_CLASS)
                         if get_data is not None:

@@ -202,8 +202,73 @@ def _assigned_private_remove_node(self, n):
             mapping.pop(n, None)
 
 
+def _assigned_private_remove_directed_multiedge(self, u, v, key, storage, target):
+    """Remove from the forward keydict; drop the reverse cell only when empty."""
+    forward, backward = _assigned_private_edge_targets(self, storage)
+    if forward is None:
+        get_data = _private_native_method(target, _RAW_GET_EDGE_DATA_BY_CLASS)
+        keydict = get_data(target, u, v)
+        if keydict is None:
+            raise NetworkXError(f"The edge {u}-{v} is not in the graph.")
+        native_forward = True
+    else:
+        try:
+            keydict = forward[u][v]
+        except KeyError as exc:
+            raise NetworkXError(f"The edge {u}-{v} is not in the graph.") from exc
+        native_forward = (
+            isinstance(keydict, _MultiEdgeKeydict) and keydict._fnx_graph is target
+        )
+
+    if key is None:
+        keydict.popitem()
+    else:
+        try:
+            del keydict[key]
+        except KeyError as exc:
+            raise NetworkXError(
+                f"The edge {u}-{v} with key {key} is not in the graph."
+            ) from exc
+    if keydict:
+        # A shared reverse keydict already sees this deletion. An independently
+        # assigned reverse keydict must keep every key and attribute unchanged.
+        return
+
+    if forward is not None:
+        del forward[u][v]
+    if native_forward:
+        # Dictionary-side deletion preserves an empty native pair. Drop that
+        # pair now, before a missing reverse cell can raise after the mutation.
+        target._fnx_remove_pair(u, v)
+        _invalidate_adjacency_row_caches(target)
+    if backward is not None:
+        reverse_row = backward[v]
+        native_reverse = (
+            getattr(reverse_row, "_fnx_write_owner", None) is target
+            and getattr(reverse_row, "_fnx_write_kind", None) == "pred"
+            and getattr(reverse_row, "_fnx_write_node", None) == v
+        )
+    elif native_forward:
+        return
+    else:
+        reverse_row = self._pred[v]
+        native_reverse = True
+    if native_reverse:
+        # The native predecessor is an independent dictionary. Removing its
+        # cell must detach the held dictionary intact, not delete its keys.
+        # An assigned mapping can contain this same native row, which was
+        # already updated when native forward storage dropped the pair.
+        if not native_forward:
+            if u not in reverse_row:
+                raise KeyError(u)
+            target._fnx_remove_pair(u, v)
+            _invalidate_adjacency_row_caches(target)
+    else:
+        del reverse_row[u]
+
+
 def _assigned_private_remove_edge(self, u, v, key=None):
-    """remove_edge: drop the pair from every assigned mapping, both directions."""
+    """remove_edge with the assigned forward mapping as removal authority."""
     storage = vars(self)
     multi = self.is_multigraph()
     owner = _shared_unsplit_owner(self, storage)
@@ -228,6 +293,9 @@ def _assigned_private_remove_edge(self, u, v, key=None):
         raw = _private_native_method(target, _RAW_REMOVE_EDGE_BY_CLASS)
         if raw is not None:
             return raw(target, u, v, key) if (multi and key is not None) else raw(target, u, v)
+
+    if multi and self.is_directed():
+        return _assigned_private_remove_directed_multiedge(self, u, v, key, storage, target)
 
     forward_mapping, forward_u, forward_v = targets[0]
     if forward_mapping is None or forward_v not in forward_mapping.get(forward_u, {}):

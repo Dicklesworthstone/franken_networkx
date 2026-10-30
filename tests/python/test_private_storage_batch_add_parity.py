@@ -310,3 +310,149 @@ def test_private_node_batch_accepts_mapping_and_pair_data(cls, storage, data_typ
         result = graph.add_nodes_from([(3, data)], broadcast="common")
         outcomes.append((result, _attribute_storage_state(graph)))
     assert outcomes[1] == outcomes[0]
+
+
+def _removal_graph_pair(storage, self_loop=False):
+    graphs = []
+    v = 0 if self_loop else 1
+    for mod in (nx, fnx):
+        graph = mod.MultiDiGraph()
+        graph.add_nodes_from([0, 1, 2])
+        graph.add_edge(0, v, key="first", origin="native-first")
+        graph.add_edge(0, v, key="last", origin="native-last")
+        graph.add_edge(2, v, key="other", origin="untouched")
+        if storage == "_node":
+            graph._node = {node: {} for node in (0, 1, 2)}
+        if storage in ("_adj", "both", "shared"):
+            forward = {
+                "first": {"origin": "forward-first"},
+                "last": {"origin": "forward-last"},
+            }
+            adjacency = {node: {} for node in (0, 1, 2)}
+            adjacency[0][v] = forward
+            adjacency[2][v] = {"other": {"origin": "untouched"}}
+            graph._adj = adjacency
+        if storage in ("_pred", "both", "shared"):
+            predecessors = {node: {} for node in (0, 1, 2)}
+            predecessors[v][0] = (
+                forward if storage == "shared" else {
+                    "reverse-only": {"origin": "reverse-only"},
+                    "last": {"origin": "reverse-last"},
+                    "first": {"origin": "reverse-first"},
+                }
+            )
+            predecessors[v][2] = {"other": {"origin": "untouched"}}
+            graph._pred = predecessors
+        graphs.append(graph)
+    return graphs
+
+
+def _remove_edge_outcome(graph, v, key, method):
+    try:
+        if method == "single":
+            result = graph.remove_edge(0, v, key=key)
+        else:
+            result = graph.remove_edges_from([(0, v, key)])
+    except Exception as exc:  # noqa: BLE001 - compare the mutation/error contract
+        return type(exc).__name__, exc.args
+    return "ok", result
+
+
+@pytest.mark.parametrize("storage", ["native", "_node", "_pred", "_adj", "both", "shared"])
+@pytest.mark.parametrize("self_loop", [False, True], ids=["edge", "loop"])
+@pytest.mark.parametrize("method", ["single", "batch"])
+@pytest.mark.parametrize("key", [None, "first", "reverse-only"], ids=["automatic", "explicit", "reverse-only"])
+def test_private_parallel_removal_uses_forward_keys(storage, self_loop, method, key):
+    outcomes = []
+    v = 0 if self_loop else 1
+    for graph in _removal_graph_pair(storage, self_loop):
+        held_forward = graph.get_edge_data(0, v)
+        held_reverse = graph._pred[v][0]
+        result = _remove_edge_outcome(graph, v, key, method)
+        outcomes.append((
+            result, _attribute_storage_state(graph),
+            list(held_forward.items()), list(held_reverse.items()),
+        ))
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("storage", ["native", "_node", "_pred", "_adj", "both", "shared"])
+@pytest.mark.parametrize("self_loop", [False, True], ids=["edge", "loop"])
+@pytest.mark.parametrize("method", ["single", "batch"])
+def test_private_parallel_last_removal_preserves_detached_reverse_data(storage, self_loop, method):
+    outcomes = []
+    v = 0 if self_loop else 1
+    for graph in _removal_graph_pair(storage, self_loop):
+        held_forward = graph.get_edge_data(0, v)
+        held_reverse = graph._pred[v][0]
+        results = [_remove_edge_outcome(graph, v, key, method) for key in ("first", "last")]
+        outcomes.append((
+            results, _attribute_storage_state(graph),
+            list(held_forward.items()), list(held_reverse.items()),
+        ))
+        before_detached_write = _attribute_storage_state(graph)
+        held_reverse["detached"] = {"origin": "held"}
+        assert _attribute_storage_state(graph) == before_detached_write
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("remaining", [1, 2])
+@pytest.mark.parametrize("method", ["single", "batch"])
+@pytest.mark.parametrize("key", [None, "first"], ids=["automatic", "explicit"])
+def test_private_parallel_removal_with_missing_reverse_pair(remaining, method, key):
+    outcomes = []
+    for mod in (nx, fnx):
+        graph = mod.MultiDiGraph()
+        graph.add_edge(0, 1, key="first", origin="forward-first")
+        if remaining == 2:
+            graph.add_edge(0, 1, key="last", origin="forward-last")
+        graph._pred = {0: {}, 1: {}}
+        held_forward = graph.get_edge_data(0, 1)
+        result = _remove_edge_outcome(graph, 1, key, method)
+        outcomes.append((result, _attribute_storage_state(graph), list(held_forward.items())))
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("self_loop", [False, True], ids=["edge", "loop"])
+@pytest.mark.parametrize("arity", [2, 3, 4])
+def test_parallel_batch_none_key_removes_the_latest_edge(cls, self_loop, arity):
+    outcomes = []
+    v = 0 if self_loop else 1
+    for mod in (nx, fnx):
+        graph = getattr(mod, cls)()
+        graph.add_edge(0, v, key="first", origin="keep")
+        graph.add_edge(0, v, key="last", origin="remove")
+        held = graph.get_edge_data(0, v)
+        edge = (0, v, None, {"ignored": "edge data"})[:arity]
+        graph.remove_edges_from([(9, 8, None), edge, (0, v, "missing")])
+        outcomes.append((_attribute_storage_state(graph), list(held.items())))
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("alias", ["outer", "rows", "keydicts", "rows-and-forward"])
+@pytest.mark.parametrize("method", ["single", "batch"])
+def test_private_parallel_removal_accepts_live_predecessor_aliases(alias, method):
+    outcomes = []
+    for graph in _removal_graph_pair("native"):
+        predecessors = graph._pred
+        if alias == "outer":
+            graph._pred = predecessors
+        elif alias in ("rows", "rows-and-forward"):
+            graph._pred = {node: predecessors[node] for node in predecessors}
+        else:
+            graph._pred = {
+                node: dict(predecessors[node].items()) for node in predecessors
+            }
+        if alias == "rows-and-forward":
+            graph._adj = {
+                node: {neighbor: dict(keys) for neighbor, keys in row.items()}
+                for node, row in graph._adj.items()
+            }
+        held_keys = graph.get_edge_data(0, 1)
+        held_row = graph._pred[1]
+        results = [_remove_edge_outcome(graph, 1, key, method) for key in ("first", "last")]
+        outcomes.append((
+            results, _attribute_storage_state(graph), list(held_keys.items()), list(held_row),
+        ))
+    assert outcomes[1] == outcomes[0]
