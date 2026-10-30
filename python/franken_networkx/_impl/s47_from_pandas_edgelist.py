@@ -838,20 +838,16 @@ def from_scipy_sparse_array(
     G : Graph or DiGraph
         The constructed graph.
     """
-    kind_to_python_type = {
-        "f": float,
-        "i": int,
-        "u": int,
-        "b": bool,
-        "c": complex,
-    }
     graph = _empty_graph_from_create_using(create_using)
     n, m = A.shape
     if n != m:
         raise NetworkXError(f"Adjacency matrix not square: nx,ny={A.shape}")
 
     coo = A.tocoo()
-    python_type = kind_to_python_type.get(A.dtype.kind)
+    # NumPy retains longdouble/clongdouble scalars when no Python numeric
+    # type can represent them losslessly. Match NetworkX's tolist conversion
+    # instead of narrowing those values to float or complex in the fallback.
+    edge_values = coo.data.tolist()
     if (
         type(graph) in (Graph, DiGraph)
         and isinstance(edge_attribute, str)
@@ -859,18 +855,14 @@ def from_scipy_sparse_array(
         and A.dtype.kind in ("f", "i", "u", "b")
     ):
         if graph._native_fill_weighted_int_edges(
-            n, coo.row.tolist(), coo.col.tolist(), coo.data.tolist(), edge_attribute
+            n, coo.row.tolist(), coo.col.tolist(), edge_values, edge_attribute
         ):
             return graph
 
     graph.add_nodes_from(range(n))
     triples = (
-        (
-            int(u),
-            int(v),
-            python_type(weight) if python_type is not None else weight,
-        )
-        for u, v, weight in zip(coo.row, coo.col, coo.data)
+        (int(u), int(v), weight)
+        for u, v, weight in zip(coo.row, coo.col, edge_values)
     )
     if A.dtype.kind in ("i", "u") and graph.is_multigraph() and parallel_edges:
         chain = _itertools.chain.from_iterable

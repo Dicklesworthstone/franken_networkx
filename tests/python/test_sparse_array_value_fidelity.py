@@ -190,3 +190,41 @@ def test_integer_sparse_roundtrip_restores_exact_edge_weights(cls):
     rebuilt = fnx.from_scipy_sparse_array(matrix, create_using=getattr(fnx, cls))
     assert rebuilt[0][1]["weight"] == 2**53 + 1
     assert list(rebuilt) == [0, 1, 2]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("format", ["csr", "csc", "coo", "dok"])
+@pytest.mark.parametrize(
+    "literal,complex_value",
+    [
+        ("1.0000000000000000001", False),
+        ("1e400", False),
+        ("1.0000000000000000001", True),
+    ],
+    ids=["extended-mantissa", "extended-exponent", "extended-complex"],
+)
+def test_extended_precision_sparse_import_and_roundtrip(cls, format, literal, complex_value):
+    if np.finfo(np.longdouble).nmant <= np.finfo(np.float64).nmant:
+        pytest.skip("platform has no extended-precision NumPy floating-point type")
+
+    import scipy.sparse
+
+    value = np.longdouble(literal)
+    if complex_value:
+        value = np.clongdouble(value) * (1 + 1j)
+    matrix = scipy.sparse.coo_array(
+        ([value, value], ([0, 1], [1, 0])), shape=(3, 3)
+    ).asformat(format)
+    original = nx.from_scipy_sparse_array(matrix, create_using=getattr(nx, cls))
+    graph = fnx.from_scipy_sparse_array(matrix, create_using=getattr(fnx, cls))
+
+    assert list(graph) == list(original) == [0, 1, 2]
+    expected = next(iter(original.edges(data="weight")))[2]
+    actual = next(iter(graph.edges(data="weight")))[2]
+    assert actual == expected
+    assert type(actual) is type(expected)
+    assert np.isfinite(actual)
+    _assert_sparse_equal(
+        nx.to_scipy_sparse_array(original, format="csr"),
+        fnx.to_scipy_sparse_array(graph, format="csr"),
+    )
