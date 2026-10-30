@@ -10,6 +10,7 @@ unweighted directed path now builds from the directed-correct
 from __future__ import annotations
 
 import random
+import sys
 
 import pytest
 import networkx as nx
@@ -92,3 +93,85 @@ def test_weighted_still_matches_networkx():
     assert _norm(fnx.all_pairs_all_shortest_paths(fg, weight="weight")) == _norm(
         nx.all_pairs_all_shortest_paths(ng, weight="weight")
     )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="memory bound requires Linux /proc")
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_all_pairs_all_shortest_paths_does_not_compute_later_sources(cls, weight):
+    import subprocess
+    import textwrap
+
+    # The first source is isolated. A separate component has over a billion
+    # equal shortest paths, which must not be enumerated to yield that source.
+    script = textwrap.dedent(
+        """
+        from pathlib import Path
+        import os
+        import resource
+        import sys
+
+        import franken_networkx as fnx
+        import networkx as nx
+
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        vm_pages = int(Path("/proc/self/statm").read_text().split()[0])
+        memory_limit = vm_pages * os.sysconf("SC_PAGE_SIZE") + 256 * 1024 * 1024
+        _, hard_limit = resource.getrlimit(resource.RLIMIT_AS)
+        if hard_limit != resource.RLIM_INFINITY:
+            memory_limit = min(memory_limit, hard_limit)
+        resource.setrlimit(resource.RLIMIT_AS, (memory_limit, hard_limit))
+
+        cls, weighted = sys.argv[1:]
+        edges = [(0, 1), (0, 2), (59, 61), (60, 61)]
+        for layer in range(29):
+            edges.extend(
+                (u, v)
+                for u in (2 * layer + 1, 2 * layer + 2)
+                for v in (2 * layer + 3, 2 * layer + 4)
+            )
+        results = []
+        for module in (nx, fnx):
+            graph = getattr(module, cls)()
+            graph.add_node("isolated")
+            graph.add_nodes_from(range(62))
+            graph.add_edges_from(edges, weight=1)
+            if graph.is_multigraph():
+                graph.add_edges_from(edges, weight=2)
+            paths = module.all_pairs_all_shortest_paths(
+                graph, weight="weight" if weighted == "yes" else None
+            )
+            results.append(next(paths))
+            paths.close()
+        assert results[1] == results[0] == ("isolated", {"isolated": [["isolated"]]})
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script, cls, "yes" if weight is not None else "no"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("method", ["unweighted", "dijkstra", "bellman-ford"])
+def test_all_pairs_all_shortest_paths_observes_mutation_between_sources(cls, method):
+    results = []
+    kwargs = {} if method == "unweighted" else {"weight": "weight", "method": method}
+    for module in (nx, fnx):
+        graph = getattr(module, cls)()
+        graph.add_nodes_from(["isolated", "source", "right", "left", "target"])
+        graph.add_edges_from(
+            [("source", "left"), ("left", "target"), ("source", "right"), ("right", "target")],
+            weight=1,
+        )
+        paths = module.all_pairs_all_shortest_paths(graph, **kwargs)
+        first = next(paths)
+        graph.remove_edge("left", "target")
+        graph.add_edge("source", "target", weight=2)
+        remaining = [(source, list(targets.items())) for source, targets in paths]
+        results.append((first, remaining))
+    assert results[1] == results[0]

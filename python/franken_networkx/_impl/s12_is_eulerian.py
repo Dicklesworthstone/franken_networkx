@@ -367,79 +367,25 @@ def all_shortest_paths(
 
     Returns a generator of equal-length minimum-cost paths. ``method`` selects
     the underlying algorithm (``"dijkstra"``, ``"bellman-ford"``, or
-    ``"unweighted"``). Mirrors ``networkx.all_shortest_paths``; raises
-    ``NetworkXNoPath`` when advanced if no path exists.
+    ``"unweighted"``). Predecessors are computed when called; paths are built
+    only as the generator advances. Raises ``NetworkXNoPath`` when advanced if
+    no path exists.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-6atv8 / br-r37-c1-emxwl: invalid method and missing
-    # source raise eagerly, but target-dependent errors happen when
-    # the true generator is advanced, matching nx's generator body.
     _validate_backend_dispatch_keywords("all_shortest_paths", backend, backend_kwargs)
-    if weight is not None and method not in {"dijkstra", "bellman-ford", "unweighted"}:
+    if weight is None or method == "unweighted":
+        pred = predecessor(G, source)
+    elif method == "dijkstra":
+        pred, _ = dijkstra_predecessor_and_distance(G, source, weight=weight)
+    elif method == "bellman-ford":
+        pred, _ = bellman_ford_predecessor_and_distance(G, source, weight=weight)
+    else:
         raise ValueError(f"method not supported: {method}")
-    # br-r37-c1-jxvsu: missing source raises eagerly with nx wording.
-    if source not in G:
-        if weight is not None and method != "unweighted":
-            raise NodeNotFound(f"Node {source} is not found in the graph")
-        raise NodeNotFound(f"Source {source} not in G")
-
-    def _gen():
-        # br-r37-c1-omjmu / br-r37-c1-emxwl: nx raises TypeError on
-        # unhashable target and NetworkXNoPath on missing target only
-        # when the generator is advanced.
-        _HASH_PROBE.get(target)
-        if target not in G:
-            raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
-        # br-r37-c1-qiplw / br-r37-c1-wjz3x: the native ``_raw_all_shortest_paths``
-        # kernel (both undirected and directed) now enumerates paths in nx's
-        # BFS-predecessor-DAG order (matching _build_paths_from_predecessors), so
-        # the unweighted case (weight=None) runs natively instead of paying a
-        # full fnx->nx conversion per call. nx forces method='unweighted'
-        # whenever weight is None. The binding raises NetworkXNoPath with a
-        # different message for an unreachable (but present) target, so re-raise
-        # with nx's exact wording.
-        if weight is None or method == "unweighted":
-            if G.is_multigraph() or _rows_hold_other_key_objects(G):
-                # br-r37-c1-7jysw: networkx's own route - predecessor, then the
-                # paths out of it - over the index-space predecessor kernel. The
-                # native enumerator projects a multigraph to a simple graph first
-                # (1.5-6 ms on a 800-node BA graph, 0.12-0.59x networkx), and it
-                # emits node objects where networkx's paths carry the row's key
-                # (1.0 in a row of a graph whose node is 1).
-                built = _raw_predecessor_indexed(G, source, None)
-                if built is not None:
-                    yield from _build_paths_from_predecessors({source}, target, built[0])
-                    return
-            try:
-                paths = _raw_all_shortest_paths(G, source, target, method="unweighted")
-            except NetworkXNoPath:
-                raise NetworkXNoPath(
-                    f"Target {target} cannot be reached from given sources"
-                )
-            yield from paths
-            return
-        if not isinstance(weight, str) or _should_delegate_dijkstra_to_networkx(G, weight) or (
-            method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight)
-        ):
-            if method == "bellman-ford":
-                pred, _ = bellman_ford_predecessor_and_distance(G, source, weight=weight)
-            else:
-                pred, _ = dijkstra_predecessor_and_distance(G, source, weight=weight)
-            yield from _build_paths_from_predecessors({source}, target, pred)
-            return
-        try:
-            if isinstance(weight, str):
-                # br-r37-c1-4tmgq: the weighted native path reads the Rust store;
-                # push post-construction edge attribute writes down first.
-                _sync_rust_edge_attrs(G, edge_only=True)
-            paths = _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
-        except NetworkXNoPath:
-            raise NetworkXNoPath(
-                f"Target {target} cannot be reached from given sources"
-            )
-        yield from paths
-
-    return _gen()
+    # A small graph can have exponentially many shortest paths. Keep only its
+    # predecessor relation and the active path stack, and retain the call-time
+    # snapshot even if the graph changes before the first result is requested.
+    # Target-dependent errors remain lazy in the path generator.
+    return _build_paths_from_predecessors({source}, target, pred)
 
 
 def _all_simple_edge_paths_fnx(G, source, target, cutoff):

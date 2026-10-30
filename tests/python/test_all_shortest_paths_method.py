@@ -1,4 +1,6 @@
 """Parity tests for all_shortest_paths method parameter (bead 8kb)."""
+import sys
+
 import pytest
 import franken_networkx as fnx
 import networkx as nx
@@ -300,3 +302,194 @@ def test_multidigraph_paths_follow_a_mutation_between_calls(mutation):
     assert list(fnx.all_shortest_paths(G, 0, 3, weight="weight")) == list(
         nx.all_shortest_paths(H, 0, 3, weight="weight")
     )
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="memory bound requires Linux /proc")
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("method", ["unweighted", "dijkstra", "bellman-ford"])
+def test_all_shortest_paths_yields_bounded_prefix(cls, method):
+    import subprocess
+    import textwrap
+
+    # Thirty two-node layers have over a billion equal shortest paths, but
+    # their predecessor relation is small. A caller requesting eight paths
+    # must not allocate the complete result. Isolate the negative control.
+    script = textwrap.dedent(
+        """
+        from itertools import islice
+        from pathlib import Path
+        import os
+        import resource
+        import sys
+
+        import franken_networkx as fnx
+        import networkx as nx
+
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        vm_pages = int(Path("/proc/self/statm").read_text().split()[0])
+        memory_limit = vm_pages * os.sysconf("SC_PAGE_SIZE") + 256 * 1024 * 1024
+        _, hard_limit = resource.getrlimit(resource.RLIMIT_AS)
+        if hard_limit != resource.RLIM_INFINITY:
+            memory_limit = min(memory_limit, hard_limit)
+        resource.setrlimit(resource.RLIMIT_AS, (memory_limit, hard_limit))
+
+        cls, method = sys.argv[1:]
+        source, target = 0, 61
+        edges = [(0, 1), (0, 2), (59, 61), (60, 61)]
+        for layer in range(29):
+            edges.extend(
+                (u, v)
+                for u in (2 * layer + 1, 2 * layer + 2)
+                for v in (2 * layer + 3, 2 * layer + 4)
+            )
+        graphs = []
+        for module in (nx, fnx):
+            graph = getattr(module, cls)()
+            graph.add_nodes_from(range(62))
+            graph.add_edges_from(edges, weight=1)
+            if graph.is_multigraph():
+                graph.add_edges_from(edges, weight=3)
+            graphs.append(graph)
+        kwargs = {} if method == "unweighted" else {"weight": "weight", "method": method}
+        expected = list(islice(nx.all_shortest_paths(graphs[0], source, target, **kwargs), 8))
+        actual = list(islice(fnx.all_shortest_paths(graphs[1], source, target, **kwargs), 8))
+        assert actual == expected
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script, cls, method],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def _path_method_kwargs(method):
+    return {} if method == "unweighted" else {"weight": "weight", "method": method}
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("method", ["unweighted", "dijkstra", "bellman-ford"])
+def test_all_shortest_paths_captures_predecessors_before_first_yield(cls, method):
+    actual_graph, expected_graph = getattr(fnx, cls)(), getattr(nx, cls)()
+    for graph in (actual_graph, expected_graph):
+        graph.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)], weight=1)
+    kwargs = _path_method_kwargs(method)
+    expected = nx.all_shortest_paths(expected_graph, 0, 3, **kwargs)
+    actual = fnx.all_shortest_paths(actual_graph, 0, 3, **kwargs)
+    for graph in (actual_graph, expected_graph):
+        graph.clear()
+    assert list(actual) == list(expected)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("method", ["unweighted", "dijkstra", "bellman-ford"])
+@pytest.mark.parametrize("labels", ["objects", "equal-endpoints"])
+def test_all_shortest_paths_preserves_node_objects(cls, method, labels):
+    class Label(str):
+        pass
+
+    if labels == "objects":
+        nodes = [object() for _ in range(4)]
+        source, target = nodes[0], nodes[3]
+    else:
+        nodes = [Label(name) for name in ("source", "left", "right", "target")]
+        source, target = Label("source"), Label("target")
+        assert source is not nodes[0] and target is not nodes[3]
+    edges = [(nodes[u], nodes[v]) for u, v in [(0, 1), (0, 2), (1, 3), (2, 3)]]
+    actual_graph, expected_graph = getattr(fnx, cls)(), getattr(nx, cls)()
+    for graph in (actual_graph, expected_graph):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges, weight=1)
+    kwargs = _path_method_kwargs(method)
+    expected = list(nx.all_shortest_paths(expected_graph, source, target, **kwargs))
+    actual = list(fnx.all_shortest_paths(actual_graph, source, target, **kwargs))
+    assert actual == expected
+    for actual_path, expected_path in zip(actual, expected):
+        assert all(node is wanted for node, wanted in zip(actual_path, expected_path))
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("method", ["dijkstra", "bellman-ford"])
+@pytest.mark.parametrize("target", [0, 3])
+def test_all_shortest_paths_handles_zero_weight_predecessor_cycles(cls, method, target):
+    edges = [(0, 0, 0), (0, 1, 0), (1, 2, 0), (2, 0, 0), (0, 3, 1), (2, 3, 1)]
+    actual_graph, expected_graph = getattr(fnx, cls)(), getattr(nx, cls)()
+    for graph in (actual_graph, expected_graph):
+        graph.add_weighted_edges_from(edges)
+    kwargs = _path_method_kwargs(method)
+    expected = list(nx.all_shortest_paths(expected_graph, 0, target, **kwargs))
+    actual = list(fnx.all_shortest_paths(actual_graph, 0, target, **kwargs))
+    assert actual == expected
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "source-missing", "target-missing", "unreachable", "unhashable-target",
+        "bad-method-weighted", "bad-method-unweighted", "nonnumeric-weight",
+        "negative-cycle", "negative-dijkstra", "callback-error",
+    ],
+)
+def test_all_shortest_paths_validation_phase_matches_networkx(cls, case):
+    def callback_error(u, v, data):
+        raise ValueError("weight callback failed")
+
+    def observe(module):
+        graph = getattr(module, cls)()
+        graph.add_nodes_from(range(4))
+        graph.add_edge(0, 1, weight=1)
+        graph.add_edge(1, 2, weight="invalid" if case == "nonnumeric-weight" else 1)
+        source, target = 0, 2
+        kwargs = {}
+        if case == "source-missing":
+            source = 99
+        elif case == "target-missing":
+            target = 99
+        elif case == "unreachable":
+            target = 3
+        elif case == "unhashable-target":
+            target = []
+        elif case in ("bad-method-weighted", "bad-method-unweighted"):
+            kwargs["method"] = "unsupported"
+            if case == "bad-method-weighted":
+                kwargs["weight"] = "weight"
+        elif case == "nonnumeric-weight":
+            kwargs["weight"] = "weight"
+        elif case in ("negative-cycle", "negative-dijkstra"):
+            graph.add_edge(2, 1, weight=-2)
+            kwargs = {
+                "weight": "weight",
+                "method": "bellman-ford" if case == "negative-cycle" else "dijkstra",
+            }
+        elif case == "callback-error":
+            kwargs["weight"] = callback_error
+        try:
+            paths = module.all_shortest_paths(graph, source, target, **kwargs)
+        except Exception as error:
+            return "call", type(error).__name__, error.args
+        try:
+            return "result", list(paths)
+        except Exception as error:
+            return "iteration", type(error).__name__, error.args
+
+    assert observe(fnx) == observe(nx)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("method", ["unweighted", "dijkstra", "bellman-ford"])
+def test_all_shortest_paths_generator_send_and_early_close(cls, method):
+    actual_graph, expected_graph = getattr(fnx, cls)(), getattr(nx, cls)()
+    for graph in (actual_graph, expected_graph):
+        graph.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)], weight=1)
+    kwargs = _path_method_kwargs(method)
+    expected = nx.all_shortest_paths(expected_graph, 0, 3, **kwargs)
+    actual = fnx.all_shortest_paths(actual_graph, 0, 3, **kwargs)
+    assert next(actual) == next(expected)
+    assert actual.send("ignored") == expected.send("ignored")
+    assert actual.close() is expected.close() is None
+    with pytest.raises(StopIteration):
+        next(actual)

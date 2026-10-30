@@ -470,7 +470,7 @@ def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
     Parameters
     ----------
     G : Graph
-    weight : str or None, optional
+    weight : str or callable or None, optional
     method : str, optional
 
     Yields
@@ -478,19 +478,14 @@ def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
     (source, paths_dict)
         Where paths_dict maps target -> list of shortest paths.
     """
-    if weight is not None:
-        for n in G:
-            yield (
-                n,
-                dict(single_source_all_shortest_paths(G, n, weight=weight, method=method)),
-            )
-        return
-    result = _fnx.all_pairs_all_shortest_paths_rust(G)
-    for source in G.nodes():
-        # The native kernel omits source->source entries; NetworkX includes them.
-        paths_dict = {source: [[source]]}
-        paths_dict.update(result.get(source, {}))
-        yield (source, paths_dict)
+    # Each result necessarily contains all paths for its source, but later
+    # sources must remain uncomputed until requested. This also keeps their
+    # searches sensitive to mutations between yields, as in NetworkX.
+    for source in G:
+        yield (
+            source,
+            dict(single_source_all_shortest_paths(G, source, weight=weight, method=method)),
+        )
 
 
 def reconstruct_path(source, target, predecessors):
