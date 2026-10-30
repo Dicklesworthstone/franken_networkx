@@ -240,6 +240,26 @@ def test_k_clique_communities_float_threshold_matches_networkx(cls, given_clique
     assert _ordered(fnx.community.k_clique_communities(fg, k, **options)) == expected
 
 
+@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize("sizes", [(6,), (20,), (30,), (80,), (6, 80, 6, 200, 20)])
+@pytest.mark.parametrize("k", [2, 3, 4])
+def test_k_clique_communities_candidate_table_growth_and_reuse(k, sizes, seed):
+    # Each group shares a core and forms one community. Larger groups force
+    # repeated candidate-table growth; mixed sizes reuse those tables across
+    # disconnected communities. Scaled labels expose hash-table order changes.
+    rng = random.Random(seed)
+    labels = rng.sample(range(1, 100_000), sum(sizes) + len(sizes) * (k - 1))
+    nodes = iter(label * 1024 for label in labels)
+    cliques = []
+    for size in sizes:
+        core = [next(nodes) for _ in range(k - 1)]
+        cliques.extend(core + [next(nodes)] for _ in range(size))
+
+    expected = _ordered(nx.community.k_clique_communities(nx.Graph(), k, cliques=cliques))
+    actual = _ordered(fnx.community.k_clique_communities(fnx.Graph(), k, cliques=cliques))
+    assert actual == expected
+
+
 def test_k_clique_communities_is_not_combinatorial_in_clique_size():
     # One 28-clique, k=14: networkx tests one clique; the (k-1)-subset
     # union-find walked C(28, 13) = 37 million subsets (16 s here).

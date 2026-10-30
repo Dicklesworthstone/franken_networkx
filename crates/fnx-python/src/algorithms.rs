@@ -30404,11 +30404,11 @@ pub fn k_clique_percolation_components(
                                 while new_size <= minused {
                                     new_size <<= 1;
                                 }
-                                if scratch.len() < new_size {
-                                    scratch.resize(new_size, (u32::MAX, 0));
-                                } else {
-                                    scratch[..new_size].fill((u32::MAX, 0));
-                                }
+                                // The previous resize leaves occupied slots in
+                                // scratch. Extending alone retains that prefix
+                                // and duplicates entries during reinsertion.
+                                scratch.clear();
+                                scratch.resize(new_size, (u32::MAX, 0));
                                 let new_mask = new_size - 1;
                                 for &(k_entry, h_entry) in &table[..size] {
                                     if k_entry != u32::MAX {
