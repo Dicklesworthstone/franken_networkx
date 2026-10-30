@@ -492,6 +492,7 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
         target is not None
         or _should_delegate_bellman_ford_to_networkx(weight)
         or _binding_self_syncs_gate(G, weight)
+        or _sp_weights_need_networkx_for_type_parity(G, weight)
     ):
         return _single_source_bellman_ford_inproc(
             G,
@@ -540,8 +541,14 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
                 G, source, weight=weight
             )[1]
         return single_source_bellman_ford_path(_simple, source, weight=weight)
-    # br-bfignoreweight: delegate weighted inputs.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
+    # The native path kernel also chooses predecessors using f64 arithmetic.
+    # Inexact weights can change the chosen route, even though this API does
+    # not return distances. Use the shared exact-domain admission guard.
+    if (
+        _should_delegate_bellman_ford_to_networkx(weight)
+        or _binding_self_syncs_gate(G, weight)
+        or _sp_weights_need_networkx_for_type_parity(G, weight)
+    ):
         return _single_source_bellman_ford_inproc(
             G, source, weight=weight
         )[1]
@@ -640,24 +647,11 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
     ``paths`` is a dict ``{target: path-list}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path``.
     """
-    if _point_query_uses_private_rows(G):
-        for node in G:
-            yield node, single_source_bellman_ford_path(G, node, weight=weight)
-        return
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-bfignoreweight: delegate weighted inputs to nx.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
-        for node in G:
-            yield (node, single_source_bellman_ford_path(G, node, weight=weight))
-        return
-    # br-r37-c1-sk5be: iterate outer keys in node-insertion order
-    # matching nx (Rust dict yields in arbitrary order).
-    raw = _raw_all_pairs_bellman_ford_path(G, weight=weight)
-    for node in G.nodes():
-        if node in raw:
-            # br-r37-c1-e9rea: the kernel already yields each source's paths in
-            # nx's SPFA first-discovery order (not distance-sorted), so trust it.
-            yield (node, dict(raw[node]))
+    # A consumed row must not compute another source's paths or detect its
+    # negative cycle. Keep the original graph live between yields and reuse
+    # the source kernel's exact-weight, multigraph, and private-row handling.
+    for node in G:
+        yield node, single_source_bellman_ford_path(G, node, weight=weight)
 
 
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
@@ -666,42 +660,10 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     ``lengths`` is a dict ``{target: distance}``. Handles negative weights.
     Mirrors ``networkx.all_pairs_bellman_ford_path_length``.
     """
-    if _point_query_uses_private_rows(G):
-        for node in G:
-            yield node, dict(single_source_bellman_ford_path_length(G, node, weight=weight))
-        return
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-bfignoreweight: delegate weighted inputs to nx.
-    if _should_delegate_bellman_ford_to_networkx(weight) or _binding_self_syncs_gate(G, weight):
-        for node in G:
-            yield (node, dict(single_source_bellman_ford_path_length(G, node, weight=weight)))
-        return
-    # weighted sp batch 2: nx preserves int distances for all-int weights.
-    _coerce = _sp_edge_weights_all_int(G, weight)
-    if not _coerce and not _sp_edge_weights_all_float(G, weight):
-        # Mixed int/float weights: nx keeps a distance an int only where every
-        # edge on its path is int (int + int stays int), which the float kernel
-        # cannot tell; the per-source path re-derives it (as the Dijkstra
-        # all-pairs twin does through _sp_propagate_int_types).
-        for node in G:
-            yield (node, dict(single_source_bellman_ford_path_length(G, node, weight=weight)))
-        return
-    # br-r37-c1-sk5be: iterate outer keys in node-insertion order
-    # matching nx (Rust dict yields in arbitrary order).
-    raw = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
-    for node in G.nodes():
-        if node in raw:
-            # br-r37-c1-e9rea: the kernel already yields each source's lengths in
-            # nx's SPFA first-discovery order (not distance-sorted), so trust it.
-            inner = dict(raw[node])
-            if _coerce:
-                inner = _sp_coerce_dist_to_int(inner)
-            elif node in inner:
-                # nx seeds dist = {source: 0}: the source's own distance is the
-                # int 0 whatever the weights; the kernel's is a float. Assigning
-                # to the existing key keeps its position.
-                inner[node] = 0
-            yield (node, inner)
+    # The typed length-only kernel preserves discovery order and Python
+    # arithmetic without constructing paths or retaining all source rows.
+    for node in G:
+        yield node, single_source_bellman_ford_path_length(G, node, weight=weight)
 
 
 def floyd_warshall(G, weight="weight"):

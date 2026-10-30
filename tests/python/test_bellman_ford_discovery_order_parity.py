@@ -22,6 +22,8 @@ adjacency-insertion order — which drives SPFA discovery — matches.
 from __future__ import annotations
 
 import random
+from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -312,3 +314,211 @@ def test_all_pairs_bellman_ford_source_distance_is_the_int_zero(cls, weights):
             for source, lengths in lib.all_pairs_bellman_ford_path_length(graph)
         ]
     assert rows["fnx"] == rows["nx"]
+
+
+_BELLMAN_PAIR_APIS = (
+    "all_pairs_bellman_ford_path",
+    "all_pairs_bellman_ford_path_length",
+)
+
+
+def _bellman_pair_contract(rows, api):
+    paths = api.endswith("_path")
+    return [
+        (
+            source,
+            type(source),
+            [
+                (target, type(target), value if paths else (value, type(value)))
+                for target, value in values.items()
+            ],
+        )
+        for source, values in rows
+    ]
+
+
+@pytest.mark.parametrize("api", _BELLMAN_PAIR_APIS)
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_all_pairs_bellman_stream_defers_unrelated_negative_cycle(api, kind, mode):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(["safe", "a", "b"])
+        graph.add_edge("a", "b", weight=-2)
+        if graph.is_directed():
+            graph.add_edge("b", "a", weight=1)
+    with fnx.compatibility_mode(mode):
+        actual = getattr(fnx, api)(graphs[0])
+        expected = getattr(nx, api)(graphs[1])
+        # A source cannot reach the negative cycle in a different component.
+        # Whole-graph materialization used to raise before yielding this row.
+        assert next(actual) == next(expected)
+        with pytest.raises(nx.NetworkXUnbounded) as oracle_error:
+            next(expected)
+        with pytest.raises(fnx.NetworkXUnbounded) as actual_error:
+            next(actual)
+        assert actual_error.value.args == oracle_error.value.args
+
+
+@pytest.mark.parametrize("api", _BELLMAN_PAIR_APIS)
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("change", ["add", "remove", "weight"])
+def test_all_pairs_bellman_stream_observes_later_mutations(api, kind, change):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(range(5))
+        graph.add_weighted_edges_from(
+            [(0, 1, 1), (1, 2, 1), (2, 3, 1), (1, 4, 1), (4, 3, 8)]
+        )
+    actual = getattr(fnx, api)(graphs[0])
+    expected = getattr(nx, api)(graphs[1])
+    first = next(actual)
+    assert _bellman_pair_contract([first], api) == _bellman_pair_contract(
+        [next(expected)], api
+    )
+    saved_first = repr(first)
+    for graph in graphs:
+        if change == "add":
+            graph.add_edge(1, 3, weight=0.5)
+        elif change == "remove":
+            graph.remove_edge(1, 2)
+        elif graph.is_multigraph():
+            graph[1][2][0]["weight"] = 10
+        else:
+            graph[1][2]["weight"] = 10
+    assert _bellman_pair_contract(list(actual), api) == _bellman_pair_contract(
+        list(expected), api
+    )
+    assert repr(first) == saved_first
+
+
+@pytest.mark.parametrize("api", _BELLMAN_PAIR_APIS)
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", ["weight", "cost"])
+@pytest.mark.parametrize(
+    "high,low",
+    [
+        (2**53 + 1, 2**53),
+        (10**100 + 1, 10**100),
+        (Fraction(4, 3), Fraction(1, 3)),
+        (Decimal("1.0000000000000000001"), Decimal("1")),
+    ],
+    ids=["wide-int", "unbounded-int", "fraction", "decimal"],
+)
+def test_all_pairs_bellman_stream_retains_exact_numeric_domain(api, kind, weight, high, low):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        # The direct route is inserted first but is strictly more expensive.
+        # Rounding its weight to a float can turn it into a tie and select
+        # the wrong path as well as returning an inexact distance.
+        graph.add_edge("s", "t", **{weight: high})
+        graph.add_edge("s", "a", **{weight: low})
+        graph.add_edge("a", "t", **{weight: 0})
+        if graph.is_multigraph():
+            graph.add_edge("s", "a", **{weight: high})
+    actual = list(getattr(fnx, api)(graphs[0], weight=weight))
+    expected = list(getattr(nx, api)(graphs[1], weight=weight))
+    assert _bellman_pair_contract(actual, api) == _bellman_pair_contract(expected, api)
+    oracle_row = dict(expected)["s"]
+    assert oracle_row["t"] == (["s", "a", "t"] if api.endswith("_path") else low)
+
+
+@pytest.mark.parametrize("api", ["single_source_bellman_ford", "single_source_bellman_ford_path"])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "high,low",
+    [
+        (2**53 + 1, 2**53),
+        (10**100 + 1, 10**100),
+        (Fraction(4, 3), Fraction(1, 3)),
+        (Decimal("1.0000000000000000001"), Decimal("1")),
+    ],
+    ids=["wide-int", "unbounded-int", "fraction", "decimal"],
+)
+def test_single_source_bellman_paths_retain_exact_numeric_domain(api, kind, high, low):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_edge("s", "t", weight=high)
+        graph.add_edge("s", "a", weight=low)
+        graph.add_edge("a", "t", weight=0)
+        if graph.is_multigraph():
+            graph.add_edge("s", "a", weight=high)
+    actual = getattr(fnx, api)(graphs[0], "s")
+    expected = getattr(nx, api)(graphs[1], "s")
+    if api == "single_source_bellman_ford":
+        assert _bellman_pair_contract([("s", actual[0])], "length") == (
+            _bellman_pair_contract([("s", expected[0])], "length")
+        )
+        actual, expected = actual[1], expected[1]
+    assert list(actual.items()) == list(expected.items())
+    assert actual["t"] == ["s", "a", "t"]
+
+
+@pytest.mark.parametrize("api", ["single_source_bellman_ford", "single_source_bellman_ford_path"])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_single_source_bellman_paths_safe_weights_stay_native(api, kind, monkeypatch):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_weighted_edges_from(
+            [("s", "t", 5), ("s", "a", 2), ("a", "t", -1 if graph.is_directed() else 1)]
+        )
+    native = getattr(fnx, "_raw_" + api)
+    calls = []
+
+    def record_native(*args, **kwargs):
+        calls.append(args[1])
+        return native(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, "_raw_" + api, record_native)
+    assert getattr(fnx, api)(graphs[0], "s") == getattr(nx, api)(graphs[1], "s")
+    assert calls == ["s"]
+
+
+@pytest.mark.parametrize("api", _BELLMAN_PAIR_APIS)
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+def test_all_pairs_bellman_stream_has_bounded_prefix_memory(api, kind):
+    import subprocess
+    import sys
+    import textwrap
+
+    if sys.platform != "linux":
+        pytest.skip("requires Linux process memory limits")
+    code = textwrap.dedent(
+        """
+        import os
+        import resource
+        import sys
+        import franken_networkx as fnx
+        import networkx as nx
+
+        api, kind = sys.argv[1:]
+        graphs = [getattr(module, kind)() for module in (fnx, nx)]
+        size = 900 if api.endswith("_path") else 6000
+        for graph in graphs:
+            graph.add_node("safe")
+            graph.add_edges_from((node, node + 1) for node in range(size - 1))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        with open("/proc/self/statm", encoding="ascii") as status:
+            vm_pages = int(status.read().split()[0])
+        memory_limit = vm_pages * os.sysconf("SC_PAGE_SIZE") + 256 * 1024 * 1024
+        _, hard_limit = resource.getrlimit(resource.RLIMIT_AS)
+        if hard_limit != resource.RLIM_INFINITY:
+            memory_limit = min(memory_limit, hard_limit)
+        resource.setrlimit(resource.RLIMIT_AS, (memory_limit, hard_limit))
+        expected = getattr(nx, api)(graphs[1])
+        actual = getattr(fnx, api)(graphs[0])
+        assert next(actual) == next(expected)
+        # Closing after one source must not enumerate the unrelated path's
+        # quadratic distances or cubic total path output.
+        actual.close()
+        expected.close()
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code, api, kind],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
