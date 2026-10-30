@@ -50,13 +50,12 @@ MultiDiGraph.to_undirected = _directed_to_undirected_with_view(
 
 
 def _digraph_to_directed_deepcopy_fastpath(wrapped):
-    # br-r37-c1-dgtodir (cc): an already-directed DiGraph's to_directed() is a full
-    # deep copy into the same class. copy.deepcopy uses the native deep-copy
-    # machinery (it preserves edge attrs from the store AND deep-copies graph-level
-    # attrs) so it is byte-exact with networkx AND ~1.5-2.8x faster than nx. Route
-    # there for an exact DiGraph with the default to_directed_class (and no nx
-    # private storage). Subclasses, nx-private storage, custom to_directed_class,
-    # and as_view=True fall through to `wrapped`.
+    # Conversion copies graph data into a mutable graph, independently deep-copying
+    # each attribute dictionary. Whole-object deepcopy also carries frozen/custom
+    # instance state and shares a memo across dictionaries. Native deepcopy holds
+    # a Rust borrow while invoking user callbacks, preventing source mutations.
+    # Keep structural cloning for graphs without node/edge attributes; attributed
+    # graphs follow the normal construction order so callback changes remain visible.
     import functools as _functools
 
     @_functools.wraps(wrapped)
@@ -67,7 +66,33 @@ def _digraph_to_directed_deepcopy_fastpath(wrapped):
             and not _has_networkx_private_storage(self)
             and self.to_directed_class() is DiGraph
         ):
-            return _deepcopy(self)
+            # Preserve the source mode without changing the ambient mode seen by
+            # attribute callbacks. Copies start with fresh decision history.
+            with compatibility_mode(self.mode):
+                result = DiGraph()
+            result.graph.update(_deepcopy(self.graph))
+            # A graph-attribute callback may have changed the source, including
+            # installing private storage. Admit the native route only afterward.
+            if (
+                not _has_networkx_private_storage(self)
+                and not _graph_has_any_attrs(self)
+                and type(result.graph) is dict
+            ):
+                graph_attrs = result.graph
+                result = self._native_copy()
+                result.graph.clear()
+                result.graph.update(graph_attrs)
+            else:
+                result.add_nodes_from(
+                    (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+                )
+                result.add_edges_from(
+                    (source, target, _deepcopy(attrs))
+                    for source in self
+                    for target, attrs in self.adj[source].items()
+                )
+            result.drain_decision_records()
+            return result
         return wrapped(self, as_view=as_view)
 
     return to_directed

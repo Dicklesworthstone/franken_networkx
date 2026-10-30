@@ -1,16 +1,10 @@
-"""Regression: DiGraph.to_directed() deep-copy fast path.
+"""Regression coverage for native graph conversion copies.
 
-br-r37-c1-dgtodir (cc): DiGraph was the only graph type whose to_directed() had
-no native fast path (Graph / MultiGraph / MultiDiGraph all route to
-_native_to_directed_deepcopy). It rebuilt via a per-arc Python add_edges_from loop
-AND was wrapped by _materialize_attrs_before_convert, whose post-conversion probe
-walks result.edges(data=True) and forces an O(E) mirror materialisation of the
-copy. Net: ~0.58x nx.
-
-An already-directed DiGraph's to_directed() is a full deep copy into the same
-class, so the fast path routes to copy.deepcopy (native deep copy, preserves store
-edge attrs + deep-copies graph attrs). These tests lock byte-exactness with
-networkx and the survival of store-only edge attrs.
+Conversion copies graph data into a mutable result. Each graph, node and edge
+attribute dictionary gets an independent deepcopy; aliases within a dictionary
+survive, while aliases between dictionaries do not. Frozen flags and arbitrary
+Python instance state are excluded. Native structural copying must also preserve
+conversion ordering and store-only edge attributes.
 """
 
 import copy
@@ -160,3 +154,205 @@ def test_graph_to_undirected_as_view_and_empty():
     v = fnx.Graph([(0, 1, {"weight": 1.0})]).to_undirected(as_view=True)
     assert not v.is_directed()
     assert _estrict(fnx.Graph().to_undirected(), nx.Graph().to_undirected())
+
+
+_GRAPH_CLASSES = ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+_CONVERSIONS = ("to_directed", "to_undirected")
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("conversion", _CONVERSIONS)
+@pytest.mark.parametrize("attributed", [False, True])
+def test_conversion_of_frozen_graph_returns_mutable_copy(
+    graph_class, conversion, attributed
+):
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        graph.add_edge("source", "target", **({"payload": [1]} if attributed else {}))
+        lib.freeze(graph)
+
+        converted = getattr(graph, conversion)()
+
+        assert not lib.is_frozen(converted)
+        converted.add_edge("new", "target")
+        assert "new" not in graph
+        assert lib.is_frozen(graph)
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("conversion", _CONVERSIONS)
+def test_conversion_ignores_custom_instance_state(graph_class, conversion):
+    for lib in (nx, fnx):
+        copied_state = []
+
+        class ApplicationState:
+            def __deepcopy__(self, memo):
+                copied_state.append(True)
+                raise AssertionError("conversion copied application instance state")
+
+        graph = getattr(lib, graph_class)()
+        graph.add_edge("source", "target")
+        graph.application_state = ApplicationState()
+
+        converted = getattr(graph, conversion)()
+
+        assert not copied_state
+        assert "application_state" not in vars(converted)
+        assert list(converted) == list(graph)
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("conversion", _CONVERSIONS)
+def test_conversion_deepcopies_each_attribute_dictionary_independently(
+    graph_class, conversion
+):
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        shared = ["source"]
+        attrs = {"first": shared, "second": shared}
+        graph.graph.update(attrs)
+        graph.add_nodes_from([("a", attrs), ("b", attrs), ("c", attrs)])
+        graph.add_edges_from([("a", "b", attrs), ("b", "c", attrs)])
+
+        converted = getattr(graph, conversion)()
+        dictionaries = [converted.graph]
+        dictionaries.extend(data for _, data in converted.nodes(data=True))
+        dictionaries.extend(data for *_, data in converted.edges(data=True))
+        values = [data["first"] for data in dictionaries]
+
+        assert all(data["first"] is data["second"] for data in dictionaries)
+        assert all(value == shared and value is not shared for value in values)
+        assert len({id(value) for value in values}) == len(values)
+        values[0].append("changed")
+        assert all(value == ["source"] for value in values[1:])
+        assert shared == ["source"]
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("conversion", _CONVERSIONS)
+def test_conversion_keeps_original_node_objects(graph_class, conversion):
+    class Node:
+        def __deepcopy__(self, memo):
+            raise AssertionError("conversion must preserve node objects")
+
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        source, target = Node(), Node()
+        graph.add_edge(source, target, payload=[1])
+
+        converted = getattr(graph, conversion)()
+
+        assert list(converted)[0] is source
+        assert list(converted)[1] is target
+
+
+@pytest.mark.parametrize("attributed", [False, True])
+def test_directed_conversion_rebuilds_predecessor_order(attributed):
+    results = []
+    for lib in (nx, fnx):
+        graph = lib.DiGraph()
+        graph.add_nodes_from(["first", "middle", "last", "sink"])
+        for source in ("last", "first", "middle"):
+            graph.add_edge(
+                source,
+                "sink",
+                **({"payload": [source]} if attributed else {}),
+            )
+        assert list(graph.pred["sink"]) == ["last", "first", "middle"]
+
+        converted = graph.to_directed()
+
+        assert list(converted.pred["sink"]) == ["first", "middle", "last"]
+        assert list(graph.pred["sink"]) == ["last", "first", "middle"]
+        results.append((list(converted), list(converted.edges(data=True))))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("source_mode", ["strict", "hardened"])
+@pytest.mark.parametrize("attributed", [False, True])
+def test_directed_conversion_keeps_source_mode_with_fresh_history(
+    source_mode, attributed
+):
+    with fnx.compatibility_mode(source_mode):
+        graph = fnx.DiGraph()
+        graph.graph["payload"] = ["source"]
+        graph.add_node(0, **({"payload": [0]} if attributed else {}))
+        graph.add_edge(0, 1, **({"payload": [1]} if attributed else {}))
+    source_records = graph.decision_records()
+    ambient_mode = "hardened" if source_mode == "strict" else "strict"
+
+    with fnx.compatibility_mode(ambient_mode):
+        converted = graph.to_directed()
+        assert fnx.get_compatibility_mode() == ambient_mode
+
+    assert converted.mode == source_mode
+    assert converted.compatibility_mode == source_mode
+    assert converted.decision_records() == []
+    assert graph.decision_records() == source_records
+    converted.graph["payload"].append("copy")
+    assert graph.graph["payload"] == ["source"]
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("conversion", _CONVERSIONS)
+def test_conversion_view_still_shares_data_and_follows_source(
+    graph_class, conversion
+):
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_class)()
+        graph.add_edge(0, 1, payload=["source"])
+        view = getattr(graph, conversion)(as_view=True)
+
+        assert lib.is_frozen(view)
+        view_attrs = view[0][1][0] if view.is_multigraph() else view[0][1]
+        source_attrs = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+        view_attrs["payload"].append("view")
+        assert source_attrs["payload"] == ["source", "view"]
+        with pytest.raises(lib.NetworkXError):
+            view.add_edge(2, 3)
+        graph.add_edge(1, 2)
+        assert 2 in view
+
+
+@pytest.mark.parametrize("source_mode", ["strict", "hardened"])
+@pytest.mark.parametrize(
+    "mutation", ["graph_add_node", "node_add_edge", "node_remove_edge", "node_edit_edge"]
+)
+def test_directed_conversion_observes_deepcopy_callback_mutations(source_mode, mutation):
+    results = []
+    ambient_mode = "hardened" if source_mode == "strict" else "strict"
+    for lib in (nx, fnx):
+        with fnx.compatibility_mode(source_mode):
+            graph = lib.DiGraph()
+            graph.add_nodes_from(["a", "b", "c"])
+            graph.add_edge("a", "b", payload=["original"])
+            if mutation in ("node_remove_edge", "node_edit_edge"):
+                graph.add_edge("b", "c", payload=["before"])
+        callback_modes = []
+
+        class Callback:
+            def __deepcopy__(self, memo):
+                callback_modes.append(fnx.get_compatibility_mode())
+                if mutation == "graph_add_node":
+                    graph.add_node("added", payload=["new"])
+                    graph.add_edge("added", "a", payload=["new"])
+                elif mutation == "node_add_edge":
+                    graph.add_edge("b", "c", payload=["new"])
+                elif mutation == "node_remove_edge":
+                    graph.remove_edge("b", "c")
+                else:
+                    graph["b"]["c"]["payload"] = ["new"]
+                return "copied"
+
+        if mutation == "graph_add_node":
+            graph.graph["hook"] = Callback()
+        else:
+            graph.nodes["a"]["hook"] = Callback()
+        with fnx.compatibility_mode(ambient_mode):
+            converted = graph.to_directed()
+            assert fnx.get_compatibility_mode() == ambient_mode
+        assert callback_modes == [ambient_mode]
+        results.append(
+            (dict(converted.graph), list(converted.nodes(data=True)), list(converted.edges(data=True)))
+        )
+    assert results[0] == results[1]
