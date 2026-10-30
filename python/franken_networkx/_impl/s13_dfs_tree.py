@@ -1170,13 +1170,15 @@ def find_cliques(G, nodes=None):
     # generator function — so the directed-only check must run in this
     # non-generator wrapper to raise EAGERLY on the call (nx contract), not
     # lazily on first iteration. The generator body lives in _find_cliques_impl.
-    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     return _find_cliques_impl(G, nodes)
 
 
 def _find_cliques_impl(G, nodes=None):
+    # Conversion can snapshot private storage or a foreign graph. Like nx's
+    # adjacency snapshot, it must observe edits made before the first next().
+    G = _coerce_arg_to_fnx_graph(G)
     if nodes is None:
         nodes = []
 
@@ -1258,14 +1260,15 @@ def enumerate_all_cliques(G):
     _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
     """
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
-        yield from _raw_enumerate_all_cliques(G)
+        graph = _coerce_arg_to_fnx_graph(G)
+        # Keep ordinary generator send() semantics while consuming native rows.
+        for clique in _raw_enumerate_all_cliques(graph):
+            yield clique
 
     return _gen()
 

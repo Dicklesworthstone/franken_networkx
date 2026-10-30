@@ -148,3 +148,100 @@ def test_number_of_cliques_unchanged_after_delegation():
     g = _make_graph(fnx, edges)
     gx = _make_graph(nx, edges)
     assert fnx.number_of_cliques(g) == nx.number_of_cliques(gx)
+
+
+@needs_nx
+@pytest.mark.parametrize("name", ["find_cliques", "enumerate_all_cliques"])
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("kind", ["native", "networkx", "private-root", "subgraph"])
+@pytest.mark.parametrize("mutation", ["add", "remove"])
+def test_clique_generators_read_graph_when_iteration_starts(name, cls, kind, mutation):
+    graphs, roots = [], []
+    for lib in (fnx, nx):
+        graph_lib = nx if kind == "networkx" else lib
+        root = getattr(graph_lib, cls)([(0, 1), (1, 2), (2, 3)])
+        if mutation == "remove":
+            root.add_edge(0, 2)
+        if kind == "private-root":
+            rows = {node: {} for node in root}
+            for u, v in root.edges():
+                attrs = {0: {}} if root.is_multigraph() else {}
+                rows[u][v] = rows[v][u] = attrs
+            root._adj = rows
+        roots.append(root)
+        graphs.append(root.subgraph(list(root)) if kind == "subgraph" else root)
+
+    before = list(getattr(nx, name)(graphs[1]))
+    actual = getattr(fnx, name)(graphs[0])
+    expected = getattr(nx, name)(graphs[1])
+    for root in roots:
+        if kind == "private-root":
+            if mutation == "add":
+                attrs = {0: {}} if root.is_multigraph() else {}
+                root._adj[0][2] = root._adj[2][0] = attrs
+            else:
+                del root._adj[0][2]
+                del root._adj[2][0]
+        elif mutation == "add":
+            root.add_edge(0, 2)
+        else:
+            root.remove_edge(0, 2)
+
+    wanted = list(expected)
+    assert wanted != before, "the edit must change the clique output"
+    assert list(actual) == wanted
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("mutation", ["add", "remove"])
+def test_find_cliques_seed_nodes_checked_when_iteration_starts(cls, mutation):
+    graphs = [getattr(nx, cls)([(0, 1), (1, 2)]) for _ in range(2)]
+    if mutation == "remove":
+        for graph in graphs:
+            graph.add_edge(0, 2)
+    actual = fnx.find_cliques(graphs[0], nodes=[0, 2])
+    expected = nx.find_cliques(graphs[1], nodes=[0, 2])
+    for graph in graphs:
+        if mutation == "add":
+            graph.add_edge(0, 2)
+        else:
+            graph.remove_edge(0, 2)
+    if mutation == "add":
+        assert list(actual) == list(expected)
+    else:
+        with pytest.raises(ValueError) as wanted:
+            next(expected)
+        with pytest.raises(type(wanted.value)) as observed:
+            next(actual)
+        assert str(observed.value) == str(wanted.value)
+
+
+@needs_nx
+@pytest.mark.parametrize("name", ["find_cliques", "enumerate_all_cliques"])
+@pytest.mark.parametrize("cls", ["Graph", "MultiGraph"])
+def test_clique_generators_accept_sent_values(name, cls):
+    edges = [(0, 1), (1, 2), (2, 3)]
+    actual = getattr(fnx, name)(getattr(fnx, cls)(edges))
+    expected = getattr(nx, name)(getattr(nx, cls)(edges))
+    assert next(actual) == next(expected)
+    assert actual.send("continue") == expected.send("continue")
+    assert list(actual) == list(expected)
+
+
+@needs_nx
+@pytest.mark.parametrize("name", ["find_cliques", "enumerate_all_cliques"])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("surface", ["root", "clique", "algorithms"])
+def test_clique_generators_reject_directed_inputs_on_call(name, cls, surface):
+    import importlib
+
+    for lib in (nx, fnx):
+        module = "networkx.algorithms.clique" if lib is nx and surface == "clique" else (
+            f"{lib.__name__}.{surface}"
+        )
+        namespace = lib if surface == "root" else importlib.import_module(
+            module
+        )
+        with pytest.raises(nx.NetworkXNotImplemented, match="directed"):
+            getattr(namespace, name)(getattr(lib, cls)([(0, 1)]))
