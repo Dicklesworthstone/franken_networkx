@@ -1541,9 +1541,11 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
         return existing
 
     if multi:
-        # networkx keeps ONE keydict per (u, v) and shares the attr dict between
-        # both directions of an undirected edge.
-        fwd_keys = row(forward, u).setdefault(v, {}) if forward is not None else None
+        # A new pair shares its entire keydict between the two orientations,
+        # including successor/predecessor rows of a directed graph.
+        fwd_row = row(forward, u) if forward is not None else None
+        new_pair = fwd_row is not None and v not in fwd_row
+        fwd_keys = fwd_row.setdefault(v, {}) if fwd_row is not None else None
         datadict = None
         if fwd_keys is not None:
             datadict = fwd_keys.get(key)
@@ -1551,8 +1553,12 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
                 datadict = fwd_keys[key] = {}
             datadict.update(attr)
         if backward is not None and (backward is not forward or u != v):
-            back_keys = row(backward, v).setdefault(u, {})
-            back_keys[key] = datadict if datadict is not None else dict(attr)
+            back_row = row(backward, v)
+            if new_pair:
+                back_row[u] = fwd_keys
+            else:
+                back_keys = back_row.setdefault(u, {})
+                back_keys[key] = datadict if datadict is not None else dict(attr)
         return
 
     datadict = None
@@ -1602,18 +1608,13 @@ def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **att
         return owner.add_edge(u_of_edge, v_of_edge, key, **attr)
     target = storage.get(_SHARED_STORAGE_SOURCE, self)
     python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
+    if key is None:
+        # Resolve against the live assigned rows, and preserve user overrides
+        # of the public key generator, before synchronizing the native half.
+        key = self.new_edge_key(u_of_edge, v_of_edge)
     raw = _private_native_method(target, _RAW_ADD_EDGE_BY_CLASS)
     if not python_only and raw is not None:
-        if key is None:
-            key = raw(target, u_of_edge, v_of_edge, **attr)
-        else:
-            raw(target, u_of_edge, v_of_edge, key, **attr)
-    elif key is None:
-        forward, _ = _assigned_private_edge_targets(self, storage)
-        keydict = forward.get(u_of_edge, {}).get(v_of_edge, {}) if forward else {}
-        key = len(keydict)
-        while key in keydict:
-            key += 1
+        raw(target, u_of_edge, v_of_edge, key, **attr)
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, key, attr, storage)
     return key
 

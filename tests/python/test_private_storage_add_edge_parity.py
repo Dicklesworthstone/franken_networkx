@@ -235,3 +235,114 @@ def test_multigraph_private_only_edge_uses_networkxs_key_generator():
     gfx = build_with_assigned_storage(fnx, "MultiGraph", "_adj", mapping)
     assert gfx.add_edge("ZZ", "a", color="blue") == gnx.add_edge("ZZ", "a", color="blue")
     assert gfx._adj["ZZ"]["a"] == gnx._adj["ZZ"]["a"]
+
+
+def _private_multigraph_pair(cls, edge, private_keys=(), native_keys=(), subclass=False):
+    seed = getattr(nx, cls)()
+    seed.add_nodes_from([0, 1, 2])
+    for key in private_keys:
+        seed.add_edge(*edge, key=key, retained=repr(key))
+    graphs = []
+    for mod in (nx, fnx):
+        base = getattr(mod, cls)
+        graph_class = type("PrivateParallelGraph", (base,), {}) if subclass else base
+        graph = graph_class()
+        graph.add_nodes_from(seed)
+        for key in native_keys:
+            graph.add_edge(*edge, key=key, native_only=True)
+        nodes, adjacency, predecessors = copy.deepcopy((
+            seed._node, seed._adj, seed._pred if seed.is_directed() else None,
+        ))
+        graph._node, graph._adj = nodes, adjacency
+        if graph.is_directed():
+            graph._pred = predecessors
+        graphs.append(graph)
+    return graphs
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("subclass", [False, True], ids=["concrete", "subclass"])
+@pytest.mark.parametrize("self_loop", [False, True], ids=["pair", "self-loop"])
+@pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
+def test_new_private_multigraph_pairs_share_key_storage(cls, subclass, self_loop, batch):
+    u, v = (0, 0) if self_loop else (0, 1)
+    outcomes = []
+    for graph in _private_multigraph_pair(cls, (u, v), subclass=subclass):
+        if batch:
+            result = graph.add_edges_from([
+                (u, v, "first", {"color": "red"}),
+                (u, v, "second", {"color": "blue"}),
+            ])
+        else:
+            result = [
+                graph.add_edge(u, v, key="first", color="red"),
+                graph.add_edge(u, v, key="second", color="blue"),
+            ]
+        assert result == ["first", "second"]
+        forward = graph._adj[u][v]
+        reverse = (graph._pred if graph.is_directed() else graph._adj)[v][u]
+        assert reverse is forward
+        # Sharing only the edge attributes is insufficient: changing the key
+        # dictionary through either orientation must affect the other one.
+        forward[("manual", 7)] = {"payload": [42]}
+        assert reverse[("manual", 7)] is forward[("manual", 7)]
+        del reverse["first"]
+        assert "first" not in forward
+        outcomes.append(list(forward.items()))
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("subclass", [False, True], ids=["concrete", "subclass"])
+@pytest.mark.parametrize(
+    "private_keys", [(0,), (0, 1), (0, 2), (0.0, ("tuple", 4), 3)],
+    ids=["native-control", "occupied-next-key", "key-holes", "mixed-equal-keys"],
+)
+@pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
+def test_private_multigraph_automatic_keys_follow_assigned_rows(
+    cls, subclass, private_keys, batch
+):
+    outcomes = []
+    for graph in _private_multigraph_pair(
+        cls, (0, 1), private_keys=private_keys, native_keys=(0,), subclass=subclass
+    ):
+        if batch:
+            result = graph.add_edges_from([(0, 1, {"weight": 5}), (0, 1, {"weight": 9})])
+        else:
+            result = [graph.add_edge(0, 1, weight=5), graph.add_edge(0, 1, weight=9)]
+        outcomes.append((result, list(graph._adj[0][1].items())))
+    # Compare retained attributes as well as returned keys: allocating from
+    # stale native rows can silently update an existing private edge.
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("storage", ["node", "all"])
+@pytest.mark.parametrize("hook", ["class", "instance"])
+@pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
+def test_private_multigraph_new_edge_key_override(cls, storage, hook, batch):
+    outcomes = []
+    for mod in (nx, fnx):
+        base = getattr(mod, cls)
+
+        class KeyedGraph(base):
+            def new_edge_key(self, u, v):
+                return ("custom", len(self._adj.get(u, {}).get(v, {})))
+
+        graph = KeyedGraph() if hook == "class" else base()
+        if hook == "instance":
+            graph.new_edge_key = lambda u, v, graph=graph: (
+                "custom", len(graph._adj.get(u, {}).get(v, {}))
+            )
+        graph.add_nodes_from([0, 1])
+        graph._node = {0: {}, 1: {}}
+        if storage == "all":
+            graph._adj = {0: {}, 1: {}}
+            if graph.is_directed():
+                graph._pred = {0: {}, 1: {}}
+        if batch:
+            result = graph.add_edges_from([(0, 1), (0, 1)])
+        else:
+            result = [graph.add_edge(0, 1), graph.add_edge(0, 1)]
+        outcomes.append((result, list(graph._adj[0][1])))
+    assert outcomes[1] == outcomes[0]
