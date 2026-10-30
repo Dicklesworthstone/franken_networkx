@@ -11,6 +11,8 @@ round-trip identity test only compares attribute *keys* for the GML format,
 never values. This locks the value types to nx's.
 """
 
+import math
+
 import networkx as nx
 import franken_networkx as fnx
 
@@ -88,3 +90,91 @@ def test_gml_numeric_weight_survives_roundtrip_for_weighted_kernel():
     assert fnx.shortest_path_length(restored, "0", "2", weight="weight") == 1.0
     for _, _, d in restored.edges(data=True):
         assert isinstance(d["weight"], float)
+
+
+def _gml_value_state(value):
+    if isinstance(value, dict):
+        return [(key, _gml_value_state(item)) for key, item in value.items()]
+    if isinstance(value, (list, tuple)):
+        return (type(value).__name__, [_gml_value_state(item) for item in value])
+    if isinstance(value, float) and math.isnan(value):
+        return ("float", "nan")
+    return (type(value).__name__, value)
+
+
+def _gml_graph_state(graph):
+    edge_options = {"keys": True} if graph.is_multigraph() else {}
+    return (
+        graph.is_directed(), graph.is_multigraph(),
+        _gml_value_state(graph.graph),
+        _gml_value_state(list(graph.nodes(data=True))),
+        _gml_value_state(list(graph.edges(data=True, **edge_options))),
+    )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("case", ["parallel", "list", "singleton", "nested", "backslash", "nonfinite"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize(
+    "parser", [fnx.parse_gml, fnx.readwrite.parse_gml, fnx.readwrite.gml.parse_gml],
+    ids=["top-level", "readwrite", "gml-submodule"],
+)
+def test_parse_gml_preserves_full_document_values(graph_type, case, mode, parser):
+    """Native projections may not silently replace the full GML data model."""
+    source = getattr(nx, graph_type)()
+    first = r"C:\network\first" if case == "backslash" else "first"
+    source.add_node("isolated")
+    source.add_edge(first, "last", weight=3)
+    if case == "parallel":
+        source.add_edge(first, "last", weight=7)
+    else:
+        value = {
+            "list": [2, 3, 5],
+            "singleton": [9],
+            "nested": {"items": [1, 2], "named": {"score": 4.5}},
+            "backslash": r"C:\network\nodes",
+            "nonfinite": [float("inf"), float("-inf"), float("nan")],
+        }[case]
+        source.graph["values"] = value
+        source.nodes[first]["values"] = value
+        data = source[first]["last"][0] if source.is_multigraph() else source[first]["last"]
+        data["values"] = value
+    text = "\n".join(nx.generate_gml(source))
+    expected = nx.parse_gml(text)
+    with fnx.compatibility_mode(mode):
+        actual = parser(text)
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+    assert actual.mode == mode
+    assert all(record["mode"] == mode for record in actual.decision_records())
+    assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_parse_gml_canonical_simple_payload_keeps_native_route(mode, monkeypatch):
+    source = fnx.DiGraph()
+    source.add_nodes_from(["first", "last", "isolated"])
+    source.add_edge("first", "last", weight=3)
+    lines = list(fnx.generate_gml(source))
+    expected = nx.parse_gml(lines)
+
+    def no_fallback(*args, **kwargs):
+        pytest.fail("canonical lossless GML must retain the native reader")
+
+    monkeypatch.setattr(nx, "parse_gml", no_fallback)
+    with fnx.compatibility_mode(mode):
+        actual = fnx.parse_gml(iter(lines))
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+    assert actual.mode == mode
+
+
+def test_parse_gml_hardened_repair_keeps_native_decision_ledger():
+    text = "graph [ node [ id 0 ] ]"
+    with fnx.compatibility_mode("strict"):
+        with pytest.raises(fnx.NetworkXError, match="has no 'label' attribute"):
+            fnx.parse_gml(text)
+    with fnx.compatibility_mode("hardened"):
+        with pytest.warns(RuntimeWarning, match="missing label"):
+            actual = fnx.parse_gml(text)
+    assert list(actual) == ["0"]
+    assert actual.mode == "hardened"
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())

@@ -986,16 +986,10 @@ def parse_edgelist(
 def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backend_kwargs):
     """Parse GML text or lines into a FrankenNetworkX graph.
 
-    For the default ``label="label"`` / ``destringizer=None`` combination
-    the local Rust reader is used. For non-default ``label`` (e.g. the
-    common ``label="id"`` mode that names nodes by their GML ``id``
-    field) or any supplied ``destringizer``, fall back to upstream
-    ``networkx.parse_gml`` and convert the result — nx's reader is the
-    semantic source of truth for those parser customizations and the
-    Rust reader does not yet model them. Previously fnx raised a
-    ``NetworkXError("parse_gml currently supports only label='label'
-    and no destringizer")`` for those callers, which broke drop-in
-    parity vs nx.parse_gml.
+    The native reader handles canonical, losslessly representable simple
+    graphs. The complete decoder retains lists, multigraph keys, string
+    escapes and other values that the native projection cannot represent.
+    Non-default labels and destringizers also use that decoder.
     """
     import franken_networkx as fnx
     from franken_networkx import _fnx
@@ -1033,7 +1027,7 @@ def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backen
     # those as NetworkXError, so re-raise the concrete subset here for
     # drop-in parity.
     try:
-        return _fnx.read_gml(_StringIO(text))
+        graph = _fnx.read_gml(_StringIO(text))
     except OSError as exc:
         message = str(exc)
         prefix = "readwrite `read_gml` failed closed: "
@@ -1054,6 +1048,23 @@ def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backen
         # carry the position — close enough for pattern matching.
         message = _translate_gml_error_to_nx(message)
         raise fnx.NetworkXError(message) from exc
+
+    # Keep explicitly recorded hardened repairs: the complete decoder rejects
+    # the malformed input that the native policy has already recovered.
+    if graph.mode == "hardened" and any(
+        record["action"] == "full_validate" for record in graph.decision_records()
+    ):
+        return graph
+
+    # A successful native parse alone does not prove fidelity. Repeated keys
+    # can collapse into scalars, multiedges into one edge, and numeric tokens
+    # into strings. Reuse the existing writer as a conservative admission
+    # proof instead of maintaining a second, incomplete GML grammar here.
+    if "\n".join(generate_gml(graph)) == text:
+        return graph
+    converted = _parse_gml_via_nx(text, label=label, destringizer=destringizer)
+    _fnx.copy_readwrite_policy(graph, converted)
+    return converted
 
 
 _GML_ERROR_TRANSLATIONS = (
