@@ -21,20 +21,19 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=N
     message instead of ``TypeError: unexpected keyword argument``.
     """
     _validate_backend_dispatch_keywords("minimum_cut", backend, {})
+    # Custom solvers must observe the original graph and control their own
+    # validation. Only the built-in native route needs a materialized graph.
+    if flow_func is not None or kwargs:
+        return _minimum_cut_inproc(
+            flowG, _s, _t, capacity=capacity,
+            flow_func=flow_func, **kwargs,
+        )
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
-    _validate_flow_func_selector(flow_func)
     _reject_multigraph_flow(flowG)
     _check_flow_endpoints(flowG, _s, _t)
-    if kwargs and flow_func is None:
-        raise NetworkXError(
-            "You have to explicitly set a flow_func if you need to pass "
-            "parameters via kwargs."
-        )
-    needs_nx = bool(flow_func is not None or kwargs)
-    if not needs_nx:
-        # br-r37-c1-31tby: single fused capacity scan.
-        needs_nx, all_int = _flow_caps_summary(flowG, capacity)
+    # br-r37-c1-31tby: single fused capacity scan.
+    needs_nx, all_int = _flow_caps_summary(flowG, capacity)
     if needs_nx:
         return _minimum_cut_inproc(
             flowG,
@@ -57,20 +56,17 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, *, bac
     ``flow_func`` (and raising when none is supplied).
     """
     _validate_backend_dispatch_keywords("minimum_cut_value", backend, {})
+    if flow_func is not None or kwargs:
+        return _minimum_cut_value_inproc(
+            flowG, _s, _t, capacity=capacity,
+            flow_func=flow_func, **kwargs,
+        )
     # br-r37-c1-0555d: accept nx-typed inputs.
     flowG = _coerce_arg_to_fnx_graph(flowG)
-    _validate_flow_func_selector(flow_func)
     _reject_multigraph_flow(flowG)
     _check_flow_endpoints(flowG, _s, _t)
-    if kwargs and flow_func is None:
-        raise NetworkXError(
-            "You have to explicitly set a flow_func if you need to pass "
-            "parameters via kwargs."
-        )
-    needs_nx = bool(flow_func is not None or kwargs)
-    if not needs_nx:
-        # br-r37-c1-31tby: single fused capacity scan.
-        needs_nx, all_int = _flow_caps_summary(flowG, capacity)
+    # br-r37-c1-31tby: single fused capacity scan.
+    needs_nx, all_int = _flow_caps_summary(flowG, capacity)
     if needs_nx:
         return _minimum_cut_value_inproc(
             flowG,

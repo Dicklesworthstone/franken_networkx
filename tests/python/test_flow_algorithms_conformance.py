@@ -677,3 +677,96 @@ def test_explicit_augmenting_flow_retains_cutoff_behavior(name):
         fg, "s", "t", flow_func=fnx.flow.edmonds_karp, cutoff=2
     )
     assert actual == expected
+
+
+def _custom_flow_input(module, kind):
+    """Return graph shapes whose storage must stay live across a callback."""
+    graph_module = nx if kind == "networkx" else module
+    root = graph_module.DiGraph()
+    root.add_nodes_from(["s", "a", "t"])
+    edges = [("s", "a", 5), ("a", "t", 2)]
+    if kind == "reverse":
+        edges = [(v, u, capacity) for u, v, capacity in edges]
+    for u, v, capacity in edges:
+        root.add_edge(u, v, budget=capacity)
+    if kind == "subgraph":
+        root.add_edge("s", "hidden", budget=20)
+        root.add_edge("hidden", "t", budget=20)
+        return root.subgraph(["s", "a", "t"])
+    if kind == "reverse":
+        return root.reverse(copy=False)
+    if kind == "shared_copy":
+        from copy import copy
+
+        return copy(root)
+    if kind == "assigned":
+        graph = module.DiGraph()
+        nodes = {node: dict(attrs) for node, attrs in root.nodes(data=True)}
+        successors = {node: {} for node in root}
+        predecessors = {node: {} for node in root}
+        for u, v, attrs in root.edges(data=True):
+            data = dict(attrs)
+            successors[u][v] = data
+            predecessors[v][u] = data
+        graph._node = nodes
+        graph._succ = successors
+        graph._pred = predecessors
+        return graph
+    return root
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize(
+    "kind", ["native", "networkx", "subgraph", "reverse", "assigned", "shared_copy"]
+)
+def test_custom_flow_solver_receives_live_caller_graph(name, kind):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = _custom_flow_input(module, kind)
+        marker = object()
+        calls = []
+
+        def solver(received, source, target, *, capacity, value_only, marker):
+            calls.append((received, source, target, capacity, value_only))
+            # Update through the caller's reference after the high-level call
+            # has begun. A converted snapshot would still see capacity 2.
+            graph["a"]["t"]["budget"] = 4
+            received.graph["solver_marker"] = marker
+            return nx_flow.edmonds_karp(
+                received, source, target,
+                capacity=capacity, value_only=value_only,
+            )
+
+        result = getattr(module, name)(
+            graph, "s", "t", capacity="budget", flow_func=solver, marker=marker
+        )
+        value = result[0] if isinstance(result, tuple) else result
+        assert value == 4
+        assert len(calls) == 1
+        received, source, target, capacity, value_only = calls[0]
+        assert received is graph
+        assert (source, target, capacity) == ("s", "t", "budget")
+        assert value_only is (name != "maximum_flow")
+        assert graph.graph["solver_marker"] is marker
+        assert graph["a"]["t"]["budget"] == 4
+        outcomes.append(result)
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("kind", ["missing_endpoints", "multigraph"])
+def test_custom_flow_solver_owns_input_validation(name, kind):
+    for module in (fnx, nx):
+        graph = module.MultiDiGraph() if kind == "multigraph" else module.DiGraph()
+        if kind == "multigraph":
+            graph.add_edge("s", "t", capacity=3)
+        calls = []
+
+        def solver(received, source, target, **kwargs):
+            calls.append(received)
+            raise LookupError("custom solver input validation")
+
+        with pytest.raises(LookupError, match="custom solver input validation"):
+            getattr(module, name)(graph, "s", "t", flow_func=solver)
+        assert len(calls) == 1
+        assert calls[0] is graph

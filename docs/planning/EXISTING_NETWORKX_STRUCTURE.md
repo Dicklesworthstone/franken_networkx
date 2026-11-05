@@ -467,3 +467,25 @@ Rust parity contract for the first flow slice (`fnx-algorithms::{max_flow_edmond
 8. Min-cut witness contract:
 - Algorithm label: `edmonds_karp_minimum_cut`
 - Complexity claim: `O(|V| * |E|^2)`
+
+
+### 23.1 Python custom-flow solver boundary
+
+The public `maximum_flow`, `maximum_flow_value`, `minimum_cut`, and
+`minimum_cut_value` entry points pass a supplied `flow_func` the caller's
+original graph object. This includes NetworkX graphs, filtered and reverse
+views, assigned private mappings, and shallow copies with shared storage.
+Graph conversion and native-only validation belong to the built-in native
+route; a supplied solver owns its input validation.
+
+Callbacks may observe or mutate the graph during the call. Such mutations
+remain visible through the caller's graph, and subsequent flow/partition
+extraction uses that same graph. The callback receives the original
+`capacity`, `value_only`, and extra keyword arguments, including any
+caller-owned residual network. Passing extra solver arguments without an
+explicit `flow_func` remains an error.
+
+Regression cases are in
+`tests/python/test_flow_algorithms_conformance.py`:
+`test_custom_flow_solver_receives_live_caller_graph` and
+`test_custom_flow_solver_owns_input_validation`.

@@ -1673,15 +1673,18 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=
     the arithmetic of Fraction, Decimal, and custom numeric types.
     """
     _validate_backend_dispatch_keywords("maximum_flow", backend, {})
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    flowG = _coerce_arg_to_fnx_graph(flowG)
-    _reject_multigraph_flow(flowG)
-    _check_flow_endpoints(flowG, _s, _t)
+    # A supplied solver owns the graph contract, including validation and
+    # live mutations. Coercing first snapshots NetworkX graphs and views,
+    # and can substitute a shallow copy's owner for the caller's graph.
     if flow_func is not None or kwargs:
         return _maximum_flow_inproc(
             flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    flowG = _coerce_arg_to_fnx_graph(flowG)
+    _reject_multigraph_flow(flowG)
+    _check_flow_endpoints(flowG, _s, _t)
     # br-r37-c1-31tby: one edge scan yields both the route-to-nx decision
     # and the int-coercion flag (was two full-graph scans).
     needs_nx, all_int = _flow_caps_summary(flowG, capacity)
@@ -1698,15 +1701,15 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=
 def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Return just the max-flow value. nx-int parity when all caps int."""
     _validate_backend_dispatch_keywords("maximum_flow_value", backend, {})
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    flowG = _coerce_arg_to_fnx_graph(flowG)
-    _reject_multigraph_flow(flowG)
-    _check_flow_endpoints(flowG, _s, _t)
     if flow_func is not None or kwargs:
         return _maximum_flow_value_inproc(
             flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
         )
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    flowG = _coerce_arg_to_fnx_graph(flowG)
+    _reject_multigraph_flow(flowG)
+    _check_flow_endpoints(flowG, _s, _t)
     # br-r37-c1-31tby: single fused capacity scan.
     needs_nx, all_int = _flow_caps_summary(flowG, capacity)
     if needs_nx:
