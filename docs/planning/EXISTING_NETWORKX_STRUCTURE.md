@@ -540,3 +540,28 @@ over this size check when an explicit regularizer is supplied.
 Regression cases in `tests/python/test_linalg_namespace_native_routing.py`
 cover subsets, selected isolates, weighted adjacency, explicit regularizers,
 validation order, and unsized iterators through both public namespaces.
+
+
+## 25. Native Minimum Cycle Basis with Overflowing Weights
+
+For finite, nonnegative edge weights, a cycle remains part of the cycle space
+when its accumulated floating-point weight overflows to positive infinity.
+The native `minimum_cycle_basis_core` and `minimum_cycle_basis` Rust APIs,
+and the exported `_fnx.minimum_cycle_basis` binding, must retain such cycles
+instead of returning an incomplete basis. A triangle whose three edges each
+weigh `1e308` has one basis cycle; a square with a diagonal has two. A
+disconnected graph retains the basis of every component, including components
+whose cycle weights overflow.
+
+The lifted shortest-path search must distinguish an undiscovered node from a
+discovered node at infinite distance. Selecting a starting node must accept
+the first reachable candidate even when its distance is infinite, replace it
+with any strictly shorter finite candidate, and retain the existing first
+candidate on equal distances. Missing lifted paths remain absent.
+
+These expectations were checked against NetworkX 3.6.1. The public Python
+`minimum_cycle_basis` wrapper currently uses a separate SciPy-assisted route
+and already satisfies these cases; this contract covers the native APIs
+without changing that routing. Native regression cases live beside the
+existing minimum-cycle-basis Rust tests and in
+`tests/python/test_misc_tier2_parity.py`.

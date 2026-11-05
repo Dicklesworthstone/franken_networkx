@@ -290,3 +290,202 @@ def test_bellman_ford_detects_sub_epsilon_negative_cycles(nx_cls, fnx_cls, unit)
         nx.single_source_bellman_ford_path_length(gnx, "s")
     with pytest.raises(fnx.NetworkXUnbounded):
         fnx.single_source_bellman_ford_path_length(gfx, "s")
+
+
+def _overflowed_distance_pair(nx_cls, fnx_cls, weight="weight"):
+    graphs = nx_cls(), fnx_cls()
+    for graph in graphs:
+        for u, v, value in (
+            ("s", "a", 1e308),
+            ("a", "b", 1e308),
+            ("a", "c", 1e308),
+            ("c", "t", 0.0),
+            ("b", "c", 0.0),
+            ("b", "b", 0.0),
+            ("s", "s", 0.0),
+        ):
+            graph.add_edge(u, v, **{weight: value})
+        # A missing attribute still contributes the default weight of one
+        # after the preceding path sum has overflowed.
+        graph.add_edge("b", "t")
+        graph.add_node("isolated")
+        if graph.is_multigraph():
+            graph.add_edge("s", "a", **{weight: 1.5e308})
+    return graphs
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_target_queries_preserve_reachability(nx_cls, fnx_cls):
+    # Each API gets a fresh graph, then repeats against its warmed native data.
+    # All edge weights are finite: only accumulated distances become infinity.
+    for name in (
+        "dijkstra_path", "dijkstra_path_length", "bidirectional_dijkstra",
+        "shortest_path", "shortest_path_length",
+    ):
+        gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls)
+        assert fnx._should_delegate_dijkstra_to_networkx(gfx, "weight") is False
+        kwargs = {"weight": "weight"} if name.startswith("shortest_") else {}
+        expected = getattr(nx, name)(gnx, "s", "t", **kwargs)
+        for _ in range(2):
+            assert getattr(fnx, name)(gfx, "s", "t", **kwargs) == expected
+        with pytest.raises(nx.NetworkXNoPath):
+            getattr(nx, name)(gnx, "s", "isolated", **kwargs)
+        with pytest.raises(fnx.NetworkXNoPath):
+            getattr(fnx, name)(gfx, "s", "isolated", **kwargs)
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_sources_and_cutoffs_match_networkx(nx_cls, fnx_cls):
+    gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls)
+    expected = {"s": 0, "a": 1e308, "b": float("inf"),
+                "c": float("inf"), "t": float("inf")}
+    assert nx.single_source_dijkstra_path_length(gnx, "s") == expected
+    # Exercise the length-only route both before and after its native cache exists.
+    for _ in range(2):
+        assert fnx.single_source_dijkstra_path_length(gfx, "s") == expected
+    for cutoff in (None, 1e308, float("inf")):
+        for name in (
+            "single_source_dijkstra", "single_source_dijkstra_path",
+            "single_source_dijkstra_path_length", "dijkstra_predecessor_and_distance",
+        ):
+            assert getattr(fnx, name)(gfx, "s", cutoff=cutoff) == getattr(nx, name)(
+                gnx, "s", cutoff=cutoff
+            )
+        for name in (
+            "multi_source_dijkstra", "multi_source_dijkstra_path",
+            "multi_source_dijkstra_path_length",
+        ):
+            assert getattr(fnx, name)(gfx, ["s", "isolated"], cutoff=cutoff) == getattr(
+                nx, name
+            )(gnx, ["s", "isolated"], cutoff=cutoff)
+        for name, source in (
+            ("single_source_dijkstra", "s"),
+            ("multi_source_dijkstra", ["s"]),
+        ):
+            for target in ("t", "isolated"):
+                assert _outcome(
+                    getattr(fnx, name), gfx, source, target=target, cutoff=cutoff
+                ) == _outcome(
+                    getattr(nx, name), gnx, source, target=target, cutoff=cutoff
+                )
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_all_pairs_keeps_reachable_infinity(nx_cls, fnx_cls):
+    gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls)
+    for cutoff in (None, 1e308, float("inf")):
+        for name in (
+            "all_pairs_dijkstra", "all_pairs_dijkstra_path",
+            "all_pairs_dijkstra_path_length",
+        ):
+            assert list(getattr(fnx, name)(gfx, cutoff=cutoff)) == list(
+                getattr(nx, name)(gnx, cutoff=cutoff)
+            )
+    if not gfx.is_multigraph():
+        # The packed binding is also used independently of the public lazy
+        # all-pairs generators, including by metric_closure's Graph fast path.
+        expected = dict(nx.all_pairs_dijkstra(gnx))
+        for _ in range(2):
+            assert fnx._raw_all_pairs_dijkstra(gfx, weight="weight") == expected
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_finite_dijkstra_alternative_replaces_pending_infinity(nx_cls, fnx_cls):
+    gnx, gfx = nx_cls(), fnx_cls()
+    for graph in (gnx, gfx):
+        graph.add_weighted_edges_from([
+            ("s", "a", 1e308), ("a", "t", 1e308),
+            ("s", "b", 1.5e308), ("b", "t", 0.0),
+        ])
+        if graph.is_multigraph():
+            graph.add_edge("s", "b", weight=1.75e308)
+    expected = (1.5e308, ["s", "b", "t"])
+    assert nx.single_source_dijkstra(gnx, "s", target="t") == expected
+    assert fnx._should_delegate_dijkstra_to_networkx(gfx, "weight") is False
+    for _ in range(2):
+        assert fnx.single_source_dijkstra(gfx, "s", target="t") == expected
+        assert fnx.dijkstra_path(gfx, "s", "t") == expected[1]
+        assert fnx.dijkstra_path_length(gfx, "s", "t") == expected[0]
+        assert fnx.bidirectional_dijkstra(gfx, "s", "t") == nx.bidirectional_dijkstra(
+            gnx, "s", "t"
+        )
+    assert fnx.multi_source_dijkstra(gfx, ["s"], target="t") == expected
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_named_and_callable_weights_match_networkx(nx_cls, fnx_cls):
+    gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls, weight="cost")
+
+    def cost(u, v, data):
+        if gnx.is_multigraph():
+            return min(attrs.get("cost", 1) for attrs in data.values())
+        return data.get("cost", 1)
+
+    for weight in ("cost", cost):
+        for name in ("dijkstra_path", "dijkstra_path_length", "bidirectional_dijkstra"):
+            assert getattr(fnx, name)(gfx, "s", "t", weight=weight) == getattr(nx, name)(
+                gnx, "s", "t", weight=weight
+            )
+        for cutoff in (1e308, float("inf")):
+            assert fnx.single_source_dijkstra(gfx, "s", cutoff=cutoff, weight=weight) == (
+                nx.single_source_dijkstra(gnx, "s", cutoff=cutoff, weight=weight)
+            )
+            assert fnx.multi_source_dijkstra(
+                gfx, ["s", "isolated"], cutoff=cutoff, weight=weight
+            ) == nx.multi_source_dijkstra(
+                gnx, ["s", "isolated"], cutoff=cutoff, weight=weight
+            )
+        assert list(fnx.all_pairs_dijkstra_path_length(gfx, weight=weight)) == list(
+            nx.all_pairs_dijkstra_path_length(gnx, weight=weight)
+        )
+
+
+def test_overflowed_metric_closure_keeps_connected_graph():
+    gnx, gfx = nx.Graph(), fnx.Graph()
+    for graph in (gnx, gfx):
+        graph.add_weighted_edges_from([
+            ("s", "a", 1e308), ("a", "b", 1e308), ("b", "t", 1.0),
+        ])
+    with pytest.warns(DeprecationWarning, match="metric_closure"):
+        expected = nx.approximation.metric_closure(gnx)
+    with pytest.warns(DeprecationWarning, match="metric_closure"):
+        actual = fnx.approximation.metric_closure(gfx)
+    assert set(actual) == set(expected)
+    assert actual.number_of_edges() == expected.number_of_edges()
+    for u, v, attrs in expected.edges(data=True):
+        assert dict(actual[u][v]) == attrs
+    assert actual["s"]["t"]["distance"] == float("inf")
+    assert actual["s"]["t"]["path"] == ["s", "a", "b", "t"]
+
+
+# The all-shortest-path enumeration kernels are separate from target/source
+# Dijkstra kernels; keep this regression separate from the reachability cases.
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_all_shortest_paths_preserves_order_and_terminates_cycles(nx_cls, fnx_cls):
+    gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls)
+    for graph in (gnx, gfx):
+        graph.remove_edge("s", "s")
+        if graph.is_directed():
+            graph.add_edge("c", "b", weight=0.0)
+    expected = list(nx.all_shortest_paths(gnx, "s", "t", weight="weight", method="dijkstra"))
+    assert expected
+    assert all(len(path) == len(set(path)) for path in expected)
+    for _ in range(2):
+        assert list(fnx.all_shortest_paths(
+            gfx, "s", "t", weight="weight", method="dijkstra"
+        )) == expected
+    with pytest.raises(nx.NetworkXNoPath):
+        list(nx.all_shortest_paths(gnx, "s", "isolated", weight="weight", method="dijkstra"))
+    with pytest.raises(fnx.NetworkXNoPath):
+        list(fnx.all_shortest_paths(gfx, "s", "isolated", weight="weight", method="dijkstra"))
+    gnx, gfx = nx_cls(), fnx_cls()
+    for graph in (gnx, gfx):
+        graph.add_weighted_edges_from([
+            ("s", "a", 1e308), ("a", "t", 1e308),
+            ("s", "b", 1.5e308), ("b", "t", 0.0),
+        ])
+    expected = list(nx.all_shortest_paths(gnx, "s", "t", weight="weight", method="dijkstra"))
+    assert expected == [["s", "b", "t"]]
+    assert list(fnx.all_shortest_paths(
+        gfx, "s", "t", weight="weight", method="dijkstra"
+    )) == expected

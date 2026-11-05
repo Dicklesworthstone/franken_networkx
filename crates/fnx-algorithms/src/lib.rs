@@ -21913,7 +21913,7 @@ fn minimum_cycle_basis_shortest_orthogonal_cycle(
         else {
             continue;
         };
-        if distance < best_distance {
+        if best_start.is_none() || distance < best_distance {
             best_distance = distance;
             best_start = Some(start);
         }
@@ -21933,10 +21933,12 @@ fn minimum_cycle_basis_lifted_shortest_path_length(
     stats: &mut MinimumCycleBasisStats,
 ) -> Option<f64> {
     let mut distances = vec![f64::INFINITY; adjacency.len()];
+    let mut discovered = vec![false; adjacency.len()];
     let mut heap = BinaryHeap::new();
     let mut sequence = 0u64;
 
     distances[source] = 0.0;
+    discovered[source] = true;
     heap.push(DijkstraState {
         dist: 0.0,
         seq: sequence,
@@ -21954,7 +21956,10 @@ fn minimum_cycle_basis_lifted_shortest_path_length(
         for &(neighbor, _edge_idx, weight) in &adjacency[node] {
             stats.edges_scanned += 1;
             let next_distance = dist + weight;
-            if next_distance < distances[neighbor] {
+            // Finite edge weights can overflow in a reachable lifted path.
+            // Its first infinite distance still needs a heap entry.
+            if !discovered[neighbor] || next_distance < distances[neighbor] {
+                discovered[neighbor] = true;
                 distances[neighbor] = next_distance;
                 sequence = sequence.saturating_add(1);
                 heap.push(DijkstraState {
@@ -26668,7 +26673,7 @@ pub fn all_shortest_paths_weighted(
     // br-r37-c1-aspwidx (cc): index-keyed weighted Dijkstra + multi-pred path enumeration. The old
     // kernel kept dist as HashMap<&str,f64>, preds as HashMap<&str,Vec<&str>>, and a
     // BinaryHeap<DijkstraState{node:&str}> and walked neighbors_iter with a name-keyed weight lookup.
-    // Index dist: Vec<f64> (INF = unvisited) + preds: Vec<Vec<usize>> + DijkstraState<usize> +
+    // Index dist: Vec<f64> + preds: Vec<Vec<usize>> + DijkstraState<usize> +
     // neighbors_indices + edge_weight_or_default_idx; names materialised only at path emit. FLOAT-SAFE:
     // the heap orders by (dist, seq) ONLY (node is not a tie-break; seq is a unique counter), the
     // per-edge weight is bit-identical. Exact distance ordering and equality preserve
@@ -26719,7 +26724,8 @@ pub fn all_shortest_paths_weighted(
                 let next_dist = d + weight;
                 let current_dist_v = dist[v];
 
-                if next_dist < current_dist_v {
+                let unseen = current_dist_v == f64::INFINITY && preds[v].is_empty();
+                if unseen || next_dist < current_dist_v {
                     dist[v] = next_dist;
                     preds[v] = vec![u];
                     seq_counter += 1;
@@ -26735,7 +26741,7 @@ pub fn all_shortest_paths_weighted(
         }
     }
 
-    if dist[target_idx].is_infinite() {
+    if preds[target_idx].is_empty() {
         return Vec::new();
     }
 
@@ -26923,7 +26929,8 @@ where
             let next_dist = d + weight;
             let current_dist_v = dist[v];
 
-            if next_dist < current_dist_v {
+            let unseen = current_dist_v == f64::INFINITY && preds[v].is_empty();
+            if unseen || next_dist < current_dist_v {
                 dist[v] = next_dist;
                 preds[v] = vec![u];
                 seq_counter += 1;
@@ -26938,7 +26945,7 @@ where
         }
     }
 
-    if dist[target_idx].is_infinite() {
+    if preds[target_idx].is_empty() {
         return Vec::new();
     }
 
@@ -69048,6 +69055,95 @@ mod tests {
     }
 
     #[test]
+    fn all_shortest_paths_overflow_keeps_order_and_terminates_cycles() {
+        let adjacency = [
+            vec![(1, 1.0e308)],
+            vec![(2, 1.0e308), (3, 1.0e308)],
+            vec![(3, 0.0), (2, 0.0), (4, 1.0)],
+            vec![(4, 0.0), (2, 0.0)],
+            Vec::new(),
+            Vec::new(),
+        ];
+        let paths =
+            super::all_shortest_paths_weighted_indexed(6, 0, 4, |u| adjacency[u].iter().copied());
+        // NetworkX 3.6.1 predecessor order, including ties reached after a
+        // vertex has settled. The self-loop and b/c cycle cannot repeat nodes.
+        assert_eq!(
+            paths,
+            vec![
+                vec![0, 1, 2, 4],
+                vec![0, 1, 3, 2, 4],
+                vec![0, 1, 3, 4],
+                vec![0, 1, 2, 3, 4],
+            ]
+        );
+        assert!(
+            super::all_shortest_paths_weighted_indexed(6, 0, 5, |u| {
+                adjacency[u].iter().copied()
+            })
+            .is_empty()
+        );
+
+        let competing = [
+            vec![(1, 1.0e308), (2, 1.5e308)],
+            vec![(3, 1.0e308)],
+            vec![(3, 0.0)],
+            Vec::new(),
+        ];
+        assert_eq!(
+            super::all_shortest_paths_weighted_indexed(4, 0, 3, |u| {
+                competing[u].iter().copied()
+            }),
+            vec![vec![0, 2, 3]]
+        );
+    }
+
+    #[test]
+    fn all_shortest_paths_overflow_graph_apis_preserve_reachability() {
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for (left, right, weight) in [
+            ("s", "a", 1.0e308),
+            ("a", "b", 1.0e308),
+            ("a", "c", 1.0e308),
+            ("c", "t", 0.0),
+            ("b", "c", 0.0),
+            ("b", "b", 0.0),
+            ("b", "t", 1.0),
+            ("c", "b", 0.0),
+        ] {
+            let edge_attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph
+                .add_edge_with_attrs(left, right, edge_attrs.clone())
+                .unwrap();
+            digraph
+                .add_edge_with_attrs(left, right, edge_attrs)
+                .unwrap();
+        }
+        graph.add_node("isolated");
+        digraph.add_node("isolated");
+        let expected = vec![
+            vec!["s", "a", "b", "t"],
+            vec!["s", "a", "c", "b", "t"],
+            vec!["s", "a", "c", "t"],
+            vec!["s", "a", "b", "c", "t"],
+        ];
+        assert_eq!(
+            all_shortest_paths_weighted(&graph, "s", "t", "weight"),
+            expected
+        );
+        assert_eq!(
+            super::all_shortest_paths_weighted_directed(&digraph, "s", "t", "weight"),
+            expected
+        );
+        assert!(all_shortest_paths_weighted(&graph, "s", "isolated", "weight").is_empty());
+        assert!(
+            super::all_shortest_paths_weighted_directed(&digraph, "s", "isolated", "weight")
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn bellman_ford_detects_sub_epsilon_negative_cycles() {
         for unit in [2.0_f64.powi(-50), 2.0_f64.powi(-500), f64::from_bits(1)] {
             let negative: AttrMap = [("weight".to_owned(), (-unit).into())]
@@ -74433,6 +74529,172 @@ mod tests {
         let result = super::minimum_cycle_basis_core(3, &[(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)]);
 
         assert_eq!(sorted_index_cycles(result.cycles), vec![vec![0, 1, 2]]);
+    }
+
+    #[test]
+    fn minimum_cycle_basis_lifted_distance_preserves_reachable_infinity() {
+        let mut adjacency = vec![Vec::new(); 5];
+        for (edge_idx, (left, right, weight)) in [(0, 1, 1e308), (1, 3, 1e308), (3, 3, 0.0)]
+            .into_iter()
+            .enumerate()
+        {
+            super::minimum_cycle_basis_add_lifted_edge(
+                &mut adjacency,
+                left,
+                right,
+                edge_idx,
+                weight,
+            );
+        }
+        let mut stats = super::MinimumCycleBasisStats::default();
+        assert_eq!(
+            super::minimum_cycle_basis_lifted_shortest_path_length(&adjacency, 0, 3, &mut stats,),
+            Some(f64::INFINITY)
+        );
+        assert_eq!(
+            super::minimum_cycle_basis_lifted_shortest_path_length(&adjacency, 0, 4, &mut stats,),
+            None
+        );
+
+        // Vertex 3 is first queued at infinity through 1, then improved via 2.
+        super::minimum_cycle_basis_add_lifted_edge(&mut adjacency, 0, 2, 3, 1.5e308);
+        super::minimum_cycle_basis_add_lifted_edge(&mut adjacency, 2, 3, 4, 0.0);
+        assert_eq!(
+            super::minimum_cycle_basis_lifted_shortest_path_length(&adjacency, 0, 3, &mut stats,),
+            Some(1.5e308)
+        );
+    }
+
+    #[test]
+    fn minimum_cycle_basis_orthogonal_search_keeps_infinite_candidate() {
+        for (node_count, triples, orthogonal, expected) in [
+            (
+                3,
+                vec![(0, 1, 1e308), (1, 2, 1e308), (0, 2, 1e308)],
+                vec![false, false, true],
+                vec![1, 2, 0],
+            ),
+            (
+                4,
+                vec![(0, 1, 1e308), (1, 2, 1.0), (2, 3, 1.0), (1, 3, 1.0)],
+                vec![false, false, false, true],
+                vec![2, 3, 1],
+            ),
+        ] {
+            let edges = triples
+                .into_iter()
+                .enumerate()
+                .map(
+                    |(input_idx, (left, right, weight))| super::MinimumCycleBasisEdge {
+                        input_idx,
+                        left,
+                        right,
+                        weight,
+                    },
+                )
+                .collect::<Vec<_>>();
+            let mut stats = super::MinimumCycleBasisStats::default();
+            let candidate = super::minimum_cycle_basis_shortest_orthogonal_cycle(
+                node_count,
+                &edges,
+                &orthogonal,
+                &mut stats,
+            )
+            .expect("a reachable orthogonal cycle must be retained");
+            assert_eq!(candidate.nodes, expected);
+        }
+    }
+
+    #[test]
+    fn minimum_cycle_basis_core_retains_cycles_with_overflowed_weight() {
+        for (node_count, edges, expected) in [
+            (
+                3,
+                vec![(0, 1, 1e308), (1, 2, 1e308), (2, 0, 1e308)],
+                vec![vec![0, 1, 2]],
+            ),
+            (
+                4,
+                vec![
+                    (0, 1, 1e308),
+                    (1, 2, 1e308),
+                    (2, 3, 1e308),
+                    (3, 0, 1e308),
+                    (0, 2, 1e308),
+                ],
+                vec![vec![0, 1, 2], vec![0, 2, 3]],
+            ),
+            (
+                7,
+                vec![
+                    (0, 1, 1e308),
+                    (1, 2, 1e308),
+                    (2, 0, 1e308),
+                    (3, 4, 1.0),
+                    (4, 5, 1.0),
+                    (5, 3, 1.0),
+                ],
+                vec![vec![0, 1, 2], vec![3, 4, 5]],
+            ),
+        ] {
+            let result = super::minimum_cycle_basis_core(node_count, &edges);
+            assert_eq!(sorted_index_cycles(result.cycles), expected);
+        }
+    }
+
+    #[test]
+    fn minimum_cycle_basis_component_keeps_overflowed_cycles_independent() {
+        for (node_count, triples, expected) in [
+            (
+                3,
+                vec![(0, 1, 1e308), (1, 2, 1e308), (0, 2, 1e308)],
+                vec![vec![0, 1, 2]],
+            ),
+            (
+                4,
+                vec![
+                    (0, 1, 1e308),
+                    (1, 2, 1e308),
+                    (2, 3, 1e308),
+                    (0, 3, 1e308),
+                    (0, 2, 1e308),
+                ],
+                vec![vec![0, 1, 2], vec![0, 2, 3]],
+            ),
+            (
+                5,
+                vec![
+                    (0, 1, 1.0),
+                    (1, 2, 1.0),
+                    (0, 2, 1.0),
+                    (2, 3, 1e308),
+                    (3, 4, 1e308),
+                    (2, 4, 1e308),
+                ],
+                vec![vec![0, 1, 2], vec![2, 3, 4]],
+            ),
+        ] {
+            let edges = triples
+                .into_iter()
+                .enumerate()
+                .map(
+                    |(input_idx, (left, right, weight))| super::MinimumCycleBasisEdge {
+                        input_idx,
+                        left,
+                        right,
+                        weight,
+                    },
+                )
+                .collect::<Vec<_>>();
+            let mut stats = super::MinimumCycleBasisStats::default();
+            let mut cycles =
+                super::minimum_cycle_basis_component_core(node_count, &edges, None, &mut stats);
+            for cycle in &mut cycles {
+                cycle.sort_unstable();
+            }
+            cycles.sort_unstable();
+            assert_eq!(cycles, expected);
+        }
     }
 
     #[test]

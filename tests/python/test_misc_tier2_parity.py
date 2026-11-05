@@ -251,6 +251,59 @@ def test_minimum_cycle_basis_weighted_cycle_set_matches_networkx():
     )
 
 
+@pytest.mark.parametrize("weight", ["weight", "cost"])
+@pytest.mark.parametrize(
+    "edges",
+    [
+        pytest.param(
+            [(0, 1, 1e308), (1, 2, 1e308), (2, 0, 1e308)],
+            id="overflowed-triangle",
+        ),
+        pytest.param(
+            [
+                (0, 1, 1e308), (1, 2, 1e308), (2, 3, 1e308),
+                (3, 0, 1e308), (0, 2, 1e308),
+            ],
+            id="overflowed-square-with-diagonal",
+        ),
+        pytest.param(
+            [
+                (0, 1, 1e308), (1, 2, 1e308), (2, 0, 1e308),
+                (3, 4, 1.0), (4, 5, 1.0), (5, 3, 1.0),
+            ],
+            id="overflowed-and-finite-components",
+        ),
+        pytest.param(
+            [
+                (0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0),
+                (2, 3, 1e308), (3, 4, 1e308), (4, 2, 1e308),
+            ],
+            id="overflowed-and-finite-cycles-in-one-component",
+        ),
+        pytest.param(
+            [(0, 1, 1e308), (1, 2, 1.0), (2, 3, 1.0), (1, 3, 1.0)],
+            id="finite-cycle-beyond-overflowed-lift-from-bridge",
+        ),
+    ],
+)
+def test_native_minimum_cycle_basis_keeps_overflowed_cycles(edges, weight):
+    graph, expected = fnx.Graph(), nx.Graph()
+    for current in (graph, expected):
+        current.add_weighted_edges_from(edges, weight=weight)
+        current.add_node("isolated")
+
+    expected_basis = nx.minimum_cycle_basis(expected, weight=weight)
+    # The public Python wrapper uses a separate SciPy route. Exercise the
+    # exported native kernel directly so that fallback cannot hide a lost cycle.
+    actual_basis = fnx._fnx.minimum_cycle_basis(graph, weight=weight)
+    assert normalize_cycles(actual_basis) == normalize_cycles(expected_basis)
+    assert len(actual_basis) == (
+        expected.number_of_edges()
+        - expected.number_of_nodes()
+        + nx.number_connected_components(expected)
+    )
+
+
 @pytest.mark.parametrize("case", MINIMUM_CYCLE_BASIS_PORT_CASES)
 def test_minimum_cycle_basis_port_fixture_matrix_matches_networkx(case):
     graph, expected, weight = minimum_cycle_basis_port_case(case)
