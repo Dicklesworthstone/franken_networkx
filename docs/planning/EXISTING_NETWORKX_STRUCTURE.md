@@ -424,6 +424,34 @@ Rust parity contract for the current weighted slice (`fnx-algorithms::shortest_p
 - Unit tests in `crates/fnx-algorithms/src/lib.rs` assert weighted-vs-unweighted divergence and tie-break replay stability.
 - Differential fixture `crates/fnx-conformance/fixtures/generated/shortest_path_weighted_strict.json` asserts strict-mode expected path.
 
+### 22.1 Python Dijkstra overflow reachability
+
+For `Graph`, `DiGraph`, `MultiGraph`, and `MultiDiGraph`, a sum of finite,
+nonnegative edge weights can overflow to positive infinity. NetworkX 3.6.1
+treats this as a reachable distance, distinct from an undiscovered node:
+
+- Discover and expand an infinite-distance node once, retaining its concrete
+  path and propagating reachability to subsequent neighbors. Zero-weight cycles
+  and self-loops must not cause repeated expansion or cyclic returned paths.
+- A finite alternative improves a pending infinite distance and replaces its
+  path. Equal-distance alternatives retain the API's existing tie behavior.
+- A finite cutoff excludes infinite-distance nodes; `cutoff=float("inf")` and
+  an omitted cutoff include them.
+- Source and multisource dictionaries, and each all-pairs row, include reachable
+  infinite distances while omitting disconnected nodes. Target queries return
+  the infinite distance and concrete path; a genuinely disconnected target
+  still raises `NetworkXNoPath`.
+- These rules apply with the default weight attribute, an explicit attribute,
+  and callable weights. Finite floating-point edges remain eligible for native
+  Dijkstra routing even when their accumulated distance overflows.
+- `all_shortest_paths(..., method="dijkstra")` enumerates the reachable simple
+  paths represented by the Dijkstra predecessor relation, including infinite
+  distances, in NetworkX order. Cyclic predecessor relations must terminate.
+
+For example, edges `s-a: 1e308`, `a-b: 1e308`, and `b-t: 1.0` produce distance
+`inf` and path `[s, a, b, t]`. An additional path `s-c: 1.5e308`, `c-t: 0.0`
+instead gives finite distance `1.5e308` and path `[s, c, t]`.
+
 ## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:

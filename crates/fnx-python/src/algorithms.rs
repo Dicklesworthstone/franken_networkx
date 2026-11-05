@@ -1077,6 +1077,10 @@ fn multigraph_dijkstra_path_to_target_lazy(
     let mut seq_counter = 0_u64;
 
     distances[source_idx] = 0.0;
+    // The predecessor slot records discovery: finite edge weights can sum to
+    // +inf, so distance alone cannot distinguish a reachable node from an
+    // unseen one. Mark the source too; reconstruction stops before reading it.
+    predecessors[source_idx] = source_idx;
     all_int_paths[source_idx] = true;
     seq_counter += 1;
     pq.push(PyDijkstraState {
@@ -1136,7 +1140,7 @@ fn multigraph_dijkstra_path_to_target_lazy(
                 continue;
             };
             let next_distance = distance + edge_weight;
-            if next_distance < distances[neighbor_idx] {
+            if predecessors[neighbor_idx] == usize::MAX || next_distance < distances[neighbor_idx] {
                 distances[neighbor_idx] = next_distance;
                 predecessors[neighbor_idx] = node_idx;
                 all_int_paths[neighbor_idx] = all_int_paths[node_idx] && edge_all_int;
@@ -23088,6 +23092,13 @@ enum MultiDiDijkstraSourceLengths {
     Delegate,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum DijkstraVisit {
+    Unseen,
+    Queued,
+    Finalized,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct MultiDiDijkstraRowsCacheKey {
     graph_id: u64,
@@ -23179,6 +23190,12 @@ impl MultiDiDijkstraTargetScratch {
         } else {
             f64::INFINITY
         }
+    }
+
+    // The distance may overflow to +inf after discovery. Its epoch, rather
+    // than its numeric value, distinguishes that case from an unseen node.
+    fn is_seen(&self, node: usize, epoch: u32) -> bool {
+        self.seen_epoch[node] == epoch
     }
 
     /// br-r37-c1-4q95e: the predecessor recorded for `node` DURING `epoch`, or
@@ -23411,7 +23428,7 @@ fn multidigraph_dijkstra_target_path_rows(
                     }
                     continue;
                 }
-                if next_distance < target_distance {
+                if !scratch.is_seen(arc.target, epoch) || next_distance < target_distance {
                     scratch.set_distance(arc.target, next_distance, epoch);
                     scratch.set_predecessor(arc.target, node_idx, epoch);
                     seq_counter += 1;
@@ -23487,7 +23504,7 @@ fn multidigraph_dijkstra_target_length_rows(
                     }
                     continue;
                 }
-                if next_distance < target_distance {
+                if !scratch.is_seen(arc.target, epoch) || next_distance < target_distance {
                     scratch.set_distance(arc.target, next_distance, epoch);
                     scratch.all_int_paths[arc.target] = node_all_int && arc.all_int;
                     seq_counter += 1;
@@ -23558,7 +23575,7 @@ fn multidigraph_single_source_dijkstra_lengths_rows(
                     }
                     continue;
                 }
-                if next_distance < target_distance {
+                if !scratch.is_seen(arc.target, epoch) || next_distance < target_distance {
                     scratch.set_distance(arc.target, next_distance, epoch);
                     scratch.all_int_paths[arc.target] = node_all_int && arc.all_int;
                     scratch.set_predecessor(arc.target, node_idx, epoch);
@@ -23644,7 +23661,10 @@ fn multidigraph_dijkstra_target_path_borrowed(
                 }
                 continue;
             }
-            if next_distance < distances.get(successor).copied().unwrap_or(f64::INFINITY) {
+            if distances
+                .get(successor)
+                .is_none_or(|&known| next_distance < known)
+            {
                 distances.insert(successor, next_distance);
                 predecessors.insert(successor, node);
                 seq_counter += 1;
@@ -23684,12 +23704,13 @@ fn multidigraph_dijkstra_target_length_borrowed(
 
     let mut distances = vec![f64::INFINITY; n];
     let mut all_int_paths = vec![false; n];
-    let mut finalized = vec![false; n];
+    let mut visits = vec![DijkstraVisit::Unseen; n];
     let mut pq: BinaryHeap<PyDijkstraState> = BinaryHeap::new();
     let mut seq_counter = 0_u64;
 
     distances[source_idx] = 0.0;
     all_int_paths[source_idx] = true;
+    visits[source_idx] = DijkstraVisit::Queued;
     seq_counter += 1;
     pq.push(PyDijkstraState {
         dist: 0.0,
@@ -23706,8 +23727,8 @@ fn multidigraph_dijkstra_target_length_borrowed(
         if distance > distances[node_idx] {
             continue;
         }
-        if !finalized[node_idx] {
-            finalized[node_idx] = true;
+        if visits[node_idx] != DijkstraVisit::Finalized {
+            visits[node_idx] = DijkstraVisit::Finalized;
             if node_idx == target_idx {
                 return MultiDiDijkstraTargetLength::Distance {
                     distance,
@@ -23729,9 +23750,13 @@ fn multidigraph_dijkstra_target_length_borrowed(
                 return MultiDiDijkstraTargetLength::Delegate;
             };
             let next_distance = distance + edge_weight;
-            if next_distance < distances[successor_idx] {
+            let unseen = visits[successor_idx] == DijkstraVisit::Unseen;
+            if unseen || next_distance < distances[successor_idx] {
                 distances[successor_idx] = next_distance;
                 all_int_paths[successor_idx] = all_int_paths[node_idx] && edge_int;
+                if unseen {
+                    visits[successor_idx] = DijkstraVisit::Queued;
+                }
                 seq_counter += 1;
                 pq.push(PyDijkstraState {
                     dist: next_distance,
@@ -23821,7 +23846,10 @@ fn multidigraph_single_source_dijkstra_lengths_borrowed(
                 }
                 continue;
             }
-            if next_distance < distances[successor_idx] {
+            if (predecessors[successor_idx] == usize::MAX
+                && distances[successor_idx] == f64::INFINITY)
+                || next_distance < distances[successor_idx]
+            {
                 distances[successor_idx] = next_distance;
                 all_int_paths[successor_idx] = all_int_paths[node_idx] && edge_int;
                 predecessors[successor_idx] = node_idx;
@@ -27516,7 +27544,9 @@ fn all_pairs_dijkstra_packed_py(
                     }
                     continue;
                 }
-                if next_dist < seen[target] {
+                if (predecessors[target].is_none() && seen[target] == f64::INFINITY)
+                    || next_dist < seen[target]
+                {
                     seen[target] = next_dist;
                     predecessors[target] = Some(current);
                     heap.push(PyDijkstraState {
@@ -35473,6 +35503,95 @@ mod tests {
         );
     }
 
+    #[test]
+    fn multidigraph_dijkstra_preserves_overflow_in_cached_and_borrowed_searches() {
+        let mut graph = MultiDiGraph::new(CompatibilityMode::Strict);
+        for (source, target, weight) in [
+            ("s", "a", 1e308),
+            ("a", "b", 1e308),
+            ("a", "b", 1.5e308),
+            ("b", "t", 1.0),
+            ("b", "b", 0.0),
+            ("t", "b", 0.0),
+        ] {
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), fnx_runtime::CgseValue::Float(weight));
+            graph
+                .add_edge_with_attrs(source.to_owned(), target.to_owned(), attrs)
+                .expect("edge should add");
+        }
+        graph.add_node("isolated");
+        let rows = multidigraph_build_dijkstra_rows(&graph, "weight")
+            .expect("all edge weights are finite and nonnegative");
+
+        for result in [
+            multidigraph_dijkstra_target_path_rows(&rows, "s", "t"),
+            multidigraph_dijkstra_target_path_borrowed(&graph, "s", "t", "weight"),
+        ] {
+            let MultiDiDijkstraTargetPath::Path(path) = result else {
+                panic!("overflow does not make a reachable target disappear");
+            };
+            assert_eq!(path, vec!["s", "a", "b", "t"]);
+        }
+        for result in [
+            multidigraph_dijkstra_target_length_rows(&rows, "s", "t"),
+            multidigraph_dijkstra_target_length_borrowed(&graph, "s", "t", "weight"),
+        ] {
+            let MultiDiDijkstraTargetLength::Distance { distance, all_int } = result else {
+                panic!("overflow distance should be returned");
+            };
+            assert_eq!(distance, f64::INFINITY);
+            assert!(!all_int);
+        }
+
+        let names = graph.nodes_ordered();
+        let render = |result| {
+            let MultiDiDijkstraSourceLengths::Entries(entries) = result else {
+                panic!("finite nonnegative weights should not delegate");
+            };
+            entries
+                .into_iter()
+                .map(|(node, distance, all_int, predecessor)| {
+                    (
+                        names[node],
+                        distance,
+                        all_int,
+                        predecessor.map(|parent| names[parent]),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = [
+            ("s", 0.0, true, None),
+            ("a", 1e308, false, Some("s")),
+            ("b", f64::INFINITY, false, Some("a")),
+            ("t", f64::INFINITY, false, Some("b")),
+        ];
+        for (cutoff, count) in [(None, 4), (Some(f64::INFINITY), 4), (Some(1e308), 2)] {
+            for result in [
+                multidigraph_single_source_dijkstra_lengths_rows(&rows, "s", cutoff),
+                multidigraph_single_source_dijkstra_lengths_borrowed(&graph, "s", "weight", cutoff),
+            ] {
+                assert_eq!(render(result).as_slice(), &expected[..count]);
+            }
+        }
+
+        // Reusing scratch for a new source must not retain its old infinite
+        // distance or predecessor from the previous query.
+        assert_eq!(
+            render(multidigraph_single_source_dijkstra_lengths_rows(
+                &rows, "b", None,
+            )),
+            vec![("b", 0.0, true, None), ("t", 1.0, false, Some("b"))]
+        );
+        for result in [
+            multidigraph_dijkstra_target_length_rows(&rows, "s", "isolated"),
+            multidigraph_dijkstra_target_length_borrowed(&graph, "s", "isolated", "weight"),
+        ] {
+            assert!(matches!(result, MultiDiDijkstraTargetLength::NoPath));
+        }
+    }
+
     fn add_multigraph_weighted_edge(
         graph: &mut MultiGraph,
         source: &str,
@@ -35484,6 +35603,56 @@ mod tests {
         graph
             .add_edge_with_attrs(source.to_owned(), target.to_owned(), attrs)
             .expect("edge should add");
+    }
+
+    #[test]
+    fn multigraph_target_dijkstra_preserves_overflow_reachability_and_first_tie() {
+        let mut graph = MultiGraph::strict();
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 1e308_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "a", "b", 1e308_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "a", "c", 1e308_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "b", "t", 1.0_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "c", "t", 0.0_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "b", "c", 0.0_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "b", "b", 0.0_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "s", 0.0_f64.into());
+        graph.add_node("isolated");
+
+        let (length, path, all_int) =
+            multigraph_dijkstra_path_to_target_lazy(&graph, "s", "t", "weight")
+                .expect("overflow does not make a reachable target disappear");
+        assert_eq!(length, f64::INFINITY);
+        assert_eq!(path, vec!["s", "a", "b", "t"]);
+        assert!(!all_int);
+
+        // Exhaust the component, including its infinite-distance zero cycles.
+        assert!(
+            multigraph_dijkstra_path_to_target_lazy(&graph, "s", "isolated", "weight").is_none()
+        );
+        assert!(
+            multigraph_dijkstra_path_to_target_lazy(&graph, "s", "missing", "weight").is_none()
+        );
+        assert_eq!(
+            multigraph_dijkstra_path_to_target_lazy(&graph, "s", "s", "weight"),
+            Some((0.0, vec!["s".to_owned()], true))
+        );
+    }
+
+    #[test]
+    fn multigraph_target_dijkstra_improves_an_infinite_tentative_distance() {
+        let mut graph = MultiGraph::strict();
+        add_multigraph_weighted_edge(&mut graph, "s", "a", 1e308_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "a", "t", 1e308_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "s", "b", 1.5e308_f64.into());
+        add_multigraph_weighted_edge(&mut graph, "b", "t", 0.0_f64.into());
+
+        // The a row discovers t at +inf before b offers its finite path.
+        let (length, path, all_int) =
+            multigraph_dijkstra_path_to_target_lazy(&graph, "s", "t", "weight")
+                .expect("finite alternative should reach the target");
+        assert_eq!(length, 1.5e308);
+        assert_eq!(path, vec!["s", "b", "t"]);
+        assert!(!all_int);
     }
 
     #[test]
