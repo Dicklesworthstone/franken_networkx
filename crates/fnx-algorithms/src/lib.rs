@@ -250,6 +250,15 @@ struct DijkstraState<T: Copy + PartialEq + Ord> {
     node: T,
 }
 
+/// A finite-weight path can overflow to +inf. Keep discovery separate from
+/// distance in kernels that have no predecessor slot to record it.
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum DijkstraVisit {
+    Unseen,
+    Discovered,
+    Settled,
+}
+
 impl<T: Copy + PartialEq + Ord> Eq for DijkstraState<T> {}
 
 impl<T: Copy + PartialEq + Ord> PartialOrd for DijkstraState<T> {
@@ -1538,6 +1547,7 @@ pub fn shortest_path_weighted(
     let mut seq_counter: u64 = 0;
 
     distances[source_idx] = 0.0;
+    predecessors[source_idx] = source_idx;
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
@@ -1573,9 +1583,10 @@ pub fn shortest_path_weighted(
                     .unwrap_or(1.0);
                 let next_dist = d + weight;
                 let current_dist = distances[v];
+                let unseen = predecessors[v] == usize::MAX;
 
-                if next_dist < current_dist {
-                    if current_dist == f64::INFINITY {
+                if unseen || next_dist < current_dist {
+                    if unseen {
                         nodes_touched += 1;
                     }
                     distances[v] = next_dist;
@@ -1594,7 +1605,7 @@ pub fn shortest_path_weighted(
         }
     }
 
-    let path = if distances[target_idx] != f64::INFINITY {
+    let path = if predecessors[target_idx] != usize::MAX {
         let mut path_indices = vec![target_idx];
         let mut cursor = target_idx;
         while cursor != source_idx {
@@ -1820,7 +1831,7 @@ pub fn shortest_path_weighted_directed(
                 let next_dist = d + weight;
                 let current_dist = *distances.get(v).unwrap_or(&f64::INFINITY);
 
-                if next_dist < current_dist {
+                if !distances.contains_key(v) || next_dist < current_dist {
                     if distances.insert(v, next_dist).is_none() {
                         nodes_touched += 1;
                     }
@@ -1921,7 +1932,7 @@ pub fn multi_source_dijkstra_nearest_source(
                     .filter(|value| value.is_finite() && *value >= 0.0)
                     .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
-                if next_dist < distances[v_idx] {
+                if source_of[v_idx] == usize::MAX || next_dist < distances[v_idx] {
                     distances[v_idx] = next_dist;
                     source_of[v_idx] = source_of[u_idx];
                     seq_counter += 1;
@@ -2021,8 +2032,9 @@ pub fn multi_source_dijkstra(
                     .filter(|value| value.is_finite() && *value >= 0.0)
                     .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
+                let unseen = distances[v_idx] == f64::INFINITY && predecessors[v_idx].is_none();
 
-                if next_dist < distances[v_idx] {
+                if unseen || next_dist < distances[v_idx] {
                     // Record decision: choosing this predecessor over previous (if any)
                     if let Some(old_pred_idx) = predecessors[v_idx] {
                         cgse_record_decision(&mut cgse_sink, u_name, ordered_nodes[old_pred_idx]);
@@ -2030,7 +2042,7 @@ pub fn multi_source_dijkstra(
                         // First path to this node - record choosing this over "none"
                         cgse_record_decision(&mut cgse_sink, u_name, v_name);
                     }
-                    if distances[v_idx].is_infinite() {
+                    if unseen {
                         nodes_touched += 1;
                     }
                     distances[v_idx] = next_dist;
@@ -2057,7 +2069,7 @@ pub fn multi_source_dijkstra(
     let mut dist_map = HashMap::new();
     let mut pred_map = HashMap::new();
     for i in 0..n {
-        if !distances[i].is_infinite() {
+        if finalized[i] {
             dist_map.insert(ordered_nodes[i].to_owned(), distances[i]);
             pred_map.insert(
                 ordered_nodes[i].to_owned(),
@@ -2156,9 +2168,10 @@ pub fn multi_source_dijkstra_directed(
                     .filter(|value| value.is_finite() && *value >= 0.0)
                     .unwrap_or(1.0);
                 let next_dist = d + edge_weight;
+                let unseen = distances[v_idx] == f64::INFINITY && predecessors[v_idx].is_none();
 
-                if next_dist < distances[v_idx] {
-                    if distances[v_idx].is_infinite() {
+                if unseen || next_dist < distances[v_idx] {
+                    if unseen {
                         nodes_touched += 1;
                     }
                     distances[v_idx] = next_dist;
@@ -2178,7 +2191,7 @@ pub fn multi_source_dijkstra_directed(
     let mut dist_map = HashMap::new();
     let mut pred_map = HashMap::new();
     for i in 0..n {
-        if !distances[i].is_infinite() {
+        if finalized[i] {
             dist_map.insert(ordered_nodes[i].to_owned(), distances[i]);
             pred_map.insert(
                 ordered_nodes[i].to_owned(),
@@ -36705,9 +36718,10 @@ pub fn single_source_dijkstra_directed(
     let mut seq_counter: u64 = 0;
     // Finalize (heap-pop) order, matching nx key order. (br-r37-c1-k9q6q)
     let mut finalize_order: Vec<u32> = Vec::new();
-    let mut finalized = vec![false; n];
+    let mut visits = vec![DijkstraVisit::Unseen; n];
 
     distances[source_idx] = 0.0;
+    visits[source_idx] = DijkstraVisit::Discovered;
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
@@ -36722,8 +36736,8 @@ pub fn single_source_dijkstra_directed(
         if d > distances[u as usize] {
             continue;
         }
-        if !finalized[u as usize] {
-            finalized[u as usize] = true;
+        if visits[u as usize] != DijkstraVisit::Settled {
+            visits[u as usize] = DijkstraVisit::Settled;
             finalize_order.push(u);
         }
 
@@ -36731,7 +36745,11 @@ pub fn single_source_dijkstra_directed(
         for (offset, &v) in csr.successors(u as usize).iter().enumerate() {
             let weight = weights[row_start + offset];
             let next_dist = d + weight;
-            if next_dist < distances[v as usize] {
+            let unseen = visits[v as usize] == DijkstraVisit::Unseen;
+            if unseen || next_dist < distances[v as usize] {
+                if unseen {
+                    visits[v as usize] = DijkstraVisit::Discovered;
+                }
                 distances[v as usize] = next_dist;
                 seq_counter += 1;
                 pq.push(DijkstraState {
@@ -36812,7 +36830,9 @@ pub fn single_source_dijkstra_full_directed(
         for (offset, &v) in csr.successors(u as usize).iter().enumerate() {
             let weight = weights[row_start + offset];
             let next_dist = d + weight;
-            if next_dist < distances[v as usize] {
+            let unseen =
+                distances[v as usize] == f64::INFINITY && predecessors[v as usize] == u32::MAX;
+            if unseen || next_dist < distances[v as usize] {
                 distances[v as usize] = next_dist;
                 predecessors[v as usize] = u;
                 seq_counter += 1;
@@ -37113,7 +37133,9 @@ pub fn dijkstra_path_to_target(
             for &v in neighbors {
                 let (w, _) = graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
                 let next_dist = d + w;
-                if next_dist < distances.get(v) {
+                let known = distances.get(v);
+                if next_dist < known || (known == f64::INFINITY && predecessors.get(v) == u32::MAX)
+                {
                     distances.set(v, next_dist);
                     predecessors.set(v, u32::try_from(u).unwrap_or(u32::MAX));
                     seq_counter += 1;
@@ -37268,7 +37290,8 @@ pub fn dijkstra_path_to_target_directed(
         for &v in digraph.successors_indices(u).unwrap_or(&[]) {
             let (w, _) = digraph_edge_weight_or_default_idx_typed(digraph, u, v, weight_attr);
             let next_dist = d + w;
-            if next_dist < distances.get(v) {
+            let known = distances.get(v);
+            if next_dist < known || (known == f64::INFINITY && predecessors.get(v) == u32::MAX) {
                 distances.set(v, next_dist);
                 predecessors.set(v, u32::try_from(u).unwrap_or(u32::MAX));
                 seq_counter += 1;
@@ -37625,7 +37648,10 @@ where
             if next_dist > cutoff {
                 continue;
             }
-            if next_dist < distances.get(v) {
+            let known = distances.get(v);
+            // Sources retain the no-predecessor sentinel but have distance 0.
+            // Every other reached node has a predecessor, even at +inf.
+            if next_dist < known || (known == f64::INFINITY && predecessors.get(v) == u32::MAX) {
                 distances.set(v, next_dist);
                 predecessors.set(v, u);
                 all_int_paths.set(v, u_all_int && is_int);
@@ -37816,7 +37842,8 @@ fn single_source_dijkstra_typed_csr_indexed(
             {
                 continue;
             }
-            if next_dist < distances[v_usize] {
+            let unseen = distances[v_usize] == f64::INFINITY && predecessors[v_usize] == u32::MAX;
+            if unseen || next_dist < distances[v_usize] {
                 distances[v_usize] = next_dist;
                 predecessors[v_usize] = u;
                 all_int_paths[v_usize] = all_int_paths[u_usize] && weight_is_int[edge_offset];
@@ -37860,13 +37887,14 @@ where
 {
     let mut distances = NodeTable::new(node_count, f64::INFINITY);
     let mut all_int_paths = NodeTable::new(node_count, false);
-    let mut finalized = NodeTable::new(node_count, false);
+    let mut visits = NodeTable::new(node_count, DijkstraVisit::Unseen);
     let mut pq = BinaryHeap::new();
     let mut seq_counter: u64 = 0;
     let mut row: Vec<(usize, f64, bool)> = Vec::new();
 
     distances.set(source_idx, 0.0);
     all_int_paths.set(source_idx, true);
+    visits.set(source_idx, DijkstraVisit::Discovered);
     seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
@@ -37879,10 +37907,10 @@ where
     }) = pq.pop()
     {
         let u_usize = u as usize;
-        if finalized.get(u_usize) || d > distances.get(u_usize) {
+        if visits.get(u_usize) == DijkstraVisit::Settled || d > distances.get(u_usize) {
             continue;
         }
-        finalized.set(u_usize, true);
+        visits.set(u_usize, DijkstraVisit::Settled);
         let u_all_int = all_int_paths.get(u_usize);
         if u_usize == target_idx {
             return Some((d, u_all_int));
@@ -37894,7 +37922,11 @@ where
         expand(u_usize, &mut row);
         for &(v, weight, is_int) in &row {
             let next_dist = d + weight;
-            if next_dist < distances.get(v) {
+            let unseen = visits.get(v) == DijkstraVisit::Unseen;
+            if unseen || next_dist < distances.get(v) {
+                if unseen {
+                    visits.set(v, DijkstraVisit::Discovered);
+                }
                 distances.set(v, next_dist);
                 all_int_paths.set(v, u_all_int && is_int);
                 seq_counter += 1;
@@ -38630,7 +38662,8 @@ fn single_source_dijkstra_paths_csr(
             let v = targets[edge_offset];
             let v_usize = v as usize;
             let next_dist = d + weights[edge_offset];
-            if next_dist < distances[v_usize] {
+            let unseen = distances[v_usize] == f64::INFINITY && predecessors[v_usize] == u32::MAX;
+            if unseen || next_dist < distances[v_usize] {
                 distances[v_usize] = next_dist;
                 predecessors[v_usize] = u;
                 seq_counter += 1;
@@ -68784,6 +68817,234 @@ mod tests {
             assert_eq!(distances["s"]["t"], 2.0 * unit);
             assert_eq!(predecessors["s"]["t"], vec!["a".to_owned()]);
         }
+    }
+
+    #[test]
+    fn dijkstra_preserves_reachability_when_finite_weights_overflow() {
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for (left, right, weight) in [
+            ("s", "a", 1.0e308),
+            ("a", "b", 1.0e308),
+            ("b", "t", 0.0),
+            ("t", "b", 0.0),
+            ("t", "t", 0.0),
+        ] {
+            let edge_attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph
+                .add_edge_with_attrs(left, right, edge_attrs.clone())
+                .unwrap();
+            digraph
+                .add_edge_with_attrs(left, right, edge_attrs)
+                .unwrap();
+        }
+        graph.add_node("isolated");
+        digraph.add_node("isolated");
+        let path: Vec<String> = ["s", "a", "b", "t"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let distances: Vec<(String, f64)> = [
+            ("s", 0.0),
+            ("a", 1.0e308),
+            ("b", f64::INFINITY),
+            ("t", f64::INFINITY),
+        ]
+        .into_iter()
+        .map(|(node, distance)| (node.to_owned(), distance))
+        .collect();
+
+        for result in [
+            shortest_path_weighted(&graph, "s", "t", "weight"),
+            super::shortest_path_weighted_directed(&digraph, "s", "t", "weight"),
+        ] {
+            assert_eq!(result.path, Some(path.clone()));
+            assert_eq!(result.witness.nodes_touched, 4);
+        }
+        for result in [
+            super::dijkstra_path_to_target(&graph, "s", "t", "weight"),
+            super::dijkstra_path_to_target_directed(&digraph, "s", "t", "weight"),
+        ] {
+            assert_eq!(result, Some((f64::INFINITY, path.clone(), false)));
+        }
+        assert_eq!(
+            super::dijkstra_path_length_typed(&graph, "s", "t", "weight"),
+            Some((f64::INFINITY, false))
+        );
+        assert_eq!(
+            super::dijkstra_path_length_typed_directed(&digraph, "s", "t", "weight"),
+            Some((f64::INFINITY, false))
+        );
+        assert_eq!(
+            super::dijkstra_path_length(&graph, "s", "isolated", "weight"),
+            None
+        );
+        assert_eq!(
+            super::dijkstra_path_length_directed(&digraph, "s", "isolated", "weight"),
+            None
+        );
+        for result in [
+            multi_source_dijkstra(&graph, &["s", "s"], "weight"),
+            super::multi_source_dijkstra_directed(&digraph, &["s", "s"], "weight"),
+        ] {
+            assert_eq!(
+                result
+                    .distances
+                    .iter()
+                    .map(|entry| (entry.node.clone(), entry.distance))
+                    .collect::<Vec<_>>(),
+                distances
+            );
+            assert_eq!(result.witness.nodes_touched, 4);
+            assert_eq!(result.predecessors[0].predecessor, None);
+        }
+        assert_eq!(
+            super::single_source_dijkstra_directed(&digraph, "s", "weight"),
+            distances
+        );
+        for (actual_distances, paths) in [
+            super::single_source_dijkstra_full(&graph, "s", "weight"),
+            super::single_source_dijkstra_full_directed(&digraph, "s", "weight"),
+        ] {
+            assert_eq!(actual_distances, distances);
+            assert_eq!(paths.last(), Some(&("t".to_owned(), path.clone())));
+        }
+        assert_eq!(
+            super::multi_source_dijkstra_nearest_source(&graph, &["s"], "weight"),
+            distances
+                .iter()
+                .map(|(node, _)| (node.clone(), "s".to_owned()))
+                .collect::<Vec<_>>()
+        );
+        let csr_paths = super::single_source_dijkstra_paths_csr(
+            0,
+            &["s", "a", "b", "t", "isolated"],
+            &[0, 1, 2, 3, 5, 5],
+            &[1, 2, 3, 2, 3],
+            &[1.0e308, 1.0e308, 0.0, 0.0, 0.0],
+        );
+        assert_eq!(csr_paths.len(), 4);
+        assert_eq!(csr_paths.last(), Some(&("t".to_owned(), path.clone())));
+
+        for rows in [
+            super::all_pairs_dijkstra_path_length_indexed_with_pred(&graph, "weight"),
+            super::all_pairs_dijkstra_path_length_indexed_with_pred_directed(&digraph, "weight"),
+        ] {
+            assert_eq!(
+                rows[0],
+                vec![
+                    (0, 0.0, true, u32::MAX),
+                    (1, 1.0e308, false, 0),
+                    (2, f64::INFINITY, false, 1),
+                    (3, f64::INFINITY, false, 2)
+                ]
+            );
+            assert_eq!(rows[4], vec![(4, 0.0, true, u32::MAX)]);
+        }
+        for cutoff in [None, Some(f64::INFINITY), Some(1.0e308)] {
+            let expected_len = if cutoff == Some(1.0e308) { 2 } else { 4 };
+            for result in [
+                super::single_source_dijkstra_indexed_full(&graph, "s", "weight", cutoff),
+                super::single_source_dijkstra_indexed_full_directed(
+                    &digraph, "s", "weight", cutoff,
+                ),
+            ] {
+                let rows = result.unwrap().settled;
+                assert_eq!(rows.len(), expected_len);
+                assert_eq!(rows[0], (0, 0.0, true, u32::MAX));
+                if expected_len == 4 {
+                    assert_eq!(rows[3], (3, f64::INFINITY, false, 2));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dijkstra_overflow_discovery_survives_sparse_to_dense_promotion() {
+        let node_count = 70;
+        let expand = |u: usize, row: &mut Vec<(usize, f64, bool)>| {
+            row.clear();
+            if u < 68 {
+                row.push((u + 1, if u < 2 { 1.0e308 } else { 0.0 }, false));
+            }
+            if u >= 2 {
+                row.push((u, 0.0, true));
+            }
+        };
+        let rows = super::dijkstra_typed_lazy(&[0, 0], None, node_count, f64::INFINITY, expand);
+        assert_eq!(rows.len(), 69);
+        assert_eq!(rows[0], (0, 0.0, true, u32::MAX));
+        for (position, &(node, distance, all_int, predecessor)) in rows.iter().enumerate().skip(2) {
+            assert_eq!(node as usize, position);
+            assert_eq!(distance, f64::INFINITY);
+            assert!(!all_int);
+            assert_eq!(predecessor as usize, position - 1);
+        }
+        assert_eq!(
+            super::dijkstra_target_distance_typed_lazy(0, 68, node_count, expand),
+            Some((f64::INFINITY, false))
+        );
+        assert_eq!(
+            super::dijkstra_target_distance_typed_lazy(0, 69, node_count, expand),
+            None
+        );
+    }
+
+    #[test]
+    fn dijkstra_replaces_tentative_infinity_with_a_finite_path() {
+        let expand = |u: usize, row: &mut Vec<(usize, f64, bool)>| {
+            row.clear();
+            match u {
+                0 => row.extend([(1, 1.0e308, false), (2, 1.1e308, false)]),
+                1 => row.push((3, 1.0e308, false)),
+                2 => row.push((3, 0.0, false)),
+                _ => {}
+            }
+        };
+        let rows = super::dijkstra_typed_lazy(&[0], None, 4, f64::INFINITY, expand);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[3], (3, 1.1e308, false, 2));
+        assert_eq!(
+            super::dijkstra_target_distance_typed_lazy(0, 3, 4, expand),
+            Some((1.1e308, false))
+        );
+        let csr = super::single_source_dijkstra_typed_csr_indexed(
+            0,
+            4,
+            &[0, 2, 3, 4, 4],
+            &[1, 2, 3, 3],
+            &[1.0e308, 1.1e308, 1.0e308, 0.0],
+            &[false; 4],
+            None,
+        );
+        assert_eq!(csr, rows);
+        let paths = super::single_source_dijkstra_paths_csr(
+            0,
+            &["s", "a", "b", "t"],
+            &[0, 2, 3, 4, 4],
+            &[1, 2, 3, 3],
+            &[1.0e308, 1.1e308, 1.0e308, 0.0],
+        );
+        assert_eq!(paths.last().unwrap().1, vec!["s", "b", "t"]);
+    }
+
+    #[test]
+    fn dijkstra_keeps_speculative_negative_cycle_expansion_bounded() {
+        let (rows, expanded) = super::recording_expanded_rows(8, || {
+            super::dijkstra_typed_lazy(&[0], None, 2, f64::INFINITY, |u, row| {
+                row.clear();
+                row.push((1 - u, -1.0, false));
+            })
+        });
+        assert!(
+            expanded.is_none(),
+            "the speculative result must be rejected after the row limit"
+        );
+        assert_eq!(
+            rows.len(),
+            2,
+            "settled order must not duplicate re-expanded nodes"
+        );
     }
 
     #[test]
