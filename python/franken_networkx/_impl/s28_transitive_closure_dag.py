@@ -674,6 +674,20 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     default_nodelist = nodelist is None
     if default_nodelist:
         nodelist = list(G.nodes())
+    if r is None:
+        # The regularizer describes the whole graph, even when nodelist
+        # selects only a subset of its matrix rows and columns. Use
+        # unweighted degrees; adjacency entries below retain edge weights.
+        unweighted_degs = [degree for _, degree in G.degree()]
+        # Compute this before validating nodelist or building the adjacency.
+        # NetworkX raises ZeroDivisionError first for an edgeless graph.
+        r = sum(degree * degree for degree in unweighted_degs) / sum(unweighted_degs) - 1
+
+    if not default_nodelist and len(G):
+        # NetworkX requires a sized nodelist; the shared FNX sparse converter
+        # also accepts iterators. Reject an unsized selection before consuming
+        # it, but preserve the graph-empty error for an empty graph.
+        len(nodelist)
     # br-r37-c1-betheadj: pin dtype=float and, for the default node order, pass
     # nodelist=None so to_scipy_sparse_array takes its NATIVE weighted COO fast
     # path (the str-weight + dtype=None default falls back to per-edge G[u][v]
@@ -691,17 +705,6 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     # Use sparse *arrays* throughout (not legacy matrices) so the final
     # product preserves nx's csr_array return type.
     D = scipy.sparse.diags_array(d, dtype=float)
-    if r is None:
-        # br-r37-c1-smetricdegcache: dict(G.degree()) once instead of
-        # per-node G.degree(v) PyO3 calls.
-        deg_dict = dict(G.degree())
-        unweighted_degs = [deg_dict[v] for v in nodelist]
-        deg_sum = sum(unweighted_degs)
-        # nx computes r = sum(d^2)/sum(d) - 1 with NO zero guard, so an
-        # all-zero-degree graph (e.g. a single isolated node) raises
-        # ZeroDivisionError. Match that contract exactly — do not fall back
-        # to r=1.0, which silently returned a Laplacian where nx raises.
-        r = sum(x * x for x in unweighted_degs) / deg_sum - 1
     I = scipy.sparse.eye_array(n)
     return ((r**2 - 1) * I - r * A + D).tocsr()
 

@@ -489,3 +489,26 @@ Regression cases are in
 `tests/python/test_flow_algorithms_conformance.py`:
 `test_custom_flow_solver_receives_live_caller_graph` and
 `test_custom_flow_solver_owns_input_validation`.
+
+
+## 24. Bethe Hessian Matrix Selection Contract
+
+For an undirected simple graph, `bethe_hessian_matrix(G, r, nodelist)`
+returns `(r**2 - 1) * I - r * A + D` in CSR array form. The selected
+nodes determine the order and extent of the weighted adjacency matrix
+`A`; `D` contains its row sums.
+
+When `r` is omitted, compute `sum(d*d) / sum(d) - 1` from the
+unweighted degrees of **all nodes in G**, before sparse conversion.
+Selecting a subset, reordering it, or selecting isolates does not change
+that regularizer. An edgeless graph therefore raises `ZeroDivisionError`
+for the default regularizer before nodelist validation. An explicit
+regularizer retains the sparse converter's normal validation order.
+
+A supplied nodelist must be sized, matching NetworkX 3.6.1; rejecting an
+unsized iterator must not consume it. The empty-graph error takes precedence
+over this size check when an explicit regularizer is supplied.
+
+Regression cases in `tests/python/test_linalg_namespace_native_routing.py`
+cover subsets, selected isolates, weighted adjacency, explicit regularizers,
+validation order, and unsized iterators through both public namespaces.

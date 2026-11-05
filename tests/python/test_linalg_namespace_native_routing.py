@@ -142,3 +142,114 @@ def test_attr_matrices_match_networkx(name, graph, kwargs):
         return type(matrix).__name__, str(dense.dtype), np.nan_to_num(dense, nan=-1.0).tolist(), ordering
 
     assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("namespace", ["top_level", "linalg"])
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("r", [None, 1.25])
+@pytest.mark.parametrize(
+    "nodelist",
+    [None, [1, 2], [0, 1, 2], [2, 0, 1], [5], [5, 1]],
+    ids=["all", "leaves", "subset", "reordered", "isolate", "isolate_and_leaf"],
+)
+def test_bethe_hessian_subset_uses_whole_graph_regularizer(
+    namespace, weighted, r, nodelist
+):
+    import numpy as np
+
+    results = []
+    for lib in (fnx, nx):
+        graph = lib.Graph()
+        graph.add_nodes_from(range(6))
+        if weighted:
+            graph.add_weighted_edges_from(
+                [(0, 1, 0.5), (0, 2, 2.0), (0, 3, 3.5), (0, 4, 4.0)]
+            )
+        else:
+            graph.add_edges_from((0, leaf) for leaf in range(1, 5))
+        api = lib if namespace == "top_level" else lib.linalg
+        results.append(api.bethe_hessian_matrix(graph, r=r, nodelist=nodelist))
+
+    actual, expected = results
+    assert type(actual) is type(expected)
+    assert actual.format == expected.format == "csr"
+    np.testing.assert_array_equal(actual.toarray(), expected.toarray())
+
+    if r is None and nodelist == [1, 2]:
+        # The full graph has degrees [4, 1, 1, 1, 1, 0], so r=1.5.
+        # The selected leaves have no induced edges: H=(r*r-1)*I.
+        np.testing.assert_array_equal(actual.toarray(), 1.25 * np.eye(2))
+
+
+@pytest.mark.parametrize("namespace", ["top_level", "linalg"])
+@pytest.mark.parametrize(
+    ("nodes", "edges", "nodelist", "r"),
+    [
+        ([], [], None, None),
+        ([0], [], None, None),
+        ([0], [], [], None),
+        ([0], [], [99], None),
+        ([], [], [], 1.25),
+        ([0], [], [], 1.25),
+        ([0, 1], [(0, 1)], [], None),
+        ([0, 1], [(0, 1)], [99], None),
+        ([0, 1], [(0, 1)], [0, 0], None),
+    ],
+    ids=[
+        "empty_default",
+        "edgeless_default",
+        "edgeless_before_empty_nodelist",
+        "edgeless_before_missing_node",
+        "empty_explicit",
+        "edgeless_explicit",
+        "empty_nodelist",
+        "missing_node",
+        "duplicate_node",
+    ],
+)
+def test_bethe_hessian_validation_order_matches_networkx(
+    namespace, nodes, edges, nodelist, r
+):
+    outcomes = []
+    for lib in (fnx, nx):
+        graph = lib.Graph()
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+        api = lib if namespace == "top_level" else lib.linalg
+        try:
+            api.bethe_hessian_matrix(graph, r=r, nodelist=nodelist)
+        except Exception as exc:
+            outcomes.append((type(exc).__name__, str(exc)))
+        else:
+            pytest.fail("invalid Bethe Hessian input must raise")
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("namespace", ["top_level", "linalg"])
+@pytest.mark.parametrize(
+    ("kind", "r"),
+    [
+        ("connected", None),
+        ("connected", 1.25),
+        ("edgeless", None),
+        ("empty", 1.25),
+    ],
+)
+def test_bethe_hessian_unsized_nodelist_is_not_consumed(namespace, kind, r):
+    outcomes = []
+    for lib in (fnx, nx):
+        graph = lib.Graph()
+        if kind != "empty":
+            graph.add_nodes_from([0, 1])
+        if kind == "connected":
+            graph.add_edge(0, 1)
+        nodelist = iter([0, 1])
+        api = lib if namespace == "top_level" else lib.linalg
+        try:
+            api.bethe_hessian_matrix(graph, r=r, nodelist=nodelist)
+        except Exception as exc:
+            outcomes.append((type(exc).__name__, str(exc)))
+        else:
+            pytest.fail("an unsized nodelist must not produce a matrix")
+        assert list(nodelist) == [0, 1]
+    assert outcomes[0] == outcomes[1]
