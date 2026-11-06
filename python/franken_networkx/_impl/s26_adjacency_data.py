@@ -490,7 +490,9 @@ def _single_source_dijkstra_path_basic_local(G, source, weight, cutoff=None):
                 _heappush(queue, (total_distance, next(counter), node, neighbor))
                 sigma[neighbor] = 0.0
                 predecessors[neighbor] = [node]
-            elif neighbor not in distances and total_distance == seen[neighbor]:
+            # Brandes keeps equal-distance predecessors after settlement too.
+            # Finite weights can overflow to infinity and create such ties.
+            elif total_distance == seen[neighbor]:
                 sigma[neighbor] += sigma[node]
                 predecessors[neighbor].append(node)
     return stack, predecessors, sigma, distances

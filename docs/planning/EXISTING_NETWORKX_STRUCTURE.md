@@ -452,6 +452,29 @@ For example, edges `s-a: 1e308`, `a-b: 1e308`, and `b-t: 1.0` produce distance
 `inf` and path `[s, a, b, t]`. An additional path `s-c: 1.5e308`, `c-t: 0.0`
 instead gives finite distance `1.5e308` and path `[s, c, t]`.
 
+### 22.2 Weighted centrality consumers
+
+Weighted node and edge betweenness, their subset variants, Newman load, and
+percolation centrality must retain vertices first reached at positive infinity.
+Finite edge validation does not establish that accumulated distances are finite.
+First discovery enqueues a vertex; a later finite improvement replaces its
+predecessors. Equal-distance relaxations preserve the existing predecessor and
+path-count rules, including equality with an already finalized infinite distance.
+Source order, heap tie order, dependency accumulation order, normalization, and
+endpoint handling remain observable parts of the NetworkX 3.6.1 contract.
+An isolated vertex contributes zero and must not enter another source's traversal.
+Newman load distributes the current accumulated load in predecessor order; a
+self-predecessor update must be visible to subsequent predecessors of that node.
+
+### 22.3 Metric-closure weight domain
+
+The Python metric-closure fast path must use the same exact-weight eligibility
+gate as public Dijkstra before entering packed native all-pairs traversal.
+Weights outside that domain retain Python numeric values and Dijkstra's error
+behavior; they must not become default-unit edges or rounded floating-point
+distances. Finite floating-point edges remain eligible when only their sum
+overflows, and the resulting closure edge retains its infinite distance and path.
+
 ## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:

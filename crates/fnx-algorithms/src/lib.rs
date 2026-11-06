@@ -6756,9 +6756,8 @@ fn betweenness_centrality_brandes_arm<G: GraphView>(
 /// `(dist, counter)` pops first from `BinaryHeap` (a max-heap), reproducing
 /// networkx's `heapq` over `(dist, c, pred, v)` tuples where `c` is a strictly
 /// increasing push counter (FIFO tie-break among equal distances). Distances are
-/// finite (the weighted Brandes path is only taken for finite, non-negative
-/// numeric weights — the Python wrapper delegates everything else to nx), so
-/// `partial_cmp` is total here.
+/// non-negative and may be positive infinity when finite edge weights overflow
+/// during accumulation. Neither case is NaN, so `partial_cmp` is total here.
 #[derive(Clone, Copy)]
 struct WeightedBrandesHeapEntry {
     dist: f64,
@@ -6804,10 +6803,10 @@ fn weighted_brandes_source_delta(
     use std::collections::BinaryHeap;
 
     let mut sigma = vec![0.0f64; n];
-    // seen[w] == +inf encodes "w not yet seen"; collapses nx's
-    // `(w not in seen or vw_dist < seen[w])` into `vw_dist < seen[w]` because a
-    // finite vw_dist is always < inf. Real distances are finite (inf weights are
-    // delegated), so the sentinel never collides with a genuine distance.
+    // A distance can overflow even when every edge weight is finite. For an
+    // unfinalized node, an empty predecessor list distinguishes an unseen
+    // +inf sentinel from a discovered +inf distance. The source is finalized
+    // before any edge is relaxed, so its initially empty list is harmless.
     let mut seen = vec![f64::INFINITY; n];
     let mut finalized = vec![false; n];
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -6837,7 +6836,8 @@ fn weighted_brandes_source_delta(
         let sigma_v = sigma[v];
         for &(w, wt) in &adjacency[v] {
             let vw_dist = dist_v + wt;
-            if !finalized[w] && vw_dist < seen[w] {
+            let unseen = seen[w] == f64::INFINITY && preds[w].is_empty();
+            if !finalized[w] && (unseen || vw_dist < seen[w]) {
                 seen[w] = vw_dist;
                 heap.push(WeightedBrandesHeapEntry {
                     dist: vw_dist,
@@ -7211,7 +7211,8 @@ fn betweenness_centrality_subset_weighted_generic<G: GraphView>(
             let sigma_v = sigma[v];
             for &(w, wt) in &adjacency[v] {
                 let vw_dist = dist_v + wt;
-                if !finalized[w] && vw_dist < seen[w] {
+                let unseen = seen[w] == f64::INFINITY && preds[w].is_empty();
+                if !finalized[w] && (unseen || vw_dist < seen[w]) {
                     seen[w] = vw_dist;
                     heap.push(WeightedBrandesHeapEntry {
                         dist: vw_dist,
@@ -7883,7 +7884,8 @@ fn weighted_edge_brandes_source(
         let sigma_v = sigma[v];
         for &(w, eidx, wt) in &adjacency[v] {
             let vw_dist = dist_v + wt;
-            if !finalized[w] && vw_dist < seen[w] {
+            let unseen = seen[w] == f64::INFINITY && preds[w].is_empty();
+            if !finalized[w] && (unseen || vw_dist < seen[w]) {
                 seen[w] = vw_dist;
                 heap.push(WeightedBrandesHeapEntry {
                     dist: vw_dist,
@@ -8249,7 +8251,8 @@ fn edge_betweenness_centrality_subset_weighted_generic<G: GraphView>(
             let sigma_v = sigma[v];
             for &(w, wt) in &adjacency[v] {
                 let vw_dist = dist_v + wt;
-                if !finalized[w] && vw_dist < seen[w] {
+                let unseen = seen[w] == f64::INFINITY && preds[w].is_empty();
+                if !finalized[w] && (unseen || vw_dist < seen[w]) {
                     seen[w] = vw_dist;
                     heap.push(WeightedBrandesHeapEntry {
                         dist: vw_dist,
@@ -8894,7 +8897,8 @@ fn weighted_load_source(
         let dist_v = entry.dist;
         for &(w, wt) in &adjacency[v] {
             let vw_dist = dist_v + wt;
-            if !finalized[w] && vw_dist < seen[w] {
+            let unseen = seen[w] == f64::INFINITY && preds[w].is_empty();
+            if !finalized[w] && (unseen || vw_dist < seen[w]) {
                 seen[w] = vw_dist;
                 heap.push(WeightedBrandesHeapEntry {
                     dist: vw_dist,
@@ -8934,11 +8938,13 @@ fn weighted_load_source(
             continue;
         }
         let num_paths = preds[v].len() as f64;
-        let share = between[v] / num_paths;
         for &x in &preds[v] {
             if x == s {
                 break;
             }
+            // A zero self-loop can update between[v] before a later
+            // predecessor. NetworkX reads that updated value for each share.
+            let share = between[v] / num_paths;
             between[x] += share;
         }
     }
@@ -9112,7 +9118,8 @@ fn weighted_percolation_source(
         let sigma_v = sigma[v];
         for &(w, wt) in &adjacency[v] {
             let vw_dist = dist_v + wt;
-            if !finalized[w] && vw_dist < seen[w] {
+            let unseen = seen[w] == f64::INFINITY && preds[w].is_empty();
+            if !finalized[w] && (unseen || vw_dist < seen[w]) {
                 seen[w] = vw_dist;
                 heap.push(WeightedBrandesHeapEntry {
                     dist: vw_dist,
@@ -72159,6 +72166,218 @@ mod tests {
         assert_eq!(single_result.scores.len(), 1);
         assert_eq!(single_result.scores[0].node, "solo");
         assert!((single_result.scores[0].score - 1.0).abs() <= TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn weighted_centrality_keeps_overflow_reachable_vertices() {
+        fn check_graph<G: super::GraphView>(graph: &G) {
+            let weight = Some("weight");
+            let policy = super::BetweennessRescalePolicy::SourceAware;
+            let directed = graph.is_directed();
+            let subset = if directed { 1.0 } else { 0.5 };
+            let load = if directed { 1.0 } else { 2.0 };
+            let percolation = if directed { 1.0 / 6.0 } else { 1.0 / 3.0 };
+
+            // NetworkX 3.6.1 oracle values, in insertion order:
+            // isolated, s, a, t. The connected component has s-a-t with
+            // both edges 1e308, so only the endpoint distance overflows.
+            for (scores, expected) in [
+                (
+                    super::betweenness_centrality_weighted_generic(
+                        graph, weight, false, false, None, policy,
+                    )
+                    .scores,
+                    [0.0, 0.0, 1.0, 0.0],
+                ),
+                (
+                    super::betweenness_centrality_weighted_generic(
+                        graph, weight, false, true, None, policy,
+                    )
+                    .scores,
+                    [0.0, 2.0, 3.0, 2.0],
+                ),
+                (
+                    super::betweenness_centrality_subset_weighted_generic(
+                        graph,
+                        &["s"],
+                        &["t"],
+                        weight,
+                        false,
+                    )
+                    .scores,
+                    [0.0, 0.0, subset, 0.0],
+                ),
+                (
+                    super::load_centrality_weighted_generic(graph, weight, &[1, 2, 0, 3], false)
+                        .scores,
+                    [0.0, 0.0, load, 0.0],
+                ),
+                (
+                    super::percolation_centrality_weighted_generic(graph, weight, &[1.0; 4]).scores,
+                    [0.0, 0.0, percolation, 0.0],
+                ),
+            ] {
+                assert_eq!(
+                    scores
+                        .iter()
+                        .map(|entry| entry.node.as_str())
+                        .collect::<Vec<_>>(),
+                    ["isolated", "s", "a", "t"]
+                );
+                assert_eq!(
+                    scores.iter().map(|entry| entry.score).collect::<Vec<_>>(),
+                    expected
+                );
+            }
+
+            for (scores, expected) in [
+                (
+                    super::edge_betweenness_centrality_weighted_generic(
+                        graph, weight, None, false, policy,
+                    )
+                    .scores,
+                    [2.0, 2.0],
+                ),
+                (
+                    super::edge_betweenness_centrality_subset_weighted_generic(
+                        graph,
+                        &["s"],
+                        &["t"],
+                        weight,
+                        false,
+                    )
+                    .scores,
+                    [subset, subset],
+                ),
+            ] {
+                assert_eq!(
+                    scores.iter().map(|entry| entry.score).collect::<Vec<_>>(),
+                    expected
+                );
+            }
+        }
+
+        let mut graph = Graph::strict();
+        let mut directed = DiGraph::strict();
+        for node in ["isolated", "s", "a", "t"] {
+            graph.add_node(node);
+            directed.add_node(node);
+        }
+        for (left, right) in [("s", "a"), ("a", "t")] {
+            let attrs: AttrMap = [("weight".to_owned(), 1.0e308.into())]
+                .into_iter()
+                .collect();
+            graph
+                .add_edge_with_attrs(left, right, attrs.clone())
+                .unwrap();
+            directed.add_edge_with_attrs(left, right, attrs).unwrap();
+        }
+        check_graph(&graph);
+        check_graph(&directed);
+    }
+
+    #[test]
+    fn weighted_centrality_overflow_keeps_ties_and_finite_improvements() {
+        // Source 1 has a zero self-loop, two equal overflow routes to 4,
+        // and a zero-weight cycle 4-5. Node 0 stays unreachable. Expected
+        // vectors are independent NetworkX 3.6.1 single-source oracle results.
+        let mut adjacency = vec![
+            vec![],
+            vec![(1, 0.0), (2, 1.0e308), (3, 1.0e308)],
+            vec![(4, 1.0e308)],
+            vec![(4, 1.0e308)],
+            vec![(5, 0.0)],
+            vec![(4, 0.0)],
+            vec![],
+        ];
+        for finite_route in [false, true] {
+            if finite_route {
+                // Replace a pending infinite distance; the old heap entry
+                // must neither finalize twice nor retain its old predecessors.
+                adjacency[1].push((6, 1.5e308));
+                adjacency[6].push((4, 0.0));
+            }
+            let (nodes, endpoints, edges, load, percolation) = if finite_route {
+                (
+                    [0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 1.5],
+                    [0.0, 5.0, 1.0, 1.0, 3.0, 1.0, 2.5],
+                    vec![5.5, 1.0, 1.0, 2.5, 0.0, 0.0, 2.0, 1.5, 1.5],
+                    [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                    [0.0, 0.0, 0.0, 0.0, 1.0 / 3.0, 0.0, 0.25],
+                )
+            } else {
+                (
+                    [0.0, 0.0, 0.75, 0.75, 2.0, 0.0, 0.0],
+                    [0.0, 4.0, 1.75, 1.75, 3.0, 1.0, 0.0],
+                    vec![4.5, 1.75, 1.75, 0.75, 0.75, 2.0, 1.5],
+                    [
+                        0.0,
+                        0.0,
+                        0.666_666_666_666_666_5,
+                        0.666_666_666_666_666_5,
+                        1.0,
+                        0.666_666_666_666_666_5,
+                        0.0,
+                    ],
+                    [0.0, 0.0, 0.125, 0.125, 1.0 / 3.0, 0.0, 0.0],
+                )
+            };
+            assert_eq!(
+                super::weighted_brandes_source_delta(&adjacency, 1, 7, false),
+                nodes
+            );
+            assert_eq!(
+                super::weighted_brandes_source_delta(&adjacency, 1, 7, true),
+                endpoints
+            );
+            assert_eq!(
+                super::weighted_load_source(&adjacency, &[0, 1, 2, 3, 4, 5, 6], 7, 1),
+                load
+            );
+            assert_eq!(
+                super::weighted_percolation_source(&adjacency, &[1.0; 7], 7.0, 7, 1),
+                percolation
+            );
+
+            let mut edge_count = 0;
+            let edge_adjacency: Vec<Vec<_>> = adjacency
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|&(neighbor, weight)| {
+                            let edge_idx = edge_count;
+                            edge_count += 1;
+                            (neighbor, edge_idx, weight)
+                        })
+                        .collect()
+                })
+                .collect();
+            assert_eq!(
+                super::weighted_edge_brandes_source(&edge_adjacency, 7, edge_count, 1),
+                edges
+            );
+        }
+    }
+
+    #[test]
+    fn weighted_load_rereads_after_a_self_predecessor() {
+        for weight in [1.0, 1.0e308] {
+            let adjacency = vec![
+                vec![(1, weight)],
+                vec![(2, weight)],
+                vec![(3, 0.0), (2, 0.0)],
+                vec![(2, 0.0), (4, 0.0)],
+                vec![],
+                vec![],
+            ];
+            // NetworkX 3.6.1 has predecessors[2] == [1, 2, 3]. Updating
+            // predecessor 2 changes the share subsequently sent to 3.
+            // The same recurrence applies at finite and overflowed distances.
+            assert_eq!(
+                super::weighted_load_source(&adjacency, &[0, 1, 2, 3, 4, 5], 6, 0),
+                [0.0, 1.0, 3.0, 2.333_333_333_333_333, 0.0, 0.0]
+            );
+        }
     }
 
     #[test]

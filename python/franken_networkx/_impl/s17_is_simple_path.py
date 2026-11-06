@@ -1435,10 +1435,14 @@ class _ApproximationNamespace:
         G = _coerce_arg_to_fnx_graph(G)
         if G.is_directed():
             raise NetworkXNotImplemented("not implemented for directed type")
+        # The packed f64 kernel relies on Dijkstra's weight-domain guard:
+        # unsupported values would become unit weights or lose exact arithmetic.
+        # Keep those graphs on the public per-source route below.
         if (
             type(G) is Graph
             and isinstance(weight, str)
             and G.number_of_nodes() > 0
+            and not _should_delegate_dijkstra_to_networkx(G, weight)
         ):
             apd = _raw_all_pairs_dijkstra(G, weight=weight)
             nodes = list(G)
