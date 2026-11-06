@@ -742,6 +742,7 @@ from franken_networkx._fnx import (
     dfs_predecessors as _dfs_predecessors_raw,
     dfs_preorder_nodes as _dfs_preorder_nodes_raw,
     dfs_successors as _dfs_successors_raw,
+    dfs_traversal_iter as _dfs_traversal_iter_native,
     dfs_tree as _dfs_tree_raw,
 )
 
@@ -803,12 +804,35 @@ def _py_dfs_labeled_edges(G, source=None, depth_limit=None, sort_neighbors=None)
 
 
 def _py_dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
-    """Python-level DFS with sort_neighbors support."""
-    for u, v, label in _py_dfs_labeled_edges(
-        G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
-    ):
-        if label == "forward" and u != v:
-            yield (u, v)
+    """Stream discovery edges from live rows, including custom row providers."""
+    roots = G if source is None else (source,)
+    if depth_limit is None:
+        depth_limit = len(G)
+    children_of = (
+        G.neighbors
+        if sort_neighbors is None
+        else lambda node: iter(sort_neighbors(G.neighbors(node)))
+    )
+    seen = set()
+    for root in roots:
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, children_of(root))]
+        while stack:
+            parent, children = stack[-1]
+            for child in children:
+                if child in seen:
+                    continue
+                yield parent, child
+                seen.add(child)
+                if len(stack) < depth_limit:
+                    # Retain the provider itself. Resuming a parent after
+                    # descent starts a new for-loop over that provider.
+                    stack.append((child, children_of(child)))
+                    break
+            else:
+                stack.pop()
 
 
 def _traversal_missing_source_error(G, source):
@@ -962,7 +986,7 @@ def _normalize_predecessor_cutoff(cutoff):
 
 
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield DFS edges with lazy validation and live callback/view inputs."""
+    """Yield DFS edges incrementally, retaining live rows between yields."""
     if (
         type(G) not in _CONCRETE_FNX_GRAPH_TYPES
         or _has_networkx_private_storage(G)
@@ -971,15 +995,11 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     ):
         yield from _py_dfs_edges(G, source, depth_limit, sort_neighbors)
         return
-    if source is not None:
-        _HASH_PROBE.get(source)
     if depth_limit is not None:
-        depth_limit = min(depth_limit, len(G))
-    try:
-        edges = _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise _traversal_missing_source_error(G, source) from exc
-    for edge in edges:
+        depth_limit = min(depth_limit, _sys.maxsize)
+    for edge in _dfs_traversal_iter_native(
+        G, source=source, depth_limit=depth_limit, order="edges"
+    ):
         yield edge
 
 
@@ -1325,32 +1345,27 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
 
 
 def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield DFS preorder, retaining lazy source validation and input rows."""
+    """Yield DFS preorder from suspended native state or live Python rows."""
     if (
         type(G) not in _CONCRETE_FNX_GRAPH_TYPES
         or _has_networkx_private_storage(G)
         or sort_neighbors is not None
-        or (source is not None and source not in G)
         or (depth_limit is not None and (type(depth_limit) is not int or depth_limit < 1))
     ):
         for _, node, label in _py_dfs_labeled_edges(G, source, depth_limit, sort_neighbors):
             if label == "forward":
                 yield node
         return
-    if source is not None:
-        _HASH_PROBE.get(source)
     if depth_limit is not None:
-        depth_limit = min(depth_limit, len(G))
-    try:
-        nodes = _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise _traversal_missing_source_error(G, source) from exc
-    for node in nodes:
+        depth_limit = min(depth_limit, _sys.maxsize)
+    for node in _dfs_traversal_iter_native(
+        G, source=source, depth_limit=depth_limit, order="preorder"
+    ):
         yield node
 
 
 def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield DFS postorder, retaining lazy source validation and input rows."""
+    """Yield DFS postorder from suspended native state or live Python rows."""
     if (
         type(G) not in _CONCRETE_FNX_GRAPH_TYPES
         or _has_networkx_private_storage(G)
@@ -1361,13 +1376,9 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None
             if label == "reverse":
                 yield node
         return
-    if source is not None:
-        _HASH_PROBE.get(source)
     if depth_limit is not None:
-        depth_limit = min(depth_limit, len(G))
-    try:
-        nodes = _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise _traversal_missing_source_error(G, source) from exc
-    for node in nodes:
+        depth_limit = min(depth_limit, _sys.maxsize)
+    for node in _dfs_traversal_iter_native(
+        G, source=source, depth_limit=depth_limit, order="postorder"
+    ):
         yield node

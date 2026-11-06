@@ -821,6 +821,10 @@ first row lookup; postorder emits completed rows and omits nodes stopped by
 the depth cutoff. A forest retains the caller's node iterator instead of a
 snapshot. Explicit depth limits remain valid after graph growth; only a
 missing depth limit defaults to the initial graph size.
+Direct edge DFS does not infer tree edges by comparing the endpoints of
+labeled events: valid non-reflexive nodes such as NaN must never create a
+spurious root self-edge. It retains each provider's row object across child
+descent; preorder and postorder retain the labeled walk's iterator wrapping.
 
 Native iterator state owns Python node objects and genuine live row cursors,
 preserving discovery-object identity, adjacency order, and Python equality.
