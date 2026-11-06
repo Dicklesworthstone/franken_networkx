@@ -162,10 +162,7 @@ _ReverseMultiDirectedView.__name__ = "MultiDiGraph"
 def _fast_pred_row(graph, node):
     # br-r37-c1-r3gjb/gchm1: G.pred[node] re-materialises the whole
     # predecessor adjacency (O(N+E)); the native per-node row accessor is
-    # O(deg). Prefer the *_dict variant (DiGraph) which returns a PLAIN
-    # dict-of-dicts identical to nx's exposed type; fall back to the
-    # AtlasView-returning _native_predecessor_row (MultiDiGraph) for the
-    # count-only callers (subgraph degree), else the slow view.
+    # O(deg). The simple DiGraph's *_dict variant returns live attributes.
     # br-r37-c1-kum9v: only call the native row accessors on a CONCRETE
     # graph. A filtered/reverse VIEW inherits these methods from its base
     # class but has an EMPTY Rust base, so native_dict(node) raises KeyError
@@ -174,7 +171,18 @@ def _fast_pred_row(graph, node):
     owner = _shared_unsplit_owner(graph)
     if owner is not None:
         graph = owner
-    if type(graph) in (DiGraph, MultiDiGraph) and not _has_networkx_private_storage(graph):
+    if type(graph) is MultiDiGraph and not _has_networkx_private_storage(graph):
+        # MultiDiGraph's native row-dict reader snapshots store-only edge
+        # attributes. Such dictionaries lose writes made through reverse or
+        # filtered views, including mutations inside a weight callback. Walk
+        # only this row's native neighbor keys, then obtain each pair's live
+        # keydict. Work is limited to the requested row and its parallel edges;
+        # no whole-graph adjacency or unrelated edge attributes are built.
+        return {
+            predecessor: graph.get_edge_data(predecessor, node)
+            for predecessor in graph._native_predecessor_row(node)
+        }
+    if type(graph) is DiGraph and not _has_networkx_private_storage(graph):
         native_dict = getattr(graph, "_native_predecessor_row_dict", None)
         if native_dict is not None:
             return native_dict(node)
@@ -205,9 +213,12 @@ def _fast_succ_row(graph, node):
         if native_row is not None:
             return native_row(node)
     if type(graph) is MultiDiGraph:  # br-r37-c1-kum9v: views -> G[node]
-        native_dict = getattr(graph, "_native_successor_row_dict", None)
-        if native_dict is not None:
-            return native_dict(node)
+        # Match the predecessor row's live-keydict contract without using the
+        # native *_row_dict snapshot for lazy edge attributes.
+        return {
+            successor: graph.get_edge_data(node, successor)
+            for successor in graph._native_successor_row(node)
+        }
     return graph[node]
 
 

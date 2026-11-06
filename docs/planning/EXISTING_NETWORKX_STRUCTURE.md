@@ -699,3 +699,18 @@ unchanged. Short prefix iterators leave subsequent inputs unrenamed; infinite
 iterators are accepted; unused prefixes remain unconsumed.
 `tests/python/test_graph_operators_parity.py` covers these rules for both public
 operators and all four graph classes without a NetworkX operator fallback.
+
+
+## 31. Directed Multigraph View Attribute Identity
+
+Reverse and filtered directed multigraph views expose the original parallel
+edge dictionaries even when those attributes have not previously been read
+from native storage. Predecessor and successor row adapters obtain each
+requested pair's live key dictionary instead of returning native attribute
+snapshots. Work stays within the requested row; unrelated adjacency and edge
+attributes are not materialized.
+
+Attribute writes through a view or a weight callback remain visible in the
+parent graph and subsequent traversals. Reading an edge earlier must not
+change whether later view writes persist. Simple directed graphs and native
+algorithm routes retain their existing access paths.
