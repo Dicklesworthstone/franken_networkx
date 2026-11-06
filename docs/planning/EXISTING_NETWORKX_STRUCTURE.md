@@ -475,6 +475,15 @@ behavior; they must not become default-unit edges or rounded floating-point
 distances. Finite floating-point edges remain eligible when only their sum
 overflows, and the resulting closure edge retains its infinite distance and path.
 
+### 22.4 Native shortest-simple-path discovery
+
+The native Yen implementation must discover the first path and subsequent spur
+paths when finite, nonnegative edge weights accumulate to positive infinity.
+An absent distance-map entry is distinct from a known infinite distance. Strict
+improvements replace predecessors; equal costs preserve the existing native tie
+policy. Zero-weight cycles and self-loops do not create cyclic returned paths,
+and a genuinely unreachable target yields an empty native path collection.
+
 ## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:

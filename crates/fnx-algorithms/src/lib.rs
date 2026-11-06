@@ -33186,7 +33186,9 @@ pub fn shortest_simple_paths(
                         .map(|wa| edge_weight_or_default(graph, &node, nbr, wa))
                         .unwrap_or(1.0);
                     let new_cost = cost + w;
-                    if new_cost < *dist.get(nbr).unwrap_or(&f64::INFINITY) {
+                    // A reachable path can overflow even with finite weights.
+                    // Missing membership, rather than +inf, marks first discovery.
+                    if dist.get(nbr).is_none_or(|&known| new_cost < known) {
                         dist.insert(nbr.to_string(), new_cost);
                         prev.insert(nbr.to_string(), node.clone());
                         heap.push(St {
@@ -80614,6 +80616,65 @@ mod tests {
         assert_eq!(
             paths[0],
             vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn shortest_simple_paths_preserves_accumulated_infinity() {
+        let mut graph = Graph::strict();
+        graph.add_node("isolated");
+        for (left, right, weight) in [("s", "a", 1.0e308), ("a", "b", 1.0e308), ("b", "t", 1.0)] {
+            let attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph.add_edge_with_attrs(left, right, attrs).unwrap();
+        }
+        let expected = vec![vec![
+            "s".to_owned(),
+            "a".to_owned(),
+            "b".to_owned(),
+            "t".to_owned(),
+        ]];
+        assert_eq!(
+            shortest_simple_paths(&graph, "s", "t", Some("weight")),
+            expected
+        );
+
+        // These zero cycles cannot occur in a simple s-t path. They must
+        // neither overwrite an infinite-distance predecessor nor add paths.
+        for (left, right) in [("s", "s"), ("b", "b"), ("b", "z"), ("z", "w"), ("w", "b")] {
+            let attrs: AttrMap = [("weight".to_owned(), 0.0.into())].into_iter().collect();
+            graph.add_edge_with_attrs(left, right, attrs).unwrap();
+        }
+        assert_eq!(
+            shortest_simple_paths(&graph, "s", "t", Some("weight")),
+            expected
+        );
+        assert!(shortest_simple_paths(&graph, "s", "isolated", Some("weight")).is_empty());
+        assert_eq!(
+            shortest_simple_paths(&graph, "s", "s", Some("weight")),
+            vec![vec!["s".to_owned()]]
+        );
+    }
+
+    #[test]
+    fn shortest_simple_paths_keeps_infinite_spur_after_finite_route() {
+        let mut graph = Graph::strict();
+        for (left, right, weight) in [
+            ("s", "a", 1.0e308),
+            ("a", "t", 1.0e308),
+            ("s", "v", 1.5e308),
+            ("v", "t", 0.0),
+        ] {
+            let attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph.add_edge_with_attrs(left, right, attrs).unwrap();
+        }
+        // NetworkX 3.6.1 returns the finite improvement first. Once that
+        // branch is excluded by Yen, the overflowing spur remains reachable.
+        assert_eq!(
+            shortest_simple_paths(&graph, "s", "t", Some("weight")),
+            vec![
+                vec!["s".to_owned(), "v".to_owned(), "t".to_owned()],
+                vec!["s".to_owned(), "a".to_owned(), "t".to_owned()],
+            ]
         );
     }
 
