@@ -662,3 +662,21 @@ Connected one- and two-node graphs retain SciPy's small-matrix error behavior.
 `tests/python/test_eigenvector_numpy_directed_parity.py` covers signed
 undirected and directed inputs, eigenpair residuals, solver sign orientation,
 large integer weights, nonconvergence, and validation order.
+
+
+## 29. Lazy Shortest-Simple-Path Input Lifetime
+
+`shortest_simple_paths` retains the caller's live graph or view from iterator
+creation through each resumption. Edge insertion, removal, and attribute
+changes before the first result or between results affect subsequent searches
+as they do in NetworkX. Callable weights receive the original edge dictionaries,
+and their mutations remain visible to the caller and later searches. Already
+buffered candidate paths retain NetworkX's existing behavior; this contract
+does not promise to rebuild every queued candidate after a mutation.
+
+Multigraph inputs are rejected at the initial function call. Source/target
+membership and missing-path validation occur when iteration begins, allowing
+node changes between iterator construction and its first advancement.
+`tests/python/test_astar_yen.py` covers weighted and unweighted enumeration,
+NetworkX and fnx inputs, filtered and reverse views, callback identity, and
+the timing of validation.

@@ -364,6 +364,103 @@ def test_astar_callbacks_observe_live_input_graph(api, callback, input_module, c
 
 
 class TestShortestSimplePaths:
+    @staticmethod
+    def _live_graph(module, class_name, view):
+        base = getattr(module, class_name)()
+        edges = [("s", "a", 1), ("a", "t", 1), ("s", "b", 3), ("b", "t", 3)]
+        if view == "reverse":
+            edges = [(v, u, weight) for u, v, weight in edges]
+        base.add_weighted_edges_from(edges)
+        if view == "subgraph":
+            base.add_edge("s", "hidden", weight=0)
+            base.add_edge("hidden", "t", weight=0)
+            graph = base.subgraph(["s", "a", "b", "t"])
+        elif view == "reverse":
+            graph = base.reverse(copy=False)
+        else:
+            graph = base
+        return base, graph
+
+    @pytest.mark.parametrize("phase", ["before_first_next", "between_yields"])
+    @pytest.mark.parametrize("weight", [None, "weight"])
+    @pytest.mark.parametrize("input_module", [fnx, nx], ids=["fnx-input", "networkx-input"])
+    @pytest.mark.parametrize(
+        "class_name, view",
+        [
+            ("Graph", "graph"),
+            ("DiGraph", "graph"),
+            ("Graph", "subgraph"),
+            ("DiGraph", "subgraph"),
+            ("DiGraph", "reverse"),
+        ],
+    )
+    def test_live_graph_mutations_reach_lazy_search(
+        self, phase, weight, input_module, class_name, view
+    ):
+        outcomes = []
+        for algorithm_module, graph_module in ((nx, nx), (fnx, input_module)):
+            base, graph = self._live_graph(graph_module, class_name, view)
+            paths = algorithm_module.shortest_simple_paths(graph, "s", "t", weight=weight)
+            first = next(paths) if phase == "between_yields" else None
+            u, v = ("t", "s") if view == "reverse" else ("s", "t")
+            base.add_edge(u, v, weight=4)
+            remaining = list(paths)
+            assert ["s", "t"] in remaining
+            outcomes.append((first, remaining))
+        assert outcomes[1] == outcomes[0]
+
+    @pytest.mark.parametrize("input_module", [fnx, nx], ids=["fnx-input", "networkx-input"])
+    @pytest.mark.parametrize(
+        "class_name, view",
+        [
+            ("Graph", "graph"),
+            ("DiGraph", "graph"),
+            ("Graph", "subgraph"),
+            ("DiGraph", "subgraph"),
+            ("DiGraph", "reverse"),
+        ],
+    )
+    def test_weight_callback_receives_live_edge_dicts(self, input_module, class_name, view):
+        outcomes = []
+        for algorithm_module, graph_module in ((nx, nx), (fnx, input_module)):
+            _, graph = self._live_graph(graph_module, class_name, view)
+            calls = []
+
+            def weight(u, v, data):
+                assert data is graph.get_edge_data(u, v)
+                calls.append((u, v))
+                if (u, v) == ("s", "a"):
+                    graph["a"]["t"]["weight"] = 100
+                return data.get("weight", 1)
+
+            paths = algorithm_module.shortest_simple_paths(graph, "s", "t", weight=weight)
+            assert calls == [], "Creating the iterator must not invoke its callback"
+            first = next(paths)
+            outcomes.append((first, calls, graph["a"]["t"]["weight"]))
+        assert outcomes[0][0] == ["s", "b", "t"]
+        assert outcomes[1] == outcomes[0]
+
+    @pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+    @pytest.mark.parametrize("input_module", [fnx, nx], ids=["fnx-input", "networkx-input"])
+    @pytest.mark.parametrize("change", ["add_target", "remove_target", "remove_source"])
+    def test_endpoint_validation_reads_graph_at_first_next(self, class_name, input_module, change):
+        outcomes = []
+        for algorithm_module, graph_module in ((nx, nx), (fnx, input_module)):
+            graph = getattr(graph_module, class_name)()
+            graph.add_edge("s", "a")
+            if change != "add_target":
+                graph.add_edge("a", "t")
+            paths = algorithm_module.shortest_simple_paths(graph, "s", "t")
+            if change == "add_target":
+                graph.add_edge("a", "t")
+            else:
+                graph.remove_node("t" if change == "remove_target" else "s")
+            try:
+                outcomes.append(next(paths))
+            except (nx.NodeNotFound, fnx.NodeNotFound) as exc:
+                outcomes.append((type(exc).__name__, str(exc)))
+        assert outcomes[1] == outcomes[0]
+
     def test_unweighted_order(self, weighted_triangle):
         # Unweighted: direct edge 0->2 (1 hop) < 0->1->2 (2 hops).
         # shortest_simple_paths is a generator (br-r37-c1-682kr); materialise.

@@ -1004,13 +1004,15 @@ def _shortest_simple_paths_fallback_generator(G, source, target, weight):
 def shortest_simple_paths(G, source, target, weight=None):
     """Yield simple paths from source to target in increasing length order.
 
-    Returns a true generator for simple fnx graphs, matching nx's lazy contract
-    while avoiding the old full fnx->nx conversion fallback.
+    The owned Yen search reads the caller's graph as it advances, including
+    NetworkX graphs and live views. Endpoint validation remains deferred until
+    the generator is consumed.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
+    # The search uses the graph protocol throughout. Materializing here would
+    # hide mutations before/between yields and writes made by weight callbacks.
     return _shortest_simple_paths_fallback_generator(G, source, target, weight)
 
 # Algorithm functions — approximation
