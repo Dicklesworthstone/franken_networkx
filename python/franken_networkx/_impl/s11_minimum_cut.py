@@ -210,14 +210,15 @@ def diameter(G, e=None, usebounds=False, weight=None):
     int or float
         Diameter of the graph.
     """
-    # br-r37-c1-eg0jk: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if e is not None:
         return max(e.values())
     if len(G) == 0:
         raise ValueError("max() iterable argument is empty")
     if weight is not None or usebounds:
         return max(eccentricity(G, weight=weight).values())
+    # Only the native default route needs a materialized graph. In particular,
+    # a weight callback must keep observing the caller's live edge dictionaries.
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-tcyne: the Rust _raw_diameter calls gr.undirected()
     # before computing — collapses antiparallel directions (returns
     # 2 on directed cycle5 instead of nx's 4). Stay on _raw_diameter
@@ -252,14 +253,13 @@ def radius(G, e=None, usebounds=False, weight=None):
     int or float
         Radius of the graph.
     """
-    # br-r37-c1-eg0jk: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if e is not None:
         return min(e.values())
     if len(G) == 0:
         raise ValueError("min() iterable argument is empty")
     if weight is not None or usebounds:
         return min(eccentricity(G, weight=weight).values())
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-tcyne: same directed-collapse defect as _raw_diameter —
     # _raw_radius runs on gr.undirected(). Use fnx.eccentricity for the
     # directed path (correct, no fnx_to_nx round-trip).
@@ -291,8 +291,6 @@ def center(G, e=None, usebounds=False, weight=None):
     list
         List of nodes in the center.
     """
-    # br-r37-c1-eg0jk: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if e is not None:
         radius_w = min(e.values())
         return [v for v in e if e[v] == radius_w]
@@ -305,7 +303,8 @@ def center(G, e=None, usebounds=False, weight=None):
         if not ecc:
             return []
         radius_w = min(ecc.values())
-        return [n for n in G.nodes() if ecc[n] == radius_w]
+        return [n for n in ecc if ecc[n] == radius_w]
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
     # insertion order) and filters by min eccentricity. The Rust
     # _raw_center returned nodes in a different order. Filter
@@ -347,8 +346,6 @@ def periphery(G, e=None, usebounds=False, weight=None):
     list
         List of nodes in the periphery.
     """
-    # br-r37-c1-eg0jk: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if e is not None:
         diameter_w = max(e.values())
         return [v for v in e if e[v] == diameter_w]
@@ -359,7 +356,8 @@ def periphery(G, e=None, usebounds=False, weight=None):
         if not ecc:
             return []
         diameter_w = max(ecc.values())
-        return [n for n in G.nodes() if ecc[n] == diameter_w]
+        return [n for n in ecc if ecc[n] == diameter_w]
+    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
     # insertion order) and filters by max eccentricity. The Rust
     # _raw_periphery returned nodes in a different order. Filter
@@ -381,8 +379,11 @@ def periphery(G, e=None, usebounds=False, weight=None):
 
 def eccentricity(G, v=None, sp=None, weight=None):
     """Returns the eccentricity of nodes in G."""
-    # br-r37-c1-eg0jk: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    # Supplied distances and weight callbacks operate on the original graph.
+    # Copying a NetworkX input or a view hides callback mutations from later
+    # relaxations and changes the edge dictionaries passed to the callback.
+    if sp is None and not callable(weight):
+        G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0 and _networkx_release() >= (3, 7):
         # This check precedes nbunch/sp validation in the actual 3.7 oracle.
         raise NetworkXPointlessConcept("Cannot compute eccentricity of a null graph.")

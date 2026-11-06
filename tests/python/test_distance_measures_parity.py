@@ -386,3 +386,180 @@ def test_eccentricity_selection_after_shortcut_sibling_stays_cold(class_name, pr
     actual, calls = _profile_eccentricity(fg, v=[labels[-1], labels[0]])
     assert list(actual.items()) == list(nx.eccentricity(ng, v=[labels[-1], labels[0]]).items())
     assert calls == 2, "a sibling shortcut started an unnecessary all-node sweep"
+
+
+_LIVE_DISTANCE_CASES = [
+    (class_name, view)
+    for class_name in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+    for view in ("graph", "subgraph")
+] + [("DiGraph", "reverse"), ("MultiDiGraph", "reverse")]
+
+
+def _live_distance_graph(module, class_name, view):
+    base = getattr(module, class_name)()
+    base.add_nodes_from((0, 1, 2))
+    edges = [(0, 1, 1), (1, 2, 10), (2, 0, 20)]
+    if view == "reverse":
+        edges = [(v, u, cost) for u, v, cost in edges]
+    for u, v, cost in edges:
+        if base.is_multigraph():
+            base.add_edge(u, v, key="route", weight=cost)
+            base.add_edge(u, v, key="parallel", weight=100)
+        else:
+            base.add_edge(u, v, weight=cost)
+    if view == "subgraph":
+        base.add_edge(1, "hidden", weight=0)
+        base.add_edge("hidden", 2, weight=0)
+        graph = base.subgraph([0, 1, 2])
+    elif view == "reverse":
+        graph = base.reverse(copy=False)
+    else:
+        graph = base
+    for node in base:
+        base.nodes[node]["label"] = str(node)
+    return graph, base
+
+
+def _live_distance_weight(graph, calls):
+    def weight(u, v, data):
+        original = graph.get_edge_data(u, v)
+        if graph.is_multigraph():
+            assert list(data) == list(original)
+            assert all(attrs is original[key] for key, attrs in data.items())
+        else:
+            assert data is original
+        calls.append((u, v, tuple(graph.nodes[n].get("score") for n in graph)))
+        if (u, v) == (0, 1):
+            edge = graph.get_edge_data(1, 2)
+            if graph.is_multigraph():
+                edge = edge["route"]
+            edge["weight"] = 1
+        if graph.is_multigraph():
+            return min(attrs["weight"] for attrs in data.values())
+        return data["weight"]
+
+    return weight
+
+
+@pytest.mark.parametrize("class_name, view", _LIVE_DISTANCE_CASES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize(
+    "name", ["eccentricity", "diameter", "radius", "center", "periphery", "barycenter"]
+)
+def test_distance_measures_use_live_weight_callbacks(name, input_module, class_name, view):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph, base = _live_distance_graph(module, class_name, view)
+        calls = []
+        kwargs = {"weight": _live_distance_weight(graph, calls)}
+        if name == "barycenter":
+            kwargs["attr"] = "score"
+        value = getattr(api, name)(graph, **kwargs)
+        if isinstance(value, dict):
+            value = list(value.items())
+        outcomes.append((value, calls, list(base.nodes(data=True))))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("class_name, view", _LIVE_DISTANCE_CASES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("selection", [0, [2, 0, 2]], ids=["scalar", "repeated-subset"])
+def test_eccentricity_selected_sources_use_live_callbacks(
+    input_module, class_name, view, selection
+):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph, _ = _live_distance_graph(module, class_name, view)
+        calls = []
+        value = api.eccentricity(
+            graph, v=selection, weight=_live_distance_weight(graph, calls)
+        )
+        if isinstance(value, dict):
+            value = list(value.items())
+        outcomes.append((value, calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("class_name, view", _LIVE_DISTANCE_CASES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("distances", ["unweighted", "weighted", "supplied"])
+def test_barycenter_attr_updates_original_graph(input_module, class_name, view, distances):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph, base = _live_distance_graph(module, class_name, view)
+        held_attrs = {node: base.nodes[node] for node in base}
+        for attrs in held_attrs.values():
+            attrs["score"] = "old score"
+        graph.__networkx_cache__ = {"stale": "converted graph"}
+        kwargs = {"attr": "score"}
+        if distances == "weighted":
+            kwargs["weight"] = "weight"
+        elif distances == "supplied":
+            kwargs["sp"] = {
+                2: {0: 7, 1: 2, 2: 0},
+                0: {0: 0, 1: 4, 2: 6},
+                1: {0: 3, 1: 0, 2: 5},
+            }
+        value = api.barycenter(graph, **kwargs)
+        assert all(held_attrs[node] is base.nodes[node] for node in base)
+        assert graph.__networkx_cache__ == {}
+        outcomes.append((value, list(base.nodes(data=True)), held_attrs))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("class_name, view", _LIVE_DISTANCE_CASES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("failure", ["supplied-distances", "weight-callback"])
+def test_barycenter_keeps_completed_attr_writes_on_error(
+    input_module, class_name, view, failure
+):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph, base = _live_distance_graph(module, class_name, view)
+        graph.__networkx_cache__ = {"existing": "conversion"}
+        kwargs = {"attr": "score"}
+        if failure == "supplied-distances":
+            kwargs["sp"] = {0: {0: 0, 1: 2, 2: 3}, 1: {1: 0}}
+            error = nx.NetworkXNoPath
+        else:
+            def weight(u, v, data):
+                if "score" in graph.nodes[0]:
+                    raise RuntimeError("stop after the first source")
+                if graph.is_multigraph():
+                    return min(attrs["weight"] for attrs in data.values())
+                return data["weight"]
+
+            kwargs["weight"] = weight
+            error = RuntimeError
+        with pytest.raises(error) as caught:
+            api.barycenter(graph, **kwargs)
+        assert "score" in base.nodes[0]
+        assert "score" not in base.nodes[1]
+        assert graph.__networkx_cache__ == {"existing": "conversion"}
+        outcomes.append((str(caught.value), list(base.nodes(data=True))))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("name", ["eccentricity", "diameter", "radius", "center", "periphery"])
+def test_distance_measures_supplied_values_do_not_call_weight(input_module, name):
+    def unused_weight(u, v, data):
+        raise AssertionError("precomputed distances must not evaluate weight")
+
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph, _ = _live_distance_graph(module, "DiGraph", "subgraph")
+        if name == "eccentricity":
+            value = api.eccentricity(
+                graph,
+                v=[2, 0, 2],
+                sp={2: {0: 7, 1: 2, 2: 0}, 0: {0: 0, 1: 4, 2: 6}},
+                weight=unused_weight,
+            )
+            value = list(value.items())
+        else:
+            value = getattr(api, name)(
+                graph, e={2: 7, 0: 6, 1: 7}, usebounds=True, weight=unused_weight
+            )
+        outcomes.append(value)
+    assert outcomes[0] == outcomes[1]

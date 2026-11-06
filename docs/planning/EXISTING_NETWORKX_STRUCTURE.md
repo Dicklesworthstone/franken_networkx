@@ -735,3 +735,21 @@ empty, singleton, disconnected, and non-strongly-connected graphs before
 evaluating a weight callback. `tests/python/test_weighted_path_adversarial_parity.py`
 covers the public variants across all four graph classes, NetworkX and fnx
 inputs, filtered views, original-dictionary writes, and lazy consumption.
+
+
+## 33. Live Distance Measures and Barycenter Writes
+
+Callable-weight eccentricity, diameter, radius, center, periphery, and barycenter
+retain the caller's graph throughout their per-source traversals. A callback
+sees original edge dictionaries, and later relaxations and sources observe its
+attribute changes. Supplied eccentricity or shortest-path dictionaries are
+consumed without converting the graph or invoking an unused weight callback.
+Safe unweighted defaults retain their native kernels and existing caches.
+
+`barycenter(..., attr=...)` stores each completed distance sum in the original
+node dictionary, including a view's parent-shared dictionary. Writes happen as
+rows are consumed; an error in a later row does not undo earlier writes. The
+graph's NetworkX conversion cache is cleared only after successful completion
+of the attribute-writing route. `tests/python/test_distance_measures_parity.py`
+covers live callbacks, reverse and filtered views, supplied distances, original
+attribute writes, and partial progress on errors.

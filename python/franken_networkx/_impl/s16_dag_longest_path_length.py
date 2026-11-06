@@ -322,24 +322,12 @@ from franken_networkx._fnx import (
 def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kwargs):
     """Return the barycenter of the graph or its node set.
 
-    br-barymissing: nx.barycenter accepts ``weight`` (edge-attr name
-    for weighted shortest paths), ``attr`` (store node-barycentricity
-    as a node attribute), and ``sp`` (precomputed shortest-path dict).
-    fnx's Rust binding only accepted (G). Delegate to nx when any
-    non-default kwarg is supplied; fast-path kept for the plain
-    (G,) form.
-
-    br-baryattr: when ``attr`` is supplied, NX mutates the input graph
-    in place by writing the barycentricity score to ``G.nodes[v][attr]``.
-    The delegation goes through ``_networkx_graph_for_parity`` which
-    builds a fresh nx Graph copy, so NX wrote the attribute on that
-    copy — not on the user's fnx graph. Pull the attr back from the
-    nx copy onto the original fnx graph so the side effect is visible
-    where the user expects it.
+    ``weight`` selects shortest-path costs, ``sp`` supplies precomputed
+    distances, and ``attr`` stores each node's distance sum in the original
+    graph. Views share these writes with their parent graph. Weight callbacks
+    likewise receive the original graph's live edge dictionaries.
     """
     _validate_backend_dispatch_keywords("barycenter", backend, backend_kwargs)
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0:
         # Match nx's split empty-graph behavior: undirected graph
         # classes raise, while directed graph classes return [].
@@ -347,6 +335,9 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
             return []
         raise NetworkXPointlessConcept("G has no nodes.")
     if weight is None and attr is None and sp is None:
+        # Materialize only the native default route. The general route must
+        # retain the caller's graph for callbacks and incremental attr writes.
+        G = _coerce_arg_to_fnx_graph(G)
         # br-r37-c1-pooue: the Rust _raw_barycenter does not check
         # reachability before computing, so it silently returns a
         # result on a non-strongly-connected DiGraph (e.g.,
@@ -402,6 +393,10 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
             barycenter_vertices = [v]
         elif barycentricity == smallest:
             barycenter_vertices.append(v)
+    if attr is not None:
+        cache = getattr(G, "__networkx_cache__", None)
+        if cache is not None:
+            cache.clear()
     return barycenter_vertices
 
 # Algorithm functions — A* shortest path
