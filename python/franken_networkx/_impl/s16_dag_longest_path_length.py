@@ -505,7 +505,11 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
     # types. Run them before graph coercion or a native graph borrow: copying
     # hides their writes, and converting heuristic values to f64 can change
     # queue order (even for an admissible negative integer heuristic).
-    if heuristic is not None or _should_delegate_astar_to_networkx(weight, cutoff):
+    if (
+        heuristic is not None
+        or _should_delegate_astar_to_networkx(weight, cutoff)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
         return _astar_path_inproc(
             G, source, target, heuristic=heuristic, weight=weight, cutoff=cutoff
         )
@@ -620,7 +624,11 @@ def astar_path_length(
     """
     # Keep callbacks on the caller's live graph, with Python priority arithmetic,
     # just as in astar_path. The final path's weights are read after the search.
-    if heuristic is not None or _should_delegate_astar_to_networkx(weight, cutoff):
+    if (
+        heuristic is not None
+        or _should_delegate_astar_to_networkx(weight, cutoff)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
         return _astar_path_length_inproc(
             G, source, target, heuristic=heuristic, weight=weight, cutoff=cutoff
         )

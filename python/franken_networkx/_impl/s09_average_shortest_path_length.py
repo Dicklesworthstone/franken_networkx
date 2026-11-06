@@ -384,7 +384,11 @@ def average_shortest_path_length(G, weight=None, method=None):
     # the filtered nodes/edges (and correctly raises NetworkXError
     # when the view is disconnected). Same view-coerce family as
     # br-r37-c1-ajhcl / -c7xg2 / -2dbnk.
-    live_weight = callable(weight) and method in (None, "dijkstra", "bellman-ford")
+    live_weight = (
+        weight is not None
+        and method in (None, "dijkstra", "bellman-ford")
+        and _weighted_query_uses_live_python_rows(G, weight)
+    )
     if not live_weight:
         G = _coerce_arg_to_fnx_graph(G)
     _SUPPORTED_METHODS = (
@@ -806,15 +810,36 @@ def _point_query_uses_private_rows(G):
     return isinstance(root, (Graph, DiGraph, MultiGraph, MultiDiGraph)) and _has_networkx_private_storage(root)
 
 
+def _undirected_view_has_directed_rows(G):
+    """Whether an undirected view can expose different data at each edge end."""
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES or G.is_directed():
+        return False
+    parent = getattr(G, "_graph", None)
+    while parent is not None:
+        if parent.is_directed():
+            return True
+        parent = getattr(parent, "_graph", None)
+    return False
+
+
 def _weighted_query_uses_live_python_rows(G, weight):
-    """Run callbacks on original edge dictionaries, before graph conversion.
+    """Read authoritative edge dictionaries before graph conversion.
 
     A weight callback can read or mutate the caller's graph while a search is
     in progress. Copying a NetworkX graph or a view disconnects those writes
     from the rows being traversed. The in-process engines preserve that live
     relationship and avoid holding a native borrow across user Python code.
+
+    An undirected view of a directed graph prefers each node's outgoing arc.
+    Reciprocal arcs may have different weights, which a concrete undirected
+    graph cannot represent. Preserve those per-direction rows through filters
+    and nested views too, including views supplied by NetworkX callers.
     """
-    return callable(weight) or _point_query_uses_private_rows(G)
+    return (
+        callable(weight)
+        or _point_query_uses_private_rows(G)
+        or _undirected_view_has_directed_rows(G)
+    )
 
 
 def shortest_path(

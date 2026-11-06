@@ -775,3 +775,279 @@ def test_reinitialized_view_constructor_invalidates_cached_storage(graph_type, k
     # Reinitialization without filters makes a filtered view unfiltered.
     reference = expected.reverse(copy=False) if kind == "reverse" else nx.subgraph_view(expected)
     assert _constructor_reads(view) == _constructor_reads(reference)
+
+
+def _materialization_source(lib, graph_type):
+    graph = getattr(lib, graph_type)()
+    shared = ["shared"]
+    graph.graph.update(payload=shared, alias=shared)
+    graph.add_nodes_from(["a", "b", "c", "isolated", "hidden"])
+    graph.nodes["a"].update({"payload": shared, "alias": shared, 17: "node-value"})
+    edges = [
+        ("a", "b", ("road", 0), {"weight": 2, "forward_only": True, "payload": shared, "alias": shared}),
+        ("b", "a", ("road", 0), {"weight": 7, "backward_only": True, 17: "edge-value"}),
+        ("b", "c", "road", {"weight": 3}),
+        ("a", "c", "shortcut", {"weight": 8}),
+        ("b", "b", "loop", {"weight": 5}),
+        ("hidden", "c", "hidden", {"weight": 23}),
+    ]
+    if graph.is_multigraph():
+        graph.add_edges_from(edges)
+        graph.add_edge("a", "b", key=1024, weight=19)
+    else:
+        graph.add_edges_from((u, v, attrs) for u, v, _, attrs in edges)
+    return graph
+
+
+def _materialized_graph_state(graph):
+    edges = list(graph.edges(keys=True, data=True)) if graph.is_multigraph() else list(graph.edges(data=True))
+    rows = [(node, list(graph.adj[node])) for node in graph]
+    predecessors = [(node, list(graph.pred[node])) for node in graph] if graph.is_directed() else None
+    return dict(graph.graph), list(graph.nodes(data=True)), edges, rows, predecessors
+
+
+def _materialization_view(lib, source, outer):
+    view = source.to_undirected(as_view=True)
+    if outer == "filtered":
+        return view.subgraph(["a", "b", "c", "isolated"])
+    if outer == "edge_subgraph":
+        edges = list(view.edges(keys=True)) if view.is_multigraph() else list(view.edges())
+        return view.edge_subgraph([edge for edge in edges if "hidden" not in edge[:2]])
+    if outer == "restricted":
+        return lib.restricted_view(view, ["hidden"], [])
+    if outer == "nested":
+        return lib.restricted_view(view, ["hidden"], []).subgraph(["a", "b", "c"])
+    return view
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("outer", ["conversion", "filtered", "edge_subgraph", "restricted", "nested"])
+def test_conversion_copy_merges_reciprocal_attributes_in_adjacency_order(graph_type, outer):
+    results = []
+    for lib in (fnx, nx):
+        source = _materialization_source(lib, graph_type)
+        view = _materialization_view(lib, source, outer)
+        before = _materialized_graph_state(source)
+        copied = view.copy()
+        assert not lib.is_frozen(copied)
+        assert _materialized_graph_state(source) == before
+        assert copied.graph is not source.graph
+        assert copied.graph["payload"] is source.graph["payload"]
+        assert copied.nodes["a"] is not source.nodes["a"]
+        assert copied.nodes["a"]["payload"] is source.nodes["a"]["payload"]
+        attrs = copied["a"]["b"][("road", 0)] if copied.is_multigraph() else copied["a"]["b"]
+        assert attrs["payload"] is source.graph["payload"]
+        assert attrs["forward_only"] and attrs["backward_only"]
+        assert attrs["weight"] == 7
+        assert attrs[17] == "edge-value"
+        # The overwritten weight changes a real routing decision, not just
+        # the spelling of the copied attribute dictionary.
+        assert lib.shortest_path(copied, "a", "c", weight="weight") == ["a", "c"]
+        results.append(_materialized_graph_state(copied))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("conversion", ["to_directed", "to_undirected"])
+def test_conversion_copy_as_view_keeps_a_frozen_live_graph(graph_type, conversion):
+    results = []
+    for lib in (fnx, nx):
+        source = _materialization_source(lib, graph_type)
+        view = getattr(source, conversion)(as_view=True)
+        copied = view.copy(as_view=True)
+        assert copied._graph is view
+        assert copied.graph is source.graph
+        assert copied.nodes["a"] is source.nodes["a"]
+        assert lib.is_frozen(copied)
+        with pytest.raises(lib.NetworkXError, match="Frozen graph can't be modified"):
+            copied.add_edge("forbidden", "write")
+        source.add_edge("a", "late", weight=29)
+        copied.nodes["a"]["through_view"] = True
+        assert source.nodes["a"]["through_view"] is True
+        results.append(_materialized_graph_state(copied))
+        source.clear()
+        assert len(copied) == copied.number_of_edges() == 0
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("parent_kind", ["directed", "union"])
+def test_conversion_reverse_copy_deepcopies_attributes_and_preserves_row_order(graph_type, parent_kind):
+    results = []
+    for lib in (fnx, nx):
+        source = _materialization_source(lib, graph_type)
+        parent = source if parent_kind == "directed" else source.to_undirected(as_view=True)
+        view = parent.to_directed(as_view=True)
+        before = _materialized_graph_state(source)
+        copied = view.reverse()
+        assert not lib.is_frozen(copied)
+        assert copied.graph["payload"] is not source.graph["payload"]
+        assert copied.graph["payload"] is copied.graph["alias"]
+        assert copied.nodes["a"]["payload"] is not source.nodes["a"]["payload"]
+        assert copied.nodes["a"]["payload"] is copied.nodes["a"]["alias"]
+        assert copied.nodes["a"]["payload"] is not copied.graph["payload"]
+        attrs = copied["b"]["a"][("road", 0)] if copied.is_multigraph() else copied["b"]["a"]
+        assert attrs["payload"] is attrs["alias"]
+        assert attrs["payload"] is not source.graph["payload"]
+        assert attrs["payload"] is not copied.nodes["a"]["payload"]
+        attrs["payload"].append("copy-only")
+        assert _materialized_graph_state(source) == before
+        results.append(_materialized_graph_state(copied))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_conversion_reverse_copy_observes_deepcopy_callback_mutation(graph_type):
+    results = []
+    for lib in (fnx, nx):
+        source = getattr(lib, graph_type)([("a", "b")])
+        calls = []
+
+        class AddEdgeOnCopy:
+            def __deepcopy__(self, memo):
+                calls.append("graph-data")
+                source.add_edge("b", "late", weight=5)
+                return "copied"
+
+        source.graph["payload"] = AddEdgeOnCopy()
+        view = source.to_directed(as_view=True)
+        copied = view.reverse(copy=True)
+        assert calls == ["graph-data"]
+        assert copied.has_edge("late", "b")
+        assert copied.graph["payload"] == "copied"
+        results.append(_materialized_graph_state(copied))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("outer", ["conversion", "filtered", "edge_subgraph", "nested"])
+@pytest.mark.parametrize("input_kind", ["native", "networkx"])
+def test_conversion_weighted_queries_keep_directional_union_rows(graph_type, outer, input_kind):
+    source_lib = fnx if input_kind == "native" else nx
+    actual = _materialization_view(source_lib, _materialization_source(source_lib, graph_type), outer)
+    expected = _materialization_view(nx, _materialization_source(nx, graph_type), outer)
+    for source, target, distance in (("a", "b", 2), ("b", "a", 7)):
+        for name in (
+            "shortest_path_length", "dijkstra_path_length",
+            "bellman_ford_path_length", "astar_path_length",
+        ):
+            assert getattr(fnx, name)(actual, source, target, weight="weight") == distance
+            assert getattr(nx, name)(expected, source, target, weight="weight") == distance
+        for name in ("shortest_path", "dijkstra_path", "bellman_ford_path", "astar_path", "bidirectional_dijkstra"):
+            assert getattr(fnx, name)(actual, source, target, weight="weight") == getattr(nx, name)(expected, source, target, weight="weight")
+        for name in (
+            "single_source_dijkstra", "single_source_dijkstra_path",
+            "single_source_dijkstra_path_length", "single_source_bellman_ford",
+            "single_source_bellman_ford_path", "single_source_bellman_ford_path_length",
+            "dijkstra_predecessor_and_distance", "bellman_ford_predecessor_and_distance",
+        ):
+            assert getattr(fnx, name)(actual, source, weight="weight") == getattr(nx, name)(expected, source, weight="weight")
+    for name in ("all_pairs_dijkstra_path_length", "all_pairs_bellman_ford_path_length"):
+        assert list(getattr(fnx, name)(actual, weight="weight")) == list(getattr(nx, name)(expected, weight="weight"))
+    for method in (None, "dijkstra", "bellman-ford"):
+        assert fnx.average_shortest_path_length(actual.subgraph(["a", "b", "c"]), weight="weight", method=method) == nx.average_shortest_path_length(expected.subgraph(["a", "b", "c"]), weight="weight", method=method)
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "networkx"])
+def test_conversion_weighted_callback_reads_and_changes_original_attributes(graph_type, input_kind):
+    results = []
+    for lib, source_lib in ((fnx, fnx if input_kind == "native" else nx), (nx, nx)):
+        source = _materialization_source(source_lib, graph_type)
+        view = _materialization_view(source_lib, source, "nested")
+        calls = []
+
+        def weight(u, v, data):
+            edge_data = data.items() if view.is_multigraph() else [(None, data)]
+            values = []
+            for key, attrs in edge_data:
+                args = (u, v, key) if view.is_multigraph() else (u, v)
+                original = source.get_edge_data(*args)
+                if original is None:
+                    args = (v, u, key) if view.is_multigraph() else (v, u)
+                    original = source.get_edge_data(*args)
+                assert attrs is original
+                values.append(attrs.get("weight", 1))
+            calls.append((u, v, tuple(values)))
+            if (u, v) == ("a", "b"):
+                future = source["b"]["c"]["road"] if view.is_multigraph() else source["b"]["c"]
+                future["weight"] = 1
+            return min(values)
+
+        result = lib.single_source_dijkstra(view, "a", weight=weight)
+        assert result[0]["c"] == 3
+        results.append((result, calls))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_conversion_weighted_iterator_observes_live_filter_and_arc_changes(graph_type):
+    results = []
+    for lib in (fnx, nx):
+        source = _materialization_source(lib, graph_type)
+        allowed = {frozenset(("a", "b")), frozenset(("b", "c"))}
+        view = lib.subgraph_view(
+            source.to_undirected(as_view=True),
+            filter_node=lambda node: node in {"a", "b", "c"},
+            filter_edge=lambda u, v, *keys: frozenset((u, v)) in allowed,
+        )
+        iterator = lib.all_pairs_dijkstra_path_length(view, weight="weight")
+        attrs = source["b"]["a"][("road", 0)] if view.is_multigraph() else source["b"]["a"]
+        attrs["weight"] = 9
+        first = next(iterator)
+        assert first[1]["c"] == 5
+        allowed.remove(frozenset(("a", "b")))
+        allowed.add(frozenset(("a", "c")))
+        rest = list(iterator)
+        assert dict(rest)["b"]["a"] == 11
+        if view.is_multigraph():
+            source.add_edge("c", "a", key="shortcut", weight=1)
+        else:
+            source.add_edge("c", "a", weight=1)
+        assert lib.dijkstra_path_length(view, "b", "a", weight="weight") == 4
+        results.append((first, rest))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("outer", ["conversion", "nested"])
+def test_conversion_native_snapshot_keeps_edge_walk_separate_from_public_copy(graph_type, outer):
+    source = _materialization_source(fnx, graph_type)
+    view = _materialization_view(fnx, source, outer)
+    snapshot = fnx._materialize_view(view)
+    copied = view.copy()
+    assert not snapshot.is_directed()
+    if snapshot.is_multigraph():
+        assert snapshot["a"]["b"][("road", 0)]["weight"] == 2
+        assert copied["a"]["b"][("road", 0)]["weight"] == 7
+    else:
+        assert snapshot["a"]["b"]["weight"] == 2
+        assert copied["a"]["b"]["weight"] == 7
+    assert snapshot.graph is source.graph
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_conversion_named_weighted_algorithms_treat_none_as_an_attribute_key(graph_type):
+    results = []
+    for lib in (fnx, nx):
+        source = getattr(lib, graph_type)()
+        source.add_edges_from([
+            ("a", "b", {None: 2, "weight": 20}),
+            ("b", "a", {None: 7, "weight": 70}),
+        ])
+        view = source.to_undirected(as_view=True).subgraph(["a", "b"])
+        lengths = []
+        for u, v, distance in (("a", "b", 2), ("b", "a", 7)):
+            for name in ("dijkstra_path_length", "bellman_ford_path_length"):
+                value = getattr(lib, name)(view, u, v, weight=None)
+                assert value == distance
+                lengths.append(value)
+            # Generic shortest-path APIs give None its separate unweighted
+            # meaning; named weighted algorithms look up the None key.
+            assert lib.shortest_path_length(view, u, v, weight=None) == 1
+        for name in ("single_source_dijkstra_path_length", "single_source_bellman_ford_path_length"):
+            values = getattr(lib, name)(view, "b", weight=None)
+            assert values == {"b": 0, "a": 7}
+            lengths.append(values)
+        results.append(lengths)
+    assert results[0] == results[1]

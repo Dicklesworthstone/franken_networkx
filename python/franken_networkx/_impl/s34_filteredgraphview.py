@@ -1079,6 +1079,25 @@ class _FilteredGraphView:
         result = self._copy_type()()
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
+        if _view_row_root(self) is None:
+            # Conversion views and assigned rows need not share the same
+            # attribute dictionary at both ends of an undirected edge. Copy
+            # every visible adjacency entry in row order so later reciprocal
+            # data merges into the result, including through nested filters.
+            if self.is_multigraph():
+                result.add_edges_from(
+                    (u, v, key, dict(attrs))
+                    for u, neighbors in self._adj.items()
+                    for v, keyed_attrs in neighbors.items()
+                    for key, attrs in keyed_attrs.items()
+                )
+            else:
+                result.add_edges_from(
+                    (u, v, dict(attrs))
+                    for u, neighbors in self._adj.items()
+                    for v, attrs in neighbors.items()
+                )
+            return result
         # br-r37-c1-edgesubcopy (cc): edge_subgraph views store their selected
         # edges on filter_edge. Iterating the filtered VIEW's edges() pays
         # per-edge view-wrapper overhead (41ms .copy() on a 2k-edge multigraph);

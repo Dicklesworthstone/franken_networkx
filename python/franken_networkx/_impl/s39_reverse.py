@@ -776,21 +776,49 @@ class _ConversionGraphViewBase:
         nodes = self._nbunch(nbunch)
         return ((node, node_degree(node)) for node in nodes)
 
-    def copy(self):
+    def copy(self, as_view=False):
+        if as_view is True:
+            return _generic_filtered_graph_view(self)
+
         result = self._copy_type()()
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
+        # An undirected view of a directed graph can expose different data
+        # from the two ends of a reciprocal edge. A graph copy visits both
+        # adjacency rows and merges their attributes in that order; the
+        # deduplicated edge view would silently retain only the first arc.
         if self.is_multigraph():
-            # 4-tuple shape avoids the ``key=key, **attrs`` collision when
-            # an edge attribute is literally named "key"
-            # (franken_networkx-9x7r0).
             result.add_edges_from(
                 (u, v, key, dict(attrs))
+                for u, neighbors in self._adj.items()
+                for v, keyed_attrs in neighbors.items()
+                for key, attrs in keyed_attrs.items()
+            )
+        else:
+            result.add_edges_from(
+                (u, v, dict(attrs))
+                for u, neighbors in self._adj.items()
+                for v, attrs in neighbors.items()
+            )
+        return result
+
+    def _reverse_copy(self):
+        # Reverse copies are deep, unlike copy(). Read the live view in its
+        # original orientation while reversing each emitted edge, preserving
+        # successor/predecessor insertion order and deepcopy callback timing.
+        result = self._copy_type()()
+        result.graph.update(_deepcopy(self.graph))
+        result.add_nodes_from(
+            (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+        )
+        if self.is_multigraph():
+            result.add_edges_from(
+                (v, u, key, _deepcopy(attrs))
                 for u, v, key, attrs in self.edges(keys=True, data=True)
             )
         else:
             result.add_edges_from(
-                (u, v, dict(attrs)) for u, v, attrs in self.edges(data=True)
+                (v, u, _deepcopy(attrs)) for u, v, attrs in self.edges(data=True)
             )
         return result
 
@@ -885,10 +913,9 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
     # graphs have no reverse at all, and the shared base's raised
     # NetworkXError where networkx raises AttributeError.
     def reverse(self, copy=True):
-        reversed_view = _reverse_directed_view_for(self)
         if copy:
-            return reversed_view.copy()
-        return reversed_view
+            return self._reverse_copy()
+        return _reverse_directed_view_for(self)
 
 
 class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
@@ -952,10 +979,9 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
     # graphs have no reverse at all, and the shared base's raised
     # NetworkXError where networkx raises AttributeError.
     def reverse(self, copy=True):
-        reversed_view = _reverse_directed_view_for(self)
         if copy:
-            return reversed_view.copy()
-        return reversed_view
+            return self._reverse_copy()
+        return _reverse_directed_view_for(self)
 
 
 _DIRECTED_CONVERSION_VIEW_TYPES = {

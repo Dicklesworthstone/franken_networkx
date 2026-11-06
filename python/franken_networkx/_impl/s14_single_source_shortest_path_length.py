@@ -510,9 +510,9 @@ def _materialize_view(view):
     conversion view - for callers that hand it to Rust: a view's own Rust
     storage is empty, so a kernel given the view itself sees no nodes.
 
-    br-r37-c1-4rhw0: built by the view's own copy(), which yields the same
-    graph dict, node / edge attr copies and node, edge and adjacency-row
-    order as the Python builders this replaced, on its native fast paths:
+    br-r37-c1-4rhw0: built by the view's own copy() on its native fast paths,
+    retaining the same graph dict, node / edge attr copies and node, edge
+    and adjacency-row order as the Python builders this replaced:
     subgraph(800) of gnp(1000, 0.01) 1.7 ms against 4.7 ms, a to_directed
     view of it 9.1 ms against 20.8 ms.
 
@@ -574,7 +574,26 @@ def _materialize_view(view):
 
     out = _native_view_copy(view)
     if out is None:
-        out = view.copy()
+        if (
+            isinstance(view, (_FilteredGraphView, _ConversionGraphViewBase))
+            and _view_row_root(view) is None
+        ):
+            # Internal snapshots retain the visible edge walk's first arc.
+            # Public copy() instead merges both adjacency entries, as a graph
+            # copy must. Neither can represent asymmetric union-view weights;
+            # weighted queries on those views keep their live Python rows.
+            out = view._copy_type()()
+            out.graph.update(dict(view.graph))
+            out.add_nodes_from((node, dict(attrs)) for node, attrs in view.nodes(data=True))
+            if view.is_multigraph():
+                out.add_edges_from(
+                    (u, v, key, dict(attrs))
+                    for u, v, key, attrs in view.edges(keys=True, data=True)
+                )
+            else:
+                out.add_edges_from((u, v, dict(attrs)) for u, v, attrs in view.edges(data=True))
+        else:
+            out = view.copy()
     # br-r37-c1-u9a13: networkx's views share the parent's graph dict; the
     # concrete graph shares it too (as copy.copy's result does), so a graph
     # attribute written after the cache was filled is there without a check.
