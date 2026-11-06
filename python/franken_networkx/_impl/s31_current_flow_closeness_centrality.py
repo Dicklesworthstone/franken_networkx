@@ -121,7 +121,11 @@ def betweenness_centrality_subset(
         if s not in G:
             raise KeyError(s)
 
-    if weight is None and not G.is_multigraph():
+    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
+        G = _coerce_arg_to_fnx_graph(G)
+
+    if not live_rows and weight is None and not G.is_multigraph():
         scores = _betweenness_centrality_subset_rust(
             G, sources, targets, normalized
         )
@@ -132,13 +136,11 @@ def betweenness_centrality_subset(
     # common simple-graph string-weight case with finite/non-negative/numeric
     # weights; callable/non-string weight, multigraph, or bad weights fall
     # through to the parity path.
-    if isinstance(weight, str) and not G.is_multigraph():
-        _sync_rust_edge_attrs(G)
-        if not (
-            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-        ):
+    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
+        # Counting shortest paths requires exact weight comparisons, just as
+        # full Brandes does. Rounded integer sums can invent equal paths.
+        if not _should_delegate_dijkstra_to_networkx(G, weight):
+            _sync_rust_edge_attrs(G)
             scores = _betweenness_centrality_subset_weighted_rust(
                 G, sources, targets, weight, normalized
             )
@@ -150,7 +152,7 @@ def betweenness_centrality_subset(
                 G, source
             )
         else:
-            stack, predecessors, sigma, _ = _single_source_dijkstra_path_basic_local(
+            stack, predecessors, sigma, _ = _single_source_betweenness_dijkstra(
                 G, source, weight
             )
         betweenness = _accumulate_subset_local(
@@ -198,7 +200,11 @@ def edge_betweenness_centrality_subset(
         if s not in G:
             raise KeyError(s)
 
-    if weight is None and not G.is_multigraph():
+    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
+        G = _coerce_arg_to_fnx_graph(G)
+
+    if not live_rows and weight is None and not G.is_multigraph():
         rust_scores = _edge_betweenness_centrality_subset_rust(
             G, sources, targets, normalized
         )
@@ -216,13 +222,9 @@ def edge_betweenness_centrality_subset(
     # the simple-graph string-weight case with finite/non-negative/numeric
     # weights; callable/non-string weight, multigraph, or bad weights fall
     # through to the parity path.
-    if isinstance(weight, str) and not G.is_multigraph():
-        _sync_rust_edge_attrs(G)
-        if not (
-            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-        ):
+    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
+        if not _should_delegate_dijkstra_to_networkx(G, weight):
+            _sync_rust_edge_attrs(G)
             rust_scores = _edge_betweenness_centrality_subset_weighted_rust(
                 G, sources, targets, weight, normalized
             )
@@ -242,7 +244,7 @@ def edge_betweenness_centrality_subset(
                 G, source
             )
         else:
-            stack, predecessors, sigma, _ = _single_source_dijkstra_path_basic_local(
+            stack, predecessors, sigma, _ = _single_source_betweenness_dijkstra(
                 G, source, weight
             )
         betweenness = _accumulate_edges_subset_local(
@@ -422,6 +424,10 @@ def percolation_centrality(
 
     state_sum = sum(states.values())
 
+    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
+        G = _coerce_arg_to_fnx_graph(G)
+
     # br-r37-c1-percw: weighted percolation centrality previously ran a
     # pure-Python per-source Dijkstra + accumulation loop (~1.8s n=400, 3.2x
     # SLOWER than nx). Route to the native weighted percolation kernel (Dijkstra
@@ -433,17 +439,14 @@ def percolation_centrality(
     # negative/+inf/non-numeric weight, n<=2, or non-float states fall through
     # to the parity path / nx.
     if (
-        weight is not None
+        not live_rows
+        and weight is not None
         and isinstance(weight, str)
         and len(G) > 2
         and not G.is_multigraph()
     ):
-        _sync_rust_edge_attrs(G)
-        if not (
-            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-        ):
+        if not _should_delegate_dijkstra_to_networkx(G, weight):
+            _sync_rust_edge_attrs(G)
             try:
                 states_list = [float(states[node]) for node in G]
             except (TypeError, ValueError, KeyError):
@@ -471,7 +474,7 @@ def percolation_centrality(
         # non-uniform-states, 0..7e-18 vs nx) and parallel-native: 123ms -> 3.5ms
         # (n=400), ~35x. Multigraph keeps the Python loop (the native kernel guards
         # !multigraph, matching the weighted path above).
-        if not G.is_multigraph():
+        if not live_rows and not G.is_multigraph():
             try:
                 states_list = [float(states[node]) for node in G]
             except (TypeError, ValueError, KeyError):
@@ -523,7 +526,7 @@ def percolation_centrality(
                 G, source
             )
         else:
-            stack, predecessors, sigma, _ = _single_source_dijkstra_path_basic_local(
+            stack, predecessors, sigma, _ = _single_source_betweenness_dijkstra(
                 G, source, weight
             )
         percolation = _accumulate_percolation_local(

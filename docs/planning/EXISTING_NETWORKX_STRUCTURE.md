@@ -466,6 +466,20 @@ An isolated vertex contributes zero and must not enter another source's traversa
 Newman load distributes the current accumulated load in predecessor order; a
 self-predecessor update must be visible to subsequent predecessors of that node.
 
+Weighted subset node/edge betweenness, percolation, and Newman load use the
+shared Dijkstra exact-weight admission before native projection. Oversized
+integer weights or path sums, Fraction/Decimal values, and other custom
+numerics retain Python arithmetic so rounding cannot invent shortest-path ties
+or redistribute credit. This applies to both NetworkX and fnx input graphs;
+ordinary eligible weights retain their native routes, including finite floating
+weights whose sums overflow as described above. Callable weights read the
+caller's live graph and attribute mappings; mutations remain visible to later
+reads and callback exceptions propagate unchanged. Subset Brandes and
+percolation preserve the arithmetic TypeError for `None` edge costs, while
+Newman load follows Dijkstra's hidden-edge semantics for `None`.
+`tests/python/test_weighted_centrality_overflow.py` covers these consumers and
+native-route controls across all four graph classes.
+
 ### 22.3 Metric-closure weight domain
 
 The Python metric-closure fast path must use the same exact-weight eligibility

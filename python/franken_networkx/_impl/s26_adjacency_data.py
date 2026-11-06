@@ -756,7 +756,9 @@ def load_centrality(
 
     For unweighted graphs, this is equivalent to betweenness centrality.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    if not live_rows:
+        G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "newman_betweenness_centrality", backend, backend_kwargs
     )
@@ -777,7 +779,7 @@ def load_centrality(
     # loop below redid all V sources' work in Python. A v that is not a node
     # (networkx: 0.0) or is unhashable (TypeError) keeps that loop.
     single = v is not None and v in G
-    if (v is None or single) and cutoff is None and weight is None:
+    if not live_rows and (v is None or single) and cutoff is None and weight is None:
         value_rank = _load_value_rank(G)
         if value_rank is not None:
             if G.is_multigraph():
@@ -803,17 +805,17 @@ def load_centrality(
     # multigraph, cutoff, negative/+inf/non-numeric weight, or nodes that are
     # not mutually sortable all fall through to the parity path / nx.
     if (
-        (v is None or single)
+        not live_rows
+        and (v is None or single)
         and cutoff is None
         and isinstance(weight, str)
         and not G.is_multigraph()
     ):
-        _sync_rust_edge_attrs(G)
-        if not (
-            _has_negative_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_positive_infinity_edge_weight_for_dijkstra(G, weight, _skip_sync=True)
-            or _has_nonnumeric_edge_weight(G, weight, _skip_sync=True)
-        ):
+        # Preserve exact path comparisons before projecting weights to f64.
+        # Individually numeric edges can still create false shortest-path ties
+        # when large integers or custom arithmetic are rounded by the kernel.
+        if not _should_delegate_dijkstra_to_networkx(G, weight):
+            _sync_rust_edge_attrs(G)
             value_rank = _load_value_rank(G)
             if value_rank is not None:
                 loads = _raw_load_centrality_weighted(
