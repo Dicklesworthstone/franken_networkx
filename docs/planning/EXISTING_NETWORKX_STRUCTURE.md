@@ -767,3 +767,29 @@ graph's NetworkX conversion cache is cleared only after successful completion
 of the attribute-writing route. `tests/python/test_distance_measures_parity.py`
 covers live callbacks, reverse and filtered views, supplied distances, original
 attribute writes, and partial progress on errors.
+
+
+## 34. Shared Extrema Bounding
+
+Literal `usebounds=True` on an undirected graph with no supplied eccentricity
+mapping activates a shared owned bounding engine for diameter, radius, center,
+and periphery. Each pivot's shortest-path row tightens lower and upper
+eccentricity bounds using the triangle inequality. Alternating low-lower and
+high-upper pivots, with degree tie-breaking and metric-specific pruning,
+avoids searching every source when the requested extreme is already known.
+Pivot selection and callback traversal order follow the NetworkX contract.
+
+The engine reuses public shortest-path queries, retains original graphs for
+callable weights, and materializes an ordinary native input at most once.
+It keeps linear bound/candidate state and one source-distance row instead of
+an all-pairs matrix. A stable finite distance metric requires at most one
+search per vertex; cycle and clique cases can still require that worst case.
+Directed graphs and supplied eccentricity mappings retain their existing routes.
+
+An unweighted full-distance cache is published only when every bound interval
+has collapsed to an exact eccentricity and the topology key remains unchanged.
+Pruned but unresolved bounds must never populate that cache. Existing complete
+snapshots remain reusable. `tests/python/test_distance_measures_parity.py`
+checks results and actual search counts against the live oracle, sparse and
+worst-case graph families, exact numeric weights, live callbacks, bypass and
+error behavior, and complete versus partial cache publication.

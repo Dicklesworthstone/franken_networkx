@@ -191,6 +191,112 @@ def _tree_center_unweighted(G):
     return list(center_candidates_degree)
 
 
+def _extrema_bounding_inproc(G, compute="diameter", weight=None):
+    """Resolve an undirected distance extreme with triangle-inequality bounds.
+
+    Each pivot supplies lower and upper eccentricity bounds for the remaining
+    candidates. Alternating low-lower and high-upper pivots avoids a full
+    all-sources sweep when the requested extreme is established sooner.
+    """
+    if not callable(weight):
+        G = _coerce_arg_to_fnx_graph(G)
+
+    start_key = None
+    if weight is None:
+        snapshot = _cached_distance_measures_snapshot(G)
+        if snapshot is not None:
+            if compute == "diameter":
+                return snapshot[4]
+            if compute == "radius":
+                return snapshot[5]
+            if compute == "center":
+                return list(snapshot[6])
+            if compute == "periphery":
+                return list(snapshot[7])
+            if compute == "eccentricities":
+                return dict(snapshot[3])
+        start_key = _distance_measures_cache_key(G)
+
+    degrees = dict(G.degree())
+    pivot = max(degrees, key=degrees.get)
+    order = len(degrees)
+    lower = dict.fromkeys(G, 0)
+    upper = dict.fromkeys(G, float("inf"))
+    candidates = set(G)
+    choose_upper = True
+    min_lower = min_upper = float("inf")
+    max_lower = max_upper = 0
+
+    while candidates:
+        distances = shortest_path_length(G, source=pivot, weight=weight)
+        if len(distances) != order:
+            raise NetworkXError("Cannot compute metric because graph is not connected.")
+        eccentricity_value = max(distances.values())
+        for node in candidates:
+            distance = distances[node]
+            lower[node] = max(lower[node], max(distance, eccentricity_value - distance))
+            upper[node] = min(upper[node], eccentricity_value + distance)
+            # These extrema accumulate across rounds, including resolved nodes.
+            min_lower = min(lower[node], min_lower)
+            max_lower = max(lower[node], max_lower)
+            min_upper = min(upper[node], min_upper)
+            max_upper = max(upper[node], max_upper)
+
+        if compute == "diameter":
+            excluded = {
+                node for node in candidates
+                if upper[node] <= max_lower and 2 * lower[node] >= max_upper
+            }
+        elif compute == "radius":
+            excluded = {
+                node for node in candidates
+                if lower[node] >= min_upper and upper[node] + 1 <= 2 * min_lower
+            }
+        elif compute == "periphery":
+            excluded = {
+                node for node in candidates
+                if upper[node] < max_lower
+                and (max_lower == max_upper or lower[node] > max_upper)
+            }
+        elif compute == "center":
+            excluded = {
+                node for node in candidates
+                if lower[node] > min_upper
+                and (min_lower == min_upper or upper[node] + 1 < 2 * min_lower)
+            }
+        elif compute == "eccentricities":
+            excluded = set()
+        else:
+            raise ValueError(
+                "compute must be one of 'diameter', 'radius', 'periphery', "
+                "'center', 'eccentricities'"
+            )
+        excluded.update(node for node in candidates if lower[node] == upper[node])
+        candidates.difference_update(excluded)
+        if candidates:
+            # A degree tie retains candidate-set iteration order, as in the
+            # oracle; node labels themselves are never compared.
+            if choose_upper:
+                pivot = max(candidates, key=lambda node: (upper[node], degrees[node]))
+            else:
+                pivot = min(candidates, key=lambda node: (lower[node], -degrees[node]))
+            choose_upper = not choose_upper
+
+    # Pruned intervals are not exact eccentricities. Publish a reusable full
+    # snapshot only if every interval really collapsed and topology is stable.
+    if weight is None and all(lower[node] == upper[node] for node in lower):
+        _store_distance_measures_snapshot(G, lower, start_key)
+    if compute == "diameter":
+        return max_lower
+    if compute == "radius":
+        return min_upper
+    if compute == "periphery":
+        return [node for node in G if lower[node] == max_lower]
+    if compute == "center":
+        return [node for node in G if upper[node] == min_upper]
+    return lower
+
+
 def diameter(G, e=None, usebounds=False, weight=None):
     """Returns the diameter of the graph G.
 
@@ -212,6 +318,8 @@ def diameter(G, e=None, usebounds=False, weight=None):
     """
     if e is not None:
         return max(e.values())
+    if usebounds is True and not G.is_directed():
+        return _extrema_bounding_inproc(G, compute="diameter", weight=weight)
     if len(G) == 0:
         raise ValueError("max() iterable argument is empty")
     if weight is not None or usebounds:
@@ -255,6 +363,8 @@ def radius(G, e=None, usebounds=False, weight=None):
     """
     if e is not None:
         return min(e.values())
+    if usebounds is True and not G.is_directed():
+        return _extrema_bounding_inproc(G, compute="radius", weight=weight)
     if len(G) == 0:
         raise ValueError("min() iterable argument is empty")
     if weight is not None or usebounds:
@@ -294,6 +404,8 @@ def center(G, e=None, usebounds=False, weight=None):
     if e is not None:
         radius_w = min(e.values())
         return [v for v in e if e[v] == radius_w]
+    if usebounds is True and not G.is_directed():
+        return _extrema_bounding_inproc(G, compute="center", weight=weight)
     if len(G) == 0:
         if weight is None and not G.is_directed():
             raise NetworkXPointlessConcept("G has no nodes.")
@@ -349,6 +461,8 @@ def periphery(G, e=None, usebounds=False, weight=None):
     if e is not None:
         diameter_w = max(e.values())
         return [v for v in e if e[v] == diameter_w]
+    if usebounds is True and not G.is_directed():
+        return _extrema_bounding_inproc(G, compute="periphery", weight=weight)
     if len(G) == 0:
         raise ValueError("max() iterable argument is empty")
     if weight is not None or usebounds:

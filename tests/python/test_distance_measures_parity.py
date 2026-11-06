@@ -20,6 +20,8 @@ br-r37-c1-8k1rt
 
 from __future__ import annotations
 
+from decimal import Decimal
+from fractions import Fraction
 import random
 
 import pytest
@@ -370,7 +372,8 @@ def test_eccentricity_selection_disconnected_after_warming(class_name, scalar):
 def test_eccentricity_warm_selection_reuses_sibling_snapshot(class_name, prime):
     fg, ng, labels = _eccentricity_cache_pair(class_name)
     # Default diameter/radius and tree center intentionally avoid a full
-    # eccentricity sweep. Their usebounds route does populate the snapshot.
+    # eccentricity sweep. On this path, bounding resolves every node exactly
+    # and can retain the same complete snapshot without extra searches.
     kwargs = {} if prime == "periphery" else {"usebounds": True}
     assert getattr(fnx, prime)(fg, **kwargs) == getattr(nx, prime)(ng, **kwargs)
     actual, calls = _profile_eccentricity(fg, v=[labels[-1], labels[0]])
@@ -563,3 +566,190 @@ def test_distance_measures_supplied_values_do_not_call_weight(input_module, name
             )
         outcomes.append(value)
     assert outcomes[0] == outcomes[1]
+
+
+_BOUNDED_DISTANCE_MEASURES = ["diameter", "radius", "center", "periphery"]
+
+
+def _bounds_work_graph(module, family):
+    if family == "path":
+        template = nx.path_graph(129)
+    elif family == "star":
+        template = nx.star_graph(128)
+    elif family == "binary-tree":
+        template = nx.balanced_tree(2, 6)
+    elif family == "grid":
+        template = nx.grid_2d_graph(10, 10)
+    elif family == "small-world":
+        template = nx.watts_strogatz_graph(128, 4, 0.1, seed=7)
+    elif family == "cycle":
+        template = nx.cycle_graph(64)
+    else:
+        template = nx.complete_graph(24)
+    graph = module.Graph()
+    graph.add_nodes_from(template)
+    graph.add_edges_from(template.edges())
+    return graph
+
+
+@pytest.mark.parametrize("name", _BOUNDED_DISTANCE_MEASURES)
+@pytest.mark.parametrize(
+    "family", ["path", "star", "binary-tree", "grid", "small-world", "cycle", "complete"]
+)
+def test_distance_bounds_match_oracle_search_counts(name, family):
+    """Measure real searches in both libraries, including worst-case controls."""
+    import cProfile
+    import pstats
+
+    outcomes = []
+    for api in (nx, fnx):
+        graph = _bounds_work_graph(api, family)
+        calls = 0
+
+        def weight(u, v, data):
+            nonlocal calls
+            calls += 1
+            return 1
+
+        profiler = cProfile.Profile()
+        value = profiler.runcall(getattr(api, name), graph, usebounds=True, weight=weight)
+        searches = sum(
+            record[1] for key, record in pstats.Stats(profiler).stats.items()
+            if key[2] in {"_dijkstra_multisource", "_dijkstra_multisource_inproc"}
+        )
+        assert calls == searches * 2 * graph.number_of_edges()
+        assert 0 < searches <= len(graph)
+        if family in {"cycle", "complete"}:
+            assert searches == len(graph)
+        else:
+            assert searches < len(graph)
+        outcomes.append((value, searches))
+    assert outcomes[0] == outcomes[1]
+
+
+def _bounds_typed_graph(module, class_name, kind):
+    graph = getattr(module, class_name)()
+    labels = [0, "a", (2,), b"b", frozenset({4}), 5]
+    graph.add_nodes_from(labels)
+    edges = [(0, 1, 1), (1, 2, 2), (2, 3, 3), (3, 4, 4),
+             (4, 5, 2), (5, 0, 1), (1, 5, 1), (2, 4, 1)]
+    for u, v, value in edges:
+        if kind == "float":
+            cost = value / 4
+        elif kind == "fraction":
+            cost = Fraction(value, 3)
+        elif kind == "decimal":
+            cost = Decimal(value) / 4
+        elif kind == "large-integer":
+            cost = 2**60 + value
+        elif kind == "zero":
+            cost = 0
+        else:
+            cost = value
+        if graph.is_multigraph():
+            graph.add_edge(labels[u], labels[v], key="route", distance=cost)
+            graph.add_edge(labels[u], labels[v], key="parallel", distance=cost * 3)
+        else:
+            graph.add_edge(labels[u], labels[v], distance=cost)
+    return graph
+
+
+@pytest.mark.parametrize("name", _BOUNDED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize(
+    "kind", ["unweighted", "integer", "float", "fraction", "decimal", "large-integer", "zero"]
+)
+def test_distance_bounds_preserve_weight_values(name, input_module, class_name, kind):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph = _bounds_typed_graph(module, class_name, kind)
+        value = getattr(api, name)(
+            graph, usebounds=True, weight=None if kind == "unweighted" else "distance"
+        )
+        outcomes.append((type(value), value))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _BOUNDED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("view", ["graph", "subgraph"])
+def test_distance_bounds_preserve_live_callback_order(name, input_module, class_name, view):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph, _ = _live_distance_graph(module, class_name, view)
+        calls = []
+        value = getattr(api, name)(
+            graph, usebounds=True, weight=_live_distance_weight(graph, calls)
+        )
+        outcomes.append((value, calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _BOUNDED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("case", ["directed", "precomputed", "truthy-flag"])
+def test_distance_bounds_respect_bypass_arguments(name, input_module, case):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        class_name = "DiGraph" if case == "directed" else "Graph"
+        graph, _ = _live_distance_graph(module, class_name, "graph")
+        calls = []
+        kwargs = {"usebounds": 1 if case == "truthy-flag" else True}
+        if case == "precomputed":
+            kwargs["e"] = {2: 7, 0: 6, 1: 7}
+
+            def weight(u, v, data):
+                raise AssertionError("a supplied eccentricity must bypass bounding")
+
+        else:
+            weight = _live_distance_weight(graph, calls)
+        value = getattr(api, name)(graph, weight=weight, **kwargs)
+        outcomes.append((value, calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _BOUNDED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("case", ["empty", "disconnected", "hidden-by-weight"])
+def test_distance_bounds_match_errors(name, input_module, class_name, case):
+    outcomes = []
+    for api, module in ((nx, nx), (fnx, input_module)):
+        graph = getattr(module, class_name)()
+        kwargs = {"usebounds": True}
+        if case == "disconnected":
+            graph.add_edge(0, 1)
+            graph.add_node(2)
+        elif case == "hidden-by-weight":
+            graph.add_edges_from([(0, 1), (1, 2), (2, 0)])
+            kwargs["weight"] = lambda u, v, data: None
+        try:
+            value = getattr(api, name)(graph, **kwargs)
+        except Exception as exc:
+            outcomes.append(("error", type(exc).__name__, exc.args))
+        else:
+            outcomes.append(("return", value))
+    assert outcomes[0][0] == "error"
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _BOUNDED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+def test_distance_bounds_never_cache_partial_eccentricities(name, class_name):
+    template = nx.gnm_random_graph(24, 48, seed=19)
+    template.add_edges_from(zip(range(24), range(1, 24)))
+    graphs = []
+    for module in (nx, fnx):
+        graph = getattr(module, class_name)()
+        graph.add_nodes_from(template)
+        graph.add_edges_from(template.edges())
+        graphs.append(graph)
+    reference, actual = graphs
+    assert getattr(fnx, name)(actual, usebounds=True) == getattr(nx, name)(reference, usebounds=True)
+    expected = nx.eccentricity(reference)
+    snapshot = fnx._cached_distance_measures_snapshot(actual)
+    if snapshot is not None:
+        assert dict(snapshot[3]) == expected
+    assert fnx.eccentricity(actual) == expected
