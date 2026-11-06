@@ -1050,7 +1050,7 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     Mirrors ``networkx.dijkstra_path_length``. Raises ``NetworkXNoPath``
     if no path exists.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _dijkstra_path_length_inproc(G, source, target, weight=weight)
     G = _coerce_arg_to_fnx_graph(G)
     # br-cc-mgdijkstra: multigraph -> simple min-weight graph + fast simple kernel.
@@ -1127,7 +1127,7 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     Raises ``NetworkXUnbounded`` on negative cycles reachable from ``source``,
     ``NetworkXNoPath`` if ``target`` is unreachable.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _bellman_ford_path_length_inproc(G, source, target, weight=weight)
     # br-r37-c1-bfpathnative: the native single-pair Bellman-Ford kernel returns
     # nx-identical paths (the old br-r37-c1-9axrp "incorrect paths/lengths" note

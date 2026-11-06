@@ -804,3 +804,143 @@ def test_single_source_bellman_ford_path_length_negative_cycle(directed):
         except Exception as exc:  # noqa: BLE001 - exact public error parity
             outcomes[lib.__name__] = (type(exc).__name__, str(exc))
     assert outcomes["franken_networkx"] == outcomes["networkx"]
+
+
+_LIVE_WEIGHT_QUERIES = [
+    ("dijkstra_path", {"source": "s", "target": "t"}, False),
+    ("dijkstra_path_length", {"source": "s", "target": "t"}, False),
+    ("bidirectional_dijkstra", {"source": "s", "target": "t"}, False),
+    ("dijkstra_predecessor_and_distance", {"source": "s"}, False),
+    ("single_source_dijkstra", {"source": "s"}, False),
+    ("single_source_dijkstra_path", {"source": "s"}, False),
+    ("single_source_dijkstra_path_length", {"source": "s"}, False),
+    ("multi_source_dijkstra", {"sources": {"s"}}, False),
+    ("multi_source_dijkstra_path", {"sources": {"s"}}, False),
+    ("multi_source_dijkstra_path_length", {"sources": {"s"}}, False),
+    ("bellman_ford_path", {"source": "s", "target": "t"}, False),
+    ("bellman_ford_path_length", {"source": "s", "target": "t"}, False),
+    ("single_source_bellman_ford", {"source": "s"}, False),
+    ("single_source_bellman_ford_path", {"source": "s"}, False),
+    ("single_source_bellman_ford_path_length", {"source": "s"}, False),
+    ("all_pairs_dijkstra", {}, True),
+    ("all_pairs_dijkstra_path", {}, True),
+    ("all_pairs_dijkstra_path_length", {}, True),
+    ("all_pairs_bellman_ford_path", {}, True),
+    ("all_pairs_bellman_ford_path_length", {}, True),
+    ("single_source_all_shortest_paths", {"source": "s"}, True),
+    ("all_pairs_all_shortest_paths", {}, True),
+]
+for _method in ("dijkstra", "bellman-ford"):
+    for _name in ("shortest_path", "shortest_path_length"):
+        for _endpoints in (
+            {"source": "s", "target": "t"},
+            {"source": "s"},
+            {"target": "t"},
+            {},
+        ):
+            _LIVE_WEIGHT_QUERIES.append(
+                (_name, {"method": _method, **_endpoints}, not _endpoints)
+            )
+    _LIVE_WEIGHT_QUERIES.extend(
+        [
+            ("all_shortest_paths", {"source": "s", "target": "t", "method": _method}, True),
+            ("average_shortest_path_length", {"method": _method}, False),
+        ]
+    )
+
+
+def _live_weight_graph(lib, graph_class, filtered):
+    graph = getattr(lib, graph_class)()
+    graph.add_weighted_edges_from([("s", "a", 1), ("a", "t", 10), ("s", "t", 5)])
+    if graph.is_directed():
+        graph.add_edge("t", "s", weight=20)
+    if graph.is_multigraph():
+        graph.add_edge("s", "a", key="parallel", weight=40)
+    if filtered:
+        graph.add_weighted_edges_from([("s", "hidden", 0), ("hidden", "t", 0)])
+        return graph.subgraph(["s", "a", "t"])
+    return graph
+
+
+def _run_live_weight_query(module, graph, name, kwargs, materialize):
+    def weight(u, v, data):
+        # Reading the original graph inside the callback must not conflict with
+        # a native borrow. Writes through callback dictionaries must persist.
+        assert graph.number_of_edges() > 0
+        attrs = data.values() if graph.is_multigraph() else [data]
+        for attr in attrs:
+            attr["visited_by_weight"] = True
+        if (u, v) == ("s", "a"):
+            edge = graph["a"]["t"]
+            if graph.is_multigraph():
+                edge = edge[0]
+            edge["weight"] = 1
+        if graph.is_multigraph():
+            return min(attr["weight"] for attr in data.values())
+        return data["weight"]
+
+    result = getattr(module, name)(graph, weight=weight, **kwargs)
+    if materialize:
+        result = list(result)
+    if graph.is_multigraph():
+        attrs = [(u, v, key, dict(data)) for u, v, key, data in graph.edges(keys=True, data=True)]
+    else:
+        attrs = [(u, v, dict(data)) for u, v, data in graph.edges(data=True)]
+    return result, attrs
+
+
+@pytest.mark.parametrize("name,kwargs,materialize", _LIVE_WEIGHT_QUERIES)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_library", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("filtered", [False, True], ids=["concrete", "filtered"])
+def test_live_weight_callbacks_keep_original_graph(
+    name, kwargs, materialize, graph_class, input_library, filtered
+):
+    actual = _live_weight_graph(input_library, graph_class, filtered)
+    expected = _live_weight_graph(nx, graph_class, filtered)
+    assert _run_live_weight_query(fnx, actual, name, kwargs, materialize) == (
+        _run_live_weight_query(nx, expected, name, kwargs, materialize)
+    )
+
+
+@pytest.mark.parametrize("name", ["shortest_path", "shortest_path_length"])
+@pytest.mark.parametrize("method", ["dijkstra", "bellman-ford"])
+def test_live_weight_all_pairs_remain_lazy_between_yields(name, method):
+    def consume(module):
+        graph = nx.DiGraph()
+        graph.add_weighted_edges_from([("s", "a", 1), ("a", "t", 10), ("s", "t", 5)])
+        calls = []
+
+        def weight(u, v, data):
+            calls.append((u, v))
+            return data["weight"]
+
+        result = getattr(module, name)(graph, weight=weight, method=method)
+        assert calls == []
+        graph["a"]["t"]["weight"] = 1
+        first = next(result)
+        graph["a"]["t"]["weight"] = 7
+        return first, list(result), calls
+
+    assert consume(fnx) == consume(nx)
+
+
+@pytest.mark.parametrize("method", [None, "dijkstra", "bellman-ford"])
+@pytest.mark.parametrize("shape", ["empty", "singleton", "disconnected", "not-strongly-connected"])
+def test_live_weight_average_distance_graph_errors_precede_callback(method, shape):
+    graph = nx.DiGraph() if shape == "not-strongly-connected" else nx.Graph()
+    if shape == "singleton":
+        graph.add_node(0)
+    elif shape == "disconnected":
+        graph.add_nodes_from([0, 1])
+    elif shape == "not-strongly-connected":
+        graph.add_edge(0, 1)
+
+    def unused_weight(u, v, data):
+        raise AssertionError("Invalid or singleton graphs do not evaluate weights")
+
+    assert _exact_outcome(
+        lambda: fnx.average_shortest_path_length(graph, weight=unused_weight, method=method)
+    ) == _exact_outcome(
+        lambda: nx.average_shortest_path_length(graph, weight=unused_weight, method=method)
+    )

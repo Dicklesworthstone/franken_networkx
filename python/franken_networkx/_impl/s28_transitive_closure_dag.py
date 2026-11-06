@@ -153,7 +153,7 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     """
     # Private root rows remain authoritative through views; coercion can read
     # stale native edges or replace the row's discovery objects before routing.
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _dijkstra_predecessor_and_distance_inproc(
             G, source, cutoff=cutoff, weight=weight,
         )
@@ -207,7 +207,7 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     """Return shortest path lengths and paths from any source in *sources*."""
     if not sources:
         raise ValueError("sources must not be empty")
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _multi_source_dijkstra_inproc(
             G, sources, target=target, cutoff=cutoff, weight=weight,
         )
@@ -366,7 +366,7 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     """
     if not sources:
         raise ValueError("sources must not be empty")
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         for source in sources:
             if source not in G:
                 raise NodeNotFound(f"Node {source} not found in graph")

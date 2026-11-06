@@ -11,7 +11,7 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     sources = {source}
     # Authoritative Python rows must survive view coercion, including cutoffs
     # and callable weights. The path-only entrypoint calls this one too.
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _multi_source_dijkstra_inproc(
             G, sources, target=target, cutoff=cutoff, weight=weight
         )
@@ -387,7 +387,7 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     """
     # Match NetworkX's source-set validation rather than a dict-key probe.
     sources = {source}
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         if source not in G:
             raise NodeNotFound(f"Node {source} not found in graph")
         # Do not build quadratic path output for a length-only query.
@@ -458,7 +458,7 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     is given, returns ``(distance, path)`` to that node alone. Handles negative
     edge weights; raises ``NetworkXUnbounded`` on negative cycles.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _single_source_bellman_ford_inproc(
             G, source, target=target, weight=weight
         )
@@ -524,7 +524,7 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     edge weights; raises ``NetworkXUnbounded`` on negative cycles reachable
     from ``source``.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _single_source_bellman_ford_inproc(G, source, weight=weight)[1]
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
@@ -569,7 +569,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     negative edge weights; raises ``NetworkXUnbounded`` on negative cycles
     reachable from ``source``.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _bellman_ford_inproc(G, [source], _weight_function(G, weight))
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.

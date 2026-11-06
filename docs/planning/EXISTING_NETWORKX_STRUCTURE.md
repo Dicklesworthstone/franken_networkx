@@ -714,3 +714,24 @@ Attribute writes through a view or a weight callback remain visible in the
 parent graph and subsequent traversals. Reading an edge earlier must not
 change whether later view writes persist. Simple directed graphs and native
 algorithm routes retain their existing access paths.
+
+
+## 32. Live Weighted Shortest-Path Queries
+
+Dijkstra and Bellman-Ford entry points select their in-process traversal before
+graph conversion whenever `weight` is callable. The same rule applies to the
+generic path/length dispatchers, predecessor queries, single-source and
+multi-source variants, all-shortest-path enumeration, and average distance.
+Callbacks receive original edge attributes, including parallel-key mappings,
+so a write to a later edge affects subsequent relaxation and writes through
+callback arguments remain visible in the caller's graph. Native graph borrows
+must not remain active while user callback code runs. Ordinary eligible
+attribute-name weights retain their native routes.
+
+Generic all-pairs path and length iterators retain the original graph and
+compute one source when consumed. They do not execute callbacks at iterator
+creation or freeze weights for later sources. Average-distance queries validate
+empty, singleton, disconnected, and non-strongly-connected graphs before
+evaluating a weight callback. `tests/python/test_weighted_path_adversarial_parity.py`
+covers the public variants across all four graph classes, NetworkX and fnx
+inputs, filtered views, original-dictionary writes, and lazy consumption.

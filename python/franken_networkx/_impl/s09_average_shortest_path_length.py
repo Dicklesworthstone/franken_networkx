@@ -384,7 +384,9 @@ def average_shortest_path_length(G, weight=None, method=None):
     # the filtered nodes/edges (and correctly raises NetworkXError
     # when the view is disconnected). Same view-coerce family as
     # br-r37-c1-ajhcl / -c7xg2 / -2dbnk.
-    G = _coerce_arg_to_fnx_graph(G)
+    live_weight = callable(weight) and method in (None, "dijkstra", "bellman-ford")
+    if not live_weight:
+        G = _coerce_arg_to_fnx_graph(G)
     _SUPPORTED_METHODS = (
         None, "unweighted", "dijkstra", "bellman-ford",
         "floyd-warshall", "floyd-warshall-numpy",
@@ -410,15 +412,28 @@ def average_shortest_path_length(G, weight=None, method=None):
         else:
             s = float(floyd_warshall_numpy(G, weight=weight).sum())
         return s / (n * (n - 1))
-    if weight is not None and method in (None, "dijkstra") and _should_delegate_dijkstra_to_networkx(G, weight):
+    if live_weight or (
+        weight is not None
+        and method in (None, "dijkstra")
+        and _should_delegate_dijkstra_to_networkx(G, weight)
+    ):
+        if n == 0:
+            raise NetworkXPointlessConcept(
+                "the null graph has no paths, thus there is no average shortest path length"
+            )
         if G.is_directed() and not is_strongly_connected(G):
             raise NetworkXError("Graph is not strongly connected.")
         if not G.is_directed() and not is_connected(G):
             raise NetworkXError("Graph is not connected.")
+        path_length = (
+            single_source_bellman_ford_path_length
+            if method == "bellman-ford"
+            else single_source_dijkstra_path_length
+        )
         s = sum(
             l
             for u in G
-            for l in single_source_dijkstra_path_length(G, u, weight=weight).values()
+            for l in path_length(G, u, weight=weight).values()
         )
         return s / (n * (n - 1))
     if isinstance(weight, str):
@@ -436,9 +451,8 @@ def dijkstra_path(G, source, target, weight="weight"):
     the shortest path. Raises ``NetworkXNoPath`` if no path exists and
     ``NodeNotFound`` if ``source`` is missing.
     """
-    # Private rows override Rust storage, including through live views. Query
-    # them before coercion can materialize a stale native graph.
-    if _point_query_uses_private_rows(G):
+    # Callbacks and private rows must retain the caller's live graph.
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _multi_source_dijkstra_inproc(G, {source}, target=target, weight=weight)[1]
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
@@ -699,7 +713,7 @@ def bellman_ford_path(G, source, target, weight="weight"):
     Mirrors ``networkx.bellman_ford_path``. Raises ``NetworkXUnbounded``
     on negative cycles, ``NetworkXNoPath`` if no path exists.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _single_source_bellman_ford_inproc(
             G, source, target=target, weight=weight
         )[1]
@@ -792,6 +806,17 @@ def _point_query_uses_private_rows(G):
     return isinstance(root, (Graph, DiGraph, MultiGraph, MultiDiGraph)) and _has_networkx_private_storage(root)
 
 
+def _weighted_query_uses_live_python_rows(G, weight):
+    """Run callbacks on original edge dictionaries, before graph conversion.
+
+    A weight callback can read or mutate the caller's graph while a search is
+    in progress. Copying a NetworkX graph or a view disconnects those writes
+    from the rows being traversed. The in-process engines preserve that live
+    relationship and avoid holding a native borrow across user Python code.
+    """
+    return callable(weight) or _point_query_uses_private_rows(G)
+
+
 def shortest_path(
     G, source=None, target=None, weight=None, method="dijkstra",
     *, backend=None, **backend_kwargs,
@@ -810,7 +835,7 @@ def shortest_path(
     # crashed on fnx with `TypeError: shortest_path() got an unexpected
     # keyword argument 'backend'`. Match the dispatch surface.
     _validate_backend_dispatch_keywords("shortest_path", backend, backend_kwargs)
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         if method not in ("dijkstra", "bellman-ford"):
             raise ValueError(f"method not supported: {method}")
         if source is None and target is None:
@@ -964,7 +989,7 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     Native-root views materialize as needed; private-root queries
     walk their current Python rows without copying to native storage.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         if method not in ("dijkstra", "bellman-ford"):
             raise ValueError(f"method not supported: {method}")
         if source is None and target is None:

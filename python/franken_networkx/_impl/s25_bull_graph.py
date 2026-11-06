@@ -1144,7 +1144,7 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
     fnx's own dijkstra wrappers (which are weight-correct) for
     unit-weight cases.
     """
-    if _point_query_uses_private_rows(G):
+    if _weighted_query_uses_live_python_rows(G, weight):
         return _bidirectional_dijkstra_local(G, source, target, weight=weight)
     # br-r37-c1-bdjkstra: directed multigraphs, callable / non-string weight,
     # and negative / non-finite / non-numeric weights still delegate to nx.

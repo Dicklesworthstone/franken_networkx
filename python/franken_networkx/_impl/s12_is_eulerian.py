@@ -371,7 +371,8 @@ def all_shortest_paths(
     only as the generator advances. Raises ``NetworkXNoPath`` when advanced if
     no path exists.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    if not _weighted_query_uses_live_python_rows(G, weight):
+        G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords("all_shortest_paths", backend, backend_kwargs)
     if weight is None or method == "unweighted":
         pred = predecessor(G, source)
