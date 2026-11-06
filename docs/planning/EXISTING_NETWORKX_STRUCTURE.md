@@ -597,3 +597,24 @@ and already satisfies these cases; this contract covers the native APIs
 without changing that routing. Native regression cases live beside the
 existing minimum-cycle-basis Rust tests and in
 `tests/python/test_misc_tier2_parity.py`.
+
+
+## 26. Relabeling with Colliding Node Labels
+
+`relabel_nodes(G, mapping, copy=True)` inserts target nodes in the order of
+their first mapped occurrence. When several source nodes map to one target,
+the last source node in graph iteration order supplies the target's entire
+node-attribute dictionary. Attributes unique to earlier source nodes are
+discarded, including when the last source has an empty dictionary. Mapping
+dictionary order does not select the winning attributes.
+
+Copied node, edge, and graph dictionaries are independent shallow copies:
+changing their fields does not mutate the input graph, while nested attribute
+values keep their identity. The source graph remains unchanged. In-place
+relabeling (`copy=False`) has a different contract: it updates the surviving
+node dictionary and retains non-overlapping fields.
+
+Regression coverage in `tests/python/test_relabel_edge_cases_parity.py`
+checks all four graph types, both source insertion orders, fresh and existing
+target labels, callable mappings, empty final attributes, nonstring attribute
+keys, and shallow-copy identity.

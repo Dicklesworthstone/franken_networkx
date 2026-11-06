@@ -161,3 +161,113 @@ def test_merge_resolves_attribute_conflict_last_writer_wins():
     ng = nx.relabel_nodes(_attributed(nx), {1: "X", 2: "X"})
     assert fg.nodes["X"] == ng.nodes["X"]
     assert fg.nodes["X"]["tag"] == "t2"
+
+
+_GRAPH_CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+
+
+def _ordered_data(graph):
+    edges = (
+        graph.edges(keys=True, data=True)
+        if graph.is_multigraph()
+        else graph.edges(data=True)
+    )
+    return (
+        [(node, list(attrs.items())) for node, attrs in graph.nodes(data=True)],
+        [(edge[:-1], list(edge[-1].items())) for edge in edges],
+    )
+
+
+@pytest.mark.parametrize("class_name", _GRAPH_CLASSES)
+@pytest.mark.parametrize("node_order", [("a", "b"), ("b", "a")])
+@pytest.mark.parametrize("mapping_kind", ["new_label", "existing_label", "callable"])
+@pytest.mark.parametrize("last_empty", [False, True])
+def test_copy_relabel_replaces_merged_node_attribute_dicts(
+    class_name, node_order, mapping_kind, last_empty
+):
+    results = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, class_name)()
+        for node in node_order:
+            graph.add_node(node, **{f"only_{node}": node, "common": node})
+        if last_empty:
+            graph.nodes[node_order[-1]].clear()
+        else:
+            graph.nodes[node_order[-1]][("nonstring", 1)] = "last"
+        graph.add_edge("a", "tail", only_a=1, common="a")
+        graph.add_edge("b", "tail", only_b=2, common="b")
+        original = _ordered_data(graph)
+        if mapping_kind == "existing_label":
+            mapping = {"a": "b"}
+            target = "b"
+        elif mapping_kind == "callable":
+            mapping = lambda node: "merged" if node in {"a", "b"} else node
+            target = "merged"
+        else:
+            # Mapping iteration order must not determine the winning attrs.
+            mapping = {node: "merged" for node in reversed(node_order)}
+            target = "merged"
+
+        result = lib.relabel_nodes(graph, mapping, copy=True)
+        assert dict(result.nodes[target]) == dict(graph.nodes[node_order[-1]])
+        assert _ordered_data(graph) == original
+        results.append(_ordered_data(result))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("class_name", _GRAPH_CLASSES)
+@pytest.mark.parametrize("merge", [False, True])
+def test_copy_relabel_keeps_independent_dicts_and_shared_nested_values(class_name, merge):
+    results = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, class_name)()
+        node_payload = ["node"]
+        edge_payload = ["edge"]
+        graph_payload = ["graph"]
+        graph.graph["payload"] = graph_payload
+        graph.add_node("a", obsolete=True)
+        graph.add_node("b", payload=node_payload)
+        graph.add_edge("a", "tail", earlier=True)
+        graph.add_edge("b", "tail", payload=edge_payload)
+        mapping = {"a": "merged", "b": "merged" if merge else "separate"}
+        target = mapping["b"]
+
+        result = lib.relabel_nodes(graph, mapping, copy=True)
+        source_node_attrs = graph.nodes["b"]
+        copied_node_attrs = result.nodes[target]
+        source_edge_attrs = next(
+            attrs for _, _, attrs in graph.edges(data=True) if "payload" in attrs
+        )
+        copied_edge_attrs = next(
+            attrs for _, _, attrs in result.edges(data=True) if "payload" in attrs
+        )
+        assert copied_node_attrs is not source_node_attrs
+        assert copied_edge_attrs is not source_edge_attrs
+        assert result.graph is not graph.graph
+        assert copied_node_attrs["payload"] is node_payload
+        assert copied_edge_attrs["payload"] is edge_payload
+        assert result.graph["payload"] is graph_payload
+        copied_node_attrs["new"] = 1
+        copied_edge_attrs["new"] = 2
+        result.graph["new"] = 3
+        assert "new" not in source_node_attrs
+        assert "new" not in source_edge_attrs
+        assert "new" not in graph.graph
+        copied_node_attrs["payload"].append("shared")
+        assert source_node_attrs["payload"] == ["node", "shared"]
+        results.append(_ordered_data(result))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("class_name", _GRAPH_CLASSES)
+def test_inplace_relabel_still_merges_node_attribute_fields(class_name):
+    results = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, class_name)()
+        graph.add_node("a", only_a=1, common="a")
+        graph.add_node("b", only_b=2, common="b")
+        result = lib.relabel_nodes(graph, {"a": "b"}, copy=False)
+        assert result is graph
+        assert result.nodes["b"] == {"only_b": 2, "common": "a", "only_a": 1}
+        results.append(_ordered_data(result))
+    assert results[0] == results[1]

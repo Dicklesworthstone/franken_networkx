@@ -816,24 +816,16 @@ def relabel_nodes(G, mapping, copy=True):
         else:
             H = _concrete_class_for(G)()
         H.graph.update(G.graph)
-        # br-r37-c1-nodebatch: H is FRESH, so batch the relabeled nodes through
-        # add_nodes_from (native attributed-node batch for simple Graph; one
-        # bulk extend_nodes_with_attrs_unrecorded) instead of a per-node
-        # add_node loop. Mirrors nx's relabel. (node, dict) 2-tuples preserve
-        # per-node attrs + identity; node-MERGING relabels keep iteration-order
-        # merge semantics (duplicate node updates attrs, later wins).
         get = _map.get
-        # cc-relabelnodesdata: iterate G.nodes(data=True) ONCE (native bulk) rather
-        # than `dict(G.nodes[n]) for n in G`, which paid a per-node NodeView
-        # __getitem__ + `G.nodes` property re-eval (~6.6x slower on the node list:
-        # 0.36ms vs 0.055ms at 500 nodes). Same (node, attr-dict) 2-tuples in the
-        # same node order.
-        # cc-relabelnodict: pass the mirror dict `d` DIRECTLY (no `dict(d)` copy) —
-        # add_nodes_from ALWAYS materialises H's own independent dict (verified: H's
-        # dict is a distinct object; mutating H never touches G, incl node-MERGING
-        # where source dicts stay untouched), and nodes(data=True) yields a distinct
-        # dict per node, so the extra copy was pure overhead. Byte-identical.
-        H.add_nodes_from([(get(n, n), d) for n, d in G.nodes(data=True)])
+        # A copied relabel keeps each target's first insertion position but
+        # replaces its ENTIRE attribute dictionary with the last source node's
+        # attributes. Passing duplicate targets to add_nodes_from would merge
+        # dictionaries and retain fields that NetworkX discards, including
+        # when the last source has no attributes. Resolve those collisions
+        # before the bulk insertion; add_nodes_from supplies independent,
+        # shallow-copied dictionaries without copying nested attribute values.
+        node_attrs = {get(n, n): d for n, d in G.nodes(data=True)}
+        H.add_nodes_from(list(node_attrs.items()))
         if G.is_multigraph():
             # 4-tuple form avoids `key=key, **d` collision when d contains
             # a 'key' attribute (franken_networkx-uphdr).
