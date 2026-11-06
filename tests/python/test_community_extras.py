@@ -226,6 +226,227 @@ def test_girvan_newman_empty_edges_and_custom_edge_match_networkx():
     ) == _normalize_partition_sequence(list(nx.community.girvan_newman(expected_weighted, heaviest)))
 
 
+_LAZY_COMMUNITY_ALGORITHMS = [
+    "asyn_lpa_communities",
+    "fast_label_propagation_communities",
+    "girvan_newman",
+]
+_COMMUNITY_INPUT_KINDS = ["native", "networkx", "native_view", "networkx_view"]
+_COMMUNITY_GRAPH_CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+
+
+def _community_live_inputs(class_name, input_kind, edges):
+    """Keep both parents available so mutations also exercise live views."""
+    module = nx if input_kind.startswith("networkx") else fnx
+    actual_parent = getattr(module, class_name)()
+    expected_parent = getattr(nx, class_name)()
+    for graph in (actual_parent, expected_parent):
+        graph.add_edges_from(edges)
+        if graph.is_directed():
+            graph.add_edges_from((v, u, data) for u, v, data in edges)
+    if input_kind.endswith("_view"):
+        actual = module.subgraph_view(actual_parent)
+        expected = nx.subgraph_view(expected_parent)
+    else:
+        actual, expected = actual_parent, expected_parent
+    return actual_parent, actual, expected_parent, expected
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS)
+@pytest.mark.parametrize("class_name", _COMMUNITY_GRAPH_CLASSES)
+@pytest.mark.parametrize("input_kind", _COMMUNITY_INPUT_KINDS)
+@pytest.mark.parametrize("mutation", ["add_node", "add_edge", "remove_node", "remove_edge"])
+def test_community_iterators_read_live_graph_at_first_resume(name, class_name, input_kind, mutation):
+    edges = [("a", "b", {}), ("b", "c", {}), ("c", "d", {})]
+    parent, graph, nx_parent, nx_graph = _community_live_inputs(class_name, input_kind, edges)
+    kwargs = {} if name == "girvan_newman" else {"seed": 0}
+    reference = getattr(nx.community, name)
+    before = list(reference(nx_graph, **kwargs))
+    actual = getattr(fnx.community, name)(graph, **kwargs)
+    expected = reference(nx_graph, **kwargs)
+
+    for owner in (parent, nx_parent):
+        if mutation == "add_node":
+            owner.add_node("late")
+        elif mutation == "add_edge":
+            owner.add_edge("d", "late")
+            if owner.is_directed():
+                owner.add_edge("late", "d")
+        elif mutation == "remove_node":
+            owner.remove_node("b")
+        else:
+            owner.remove_edge("a", "b")
+            if owner.is_directed():
+                owner.remove_edge("b", "a")
+
+    wanted = list(expected)
+    assert wanted != before, "the fixture must distinguish an eager graph snapshot"
+    assert list(actual) == wanted
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("class_name", _COMMUNITY_GRAPH_CLASSES)
+@pytest.mark.parametrize("input_kind", _COMMUNITY_INPUT_KINDS)
+def test_label_propagation_iterators_read_live_weights_at_first_resume(name, class_name, input_kind):
+    edges = [
+        ("a", "b", {"cost": 5}), ("a", "c", {"cost": 5}), ("b", "c", {"cost": 5}),
+        ("c", "d", {"cost": 1}),
+        ("d", "e", {"cost": 5}), ("d", "f", {"cost": 5}), ("e", "f", {"cost": 5}),
+    ]
+    parent, graph, nx_parent, nx_graph = _community_live_inputs(class_name, input_kind, edges)
+    reference = getattr(nx.community, name)
+    kwargs = {"seed": 0, "weight": "cost"}
+    before = list(reference(nx_graph, **kwargs))
+    actual = getattr(fnx.community, name)(graph, **kwargs)
+    expected = reference(nx_graph, **kwargs)
+    for owner in (parent, nx_parent):
+        endpoints = [("c", "d"), ("d", "c")] if owner.is_directed() else [("c", "d")]
+        for u, v in endpoints:
+            data = owner[u][v][0] if owner.is_multigraph() else owner[u][v]
+            data["cost"] = 100
+    wanted = list(expected)
+    assert wanted != before, "the fixture must distinguish stale edge weights"
+    assert list(actual) == wanted
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS)
+@pytest.mark.parametrize("input_kind", _COMMUNITY_INPUT_KINDS)
+def test_community_iterators_keep_their_result_after_first_resume(name, input_kind):
+    edges = [("a", "b", {}), ("b", "c", {}), ("d", "e", {}), ("e", "f", {})]
+    parent, graph, nx_parent, nx_graph = _community_live_inputs("Graph", input_kind, edges)
+    kwargs = {} if name == "girvan_newman" else {"seed": 0}
+    actual = getattr(fnx.community, name)(graph, **kwargs)
+    expected = getattr(nx.community, name)(nx_graph, **kwargs)
+    assert next(actual) == next(expected)
+    for owner in (parent, nx_parent):
+        owner.clear()
+    wanted = list(expected)
+    assert wanted
+    assert list(actual) == wanted
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("input_kind", _COMMUNITY_INPUT_KINDS)
+def test_label_propagation_resolves_seeds_before_lazy_graph_reads(name, input_kind):
+    import random
+
+    class UnhashableAttribute(str):
+        __hash__ = None
+
+    invalid_weight = UnhashableAttribute("cost")
+    edges = [("a", "b", {}), ("b", "c", {}), ("c", "d", {})]
+    _, graph, _, nx_graph = _community_live_inputs("Graph", input_kind, edges)
+    algorithm = getattr(fnx.community, name)
+    reference = getattr(nx.community, name)
+
+    # Seed validation is eager even when reading edge data would also fail.
+    with pytest.raises(ValueError) as expected_error:
+        reference(nx_graph, weight=invalid_weight, seed="invalid")
+    with pytest.raises(ValueError) as actual_error:
+        algorithm(graph, weight=invalid_weight, seed="invalid")
+    assert str(actual_error.value) == str(expected_error.value)
+
+    # With a valid seed the bad attribute key fails only on the first next().
+    actual = algorithm(graph, weight=invalid_weight, seed=1)
+    expected = reference(nx_graph, weight=invalid_weight, seed=1)
+    with pytest.raises(TypeError) as expected_error:
+        next(expected)
+    with pytest.raises(TypeError) as actual_error:
+        next(actual)
+    assert str(actual_error.value) == str(expected_error.value)
+
+    mine, theirs = random.Random(7), random.Random(7)
+    initial = mine.getstate()
+    actual = algorithm(graph, seed=mine)
+    expected = reference(nx_graph, seed=theirs)
+    assert mine.getstate() == theirs.getstate() == initial
+    assert mine.random() == theirs.random()
+    assert list(actual) == list(expected)
+    assert mine.getstate() == theirs.getstate()
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("customization", ["subclass", "instance"])
+def test_label_propagation_random_callbacks_keep_node_keys_and_live_graph(name, customization):
+    import random
+
+    def run(module):
+        graph = module.Graph([("a", "b"), ("b", "c"), ("c", "d")])
+        calls = []
+
+        def shuffle(rng, values):
+            calls.append((type(values).__name__, tuple(values)))
+            if len(calls) == 1:
+                graph.remove_edge("a", "b")
+            random.Random.shuffle(rng, values)
+
+        if customization == "subclass":
+            class ObservingRandom(random.Random):
+                def shuffle(self, values):
+                    shuffle(self, values)
+
+            rng = ObservingRandom(7)
+        else:
+            rng = random.Random(7)
+            rng.shuffle = lambda values: shuffle(rng, values)
+        result = getattr(module.community, name)(graph, seed=rng)
+        assert calls == []
+        return list(result), calls, rng.getstate()
+
+    actual = run(fnx)
+    expected = run(nx)
+    assert actual == expected
+    assert actual[1][0][1] == ("a", "b", "c", "d")
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS)
+def test_community_iterators_observe_private_store_replacement_before_resume(name):
+    graphs = [fnx.path_graph(3), nx.path_graph(3)]
+    kwargs = {} if name == "girvan_newman" else {"seed": 0}
+    actual = getattr(fnx.community, name)(graphs[0], **kwargs)
+    expected = getattr(nx.community, name)(graphs[1], **kwargs)
+    for graph in graphs:
+        replacement = nx.Graph([("x", "y"), ("y", "z")])
+        graph._node = replacement._node
+        graph._adj = replacement._adj
+    assert list(actual) == list(expected)
+
+
+def test_girvan_newman_retains_caller_copy_hooks_and_callback_graph():
+    def run(module):
+        copies = []
+        callbacks = []
+
+        class ObservingGraph(nx.Graph):
+            def copy(self, as_view=False):
+                result = super().copy(as_view=as_view)
+                copies.append(result)
+                return result
+
+            def to_undirected(self, as_view=False):
+                result = super().to_undirected(as_view=as_view)
+                copies.append(result)
+                return result
+
+        graph = ObservingGraph([("a", "b"), ("b", "c"), ("c", "d")])
+
+        def choose_edge(working):
+            assert working is copies[-1]
+            assert working is not graph
+            callbacks.append(list(working.edges()))
+            return next(iter(working.edges()))
+
+        iterator = module.community.girvan_newman(graph, most_valuable_edge=choose_edge)
+        assert copies == callbacks == []
+        graph.add_edge("d", "late")
+        partitions = list(iterator)
+        assert len(copies) == 2
+        assert list(graph.edges()) == [("a", "b"), ("b", "c"), ("c", "d"), ("d", "late")]
+        return partitions, callbacks
+
+    assert run(fnx) == run(nx)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

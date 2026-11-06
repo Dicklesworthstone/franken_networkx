@@ -625,6 +625,21 @@ def greedy_modularity_communities(
     )
 
 
+def _label_propagation_snapshot_allowed(G, rng):
+    """Only snapshot graphs and random sources without observable overrides."""
+    import random
+
+    return (
+        type(G) is _fnx.Graph
+        and not _fnx._has_networkx_private_storage(G)
+        and type(rng) is random.Random
+        and not any(
+            name in vars(rng)
+            for name in ("shuffle", "choice", "random", "getrandbits", "_randbelow")
+        )
+    )
+
+
 def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_kwargs):
     """Communities via asynchronous label propagation.
 
@@ -645,20 +660,34 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
        labels are themselves the same 0..n-1 ints, and the final
        ``groups`` mapping is rebuilt in node order.
 
-    asyn_lpa supports directed graphs (unlike ``label_propagation_communities``);
-    only the concrete simple undirected ``Graph`` takes the native fast path.
-    Non-fnx graphs, directed / multigraph / subgraph-view fnx graphs fall
-    through to nx for safety (directed/multigraph adjacency & weight
-    semantics differ from the simple-graph fast path).
+    asyn_lpa supports directed graphs (unlike ``label_propagation_communities``).
+    An ordinary simple undirected ``Graph`` uses the index snapshot, built
+    when iteration starts. Other graphs and custom random sources retain
+    live Python traversal so graph views, private mappings, and callbacks
+    preserve their observable behavior.
     """
     _fnx._validate_backend_dispatch_keywords(
         "asyn_lpa_communities", backend, backend_kwargs
     )
+    # NetworkX validates the seed at call time but reads the graph only when
+    # iteration starts. Even native-route admission must wait: private stores
+    # and edge weights can be replaced while the iterator is still suspended.
+    rng = _fnx._create_py_random_state(seed)
 
-    if type(G) is not _fnx.Graph:
-        from collections import Counter as _Counter
+    def _gen():
+        yield from _asyn_lpa_communities(G, weight, rng)
 
-        rng_fb = _fnx._create_py_random_state(seed)
+    return _gen()
+
+
+def _asyn_lpa_communities(G, weight, rng):
+    if not _label_propagation_snapshot_allowed(G, rng):
+        # Custom RNG callbacks receive the original node keys and observe the
+        # live graph, including changes made by shuffle/choice themselves.
+        # Assigned private mappings likewise remain the authoritative storage.
+        from collections import Counter as _Counter, defaultdict
+
+        rng_fb = rng
 
         def _fallback_gen():
             labels = {node: i for i, node in enumerate(G)}
@@ -725,7 +754,6 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
                 for u in node_list
             ]
 
-    rng = _fnx._generator_random_state(seed)
     unweighted = weight is None
 
     def _gen():
@@ -787,16 +815,25 @@ def fast_label_propagation_communities(
     _fnx._validate_backend_dispatch_keywords(
         "fast_label_propagation_communities", backend, backend_kwargs
     )
+    rng = _fnx._create_py_random_state(seed)
+
+    def _gen():
+        yield from _fast_label_propagation_communities(G, weight, rng)
+
+    return _gen()
+
+
+def _fast_label_propagation_communities(G, weight, rng):
     from collections import deque
 
     if (
-        type(G) is not _fnx.Graph
+        not _label_propagation_snapshot_allowed(G, rng)
         or weight is not None
         or getattr(G, "_native_adjacency_keys", None) is None
     ):
-        from collections import Counter as _Counter
+        from collections import Counter as _Counter, defaultdict
 
-        rng_fb = _fnx._create_py_random_state(seed)
+        rng_fb = rng
 
         def _fast_label_count(comms, node):
             if weight is None:
@@ -847,8 +884,6 @@ def fast_label_propagation_communities(
     adj = [None] * n
     for node, nbrs in G._native_adjacency_keys():
         adj[idx[node]] = [idx[v] for v in nbrs]
-
-    rng = _fnx._generator_random_state(seed)
 
     def _gen():
         comms = list(range(n))
@@ -939,8 +974,6 @@ def _without_most_central_edges(G, most_valuable_edge):
 def girvan_newman(G, most_valuable_edge=None, *, backend=None, **backend_kwargs):
     """Finds communities in a graph using the Girvan–Newman method."""
     _fnx._validate_backend_dispatch_keywords("girvan_newman", backend, backend_kwargs)
-    G = _fnx._coerce_arg_to_fnx_graph(G)
-
     def _gen():
         nonlocal most_valuable_edge
         if G.number_of_edges() == 0:
@@ -952,6 +985,9 @@ def girvan_newman(G, most_valuable_edge=None, *, backend=None, **backend_kwargs)
                 betweenness = _fnx.edge_betweenness_centrality(g)
                 return max(betweenness, key=betweenness.get)
 
+        # Copy the live caller graph at the first resume. Pre-converting a
+        # NetworkX graph or view both freezes its state too early and loses
+        # its copy hooks and the working-graph type a custom callback sees.
         g = G.copy().to_undirected()
         g.remove_edges_from(list(_fnx.selfloop_edges(g)))
         while g.number_of_edges() > 0:
