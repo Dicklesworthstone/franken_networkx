@@ -1435,32 +1435,28 @@ def union_all(graphs, rename=()):
         return _finalize_operator_result(R)
 
     R = graphs[0].__class__()
-    rename_iter = iter(rename_list)
-    for G, prefix in zip(graphs, rename_iter):
+    for G, prefix in zip(graphs, rename_list):
+        if prefix is not None:
+            # Prefixing can merge distinct labels within this input, such as
+            # 1 and "1". Relabel first so node attributes and parallel-edge
+            # keys follow the copied-relabel rules before checking overlap
+            # with earlier inputs. Such an internal merge is a valid union.
+            G = relabel_nodes(G, lambda node, prefix=prefix: f"{prefix}{node}")
+        if any(node in R for node in G):
+            raise NetworkXError(_disjoint_msg)
         R.graph.update(G.graph)
-
-        def _rename(n, _prefix=prefix):
-            return f"{_prefix}{n}" if _prefix is not None else n
-
-        for n in G.nodes():
-            new_n = _rename(n)
-            if new_n in R:
-                raise NetworkXError(_disjoint_msg)
-            R.add_node(new_n, **G.nodes[n])
-        # br-r37-c1-kmxke: ONE batched add_edges_from instead of a Python
-        # add_edge (or singleton-list add_edges_from) per edge — the
-        # per-edge loops made disjoint_union/union ~6-7x nx. Node sets are
-        # disjoint (validated above), so there are no cross-graph edge
-        # merges; content copies via dict(d) match the old **d kwargs.
+        # Attribute keys need not be strings, so preserve them through the
+        # bulk node API instead of unpacking node dictionaries as keywords.
+        R.add_nodes_from(G.nodes(data=True))
         if R.is_multigraph():
             R.add_edges_from(
-                (_rename(u), _rename(v), key, dict(d))
+                (u, v, key, dict(d))
                 for u, v, key, d in G.edges(keys=True, data=True)
             )
         else:
             R.add_edges_from(
                 [
-                    (_rename(u), _rename(v), dict(d))
+                    (u, v, dict(d))
                     for u, v, d in G.edges(data=True)
                 ]
             )

@@ -680,3 +680,22 @@ node changes between iterator construction and its first advancement.
 `tests/python/test_astar_yen.py` covers weighted and unweighted enumeration,
 NetworkX and fnx inputs, filtered and reverse views, callback identity, and
 the timing of validation.
+
+
+## 30. Renamed Graph Union
+
+`union` and `union_all` apply each non-`None` prefix using copied relabeling
+before checking disjointness between input graphs. Distinct labels within one
+input, such as `1` and `"1"`, may map to the same prefixed label. The merged
+node keeps its first insertion position and the complete attributes of its
+last source node, including an empty attribute dictionary. Simple-edge
+attributes follow copied-relabel merge order; multigraph key collisions retain
+every edge through key reassignment. Overlap between separately relabeled
+inputs remains an error, as do incompatible directedness or multiplicity.
+
+Graph, node, and edge attribute dictionaries are independent shallow copies:
+arbitrary attribute keys survive, nested values remain shared, and inputs are
+unchanged. Short prefix iterators leave subsequent inputs unrenamed; infinite
+iterators are accepted; unused prefixes remain unconsumed.
+`tests/python/test_graph_operators_parity.py` covers these rules for both public
+operators and all four graph classes without a NetworkX operator fallback.

@@ -428,6 +428,183 @@ def test_union_all_rename_iterables_match_networkx_without_fallback(monkeypatch)
     assert actual == expected
 
 
+def _ordered_union_signature(graph):
+    edges = (
+        [(u, v, key, dict(data)) for u, v, key, data in graph.edges(keys=True, data=True)]
+        if graph.is_multigraph()
+        else [(u, v, dict(data)) for u, v, data in graph.edges(data=True)]
+    )
+    return (
+        dict(graph.graph),
+        [(node, dict(data)) for node, data in graph.nodes(data=True)],
+        edges,
+        [(node, list(graph[node])) for node in graph],
+    )
+
+
+def _renamed_union(lib, operator_name, graphs, rename):
+    if operator_name == "union":
+        return lib.union(*graphs, rename=rename)
+    return lib.union_all(graphs, rename=rename)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("operator_name", ["union", "union_all"])
+def test_renamed_union_preserves_attribute_keys_and_shallow_copies(
+    monkeypatch, graph_name, operator_name
+):
+    def build(lib):
+        graphs = []
+        for side in ("left", "right"):
+            graph = getattr(lib, graph_name)()
+            graph.graph.update(side=side, shared=[side])
+            graph.add_nodes_from(
+                [("a", {None: side, ("feature", 0): [side], 7: "integer-key"}), "b"]
+            )
+            attrs = {None: [side], ("edge", 0): side, "key": "attribute-value"}
+            edge = ("a", "b", "route", attrs) if graph.is_multigraph() else ("a", "b", attrs)
+            graph.add_edges_from([edge])
+            graphs.append(graph)
+        return graphs
+
+    expected = _renamed_union(nx, operator_name, build(nx), ("L-", "R-"))
+    graphs = build(fnx)
+    original = [_ordered_union_signature(graph) for graph in graphs]
+    _block_networkx_operators(monkeypatch, "union", "union_all", "relabel_nodes")
+
+    result = _renamed_union(fnx, operator_name, graphs, ("L-", "R-"))
+
+    assert _ordered_union_signature(result) == _ordered_union_signature(expected)
+    assert [_ordered_union_signature(graph) for graph in graphs] == original
+    assert result.graph is not graphs[1].graph
+    assert result.graph["shared"] is graphs[1].graph["shared"]
+    for graph, prefix in zip(graphs, ("L-", "R-")):
+        node_data = result.nodes[f"{prefix}a"]
+        assert node_data is not graph.nodes["a"]
+        assert node_data[("feature", 0)] is graph.nodes["a"][("feature", 0)]
+        edge_data = result.get_edge_data(f"{prefix}a", f"{prefix}b")
+        original_edge_data = graph.get_edge_data("a", "b")
+        if graph.is_multigraph():
+            edge_data = edge_data["route"]
+            original_edge_data = original_edge_data["route"]
+        assert edge_data is not original_edge_data
+        assert edge_data[None] is original_edge_data[None]
+        node_data["result-only"] = True
+        edge_data["result-only"] = True
+        assert "result-only" not in graph.nodes["a"]
+        assert "result-only" not in original_edge_data
+    result.graph["result-only"] = True
+    assert "result-only" not in graphs[1].graph
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("operator_name", ["union", "union_all"])
+@pytest.mark.parametrize("last_node_empty", [False, True])
+def test_renamed_union_merges_labels_within_each_input(
+    monkeypatch, graph_name, operator_name, last_node_empty
+):
+    def build(lib):
+        left = getattr(lib, graph_name)()
+        left.graph["side"] = "left"
+        last_attrs = {} if last_node_empty else {"value": "last"}
+        left.add_nodes_from(
+            [(1, {"value": "first", "first-only": True}), (2, {}), ("1", last_attrs)]
+        )
+        records = [
+            (1, 2, "route", {"origin": "integer", "first-edge": True}),
+            ("1", 2, "route", {"origin": "string", "last-edge": True}),
+            (1, "1", "loop", {"origin": "between"}),
+            ("1", "1", "loop", {"origin": "existing-loop"}),
+            (2, "1", 1, {"origin": "reverse"}),
+        ]
+        left.add_edges_from(
+            records if left.is_multigraph() else [(u, v, data) for u, v, _, data in records]
+        )
+        right = getattr(lib, graph_name)()
+        right.graph["side"] = "right"
+        right.add_node("1", marker="separate-input")
+        return [left, right]
+
+    expected = _renamed_union(nx, operator_name, build(nx), ("L-", "R-"))
+    graphs = build(fnx)
+    original = [_ordered_union_signature(graph) for graph in graphs]
+    _block_networkx_operators(monkeypatch, "union", "union_all", "relabel_nodes")
+
+    result = _renamed_union(fnx, operator_name, graphs, ("L-", "R-"))
+
+    assert _ordered_union_signature(result) == _ordered_union_signature(expected)
+    assert list(result) == ["L-1", "L-2", "R-1"]
+    assert dict(result.nodes["L-1"]) == ({} if last_node_empty else {"value": "last"})
+    assert [_ordered_union_signature(graph) for graph in graphs] == original
+    if result.is_multigraph():
+        assert result.number_of_edges() == 5
+        assert {data["origin"] for _, _, data in result.edges(data=True)} == {
+            "integer", "string", "between", "existing-loop", "reverse"
+        }
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("rename_kind", ["short", "infinite", "bounded"])
+def test_renamed_union_consumes_graph_and_prefix_iterators(
+    monkeypatch, graph_name, rename_kind
+):
+    def run(lib):
+        left = getattr(lib, graph_name)()
+        left.add_edge(1, "1", weight=2)
+        right = getattr(lib, graph_name)()
+        right.add_edge(2, "2", weight=3)
+        graphs = (graph for graph in (left, right))
+        prefixes = {
+            "short": lambda: iter(["L-"]),
+            "infinite": lambda: (f"{index}-" for index in itertools.count()),
+            "bounded": lambda: iter(["L-", "R-", "unused"]),
+        }[rename_kind]()
+        result = lib.union_all(graphs, rename=prefixes)
+        return _ordered_union_signature(result), list(graphs), next(prefixes, "exhausted")
+
+    expected = run(nx)
+    _block_networkx_operators(monkeypatch, "union_all", "relabel_nodes")
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("operator_name", ["union", "union_all"])
+@pytest.mark.parametrize(
+    ("left_name", "right_name"),
+    [
+        ("Graph", "Graph"),
+        ("DiGraph", "DiGraph"),
+        ("MultiGraph", "MultiGraph"),
+        ("MultiDiGraph", "MultiDiGraph"),
+        ("Graph", "DiGraph"),
+        ("Graph", "MultiGraph"),
+        ("MultiGraph", "DiGraph"),
+        ("DiGraph", "MultiDiGraph"),
+    ],
+)
+def test_renamed_union_rejects_cross_input_collisions_and_mixed_types(
+    monkeypatch, operator_name, left_name, right_name
+):
+    def build(lib):
+        left = getattr(lib, left_name)()
+        left.add_edge(1, "1", weight=2)
+        right = getattr(lib, right_name)()
+        right.add_node(1)
+        return [left, right]
+
+    with pytest.raises(Exception) as expected:
+        _renamed_union(nx, operator_name, build(nx), ("same-", "same-"))
+    graphs = build(fnx)
+    original = [_ordered_union_signature(graph) for graph in graphs]
+    _block_networkx_operators(monkeypatch, "union", "union_all", "relabel_nodes")
+
+    with pytest.raises(Exception) as actual:
+        _renamed_union(fnx, operator_name, graphs, ("same-", "same-"))
+
+    assert type(actual.value).__name__ == type(expected.value).__name__
+    assert str(actual.value) == str(expected.value)
+    assert [_ordered_union_signature(graph) for graph in graphs] == original
+
+
 def test_graph_operator_empty_errors_without_fallback(monkeypatch):
     _block_networkx_operators(
         monkeypatch,
