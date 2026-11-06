@@ -15908,11 +15908,27 @@ impl PyDiGraph {
     // ---- Directed-specific queries ----
 
     /// Return a live successor-key iterator for node n.
-    fn successors(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    fn successors(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let py = slf.py();
         // br-r37-c1-heyxu: ordinary DiGraph instances expose this raw
         // descriptor directly. Preserve the eager Python hash contract and
         // reuse the persistent live successor row without a Python wrapper.
         crate::hash_key_as_dict_would(n)?;
+        // A traversal can retain this bound method before `_succ` is assigned.
+        // Inspect the current storage on every call, as predecessors does, and
+        // release the native borrow before invoking a Python mapping.
+        let private_override = slf.borrow().instance_dict_gc.has_private_override();
+        if private_override {
+            let adjacency = slf.getattr(pyo3::intern!(py, "succ"))?;
+            return match adjacency.get_item(n) {
+                Ok(row) => Ok(row.try_iter()?.into_any().unbind()),
+                Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(py) => Err(
+                    NetworkXError::new_err(format!("The node {} is not in the digraph.", n.str()?)),
+                ),
+                Err(err) => Err(err),
+            };
+        }
+        let mut this = slf.borrow_mut();
         // br-r37-c1-bvwam: this is `iter(self._succ[n])` in networkx — one
         // CPython dict lookup on a str whose hash is cached in the object — so
         // the three costs on the hit path are all removable, and each is a lever
@@ -15942,46 +15958,46 @@ impl PyDiGraph {
         // sfq4w.3: an exact int resolves through the lookaside's Rust int map;
         // it used to take the canonical String path below on every call.
         let index = if n.is_exact_instance_of::<PyString>() {
-            self.cached_exact_string_node_index(py, n)?
+            this.cached_exact_string_node_index(py, n)?
         } else if n.is_exact_instance_of::<PyInt>()
             && let Ok(key) = n.extract::<i64>()
         {
-            let [index] = self.cached_exact_int_node_indices(py, [key]);
+            let [index] = this.cached_exact_int_node_indices(py, [key]);
             index
         } else {
             None
         };
         if let Some(index) = index
-            && let Some((seq, row)) = self.succ_row_py_by_index.get(&index)
-            && *seq == self.nodes_seq
+            && let Some((seq, row)) = this.succ_row_py_by_index.get(&index)
+            && *seq == this.nodes_seq
         {
             return Ok(row.bind(py).try_iter()?.into_any().unbind());
         }
         if let Some(row) = with_node_key_str(py, n, |canonical| {
-            self.succ_row_py.get(canonical).map(|row| row.clone_ref(py))
+            this.succ_row_py.get(canonical).map(|row| row.clone_ref(py))
         })? {
             // Backfill, so a row first touched by a non-string caller still gets
             // the fast route afterwards.
             if let Some(index) = index {
-                let seq = self.nodes_seq;
-                self.succ_row_py_by_index
+                let seq = this.nodes_seq;
+                this.succ_row_py_by_index
                     .insert(index, (seq, row.clone_ref(py)));
             }
             return Ok(row.bind(py).try_iter()?.into_any().unbind());
         }
         let canonical = node_key_to_string(py, n)?;
-        if !self.inner.has_node(&canonical) {
+        if !this.inner.has_node(&canonical) {
             return Err(NetworkXError::new_err(format!(
                 "The node {} is not in the digraph.",
                 n.str()?
             )));
         }
-        let row = self.successor_row_dict_by_canonical(py, &canonical)?;
+        let row = this.successor_row_dict_by_canonical(py, &canonical)?;
         // The SAME dict object under both keys, so the two cannot disagree and
         // in-place edge maintenance reaches both.
         if let Some(index) = index {
-            let seq = self.nodes_seq;
-            self.succ_row_py_by_index
+            let seq = this.nodes_seq;
+            this.succ_row_py_by_index
                 .insert(index, (seq, row.clone_ref(py)));
         }
         Ok(row.bind(py).try_iter()?.into_any().unbind())
@@ -16097,8 +16113,8 @@ impl PyDiGraph {
     }
 
     /// Neighbors = successors (matches NetworkX ``DiGraph.neighbors()``).
-    fn neighbors(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        self.successors(py, n)
+    fn neighbors(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        Self::successors(slf, n)
     }
 
     fn adjacency<'py>(&self, py: Python<'py>) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {

@@ -13,6 +13,7 @@ mod generators;
 mod live_keydict;
 mod network_simplex;
 mod readwrite;
+mod traversal;
 mod views;
 
 pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_json};
@@ -24879,6 +24880,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Algorithm functions
     algorithms::register(m)?;
+    traversal::register(m)?;
 
     // Generator functions
     generators::register(m)?;

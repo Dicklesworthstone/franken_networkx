@@ -632,6 +632,7 @@ def tree_broadcast_time(G, node=None):
 # Algorithm functions — traversal (BFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
     bfs_edges as _bfs_edges_raw,
+    bfs_edges_iter as _bfs_edges_iter_native,
     bfs_layers as _bfs_layers_raw,
     bfs_predecessors as _bfs_predecessors_raw,
     bfs_successors as _bfs_successors_raw,
@@ -821,10 +822,11 @@ def _traversal_missing_source_error(G, source):
 
 
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
-    """Yield BFS edges, observing the input when iteration starts.
+    """Yield BFS edges incrementally from the caller's live graph.
 
-    Views, Python graphs and callbacks walk the caller's live rows. Ordinary
-    native graphs keep the Rust traversal without copying their storage.
+    Native graphs retain a Rust traversal state with live row cursors. Views,
+    Python graphs and sorting callbacks use the corresponding Python walk.
+    Both routes stop work at each yield and preserve edits to later rows.
     """
     # A plain reverse view can retain the native predecessor traversal.
     root = _reverse_view_root(G)
@@ -835,21 +837,20 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
         type(G) not in _CONCRETE_FNX_GRAPH_TYPES
         or _has_networkx_private_storage(G)
         or sort_neighbors is not None
+        or type(reverse) is not bool
         or (depth_limit is not None and type(depth_limit) is not int)
     ):
         yield from _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
         return
-    _HASH_PROBE.get(source)
     if depth_limit is not None:
         if depth_limit < 0:
             yield from _py_bfs_edges(G, source, depth_limit, reverse=reverse)
             return
-        depth_limit = min(depth_limit, len(G))
-    try:
-        edges = _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
-    except NodeNotFound as exc:
-        raise _traversal_missing_source_error(G, source) from exc
-    for edge in edges:
+        # Newly added nodes can extend a suspended traversal. Only bound the
+        # native integer conversion, never the caller's explicit depth by the
+        # graph's original size.
+        depth_limit = min(depth_limit, _sys.maxsize)
+    for edge in _bfs_edges_iter_native(G, source, reverse=reverse, depth_limit=depth_limit):
         yield edge
 
 

@@ -793,3 +793,40 @@ snapshots remain reusable. `tests/python/test_distance_measures_parity.py`
 checks results and actual search counts against the live oracle, sparse and
 worst-case graph families, exact numeric weights, live callbacks, bypass and
 error behavior, and complete versus partial cache publication.
+
+
+## 35. Incremental Traversal and Live Row Cursors
+
+Lazy traversal APIs retain their execution state between yielded results.
+Requesting a prefix must not construct the complete reachable tree or a full
+list of its edges. The state contains only visited nodes, active row cursors,
+and the pending BFS frontier or DFS stack. Eager tree and dictionary APIs may
+continue to use their bulk native kernels.
+
+An ordinary BFS binds the neighbor provider when iteration begins, captures
+the initial node count and default depth, and opens the source row. Each newly
+discovered child's row is opened before its tree edge is yielded. Its cursor
+is retained for the following level. Changes to an unopened row are visible;
+resizing an already opened row raises the same iterator error at the same
+later advancement as NetworkX. The initial-count early exit is checked after
+a parent row is exhausted, not immediately after discovering a child.
+Custom neighbor providers can return iterable row objects: provider invocation
+and acquiring the row's iterator are separate observable operations, with the
+latter deferred until the row is consumed. Callback-raised `StopIteration`
+becomes `RuntimeError` with the original cause, as it does in a Python generator.
+
+DFS emits a forward result before marking the child visited and opening its
+row on the next advancement. Preorder emits each component root before its
+first row lookup; postorder emits completed rows and omits nodes stopped by
+the depth cutoff. A forest retains the caller's node iterator instead of a
+snapshot. Explicit depth limits remain valid after graph growth; only a
+missing depth limit defaults to the initial graph size.
+
+Native iterator state owns Python node objects and genuine live row cursors,
+preserving discovery-object identity, adjacency order, and Python equality.
+It holds no graph borrow while executing Python callbacks or returning to the
+caller. Stored Python references participate in garbage collection. Existing
+Python routes remain available for views, custom sorting, and non-integer
+depth comparisons. `tests/python/test_native_traversal_streaming.py` checks
+prefix work, between-yield mutations, active-row invalidation, directed
+predecessors, provider binding, and suspended-iterator lifetime.
