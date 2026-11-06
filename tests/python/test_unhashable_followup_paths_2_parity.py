@@ -12,8 +12,9 @@ Five drifts found in the post-ybw1s probe:
   immediate_dominators        fnx: <silent ok>        nx: NetworkXError
   dominance_frontiers         fnx: <silent ok>        nx: NetworkXError
 
-The first three need eager hash-validation (TypeError on unhashable to
-match nx).  ``immediate_dominators`` and ``dominance_frontiers`` need
+The first three need hash-validation (TypeError on unhashable to
+match nx), deferred until iteration for DFS generators.
+``immediate_dominators`` and ``dominance_frontiers`` need
 ``start in G`` membership pre-checks (silent-False on unhashable, then
 NetworkXError) — fnx was silently computing whereas nx pre-validates.
 """
@@ -56,7 +57,7 @@ def test_bellman_ford_path_length_unhashable_source_raises_typeerror(val):
 
 # ---------------------------------------------------------------------------
 # dfs_preorder_nodes / dfs_postorder_nodes — TypeError on unhashable source
-# (eager — fires at call time, not at first ``next()``)
+# (lazy — fires during iteration, matching the NetworkX generators)
 # ---------------------------------------------------------------------------
 
 @needs_nx
@@ -64,11 +65,12 @@ def test_bellman_ford_path_length_unhashable_source_raises_typeerror(val):
 def test_dfs_preorder_nodes_unhashable_source_raises_typeerror(val):
     G = fnx.Graph([(1, 2)])
     GX = nx.Graph([(1, 2)])
+    actual = fnx.dfs_preorder_nodes(G, val)
+    expected = nx.dfs_preorder_nodes(GX, val)
     with pytest.raises(TypeError, match=r"unhashable type"):
-        fnx.dfs_preorder_nodes(G, val)
-    # nx is lazy — only raises on first next()
+        list(actual)
     with pytest.raises(TypeError, match=r"unhashable type"):
-        list(nx.dfs_preorder_nodes(GX, val))
+        list(expected)
 
 
 @needs_nx
@@ -76,10 +78,12 @@ def test_dfs_preorder_nodes_unhashable_source_raises_typeerror(val):
 def test_dfs_postorder_nodes_unhashable_source_raises_typeerror(val):
     G = fnx.Graph([(1, 2)])
     GX = nx.Graph([(1, 2)])
+    actual = fnx.dfs_postorder_nodes(G, val)
+    expected = nx.dfs_postorder_nodes(GX, val)
     with pytest.raises(TypeError, match=r"unhashable type"):
-        fnx.dfs_postorder_nodes(G, val)
+        list(actual)
     with pytest.raises(TypeError, match=r"unhashable type"):
-        list(nx.dfs_postorder_nodes(GX, val))
+        list(expected)
 
 
 # ---------------------------------------------------------------------------

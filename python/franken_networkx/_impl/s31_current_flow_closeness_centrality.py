@@ -1128,7 +1128,6 @@ def bfs_labeled_edges(G, sources):
     (u shallower than already-seen v), 'level' (same layer), 'reverse' (directed,
     u deeper). Byte-exact triple order verified vs nx.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     if sources in G:
         sources = [sources]
     directed = G.is_directed()
@@ -1173,8 +1172,6 @@ def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     does. A source missing from G still reaches G.neighbors and raises nx's
     NetworkXError after the start's "forward" event (br-r37-c1-750hp).
     """
-    if not _point_query_uses_private_rows(G):
-        G = _coerce_arg_to_fnx_graph(G)
     nodes = G if source is None else [source]
     if depth_limit is None:
         depth_limit = len(G)

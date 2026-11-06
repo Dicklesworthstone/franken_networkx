@@ -641,79 +641,28 @@ from franken_networkx._fnx import (
 
 
 def bfs_layers(G, sources):
-    """Yield BFS layers starting from ``sources``.
+    """Yield each live BFS frontier before expanding it.
 
-    br-r37-c1-omjmu: nx raises ``TypeError`` when any of the given
-    sources is unhashable (the inner loop builds a dict keyed on
-    sources).  fnx's Rust binding silently treats unhashable
-    sources as non-members and yields nothing — eagerly hash-check
-    each source so the contract matches nx exactly.
+    Retaining the caller's graph and only the current frontier lets a caller
+    stop at any layer without computing the rest of the traversal. Edits made
+    between yields, including edits to the yielded list itself, remain visible.
     """
-    # nx accepts a single source OR an iterable.  Mirror its
-    # ``if sources in G`` test which silently returns False on
-    # unhashable: when the bare ``sources`` is hashable and a node,
-    # treat as single-source; otherwise iterate.
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    try:
-        single_node = sources in G
-    except TypeError:
-        single_node = False
-    if single_node:
-        _HASH_PROBE.get(sources)
-        sources_list = [sources]
-    else:
-        # br-r37-c1-bfsl-typeerr: nx raises TypeError when sources
-        # is non-iterable AND not in G — its ``set(sources)`` call
-        # propagates ``TypeError: 'int' object is not iterable``.
-        # fnx previously caught the TypeError here and routed to the
-        # Rust raw binding (which then raised NodeNotFound) — too
-        # helpful, masked nx's documented contract.  Let the natural
-        # TypeError surface.
-        sources_list = list(sources)
-        for s in sources_list:
-            _HASH_PROBE.get(s)
-        sources = tuple(sources_list)
-    # br-r37-c1-jxvsu: nx raises ``NetworkXError("The node X is not
-    # in the graph.")`` when any source is missing; fnx's Rust
-    # binding silently yielded nothing for missing sources.
-    for s in sources_list:
-        if s not in G:
-            raise NetworkXError(f"The node {s} is not in the graph.")
-    # br-r37-c1-bfsl-gen: ``yield from`` so the wrapper is a true
-    # generator function (matches nx's ``isinstance(result,
-    # types.GeneratorType)`` contract).  The Rust raw binding
-    # returns a ``list_iterator`` (eagerly materialised); without
-    # the wrapping yield-from, drop-in callers using
-    # ``inspect.isgenerator`` saw a False where nx returned True.
-    # br-cc-descmg: on a MULTIGRAPH the raw kernel re-walks the parallel-edge
-    # adjacency (0.03x / ~35x slower than nx). A node's BFS layer is exactly its
-    # unweighted single_source_shortest_path_length distance, and that kernel is a
-    # fnx WIN and yields the dict in BFS-discovery order — so for a SINGLE source
-    # group it by distance (layer index ascending, discovery order within a layer,
-    # byte-identical to nx.bfs_layers). Multi-source keeps the raw kernel.
-    if single_node and G.is_multigraph():
-        _spl = single_source_shortest_path_length(G, sources_list[0])
-        _layers = {}
-        for _node, _dist in _spl.items():
-            _layers.setdefault(_dist, []).append(_node)
-        for _d in sorted(_layers):
-            yield _layers[_d]
-        return
-    if not single_node and sources in G:
-        visited = set(sources_list)
-        current_layer = list(visited)
-        while current_layer:
-            yield current_layer
-            next_layer = []
-            for node in current_layer:
-                for child in G[node]:
-                    if child not in visited:
-                        visited.add(child)
-                        next_layer.append(child)
-            current_layer = next_layer
-        return
-    yield from _bfs_layers_raw(G, sources)
+    if sources in G:
+        sources = [sources]
+    visited = set(sources)
+    frontier = list(visited)
+    for source in frontier:
+        if source not in G:
+            raise NetworkXError(f"The node {source} is not in the graph.")
+    while frontier:
+        yield frontier
+        following = []
+        for node in frontier:
+            for neighbor in G[node]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    following.append(neighbor)
+        frontier = following
 
 
 def descendants_at_distance(G, source, distance):
@@ -872,64 +821,36 @@ def _traversal_missing_source_error(G, source):
 
 
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
-    """Yield edges in BFS order from source.
+    """Yield BFS edges, observing the input when iteration starts.
 
-    Private-root graphs and views stream their current rows with the raw
-    depth limit and lazy source validation. The native-root route below
-    retains its binding-specific argument normalization.
-
-    _Generator function so the returned object is a true generator
-    matching nx's contract (br-r37-c1-682kr).
-
-    br-r37-c1-c4agn: hash-check on source eagerly so unhashable
-    inputs raise TypeError on call (matching nx's argmap), not
-    NetworkXError after iteration starts.
-
-    br-r37-c1-bfs-depth: nx's BFS implementation walks `range
-    (depth_limit)` (or while-loop) which trivially yields nothing
-    on negative depth — returning empty. The Rust binding declared
-    `depth_limit` as unsigned int and raised OverflowError on
-    negative values. Match nx by short-circuiting to empty on
-    negative depth_limit.
+    Views, Python graphs and callbacks walk the caller's live rows. Ordinary
+    native graphs keep the Rust traversal without copying their storage.
     """
-    if _point_query_uses_private_rows(G):
-        return _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
-    # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
+    # A plain reverse view can retain the native predecessor traversal.
     root = _reverse_view_root(G)
-    if root is not None:
-        return bfs_edges(
-            root,
-            source,
-            reverse=not reverse,
-            depth_limit=depth_limit,
-            sort_neighbors=sort_neighbors,
-        )
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    if root is not None and sort_neighbors is None and not _point_query_uses_private_rows(G):
+        yield from bfs_edges(root, source, reverse=not reverse, depth_limit=depth_limit)
+        return
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or sort_neighbors is not None
+        or (depth_limit is not None and type(depth_limit) is not int)
+    ):
+        yield from _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
+        return
     _HASH_PROBE.get(source)
-    # br-r37-c1-mub4s: a sort_neighbors walk is networkx's own loop, fed the
-    # raw depth_limit.
-    if sort_neighbors is not None:
-        return _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse)
-    # br-r37-c1-bfs-cutfloat: nx accepts any numeric ``depth_limit``
-    # (NaN / +inf / negative / float).  fnx's Rust binding's PyO3
-    # signature requires a non-negative int and raises TypeError /
-    # OverflowError on the floats.  Same family as br-r37-c1-asp-nan
-    # (all_simple_paths cutoff).  Normalise to None / int / -1 (for
-    # short-circuit-empty) before delegating.
-    normalized_depth = _normalize_bfs_depth_limit(depth_limit)
-    if normalized_depth is _DEPTH_EMPTY:
-        # NaN, -inf or a negative depth yields nothing - after networkx has
-        # read the source's row, so an absent source still raises.
-        return _py_bfs_edges(G, source, depth_limit, reverse=reverse)
-
-    def _gen():
-        try:
-            yield from _bfs_edges_raw(G, source, reverse=reverse, depth_limit=normalized_depth)
-        except NodeNotFound as exc:
-            raise _traversal_missing_source_error(G, source) from exc
-
-    return _gen()
+    if depth_limit is not None:
+        if depth_limit < 0:
+            yield from _py_bfs_edges(G, source, depth_limit, reverse=reverse)
+            return
+        depth_limit = min(depth_limit, len(G))
+    try:
+        edges = _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise _traversal_missing_source_error(G, source) from exc
+    for edge in edges:
+        yield edge
 
 
 _DEPTH_EMPTY = object()  # sentinel for "no traversal" (NaN/-inf/neg)
@@ -1040,48 +961,25 @@ def _normalize_predecessor_cutoff(cutoff):
 
 
 def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield edges in DFS order from source.
-
-    Private-root graphs and views stream the existing Python DFS loop,
-    preserving the caller's raw depth limit and lazy source validation.
-
-    _Generator function so the returned object is a true generator
-    matching nx's contract (br-r37-c1-682kr).
-
-    br-r37-c1-c4agn: hash-check on source eagerly (when supplied).
-
-    br-r37-c1-dfs-cutfloat: nx accepts any numeric ``depth_limit``
-    (NaN / +inf / finite floats); the Rust binding requires
-    non-negative int.  Reuse ``_normalize_bfs_depth_limit`` from
-    br-r37-c1-bfs-cutfloat to map the non-int cases to nx-shaped
-    behaviour (NaN/-inf/neg → empty, +inf → unbounded, finite
-    float → ceil).
-    """
-    if _point_query_uses_private_rows(G):
-        return _py_dfs_edges(G, source, depth_limit, sort_neighbors)
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    """Yield DFS edges with lazy validation and live callback/view inputs."""
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or sort_neighbors is not None
+        or (depth_limit is not None and (type(depth_limit) is not int or depth_limit < 1))
+    ):
+        yield from _py_dfs_edges(G, source, depth_limit, sort_neighbors)
+        return
     if source is not None:
         _HASH_PROBE.get(source)
-    depth_limit = _normalize_bfs_depth_limit(depth_limit)
-    if depth_limit is _DEPTH_EMPTY:
-        # nx returns the source's first edge (empty if source has
-        # no neighbours), which fnx's existing dfs_edges Rust path
-        # also yields when depth_limit is 0 — so route NaN/-inf/neg
-        # to depth_limit=0 to preserve the "edge to first neighbor
-        # only" emission empirically observed via nx.
-        depth_limit = 0
-
-    def _gen():
-        try:
-            if sort_neighbors is not None:
-                yield from _py_dfs_edges(G, source, depth_limit, sort_neighbors)
-                return
-            yield from _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
-        except NodeNotFound as exc:
-            raise _traversal_missing_source_error(G, source) from exc
-
-    return _gen()
+    if depth_limit is not None:
+        depth_limit = min(depth_limit, len(G))
+    try:
+        edges = _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise _traversal_missing_source_error(G, source) from exc
+    for edge in edges:
+        yield edge
 
 
 _EDGE_TRAVERSAL_FORWARD = "forward"
@@ -1128,14 +1026,14 @@ def edge_bfs(G, source=None, orientation=None):
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G._native_predecessor_row_dict(node).items():
+                for nbr, keydict in G.pred[node].items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
         else:
 
             def edges_from(node):
-                for nbr in G._native_predecessor_row_dict(node):
+                for nbr in G.pred[node]:
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     elif orientation == "ignore":
@@ -1145,7 +1043,7 @@ def edge_bfs(G, source=None, orientation=None):
                 for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
-                for nbr, keydict in G._native_predecessor_row_dict(node).items():
+                for nbr, keydict in G.pred[node].items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
@@ -1154,7 +1052,7 @@ def edge_bfs(G, source=None, orientation=None):
             def edges_from(node):
                 for nbr in G[node]:
                     yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
-                for nbr in G._native_predecessor_row_dict(node):
+                for nbr in G.pred[node]:
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     else:
@@ -1228,14 +1126,14 @@ def edge_dfs(G, source=None, orientation=None):
         if G.is_multigraph():
 
             def edges_from(node):
-                for nbr, keydict in G._native_predecessor_row_dict(node).items():
+                for nbr, keydict in G.pred[node].items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
         else:
 
             def edges_from(node):
-                for nbr in G._native_predecessor_row_dict(node):
+                for nbr in G.pred[node]:
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     elif orientation == "ignore":
@@ -1245,7 +1143,7 @@ def edge_dfs(G, source=None, orientation=None):
                 for nbr, keydict in G[node].items():
                     for key in keydict:
                         yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
-                for nbr, keydict in G._native_predecessor_row_dict(node).items():
+                for nbr, keydict in G.pred[node].items():
                     for key in keydict:
                         yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
 
@@ -1254,7 +1152,7 @@ def edge_dfs(G, source=None, orientation=None):
             def edges_from(node):
                 for nbr in G[node]:
                     yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
-                for nbr in G._native_predecessor_row_dict(node):
+                for nbr in G.pred[node]:
                     yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
 
     else:
@@ -1322,28 +1220,7 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
     they were discovered by the BFS. Honours the ``sort_neighbors``
     callable when provided.
     """
-    # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
-    root = _reverse_view_root(G)
-    if _point_query_uses_private_rows(G):
-        edge_source = _py_bfs_edges(G, source, depth_limit, sort_neighbors)
-    elif root is not None:
-        edge_source = bfs_edges(
-            root,
-            source,
-            reverse=True,
-            depth_limit=depth_limit,
-            sort_neighbors=sort_neighbors,
-        )
-    elif sort_neighbors is not None:
-        # br-r37-c1-eghxq: accept nx-typed inputs.
-        G = _coerce_arg_to_fnx_graph(G)
-        edge_source = _py_bfs_edges(G, source, depth_limit, sort_neighbors)
-    else:
-        G = _coerce_arg_to_fnx_graph(G)
-        # Build edge stream from bfs_edges which already emits in BFS
-        # discovery order (matching upstream on both graph and digraph
-        # inputs with the same neighbour-iteration order).
-        edge_source = bfs_edges(G, source, depth_limit=depth_limit)
+    edge_source = bfs_edges(G, source, depth_limit=depth_limit, sort_neighbors=sort_neighbors)
 
     current_parent = None
     current_children = None
@@ -1363,21 +1240,19 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Return BFS tree rooted at source."""
-    if _point_query_uses_private_rows(G):
+    root = _reverse_view_root(G)
+    if root is not None and sort_neighbors is None and not _point_query_uses_private_rows(G):
+        return bfs_tree(root, source, reverse=not reverse, depth_limit=depth_limit)
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or sort_neighbors is not None
+        or (depth_limit is not None and type(depth_limit) is not int)
+    ):
         T = DiGraph()
         T.add_node(source)
         T.add_edges_from(_py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse))
         return T
-    # br-r37-c1-8xp4a: a reverse view's successors are its root's predecessors.
-    root = _reverse_view_root(G)
-    if root is not None:
-        return bfs_tree(
-            root,
-            source,
-            reverse=not reverse,
-            depth_limit=depth_limit,
-            sort_neighbors=sort_neighbors,
-        )
     G = _coerce_arg_to_fnx_graph(G)
     if sort_neighbors is None:
         try:
@@ -1412,9 +1287,6 @@ def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     dfs_edges so iteration order matches nx exactly. Values
     (parent for each node) were already correct.
     """
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    if not _point_query_uses_private_rows(G):
-        G = _coerce_arg_to_fnx_graph(G)
     try:
         preds = {}
         for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
@@ -1431,91 +1303,70 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     which preserves NetworkX's DFS-discovery dict order without rebuilding a
     Python ``defaultdict`` from the public ``dfs_edges`` generator.
     """
-    if _point_query_uses_private_rows(G):
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or sort_neighbors is not None
+        or (depth_limit is not None and (type(depth_limit) is not int or depth_limit < 1))
+    ):
         successors = {}
         for parent, child in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
             successors.setdefault(parent, []).append(child)
         return successors
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
         _HASH_PROBE.get(source)
-    depth_limit = _normalize_bfs_depth_limit(depth_limit)
-    if depth_limit is _DEPTH_EMPTY:
-        depth_limit = 0
+    if depth_limit is not None:
+        depth_limit = min(depth_limit, len(G))
     try:
-        if sort_neighbors is None:
-            return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
-        from collections import defaultdict as _defaultdict
-        succs = _defaultdict(list)
-        for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
-            succs[u].append(v)
-        return dict(succs)
+        return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
     except NodeNotFound as exc:
         raise _traversal_missing_source_error(G, source) from exc
 
 
 def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield nodes in DFS preorder from source.
-
-    Native-root inputs retain the eager hash check (br-r37-c1-mz7g4).
-    Private-root inputs stream labeled events with lazy source validation.
-    """
-    if _point_query_uses_private_rows(G):
-        return (
-            node for _, node, label in _py_dfs_labeled_edges(G, source, depth_limit, sort_neighbors)
-            if label == "forward"
-        )
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    """Yield DFS preorder, retaining lazy source validation and input rows."""
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or sort_neighbors is not None
+        or (source is not None and source not in G)
+        or (depth_limit is not None and (type(depth_limit) is not int or depth_limit < 1))
+    ):
+        for _, node, label in _py_dfs_labeled_edges(G, source, depth_limit, sort_neighbors):
+            if label == "forward":
+                yield node
+        return
     if source is not None:
         _HASH_PROBE.get(source)
-
-    def _gen():
-        try:
-            if sort_neighbors is not None:
-                for _, v, label in _py_dfs_labeled_edges(
-                    G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
-                ):
-                    if label == "forward":
-                        yield v
-                return
-            nodes = _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
-        except NodeNotFound as exc:
-            raise _traversal_missing_source_error(G, source) from exc
-        yield from nodes
-
-    return _gen()
+    if depth_limit is not None:
+        depth_limit = min(depth_limit, len(G))
+    try:
+        nodes = _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise _traversal_missing_source_error(G, source) from exc
+    for node in nodes:
+        yield node
 
 
 def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Yield nodes in DFS postorder from source.
-
-    Native-root inputs retain the eager hash check (br-r37-c1-mz7g4).
-    Private-root inputs stream labeled events with lazy source validation.
-    """
-    if _point_query_uses_private_rows(G):
-        return (
-            node for _, node, label in _py_dfs_labeled_edges(G, source, depth_limit, sort_neighbors)
-            if label == "reverse"
-        )
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    """Yield DFS postorder, retaining lazy source validation and input rows."""
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or sort_neighbors is not None
+        or (depth_limit is not None and (type(depth_limit) is not int or depth_limit < 1))
+    ):
+        for _, node, label in _py_dfs_labeled_edges(G, source, depth_limit, sort_neighbors):
+            if label == "reverse":
+                yield node
+        return
     if source is not None:
         _HASH_PROBE.get(source)
-
-    def _gen():
-        try:
-            if sort_neighbors is not None:
-                for _, v, label in _py_dfs_labeled_edges(
-                    G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
-                ):
-                    if label == "reverse":
-                        yield v
-                return
-            nodes = _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
-        except NodeNotFound as exc:
-            raise _traversal_missing_source_error(G, source) from exc
-        yield from nodes
-
-    return _gen()
+    if depth_limit is not None:
+        depth_limit = min(depth_limit, len(G))
+    try:
+        nodes = _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise _traversal_missing_source_error(G, source) from exc
+    for node in nodes:
+        yield node

@@ -3,19 +3,15 @@
 def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return DFS tree rooted at source.
 
-    Private-root inputs use the Python DFS stream with the raw depth limit;
-    native-root inputs retain their binding-specific normalization below.
-
-    br-r37-c1-c4agn: hash-check on source for nx-shaped TypeError
-    parity on unhashable inputs.
-
-    br-r37-c1-bfs-depth: nx returns a tree containing just the
-    source node when depth_limit is negative (no descent allowed).
-    The Rust binding raised OverflowError. Coerce negative
-    depth_limit to 0 so the Rust path sees a valid unsigned and
-    produces the matching single-node tree.
+    Views and callbacks read the caller's graph directly. Plain native inputs
+    retain the Rust tree builder for ordinary integer depth limits.
     """
-    if _point_query_uses_private_rows(G):
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or sort_neighbors is not None
+        or (depth_limit is not None and (type(depth_limit) is not int or depth_limit < 1))
+    ):
         T = DiGraph()
         if source is None:
             T.add_nodes_from(G)
@@ -23,26 +19,11 @@ def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
             T.add_node(source)
         T.add_edges_from(_py_dfs_edges(G, source, depth_limit, sort_neighbors))
         return T
-    # br-r37-c1-nwkg0: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
         _HASH_PROBE.get(source)
     if depth_limit is not None:
-        try:
-            if int(depth_limit) < 0:
-                depth_limit = 0
-        except (TypeError, ValueError):
-            pass
+        depth_limit = min(depth_limit, len(G))
     try:
-        if sort_neighbors is not None:
-            T = DiGraph()
-            if source is None:
-                T.add_nodes_from(G)
-            else:
-                T.add_node(source)
-            for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
-                T.add_edge(u, v)
-            return T
         return _dfs_tree_raw(G, source=source, depth_limit=depth_limit)
     except NodeNotFound as exc:
         raise _traversal_missing_source_error(G, source) from exc
