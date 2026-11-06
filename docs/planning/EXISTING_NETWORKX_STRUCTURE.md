@@ -640,3 +640,25 @@ existing weight checks admit it. Regression coverage in
 `tests/python/test_astar_yen.py` exercises both A* APIs across all four graph
 types, graph-reading callbacks, live edge mutations, views, and exact numeric
 heuristics that previously selected a cost-5 path over a cost-2 path.
+
+
+## 28. Spectral Centrality Solver Contract
+
+`eigenvector_centrality_numpy` returns the real left eigenvector selected by
+SciPy's largest-real eigenpair, normalized to unit Euclidean norm with one
+global sign chosen from the sum of its entries. Signed edge weights retain
+relative component signs: taking componentwise absolute values can produce
+a result that no longer satisfies the eigenvector equation.
+
+Sparse adjacency construction selects floating dtype before converting the
+edge weights, allowing Python integer weights outside the machine-integer
+range when they have a usable floating representation. `max_iter` and `tol`
+are forwarded to ARPACK. `ArpackNoConvergence` propagates unchanged, including
+partial eigenpairs; a failed bounded sparse iteration does not trigger an
+unbounded dense decomposition.
+
+Empty and disconnected graph errors precede solver parameter errors.
+Connected one- and two-node graphs retain SciPy's small-matrix error behavior.
+`tests/python/test_eigenvector_numpy_directed_parity.py` covers signed
+undirected and directed inputs, eigenpair residuals, solver sign orientation,
+large integer weights, nonconvergence, and validation order.

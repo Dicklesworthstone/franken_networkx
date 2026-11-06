@@ -910,28 +910,6 @@ def eigenvector_centrality_numpy(
         backend_kwargs,
     )
 
-    # br-r37-c1-evnumiter: nx delegates to ``scipy.sparse.linalg.eigs``
-    # which validates ``max_iter`` via ``int(maxiter)`` and ``maxiter <= 0``,
-    # surfacing ``ValueError: cannot convert float NaN to integer`` on NaN,
-    # ``OverflowError: cannot convert float infinity to integer`` on +/-inf,
-    # and ``ValueError: maxiter must be positive, maxiter=...`` on 0 / negatives.
-    # The fnx implementation uses ``numpy.linalg.eig`` (dense full
-    # decomposition) and silently ignored ``max_iter`` entirely.  Reproduce
-    # nx's validation shape so drop-in callers see the same exceptions.
-    if max_iter is not None:
-        # scipy ordering: comparison-against-zero first (so -inf surfaces
-        # as ``maxiter must be positive`` rather than the OverflowError
-        # from ``int(-inf)``).  NaN comparisons return False so NaN falls
-        # through to ``int(max_iter)`` which raises the expected
-        # ``ValueError: cannot convert float NaN to integer``.
-        try:
-            nonpositive = max_iter <= 0
-        except TypeError:
-            nonpositive = False
-        if nonpositive:
-            raise ValueError(f"maxiter must be positive, maxiter={max_iter}")
-        int(max_iter)  # ValueError on NaN, OverflowError on +inf
-
     nodelist = list(G.nodes())
     n = len(nodelist)
     if n == 0:
@@ -964,31 +942,35 @@ def eigenvector_centrality_numpy(
     # sparse adjacency, returning only the dominant eigenpair in O(n·E)
     # iterations.  Use the same path.
     import scipy.sparse.linalg
-    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, format="csr")
+    # Cast weights while constructing the sparse matrix: inferring an integer
+    # or object dtype first rejects Python integers beyond the machine range
+    # even when those weights have a usable floating-point representation.
+    A = to_scipy_sparse_array(
+        G, nodelist=nodelist, weight=weight, dtype=float, format="csr"
+    )
     # br-r37-c1-evnumdir: nx solves ``eigs(M.T, ...)`` — the *left* eigenvector
     # (in-edge convention) for directed graphs. fnx previously solved ``eigs(A)``
     # (the right / out-edge eigenvector), so eigenvector_centrality_numpy
     # returned the wrong values on DiGraphs (it disagreed with both nx and
     # fnx's own iterative eigenvector_centrality, which already use in-edges).
     # For undirected graphs A is symmetric so A.T == A and this is a no-op.
-    AT = A.astype(float).transpose().tocsr()
+    AT = A.transpose().tocsr()
     # ``which="LR"`` selects the eigenpair with largest real part —
     # matching nx's argmax-over-real path.  Force float dtype so the
     # solver doesn't run in complex mode by default; nx's contract is
     # to return real centralities.
-    try:
-        vals, vecs = scipy.sparse.linalg.eigs(
-            AT, k=1, which="LR", maxiter=max_iter or n * 10, tol=tol or 0,
-        )
-    except scipy.sparse.linalg.ArpackNoConvergence:
-        # Fall back to the dense path on convergence failure — small
-        # graphs sometimes can't fit Arnoldi's k+1 restart constraint.
-        vals, vecs = np.linalg.eig(AT.toarray())
+    # Let ARPACK validate its parameters after the graph preconditions, and
+    # preserve nonconvergence (including partial eigenpairs) for callers.
+    # A dense retry would ignore the requested iteration and memory bounds.
+    vals, vecs = scipy.sparse.linalg.eigs(
+        AT, k=1, which="LR", maxiter=max_iter, tol=tol,
+    )
     idx = int(np.argmax(np.real(vals)))
-    ev = np.abs(np.real(vecs[:, idx]))
-    norm = np.linalg.norm(ev)
-    if norm > 0:
-        ev /= norm
+    ev = np.real(vecs[:, idx])
+    # Eigenvectors have one arbitrary global sign. Componentwise absolute
+    # values destroy the eigenvector equation when weights are signed.
+    norm = np.sign(ev.sum()) * np.linalg.norm(ev)
+    ev = ev / norm
     return {nodelist[i]: float(ev[i]) for i in range(n)}
 
 
