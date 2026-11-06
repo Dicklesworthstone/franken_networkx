@@ -618,3 +618,25 @@ Regression coverage in `tests/python/test_relabel_edge_cases_parity.py`
 checks all four graph types, both source insertion orders, fresh and existing
 target labels, callable mappings, empty final attributes, nonstring attribute
 keys, and shallow-copy identity.
+
+
+## 27. A* Python Callback and Priority Contract
+
+Supplied A* heuristic and weight callbacks run against the caller's original
+live graph, including NetworkX inputs, filtered subgraphs, and reverse views.
+Callbacks may read adjacency or update edge attributes. They must execute
+without a native graph borrow and must not observe a copied or collapsed
+graph in place of the caller's input.
+
+Heuristic priorities retain Python arithmetic, including arbitrary-size
+integers, fractions, and decimals. Converting a valid negative integer
+heuristic to floating point can erase the difference between competing path
+costs and select a longer path. Callback caching and invocation order,
+hidden edges, cutoff handling, and source/target errors follow NetworkX.
+`astar_path_length` rereads the final path's weights after the search.
+
+The default heuristic continues to use the native implementation when the
+existing weight checks admit it. Regression coverage in
+`tests/python/test_astar_yen.py` exercises both A* APIs across all four graph
+types, graph-reading callbacks, live edge mutations, views, and exact numeric
+heuristics that previously selected a cost-5 path over a cost-2 path.

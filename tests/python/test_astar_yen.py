@@ -1,6 +1,8 @@
 """Tests for A* shortest path and Yen's K-shortest simple paths."""
 
 import re
+from decimal import Decimal
+from fractions import Fraction
 
 import networkx as nx
 import pytest
@@ -242,6 +244,118 @@ class TestAstarPathLength:
             fnx.astar_path_length(
                 G_fnx, "a", "d", heuristic=heuristic, weight="weight", cutoff=2
             )
+
+
+def _astar_callback_graph(module, class_name, view="graph"):
+    graph = getattr(module, class_name)()
+    edges = [("s", "a", 1), ("a", "t", 1), ("s", "t", 5)]
+    if view == "reverse":
+        edges = [(v, u, weight) for u, v, weight in edges]
+    graph.add_weighted_edges_from(edges)
+    if graph.is_multigraph():
+        u, v = ("t", "a") if view == "reverse" else ("a", "t")
+        graph.add_edge(u, v, weight=7)
+    for node in graph:
+        graph.nodes[node]["estimate"] = 0
+    if view == "subgraph":
+        graph.add_edge("s", "hidden", weight=0)
+        return graph.subgraph(["s", "a", "t"])
+    if view == "reverse":
+        return graph.reverse(copy=False)
+    return graph
+
+
+@pytest.mark.parametrize("api", ["astar_path", "astar_path_length"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_astar_heuristic_can_read_graph_adjacency(api, class_name):
+    outcomes = []
+    for module in (nx, fnx):
+        graph = _astar_callback_graph(module, class_name)
+        calls = []
+
+        def heuristic(node, target):
+            # Reading adjacency can materialize Python dictionaries. A native
+            # borrow held across this callback used to panic on that read.
+            neighbors = tuple(graph[node])
+            calls.append((node, target, neighbors))
+            return graph.nodes[node]["estimate"]
+
+        result = getattr(module, api)(graph, "s", "t", heuristic=heuristic)
+        outcomes.append((result, calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("api", ["astar_path", "astar_path_length"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "estimate",
+    [-(2**60), -(10**1000), Fraction(-(2**60), 1), Decimal(-(2**60))],
+    ids=["int-priority", "int-beyond-float", "fraction-priority", "decimal-priority"],
+)
+def test_astar_heuristic_preserves_exact_priority_arithmetic(api, class_name, estimate):
+    outcomes = []
+    for module in (nx, fnx):
+        graph = _astar_callback_graph(module, class_name)
+        calls = []
+
+        def heuristic(node, target):
+            calls.append((node, target))
+            return estimate
+
+        result = getattr(module, api)(graph, "s", "t", heuristic=heuristic)
+        outcomes.append((result, calls))
+    # Converting these admissible estimates to f64 erases the difference
+    # between priorities for length 2 and length 5 (or overflows altogether).
+    expected = ["s", "a", "t"] if api == "astar_path" else 2
+    assert outcomes[0][0] == expected
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("api", ["astar_path", "astar_path_length"])
+@pytest.mark.parametrize("callback", ["heuristic", "weight"])
+@pytest.mark.parametrize("input_module", [fnx, nx], ids=["fnx-input", "networkx-input"])
+@pytest.mark.parametrize(
+    "class_name, view",
+    [
+        ("Graph", "graph"),
+        ("DiGraph", "graph"),
+        ("MultiGraph", "graph"),
+        ("MultiDiGraph", "graph"),
+        ("Graph", "subgraph"),
+        ("DiGraph", "subgraph"),
+        ("MultiGraph", "subgraph"),
+        ("MultiDiGraph", "subgraph"),
+        ("DiGraph", "reverse"),
+        ("MultiDiGraph", "reverse"),
+    ],
+)
+def test_astar_callbacks_observe_live_input_graph(api, callback, input_module, class_name, view):
+    outcomes = []
+    for algorithm_module, graph_module in ((nx, nx), (fnx, input_module)):
+        graph = _astar_callback_graph(graph_module, class_name, view)
+        attrs = graph["a"]["t"][0] if graph.is_multigraph() else graph["a"]["t"]
+        calls = []
+
+        def heuristic(node, target):
+            calls.append(("heuristic", node, target))
+            if node == "a":
+                attrs["weight"] = 100
+            return 0
+
+        def weight(u, v, data):
+            calls.append(("weight", u, v))
+            if (u, v) == ("s", "a"):
+                attrs["weight"] = 100
+            if graph.is_multigraph():
+                return min(edge.get("weight", 1) for edge in data.values())
+            return data.get("weight", 1)
+
+        kwargs = {callback: heuristic if callback == "heuristic" else weight}
+        result = getattr(algorithm_module, api)(graph, "s", "t", **kwargs)
+        outcomes.append((result, calls, attrs["weight"]))
+    expected = ["s", "t"] if api == "astar_path" else 5
+    assert outcomes[0][0] == expected
+    assert outcomes[1] == outcomes[0]
 
 
 # ---------------------------------------------------------------------------
