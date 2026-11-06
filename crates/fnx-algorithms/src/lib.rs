@@ -68967,6 +68967,70 @@ mod tests {
     }
 
     #[test]
+    fn dijkstra_nearest_source_preserves_overflow_ties_and_finite_improvements() {
+        let mut graph = Graph::strict();
+        // A source must not depend on being node zero, and the disconnected
+        // node must stay absent even after the infinite frontier is drained.
+        graph.add_node("isolated");
+        for (left, right, weight) in [
+            ("left", "a", 1.0e308),
+            ("a", "target", 1.0e308),
+            ("right", "b", 1.0e308),
+            ("b", "target", 1.0e308),
+            ("target", "tail", 0.0),
+            ("tail", "tail", 0.0),
+        ] {
+            let attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph.add_edge_with_attrs(left, right, attrs).unwrap();
+        }
+
+        for (first, second, first_neighbor, second_neighbor) in
+            [("right", "left", "b", "a"), ("left", "right", "a", "b")]
+        {
+            let assignments =
+                super::multi_source_dijkstra_nearest_source(&graph, &[first, second], "weight");
+            assert_eq!(
+                assignments
+                    .iter()
+                    .map(|(node, source)| (node.as_str(), source.as_str()))
+                    .collect::<Vec<_>>(),
+                vec![
+                    (first, first),
+                    (second, second),
+                    (first_neighbor, first),
+                    (second_neighbor, second),
+                    ("target", first),
+                    ("tail", first),
+                ]
+            );
+        }
+
+        // The second source now has a finite route, found after the first
+        // source initially assigns target an infinite distance.
+        for (left, right, weight) in [("left", "via", 1.5e308), ("via", "target", 0.0)] {
+            let attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph.add_edge_with_attrs(left, right, attrs).unwrap();
+        }
+        let assignments =
+            super::multi_source_dijkstra_nearest_source(&graph, &["right", "left"], "weight");
+        assert_eq!(
+            assignments
+                .iter()
+                .map(|(node, source)| (node.as_str(), source.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("right", "right"),
+                ("left", "left"),
+                ("b", "right"),
+                ("a", "left"),
+                ("via", "left"),
+                ("target", "left"),
+                ("tail", "left"),
+            ]
+        );
+    }
+
+    #[test]
     fn dijkstra_overflow_discovery_survives_sparse_to_dense_promotion() {
         let node_count = 70;
         let expand = |u: usize, row: &mut Vec<(usize, f64, bool)>| {

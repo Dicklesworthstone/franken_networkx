@@ -489,3 +489,157 @@ def test_overflowed_all_shortest_paths_preserves_order_and_terminates_cycles(nx_
     assert list(fnx.all_shortest_paths(
         gfx, "s", "t", weight="weight", method="dijkstra"
     )) == expected
+
+
+def _assert_dijkstra_observables(actual, expected):
+    """Dict equality alone misses finalize order and int/float type changes."""
+    assert type(actual) is type(expected)
+    if isinstance(expected, dict):
+        assert list(actual) == list(expected)
+        for node in expected:
+            _assert_dijkstra_observables(actual[node], expected[node])
+    elif isinstance(expected, (list, tuple)):
+        assert len(actual) == len(expected)
+        for got, want in zip(actual, expected):
+            _assert_dijkstra_observables(got, want)
+    else:
+        assert actual == expected
+
+
+def _reject_python_dijkstra_fallback(monkeypatch):
+    def unexpected_fallback(*args, **kwargs):
+        pytest.fail("finite float weights unexpectedly left the native Dijkstra route")
+
+    for name in (
+        "_multi_source_dijkstra_inproc", "_dijkstra_path_length_inproc",
+        "_dijkstra_multisource_inproc",
+        "_call_networkx_for_parity", "_call_networkx_for_dijkstra_parity",
+    ):
+        monkeypatch.setattr(fnx, name, unexpected_fallback)
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_generic_target_queries_keep_reverse_discovery(
+    nx_cls, fnx_cls, monkeypatch
+):
+    gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls)
+    assert fnx._should_delegate_dijkstra_to_networkx(gfx, "weight") is False
+    _reject_python_dijkstra_fallback(monkeypatch)
+    for name in ("shortest_path", "shortest_path_length"):
+        expected = getattr(nx, name)(
+            gnx, target="t", weight="weight", backend="networkx"
+        )
+        assert "s" in expected and "isolated" not in expected
+        for _ in range(2):
+            actual = getattr(fnx, name)(gfx, target="t", weight="weight")
+            _assert_dijkstra_observables(actual, expected)
+        # Directed graphs reverse their traversal for a target-only query;
+        # an isolated target must still produce only its own zero/self path.
+        _assert_dijkstra_observables(
+            getattr(fnx, name)(gfx, target="isolated", weight="weight"),
+            getattr(nx, name)(
+                gnx, target="isolated", weight="weight", backend="networkx"
+            ),
+        )
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_self_queries_reset_reached_nodes_as_sources(
+    nx_cls, fnx_cls, monkeypatch
+):
+    gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls)
+    _reject_python_dijkstra_fallback(monkeypatch)
+    # Populate reusable state first: b is reached at infinity in this query,
+    # then becomes a source with distance zero and no predecessor below.
+    assert fnx.single_source_dijkstra_path_length(gfx, "s")["b"] == float("inf")
+    for source in ("s", "b", "isolated"):
+        for name in (
+            "dijkstra_path", "dijkstra_path_length", "bidirectional_dijkstra",
+            "shortest_path", "shortest_path_length",
+        ):
+            _assert_dijkstra_observables(
+                getattr(fnx, name)(gfx, source, source, weight="weight"),
+                getattr(nx, name)(
+                    gnx, source, source, weight="weight", backend="networkx"
+                ),
+            )
+        for cutoff in (None, -1, 1e308, float("inf")):
+            _assert_dijkstra_observables(
+                fnx.single_source_dijkstra(
+                    gfx, source, target=source, cutoff=cutoff
+                ),
+                nx.single_source_dijkstra(
+                    gnx, source, target=source, cutoff=cutoff, backend="networkx"
+                ),
+            )
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_competing_sources_keep_first_tie_and_roots(
+    nx_cls, fnx_cls, monkeypatch
+):
+    gnx, gfx = nx_cls(), fnx_cls()
+    for graph in (gnx, gfx):
+        # Insertion order deliberately differs from the first source order.
+        graph.add_nodes_from(["left", "right", "a", "b", "join", "tail", "isolated"])
+        graph.add_weighted_edges_from([
+            ("left", "right", 0.0), ("right", "left", 0.0),
+            ("left", "a", 1e308), ("right", "b", 1e308),
+            ("a", "join", 1e308), ("b", "join", 1e308),
+            ("join", "tail", 0.0), ("tail", "join", 0.0),
+            ("join", "join", 0.0),
+        ])
+    assert fnx._should_delegate_dijkstra_to_networkx(gfx, "weight") is False
+    # MultiDiGraph's public multisource float route intentionally uses the
+    # in-process implementation; the other three classes have native routes.
+    if not (gfx.is_directed() and gfx.is_multigraph()):
+        _reject_python_dijkstra_fallback(monkeypatch)
+    for sources in (["right", "left"], ["left", "right"]):
+        expected = nx.multi_source_dijkstra(gnx, sources, backend="networkx")
+        branch = "b" if sources[0] == "right" else "a"
+        assert expected[1]["join"] == [sources[0], branch, "join"]
+        for cutoff in (None, -1, 1e308, float("inf")):
+            for name in (
+                "multi_source_dijkstra", "multi_source_dijkstra_path",
+                "multi_source_dijkstra_path_length",
+            ):
+                _assert_dijkstra_observables(
+                    getattr(fnx, name)(gfx, sources, cutoff=cutoff),
+                    getattr(nx, name)(
+                        gnx, sources, cutoff=cutoff, backend="networkx"
+                    ),
+                )
+            for target in ("join", sources[0], sources[1]):
+                _assert_dijkstra_observables(
+                    _outcome(
+                        fnx.multi_source_dijkstra, gfx, sources,
+                        target=target, cutoff=cutoff,
+                    ),
+                    _outcome(
+                        nx.multi_source_dijkstra, gnx, sources,
+                        target=target, cutoff=cutoff, backend="networkx",
+                    ),
+                )
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_networkx_backend_dispatch_preserves_results(
+    nx_cls, fnx_cls, monkeypatch
+):
+    gnx, _ = _overflowed_distance_pair(nx_cls, fnx_cls)
+    _reject_python_dijkstra_fallback(monkeypatch)
+    for name, args, kwargs in (
+        ("dijkstra_path", ("s", "t"), {}),
+        ("dijkstra_path_length", ("s", "t"), {}),
+        ("single_source_dijkstra", ("s",), {"cutoff": float("inf")}),
+        ("single_source_dijkstra_path_length", ("s",), {"cutoff": 1e308}),
+        ("shortest_path", (), {"target": "t", "weight": "weight"}),
+        ("shortest_path_length", (), {"target": "t", "weight": "weight"}),
+    ):
+        function = getattr(nx, name)
+        expected = function(gnx, *args, backend="networkx", **kwargs)
+        # An explicit backend exercises graph conversion and the registered
+        # dispatch table, without relying on automatic conversion thresholds.
+        for _ in range(2):
+            actual = function(gnx, *args, backend="franken_networkx", **kwargs)
+            _assert_dijkstra_observables(actual, expected)
