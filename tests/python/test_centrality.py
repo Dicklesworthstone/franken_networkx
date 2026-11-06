@@ -167,3 +167,134 @@ class TestCentrality:
         fnx_dac = fnx.degree_assortativity_coefficient(G_fnx)
         nx_dac = nx.degree_assortativity_coefficient(G_nx)
         assert abs(fnx_dac - nx_dac) < 1e-6
+
+
+@pytest.mark.conformance
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+class TestCentralityStartVectors:
+    @staticmethod
+    def _graphs(fnx, nx, graph_type, shape="cycle"):
+        edges = {
+            "cycle": [(0, 1, 2), (1, 2, 3), (2, 0, 1)],
+            "component": [(0, 1, 2), (1, 0, 2)],
+            "isolates": [],
+        }[shape]
+        graphs = [getattr(module, graph_type)() for module in (fnx, nx)]
+        for graph in graphs:
+            graph.add_nodes_from(range(3))
+            graph.add_weighted_edges_from(edges)
+        return graphs
+
+    @pytest.mark.parametrize("reverse_start", [False, True])
+    @pytest.mark.parametrize("weight", [None, "weight"])
+    def test_complete_start_preserves_order_and_sparse_route(
+        self, fnx, nx, monkeypatch, algorithm, graph_type, reverse_start, weight
+    ):
+        actual_graph, expected_graph = self._graphs(fnx, nx, graph_type)
+        nodes = list(expected_graph)[::-1] if reverse_start else list(expected_graph)
+        start = {node: node + 1.0 for node in nodes}
+        original_items = list(start.items())
+        kwargs = {"max_iter": 1000, "tol": 1e-10, "weight": weight}
+        expected = getattr(nx, algorithm)(expected_graph, nstart=start, **kwargs)
+        calls = []
+        for suffix in ("scipy", "inproc"):
+            name = f"_{algorithm}_{suffix}"
+            original = getattr(fnx, name)
+
+            def recording(*args, _name=name, _original=original, **kw):
+                calls.append(_name)
+                return _original(*args, **kw)
+
+            monkeypatch.setattr(fnx, name, recording)
+
+        actual = getattr(fnx, algorithm)(actual_graph, nstart=start, **kwargs)
+        assert list(actual) == list(expected) == nodes
+        assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+        assert list(start.items()) == original_items
+        assert calls == [f"_{algorithm}_scipy"]
+
+    @pytest.mark.parametrize(
+        ("shape", "start_items"),
+        [
+            pytest.param("cycle", [(0, 1.0)], id="missing-connected-node"),
+            pytest.param(
+                "cycle", [(0, 1.0), (1, 2.0), (2, 3.0), (99, 4.0)],
+                id="extra-node",
+            ),
+            pytest.param(
+                "cycle", [(0, 1.0), (1, 2.0), (99, 3.0)],
+                id="same-size-wrong-domain",
+            ),
+            pytest.param("cycle", [], id="empty-start"),
+            pytest.param(
+                "component", [(1, 2.0), (0, 1.0)],
+                id="complete-component-subset",
+            ),
+            pytest.param(
+                "isolates", [(2, 3.0), (0, 1.0)], id="isolated-node-subset",
+            ),
+        ],
+    )
+    def test_start_domain_matches_networkx(
+        self, fnx, nx, algorithm, graph_type, shape, start_items
+    ):
+        actual_graph, expected_graph = self._graphs(fnx, nx, graph_type, shape)
+        actual_start = dict(start_items)
+        expected_start = dict(start_items)
+        kwargs = {"max_iter": 1000, "tol": 1e-10, "weight": "weight"}
+        try:
+            expected = getattr(nx, algorithm)(
+                expected_graph, nstart=expected_start, **kwargs
+            )
+        except Exception as expected_error:
+            error_type = getattr(fnx, type(expected_error).__name__, type(expected_error))
+            with pytest.raises(error_type) as actual_error:
+                getattr(fnx, algorithm)(actual_graph, nstart=actual_start, **kwargs)
+            assert actual_error.value.args == expected_error.args
+        else:
+            actual = getattr(fnx, algorithm)(actual_graph, nstart=actual_start, **kwargs)
+            assert list(actual) == list(expected)
+            assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+        assert list(actual_start.items()) == list(expected_start.items()) == start_items
+
+    def test_start_mapping_methods_are_not_replaced_by_get(
+        self, fnx, nx, algorithm, graph_type
+    ):
+        class Start(dict):
+            def get(self, *args):
+                raise AssertionError("the centrality iteration does not use get")
+
+        actual_graph, expected_graph = self._graphs(fnx, nx, graph_type)
+        start = Start([(2, 3.0), (0, 1.0), (1, 2.0)])
+        original_items = list(start.items())
+        kwargs = {"max_iter": 1000, "tol": 1e-10, "weight": "weight"}
+        expected = getattr(nx, algorithm)(expected_graph, nstart=start, **kwargs)
+        actual = getattr(fnx, algorithm)(actual_graph, nstart=start, **kwargs)
+        assert list(actual) == list(expected) == list(start)
+        assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+        assert list(start.items()) == original_items
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "values",
+    [(1, -1, 0), (10 ** 400, 2 * 10 ** 400, 3 * 10 ** 400)],
+    ids=["signed-zero-sum", "huge-integer-scale"],
+)
+def test_eigenvector_start_normalizes_before_float_conversion(fnx, nx, graph_type, values):
+    actual_graph, expected_graph = TestCentralityStartVectors._graphs(fnx, nx, graph_type)
+    start = {node: values[node] for node in (2, 0, 1)}
+    original_items = list(start.items())
+    kwargs = {"nstart": start, "max_iter": 1000, "tol": 1e-10, "weight": "weight"}
+    try:
+        expected = nx.eigenvector_centrality(expected_graph, **kwargs)
+    except ZeroDivisionError as expected_error:
+        with pytest.raises(ZeroDivisionError) as actual_error:
+            fnx.eigenvector_centrality(actual_graph, **kwargs)
+        assert actual_error.value.args == expected_error.args
+    else:
+        actual = fnx.eigenvector_centrality(actual_graph, **kwargs)
+        assert list(actual) == list(expected) == list(start)
+        assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert list(start.items()) == original_items

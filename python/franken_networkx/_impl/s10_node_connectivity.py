@@ -492,18 +492,22 @@ def _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight):
     """
     import numpy as _np
 
-    nodelist = list(G)
+    # A supplied start vector owns the iteration and result order. The
+    # caller admits only complete plain dictionaries to this sparse path.
+    nodelist = list(G if nstart is None else nstart)
     N = len(nodelist)
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
     a_t = A.T.tocsr()
     if nstart is None:
-        x = _np.ones(N)
+        x = _np.full(N, 1.0 / N)
     else:
-        x = _np.array([nstart.get(v, 0) for v in nodelist], dtype=float)
-    nstart_sum = x.sum()
-    if nstart_sum == 0:
-        raise NetworkXError("initial vector cannot have all zero values")
-    x = x / nstart_sum
+        if all(value == 0 for value in nstart.values()):
+            raise NetworkXError("initial vector cannot have all zero values")
+        # Normalize in Python before converting: arbitrarily large integer
+        # starts can have finite ratios, and a signed zero sum must keep the
+        # division error rather than being mistaken for an all-zero vector.
+        nstart_sum = sum(nstart.values())
+        x = _np.array([nstart[v] / nstart_sum for v in nodelist], dtype=float)
 
     for _ in range(max_iter):
         xlast = x
@@ -625,12 +629,21 @@ def eigenvector_centrality(
         # br-r37-c1-eigscipy (cc): scipy matvec mirror of nx's power iteration for the
         # weight / nstart cases — delegating paid the full fnx->nx conversion (weighted
         # 0.86x, nstart 0.67x). Gated to simple Graph/DiGraph with str weight + dict
-        # nstart; other inputs (callable weight etc.) keep delegating for exact parity.
+        # nstart; other inputs retain their Python iteration semantics. Incomplete
+        # starts define a smaller domain (or raise when an edge leaves it), while
+        # extra nodes must remain visible to the iteration's graph lookup.
         if (
             not G.is_multigraph()
             and isinstance(G, (Graph, DiGraph))
             and (weight is None or isinstance(weight, str))
-            and (nstart is None or isinstance(nstart, dict))
+            and (
+                nstart is None
+                or (
+                    type(nstart) is dict
+                    and len(nstart) == len(G)
+                    and all(node in G for node in nstart)
+                )
+            )
         ):
             try:
                 return _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight)

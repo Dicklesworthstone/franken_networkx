@@ -259,7 +259,9 @@ def _katz_centrality_scipy(G, alpha, beta, max_iter, tol, nstart, normalized, we
     """
     import numpy as _np
 
-    nodelist = list(G)
+    # Keep the complete start dictionary's node identities and iteration order.
+    # Starts with a different domain use the owned Python iteration instead.
+    nodelist = list(G if nstart is None else nstart)
     N = len(nodelist)
     if N == 0:
         return {}
@@ -268,7 +270,7 @@ def _katz_centrality_scipy(G, alpha, beta, max_iter, tol, nstart, normalized, we
     if nstart is None:
         x = _np.zeros(N)
     else:
-        x = _np.array([nstart.get(v, 0) for v in nodelist], dtype=float)
+        x = _np.array([nstart[v] for v in nodelist], dtype=float)
     if isinstance(beta, dict):
         if set(beta) != set(nodelist):
             raise NetworkXError("beta dictionary must have a value for every node")
@@ -517,12 +519,22 @@ def katz_centrality(
         # br-r37-c1-katzscipy (cc): scipy matvec mirror of nx's Katz power iteration
         # (x <- alpha * A^T x + beta) for the non-default case, replacing the fnx->nx
         # delegation (which paid the full conversion + nx's pure-Python loop: 0.66-0.85x).
-        # Gated to simple Graph/DiGraph, str/None weight, dict/None nstart, scalar/dict beta.
+        # Gated to simple Graph/DiGraph, str/None weight, complete plain-dict/None
+        # nstart, and scalar/dict beta. Do not fill missing start nodes with zero:
+        # the start mapping defines the iteration domain, even on disconnected
+        # graphs where a smaller mapping is valid and returns a smaller result.
         if (
             not G.is_multigraph()
             and isinstance(G, (Graph, DiGraph))
             and (weight is None or isinstance(weight, str))
-            and (nstart is None or isinstance(nstart, dict))
+            and (
+                nstart is None
+                or (
+                    type(nstart) is dict
+                    and len(nstart) == len(G)
+                    and all(node in G for node in nstart)
+                )
+            )
             and isinstance(beta, (int, float, dict))
             and isinstance(normalized, bool)
         ):
