@@ -68959,6 +68959,26 @@ mod tests {
         }
         for cutoff in [None, Some(f64::INFINITY), Some(1.0e308)] {
             let expected_len = if cutoff == Some(1.0e308) { 2 } else { 4 };
+            let mut expected_csr_rows = vec![(0, 0.0, true, u32::MAX), (1, 1.0e308, false, 0)];
+            if expected_len == 4 {
+                expected_csr_rows.extend([
+                    (2, f64::INFINITY, false, 1),
+                    (3, f64::INFINITY, false, 2),
+                ]);
+            }
+            assert_eq!(
+                super::single_source_dijkstra_typed_csr_indexed(
+                    0,
+                    5,
+                    &[0, 1, 2, 3, 5, 5],
+                    &[1, 2, 3, 2, 3],
+                    &[1.0e308, 1.0e308, 0.0, 0.0, 0.0],
+                    &[false; 5],
+                    cutoff,
+                ),
+                expected_csr_rows,
+                "typed CSR cutoff {cutoff:?} must distinguish overflow from unreachable",
+            );
             for result in [
                 super::single_source_dijkstra_indexed_full(&graph, "s", "weight", cutoff),
                 super::single_source_dijkstra_indexed_full_directed(

@@ -1,5 +1,129 @@
 # Release Readiness Scorecard
 
+## 2026-11-06 Dijkstra Overflow Qualification: Incomplete
+
+Issue [#9](https://github.com/Dicklesworthstone/franken_networkx/issues/9)
+remains a release qualification task. The source fixes in
+`c2f4e2a387a14ee672fe7816e903bce43af66716` and
+`b2a0ba1a8c2b15da3bcf35cbf7da16da71c4a797` were already present in the
+audited source, `18e9f3b793547aa204ef21c2aed2dcc2ef65897d`. They were not
+reimplemented. No new Dijkstra implementation defect was demonstrated in this
+session.
+
+**This entry is not native qualification or release approval.** No current-source
+wheel completed compilation, no Python/native differential pass was obtained,
+and no release candidate artifacts or signatures were produced. Package versions,
+published assets and tags were not changed. The latest published GitHub release
+observed during the audit was v0.2.3.
+
+### Demonstrated DSR configuration defect and repair
+
+The documented `.dsr/repos.yaml` selected six quality commands while
+`.dsr/repos.d/franken_networkx.yaml` required nine. The official DSR quality
+implementation reads the registry; it does not automatically substitute the
+recipe's stronger inventory. Commit
+[6d45c2ba](https://github.com/Dicklesworthstone/franken_networkx/commit/6d45c2ba2136a0bb4e2ae3893aec5e7dc75cc47c)
+preserves all nine recipe commands in both definitions and adds the overflow
+module plus the release inventory regression tests to their guarded smoke.
+Locked remote workspace checks, fuzz replay, upstream tests and complete guarded
+Python parity remain required.
+
+The configuration tests were executed through the official DSR checkout
+`62d535015ddd74f468461ded10ebda4e063246e3`, using its actual yq parser.
+The diagnostic tool was explicitly named
+`franken_networkx_config_diagnostic`; its result cannot satisfy the canonical
+`franken_networkx` release gate.
+
+| Observation | Result |
+| --- | --- |
+| Before configuration repair, 60-second timeout and 2 GiB virtual limit | Seven test functions ran; 14 failing subtests detected missing commands/modules and inventory disagreement |
+| After repair, identical limits | Seven tests passed; one configured DSR diagnostic check passed |
+| Pure NetworkX 3.6.1 characterization, 15-second timeout and 512 MiB virtual limit | Twenty graph/state observations completed: four graph classes through five graph revisions |
+| Added Python regression syntax and whitespace checks | Passed before environment loss |
+| Full current-source native tests | No passing result established |
+| Current-source Python/native differential suite | Not completed |
+| Canonical nine-command DSR quality run | Not completed |
+| Cross-platform build, source/artifact binding, signing and release verification | Not completed |
+
+Recorded DSR configuration diagnostic identities:
+
+- Negative run: `1b75bbb5-87ae-4703-a8b0-16d5904d3210`; check exit 1;
+  log SHA256
+  `07bf7ae3548b51e8df9023b58da892e6f161c435a2512147fbe1d77f725e2124`.
+- Positive run: `686c1ed7-7480-4c36-b537-79dd392a3bbb`; check exit 0;
+  log SHA256
+  `ee3e1cd3c5992185097ed0a51d0d5a464d7c40c0312466449106cbeb077dbd9e`.
+- Both runs reported unchanged source snapshots within their own invocation.
+  These are observations captured from returned DSR results. The execution
+  environment later became unavailable, so the full local log files are not
+  attached here and these observations are not a release evidence bundle.
+- An earlier 512 MiB configuration diagnostic failed during Go/yq startup.
+  It is not the negative proof above.
+
+### Additional regression coverage awaiting native execution
+
+The existing suite already exercises target, single-source, multi-source,
+all-pairs, finite alternatives, overflow ties, source ownership, zero-weight
+cycles, generic reverse queries and backend dispatch. Repeated public calls
+alone do not establish CSR coverage: those entry points can remain lazy.
+
+The additions in `tests/python/test_dijkstra_exact_weight_domain.py` are
+12 parameterized cases across Graph, DiGraph, MultiGraph and MultiDiGraph:
+
+- Eight cases explicitly invoke native all-pairs length and path bindings.
+  The raw length binding uses typed CSR, including multigraph minimum-weight
+  projections. Exact values, types, ordering and paths are compared to the
+  NetworkX oracle, with Python Dijkstra fallbacks rejected.
+- Four cases reuse graph/query state through overflow, a finite alternative,
+  removal of the alternative, disconnection and reconnection. Target,
+  single-source and raw all-pairs results are checked at each revision,
+  including finite and infinite cutoffs.
+
+The existing native
+`dijkstra_preserves_reachability_when_finite_weights_overflow` test now calls
+the typed CSR kernel directly with no cutoff, a finite cutoff and an infinite
+cutoff. Exact settled tuples check distance, predecessor, numeric type flags
+and order while excluding the isolated vertex and terminating the zero cycle.
+These new assertions are reviewed source, not executed native test results.
+The final compact formatting of the new Rust vector literal still needs the
+DSR formatting gate.
+
+### Remaining qualification and release boundary
+
+A bounded, explicitly labeled DSR native diagnostic was attempted but returned
+nonzero. Its detailed log could not be recovered after the execution service
+disconnected, so neither its failure stage nor a native test count is asserted.
+The environment then reported itself unavailable.
+
+Before that outage, this workspace also lacked configured RCH workers,
+release-host connections and the release signing setup. Its filesystem had
+insufficient space for the full Python parity runner's default 20 GiB free-space
+requirement. Those requirements were not lowered or replaced with local shims.
+
+Resume on a provisioned DSR environment using the updated committed source:
+
+1. Build a current-source candidate through DSR with qualified maturin 1.12.4
+   and the existing source/artifact binding checks. Pin the oracle to
+   NetworkX 3.6.1 and verify the loaded native bytes and Python package both
+   belong to that candidate.
+2. Run the native Dijkstra regressions and guarded Python overflow module,
+   followed by the complete canonical DSR quality inventory. Treat failures,
+   timeouts, missing tools and skipped environment lanes as incomplete.
+3. Complete the five-platform native archives, six ABI3 wheels, sdist and
+   five-class release evidence bundle. Preserve the existing checksum,
+   Minisign and candidate identity requirements. The public registry verifier's
+   current six-wheel-only contract also needs review before a release that adds
+   the required sdist; do not waive or misreport its result.
+4. Present the final version and exact artifact inventory/hashes for owner
+   approval before publication. Version 0.2.4 is a proposal only; it was not
+   selected, tagged, built, signed or approved during this session.
+
+Publication remains blocked. Issue #9 and the shipping bead must not be closed
+on the configuration diagnostic or oracle-only observations.
+
+---
+
+
 Target: FrankenNetworkX no-gaps performance gauntlet.
 
 Scope of this update: cut-metric public wrappers from the recent code-first

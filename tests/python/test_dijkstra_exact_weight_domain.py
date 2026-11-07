@@ -643,3 +643,100 @@ def test_overflowed_dijkstra_networkx_backend_dispatch_preserves_results(
         for _ in range(2):
             actual = function(gnx, *args, backend="franken_networkx", **kwargs)
             _assert_dijkstra_observables(actual, expected)
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+@pytest.mark.parametrize(
+    ("native_name", "oracle_name"),
+    [
+        ("_raw_all_pairs_dijkstra_path_length", "all_pairs_dijkstra_path_length"),
+        ("_raw_all_pairs_dijkstra_path", "all_pairs_dijkstra_path"),
+    ],
+    ids=["csr-lengths", "native-paths"],
+)
+def test_overflowed_dijkstra_native_all_pairs_routes_match_networkx(
+    nx_cls, fnx_cls, native_name, oracle_name, monkeypatch
+):
+    """Public all-pairs generators use lazy rows, even after repeated calls.
+
+    The raw lengths binding uses typed CSR; the raw paths binding exercises
+    its separate graph-specific kernels. Both include the minimum-weight
+    projections of multigraph classes. This graph includes infinite ties,
+    zero-weight loops, a missing weight, parallel edges and an isolated node.
+    """
+    gnx, gfx = _overflowed_distance_pair(nx_cls, fnx_cls)
+    _reject_python_dijkstra_fallback(monkeypatch)
+    expected = dict(getattr(nx, oracle_name)(gnx, backend="networkx"))
+    assert "t" in expected["s"] and "isolated" not in expected["s"]
+    for _ in range(2):
+        actual = getattr(fnx, native_name)(gfx, weight="weight")
+        _assert_dijkstra_observables(actual, expected)
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_overflowed_dijkstra_reachability_changes_invalidate_native_state(
+    nx_cls, fnx_cls, monkeypatch
+):
+    """Reuse lazy searches and CSR/projection caches across graph revisions.
+
+    A finite alternative supersedes an infinite path, its removal restores
+    infinity, and disconnecting the overflow branch must remove its vertices.
+    Reconnecting the branch must discover them again instead of reusing the
+    preceding search's unseen or settled state.
+    """
+    gnx, gfx = nx_cls(), fnx_cls()
+    for graph in (gnx, gfx):
+        graph.add_weighted_edges_from([
+            ("s", "a", 1e308), ("a", "b", 1e308), ("b", "t", 1.0),
+        ])
+        graph.add_node("isolated")
+    _reject_python_dijkstra_fallback(monkeypatch)
+
+    def check(expected_target):
+        expected_outcome = (
+            ("raised", "NetworkXNoPath")
+            if expected_target is None
+            else ("value", expected_target)
+        )
+        assert _outcome(
+            nx.single_source_dijkstra, gnx, "s", target="t", backend="networkx"
+        ) == expected_outcome
+        for _ in range(2):
+            _assert_dijkstra_observables(
+                _outcome(fnx.single_source_dijkstra, gfx, "s", target="t"),
+                expected_outcome,
+            )
+            for name in ("dijkstra_path", "dijkstra_path_length"):
+                _assert_dijkstra_observables(
+                    _outcome(getattr(fnx, name), gfx, "s", "t"),
+                    _outcome(getattr(nx, name), gnx, "s", "t", backend="networkx"),
+                )
+            for cutoff in (None, 1e308, float("inf")):
+                for name in ("single_source_dijkstra", "single_source_dijkstra_path_length"):
+                    _assert_dijkstra_observables(
+                        getattr(fnx, name)(gfx, "s", cutoff=cutoff),
+                        getattr(nx, name)(gnx, "s", cutoff=cutoff, backend="networkx"),
+                    )
+            _assert_dijkstra_observables(
+                fnx._raw_all_pairs_dijkstra_path_length(gfx, weight="weight"),
+                dict(nx.all_pairs_dijkstra_path_length(gnx, backend="networkx")),
+            )
+            _assert_dijkstra_observables(
+                fnx._raw_all_pairs_dijkstra_path(gfx, weight="weight"),
+                dict(nx.all_pairs_dijkstra_path(gnx, backend="networkx")),
+            )
+
+    overflow_path = (float("inf"), ["s", "a", "b", "t"])
+    check(overflow_path)
+    for graph in (gnx, gfx):
+        graph.add_edge("s", "t", weight=1.5e308)
+    check((1.5e308, ["s", "t"]))
+    for graph in (gnx, gfx):
+        graph.remove_edge("s", "t")
+    check(overflow_path)
+    for graph in (gnx, gfx):
+        graph.remove_edge("a", "b")
+    check(None)
+    for graph in (gnx, gfx):
+        graph.add_edge("a", "b", weight=1e308)
+    check(overflow_path)
