@@ -945,44 +945,118 @@ def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
     return pos
 
 
-def _vf2pp_node_label_value_local(G, node, node_label, default_label):
-    return G.nodes[node].get(node_label, default_label)
-
-
-def _vf2pp_mapping_matches_labels_local(
-    G1,
-    G2,
-    mapping,
-    *,
-    node_label,
-    default_label,
-):
-    return all(
-        _vf2pp_node_label_value_local(G1, left, node_label, default_label)
-        == _vf2pp_node_label_value_local(G2, right, node_label, default_label)
-        for left, right in mapping.items()
-    )
-
-
 def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
-    if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
-        return []
-    if G1.is_directed() != G2.is_directed():
-        return []
-    if G1.is_multigraph() != G2.is_multigraph():
-        return []
+    """Yield exact label-constrained bijections without collecting automorphisms.
 
-    return [
-        mapping
-        for mapping in _vf2pp_all_isomorphisms_rust(G1, G2)
-        if _vf2pp_mapping_matches_labels_local(
-            G1,
-            G2,
-            mapping,
-            node_label=node_label,
-            default_label=default_label,
-        )
+    Candidate buckets combine labels, degrees, and loop multiplicities. Their
+    lists are shared between search levels, so even a completely symmetric
+    graph retains O(V + E) state instead of all V! result dictionaries. Sparse
+    row checks preserve both edges and nonedges to already mapped vertices.
+    """
+    nodes1, nodes2 = list(G1), list(G2)
+    n = len(nodes1)
+    if not n or n != len(nodes2):
+        return
+    if G1.is_directed() != G2.is_directed():
+        return
+    if G1.number_of_edges() != G2.number_of_edges():
+        return
+
+    directed = G1.is_directed()
+
+    def indexed_rows(graph, nodes):
+        positions = {node: index for index, node in enumerate(nodes)}
+        multi = graph.is_multigraph()
+        adjacency = graph.adj
+        outgoing = [
+            {
+                positions[neighbor]: len(data) if multi else 1
+                for neighbor, data in adjacency[node].items()
+            }
+            for node in nodes
+        ]
+        if directed:
+            incoming = [{} for _ in nodes]
+            for source, row in enumerate(outgoing):
+                for target, multiplicity in row.items():
+                    incoming[target][source] = multiplicity
+            degrees = [
+                (sum(incoming[i].values()), sum(outgoing[i].values()))
+                for i in range(len(nodes))
+            ]
+        else:
+            incoming = outgoing
+            degrees = [
+                (sum(row.values()) + row.get(i, 0),)
+                for i, row in enumerate(outgoing)
+            ]
+        return outgoing, incoming, degrees
+
+    out1, in1, degrees1 = indexed_rows(G1, nodes1)
+    out2, in2, degrees2 = indexed_rows(G2, nodes2)
+    if _Counter(degrees1) != _Counter(degrees2):
+        return
+
+    attributes1, attributes2 = G1.nodes, G2.nodes
+    keys1 = [
+        (degrees1[i], out1[i].get(i, 0), attributes1[node].get(node_label, default_label))
+        for i, node in enumerate(nodes1)
     ]
+    keys2 = [
+        (degrees2[i], out2[i].get(i, 0), attributes2[node].get(node_label, default_label))
+        for i, node in enumerate(nodes2)
+    ]
+    # Dict keys deliberately supply Python's identity-or-equality label
+    # semantics, including shared NaNs, and reject unhashable labels.
+    if _Counter(keys1) != _Counter(keys2):
+        return
+    buckets = {}
+    for i, key in enumerate(keys2):
+        buckets.setdefault(key, []).append(i)
+    candidates = [buckets[key] for key in keys1]
+    # Constrain rare labels and high-degree vertices before free permutations
+    # of isolates. Stable input positions break ties and order result keys.
+    order = sorted(range(n), key=lambda i: (len(candidates[i]), -sum(degrees1[i]), i))
+
+    mapping = [-1] * n
+    reverse = [-1] * n
+
+    def rows_agree(left, right):
+        for neighbor, count in left.items():
+            image = mapping[neighbor]
+            if image != -1 and right.get(image, 0) != count:
+                return False
+        for neighbor, count in right.items():
+            preimage = reverse[neighbor]
+            if preimage != -1 and left.get(preimage, 0) != count:
+                return False
+        return True
+
+    # One iterator per active node, with no recursive Python calls. Mapping a
+    # node opens the next level only after all constraints on that pair hold.
+    stack = [iter(candidates[order[0]])]
+    while stack:
+        source = order[len(stack) - 1]
+        target = next(stack[-1], None)
+        if target is None:
+            stack.pop()
+            if stack:
+                parent = order[len(stack) - 1]
+                reverse[mapping[parent]] = -1
+                mapping[parent] = -1
+            continue
+        if reverse[target] != -1 or not rows_agree(out1[source], out2[target]):
+            continue
+        if directed and not rows_agree(in1[source], in2[target]):
+            continue
+        mapping[source] = target
+        reverse[target] = source
+        if len(stack) == n:
+            yield {node: nodes2[mapping[i]] for i, node in enumerate(nodes1)}
+            reverse[target] = -1
+            mapping[source] = -1
+        else:
+            stack.append(iter(candidates[order[len(stack)]]))
 
 
 # Isomorphism VF2++ (br-req)
@@ -1156,14 +1230,15 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
             return False
         return _is_isomorphic_rust(G1, G2)
 
-    return bool(
+    return next(
         _vf2pp_labeled_mappings_local(
             G1,
             G2,
             node_label=node_label,
             default_label=default_label,
-        )
-    )
+        ),
+        None,
+    ) is not None
 
 
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
@@ -1178,13 +1253,15 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     if node_label is None:
         return _vf2pp_isomorphism_rust(G1, G2)
 
-    mappings = _vf2pp_labeled_mappings_local(
-        G1,
-        G2,
-        node_label=node_label,
-        default_label=default_label,
+    return next(
+        _vf2pp_labeled_mappings_local(
+            G1,
+            G2,
+            node_label=node_label,
+            default_label=default_label,
+        ),
+        None,
     )
-    return mappings[0] if mappings else None
 
 
 def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):

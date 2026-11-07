@@ -834,3 +834,30 @@ Python routes remain available for views, custom sorting, and non-integer
 depth comparisons. `tests/python/test_native_traversal_streaming.py` checks
 prefix work, between-yield mutations, active-row invalidation, directed
 predecessors, provider binding, and suspended-iterator lifetime.
+
+## 36. Label-Constrained Isomorphism Search
+
+The labeled VF2++ entry points compare node labels during candidate selection,
+before expanding a partial bijection. Asking whether an isomorphism exists or
+requesting one mapping must stop at the first accepted mapping. The iterator
+form retains only its active search state and yields independent mapping dicts;
+it must not collect all structural automorphisms before applying labels.
+
+Supplied labels use Python's hash/equality semantics, including a shared
+non-reflexive label object. Missing labels use `default_label`. Unhashable
+labels raise `TypeError`. Empty inputs yield no VF2++ mappings. The separate
+`node_label=None` native route still needs to account for attributes actually
+keyed by `None`.
+
+A candidate bijection preserves directedness, every self-loop, and the number
+of parallel edges between each pair. Simple and multigraph inputs may match
+when their per-pair multiplicities agree. Matching node degrees and the simple
+projection alone is insufficient. Sparse adjacency counts and an iterative
+search stack avoid a dense quadratic matrix and recursion-depth limits.
+
+The existing labeled mapping contract accepts any valid first mapping and the
+complete set of valid mappings; input-node positions deterministically break
+candidate-order ties and order result keys. The canonical tests in
+`tests/python/test_isomorphism_parity.py` compare
+mapping sets with NetworkX 3.6.1 and separately check prefix consumption,
+label pruning, loop/multiplicity preservation, and exact graph protocols.
