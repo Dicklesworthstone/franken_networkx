@@ -861,3 +861,27 @@ candidate-order ties and order result keys. The canonical tests in
 `tests/python/test_isomorphism_parity.py` compare
 mapping sets with NetworkX 3.6.1 and separately check prefix consumption,
 label pruning, loop/multiplicity preservation, and exact graph protocols.
+
+## 37. Live Simple-Path Enumeration
+
+`all_simple_paths` and `all_simple_edge_paths` retain the caller's graph when
+enumeration begins and whenever the depth-first walk resumes. They must not
+convert a foreign graph or a filtered view into a snapshot. Changes to an
+unopened branch and changes to live view filters affect later paths. Resizing
+an active edge row preserves the caller's iterator error on advancement.
+Creating an iterator does not inspect the graph or consume iterable targets;
+target consumption can itself mutate the graph before traversal starts.
+
+Both APIs traverse each node through its public `edges` provider, including
+subclass overrides. Multigraph traversal requests keys and preserves parallel
+edge order; converting edge paths into node paths retains duplicates caused
+by parallel edges. A source that is also a target yields the zero-edge path
+only when the cutoff comparison accepts zero. Negative and NaN cutoffs yield
+no paths, while fractional and infinite limits use their ordinary Python
+comparisons. Multiple targets can produce a path to an intermediate target
+and then continue toward another target without revisiting a node.
+
+`tests/python/test_simple_paths_conformance.py` compares ordered results,
+lazy target consumption, suspended mutations, active-row errors, custom edge
+providers, keyed duplicates, and cutoff boundaries against NetworkX 3.6.1
+across all four graph classes, foreign inputs, and live filtered views.

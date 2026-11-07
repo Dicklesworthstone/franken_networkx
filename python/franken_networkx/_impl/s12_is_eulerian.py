@@ -401,13 +401,13 @@ def _all_simple_edge_paths_fnx(G, source, target, cutoff):
             raise NodeNotFound(f"target node {target} not in graph") from err
     if cutoff is None:
         cutoff = len(G) - 1
-    if cutoff < 0 or not targets:
+    if not (cutoff >= 0 and targets):
         return
 
     get_edges = (
         (lambda node: G.edges(node, keys=True))
         if G.is_multigraph()
-        else (lambda node: ((node, nbr) for nbr in G.neighbors(node)))
+        else (lambda node: G.edges(node))
     )
 
     current_path = {None: None}
@@ -438,8 +438,9 @@ def all_simple_paths(
 ):
     """Yield all simple paths from *source* to *target*."""
     _validate_backend_dispatch_keywords("all_simple_paths", backend, backend_kwargs)
-    Gc = _coerce_arg_to_fnx_graph(G)
-    yield from _all_simple_paths_fnx(Gc, source, target, cutoff)
+    # Enumeration resumes against the caller's graph. A converted snapshot
+    # loses later topology changes, live filters, and custom edge iterators.
+    yield from _all_simple_paths_fnx(G, source, target, cutoff)
 
 
 # Algorithm functions — graph operators

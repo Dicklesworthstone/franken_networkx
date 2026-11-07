@@ -1080,8 +1080,8 @@ def all_simple_edge_paths(
     _validate_backend_dispatch_keywords(
         "all_simple_edge_paths", backend, backend_kwargs
     )
-    Gc = _coerce_arg_to_fnx_graph(G)
-    yield from _all_simple_edge_paths_fnx(Gc, source, target, cutoff)
+    # Keep the same live graph throughout the suspended depth-first walk.
+    yield from _all_simple_edge_paths_fnx(G, source, target, cutoff)
 
 
 def chain_decomposition(G, root=None, *, backend=None, **backend_kwargs):

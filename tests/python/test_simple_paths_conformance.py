@@ -443,6 +443,133 @@ def test_all_simple_edge_paths_returns_generator():
 
 
 # ---------------------------------------------------------------------------
+# Live inputs, suspended traversals, and public graph protocol
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["all_simple_paths", "all_simple_edge_paths"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "networkx", "filtered-view"])
+@pytest.mark.parametrize("mutation", ["add", "remove", "filter"])
+def test_simple_path_iterators_observe_changes_between_results(
+    name, class_name, input_kind, mutation,
+):
+    outcomes = []
+    for module in (fnx, nx):
+        graph_module = nx if input_kind == "networkx" else module
+        root = getattr(graph_module, class_name)()
+        root.add_edges_from([(0, 1), (1, 3), (0, 2)])
+        if mutation != "add":
+            root.add_edge(2, 3)
+        if root.is_multigraph():
+            # Node paths must retain the duplicates from parallel edge paths.
+            root.add_edge(0, 1, key="parallel")
+        hidden = set()
+        graph = root
+        if input_kind == "filtered-view" or mutation == "filter":
+            graph = graph_module.subgraph_view(
+                root,
+                filter_edge=lambda u, v, *keys: frozenset((u, v)) not in hidden,
+            )
+        paths = getattr(module, name)(graph, 0, 3)
+        first = next(paths)
+        if mutation == "add":
+            root.add_edge(2, 3)
+        elif mutation == "remove":
+            root.remove_edge(2, 3)
+        else:
+            hidden.add(frozenset((2, 3)))
+        outcomes.append([first, *paths])
+    assert outcomes[0] == outcomes[1]
+    node_paths = outcomes[0] if name == "all_simple_paths" else [
+        [0] + [edge[1] for edge in path] for path in outcomes[0]
+    ]
+    assert ([0, 2, 3] in node_paths) == (mutation == "add")
+
+
+@pytest.mark.parametrize("name", ["all_simple_paths", "all_simple_edge_paths"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "networkx", "view"])
+def test_simple_path_lazy_targets_mutate_the_traversed_graph(name, class_name, input_kind):
+    outcomes = []
+    for module in (fnx, nx):
+        graph_module = nx if input_kind == "networkx" else module
+        root = getattr(graph_module, class_name)([(0, 1)])
+        graph = graph_module.subgraph_view(root) if input_kind == "view" else root
+        consumed = []
+
+        def targets():
+            consumed.append(True)
+            root.add_edge(1, 2)
+            yield 2
+
+        paths = getattr(module, name)(graph, 0, targets())
+        assert not consumed
+        assert 2 not in root
+        outcomes.append(list(paths))
+        assert consumed == [True]
+    assert outcomes[0] == outcomes[1]
+    assert len(outcomes[0]) == 1
+
+
+@pytest.mark.parametrize("name", ["all_simple_paths", "all_simple_edge_paths"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_simple_path_networkx_input_preserves_active_iterator_errors(name, class_name):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(nx, class_name)([(0, 1), (1, 3), (0, 2), (2, 3)])
+        paths = getattr(module, name)(graph, 0, 3)
+        first = next(paths)
+        # The root's edge iterator is suspended while its first branch yields.
+        # Adding a root neighbor invalidates that iterator, as in NetworkX.
+        graph.add_edge(0, 4)
+        with pytest.raises(RuntimeError) as exc:
+            list(paths)
+        outcomes.append((first, str(exc.value)))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", ["all_simple_paths", "all_simple_edge_paths"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "networkx"])
+def test_simple_path_traversal_honors_custom_edge_iteration(name, class_name, input_kind):
+    outcomes = []
+    for module in (fnx, nx):
+        graph_module = nx if input_kind == "networkx" else module
+        calls = []
+
+        class EdgeFiltered(getattr(graph_module, class_name)):
+            def edges(self, nbunch=None, data=False, default=None):
+                calls.append(nbunch)
+                return (
+                    (nbunch, neighbor) for neighbor in self._adj[nbunch]
+                    if frozenset((nbunch, neighbor)) != frozenset((0, 2))
+                )
+
+            def neighbors(self, node):
+                raise AssertionError("simple-path enumeration must use the public edges protocol")
+
+        graph = EdgeFiltered()
+        graph.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3)])
+        paths = getattr(module, name)(graph, 0, 3)
+        assert not calls
+        outcomes.append((list(paths), calls))
+    assert outcomes[0] == outcomes[1]
+    assert len(outcomes[0][0]) == 1
+
+
+@pytest.mark.parametrize("name", ["all_simple_paths", "all_simple_edge_paths"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("target", [0, 1, [0, 1]])
+@pytest.mark.parametrize("cutoff", [float("nan"), -1, 0, 0.5, 1, float("inf")])
+def test_simple_path_cutoff_boundaries_preserve_order(name, class_name, target, cutoff):
+    graphs = [getattr(module, class_name)([(0, 1), (0, 1)]) for module in (fnx, nx)]
+    actual = list(getattr(fnx, name)(graphs[0], 0, target, cutoff=cutoff))
+    expected = list(getattr(nx, name)(graphs[1], 0, target, cutoff=cutoff))
+    assert actual == expected
+
+
+# ---------------------------------------------------------------------------
 # Cross-relation invariants
 # ---------------------------------------------------------------------------
 
