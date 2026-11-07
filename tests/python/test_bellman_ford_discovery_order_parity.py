@@ -474,6 +474,47 @@ def test_single_source_bellman_paths_safe_weights_stay_native(api, kind, monkeyp
     assert calls == ["s"]
 
 
+@pytest.mark.parametrize("kind", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", ["weight", "cost"])
+def test_combined_bellman_preserves_underflow_and_mixed_distance_types(kind, weight, monkeypatch):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_edge("s", "prefix", **{weight: 2})
+        graph.add_edge("prefix", "a", **{weight: -1e308})
+        graph.add_edge("a", "b", **{weight: -1e308})
+        graph.add_edge("b", "t", **{weight: 1.0})
+        graph.add_node("isolated")
+        if graph.is_multigraph():
+            graph.add_edge("prefix", "a", **{weight: 7.0})
+
+    native = fnx._raw_single_source_bellman_ford
+    calls = []
+
+    def record(*args, **kwargs):
+        calls.append(args[1])
+        return native(*args, **kwargs)
+
+    def reject_python_walk(*args, **kwargs):
+        pytest.fail("finite weights unexpectedly bypassed the native Bellman-Ford route")
+
+    monkeypatch.setattr(fnx, "_raw_single_source_bellman_ford", record)
+    monkeypatch.setattr(fnx, "_inner_bellman_ford_inproc", reject_python_walk)
+    expected_distances, expected_paths = nx.single_source_bellman_ford(
+        graphs[1], "s", weight=weight
+    )
+    distances, paths = fnx.single_source_bellman_ford(graphs[0], "s", weight=weight)
+    assert list(distances.items()) == list(expected_distances.items())
+    assert [type(value) for value in distances.values()] == [
+        type(value) for value in expected_distances.values()
+    ]
+    assert list(paths.items()) == list(expected_paths.items())
+    assert distances["s"] == 0 and type(distances["s"]) is int
+    assert distances["prefix"] == 2 and type(distances["prefix"]) is int
+    assert distances["b"] == distances["t"] == float("-inf")
+    assert paths["t"] == ["s", "prefix", "a", "b", "t"]
+    assert calls == ["s"]
+
+
 @pytest.mark.parametrize("api", _BELLMAN_PAIR_APIS)
 @pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
 def test_all_pairs_bellman_stream_has_bounded_prefix_memory(api, kind):

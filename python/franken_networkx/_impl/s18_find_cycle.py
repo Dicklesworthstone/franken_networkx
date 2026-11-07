@@ -1435,15 +1435,16 @@ def _sp_propagate_int_types(G, weight, dists, paths):
     (int+int=int, any float taints). With all-int graphs the blanket
     coercion fast path applies; this handles MIXED graphs by re-deriving
     int-ness along each returned path (the fnx kernel reproduces nx's
-    traversal exactly, so the path IS nx's path). Source (path of one
-    node, no edges) becomes int 0 — subsumes the literal-int-0 seed."""
+    traversal exactly, so the path IS nx's path). The ordinary source seed
+    becomes int 0. Bellman-Ford can improve even the source to negative
+    infinity; nonfinite distances must survive without integer conversion."""
     import numbers as _numbers
 
     multi = G.is_multigraph()
     out = {}
     for node, d in dists.items():
         p = paths.get(node)
-        if p is None or d != int(d):
+        if p is None or (isinstance(d, float) and not d.is_integer()) or d != int(d):
             out[node] = d
             continue
         all_int = True
