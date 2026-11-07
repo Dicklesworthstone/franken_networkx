@@ -860,15 +860,19 @@ def shortest_path(
     # crashed on fnx with `TypeError: shortest_path() got an unexpected
     # keyword argument 'backend'`. Match the dispatch surface.
     _validate_backend_dispatch_keywords("shortest_path", backend, backend_kwargs)
+    if source is None and target is None:
+        if method not in ("dijkstra", "bellman-ford"):
+            raise ValueError(f"method not supported: {method}")
+        # All-pairs queries start a new search at every advancement. Keep the
+        # caller's graph so later sources observe live rows and view filters.
+        if weight is None:
+            return all_pairs_shortest_path(G)
+        if method == "bellman-ford":
+            return all_pairs_bellman_ford_path(G, weight=weight)
+        return all_pairs_dijkstra_path(G, weight=weight)
     if _weighted_query_uses_live_python_rows(G, weight):
         if method not in ("dijkstra", "bellman-ford"):
             raise ValueError(f"method not supported: {method}")
-        if source is None and target is None:
-            if weight is None:
-                return all_pairs_shortest_path(G)
-            if method == "bellman-ford":
-                return all_pairs_bellman_ford_path(G, weight=weight)
-            return all_pairs_dijkstra_path(G, weight=weight)
         if source is None or target is None:
             endpoint = target if source is None else source
             H = G.reverse(copy=False) if source is None and G.is_directed() else G
@@ -1014,15 +1018,17 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     Native-root views materialize as needed; private-root queries
     walk their current Python rows without copying to native storage.
     """
+    if source is None and target is None:
+        if method not in ("dijkstra", "bellman-ford"):
+            raise ValueError(f"method not supported: {method}")
+        if weight is None:
+            return all_pairs_shortest_path_length(G)
+        if method == "bellman-ford":
+            return all_pairs_bellman_ford_path_length(G, weight=weight)
+        return all_pairs_dijkstra_path_length(G, weight=weight)
     if _weighted_query_uses_live_python_rows(G, weight):
         if method not in ("dijkstra", "bellman-ford"):
             raise ValueError(f"method not supported: {method}")
-        if source is None and target is None:
-            if weight is None:
-                return all_pairs_shortest_path_length(G)
-            if method == "bellman-ford":
-                return all_pairs_bellman_ford_path_length(G, weight=weight)
-            return all_pairs_dijkstra_path_length(G, weight=weight)
         if source is None or target is None:
             endpoint = target if source is None else source
             H = G.reverse(copy=False) if source is None and G.is_directed() else G

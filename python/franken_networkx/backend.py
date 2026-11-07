@@ -12,6 +12,7 @@ Usage::
 
 import logging
 import inspect
+import weakref
 
 import franken_networkx as fnx
 
@@ -68,10 +69,111 @@ _CONVERT_AFTER_USES = {
 }
 _RENT_KEY = "franken_networkx: conversion rent"
 
-# Dispatched with the caller's graph unconverted; see convert_from_nx.
+# These iterators read the caller's graph as they advance. NetworkX's conversion
+# cache is shared by algorithms, so this choice belongs at invocation time,
+# including when an eager algorithm populated the cache first.
 _LIVE_INPUT_ALGORITHMS = frozenset(
-    {"lexicographical_topological_sort", "topological_generations", "topological_sort"}
+    {
+        "lexicographical_topological_sort",
+        "topological_generations",
+        "topological_sort",
+        "bfs_edges",
+        "bfs_predecessors",
+        "bfs_successors",
+        "bfs_layers",
+        "dfs_edges",
+        "dfs_preorder_nodes",
+        "dfs_postorder_nodes",
+        "edge_bfs",
+        "edge_dfs",
+        "all_pairs_shortest_path",
+        "all_pairs_shortest_path_length",
+        "all_pairs_dijkstra_path",
+        "all_pairs_dijkstra_path_length",
+        "all_pairs_bellman_ford_path",
+        "all_pairs_bellman_ford_path_length",
+        "all_simple_paths",
+        "shortest_simple_paths",
+    }
 )
+
+# User callbacks must receive the original attribute dictionaries and observe
+# their own mutations. The ordinary string-weight/eager calls keep using the
+# cached native graph. Bind the signature so positional callbacks work too.
+_CALLBACK_INPUT_ALGORITHMS = frozenset(
+    {
+        "bfs_tree",
+        "dfs_tree",
+        "dfs_predecessors",
+        "dfs_successors",
+        "shortest_path",
+        "shortest_path_length",
+        "all_shortest_paths",
+        "average_shortest_path_length",
+        "eccentricity",
+        "diameter",
+        "radius",
+        "center",
+        "periphery",
+        "barycenter",
+        "dijkstra_path",
+        "dijkstra_path_length",
+        "bellman_ford_path",
+        "bellman_ford_path_length",
+        "single_source_dijkstra",
+        "single_source_dijkstra_path",
+        "single_source_dijkstra_path_length",
+        "single_source_bellman_ford",
+        "single_source_bellman_ford_path",
+        "single_source_bellman_ford_path_length",
+        "multi_source_dijkstra",
+        "astar_path",
+        "astar_path_length",
+    }
+)
+_LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "heuristic", "key")
+
+
+def _refresh_dispatch_source(graph):
+    """Associate cached conversions with the graph used for this invocation."""
+    if isinstance(graph, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)):
+        # An explicitly supplied native graph is an independent input, even if
+        # it was originally produced by convert_from_nx and then modified.
+        vars(graph).pop("_fnx_networkx_source", None)
+        return
+    cache = getattr(graph, "__networkx_cache__", None)
+    if cache is None:
+        return
+    conversions = cache.get("backends", {}).get("franken_networkx", {})
+    for converted in conversions.values():
+        if isinstance(converted, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)):
+            # Graph copying/pickling deliberately drops native private fields.
+            # can_run receives the caller's graph even on conversion-cache hits.
+            converted._fnx_networkx_source = weakref.ref(graph)
+
+
+def _clear_callback_conversions(graph):
+    cache = getattr(graph, "__networkx_cache__", None)
+    if cache is not None:
+        # A callback may change attributes in place, without a graph mutator
+        # clearing conversions. Discard every backend's potentially stale copy.
+        cache.pop("backends", None)
+
+
+def _iterate_callback_result(iterator, graph):
+    """Invalidate conversions after each lazy callback-driven advancement."""
+    try:
+        while True:
+            try:
+                item = next(iterator)
+            except StopIteration:
+                return
+            finally:
+                _clear_callback_conversions(graph)
+            yield item
+    finally:
+        iterator.close()
+        _clear_callback_conversions(graph)
 
 # ---------------------------------------------------------------------------
 # Supported algorithm registry
@@ -1019,16 +1121,13 @@ class BackendInterface:
     ):
         """Convert a NetworkX graph to a FrankenNetworkX graph.
 
-        The lazy topological sorts are defined on the LIVE input: they raise
-        ``RuntimeError`` when the caller mutates the graph mid-iteration
-        (networkx's test_dag.py::test_topological_sort6), which a converted
-        copy can never see. They get the caller's graph unconverted and run
-        networkx's loop on it, as networkx's own loopback test backend does
-        (nro4w.11).
+        Always cache a native graph: NetworkX keys conversions by attribute
+        hints, not algorithm name. Remember the source weakly so lazy and
+        callback-driven algorithms can recover it even from a conversion
+        cached by another algorithm. A strong reference would create a cycle
+        through the source's conversion cache and retain both graphs.
         """
-        if name in _LIVE_INPUT_ALGORITHMS:
-            return G
-        return _nx_to_fnx_for_dispatch(
+        converted = _nx_to_fnx_for_dispatch(
             G,
             edge_attrs=edge_attrs,
             node_attrs=node_attrs,
@@ -1036,6 +1135,9 @@ class BackendInterface:
             preserve_node_attrs=preserve_node_attrs or preserve_all_attrs,
             preserve_graph_attrs=preserve_graph_attrs or preserve_all_attrs,
         )
+        if name is not None:
+            converted._fnx_networkx_source = weakref.ref(G)
+        return converted
 
     @staticmethod
     def convert_to_nx(result, *, name=None):
@@ -1070,6 +1172,8 @@ class BackendInterface:
             bound.apply_defaults()
             if bound.arguments.get("flow_func") is not None:
                 return False
+        if name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
+            _refresh_dispatch_source(bound.arguments.get("G"))
         return True
 
     @staticmethod
@@ -1123,11 +1227,50 @@ class BackendInterface:
             import functools
 
             fn = _SUPPORTED_ALGORITHMS[name]
+            live_input = name in _LIVE_INPUT_ALGORITHMS
+            callback_signature = (
+                inspect.signature(fn)
+                if live_input or name in _CALLBACK_INPUT_ALGORITHMS else None
+            )
 
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
-                    return fn(*args, **kwargs)
+                    source = None
+                    has_callbacks = False
+                    reads_lazily = live_input
+                    if callback_signature is not None:
+                        graph = args[0] if args else kwargs.get("G")
+                        source_ref = getattr(graph, "__dict__", {}).get("_fnx_networkx_source")
+                        source = (
+                            source_ref() if isinstance(source_ref, weakref.ReferenceType) else None
+                        )
+                        if source is not None:
+                            bound = callback_signature.bind(*args, **kwargs)
+                            has_callbacks = any(
+                                callable(bound.arguments.get(parameter))
+                                for parameter in _LIVE_CALLBACK_PARAMETERS
+                            )
+                            reads_lazily = live_input or (
+                                name in {"shortest_path", "shortest_path_length"}
+                                and bound.arguments.get("source") is None
+                                and bound.arguments.get("target") is None
+                            )
+                            if reads_lazily or has_callbacks:
+                                if args:
+                                    args = (source, *args[1:])
+                                else:
+                                    kwargs = {**kwargs, "G": source}
+                    if not has_callbacks:
+                        return fn(*args, **kwargs)
+                    _clear_callback_conversions(source)
+                    try:
+                        result = fn(*args, **kwargs)
+                    finally:
+                        _clear_callback_conversions(source)
+                    if reads_lazily and inspect.isgenerator(result):
+                        return _iterate_callback_result(result, source)
+                    return result
                 except fnx.NetworkXNotImplemented as e:
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError
                     # to correctly trigger its fallback sequence.

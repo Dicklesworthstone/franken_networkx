@@ -8,7 +8,11 @@ toll. The conversion must still keep node order and every node's neighbor
 order exactly, since algorithms break ties by them.
 """
 
+import copy
+import gc
+import pickle
 import random
+import weakref
 
 import networkx as nx
 import pytest
@@ -324,6 +328,312 @@ def test_a_declined_pagerank_does_not_convert_through_its_nested_dispatch():
         assert not g.__networkx_cache__.get("backends", {}).get("franken_networkx")
     finally:
         nx.config.backend_priority.algos = saved
+
+
+def _warm_live_input_cache(graph, monkeypatch):
+    """Prime a reusable attribute-preserving conversion through public dispatch."""
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    assert set(nx.relabel_nodes(graph, {}, backend="franken_networkx")) == set(graph)
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    convert_from_nx = BackendInterface.convert_from_nx
+
+    def unexpected_conversion(*args, **kwargs):
+        pytest.fail("the already cached compatible graph must be reused")
+
+    monkeypatch.setattr(BackendInterface, "convert_from_nx", unexpected_conversion)
+    return convert_from_nx
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "algorithm",
+    [
+        "bfs_edges", "bfs_predecessors", "bfs_successors", "bfs_layers",
+        "dfs_edges", "dfs_preorder_nodes", "dfs_postorder_nodes",
+        "edge_bfs", "edge_dfs",
+    ],
+)
+def test_backend_traversal_keeps_input_live_before_first_yield(
+    algorithm, cls, cached, monkeypatch
+):
+    graph = getattr(nx, cls)()
+    graph.add_nodes_from(range(4))
+    graph.add_edges_from([(0, 1), (1, 2)])
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    iterator = getattr(nx, algorithm)(graph, 0, backend="franken_networkx")
+    graph.add_edge(2, 3)
+    assert list(iterator) == list(getattr(nx, algorithm)(graph, 0, backend="networkx"))
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "algorithm",
+    [
+        "all_pairs_shortest_path", "all_pairs_shortest_path_length",
+        "all_pairs_dijkstra_path", "all_pairs_dijkstra_path_length",
+        "all_pairs_bellman_ford_path", "all_pairs_bellman_ford_path_length",
+    ],
+)
+def test_backend_all_pairs_reads_mutations_between_sources(algorithm, cached, monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_nodes_from(range(4))
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 7), (2, 3, 5)])
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    iterator = getattr(nx, algorithm)(graph, backend="franken_networkx")
+    assert next(iterator)[0] == 0
+    # In-place attribute writes do not clear NetworkX's cache. The next source
+    # must nevertheless read the graph at that yield, as the oracle does.
+    graph[1][2]["weight"] = 2
+    graph.add_edge(1, 3, weight=1)
+    expected = dict(getattr(nx, algorithm)(graph, backend="networkx"))[1]
+    assert next(iterator) == (1, expected)
+
+
+@pytest.mark.parametrize("entrypoint", ["direct", "cold", "warm"])
+@pytest.mark.parametrize("algorithm", ["shortest_path", "shortest_path_length"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("method", ["dijkstra", "bellman-ford"])
+def test_backend_generic_all_pairs_keeps_live_input(
+    algorithm, weight, method, entrypoint, monkeypatch
+):
+    graph = nx.DiGraph()
+    graph.add_nodes_from(range(4))
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 7), (2, 3, 5)])
+    if entrypoint == "warm":
+        _warm_live_input_cache(graph, monkeypatch)
+    kwargs = {"weight": weight, "method": method}
+    if entrypoint == "direct":
+        iterator = getattr(fnx, algorithm)(graph, **kwargs)
+    else:
+        iterator = getattr(nx, algorithm)(graph, backend="franken_networkx", **kwargs)
+    assert next(iterator)[0] == 0
+    graph[1][2]["weight"] = 2
+    graph.add_edge(1, 3, weight=1)
+    expected = dict(getattr(nx, algorithm)(graph, backend="networkx", **kwargs))[1]
+    assert next(iterator) == (1, expected)
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "algorithm",
+    ["topological_sort", "topological_generations", "lexicographical_topological_sort"],
+)
+def test_backend_topology_detects_mutation_after_cached_conversion(
+    algorithm, cached, monkeypatch
+):
+    graph = nx.DiGraph([(0, 1), (1, 2)])
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    iterator = getattr(nx, algorithm)(graph, backend="franken_networkx")
+    assert next(iterator) == ([0] if algorithm == "topological_generations" else 0)
+    graph.remove_node(1)
+    with pytest.raises(RuntimeError):
+        next(iterator)
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["dijkstra_path_length", "bellman_ford_path_length"])
+def test_backend_weight_callback_uses_original_dicts_and_observes_writes(
+    algorithm, cls, cached, monkeypatch
+):
+    graph = getattr(nx, cls)()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 10)])
+    convert_from_nx = BackendInterface.convert_from_nx
+    if cached:
+        convert_from_nx = _warm_live_input_cache(graph, monkeypatch)
+
+    def weight(u, v, data):
+        assert data is graph._adj[u][v]
+        if (u, v) == (0, 1):
+            changed = graph._adj[1][2]
+            (changed[0] if graph.is_multigraph() else changed)["weight"] = 2
+        return (data[0] if graph.is_multigraph() else data)["weight"]
+
+    assert getattr(nx, algorithm)(graph, 0, 2, weight, backend="franken_networkx") == 3
+    # Callback writes bypass NetworkX's graph mutators, so a later eager call
+    # must not reuse a pre-callback snapshot with the old weight of ten.
+    monkeypatch.setattr(BackendInterface, "convert_from_nx", staticmethod(convert_from_nx))
+    assert nx.dijkstra_path_length(graph, 0, 2, "weight", backend="franken_networkx") == 3
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("method", ["dijkstra", "bellman-ford"])
+def test_backend_all_shortest_paths_callback_preserves_call_time_predecessors(
+    method, cached, monkeypatch
+):
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 10), (0, 2, 5)])
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+
+    def weight(u, v, data):
+        assert data is graph._adj[u][v]
+        if (u, v) == (0, 1):
+            graph[1][2]["weight"] = 2
+        return data["weight"]
+
+    paths = nx.all_shortest_paths(
+        graph, 0, 2, weight=weight, method=method, backend="franken_networkx"
+    )
+    graph[0][2]["weight"] = 0
+    assert list(paths) == [[0, 1, 2]]
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["eccentricity", "diameter", "radius", "center", "periphery", "barycenter"]
+)
+def test_backend_distance_measure_callbacks_receive_original_dicts(algorithm, monkeypatch):
+    graph = nx.Graph([(0, 1), (1, 2)])
+    _warm_live_input_cache(graph, monkeypatch)
+    seen = []
+
+    def weight(u, v, data):
+        assert data is graph._adj[u][v]
+        seen.append((u, v))
+        return 1
+
+    assert getattr(nx, algorithm)(graph, weight=weight, backend="franken_networkx") == getattr(
+        nx, algorithm
+    )(graph, weight=None, backend="networkx")
+    assert seen
+
+
+@pytest.mark.parametrize("algorithm", ["bfs_tree", "dfs_tree"])
+def test_backend_eager_traversal_observes_sort_callback_mutations(algorithm, monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_nodes_from(range(4))
+    graph.add_edges_from([(0, 1), (1, 2)])
+    _warm_live_input_cache(graph, monkeypatch)
+
+    def sort_neighbors(neighbors):
+        graph.add_edge(2, 3)
+        return sorted(neighbors)
+
+    tree = getattr(nx, algorithm)(
+        graph, 0, sort_neighbors=sort_neighbors, backend="franken_networkx"
+    )
+    assert list(tree.edges()) == [(0, 1), (1, 2), (2, 3)]
+
+
+def test_backend_astar_observes_heuristic_callback_mutations(monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 10)])
+    _warm_live_input_cache(graph, monkeypatch)
+
+    def heuristic(node, target):
+        graph[1][2]["weight"] = 2
+        return 0
+
+    assert nx.astar_path_length(
+        graph, 0, 2, heuristic, backend="franken_networkx"
+    ) == 3
+
+
+def test_backend_layers_observe_changes_after_a_yield(monkeypatch):
+    graph = nx.DiGraph([(0, 1), (1, 2)])
+    graph.add_node(3)
+    _warm_live_input_cache(graph, monkeypatch)
+    layers = nx.bfs_layers(graph, 0, backend="franken_networkx")
+    assert next(layers) == [0]
+    graph.add_edge(0, 3)
+    assert list(layers) == [[1, 3], [2]]
+
+
+@pytest.mark.parametrize("algorithm", ["all_simple_paths", "shortest_simple_paths"])
+def test_backend_simple_paths_keep_the_source_graph(monkeypatch, algorithm):
+    graph = nx.DiGraph([(0, 1), (1, 2)])
+    _warm_live_input_cache(graph, monkeypatch)
+    paths = getattr(nx, algorithm)(graph, 0, 2, backend="franken_networkx")
+    graph.add_edge(0, 2)
+    assert list(paths) == list(getattr(nx, algorithm)(graph, 0, 2, backend="networkx"))
+
+
+def test_backend_live_dispatch_does_not_cache_the_networkx_source(monkeypatch):
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = nx.DiGraph([(0, 1), (1, 2)])
+    assert list(nx.topological_sort(graph, backend="franken_networkx")) == [0, 1, 2]
+    conversions = graph.__networkx_cache__["backends"]["franken_networkx"]
+    assert conversions and all(isinstance(value, fnx.DiGraph) for value in conversions.values())
+    kernel = backend_module._SUPPORTED_ALGORITHMS["degree_centrality"]
+    seen = []
+
+    def record_input(G):
+        seen.append(G)
+        return kernel(G)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "degree_centrality", record_input)
+    assert nx.degree_centrality(graph, backend="franken_networkx") == nx.degree_centrality(
+        graph, backend="networkx"
+    )
+    assert len(seen) == 1 and isinstance(seen[0], fnx.DiGraph)
+
+
+def test_backend_source_lifetime_follows_the_live_iterator(monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = nx.Graph([(0, 1), (1, 2)])
+    source_ref = weakref.ref(graph)
+    iterator = nx.bfs_layers(graph, 0, backend="franken_networkx")
+    converted = next(iter(graph.__networkx_cache__["backends"]["franken_networkx"].values()))
+    del graph
+    gc.collect()
+    assert source_ref() is not None
+    assert list(iterator) == [[0], [1], [2]]
+    del iterator
+    gc.collect()
+    assert source_ref() is None
+    # A surviving native conversion remains a usable independent snapshot.
+    assert list(BackendInterface().bfs_layers(converted, 0)) == [[0], [1], [2]]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_explicit_native_conversion_keeps_its_own_mutations(cached, monkeypatch):
+    graph = nx.Graph([(0, 1)])
+    if cached:
+        monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+        nx.degree_centrality(graph, backend="franken_networkx")
+        converted = next(iter(graph.__networkx_cache__["backends"]["franken_networkx"].values()))
+    else:
+        converted = BackendInterface.convert_from_nx(graph)
+    converted.add_edge(1, 2)
+    assert list(nx.bfs_layers(converted, 0, backend="franken_networkx")) == [[0], [1], [2]]
+    assert list(graph) == [0, 1]
+
+
+@pytest.mark.parametrize("roundtrip", [copy.deepcopy, lambda graph: pickle.loads(pickle.dumps(graph))])
+def test_backend_copied_conversion_cache_recovers_its_new_source(roundtrip, monkeypatch):
+    graph = nx.Graph([(0, 1)])
+    graph.add_node(2)
+    _warm_live_input_cache(graph, monkeypatch)
+    restored = roundtrip(graph)
+    layers = nx.bfs_layers(restored, 0, backend="franken_networkx")
+    restored.add_edge(1, 2)
+    assert list(layers) == [[0], [1], [2]]
+    assert list(graph.edges()) == [(0, 1)]
+
+
+def test_backend_lazy_callback_invalidates_caches_between_yields(monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 10)])
+    convert_from_nx = _warm_live_input_cache(graph, monkeypatch)
+    calls = []
+
+    def weight(u, v, data):
+        calls.append((u, v))
+        graph[1][2]["weight"] = 2 if len(calls) < 3 else 4
+        return data["weight"]
+
+    iterator = nx.all_pairs_dijkstra_path_length(graph, weight=weight, backend="franken_networkx")
+    assert next(iterator) == (0, {0: 0, 1: 1, 2: 3})
+    monkeypatch.setattr(BackendInterface, "convert_from_nx", staticmethod(convert_from_nx))
+    assert nx.dijkstra_path_length(graph, 0, 2, backend="franken_networkx") == 3
+    assert next(iterator) == (1, {1: 0, 2: 4})
+    assert nx.dijkstra_path_length(graph, 0, 2, backend="franken_networkx") == 5
 
 
 def test_backend_convert_from_nx_e2e_jsonl_emission():

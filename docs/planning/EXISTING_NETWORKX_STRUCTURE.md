@@ -939,3 +939,43 @@ and then continue toward another target without revisiting a node.
 lazy target consumption, suspended mutations, active-row errors, custom edge
 providers, keyed duplicates, and cutoff boundaries against NetworkX 3.6.1
 across all four graph classes, foreign inputs, and live filtered views.
+
+## 38. Backend Dispatch Preserves Live Inputs
+
+NetworkX shares converted graphs between algorithms with compatible attribute
+hints. Algorithm names are not part of its conversion-cache key, and a cache
+hit bypasses `convert_from_nx`. Every cached FrankenNetworkX conversion remains
+a native graph; a topological call must not insert the NetworkX source itself
+into that cache. Ordinary eager kernels continue to reuse those conversions.
+This also means a first live call still pays for a native conversion when
+NetworkX requests one; the conversion can serve later eager kernels.
+
+The backend retains a weak reference to each conversion's original input.
+Traversal, topological, all-pairs shortest-path, and simple-path iterators
+recover that input when invoked, including after an eager call has populated
+the cache. They retain it for the lifetime of iteration and observe mutations
+at the same iteration boundaries as their direct-call counterparts. Callback
+driven path and traversal queries also recover the input, so weight functions
+receive its original edge dictionaries and later expansions observe writes
+made by weight, heuristic, and neighbor-order callbacks. Positional and keyword
+callbacks have the same behavior. The cached native graph does not keep an
+otherwise unused source alive, and remains usable after the source expires.
+The generic `shortest_path` and `shortest_path_length` calls with neither
+endpoint supplied also follow this live all-pairs contract, including for
+unweighted and string-weight queries. `all_shortest_paths` computes its
+predecessors at call time while passing original dictionaries to callbacks.
+
+`can_run` refreshes conversion provenance from the actual caller before a
+cache hit, including caches retained by copying or unpickling a NetworkX
+graph. An explicitly supplied native graph is independent: its own mutations
+remain authoritative. Callback calls discard cached backend conversions
+before and after execution, including failures and individual lazy advances,
+because in-place attribute writes do not invoke NetworkX's cache-clearing
+graph mutators. Callback-free eager calls retain normal cache reuse.
+
+`tests/python/test_backend_convert_from_nx_hints.py` exercises public backend
+dispatch with cold and pre-populated caches, mutations before and between
+yields, multigraph callback dictionaries, native-cache reuse, and input
+lifetime, independent native conversions, copied caches, and queries after
+callback writes. The underlying direct-call algorithm contracts remain authoritative
+for each supported iterator's exact mutation and error timing.
