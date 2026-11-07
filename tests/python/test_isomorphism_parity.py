@@ -648,25 +648,25 @@ def test_vf2pp_all_isomorphisms_count_matches_networkx():
     )
 
 
-def test_vf2pp_all_isomorphisms_uses_rust_without_labels(monkeypatch):
-    g1 = fnx.path_graph(3)
-    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c"})
-    called = {"rust": False}
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_vf2pp_all_isomorphisms_without_labels_yields_a_bounded_prefix(monkeypatch, class_name):
+    # The former native-route assertion required a complete Vec of mappings.
+    # Consuming one mapping of K12 must not enumerate its 12! automorphisms.
+    left = nx.complete_graph(12, create_using=getattr(nx, class_name))
+    right = nx.relabel_nodes(left, {i: f"node-{i}" for i in left})
+    fleft, fright = getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
 
-    def fake_rust(left, right):
-        called["rust"] = True
-        assert left is g1
-        assert right is g2
-        return [{0: "a", 1: "b", 2: "c"}]
+    def reject_eager_enumeration(*args, **kwargs):
+        raise AssertionError("prefix query used eager native or NetworkX enumeration")
 
-    def fail_networkx(*args, **kwargs):
-        raise AssertionError("unexpected NetworkX fallback")
-
-    monkeypatch.setattr(fnx, "_vf2pp_all_isomorphisms_rust", fake_rust)
-    monkeypatch.setattr(nx, "vf2pp_all_isomorphisms", fail_networkx)
-
-    assert list(fnx.vf2pp_all_isomorphisms(g1, g2)) == [{0: "a", 1: "b", 2: "c"}]
-    assert called["rust"] is True
+    monkeypatch.setattr(fnx, "_vf2pp_all_isomorphisms_rust", reject_eager_enumeration)
+    for name in ("vf2pp_all_isomorphisms", "vf2pp_isomorphism", "vf2pp_is_isomorphic"):
+        monkeypatch.setattr(nx, name, reject_eager_enumeration)
+    iterator = fnx.vf2pp_all_isomorphisms(fleft, fright)
+    mapping = next(iterator)
+    assert set(mapping) == set(left)
+    assert set(mapping.values()) == set(right)
+    iterator.close()
 
 
 def test_vf2pp_all_isomorphisms_with_labels_avoids_networkx(monkeypatch):
@@ -844,6 +844,222 @@ def test_labeled_vf2pp_shared_nonreflexive_label_matches_oracle():
                 graph.nodes[node]["color"] = label
         outcomes.append(_mapping_signatures(module.vf2pp_all_isomorphisms(left, right, node_label="color")))
     assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("class_name", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "operation", ["is_isomorphic", "vf2pp_is_isomorphic", "vf2pp_isomorphism", "vf2pp_all_isomorphisms"]
+)
+def test_unlabeled_multigraph_isomorphism_checks_multiplicities(class_name, operation):
+    directed = class_name == "MultiDiGraph"
+    base = nx.complete_graph(4, create_using=nx.DiGraph if directed else nx.Graph)
+    left, right = getattr(nx, class_name)(), getattr(nx, class_name)()
+    for graph in (left, right):
+        graph.add_nodes_from(base)
+        for u, v in base.edges():
+            graph.add_edge(u, v, key="base")
+    for u, v in ((0, 1), (2, 3)):
+        pairs = ((u, v), (v, u)) if directed else ((u, v),)
+        for source, target in pairs:
+            for repetition in range(2):
+                left.add_edge(source, target, key=("matching", repetition))
+    for u, v in ((0, 1), (1, 2), (2, 3), (3, 0)):
+        pairs = ((u, v), (v, u)) if directed else ((u, v),)
+        for source, target in pairs:
+            right.add_edge(source, target, key="cycle")
+
+    # Equal order, size, degrees and complete simple projections hide a
+    # triple matching on the left versus doubled cycle edges on the right.
+    assert left.number_of_edges() == right.number_of_edges()
+    assert sorted(dict(left.degree()).values()) == sorted(dict(right.degree()).values())
+    assert set(left.edges()) == set(right.edges())
+    expected = getattr(nx, operation)(left, right)
+    actual = getattr(fnx, operation)(getattr(fnx, class_name)(left), getattr(fnx, class_name)(right))
+    if operation == "vf2pp_all_isomorphisms":
+        expected, actual = list(expected), list(actual)
+    assert actual == expected
+    assert not expected
+
+
+@pytest.mark.parametrize("class_name", ["MultiGraph", "MultiDiGraph"])
+def test_unlabeled_multigraph_isomorphism_preserves_loops_and_ignores_edge_keys(class_name):
+    left, right = getattr(nx, class_name)(), getattr(nx, class_name)()
+    left.add_nodes_from(range(4))
+    renamed = {i: f"node-{3 - i}" for i in left}
+    right.add_nodes_from(renamed.values())
+    edges = [(0, 0), (0, 0), (0, 1), (0, 1), (1, 2), (2, 2), (2, 3), (2, 3)]
+    for i, (u, v) in enumerate(edges):
+        left.add_edge(u, v, key=("left", i))
+        right.add_edge(renamed[u], renamed[v], key=("right", -i))
+    expected = list(nx.vf2pp_all_isomorphisms(left, right))
+    assert expected
+    fleft, fright = getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
+    assert fnx.is_isomorphic(fleft, fright)
+    assert fnx.vf2pp_is_isomorphic(fleft, fright)
+    assert fnx.vf2pp_isomorphism(fleft, fright) in expected
+    assert _mapping_signatures(fnx.vf2pp_all_isomorphisms(fleft, fright)) == _mapping_signatures(expected)
+
+
+@pytest.mark.parametrize("class_names", [("Graph", "MultiGraph"), ("DiGraph", "MultiDiGraph")])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_unlabeled_vf2pp_accepts_equal_simple_and_multigraphs(class_names, reverse):
+    if reverse:
+        class_names = class_names[::-1]
+    left, right = (nx.path_graph(4, create_using=getattr(nx, name)) for name in class_names)
+    expected = list(nx.vf2pp_all_isomorphisms(left, right))
+    fleft, fright = (getattr(fnx, name)(graph) for name, graph in zip(class_names, (left, right)))
+    assert fnx.is_isomorphic(fleft, fright)
+    assert fnx.vf2pp_is_isomorphic(fleft, fright)
+    assert fnx.vf2pp_isomorphism(fleft, fright) in expected
+    assert _mapping_signatures(fnx.vf2pp_all_isomorphisms(fleft, fright)) == _mapping_signatures(expected)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("explicit_none", [False, True])
+def test_vf2pp_none_attribute_key_is_a_real_label(class_name, explicit_none):
+    left, right = getattr(nx, class_name)(), getattr(nx, class_name)()
+    for graph in (left, right):
+        graph.add_nodes_from([0, 1])
+        graph.nodes[0][None] = "red"
+    left.nodes[1][None] = "blue"
+    right.nodes[1][None] = "red"
+    fleft, fright = getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
+    kwargs = {"node_label": None} if explicit_none else {}
+    assert fnx.vf2pp_is_isomorphic(fleft, fright, **kwargs) == nx.vf2pp_is_isomorphic(left, right, **kwargs)
+    assert fnx.vf2pp_isomorphism(fleft, fright, **kwargs) == nx.vf2pp_isomorphism(left, right, **kwargs)
+    assert list(fnx.vf2pp_all_isomorphisms(fleft, fright, **kwargs)) == list(
+        nx.vf2pp_all_isomorphisms(left, right, **kwargs)
+    ) == []
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("node_label", [None, "color"])
+@pytest.mark.parametrize("operation", ["vf2pp_is_isomorphic", "vf2pp_isomorphism", "vf2pp_all_isomorphisms"])
+def test_vf2pp_unhashable_default_label_matches_oracle(class_name, node_label, operation):
+    for module in (nx, fnx):
+        left, right = getattr(module, class_name)([(0, 1), (1, 2)]), getattr(module, class_name)([(0, 1), (1, 2)])
+        with pytest.raises(TypeError, match="unhashable type: 'list'"):
+            result = getattr(module, operation)(left, right, node_label=node_label, default_label=[])
+            if operation == "vf2pp_all_isomorphisms":
+                list(result)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("node_label", [None, "color"])
+def test_vf2pp_unhashable_default_is_unused_when_labels_exist(class_name, node_label):
+    left = nx.path_graph(3, create_using=getattr(nx, class_name))
+    right = left.copy()
+    for graph in (left, right):
+        for node in graph:
+            graph.nodes[node][node_label] = node
+    expected = list(nx.vf2pp_all_isomorphisms(left, right, node_label=node_label, default_label=[]))
+    assert expected
+    fleft, fright = getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
+    assert fnx.vf2pp_is_isomorphic(fleft, fright, node_label=node_label, default_label=[])
+    assert fnx.vf2pp_isomorphism(fleft, fright, node_label=node_label, default_label=[]) in expected
+    assert _mapping_signatures(fnx.vf2pp_all_isomorphisms(
+        fleft, fright, node_label=node_label, default_label=[]
+    )) == _mapping_signatures(expected)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("node_label", [None, "color"])
+@pytest.mark.parametrize("case", ["empty", "order", "degree"])
+def test_vf2pp_shape_checks_precede_unhashable_defaults(class_name, node_label, case):
+    if case == "empty":
+        left, right = nx.Graph(), nx.Graph()
+    elif case == "order":
+        left, right = nx.path_graph(3), nx.path_graph(4)
+    else:
+        left, right = nx.path_graph(4), nx.star_graph(3)
+    left, right = getattr(nx, class_name)(left), getattr(nx, class_name)(right)
+    fleft, fright = getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
+    kwargs = {"node_label": node_label, "default_label": []}
+    assert fnx.vf2pp_is_isomorphic(fleft, fright, **kwargs) == nx.vf2pp_is_isomorphic(left, right, **kwargs) is False
+    assert fnx.vf2pp_isomorphism(fleft, fright, **kwargs) == nx.vf2pp_isomorphism(left, right, **kwargs) is None
+    assert list(fnx.vf2pp_all_isomorphisms(fleft, fright, **kwargs)) == list(
+        nx.vf2pp_all_isomorphisms(left, right, **kwargs)
+    ) == []
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_is_isomorphic_ignores_implicit_labels_and_short_circuits_callbacks(monkeypatch, class_name):
+    left = nx.complete_graph(12, create_using=getattr(nx, class_name))
+    right = left.copy()
+    for node in left:
+        left.nodes[node][None] = []
+        right.nodes[node][None] = {"different": True}
+        left.nodes[node]["color"] = node
+        right.nodes[node]["color"] = 11 - node
+    fleft, fright = getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
+    assert fnx.is_isomorphic(fleft, fright) == nx.is_isomorphic(left, right) is True
+
+    def reject_enumeration(*args, **kwargs):
+        raise AssertionError("callback search enumerated structural automorphisms")
+
+    monkeypatch.setattr(fnx, "_vf2pp_all_isomorphisms_rust", reject_enumeration)
+    calls = 0
+
+    def node_match(a, b):
+        nonlocal calls
+        calls += 1
+        assert calls <= 12 * 12, "node labels were checked only after constructing full bijections"
+        return a["color"] == b["color"]
+
+    assert fnx.is_isomorphic(fleft, fright, node_match=node_match)
+    assert 12 <= calls <= 12 * 12
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_is_isomorphic_edge_callbacks_prune_before_full_bijections(monkeypatch, class_name):
+    left = nx.complete_graph(12, create_using=getattr(nx, class_name))
+    right = getattr(nx, class_name)()
+    right.add_nodes_from(left)
+    for u, v in left.edges():
+        color = (u, v)
+        if left.is_multigraph():
+            left[u][v][0]["color"] = color
+        else:
+            left[u][v]["color"] = color
+        right.add_edge(11 - u, 11 - v, color=color)
+
+    def same_colors(a, b):
+        if left.is_multigraph():
+            return sorted(data["color"] for data in a.values()) == sorted(
+                data["color"] for data in b.values()
+            )
+        return a["color"] == b["color"]
+
+    assert nx.is_isomorphic(left, right, edge_match=same_colors)
+    fleft, fright = getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
+
+    def reject_enumeration(*args, **kwargs):
+        raise AssertionError("edge callback search enumerated structural automorphisms")
+
+    monkeypatch.setattr(fnx, "_vf2pp_all_isomorphisms_rust", reject_enumeration)
+    calls = 0
+
+    def edge_match(a, b):
+        nonlocal calls
+        calls += 1
+        assert calls <= 12 ** 3, "edge attributes were checked only after constructing full bijections"
+        return same_colors(a, b)
+
+    assert fnx.is_isomorphic(fleft, fright, edge_match=edge_match)
+    assert 0 < calls <= 12 ** 3
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_is_isomorphic_empty_graphs_do_not_invoke_callbacks(class_name):
+    def reject_callback(*args):
+        raise AssertionError("empty bijections have no node or edge attributes to compare")
+
+    for module in (nx, fnx):
+        left, right = getattr(module, class_name)(), getattr(module, class_name)()
+        assert module.is_isomorphic(left, right, node_match=reject_callback, edge_match=reject_callback)
+        assert not module.vf2pp_is_isomorphic(left, right)
+        assert module.vf2pp_isomorphism(left, right) is None
+        assert list(module.vf2pp_all_isomorphisms(left, right)) == []
 
 
 def test_vf2pp_isomorphism_directed_matches_networkx():

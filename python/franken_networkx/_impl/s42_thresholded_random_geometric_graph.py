@@ -945,8 +945,10 @@ def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
     return pos
 
 
-def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
-    """Yield exact label-constrained bijections without collecting automorphisms.
+def _vf2pp_labeled_mappings_local(
+    G1, G2, *, node_label, default_label, match_labels=True, node_match=None, edge_match=None
+):
+    """Yield exact bijections without collecting automorphisms.
 
     Candidate buckets combine labels, degrees, and loop multiplicities. Their
     lists are shared between search levels, so even a completely symmetric
@@ -998,14 +1000,21 @@ def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
         return
 
     attributes1, attributes2 = G1.nodes, G2.nodes
-    keys1 = [
-        (degrees1[i], out1[i].get(i, 0), attributes1[node].get(node_label, default_label))
-        for i, node in enumerate(nodes1)
-    ]
-    keys2 = [
-        (degrees2[i], out2[i].get(i, 0), attributes2[node].get(node_label, default_label))
-        for i, node in enumerate(nodes2)
-    ]
+    if match_labels:
+        keys1 = [
+            (degrees1[i], out1[i].get(i, 0), attributes1[node].get(node_label, default_label))
+            for i, node in enumerate(nodes1)
+        ]
+        keys2 = [
+            (degrees2[i], out2[i].get(i, 0), attributes2[node].get(node_label, default_label))
+            for i, node in enumerate(nodes2)
+        ]
+    else:
+        # Ordinary is_isomorphic does not match attributes unless the caller
+        # supplies a callback. In particular, an attribute keyed by None or
+        # an unhashable attribute value must not become an implicit label.
+        keys1 = [(degrees1[i], out1[i].get(i, 0)) for i in range(n)]
+        keys2 = [(degrees2[i], out2[i].get(i, 0)) for i in range(n)]
     # Dict keys deliberately supply Python's identity-or-equality label
     # semantics, including shared NaNs, and reject unhashable labels.
     if _Counter(keys1) != _Counter(keys2):
@@ -1032,6 +1041,29 @@ def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
                 return False
         return True
 
+    def edges_match(source, target):
+        # Structural feasibility has already established equal edge counts.
+        # Compare attributes only when both endpoints are assigned, passing
+        # whole multigraph keydicts to the callback just like GraphMatcher.
+        for neighbor in out1[source]:
+            image = target if neighbor == source else mapping[neighbor]
+            if image != -1 and not edge_match(
+                G1[nodes1[source]][nodes1[neighbor]],
+                G2[nodes2[target]][nodes2[image]],
+            ):
+                return False
+        if directed:
+            for neighbor in in1[source]:
+                if neighbor == source:
+                    continue  # The self-loop was checked in the outgoing row.
+                image = mapping[neighbor]
+                if image != -1 and not edge_match(
+                    G1[nodes1[neighbor]][nodes1[source]],
+                    G2[nodes2[image]][nodes2[target]],
+                ):
+                    return False
+        return True
+
     # One iterator per active node, with no recursive Python calls. Mapping a
     # node opens the next level only after all constraints on that pair hold.
     stack = [iter(candidates[order[0]])]
@@ -1049,6 +1081,12 @@ def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
             continue
         if directed and not rows_agree(in1[source], in2[target]):
             continue
+        if node_match is not None and not node_match(
+            attributes1[nodes1[source]], attributes2[nodes2[target]]
+        ):
+            continue
+        if edge_match is not None and not edges_match(source, target):
+            continue
         mapping[source] = target
         reverse[target] = source
         if len(stack) == n:
@@ -1059,41 +1097,18 @@ def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
             stack.append(iter(candidates[order[len(stack)]]))
 
 
+def _vf2pp_uses_node_labels_local(G1, G2, node_label, default_label):
+    """Keep the native simple-graph shortcut only when labels are uniform."""
+    if node_label is not None or default_label is not None:
+        return True
+    # NetworkX reads G.nodes(data=node_label, default=default_label), even
+    # when node_label is None. None is a legitimate node-attribute key.
+    return any(None in data for _, data in G1.nodes(data=True)) or any(
+        None in data for _, data in G2.nodes(data=True)
+    )
+
+
 # Isomorphism VF2++ (br-req)
-def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_match):
-    """Filter a structural isomorphism mapping through NetworkX-style callbacks."""
-    if node_match is not None:
-        for node, mapped in mapping.items():
-            if not node_match(G1.nodes[node], G2.nodes[mapped]):
-                return False
-
-    if edge_match is not None:
-        # networkx's matchers call edge_match once per mapped node pair with
-        # the two adjacency values G1[u][v] and G2[mu][mv]: the datadicts, or
-        # for multigraphs the keydicts ({key: datadict}) that
-        # categorical_multiedge_match and friends expect. Pairing individual
-        # multigraph datadicts (nro4w.7) handed those helpers bare attribute
-        # values: AttributeError: 'int' object has no attribute 'get'.
-        directed = G1.is_directed()
-        seen = set()
-        for u, v in G1.edges():
-            pair = (u, v) if directed else frozenset((u, v))
-            if pair in seen:
-                continue
-            seen.add(pair)
-            if not edge_match(G1[u][v], G2[mapping[u]][mapping[v]]):
-                return False
-
-    if G1.is_multigraph() or G2.is_multigraph():
-        # The candidate mappings come from the simple-graph structure; the
-        # matchers also demand equal edge multiplicity on every mapped pair
-        # (number_of_edges), which also decides a multigraph / simple pair.
-        for u, v in G1.edges():
-            if G1.number_of_edges(u, v) != G2.number_of_edges(mapping[u], mapping[v]):
-                return False
-    return True
-
-
 def could_be_isomorphic(G1, G2, *, properties="dtc"):
     """Return False if graphs are definitely not isomorphic."""
     # br-r37-c1-jwdzp: accept nx-typed inputs.
@@ -1185,7 +1200,17 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     # the matcher compares edge multiplicities, so MultiGraph(P4) ~ P4.
     if G1.is_directed() != G2.is_directed():
         raise NetworkXError("Graphs G1 and G2 are not of the same type.")
-    if node_match is None and edge_match is None:
+    order1, order2 = G1.number_of_nodes(), G2.number_of_nodes()
+    if not order1 or not order2:
+        # Unlike VF2++, ordinary isomorphism accepts the empty bijection and
+        # invokes no callbacks for it.
+        return order1 == order2
+    if (
+        node_match is None
+        and edge_match is None
+        and not G1.is_multigraph()
+        and not G2.is_multigraph()
+    ):
         # br-r37-c1-isoprecheck (cc): cheap sound pre-reject before the VF2++
         # rust kernel. faster_could_be_isomorphic is a degree-histogram
         # necessary condition (valid for undirected/directed/multi, ~0.013ms);
@@ -1197,16 +1222,18 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
             return False
         return _is_isomorphic_rust(G1, G2)
 
-    return any(
-        _isomorphic_mapping_matches_callbacks(
+    return next(
+        _vf2pp_labeled_mappings_local(
             G1,
             G2,
-            mapping,
-            node_match,
-            edge_match,
-        )
-        for mapping in _vf2pp_all_isomorphisms_rust(G1, G2)
-    )
+            node_label=None,
+            default_label=None,
+            match_labels=False,
+            node_match=node_match,
+            edge_match=edge_match,
+        ),
+        None,
+    ) is not None
 
 
 def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
@@ -1221,8 +1248,13 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
     # Match nx's contract by short-circuiting at the wrapper.
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
         return False
-    # Fast path: when no label matching needed, use Rust is_isomorphic
-    if node_label is None:
+    # The native simple-graph predicate stops at its first mapping. The
+    # multigraph projection, however, cannot prove edge multiplicities.
+    if (
+        not G1.is_multigraph()
+        and not G2.is_multigraph()
+        and not _vf2pp_uses_node_labels_local(G1, G2, node_label, default_label)
+    ):
         # br-r37-c1-isoprecheck (cc): cheap sound degree-histogram pre-reject
         # before the VF2++ rust kernel (see is_isomorphic). Sound necessary
         # condition for all graph types; byte-identical result.
@@ -1250,7 +1282,11 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     # vf2pp_is_isomorphic).
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
         return None
-    if node_label is None:
+    if (
+        not G1.is_multigraph()
+        and not G2.is_multigraph()
+        and not _vf2pp_uses_node_labels_local(G1, G2, node_label, default_label)
+    ):
         return _vf2pp_isomorphism_rust(G1, G2)
 
     return next(
@@ -1273,10 +1309,9 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     # vf2pp_is_isomorphic).
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
         return
-    if node_label is None:
-        yield from _vf2pp_all_isomorphisms_rust(G1, G2)
-        return
-
+    # The native all-mapping binding returns a complete Vec. Even an
+    # unlabeled query must yield its first mapping before enumerating the
+    # remaining automorphisms, and must retain multigraph multiplicities.
     yield from _vf2pp_labeled_mappings_local(
         G1,
         G2,

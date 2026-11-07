@@ -845,15 +845,31 @@ it must not collect all structural automorphisms before applying labels.
 
 Supplied labels use Python's hash/equality semantics, including a shared
 non-reflexive label object. Missing labels use `default_label`. Unhashable
-labels raise `TypeError`. Empty inputs yield no VF2++ mappings. The separate
-`node_label=None` native route still needs to account for attributes actually
-keyed by `None`.
+labels raise `TypeError`. Empty inputs yield no VF2++ mappings. The default
+`node_label=None` looks up attributes actually keyed by `None` and uses
+`default_label` for nodes without that key.
 
 A candidate bijection preserves directedness, every self-loop, and the number
 of parallel edges between each pair. Simple and multigraph inputs may match
 when their per-pair multiplicities agree. Matching node degrees and the simple
 projection alone is insufficient. Sparse adjacency counts and an iterative
 search stack avoid a dense quadratic matrix and recursion-depth limits.
+
+These multiplicity checks also apply to unlabeled multigraph predicates and
+single-mapping queries. All `vf2pp_all_isomorphisms` calls use the sparse
+iterator, including calls without a label argument; the native binding that
+collects all mappings cannot satisfy prefix-consumption bounds. Simple-graph
+predicates and single-mapping queries retain their native short-circuit route
+when no actual `None` attribute key or custom label/default needs inspection.
+Order and degree mismatches, and empty inputs, are resolved before hashing an
+otherwise-unused default label.
+
+Ordinary `is_isomorphic` ignores attributes unless a callback is supplied,
+including attributes keyed by `None`. Node and edge callbacks prune partial
+assignments before the search descends. Edge callbacks receive attribute
+dicts for simple graphs and whole per-pair keydicts for multigraphs; directed
+incoming edges and self-loops are included. Both empty graphs are isomorphic
+without invoking callbacks, whereas VF2++ returns no empty-graph mapping.
 
 The existing labeled mapping contract accepts any valid first mapping and the
 complete set of valid mappings; input-node positions deterministically break
