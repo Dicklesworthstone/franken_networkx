@@ -217,3 +217,114 @@ def test_the_directed_answer_comes_from_the_native_search(monkeypatch):
     fg = fnx.DiGraph([(0, 1, {"weight": -2}), (1, 0, {"weight": 1})])
     monkeypatch.setattr(package, "_raw_negative_edge_cycle", lambda G, weight: "native")
     assert fnx.negative_edge_cycle(fg) == "native"
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("heuristic", [True, False])
+@pytest.mark.parametrize("callable_weight", [False, True])
+def test_overflowing_negative_cycle_preserves_heuristic(
+    cls, heuristic, callable_weight
+):
+    # The count-only detector saturates to -inf before it visits a node n times.
+    # NX's default heuristic finds the repeated update first; disabling that
+    # heuristic deliberately retains NX's different floating-point answer.
+    twins = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, cls)()
+        graph.add_nodes_from(range(12))
+        graph.add_edge(0, 1, weight=-1e308)
+        if graph.is_directed():
+            graph.add_edge(1, 0, weight=1)
+        twins.append(graph)
+
+    weight = "weight"
+    if callable_weight:
+        if twins[0].is_multigraph():
+            weight = lambda u, v, data: min(
+                attrs.get("weight", 1) for attrs in data.values()
+            )
+        else:
+            weight = lambda u, v, data: data.get("weight", 1)
+
+    want = nx.negative_edge_cycle(twins[1], weight=weight, heuristic=heuristic)
+    assert want is heuristic
+    assert fnx.negative_edge_cycle(
+        twins[0], weight=weight, heuristic=heuristic
+    ) is want
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("heuristic", [True, False])
+def test_callable_sees_temporary_source_edges(cls, heuristic):
+    # The source edges carry empty attrs in NX, so callbacks that require an
+    # attribute must raise even when every original edge has that attribute.
+    twins = [getattr(lib, cls)([(0, 1, {"cost": 2})]) for lib in (fnx, nx)]
+    if twins[0].is_multigraph():
+        weight = lambda u, v, data: min(
+            attrs["cost"] for attrs in data.values()
+        )
+    else:
+        weight = lambda u, v, data: data["cost"]
+
+    for lib, graph in zip((fnx, nx), twins):
+        with pytest.raises(KeyError, match="cost"):
+            lib.negative_edge_cycle(graph, weight=weight, heuristic=heuristic)
+        assert list(graph) == [0, 1]
+        assert graph.number_of_edges() == 1
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("heuristic", [True, False])
+def test_callable_selfloop_uses_each_parallel_edge_keydict(cls, heuristic):
+    twins = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, cls)()
+        graph.add_edge(0, 0, key="positive", cost=2)
+        graph.add_edge(0, 0, key="negative", cost=-3)
+        twins.append(graph)
+
+    weight = lambda u, v, data: min(
+        attrs.get("cost", 1) for attrs in data.values()
+    )
+    assert nx.negative_edge_cycle(
+        twins[1], weight=weight, heuristic=heuristic
+    ) is True
+    assert fnx.negative_edge_cycle(
+        twins[0], weight=weight, heuristic=heuristic
+    ) is True
+
+
+def test_disabled_heuristic_uses_its_matching_relaxation_loop(monkeypatch):
+    import franken_networkx as package
+
+    graph = fnx.DiGraph([
+        (0, 1, {"weight": -2}),
+        (1, 0, {"weight": 1}),
+    ])
+    monkeypatch.setattr(
+        package, "_raw_negative_edge_cycle", lambda G, weight: "native"
+    )
+    assert fnx.negative_edge_cycle(graph, heuristic=False) is True
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("selfloop", [False, True])
+def test_virtual_source_rounding_distinguishes_tiny_negative_selfloops(cls, selfloop):
+    twins = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, cls)()
+        graph.add_node("removed")
+        graph.add_nodes_from([0, 1, 2])
+        graph.remove_node("removed")
+        graph.add_edge(0, 0 if selfloop else 1, weight=-1e-300)
+        twins.append(graph)
+
+    # The ordinary edge cannot improve the virtual-source seed of 1.
+    # Negative self-loops are checked explicitly before relaxation.
+    want = nx.negative_edge_cycle(twins[1])
+    assert want is selfloop
+    assert fnx.negative_edge_cycle(twins[0]) is want

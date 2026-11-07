@@ -498,6 +498,44 @@ improvements replace predecessors; equal costs preserve the existing native tie
 policy. Zero-weight cycles and self-loops do not create cyclic returned paths,
 and a genuinely unreachable target yields an empty native path collection.
 
+### 22.5 Negative-cycle predicate arithmetic and callbacks
+
+`negative_edge_cycle(G, weight, heuristic)` follows the NetworkX 3.6.1
+virtual-source search, including its floating-point arithmetic:
+
+- The temporary source has default-weight-1 edges to every original node.
+  Directed native relaxation therefore starts real vertices at distance 1,
+  with one enqueue already counted and a total-node threshold of `|V| + 1`.
+  Ordered predecessor lists control the queued-predecessor skip rule.
+- With the default heuristic enabled, a repeated vertex on the recent update
+  chain detects a cycle before negative overflow can turn all later updates
+  into equal negative-infinity ties. Many unrelated isolated vertices must
+  not delay this early witness.
+- `heuristic=False` must reach the count-only relaxation loop. Its answer can
+  differ after floating saturation; the public option must not be ignored.
+  On an undirected graph the temporary reverse edges back to the source are
+  part of that loop.
+- Negative self-loops are checked before relaxation, including a float such
+  as `-1e-300` that rounds away when added to 1. An ordinary undirected edge
+  with that weight does not improve the virtual-source seed. The finite
+  native undirected shortcut is therefore a negative self-loop or an edge
+  satisfying `1.0 + weight < 1.0`, not an unconditional negative-edge test.
+- Callable weights see original edge attributes and the empty attributes on
+  temporary source edges in traversal order. Missing required attributes
+  raise their normal exceptions. Multigraph self-loop callbacks receive
+  the individual `{key: attrs}` mapping, not a bare attribute dictionary.
+- The in-process implementation reuses the shared Bellman-Ford relaxation
+  kernel through private adjacency containers. It preserves the caller's
+  nodes and edges, including on exceptions, and keeps existing edge
+  attribute dictionaries live.
+
+The overflow/heuristic and callback behavior was characterized with extracted
+Python source against NetworkX 3.6.1. Tiny-edge/self-loop behavior additionally
+follows directly from that version's virtual-source and self-loop code.
+Regressions are in `tests/python/test_negative_edge_cycle_weight_parity.py`
+and the native predicate tests; these contracts do not imply native build or
+performance qualification.
+
 ## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:

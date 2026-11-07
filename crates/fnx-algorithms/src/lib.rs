@@ -39628,87 +39628,92 @@ fn bidirectional_shortest_path_orig_string(
 /// Matches `networkx.negative_edge_cycle(G, weight=weight)`.
 #[must_use]
 pub fn negative_edge_cycle(graph: &Graph, weight_attr: &str) -> bool {
-    // In an undirected graph every edge can be traversed in both directions, so
-    // a finite negative edge is itself a negative two-edge closed walk (and a
-    // negative self-loop is a one-edge cycle). Conversely, without a negative
-    // edge no cycle can have negative total weight. Reuse the authoritative
-    // O(|E|) attribute scan instead of rebuilding whole-graph Bellman-Ford CSR
-    // state once per connected component. (br-r37-c1-yg26j)
-    graph_has_negative_edge_weight(graph, weight_attr)
-}
-
-/// `networkx.negative_edge_cycle` on a directed graph: networkx adds a new
-/// node with an edge of the default weight 1 to every node and runs
-/// Bellman-Ford from it, so the answer is whether any negative-weight cycle
-/// exists. The search here starts from that virtual node - every node at
-/// distance 1, queued in node order - and is SPFA. A cycle in the
-/// predecessor graph is a negative cycle, so the predecessor graph is
-/// checked once every `node_count` relaxations (O(1) a relaxation, amortised):
-/// the early exit networkx's heuristic gives it, without which the search
-/// circles the cycle until a path passes `node_count` edges. That path-length
-/// bound stays as the backstop. The answer is a bool, so any correct detector
-/// agrees with networkx's; the caller keeps weights the f64 search cannot add
-/// as Python does (non-numeric, non-finite, ints past 2**53) on networkx's
-/// route.
-#[must_use]
-pub fn negative_edge_cycle_directed(digraph: &DiGraph, weight_attr: &str) -> bool {
-    const SOURCE: usize = usize::MAX;
-    let n = digraph.node_count();
-    let mut dist = vec![1.0f64; n];
-    let mut pred = vec![SOURCE; n];
-    let mut hops = vec![1usize; n];
-    let mut queued = vec![true; n];
-    let mut queue: VecDeque<usize> = (0..n).collect();
-    let mut row = Vec::new();
-    let mut since_check = 0usize;
-    while let Some(u) = queue.pop_front() {
-        queued[u] = false;
-        row.clear();
-        signed_successor_row(digraph, u, weight_attr, &mut row);
-        for &(v, weight, _) in &row {
-            let candidate = dist[u] + weight;
-            if candidate < dist[v] {
-                dist[v] = candidate;
-                pred[v] = u;
-                hops[v] = hops[u] + 1;
-                if hops[v] > n {
-                    return true;
-                }
-                since_check += 1;
-                if since_check >= n {
-                    since_check = 0;
-                    if predecessor_cycle(&pred, SOURCE) {
-                        return true;
-                    }
-                }
-                if !queued[v] {
-                    queued[v] = true;
-                    queue.push_back(v);
-                }
-            }
+    // NetworkX's virtual source seeds every real node at distance 1. A
+    // negative self-loop is rejected explicitly; any other undirected edge
+    // must first improve that seed before its two-edge cycle is detected.
+    // Tiny negative floats can round away in 1 + weight, so testing weight
+    // alone gives a different answer. Keep the O(|E|) shortcut for the
+    // default heuristic while preserving that floating-point behavior.
+    for (u, v, attrs) in graph.edges_storage_order_index_iter() {
+        let (weight, _) = signed_weight_value_or_default_typed(attrs.get(weight_attr));
+        if (u == v && weight < 0.0) || 1.0 + weight < 1.0 {
+            return true;
         }
     }
     false
 }
 
-/// Whether following `pred` (one parent a node, `root` for none) from some
-/// node comes back to it.
-fn predecessor_cycle(pred: &[usize], root: usize) -> bool {
-    // 0: not seen, 1: on the walk in hand, 2: known to reach the root.
-    let mut state = vec![0u8; pred.len()];
-    for start in 0..pred.len() {
-        let mut v = start;
-        while v != root && state[v] == 0 {
-            state[v] = 1;
-            v = pred[v];
+/// Detect a negative cycle using the same virtual source and early-update
+/// heuristic as `networkx.negative_edge_cycle`. Every original node begins at
+/// distance 1 after the virtual source is relaxed. Checking the recent update
+/// path on each improvement detects cycles before floating-point distances can
+/// saturate to negative infinity; checking only every `node_count` relaxations
+/// can miss a cycle when unrelated isolated nodes delay that check.
+#[must_use]
+pub fn negative_edge_cycle_directed(digraph: &DiGraph, weight_attr: &str) -> bool {
+    const SOURCE: usize = usize::MAX;
+    let n = digraph.node_count();
+
+    // NetworkX checks negative self-loops before relaxation. A tiny negative
+    // weight can round away when added to the virtual source's distance 1.
+    for u in 0..n {
+        if let Some(attrs) = digraph.edge_attrs_by_indices(u, u) {
+            let (weight, _) = signed_weight_value_or_default_typed(attrs.get(weight_attr));
+            if weight < 0.0 {
+                return true;
+            }
         }
-        if v != root && state[v] == 1 {
-            return true;
+    }
+
+    let mut dist = vec![1.0f64; n];
+    let mut pred = vec![Vec::<usize>::new(); n];
+    let mut pred_edge = vec![SOURCE; n];
+    let mut recent_update: Vec<(usize, usize)> =
+        (0..n).map(|u| (SOURCE, u)).collect();
+    // Each original node has already been enqueued once by the virtual source.
+    let mut count = vec![1usize; n];
+    let mut queued = vec![true; n];
+    let mut queue: VecDeque<usize> = (0..n).collect();
+    let mut row = Vec::new();
+
+    while let Some(u) = queue.pop_front() {
+        queued[u] = false;
+        if pred[u].iter().any(|&p| queued[p]) {
+            continue;
         }
-        let mut w = start;
-        while w != root && state[w] == 1 {
-            state[w] = 2;
-            w = pred[w];
+
+        row.clear();
+        signed_successor_row(digraph, u, weight_attr, &mut row);
+        let base = dist[u];
+        for &(v, weight, _) in &row {
+            let candidate = base + weight;
+            if candidate < dist[v] {
+                let recent = recent_update[u];
+                if v == recent.0 || v == recent.1 {
+                    return true;
+                }
+                recent_update[v] = if pred_edge[v] == u {
+                    recent
+                } else {
+                    (u, v)
+                };
+
+                if !queued[v] {
+                    queue.push_back(v);
+                    queued[v] = true;
+                    count[v] += 1;
+                    // The search graph has n original nodes plus the source.
+                    if count[v] > n {
+                        return true;
+                    }
+                }
+                dist[v] = candidate;
+                pred[v].clear();
+                pred[v].push(u);
+                pred_edge[v] = u;
+            } else if candidate == dist[v] {
+                pred[v].push(u);
+            }
         }
     }
     false
@@ -83234,6 +83239,43 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "-3.0")]));
         let _ = g.add_edge_with_attrs("c", "a", attrs([("weight", "-1.0")]));
         assert!(negative_edge_cycle(&g, "weight"));
+    }
+
+    #[test]
+    fn negative_edge_cycle_detects_overflow_before_isolate_count_backstop() {
+        for isolates in [0, 1, 6, 20] {
+            let mut graph = DiGraph::strict();
+            let negative: AttrMap = [("weight".to_owned(), (-1e308_f64).into())]
+                .into_iter()
+                .collect();
+            graph.add_edge_with_attrs("s", "t", negative).unwrap();
+            let positive: AttrMap = [("weight".to_owned(), 1.0_f64.into())]
+                .into_iter()
+                .collect();
+            graph.add_edge_with_attrs("t", "s", positive).unwrap();
+            for node in 0..isolates {
+                graph.add_node(&format!("isolated-{node}"));
+            }
+            assert!(negative_edge_cycle_directed(&graph, "weight"));
+        }
+    }
+
+    #[test]
+    fn negative_edge_cycle_preserves_virtual_source_rounding_and_selfloop_check() {
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        let tiny: AttrMap = [("weight".to_owned(), (-1e-300_f64).into())]
+            .into_iter()
+            .collect();
+        graph.add_edge_with_attrs("a", "b", tiny.clone()).unwrap();
+        digraph.add_edge_with_attrs("a", "b", tiny.clone()).unwrap();
+        assert!(!negative_edge_cycle(&graph, "weight"));
+        assert!(!negative_edge_cycle_directed(&digraph, "weight"));
+
+        graph.add_edge_with_attrs("a", "a", tiny.clone()).unwrap();
+        digraph.add_edge_with_attrs("a", "a", tiny).unwrap();
+        assert!(negative_edge_cycle(&graph, "weight"));
+        assert!(negative_edge_cycle_directed(&digraph, "weight"));
     }
 
     #[test]

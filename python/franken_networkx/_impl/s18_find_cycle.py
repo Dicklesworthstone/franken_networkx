@@ -1196,26 +1196,23 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
 def negative_edge_cycle(G, weight="weight", heuristic=True):
     """Return ``True`` if ``G`` contains a negative-weight cycle."""
     G = _coerce_arg_to_fnx_graph(G)
-    # The answer is a bool, so the native search agrees with networkx's whenever it
-    # adds the weights as networkx does: the Bellman-Ford weight gate keeps
-    # non-numeric, non-finite and past-2**53 int weights on the in-process route
-    # below. A directed graph's native search starts from a virtual node joined to
-    # every node, as networkx's does; the in-process SPFA runs without networkx's
-    # early-exit heuristic (0.12x networkx on directed graphs).
+    # The native search uses the default early-cycle heuristic. Disabling it is
+    # observable when float distances overflow before the queue-count backstop,
+    # so that request must use the matching in-process relaxation loop. The
+    # weight gate also keeps values f64 cannot add like Python on that route.
     if (
-        type(G) in (Graph, DiGraph)
+        heuristic
+        and type(G) in (Graph, DiGraph)
         and isinstance(weight, str)
         and G.number_of_edges()
         and not _has_networkx_private_storage(G)
         and not _should_delegate_bellman_ford_path_to_networkx(G, weight)
     ):
         return _raw_negative_edge_cycle(G, weight)
-    return _negative_edge_cycle_inprocess(G, weight)
+    return _negative_edge_cycle_inprocess(G, weight, heuristic)
 
 
-def _negative_edge_cycle_inprocess(G, weight):
-    from collections import deque as _deque
-
+def _negative_edge_cycle_inprocess(G, weight, heuristic=True):
     if G.number_of_edges() == 0:
         return False
 
@@ -1226,61 +1223,46 @@ def _negative_edge_cycle_inprocess(G, weight):
     else:
         wt = lambda u, v, d: d.get(weight, 1)
 
-    if not G.is_directed():
-        # nx's weight function takes G[u][v] - the keydict {key: attrs} on a
-        # multigraph, which the min-over-keys wt above expects. Walking
-        # edges(data=True) handed it one parallel edge's attr dict instead, and
-        # an undirected MultiGraph raised AttributeError ('float' has no 'get').
-        for u, nbrs in G.adj.items():
-            for v, d in nbrs.items():
-                if wt(u, v, d) < 0:
-                    return True
-        return False
-
-    # Directed
+    # Bellman-Ford checks each self-loop before relaxation. A multigraph
+    # callback receives the one-edge keydict, rather than the bare attrs.
     for u in G:
         if G.has_edge(u, u):
             if G.is_multigraph():
-                if any(attr.get(weight, 1) < 0 for attr in G[u][u].values()):
+                if any(wt(u, u, {key: attr}) < 0 for key, attr in G[u][u].items()):
                     return True
-            else:
-                if wt(u, u, G[u][u]) < 0:
-                    return True
+            elif wt(u, u, G[u][u]) < 0:
+                return True
 
-    g_succ = {u: {v: wt(u, v, G[u][v]) for v in G[u]} for u in G}
+    # Retain edge data until relaxation: callable weights must see both the
+    # original edges and the temporary source edges, in traversal order. The
+    # adjacency containers are private to this search, while existing edge
+    # attribute dictionaries remain live.
+    g_succ = {u: dict(G[u]) for u in G}
     nodes = list(g_succ)
     newnode = -1
     while newnode in g_succ:
         newnode -= 1
-    g_succ[newnode] = dict.fromkeys(nodes, 1)
+    source_edges = {v: {0: {}} if G.is_multigraph() else {} for v in nodes}
+    g_succ[newnode] = source_edges
+    if not G.is_directed():
+        for v, data in source_edges.items():
+            g_succ[v][newnode] = data
 
-    n = len(g_succ)
-    inf = float("inf")
-    dist = {newnode: 0}
-    pred = {newnode: []}
-    count = {}
-    q = _deque([newnode])
-    in_q = {newnode}
-    while q:
-        u = q.popleft()
-        in_q.remove(u)
-        if all(pred_u not in in_q for pred_u in pred[u]):
-            dist_u = dist[u]
-            for v, w in g_succ[u].items():
-                dist_v = dist_u + w
-                if dist_v < dist.get(v, inf):
-                    if v not in in_q:
-                        q.append(v)
-                        in_q.add(v)
-                        count_v = count.get(v, 0) + 1
-                        if count_v == n:
-                            return True
-                        count[v] = count_v
-                    dist[v] = dist_v
-                    pred[v] = [u]
-                elif dist.get(v) is not None and dist_v == dist.get(v):
-                    pred[v].append(u)
-    return False
+    # The shared relaxation kernel only needs membership, length and _adj.
+    # Supply its temporary source without inserting a node into the caller's
+    # graph or duplicating Bellman-Ford's heuristic and queue semantics.
+    class _VirtualSourceGraph(dict):
+        @property
+        def _adj(self):
+            return self
+
+    return _inner_bellman_ford_inproc(
+        _VirtualSourceGraph(g_succ),
+        [newnode],
+        wt,
+        {newnode: []},
+        heuristic=heuristic,
+    ) is not None
 
 
 def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):
