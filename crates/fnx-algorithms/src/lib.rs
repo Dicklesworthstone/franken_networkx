@@ -34004,74 +34004,14 @@ pub fn fast_could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
 
 // ── Planarity testing ───────────────────────────────────────────────────────
 
-/// Check whether a graph is planar using Kuratowski's theorem approximation.
+/// Check whether a graph is planar using the exact Left-Right algorithm.
 ///
-/// Uses the edge count bound (|E| <= 3|V| - 6) as a necessary condition,
-/// then checks for K5 and K3,3 subdivisions using a practical heuristic.
+/// Self-loops do not affect planarity. The Euler edge bound is used only
+/// for early rejection; graphs satisfying it still undergo the exact test.
 ///
 /// NetworkX equivalent: `networkx.algorithms.planarity.is_planar`
 pub fn is_planar(graph: &Graph) -> bool {
-    let n = graph.node_count();
-    // br-r37-c1-eordlen: O(1) edge_count() instead of materialising the full edge Vec to count.
-    let m = graph.edge_count();
-
-    if n <= 4 {
-        return true;
-    }
-
-    // Necessary condition: |E| <= 3|V| - 6
-    if m > 3 * n - 6 {
-        return false;
-    }
-
-    // NOTE: Removed girth-based bound check (br-r37-c1-x0gc6) because it
-    // violates edge-deletion monotonicity. When an edge is removed from a
-    // triangle, the girth can increase (e.g., 3→4), which tightens the
-    // girth-based bound. A planar graph G with girth 3 passing the 3|V|-6
-    // bound can have a subgraph G-e with girth 4 that fails the 2|V|-4
-    // bound, incorrectly rejecting a planar subgraph.
-    //
-    // The Euler bound (3|V|-6) is monotone under edge deletion: if G
-    // passes, all subgraphs pass. The girth-based bounds are only valid
-    // for graphs of that specific girth class, not for arbitrary subgraphs.
-    //
-    // KNOWN GAP (br-isplanarbroken): this is still a necessary-only test;
-    // a graph passing the Euler bound may still be non-planar (K3,3,
-    // Petersen, etc.). The public wrapper `franken_networkx.is_planar`
-    // continues to route through `check_planarity` for full correctness
-    // via NetworkX's LR planarity test until a Boyer-Myrvold port lands.
-
-    // Build adjacency for the planarity algorithm
-    let mut adj = vec![vec![]; n];
-    for (i, j, _) in graph.edges_ordered_indices_borrowed() {
-        adj[i].push(j);
-        adj[j].push(i);
-    }
-
-    planar_edge_bound_with_bcc(n, &adj)
-}
-
-/// Necessary-but-not-sufficient planarity check: returns false only when
-/// the graph violates the Euler bound `|E| <= 3|V| - 6`. Returns true for
-/// every graph that satisfies the bound, including non-planar K3,3 and
-/// Petersen.
-///
-/// This function uses ONLY the global Euler bound (not per-BCC checks)
-/// to ensure edge-deletion monotonicity: if is_planar(G) returns true,
-/// then is_planar(G-e) also returns true for any edge e. Per-BCC bounds
-/// can violate monotonicity when edge removal causes BCC splits that
-/// redistribute edges in non-monotone ways.
-///
-/// The Python wrapper routes through NetworkX's check_planarity for
-/// correct K3,3/Petersen/etc. rejection until a proper Boyer-Myrvold
-/// implementation lands here.
-fn planar_edge_bound_with_bcc(n: usize, adj: &[Vec<usize>]) -> bool {
-    if n <= 4 {
-        return true;
-    }
-
-    let m: usize = adj.iter().map(|a| a.len()).sum::<usize>() / 2;
-    m <= 3 * n - 6
+    is_planar_lr(graph)
 }
 
 // ── Exact planarity: Left-Right (de Fraysseix–Rosenstiehl / Brandes) ─────────
@@ -34450,9 +34390,8 @@ impl LrState {
 /// Exact planarity test via the Left-Right algorithm (boolean result only).
 ///
 /// NetworkX equivalent: `networkx.algorithms.planarity.is_planar` (the
-/// `check_planarity(G)[0]` boolean). Correctly rejects K5, K3,3, the Petersen
-/// graph and every other non-planar input, unlike the necessary-only
-/// [`is_planar`] Euler-bound check. Self-loops and parallel edges are ignored
+/// `check_planarity(G)[0]` boolean). This is the exact implementation used by
+/// [`is_planar`]. Self-loops and parallel edges are ignored
 /// (they never affect planarity), matching NetworkX's `LRPlanarity` ctor.
 #[must_use]
 pub fn is_planar_lr(graph: &Graph) -> bool {
@@ -81079,8 +81018,7 @@ mod tests {
 
     #[test]
     fn test_is_planar_lr_k5_k33_nonplanar() {
-        // The exact LR kernel must reject the canonical non-planar graphs that
-        // the Euler-bound `is_planar` lets through.
+        // The exact LR kernel rejects both dense and sparse non-planar graphs.
         assert!(!is_planar_lr(&complete_graph_n(5))); // K5
         assert!(!is_planar_lr(&complete_bipartite(3, 3))); // K3,3
         assert!(!is_planar_lr(&complete_graph_n(6)));
@@ -81431,28 +81369,21 @@ mod tests {
     }
 
     #[test]
-    fn test_is_planar_k33_passes_euler_bound() {
+    fn test_is_planar_k33_not_planar() {
         // K3,3 is non-planar but passes the Euler bound (m=9 <= 3*6-6=12).
-        // The Rust is_planar uses only Euler-bound checks to preserve
-        // edge-deletion monotonicity; the Python wrapper routes through
-        // NetworkX check_planarity for correct K3,3 rejection.
         let mut g = Graph::strict();
         for left in &["a1", "a2", "a3"] {
             for right in &["b1", "b2", "b3"] {
                 let _ = g.add_edge(*left, *right);
             }
         }
-        // K3,3 passes Euler bound — this is a documented false positive
-        assert!(is_planar(&g), "K3,3 should pass Euler-only check");
+        assert!(!is_planar(&g), "K3,3 must be rejected despite the Euler bound");
     }
 
     #[test]
-    fn test_is_planar_petersen_passes_euler_bound() {
+    fn test_is_planar_petersen_not_planar() {
         // The Petersen graph (n=10, m=15, girth=5) is non-planar but
-        // passes the Euler bound (m=15 <= 3*10-6=24). The Rust is_planar
-        // uses only Euler-bound checks to preserve edge-deletion
-        // monotonicity; the Python wrapper routes through NetworkX
-        // check_planarity for correct Petersen rejection.
+        // passes the Euler bound (m=15 <= 3*10-6=24).
         let mut g = Graph::strict();
         // Outer pentagon
         let outer = ["o0", "o1", "o2", "o3", "o4"];
@@ -81468,20 +81399,56 @@ mod tests {
         for i in 0..5 {
             let _ = g.add_edge(outer[i], inner[i]);
         }
-        // Petersen passes Euler bound — this is a documented false positive
-        assert!(is_planar(&g), "Petersen should pass Euler-only check");
+        assert!(!is_planar(&g), "Petersen must be rejected despite the Euler bound");
     }
 
     #[test]
-    fn test_is_planar_k4_still_planar() {
-        // K4 is planar; both bounds must permit it.
+    fn test_is_planar_kuratowski_subdivisions() {
+        for graph in [complete_graph_n(5), complete_bipartite(3, 3)] {
+            let mut subdivided = Graph::strict();
+            for (index, edge) in graph.edges_ordered().into_iter().enumerate() {
+                let middle = format!("middle{index}");
+                let _ = subdivided.add_edge(edge.left, middle.clone());
+                let _ = subdivided.add_edge(middle, edge.right);
+            }
+            assert!(subdivided.edge_count() <= 3 * subdivided.node_count() - 6);
+            assert!(!is_planar(&subdivided));
+        }
+    }
+
+    #[test]
+    fn test_is_planar_disconnected_components() {
+        let mut g = complete_graph_n(4);
+        g.add_node("isolated");
+        for (u, v) in [("x", "y"), ("y", "z"), ("z", "x")] {
+            let _ = g.add_edge(u, v);
+        }
+        assert!(is_planar(&g));
+
+        for edge in complete_bipartite(3, 3).edges_ordered() {
+            let _ = g.add_edge(edge.left, edge.right);
+        }
+        assert!(!is_planar(&g), "a non-planar component makes the union non-planar");
+    }
+
+    #[test]
+    fn test_is_planar_selfloops_and_deleted_nodes() {
         let mut g = Graph::strict();
-        for u in 0..4 {
-            for v in (u + 1)..4 {
-                let _ = g.add_edge(format!("n{u}"), format!("n{v}"));
+        g.add_node("removed");
+        // The octahedral graph is planar and saturates the simple Euler bound.
+        // Counting its self-loops in that bound would incorrectly reject it.
+        for u in 0..6 {
+            let _ = g.add_edge(format!("n{u}"), format!("n{u}"));
+            for v in (u + 1)..6 {
+                if u / 2 != v / 2 {
+                    let _ = g.add_edge(format!("n{u}"), format!("n{v}"));
+                }
             }
         }
-        assert!(is_planar(&g), "K4 must remain reported planar");
+        assert!(g.remove_node("removed"));
+        assert!(is_planar(&g));
+        assert!(g.remove_node("n2"));
+        assert!(is_planar(&g));
     }
 
     #[test]
@@ -81499,17 +81466,11 @@ mod tests {
 
     #[test]
     fn test_is_planar_edge_deletion_monotonicity() {
-        // Regression test for is_planar monotonicity bug (fixed in 5a23f997c).
-        // The bug: girth-based and per-BCC bounds could reject planar subgraphs.
-        // When an edge was removed from a triangle, girth increased (3→4+),
-        // tightening the bound and incorrectly rejecting the subgraph.
-        //
-        // This test verifies: if is_planar(G) returns true, then is_planar(G-e)
-        // also returns true for any edge e in G.
+        // Deleting any edge from a planar graph preserves planarity, including
+        // deletions that change the girth or split a biconnected component.
         let mut g = Graph::strict();
 
-        // Build a graph with triangles that passes the Euler bound.
-        // n=6, m=10 (passes 3*6-6=12)
+        // A planar graph with triangles (n=6, m=10).
         let edges = [
             ("n0", "n1"),
             ("n0", "n2"),

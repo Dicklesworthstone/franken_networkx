@@ -4654,20 +4654,6 @@
       "source": "raw-vs-public-audit",
       "note": "raw output is post-processed by wrapper to match nx",
       "evidence": "docs/raw_vs_public_audit.md"
-    },
-    {
-      "name": "is_planar",
-      "category": "raw-known-gap",
-      "source": "rust-source-comment (crates/fnx-algorithms/src/lib.rs)",
-      "note": "// KNOWN GAP (br-isplanarbroken): this is still a necessary-only test;",
-      "evidence": "crates/fnx-algorithms/src/lib.rs"
-    },
-    {
-      "name": "is_planar",
-      "category": "owner-acknowledged-limitation",
-      "source": "closed-bead",
-      "note": "br-r37-c1-n2md9: Short-circuit public is_planar with girth bound before LR fallback",
-      "evidence": ""
     }
   ],
   "summary": {
@@ -13122,20 +13108,8 @@
         }
       ],
       "intentionally-delegated": [],
-      "raw-known-gap": [
-        {
-          "source": "rust-source-comment (crates/fnx-algorithms/src/lib.rs)",
-          "note": "// KNOWN GAP (br-isplanarbroken): this is still a necessary-only test;",
-          "evidence": "crates/fnx-algorithms/src/lib.rs"
-        }
-      ],
-      "owner-acknowledged-limitation": [
-        {
-          "source": "closed-bead",
-          "note": "br-r37-c1-n2md9: Short-circuit public is_planar with girth bound before LR fallback",
-          "evidence": ""
-        }
-      ]
+      "raw-known-gap": [],
+      "owner-acknowledged-limitation": []
     },
     "center": {
       "native-parity": [],

@@ -223,21 +223,16 @@ def is_planar(G, *, backend=None, **backend_kwargs):
     (franken_networkx-sl3mn); the raw Rust binding used ``g`` as the
     parameter name which broke kwarg parity.
 
-    br-isplanarbroken: the Rust ``_raw_is_planar`` incorrectly
-    classified K3,3 and the Petersen graph as planar (both are
-    canonical non-planar graphs). Critically, fnx's own
-    ``check_planarity`` already returned the correct answer for the
-    same inputs, so the two functions contradicted each other. Route
-    through ``check_planarity`` so is_planar and check_planarity
-    always agree (both match nx's reference LR-planarity
-    implementation).
+    Uses the exact native Left-Right test after cheap edge-bound checks.
+    The raw Rust ``is_planar`` entry point uses the same exact kernel;
+    passing a necessary edge bound never substitutes for a planarity
+    decision. If native graph conversion or execution fails, use
+    ``check_planarity`` to preserve the public graph protocol.
     """
     _validate_backend_dispatch_keywords("is_planar", backend, backend_kwargs)
-    # br-r37-c1-gttlp: cheap necessary-condition short-circuits before
-    # the nx-graph round-trip + full LR embedding that check_planarity
-    # builds. Same Kuratowski-style bounds proven correct in the Rust
-    # crate via br-r37-c1-xdjpt; lifted to the Python wrapper here so
-    # the speedup is independent of binary state.
+    # Cheap necessary-condition short-circuits before the exact native
+    # Left-Right test. Apply simple-graph bounds only when loops, parallel
+    # edges, and direction do not change the edge count's meaning.
     n = G.number_of_nodes()
     m = G.number_of_edges()
     simple_edges = _loopless_simple_undirected_edges(G)
@@ -251,8 +246,8 @@ def is_planar(G, *, backend=None, **backend_kwargs):
             return False
         # Girth-4 tightened bound: triangle-free planar simple graphs
         # have |E| ≤ 2|V|-4. The adjacency-set triangle scan is
-        # O(sum(deg(u), deg(v))) over edges and replaces the heavier
-        # nx-graph copy + full LR embedding when triggered.
+        # O(sum(deg(u), deg(v))) over edges and avoids the full LR test
+        # when the bound rejects the graph.
         if m > 2 * n - 4 and _is_triangle_free_with_edges(G, simple_edges):
             return False
     # br-r37-c1-native-is-planar-boolean-zuxh1: exact native Left-Right

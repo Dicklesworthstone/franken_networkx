@@ -21947,9 +21947,9 @@ fn planar_embedding_data(
 
 /// Exact planarity test via the Left-Right algorithm (boolean only).
 ///
-/// Unlike `is_planar` (a necessary-only Euler-bound check), this correctly
-/// rejects K5, K3,3, Petersen and every other non-planar graph, matching
-/// NetworkX's `check_planarity(G)[0]`.
+/// Exposes the same exact LR kernel as `is_planar`, rejecting K5, K3,3,
+/// Petersen and every other non-planar graph, matching NetworkX's
+/// `check_planarity(G)[0]`.
 #[pyfunction]
 #[pyo3(signature = (g,))]
 fn is_planar_lr(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {

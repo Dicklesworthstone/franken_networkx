@@ -6,8 +6,8 @@ output, Rust ``KNOWN GAP`` markers, and closed bead history into a
 unified per-function divergence record. This test verifies:
 
 1. The script runs and produces both .md / .json artifacts.
-2. The known divergence cases (e.g., ``is_planar`` raw kernel known
-   gap) are surfaced in the right category.
+2. Resolved raw kernel gaps (e.g., ``is_planar``) no longer surface as
+   outstanding source limitations.
 3. The post-sjf4t native-parity claims hold for shortest-path family.
 """
 
@@ -59,15 +59,13 @@ def test_ledger_runs_to_completion(ledger):
     )
 
 
-def test_is_planar_surfaces_as_raw_known_gap(ledger):
-    """The raw _raw_is_planar kernel is documented as a KNOWN GAP in
-    crates/fnx-algorithms/src/lib.rs. The ledger must surface this
-    so it's not lost across review rounds."""
+def test_is_planar_no_longer_has_raw_known_gap(ledger):
+    """The raw kernel now shares the exact Left-Right implementation."""
     entries = _entries_for(ledger, "is_planar")
     assert entries, "is_planar should be in the divergence ledger"
     cats = {e["category"] for e in entries}
-    assert "raw-known-gap" in cats, (
-        f"is_planar lost raw-known-gap categorization: {cats}"
+    assert "raw-known-gap" not in cats, (
+        f"is_planar still has a resolved raw-known-gap categorization: {cats}"
     )
 
 

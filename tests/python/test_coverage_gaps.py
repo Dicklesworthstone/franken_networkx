@@ -311,7 +311,9 @@ def test_coverage_matrix_tracks_upstream_divergence_ledger():
     rendered = coverage_matrix["render_markdown"](exports, duplicates)
     categories = {row["category"] for row in ledger}
 
-    assert set(coverage_matrix["DIVERGENCE_CATEGORY_ORDER"]).issubset(categories)
+    # Resolved defects can leave gap categories empty; every emitted category
+    # must still be recognized, and the repaired raw API must be classified.
+    assert categories.issubset(set(coverage_matrix["DIVERGENCE_CATEGORY_ORDER"]))
     assert any(
         row["category"] == "intentionally-delegated"
         and row["export"] == "effective_size"
@@ -323,13 +325,19 @@ def test_coverage_matrix_tracks_upstream_divergence_ledger():
         for row in ledger
     )
     assert any(
-        row["category"] == "raw-known-gap"
+        row["category"] == "native-parity"
         and row["export"] == "_raw_is_planar"
+        and row["route"] == "RUST_NATIVE"
+        for row in ledger
+    )
+    assert not any(
+        row["export"] in {"is_planar", "_raw_is_planar"}
+        and row["category"] in {"raw-known-gap", "owner-acknowledged-limitation"}
         for row in ledger
     )
     assert "## Upstream Divergence Ledger" in rendered
     assert "| raw-known-gap |" in rendered
-    assert "br-isplanarbroken" in rendered
+    assert "is_planar_lr" in rendered
 
 
 @needs_nx

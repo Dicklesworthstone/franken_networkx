@@ -11,8 +11,8 @@ Combines static AST analysis (`docs/delegation_ledger.json`), per-fixture audit 
 | `native-parity` | 460 | Rust-native execution; output matches NetworkX byte-for-byte |
 | `wrapper-patched` | 24 | Python wrapper post-processes raw output (sort, type-coerce, etc.) so the user-visible result matches NetworkX |
 | `intentionally-delegated` | 181 | Wrapper routes to NetworkX (via _call_networkx_for_parity) for some or all input shapes; not a Rust-native path |
-| `raw-known-gap` | 1 | Lower-level _raw_<X> kernel has a documented gap; public wrapper hides the divergence via fallback |
-| `owner-acknowledged-limitation` | 1 | Divergence is intentional / out-of-scope; documented in source |
+| `raw-known-gap` | 0 | Lower-level _raw_<X> kernel has a documented gap; public wrapper hides the divergence via fallback |
+| `owner-acknowledged-limitation` | 0 | Divergence is intentional / out-of-scope; documented in source |
 
 ## native-parity (460)
 
@@ -233,14 +233,10 @@ Combines static AST analysis (`docs/delegation_ledger.json`), per-fixture audit 
 | `tree_isomorphism` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 | `tutte_polynomial` | static-classification | wrapper calls _call_networkx_for_parity exclusively |
 
-## raw-known-gap (1)
+## raw-known-gap (0)
 
-| function | source | note |
-|----------|--------|------|
-| `is_planar` | rust-source-comment (crates/fnx-algorithms/src/lib.rs) | // KNOWN GAP (br-isplanarbroken): this is still a necessary-only test; |
+_No entries._
 
-## owner-acknowledged-limitation (1)
+## owner-acknowledged-limitation (0)
 
-| function | source | note |
-|----------|--------|------|
-| `is_planar` | closed-bead | br-r37-c1-n2md9: Short-circuit public is_planar with girth bound before LR fallback |
+_No entries._

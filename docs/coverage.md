@@ -5018,11 +5018,11 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Divergence state | Rows | Rule |
 |------------------|------|------|
-| native-parity | 1 | public Rust-native export; no Python fallback route detected |
+| native-parity | 2 | public Rust-native export; no Python fallback route detected |
 | wrapper-patched | 25 | public wrapper records a compatibility repair over a lower-level gap |
 | intentionally-delegated | 6 | AST-visible parity helper or direct NetworkX route |
-| raw-known-gap | 2 | lower-level raw/native implementation has a documented parity gap |
-| owner-acknowledged-limitation | 2 | documented limitation is intentionally owned until native repair |
+| raw-known-gap | 0 | lower-level raw/native implementation has a documented parity gap |
+| owner-acknowledged-limitation | 0 | documented limitation is intentionally owned until native repair |
 
 ## Upstream Divergence Annotations
 
@@ -5046,17 +5046,13 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | wrapper-patched | `girth` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `greedy_color` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `is_forest` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
-| wrapper-patched | `is_planar` | PY_WRAPPER | bead:br-isplanarbroken | `python/franken_networkx/__init__.py:br-isplanarbroken` | public wrapper routes through check_planarity so K3,3/Petersen match NetworkX |
+| wrapper-patched | `is_planar` | PY_WRAPPER | code:is_planar | `python/franken_networkx/_impl/s16_dag_longest_path_length.py:is_planar` | public wrapper uses native is_planar_lr after graph-type and edge-bound checks |
 | wrapper-patched | `is_planar` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `is_tree` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `periphery` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `radius` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `single_source_dijkstra_path_length` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
 | wrapper-patched | `transitivity` | PY_WRAPPER | raw-vs-public-audit | `docs/raw_vs_public_audit.md` | raw output is post-processed by wrapper to match nx |
-| raw-known-gap | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | raw kernel still uses necessary edge-count bounds, not a complete LR planarity test |
-| raw-known-gap | `is_planar` | PY_WRAPPER | rust-source-comment (crates/fnx-algorithms/src/lib.rs) | `crates/fnx-algorithms/src/lib.rs` | // KNOWN GAP (br-isplanarbroken): this is still a necessary-only test; |
-| owner-acknowledged-limitation | `_raw_is_planar` | RUST_NATIVE | code:KNOWN GAP | `crates/fnx-algorithms/src/lib.rs:KNOWN GAP` | callers are directed to the public wrapper until Boyer-Myrvold/Hopcroft-Tarjan lands |
-| owner-acknowledged-limitation | `is_planar` | PY_WRAPPER | closed-bead | `docs/upstream_divergence_ledger.md` | br-r37-c1-n2md9: Short-circuit public is_planar with girth bound before LR fallback |
 
 ## Performance Route Probes
 
