@@ -1083,7 +1083,9 @@ def kl_connected_subgraph(G, k, l, low_memory=False, same_as_graph=False):
     ``same_as_graph`` matches networkx's signature. When True, returns
     ``(H, H_is_same_as_G)``; otherwise returns only *H*.
     """
-    H = G.copy()
+    # NetworkX deep-copies the result, including nested graph/node/edge data.
+    # A single memo also preserves aliases shared across those attributes.
+    H = _deepcopy(G)
     graph_ok = True
     deleted_some = True
     while deleted_some:
@@ -1097,7 +1099,7 @@ def kl_connected_subgraph(G, k, l, low_memory=False, same_as_graph=False):
                     }
                 G2 = G.subgraph(verts).copy()
             else:
-                G2 = G.copy()
+                G2 = _deepcopy(G)
             path = [u, v]
             cnt = 0
             accept = 0

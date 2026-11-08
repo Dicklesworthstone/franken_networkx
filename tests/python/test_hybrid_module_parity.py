@@ -187,6 +187,71 @@ def test_kl_connected_subgraph_preserves_cluster_edges_and_drops_bridge():
     }
 
 
+@pytest.mark.parametrize(
+    "graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+)
+@pytest.mark.parametrize("low_memory", [False, True])
+@pytest.mark.parametrize("same_as_graph", [False, True])
+@pytest.mark.parametrize("min_paths", [1, 2])
+def test_kl_connected_subgraph_deep_copies_shared_attributes(
+    graph_type, low_memory, same_as_graph, min_paths
+):
+    nodes = [(0, "a"), (1, "b"), (2, "c"), (3, "leaf")]
+    edges = [
+        (nodes[0], nodes[1]),
+        (nodes[1], nodes[2]),
+        (nodes[2], nodes[0]),
+        (nodes[2], nodes[3]),
+    ]
+
+    def build(library):
+        graph = getattr(library, graph_type)()
+        graph.add_edges_from(edges)
+        if graph.is_directed():
+            graph.add_edges_from((v, u) for u, v in edges)
+        if graph.is_multigraph():
+            graph.add_edge(nodes[0], nodes[1], key=("parallel", 0))
+        shared = {"values": []}
+        graph.graph["payload"] = shared
+        for node in graph:
+            graph.nodes[node]["payload"] = shared
+        for _, _, data in graph.edges(data=True):
+            data["payload"] = shared
+        return graph
+
+    source = build(fnx)
+    oracle_source = build(nx)
+    actual = fnx.kl_connected_subgraph(
+        source, 2, min_paths, low_memory=low_memory, same_as_graph=same_as_graph
+    )
+    expected = nx.kl_connected_subgraph(
+        oracle_source, 2, min_paths, low_memory=low_memory, same_as_graph=same_as_graph
+    )
+    if same_as_graph:
+        actual, actual_unchanged = actual
+        expected, expected_unchanged = expected
+        assert actual_unchanged == expected_unchanged == (min_paths == 1)
+
+    assert type(actual) is getattr(fnx, graph_type)
+    assert set(actual) == set(expected)
+    if source.is_multigraph():
+        assert list(actual.edges(keys=True)) == list(expected.edges(keys=True))
+        assert list(source.edges(keys=True)) == list(oracle_source.edges(keys=True))
+    else:
+        assert list(actual.edges()) == list(expected.edges())
+        assert list(source.edges()) == list(oracle_source.edges())
+
+    for original, copied in [(source, actual), (oracle_source, expected)]:
+        payload = copied.graph["payload"]
+        assert payload is not original.graph["payload"]
+        assert all(copied.nodes[node]["payload"] is payload for node in copied)
+        assert all(data["payload"] is payload for _, _, data in copied.edges(data=True))
+        payload["values"].append("result")
+        assert original.graph["payload"]["values"] == []
+        original.graph["payload"]["values"].append("input")
+        assert payload["values"] == ["result"]
+
+
 def test_hybrid_rejects_backend_kwargs_like_networkx_dispatch():
     module = importlib.import_module("franken_networkx.hybrid")
 
