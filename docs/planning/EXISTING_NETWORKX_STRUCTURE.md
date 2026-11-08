@@ -658,7 +658,7 @@ cover subsets, selected isolates, weighted adjacency, explicit regularizers,
 validation order, and unsized iterators through both public namespaces.
 
 
-## 25. Native Minimum Cycle Basis with Overflowing Weights
+## 25. Minimum Cycle Basis with Exact and Overflowing Weights
 
 For finite, nonnegative edge weights, a cycle remains part of the cycle space
 when its accumulated floating-point weight overflows to positive infinity.
@@ -675,12 +675,37 @@ the first reachable candidate even when its distance is infinite, replace it
 with any strictly shorter finite candidate, and retain the existing first
 candidate on equal distances. Missing lifted paths remain absent.
 
-These expectations were checked against NetworkX 3.6.1. The public Python
-`minimum_cycle_basis` wrapper currently uses a separate SciPy-assisted route
-and already satisfies these cases; this contract covers the native APIs
-without changing that routing. Native regression cases live beside the
-existing minimum-cycle-basis Rust tests and in
-`tests/python/test_misc_tier2_parity.py`.
+The public Python `minimum_cycle_basis` wrapper also retains the complete
+basis in these cases and must work without SciPy. Its owned de Pina solver
+preserves Python integer, Fraction, and Decimal arithmetic instead of
+converting all costs to float64. Component filtering must read the caller's
+logical nodes, edges, and live attributes, including assigned private graph
+storage. Nonstring weight keys are selected from edge dictionaries directly.
+NetworkX 3.6.1 also selects a literal `None` attribute key when `weight=None`
+inside this algorithm; an absent key defaults to one.
+
+Both lifted sheets use internal integer indices, separate from user node
+labels. A valid tuple label such as `(u, 1)` must not be merged with a lifted
+copy of `u`. For such collisions, cycle validity, cycle-space rank, and
+minimum total weight define the result; the invalid basis produced by the
+upstream tuple-based lift is not reproduced. Ordinary tied cycles retain
+NetworkX's component, chord-set, and shortest-path selection order.
+
+Optional acceleration must preserve those contracts. The existing native
+kernel is used only for single-chord components with supported labels and
+safe exact integral costs; its general multicycle chord order differs from
+the Python contract. Optional SciPy distance batches are restricted to
+nonnegative built-in integer costs with exactly representable lifted-path
+sums, and retain explicit zero-cost edges. Distances are processed in bounded
+source batches; all other numeric domains use the shared exact Python
+shortest-path primitives. Joining component bases must not repeatedly copy
+the already-computed basis.
+
+These expectations were checked against NetworkX 3.6.1. Native regression
+cases live beside the existing minimum-cycle-basis Rust tests and in
+`tests/python/test_misc_tier2_parity.py`. Public dependency, numeric-domain,
+label-collision, ordering, filtering, and routing contracts live in
+`tests/python/test_minimum_cycle_basis_exact.py`.
 
 
 ## 26. Relabeling with Colliding Node Labels

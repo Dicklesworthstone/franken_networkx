@@ -398,135 +398,24 @@ def _node_order_key_local(node):
     return (type(node).__module__, type(node).__qualname__, repr(node))
 
 
-def _minimum_cycle_basis_component_ordered_graph_local(G, component):
-    ordered = Graph()
-    component_nodes = set(component)
-
-    for node in G:
-        if node in component_nodes:
-            ordered.add_node(node, **dict(G.nodes[node]))
-
-    for u, v, data in G.edges(data=True):
-        if u in component_nodes and v in component_nodes:
-            ordered.add_edge(u, v, **dict(data))
-
-    return ordered
-
-
 def minimum_cycle_basis(G, weight=None, *, backend=None, **backend_kwargs):
-    """Find minimum weight cycle basis."""
+    """Find a minimum weight cycle basis without requiring SciPy.
+
+    Python arithmetic preserves exact integer, Fraction, and Decimal weights.
+    Optional native and SciPy acceleration is restricted to nonnegative
+    integer weights whose lifted path sums are exactly representable in f64.
+    """
     _validate_backend_dispatch_keywords("minimum_cycle_basis", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    # br-r37-c1-ey500: materialize SubgraphView first (view family).
-    G = _coerce_arg_to_fnx_graph(G)
-    return _minimum_cycle_basis_fast(G, weight)
-
-
-def _min_cycle_scipy(graph, orth, weight):
-    """networkx ``_min_cycle`` with the per-node ``lift`` distances computed by one
-    batched scipy ``csgraph.dijkstra`` over the lifted double-cover instead of
-    ``len(graph)`` separate Python Dijkstra calls. Byte-identical output."""
-    import numpy as _np
-    import scipy.sparse as _sps
-    from itertools import pairwise as _pairwise
-    from scipy.sparse.csgraph import dijkstra as _csg_dijkstra
-
-    nodes = list(graph)
-    index = {u: i for i, u in enumerate(nodes)}
-    n = len(nodes)
-
-    rows, cols, data = [], [], []
-    for u, v, wt in graph.edges(data=weight, default=1):
-        iu, iv = index[u], index[v]
-        if (u, v) in orth or (v, u) in orth:
-            rows += [iu, iv + n, iu + n, iv]
-            cols += [iv + n, iu, iv, iu + n]
-        else:
-            rows += [iu, iv, iu + n, iv + n]
-            cols += [iv, iu, iv + n, iu + n]
-        data += [wt, wt, wt, wt]
-    lifted = _sps.csr_matrix(
-        (_np.asarray(data, dtype=float), (rows, cols)), shape=(2 * n, 2 * n)
+    from franken_networkx._minimum_cycle_basis import (
+        minimum_cycle_basis as _minimum_cycle_basis_owned,
     )
-    distances = _csg_dijkstra(lifted, directed=False, indices=_np.arange(n))
-    lift = {nodes[i]: distances[i, i + n] for i in range(n)}
 
-    start = min(lift, key=lift.get)
-    end = (start, 1)
-
-    lifted_fnx = Graph()
-    for u, v, wt in graph.edges(data=weight, default=1):
-        if (u, v) in orth or (v, u) in orth:
-            lifted_fnx.add_edges_from([(u, (v, 1)), ((u, 1), v)], Gi_weight=wt)
-        else:
-            lifted_fnx.add_edges_from([(u, v), ((u, 1), (v, 1))], Gi_weight=wt)
-    min_path_i = shortest_path(
-        lifted_fnx, source=start, target=end, weight="Gi_weight"
-    )
-    min_path = [node if node in graph else node[0] for node in min_path_i]
-
-    edgelist = list(_pairwise(min_path))
-    edgeset = set()
-    for edge in edgelist:
-        if edge in edgeset:
-            edgeset.remove(edge)
-        elif edge[::-1] in edgeset:
-            edgeset.remove(edge[::-1])
-        else:
-            edgeset.add(edge)
-
-    min_edgelist = []
-    for edge in edgelist:
-        if edge in edgeset:
-            min_edgelist.append(edge)
-            edgeset.remove(edge)
-        elif edge[::-1] in edgeset:
-            min_edgelist.append(edge[::-1])
-            edgeset.remove(edge[::-1])
-    return min_edgelist
-
-
-def _min_cycle_basis_scipy(component_graph, weight):
-    """In-process de Pina ``_min_cycle_basis`` calling the scipy-accelerated
-    ``_min_cycle_scipy``."""
-    cb = []
-    tree_edges = list(minimum_spanning_edges(component_graph, weight=None, data=False))
-    chords = component_graph.edges - tree_edges - {(v, u) for u, v in tree_edges}
-
-    set_orth = [{edge} for edge in chords]
-    while set_orth:
-        base = set_orth.pop()
-        cycle_edges = _min_cycle_scipy(component_graph, base, weight)
-        cb.append([v for u, v in cycle_edges])
-
-        set_orth = [
-            (
-                {e for e in orth if e not in base if e[::-1] not in base}
-                | {e for e in base if e not in orth if e[::-1] not in orth}
-            )
-            if sum((e in orth or e[::-1] in orth) for e in cycle_edges) % 2
-            else orth
-            for orth in set_orth
-        ]
-    return cb
-
-
-def _minimum_cycle_basis_fast(G, weight):
-    """In-process de Pina minimum cycle basis with a scipy-batched ``lift``."""
-    return sum(
-        (
-            _min_cycle_basis_scipy(
-                _minimum_cycle_basis_component_ordered_graph_local(G, component),
-                weight,
-            )
-            for component in connected_components(G)
-        ),
-        [],
-    )
+    return _minimum_cycle_basis_owned(G, weight)
 
 
 def chordless_cycles(G, length_bound=None, *, backend=None, **backend_kwargs):

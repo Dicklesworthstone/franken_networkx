@@ -81,6 +81,13 @@ constructs a NetworkX residual graph nor substitutes the simplex algorithm.
 This module isolates the algorithm from graph storage and provides a future
 native-kernel boundary without changing the public API.
 
+The Python minimum-cycle-basis seam owns its de Pina solver in
+`_minimum_cycle_basis.py`. Integer indices keep lifted nodes separate from
+user labels, while shared exact Kruskal and Dijkstra primitives preserve
+numeric arithmetic and tied-path ordering. Native and optional SciPy routes
+are admitted only for supported exact domains; the public wrapper retains
+backend validation and graph-family rejection order.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.
