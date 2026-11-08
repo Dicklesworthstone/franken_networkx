@@ -1217,3 +1217,20 @@ and connectivity-predicate APIs retain their existing native implementations.
 Focused tests compare ordered results, eager type errors, lazy row access,
 pre-advance mutations, graph views, multigraphs, deep chains, and cold/warm
 public backend calls against NetworkX 3.6.1.
+
+## 46. Target Shortest Paths on Public Graph Inputs
+
+`single_target_shortest_path` and `single_target_shortest_path_length` accept
+all four graph classes from either library, graph subclasses, and filtered or
+reversed views. They follow the caller's current predecessor rows for directed
+graphs and adjacency rows for undirected graphs. Returned dictionaries retain
+BFS discovery order, and equal-length path ties follow the original row order.
+Paths end in the target object supplied by the caller, including an object
+equal to a stored key but distinct by identity.
+
+These eager queries validate a missing target with their established distinct
+error wording. Fractional, negative, and unbounded cutoffs retain the public
+BFS boundary behavior. Logical/private stores and nonconcrete graph objects
+use owned traversal without being handed to a strict native type gate. Exact
+native graphs keep their native route, and an eligible native reverse view
+still uses the root's forward BFS when the cutoff supports that route.

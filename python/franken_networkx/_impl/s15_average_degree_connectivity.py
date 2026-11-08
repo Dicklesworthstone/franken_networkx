@@ -739,31 +739,53 @@ def is_strongly_connected(G):
         raise
 
 
+def _strong_component_sets(G):
+    """Iterative Tarjan search with a suspended DFS and active-node stack."""
+    adjacency = G._adj
+    discovery = {}
+    low = {}
+    active = []
+    on_stack = set()
+    for root in G:
+        if root in discovery:
+            continue
+        discovery[root] = low[root] = len(discovery)
+        active.append(root)
+        on_stack.add(root)
+        frames = [(root, iter(adjacency[root]))]
+        while frames:
+            node, neighbors = frames[-1]
+            try:
+                neighbor = next(neighbors)
+            except StopIteration:
+                frames.pop()
+                if low[node] == discovery[node]:
+                    component = set()
+                    while True:
+                        member = active.pop()
+                        on_stack.remove(member)
+                        component.add(member)
+                        if discovery[member] == discovery[node]:
+                            break
+                    yield component
+                if frames:
+                    parent = frames[-1][0]
+                    low[parent] = min(low[parent], low[node])
+                continue
+            if neighbor not in discovery:
+                discovery[neighbor] = low[neighbor] = len(discovery)
+                active.append(neighbor)
+                on_stack.add(neighbor)
+                frames.append((neighbor, iter(adjacency[neighbor])))
+            elif neighbor in on_stack:
+                low[node] = min(low[node], discovery[neighbor])
+
+
 def strongly_connected_components(G):
-    """Generate strongly connected components as sets of nodes.
-
-    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
-    br-r37-c1-brzgi: the Rust binding emits components in nx's
-    Tarjan/Nuutila discovery order, avoiding the previous NetworkX
-    delegation on the public path.
-    """
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-scceager: nx wraps these directed-only generators with
-    # @not_implemented_for, so the NetworkXNotImplemented is raised EAGERLY on
-    # the call — not when the generator is first iterated. A generator function
-    # here would defer the check (a ``try: g = scc(undirected) except`` around
-    # the *call* would miss it). Do the type check eagerly and return an inner
-    # generator, matching nx's contract.
+    """Yield strongly connected node sets as ordered DFS completes them."""
     if not G.is_directed():
-        # Preserve the standard '@not_implemented_for' error format so
-        # callers see a stable message (br-r37-c1-4elbw).
         raise NetworkXNotImplemented("not implemented for undirected type")
-
-    def _gen():
-        yield from _raw_strongly_connected_components(G)
-
-    return _gen()
+    return _strong_component_sets(G)
 
 
 # Algorithm functions — weakly connected components
@@ -814,22 +836,10 @@ def is_weakly_connected(G):
 
 
 def weakly_connected_components(G):
-    """Generate weakly connected components as sets of nodes.
-
-    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
-    """
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-scceager: raise the directed-only error EAGERLY (nx contract),
-    # not lazily on first iteration. See strongly_connected_components.
+    """Yield weak components, traversing live successor and predecessor rows."""
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-
-    def _gen():
-        for component in _raw_weakly_connected_components(G):
-            yield set(component)
-
-    return _gen()
+    return _connected_component_sets(G, weak=True)
 
 # Algorithm functions — link prediction
 from franken_networkx._fnx import (

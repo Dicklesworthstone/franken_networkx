@@ -1339,6 +1339,34 @@ def _native_minimum_st_node_cut(G, s, t):
     return node_cut - {s, t}
 
 
+def _connected_component_sets(G, weak=False):
+    """Walk one component at a time without copying or reading later rows."""
+    from collections import deque
+
+    rows = (G._succ, G._pred) if weak else (G._adj,)
+    seen = set()
+    node_count = len(G)
+    for start in G:
+        if start in seen:
+            continue
+        component = {start}
+        pending = deque([start])
+        remaining = node_count - len(seen)
+        while pending:
+            node = pending.popleft()
+            for adjacency in rows:
+                for neighbor in adjacency[node]:
+                    if neighbor not in component:
+                        component.add(neighbor)
+                        pending.append(neighbor)
+            # Assigned node storage may omit nodes still present in adjacency.
+            # Inspect both directed rows before using the size shortcut.
+            if len(component) == remaining:
+                break
+        seen.update(component)
+        yield component
+
+
 def connected_components(G, *, backend=None, **backend_kwargs):
     """Generate connected components.
 
@@ -1352,40 +1380,18 @@ def connected_components(G, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords(
         "connected_components", backend, backend_kwargs,
     )
-    # br-r37-c1-pf5vu: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — raise EAGERLY
-    # on the call, not lazily on iteration. Return an inner generator.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-
-    def _gen():
-        yield from _raw_connected_components(G)
-
-    return _gen()
+    # Keep the caller's graph until first advance. A native list or a view
+    # materialized here would hide mutations and compute unrequested parts.
+    return _connected_component_sets(G)
 
 
 def articulation_points(G):
-    """Yield articulation points of ``G``.
-
-    Matches upstream's generator contract (franken_networkx-v1nwd).
-
-    br-r37-c1-rf7lr: the Rust binding now emits APs in DFS-discovery
-    order using insertion-order adjacency, matching nx's
-    ``_biconnected_dfs`` exactly. We can use the fast Rust path
-    instead of delegating to networkx — ~50x faster on BA200, more
-    at scale (br-r37-c1-9kyjl is superseded).
-    """
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    """Yield distinct cut vertices as their DFS subtrees finish."""
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-
-    def _gen():
-        yield from _raw_articulation_points(G)
-
-    return _gen()
+    return _biconnected_dfs_iter(G, emit_edges=False)
 
 
 def bridges(G, root=None, *, backend=None, **backend_kwargs):

@@ -855,18 +855,10 @@ def single_target_shortest_path_length(G, target, cutoff=None):
         for parent, node in _bfs_edges_raw(root, target, depth_limit=cutoff):
             lengths[node] = lengths[parent] + 1
         return lengths
-    # br-r37-c1-sptlen: for undirected graphs the distance from every node TO
-    # target equals the distance FROM target (symmetric), so route to the native
-    # single_source kernel (~2.5x faster than networkx) instead of the per-node
-    # Python reverse-BFS (~6x slower). Hop counts are integers and the dict is
-    # built in BFS-from-target order in both, so the result is byte-identical
-    # (value + key order). Directed graphs need reverse adjacency -> Python path.
-    if not G.is_directed():
-        return single_source_shortest_path_length(G, target, cutoff=cutoff)
-    if _has_networkx_private_storage(G):
-        # A directed target walk follows authoritative predecessor rows, not
-        # the native graph's potentially hidden edges or successor rows.
-        adj = G._pred
+    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES or _has_networkx_private_storage(G):
+        # Preserve the caller's predecessor order without materializing a
+        # foreign graph or a view into a native graph with different rows.
+        adj = G._pred if G.is_directed() else G._adj
         count = len(adj)
         seen = {target}
         lengths = {target: 0}
@@ -885,6 +877,10 @@ def single_target_shortest_path_length(G, target, cutoff=None):
                 if len(seen) == count:
                     return lengths
         return lengths
+    # Undirected target distances are source distances. Ordinary concrete
+    # graphs retain the native source and reverse-source kernels.
+    if not G.is_directed():
+        return single_source_shortest_path_length(G, target, cutoff=cutoff)
     # br-r37-c1-a0nl0: directed reverse BFS is now native as well. The raw
     # binding emits discovery-order pairs, preserving the Python loop's
     # predecessor tie-breaking while avoiding per-node predecessor wrappers.
@@ -900,7 +896,16 @@ def single_target_shortest_path(G, target, cutoff=None):
     if target not in G:
         raise NodeNotFound(f"Target {target} not in G")
     root = _reverse_view_root(G)
-    if root is None and _has_networkx_private_storage(G):
+    if root is not None and cutoff is not None and cutoff < 0:
+        cutoff = 0
+    if root is not None and (
+        cutoff is None or isinstance(cutoff, int) and 0 <= cutoff <= _sys.maxsize
+    ):
+        paths = {target: [target]}
+        for parent, node in _bfs_edges_raw(root, target, depth_limit=cutoff):
+            paths[node] = [node] + paths[parent]
+        return paths
+    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES or _has_networkx_private_storage(G):
         # Preserve the original target object at the end of each path, and
         # use predecessor rows only for directed graphs, exactly as NetworkX.
         adj = G._pred if G.is_directed() else G._adj
@@ -927,13 +932,6 @@ def single_target_shortest_path(G, target, cutoff=None):
     # BFS (~4-5x slower than nx, scaling with |V|+|E|).
     if cutoff is not None and cutoff < 0:
         cutoff = 0
-    if root is not None and (
-        cutoff is None or isinstance(cutoff, int) and 0 <= cutoff <= _sys.maxsize
-    ):
-        paths = {target: [target]}
-        for parent, node in _bfs_edges_raw(root, target, depth_limit=cutoff):
-            paths[node] = [node] + paths[parent]
-        return paths
     return _raw_single_target_shortest_path(G, target, cutoff)
 
 

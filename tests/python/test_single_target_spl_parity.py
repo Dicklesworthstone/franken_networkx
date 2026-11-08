@@ -93,3 +93,79 @@ def test_subgraphview():
     assert fnx.single_target_shortest_path_length(sub, 2) == dict(
         nx.single_target_shortest_path_length(gsub, 2)
     )
+
+
+def _target_fixture(library, graph_type):
+    graph = getattr(library, graph_type)()
+    graph.add_nodes_from(["root", "a", "b", "target", "outside"])
+    # Predecessor order deliberately differs from node/successor-major order.
+    graph.add_edges_from([("b", "target"), ("a", "target"), ("root", "a"),
+                          ("root", "b"), ("outside", "target")])
+    if graph.is_multigraph():
+        graph.add_edge("b", "target", key="parallel")
+    return graph
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("filtered", [False, True])
+@pytest.mark.parametrize("cutoff", [None, -1, 0, 1, 1.5, 2, float("inf")])
+def test_foreign_target_queries_preserve_public_bfs_order(graph_type, filtered, cutoff):
+    graph = _target_fixture(nx, graph_type)
+    if filtered:
+        graph = nx.subgraph_view(graph, filter_node=lambda node: node != "outside")
+    for name in ("single_target_shortest_path", "single_target_shortest_path_length"):
+        actual = getattr(fnx, name)(graph, "target", cutoff=cutoff)
+        expected = getattr(nx, name)(graph, "target", cutoff=cutoff)
+        assert list(actual.items()) == list(expected.items())
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cutoff", [None, -1, 0, 1, 1.5, 2, float("inf")])
+def test_reversed_target_queries_preserve_orientation_and_cutoff(graph_type, cutoff):
+    foreign = _target_fixture(nx, graph_type).reverse(copy=False)
+    native = _target_fixture(fnx, graph_type).reverse(copy=False)
+    for name in ("single_target_shortest_path", "single_target_shortest_path_length"):
+        expected = getattr(nx, name)(foreign, "root", cutoff=cutoff)
+        assert list(getattr(fnx, name)(foreign, "root", cutoff=cutoff).items()) == list(expected.items())
+        assert list(getattr(fnx, name)(native, "root", cutoff=cutoff).items()) == list(expected.items())
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_target_queries_accept_graph_subclasses_without_conversion(graph_type):
+    class NativeSubclass(getattr(fnx, graph_type)):
+        pass
+
+    graph = NativeSubclass()
+    graph.add_edges_from([(0, 1), (1, 2)])
+    foreign = getattr(nx, graph_type)([(0, 1), (1, 2)])
+    for name in ("single_target_shortest_path", "single_target_shortest_path_length"):
+        assert getattr(fnx, name)(graph, 2) == getattr(nx, name)(foreign, 2)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_foreign_target_queries_keep_missing_target_error_contract(graph_type):
+    graph = _target_fixture(nx, graph_type)
+    for name in ("single_target_shortest_path", "single_target_shortest_path_length"):
+        with pytest.raises(nx.NodeNotFound) as expected:
+            getattr(nx, name)(graph, "missing")
+        with pytest.raises(fnx.NodeNotFound) as actual:
+            getattr(fnx, name)(graph, "missing")
+        assert str(actual.value) == str(expected.value)
+
+
+def test_foreign_target_paths_keep_original_target_object():
+    class Label:
+        def __init__(self, value):
+            self.value = value
+
+        def __hash__(self):
+            return hash(self.value)
+
+        def __eq__(self, other):
+            return isinstance(other, Label) and self.value == other.value
+
+    stored, target = Label("target"), Label("target")
+    graph = nx.DiGraph()
+    graph.add_edge("source", stored)
+    paths = fnx.single_target_shortest_path(graph, target)
+    assert all(path[-1] is target for path in paths.values())

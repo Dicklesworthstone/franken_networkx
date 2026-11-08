@@ -1110,31 +1110,69 @@ from franken_networkx._fnx import (
 )
 
 
-def biconnected_component_edges(G):
-    """Yield edges within each biconnected component of an undirected graph.
+def _biconnected_dfs_iter(G, emit_edges=True):
+    """Suspend an undirected low-link DFS at each completed output.
 
-    _Generator function so the returned object is a true generator
-    matching nx's contract (br-r37-c1-24wk3). The Rust binding returns
-    a materialized list; wrapping with ``yield from`` makes the returned
-    object a true ``generator`` so ``isinstance(result,
-    types.GeneratorType)`` matches and short-circuit callers like
-    ``next(biconnected_component_edges(huge_graph))`` don't pay for
-    full materialisation.
-
-    br-r37-c1-bcedfs: the native binding now ports nx's DFS edge-stack
-    algorithm directly (edges in DFS-traversal order with nx's discovery
-    direction, e.g. ('b', 'a') not canonical ('a', 'b')), so we no longer
-    delegate through a full fnx->nx conversion (~3x faster).
+    Each frame records the offset of its incoming edge. A separating subtree
+    cuts a suffix from the unfinished edge stack, so completed components need
+    not be retained. Cut-vertex mode needs no edge stack at all.
     """
-    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    adjacency = G._adj
+    discovery = {}
+    low = {}
+    emitted = set()
+    for root in G:
+        if root in discovery:
+            continue
+        discovery[root] = low[root] = len(discovery)
+        root_children = 0
+        unfinished = []
+        frames = [(root, root, iter(adjacency[root]), 0)]
+        while frames:
+            node, parent, neighbors, edge_start = frames[-1]
+            try:
+                neighbor = next(neighbors)
+            except StopIteration:
+                frames.pop()
+                if not frames:
+                    if not emit_edges and root_children > 1:
+                        emitted.add(root)
+                        yield root
+                    continue
+                separates = low[node] >= discovery[parent]
+                if len(frames) == 1 or separates:
+                    if emit_edges:
+                        component = unfinished[edge_start:]
+                        del unfinished[edge_start:]
+                        yield component
+                    elif len(frames) > 1 and parent not in emitted:
+                        emitted.add(parent)
+                        yield parent
+                low[parent] = min(low[parent], low[node])
+                continue
+            # Neighbor pairs, rather than keyed edges, define this API. The
+            # same check omits the DFS root's self-loop, as in NetworkX.
+            if neighbor == parent:
+                continue
+            if neighbor not in discovery:
+                discovery[neighbor] = low[neighbor] = len(discovery)
+                if len(frames) == 1:
+                    root_children += 1
+                offset = len(unfinished)
+                if emit_edges:
+                    unfinished.append((node, neighbor))
+                frames.append((neighbor, node, iter(adjacency[neighbor]), offset))
+            elif discovery[neighbor] <= discovery[node]:
+                low[node] = min(low[node], discovery[neighbor])
+                if emit_edges:
+                    unfinished.append((node, neighbor))
+
+
+def biconnected_component_edges(G):
+    """Yield each completed biconnected component's ordered DFS edge pairs."""
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    G = _coerce_arg_to_fnx_graph(G)
-
-    def _gen():
-        yield from _raw_biconnected_component_edges(G)
-
-    return _gen()
+    return _biconnected_dfs_iter(G)
 
 
 def kosaraju_strongly_connected_components(G, source=None):
@@ -1223,40 +1261,17 @@ def is_biconnected(G):
     return _raw_is_biconnected(G)
 
 
+def _biconnected_node_sets(G):
+    """Project each completed DFS edge block into its independent node set."""
+    for edges in _biconnected_dfs_iter(G):
+        yield {node for edge in edges for node in edge}
+
+
 def biconnected_components(G):
-    """Generate biconnected components as sets of nodes.
-
-    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
-
-    br-bccbowtie: the Rust ``_raw_biconnected_components`` previously
-    failed to split at articulation points on graphs like the "bowtie"
-    (two triangles sharing a single vertex), returning one merged
-    component instead of NX's two, so this wrapper delegated to NX.
-
-    br-r37-c1-bccdisc: the root cause was a low-link bug in the Rust
-    edge-stack DFS — back edges folded in ``low[w]`` instead of
-    ``discovery[w]`` (nx does ``low[parent] = min(low[parent],
-    discovery[child])``). On the bowtie the shared articulation vertex
-    carries ``low < disc``, so the wrong propagation defeated the
-    ``low >= disc[parent]`` split test. With that fixed the native
-    kernel produces byte-identical node-set components AND the same
-    component sequence as the nx-delegation path (verified: 400 random
-    graphs incl. trees/triangle-chains, set + sequence equality, plus
-    empty/single/self-loop corners). Drop the delegation: the native
-    DFS over fnx's own adjacency is ~4-5x faster than convert-to-nx +
-    nx's pure-Python DFS.
-    """
-    G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
+    """Yield the nodes of each biconnected component as its DFS finishes."""
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-
-    def _gen():
-        yield from (
-            set(component) for component in _raw_biconnected_components(G)
-        )
-
-    return _gen()
+    return _biconnected_node_sets(G)
 
 
 # Graph generators — classic

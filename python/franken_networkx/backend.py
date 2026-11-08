@@ -50,7 +50,6 @@ _CONVERT_AFTER_USES = {
     "bfs_tree": 3,
     "dfs_edges": 6,
     "dfs_preorder_nodes": 5,
-    "connected_components": 7,
     "number_connected_components": 10,
     "is_connected": 11,
     "node_connected_component": 12,
@@ -61,14 +60,26 @@ _CONVERT_AFTER_USES = {
     "pagerank": 3,
     "degree_centrality": 50,
     "core_number": 2,
-    "strongly_connected_components": 3,
-    "weakly_connected_components": 7,
     "descendants": 8,
     # Also dispatched from inside networkx's own pagerank and other matrix
     # routines: without an entry, a declined pagerank converted anyway.
     "to_scipy_sparse_array": 4,
 }
 _RENT_KEY = "franken_networkx: conversion rent"
+
+# These owned iterators never need native materialization. A cold dispatch
+# can pass the source through, provided the temporary conversion-cache entry
+# is removed before invoking the algorithm.
+_COMPONENT_ITERATORS = frozenset(
+    {
+        "connected_components",
+        "weakly_connected_components",
+        "strongly_connected_components",
+        "biconnected_components",
+        "biconnected_component_edges",
+        "articulation_points",
+    }
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -96,7 +107,7 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "all_simple_paths",
         "shortest_simple_paths",
     }
-)
+) | _COMPONENT_ITERATORS
 
 # User callbacks must receive the original attribute dictionaries and observe
 # their own mutations. The ordinary string-weight/eager calls keep using the
@@ -168,6 +179,17 @@ def _clear_callback_conversions(graph):
         # A callback may change attributes in place, without a graph mutator
         # clearing conversions. Discard every backend's potentially stale copy.
         cache.pop("backends", None)
+
+
+def _discard_component_passthrough(graph):
+    """Do not let a cheap component dispatch cache a foreign graph as native."""
+    cache = getattr(graph, "__networkx_cache__", None)
+    if cache is None:
+        return
+    conversions = cache.get("backends", {}).get("franken_networkx", {})
+    for key, converted in tuple(conversions.items()):
+        if converted is graph:
+            del conversions[key]
 
 
 def _iterate_callback_result(iterator, graph):
@@ -1181,12 +1203,18 @@ class BackendInterface:
     ):
         """Convert a NetworkX graph to a FrankenNetworkX graph.
 
-        Always cache a native graph: NetworkX keys conversions by attribute
+        Normally cache a native graph: NetworkX keys conversions by attribute
         hints, not algorithm name. Remember the source weakly so lazy and
         callback-driven algorithms can recover it even from a conversion
         cached by another algorithm. A strong reference would create a cycle
         through the source's conversion cache and retain both graphs.
+
+        Component iterators pass through without traversing the source. Their
+        wrapper removes this temporary cache entry before invoking the owned
+        traversal, so unrelated algorithms still receive native conversions.
         """
+        if name in _COMPONENT_ITERATORS:
+            return G
         converted = _nx_to_fnx_for_dispatch(
             G,
             edge_attrs=edge_attrs,
@@ -1313,6 +1341,9 @@ class BackendInterface:
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
+                    if name in _COMPONENT_ITERATORS:
+                        graph = args[0] if args else kwargs.get("G")
+                        _discard_component_passthrough(graph)
                     if disjoint_inputs is not None:
                         # hasattr probes may look up and discard wrappers.
                         # Capture before conversion, but consume only on call.
