@@ -10,10 +10,13 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # NetworkX constructs a source set, including its unhashable-source error.
     sources = {source}
     # Authoritative Python rows must survive view coercion, including cutoffs
-    # and callable weights. The path-only entrypoint calls this one too.
+    # and callable weights. Bounded MultiDiGraph queries visit only reached
+    # rows, avoiding global native preparation and source-wide path output
+    # when a target is supplied. The path-only entrypoint calls this one too.
     if (
         not _dijkstra_cutoff_uses_native_comparisons(cutoff)
         or _weighted_query_uses_live_python_rows(G, weight)
+        or _multidigraph_dijkstra_has_bound(G, cutoff, target)
     ):
         return _multi_source_dijkstra_inproc(
             G, sources, target=target, cutoff=cutoff, weight=weight
@@ -381,6 +384,7 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     if (
         not _dijkstra_cutoff_uses_native_comparisons(cutoff)
         or _weighted_query_uses_live_python_rows(G, weight)
+        or _multidigraph_dijkstra_has_bound(G, cutoff)
     ):
         if source not in G:
             raise NodeNotFound(f"Node {source} not found in graph")
@@ -401,17 +405,17 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
             # MultiDiGraph kept flattening Fraction/Decimal/numpy after the
             # undirected half was fixed.
             if _sp_weights_need_networkx_for_type_parity(G, weight):
-                return _multi_source_dijkstra_inproc(
-                    G, {source}, cutoff=cutoff, weight=weight
-                )[0]
+                return _dijkstra_multisource_inproc(
+                    G, sources, _weight_function(G, weight), cutoff=cutoff
+                )
             _direct = _raw_mdg_ss_dijkstra_path_length(
                 G, source, weight=weight, cutoff=cutoff
             )
             if _direct is not None:
                 return _direct
-            return _multi_source_dijkstra_inproc(
-                G, {source}, cutoff=cutoff, weight=weight
-            )[0]
+            return _dijkstra_multisource_inproc(
+                G, sources, _weight_function(G, weight), cutoff=cutoff
+            )
         # Undirected multigraphs continue through the shared exactness gate
         # below. The native length kernel already projects parallel minima and
         # restores each original neighbor row's order. The Python edge-major
@@ -422,9 +426,11 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     weight = _dijkstra_weight_for_none(G, weight)
     route = _dijkstra_weight_route(G, weight)
     if route == "networkx":
-        return _multi_source_dijkstra_inproc(
-            G, {source}, cutoff=cutoff, weight=weight
-        )[0]
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        return _dijkstra_multisource_inproc(
+            G, sources, _weight_function(G, weight), cutoff=cutoff
+        )
     if source not in G:
         raise NodeNotFound(f"Node {source} not found in graph")
     # br-r37-c1-1kor1: the raw length-only kernel now preserves nx's

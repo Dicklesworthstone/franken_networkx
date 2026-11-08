@@ -455,8 +455,14 @@ def dijkstra_path(G, source, target, weight="weight"):
     the shortest path. Raises ``NetworkXNoPath`` if no path exists and
     ``NodeNotFound`` if ``source`` is missing.
     """
-    # Callbacks and private rows must retain the caller's live graph.
-    if _weighted_query_uses_live_python_rows(G, weight):
+    # Callbacks and private rows must retain the caller's live graph. A
+    # MultiDiGraph point query also avoids preparing every parallel edge before
+    # a target that may be only a few rows away. Keep NetworkX's source-wide
+    # None-target sentinel in the same owned helper.
+    if (
+        _weighted_query_uses_live_python_rows(G, weight)
+        or type(G) is MultiDiGraph
+    ):
         return _multi_source_dijkstra_inproc(G, {source}, target=target, weight=weight)[1]
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)

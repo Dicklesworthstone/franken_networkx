@@ -1048,7 +1048,14 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     Mirrors ``networkx.dijkstra_path_length``. Raises ``NetworkXNoPath``
     if no path exists.
     """
-    if _weighted_query_uses_live_python_rows(G, weight):
+    # The native MultiDiGraph target route prepares global weight/row caches.
+    # Read only reached rows for point queries, without constructing paths.
+    # Even a None target must inspect reachable weights before reporting no
+    # path; this length API does not use the source-wide target sentinel.
+    if (
+        _weighted_query_uses_live_python_rows(G, weight)
+        or type(G) is MultiDiGraph
+    ):
         return _dijkstra_path_length_inproc(G, source, target, weight=weight)
     G = _coerce_arg_to_fnx_graph(G)
     # br-cc-mgdijkstra: multigraph -> simple min-weight graph + fast simple kernel.
