@@ -67,8 +67,13 @@ def test_directed_parallel_routes_match_networkx_order_and_types(seed, mode, cut
 
 
 @pytest.mark.parametrize("mode", ["int", "float", "mixed"])
-@pytest.mark.parametrize("bound", ["cutoff", "target"])
-def test_native_search_receives_the_bound_and_does_not_settle_the_tail(monkeypatch, mode, bound):
+@pytest.mark.parametrize("name,bound", [
+    ("multi_source_dijkstra", "cutoff"),
+    ("multi_source_dijkstra", "target"),
+    ("multi_source_dijkstra_path", "cutoff"),
+    ("multi_source_dijkstra_path_length", "cutoff"),
+])
+def test_bounded_search_reads_reached_rows_without_global_preparation(monkeypatch, mode, name, bound):
     actual, expected = fnx.MultiDiGraph(), nx.MultiDiGraph()
     for graph in (actual, expected):
         graph.add_node(1000)
@@ -78,26 +83,69 @@ def test_native_search_receives_the_bound_and_does_not_settle_the_tail(monkeypat
             graph.add_edge(node, node + 1, weight=5)
     sources = [0, 1000]
     options = {"cutoff": 2.5} if bound == "cutoff" else {"target": 2}
-    want = nx.multi_source_dijkstra(expected, sources, **options)
-    namespace = fnx.multi_source_dijkstra.__globals__
-    native = namespace["_raw_multi_source_dijkstra"]
+    want = getattr(nx, name)(expected, sources, **options)
+    namespace = getattr(fnx, name).__globals__
+    owned = namespace["_dijkstra_multisource_inproc"]
     calls = []
 
-    def record_native(*args, **kwargs):
-        result = native(*args, **kwargs)
-        calls.append((kwargs, list(result[0])))
+    def record_search(*args, **kwargs):
+        if name == "multi_source_dijkstra_path_length":
+            assert kwargs.get("paths") is None
+        result = owned(*args, **kwargs)
+        calls.append((kwargs, list(result)))
         return result
 
-    def unexpected_fallback(*args, **kwargs):
-        raise AssertionError("ordinary parallel arcs left the bounded native route")
+    def unrelated_rows_were_requested(*args, **kwargs):
+        raise AssertionError("bounded parallel-arc query prepared the whole graph")
 
-    monkeypatch.setitem(namespace, "_raw_multi_source_dijkstra", record_native)
-    monkeypatch.setitem(namespace, "_multi_source_dijkstra_inproc", unexpected_fallback)
-    monkeypatch.setitem(namespace, "_reorder_by_distance", unexpected_fallback)
-    assert _ordered_typed(fnx.multi_source_dijkstra(actual, sources, **options)) == _ordered_typed(want)
+    monkeypatch.setitem(namespace, "_dijkstra_multisource_inproc", record_search)
+    for helper in (
+        "_coerce_arg_to_fnx_graph", "_dijkstra_weight_route",
+        "_raw_multi_source_dijkstra", "_reorder_by_distance",
+    ):
+        monkeypatch.setitem(namespace, helper, unrelated_rows_were_requested)
+    monkeypatch.setattr(
+        namespace["_fnx"], "multi_source_dijkstra_path_length", unrelated_rows_were_requested
+    )
+    assert _ordered_typed(getattr(fnx, name)(actual, sources, **options)) == _ordered_typed(want)
     assert len(calls) == 1
     assert calls[0][0][bound] == options[bound]
     assert calls[0][1] == [0, 1000, 1, 2]
+
+
+@pytest.mark.parametrize("mode", ["int", "float", "mixed"])
+@pytest.mark.parametrize("cutoff", [None, math.inf, math.nan])
+@pytest.mark.parametrize("name", [
+    "multi_source_dijkstra", "multi_source_dijkstra_path", "multi_source_dijkstra_path_length",
+])
+def test_unbounded_parallel_queries_keep_typed_native_kernels(monkeypatch, mode, cutoff, name):
+    actual, expected, nodes = _random_parallel_graphs(3, mode)
+    sources = nodes[:2]
+    want = getattr(nx, name)(expected, sources, cutoff=cutoff, weight="cost")
+    namespace = getattr(fnx, name).__globals__
+    calls = []
+    if name == "multi_source_dijkstra_path_length":
+        native = namespace["_fnx"].multi_source_dijkstra_path_length
+    else:
+        native = namespace["_raw_multi_source_dijkstra"]
+
+    def record_native(*args, **kwargs):
+        calls.append(kwargs)
+        return native(*args, **kwargs)
+
+    def unbounded_search_left_native(*args, **kwargs):
+        raise AssertionError("unbounded parallel-arc query left its typed native kernel")
+
+    monkeypatch.setitem(namespace, "_multi_source_dijkstra_inproc", unbounded_search_left_native)
+    monkeypatch.setitem(namespace, "_dijkstra_multisource_inproc", unbounded_search_left_native)
+    if name == "multi_source_dijkstra_path_length":
+        monkeypatch.setattr(namespace["_fnx"], "multi_source_dijkstra_path_length", record_native)
+    else:
+        monkeypatch.setitem(namespace, "_raw_multi_source_dijkstra", record_native)
+    got = getattr(fnx, name)(actual, sources, cutoff=cutoff, weight="cost")
+    assert _ordered_typed(got) == _ordered_typed(want)
+    assert len(calls) == 1
+    assert calls[0]["cutoff"] is cutoff
 
 
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
@@ -179,7 +227,42 @@ def test_exact_cutoffs_still_use_python_comparisons(monkeypatch, name, cutoff):
     )
 
 
-def test_parallel_weight_changes_invalidate_native_queries():
+@pytest.mark.parametrize("name", [
+    "multi_source_dijkstra", "multi_source_dijkstra_path", "multi_source_dijkstra_path_length",
+])
+@pytest.mark.parametrize("bad_edge", [(1, 2), (2, 3), (99, 100)])
+def test_bounded_search_reads_invalid_weights_only_at_networkx_relaxations(name, bad_edge):
+    actual, expected = fnx.MultiDiGraph(), nx.MultiDiGraph()
+    for graph in (actual, expected):
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 1), (2, 3, 1), (99, 100, 1)])
+        graph[bad_edge[0]][bad_edge[1]][0]["weight"] = "invalid"
+    # A target's outgoing row is never read. A cutoff still reads each edge
+    # leaving a settled node before comparing its candidate distance.
+    options = {"target": 2} if name == "multi_source_dijkstra" else {"cutoff": 2}
+    assert _outcome(getattr(fnx, name), actual, [0], **options) == _outcome(
+        getattr(nx, name), expected, [0], **options
+    )
+
+
+@pytest.mark.parametrize("sources,target", [
+    ([], 2), (["missing"], 2), ([0, "missing"], 0), ([0], 0),
+    ([0], "missing"), ([0], 99),
+])
+@pytest.mark.parametrize("cutoff", [None, 1, -math.inf])
+def test_bounded_source_and_target_validation_matches_networkx(sources, target, cutoff):
+    actual, expected = fnx.MultiDiGraph(), nx.MultiDiGraph()
+    for graph in (actual, expected):
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 1)])
+        graph.add_node(99)
+    assert _outcome(
+        fnx.multi_source_dijkstra, actual, sources, target=target, cutoff=cutoff
+    ) == _outcome(
+        nx.multi_source_dijkstra, expected, sources, target=target, cutoff=cutoff
+    )
+
+
+@pytest.mark.parametrize("cutoff", [None, 6])
+def test_parallel_weight_changes_remain_visible(cutoff):
     actual, expected = fnx.MultiDiGraph(), nx.MultiDiGraph()
     for graph in (actual, expected):
         graph.add_edge(0, 1, key="slow", weight=5)
@@ -190,6 +273,6 @@ def test_parallel_weight_changes_invalidate_native_queries():
     for value in (1.0, 20, 0.5):
         held_actual["weight"] = held_expected["weight"] = value
         for name in ("multi_source_dijkstra", "multi_source_dijkstra_path_length"):
-            assert _outcome(getattr(fnx, name), actual, [0], cutoff=6) == _outcome(
-                getattr(nx, name), expected, [0], cutoff=6
+            assert _outcome(getattr(fnx, name), actual, [0], cutoff=cutoff) == _outcome(
+                getattr(nx, name), expected, [0], cutoff=cutoff
             )

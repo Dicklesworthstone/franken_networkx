@@ -205,6 +205,20 @@ def _dijkstra_predecessor_and_distance_via_parity(G, source, cutoff=None, weight
     )
 
 
+def _multidigraph_dijkstra_has_bound(G, cutoff, target=None):
+    """Use reached rows instead of projecting every directed parallel edge.
+
+    The native multi-source binding builds a whole-graph simple projection.
+    A target or effective cutoff can make that preparation much larger than
+    the search itself. NaN and positive infinity never exclude a relaxation,
+    so unbounded all-target queries retain the native route.
+    """
+    return type(G) is MultiDiGraph and (
+        target is not None
+        or (type(cutoff) in (int, float) and cutoff < _math.inf)
+    )
+
+
 def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight"):
     """Return shortest path lengths and paths from any source in *sources*."""
     if not sources:
@@ -212,17 +226,17 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     if (
         not _dijkstra_cutoff_uses_native_comparisons(cutoff)
         or _weighted_query_uses_live_python_rows(G, weight)
+        or _multidigraph_dijkstra_has_bound(G, cutoff, target)
     ):
         return _multi_source_dijkstra_inproc(
             G, sources, target=target, cutoff=cutoff, weight=weight,
         )
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    # All four concrete graph classes use the typed native search, with cutoff
-    # and target applied during relaxation. Directed multigraphs use its
-    # ordered minimum-parallel-edge projection, preserving the selected edge's
-    # numeric type. Their former route searched every reachable node, built all
-    # paths, and only then filtered and retyped the result in Python.
+    # Unbounded directed-multigraph queries retain the native ordered
+    # minimum-parallel-edge projection and its selected edge's numeric type.
+    # Other concrete classes also apply cutoff and target inside their native
+    # search, without projecting every edge of a directed multigraph first.
     if (
         type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
         and isinstance(weight, str)
@@ -300,6 +314,7 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     if (
         not _dijkstra_cutoff_uses_native_comparisons(cutoff)
         or _weighted_query_uses_live_python_rows(G, weight)
+        or _multidigraph_dijkstra_has_bound(G, cutoff)
     ):
         for source in sources:
             if source not in G:
