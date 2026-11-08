@@ -1,5 +1,196 @@
 
 
+_MULTIGRAPH_IMPORT_METHODS = {
+    cls: tuple(
+        (name, getattr(cls, name))
+        for name in (
+            "add_edge", "add_nodes_from", "get_edge_data", "clear",
+            "is_directed", "is_multigraph",
+        )
+    )
+    for cls in (MultiGraph, MultiDiGraph)
+}
+
+
+def _multigraph_import_can_batch(graph):
+    """Keep custom graph storage and mutation hooks on the incremental route."""
+    graph_type = type(graph)
+    return (
+        graph_type in (MultiGraph, MultiDiGraph)
+        and not _has_networkx_private_storage(graph)
+        and all(
+            getattr(graph_type, name) is original
+            for name, original in _MULTIGRAPH_IMPORT_METHODS[graph_type]
+        )
+        and graph.__dict__.keys().isdisjoint(
+            (
+                "add_edge", "add_nodes_from", "get_edge_data", "clear",
+                "is_directed", "is_multigraph", "_try_add_attr_edges_from_batch",
+            )
+        )
+    )
+
+
+def _multigraph_import_plain_key(value):
+    """Keys which can be inspected without invoking user hash/equality hooks."""
+    value_type = type(value)
+    return (
+        value_type is str or value_type is int
+        or value_type is float or value_type is bool
+    ) or (
+        value_type is tuple
+        and all(type(item) in (str, int, float, bool) for item in value)
+    )
+
+
+def _multigraph_import_plain_attrs(attrs):
+    """Decline non-native attribute values before buffering the whole input."""
+    for key, value in attrs.items():
+        if type(key) is not str:
+            return False
+        value_type = type(value)
+        if value_type is str or value_type is bool:
+            continue
+        if value_type is int and -(2**63) <= value < 2**63:
+            continue
+        if value_type is float and value == value:
+            continue
+        return False
+    return True
+
+
+def _try_from_pandas_multigraph_batch(
+    graph, df, source, target, attr_columns, edge_key
+):
+    """Try one atomic native insertion for ordinary, eagerly readable columns.
+
+    Custom tables, extension arrays and keys must keep their iteration interleaved
+    with graph mutations. A declined native batch leaves the graph untouched, so
+    the caller can use its original iterators and preserve partial errors too.
+    """
+    if (
+        not _multigraph_import_can_batch(graph)
+        or type(attr_columns) not in (list, tuple)
+    ):
+        return False
+    try:
+        import pandas as pd
+    except ImportError:
+        return False
+
+    if type(df) is not pd.DataFrame or len(df) < 8:
+        return False
+    columns = [source, target, *attr_columns]
+    if edge_key is not None:
+        columns.append(edge_key)
+    if not all(_multigraph_import_plain_key(column) for column in columns):
+        return False
+    # These pandas-owned arrays only yield stored values. In particular, do not
+    # eagerly iterate a third-party ExtensionArray, whose iterator may observe G.
+    numpy_array_types = tuple(
+        getattr(pd.arrays, name, None)
+        for name in ("NumpyExtensionArray", "PandasArray")
+    )
+    array_types = numpy_array_types + tuple(
+        getattr(pd.arrays, name, None)
+        for name in ("StringArray", "ArrowStringArray", "IntegerArray", "FloatingArray", "BooleanArray")
+    )
+    series = []
+    for position, column in enumerate(columns):
+        values = df[column]
+        if type(values) is not pd.Series:
+            return False
+        array_type = type(values.array)
+        if array_type not in array_types:
+            return False
+        # Object columns can hide a non-native value at the very last row.
+        # Decline from their dtype before buffering; dedicated pandas string
+        # arrays remain eligible even though their dtype kind can also be "O".
+        if (
+            2 <= position < 2 + len(attr_columns)
+            and array_type in numpy_array_types
+            and values.dtype.kind == "O"
+        ):
+            return False
+        series.append(values)
+    batch = []
+    for row in zip(*series):
+        u, v = row[:2]
+        if not (_multigraph_import_plain_key(u) and _multigraph_import_plain_key(v)):
+            return False
+        attrs = dict(zip(attr_columns, row[2:]))
+        # Reject common non-scalar columns cheaply; the native collector checks
+        # every remaining record without repeating that scan in Python.
+        if not batch and not _multigraph_import_plain_attrs(attrs):
+            return False
+        if edge_key is None:
+            batch.append((u, v, attrs))
+        else:
+            key = row[-1]
+            # The existing explicit-key collectors accept integer endpoints
+            # and integer keys. Decline other shapes before buffering the table.
+            if type(u) is not int or type(v) is not int or type(key) is not int:
+                return False
+            batch.append((u, v, key, attrs))
+    # The collector also checks lossless attributes, duplicate explicit keys,
+    # label aliases and key allocation before making any graph mutation.
+    return graph._try_add_attr_edges_from_batch(batch) is not None
+
+
+def _try_from_dict_multigraph_batch(graph, data, multigraph_input):
+    """Batch plain dictionary inputs without consuming custom mappings early."""
+    if (
+        not _multigraph_import_can_batch(graph)
+        or type(data) is not dict
+        or type(multigraph_input) is not bool
+    ):
+        return False
+    directed = type(graph) is MultiDiGraph
+    seen = set()
+    batch = []
+    keys = []
+    auto_keys = True
+    integer_endpoints = True
+    for u, neighbors in data.items():
+        if not _multigraph_import_plain_key(u) or type(neighbors) is not dict:
+            return False
+        for v, edge_data in neighbors.items():
+            if not _multigraph_import_plain_key(v):
+                return False
+            if not directed and (u, v) in seen:
+                continue
+            if multigraph_input:
+                if type(edge_data) is not dict:
+                    return False
+                keyed_data = edge_data.items()
+            else:
+                keyed_data = ((0, edge_data),)
+            for offset, (key, attrs) in enumerate(keyed_data):
+                if (
+                    (key is not None and not _multigraph_import_plain_key(key))
+                    or type(attrs) is not dict
+                    or (not batch and not _multigraph_import_plain_attrs(attrs))
+                ):
+                    return False
+                integer_endpoints = integer_endpoints and type(u) is int and type(v) is int
+                batch.append((u, v, attrs))
+                if multigraph_input:
+                    keys.append(key)
+                    auto_keys = auto_keys and type(key) is int and key == offset
+                    if type(key) is not int or (not auto_keys and not integer_endpoints):
+                        return False
+            if not directed:
+                seen.add((v, u))
+    # Keep integer endpoints keyed: the existing-node collector avoids rebuilding
+    # the node index. A fresh graph gives each pair keys 0, 1, ... , so triples
+    # admit equivalent string/tuple-labelled inputs to the auto-key collector.
+    if not multigraph_input and integer_endpoints:
+        batch = [(u, v, 0, attrs) for u, v, attrs in batch]
+    elif multigraph_input and (not auto_keys or integer_endpoints):
+        batch = [(u, v, key, attrs) for (u, v, attrs), key in zip(batch, keys)]
+    return graph._try_add_attr_edges_from_batch(batch) is not None
+
+
 def from_pandas_edgelist(
     df,
     source="source",
@@ -36,6 +227,10 @@ def from_pandas_edgelist(
 
     if edge_attr is None:
         if graph.is_multigraph() and edge_key is not None:
+            if _try_from_pandas_multigraph_batch(
+                graph, df, source, target, (), edge_key
+            ):
+                return graph
             for u, v, edge_key_value in zip(df[source], df[target], df[edge_key]):
                 _add_json_multiedge(graph, u, v, edge_key_value, {})
         else:
@@ -71,6 +266,10 @@ def from_pandas_edgelist(
                 msg = f"Invalid edge_key argument: {edge_key}"
                 raise NetworkXError(msg) from err
 
+        if _try_from_pandas_multigraph_batch(
+            graph, df, source, target, attr_col_headings, edge_key
+        ):
+            return graph
         for source_node, target_node, attrs in zip(df[source], df[target], attribute_data):
             if edge_key is not None:
                 attrs, edge_key_value = attrs
@@ -923,6 +1122,9 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
     """Return a graph from a dictionary of dictionaries."""
     graph = _empty_graph_from_create_using(create_using)
     graph.add_nodes_from(d)
+
+    if _try_from_dict_multigraph_batch(graph, d, multigraph_input):
+        return graph
 
     if multigraph_input:
         if graph.is_directed():
