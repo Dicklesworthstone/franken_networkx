@@ -88,6 +88,14 @@ numeric arithmetic and tied-path ordering. Native and optional SciPy routes
 are admitted only for supported exact domains; the public wrapper retains
 backend validation and graph-family rejection order.
 
+The Bellman-Ford predecessor wrapper owns option routing. Ordinary exact
+simple graphs with the literal default `heuristic=False` and compatible
+logical storage retain their bulk weight snapshot/count-only implementation.
+Requested heuristics, multigraphs, subclasses/views, callable weights, and
+assigned private rows use the existing owned live-row relaxation engine.
+Public self-loop checks and full reachable-map target semantics are shared;
+there is no second heuristic loop or new native kernel.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

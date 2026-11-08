@@ -551,8 +551,12 @@ def bellman_ford_predecessor_and_distance(
     G : Graph or DiGraph
     source : node
     target : node, optional
+        Retained for API compatibility. The returned dictionaries still
+        include every reachable node, even when a target is supplied.
     weight : str or callable, optional
     heuristic : bool, optional
+        Enable early negative-cycle detection. The default False uses
+        count-based detection, matching NetworkX's arithmetic and ordering.
 
     Returns
     -------
@@ -560,33 +564,25 @@ def bellman_ford_predecessor_and_distance(
         pred maps each node to its predecessor list.
         dist maps each node to its distance from source.
 
-    br-r37-c1-bfslow: the pure-Python relaxation loop below is the
-    textbook O(N·E) algorithm and on a 200-node 1k-edge graph ran in
-    ~96ms — 128× slower than ``nx.bellman_ford_predecessor_and_distance``,
-    which uses an SLF-queue optimization in its inner loop.  Delegate
-    to nx unconditionally; the conversion cost (~6ms post the
-    backend.py topo / attr-cache fix in br-r37-c1-d4h4l) is far less
-    than the ~90ms saved.
+    Both routes use queue-based Bellman-Ford. Requested heuristic searches
+    share the owned relaxation engine used by the other weighted APIs.
     """
-    del target, heuristic
-
     if source not in G:
         raise NodeNotFound(f"Node {source} is not found in the graph")
 
-    # br-bfport: port nx's SPFA Bellman-Ford in-process for simple Graph/DiGraph
-    # (the previous code delegated to nx, paying the full fnx->nx conversion —
-    # 6.85x slower than nx on small/mid graphs). nx's own naive loop was 128x
-    # slower; the SPFA variant (a queue that only re-relaxes nodes whose distance
-    # improved, skipping a node while any predecessor is still queued) is what
-    # makes nx fast. We reproduce it byte-for-byte (pred is a dict of predecessor
-    # LISTS, ties append) on a one-time native to_dict_of_dicts snapshot, so the
-    # result is identical to nx with no conversion. MultiGraph / callable weight
-    # keep the nx delegation.
-    if type(G) in (Graph, DiGraph) and not callable(weight):
+    # The bulk snapshot implements the ordinary count-only mode. Other
+    # heuristic values must reach the shared engine unchanged: early cycle
+    # detection can precede floating-point saturation, and custom truth values
+    # are evaluated only when a relaxation improves a distance.
+    if (
+        heuristic is False
+        and type(G) in (Graph, DiGraph)
+        and not _weighted_query_uses_live_python_rows(G, weight)
+    ):
         return _bellman_ford_pred_dist_inprocess(G, source, weight)
 
     return _bellman_ford_predecessor_and_distance_inproc(
-        G, source, weight=weight
+        G, source, target=target, weight=weight, heuristic=heuristic
     )
 
 

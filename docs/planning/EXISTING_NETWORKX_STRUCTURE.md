@@ -536,6 +536,35 @@ Regressions are in `tests/python/test_negative_edge_cycle_weight_parity.py`
 and the native predicate tests; these contracts do not imply native build or
 performance qualification.
 
+### 22.6 Bellman-Ford predecessor modes and targets
+
+`bellman_ford_predecessor_and_distance(G, source, target, weight, heuristic)`
+preserves NetworkX 3.6.1's choice of negative-cycle detector on all four graph
+classes. The default `heuristic=False` uses count-based detection; an enabled
+heuristic checks the recent update chain during each strict improvement. These
+modes can differ when finite negative weights overflow to negative infinity:
+the early detector can identify a cycle before further improvements become
+equal-infinity ties. The caller's heuristic value must reach relaxation
+unchanged. A non-bool object's truth protocol is evaluated where the algorithm
+uses it, rather than during route selection.
+
+Supplying `target` does not truncate this API's predecessor or distance maps.
+Every reachable node is still considered, including nodes beyond that target,
+and a later reachable negative cycle still raises. Missing or unhashable
+targets do not introduce a new validation error. Source validation occurs
+before weight evaluation. Negative self-loops are checked before relaxation,
+including self-loops outside the source component; an unreachable longer
+negative cycle does not affect the source's result.
+
+Predecessor lists, dictionary insertion order, exact integer/Fraction/Decimal
+arithmetic, and callable weight evaluation remain observable. Callbacks and
+assigned private adjacency must retain their original live rows. Regression
+coverage is in `tests/python/test_bellman_ford_heuristic.py`, including a
+two-edge integer negative cycle whose enabled detector performs two weight
+evaluations regardless of unrelated isolated vertices. This is a relaxation
+work bound, not a claim that every setup operation is independent of graph
+size.
+
 ## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:
