@@ -1001,8 +1001,8 @@ The owned search uses an explicit stack of partial injective node mappings,
 including node deletions. It charges edge edits when their endpoints become
 decided and uses admissible remaining-cost bounds. Its domain is no longer
 limited to eight total nodes. Existing small, callback-free native distance
-and all-optimal-path queries remain available. Multigraph edit search remains
-explicitly unsupported.
+and all-optimal-path queries remain available. Parallel-edge handling extends
+this search as specified in section 44.
 
 A supplied timeout must be greater than zero and bounds search time using a
 monotonic clock. As in NetworkX 3.6.1, root and cost setup precede the timeout
@@ -1114,3 +1114,106 @@ and nodelist order instead of interpreting empty or stale native storage.
 Focused tests compare assigned-storage graphs, graph views, and copied graphs
 against NetworkX, with deliberately different native and logical contents.
 They also verify retained native routes on ordinary concrete graphs.
+
+## 43. Graph Pickle Persistence and Object Identity
+
+A pickle round trip allocates and memoizes each graph before restoring its
+contents. Graph, node, edge, and instance attributes may refer back to that
+graph, to their own dictionaries, or to other attribute layers. Those cycles
+and aliases survive saving and loading, including graphs inside larger Python
+containers and mutually referring graphs. Python's pickle protocol owns node
+objects, multigraph keys, attribute keys, and values; unsupported objects and
+user serialization errors remain visible to the caller.
+
+The persisted graph is its logical public storage. Python-owned graph metadata
+and assigned node/adjacency mappings, including those produced by deepcopy,
+must not be replaced by stale or empty native storage. Restored graph classes,
+node and neighbor order, parallel keys, directed predecessor/successor sharing,
+and undirected edge sharing remain intact. Custom mapping classes, Python
+instance attributes, subclass slots, and frozen state survive the round trip.
+Loading does not rerun a graph subclass's initialization.
+
+Public graph attributes referenced alongside the graph in one pickle retain
+their identity with the corresponding restored graph dictionaries. Ordinary
+graphs remain usable for algorithms and mutation after loading; private logical
+stores retain the same authoritative behavior. Native reconstruction may be
+used only when it does not discard Python object identity or state. Tests use
+the supported pickle protocols and real NetworkX round trips as the oracle,
+alongside existing row-order, frozen-state, and private-storage regressions.
+
+## 44. Multigraph Edit Distance and Keyed Edit Scripts
+
+All four graph edit APIs accept `MultiGraph` and `MultiDiGraph`, including
+mixed simple/multigraph pairs with the same directedness, foreign NetworkX
+graphs, and logical graph views. Every parallel edge is a separate editable
+object. An edge's key identifies it in the returned script but is not itself
+an edit cost. Simple-graph edges remain pairs and multigraph edges are triples,
+retaining the original node and key objects on each side independently.
+
+Edge substitution and matching callbacks receive each individual edge's live
+attribute dictionary, rather than the dictionary containing all parallel
+keys. Explicit substitution costs override matching predicates. Once a node
+correspondence fixes an endpoint pair, the edges between those endpoints need
+an exact minimum-cost partial one-to-one assignment. Independent greedy edge
+matches are insufficient: two parallel edges can require a crossed assignment
+to achieve the minimum. Deletions and insertions remain available when they
+cost less than any substitution. Each original edge occurs exactly once in
+a complete edit script, and the operations realize its reported total cost.
+
+The owned search solves these endpoint-local assignments without requiring
+SciPy or delegating to NetworkX. Default unit costs admit a linear bundle
+match; custom costs use a polynomial augmenting-path assignment. Resolved
+bundle pairs are reused across node correspondences. Search timeout checks
+also apply during a nontrivial edge assignment. Node roots, bounds, lazy
+initialization, improving iterators, and equal-cost node correspondences keep
+the section-39 contract; tied edge assignments have a deterministic
+representative without a promise to enumerate every equivalent permutation.
+
+Self-loops are edited as loops at their mapped node. Existing section-39
+endpoint-preservation differences from NetworkX also apply to multigraphs:
+NetworkX 3.6.1 can omit loops from a script or substitute a loop with an
+ordinary edge. Those outputs are not used to weaken edge coverage or cost
+validation. Focused oracle comparisons cover loop-free multigraphs, while
+independent exhaustive checks cover loop scripts and arbitrary edge costs.
+
+## 45. Incremental Component Decomposition
+
+`connected_components`, `weakly_connected_components`,
+`strongly_connected_components`, `biconnected_components`,
+`biconnected_component_edges`, and `articulation_points` return true generators.
+The directed/undirected type restrictions are checked when the function is
+called. Graph traversal begins only when the result is advanced, so edits to
+the caller's graph or a view's filter before the first advance are visible.
+Foreign graphs, native graphs, and assigned logical adjacency follow the same
+contract; component discovery does not require copying attributes or graph
+storage.
+
+The iterator keeps its traversal frontier and yields a component as soon as
+that component is complete. Requesting a prefix does not enumerate all later
+components or prepare their edges. Connected and weak components are emitted
+in graph node order; weak connectivity follows both directed adjacency rows.
+Strong components follow ordered depth-first search and emit a completed
+strong component before returning to its predecessors. An iterative low-link
+search supports long chains without Python recursion. No iterator wraps an
+eager native list of every component.
+
+Undirected biconnected decomposition follows depth-first discovery and returns
+edge pairs in traversal orientation and order. A bridge forms a two-node
+component, while an isolated node forms no biconnected component. Parallel
+edges do not repeat neighbor pairs in this API. Root self-loops and non-root
+self-loops retain the NetworkX 3.6.1 traversal behavior. Articulation points are
+emitted once in the order their separating subtree is completed; the DFS root
+is an articulation point only when it has multiple tree children. The search
+stores uncompleted DFS edges, rather than the list of all finished components.
+
+Public backend dispatch restores the original graph for these iterator calls
+even after an unrelated eager algorithm warmed NetworkX's conversion cache.
+Cold dispatch passes the source through without materializing the graph and
+removes its temporary conversion-cache entry before calling the iterator;
+an unrelated subsequent algorithm must still obtain a native conversion.
+Explicitly supplied native graphs continue to use their own public topology.
+Completed or closed generators release traversal state normally. Eager count
+and connectivity-predicate APIs retain their existing native implementations.
+Focused tests compare ordered results, eager type errors, lazy row access,
+pre-advance mutations, graph views, multigraphs, deep chains, and cold/warm
+public backend calls against NetworkX 3.6.1.

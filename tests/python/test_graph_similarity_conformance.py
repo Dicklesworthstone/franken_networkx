@@ -7,7 +7,7 @@ scores) parity across small fixtures.
 
 Covered functions:
 
-- ``graph_edit_distance(G1, G2, ...)`` — exact simple-graph GED,
+- ``graph_edit_distance(G1, G2, ...)`` — exact simple/multigraph GED,
   or the best complete cost found before a requested timeout.
 - ``optimal_edit_paths(G1, G2)`` — collects optimal paths and their cost.
 - ``optimize_edit_paths`` and ``optimize_graph_edit_distance`` —
@@ -21,6 +21,7 @@ larger fixtures exercise prefix work and the former eight-node boundary.
 
 from __future__ import annotations
 
+from collections import Counter
 import itertools
 import math
 import warnings
@@ -273,6 +274,239 @@ def test_edit_search_upper_bound_and_equal_cost_paths(strict):
     assert len(paths) == (1 if strict else 8)
     assert all(cost == 1.0 for _, _, cost in paths)
     assert list(fnx.optimize_edit_paths(left, right, upper_bound=0, strictly_decreasing=strict)) == []
+
+
+# ---------------------------------------------------------------------------
+# Parallel-edge assignments and keyed edit scripts
+# ---------------------------------------------------------------------------
+
+
+def _edit_script_cost(left, right, nodes, edges, **costs):
+    """Check coverage/endpoints independently and sum the reported operations."""
+    left_edges = list(left.edges(keys=True) if left.is_multigraph() else left.edges())
+    right_edges = list(right.edges(keys=True) if right.is_multigraph() else right.edges())
+    assert Counter(a for a, _ in nodes if a is not None) == Counter(left)
+    assert Counter(b for _, b in nodes if b is not None) == Counter(right)
+    assert Counter(a for a, _ in edges if a is not None) == Counter(left_edges)
+    assert Counter(b for _, b in edges if b is not None) == Counter(right_edges)
+    mapping = {a: b for a, b in nodes if a is not None and b is not None}
+    total = 0.0
+    for a, b in nodes:
+        if a is None:
+            total += costs.get("node_ins_cost", lambda d: 1)(right.nodes[b])
+        elif b is None:
+            total += costs.get("node_del_cost", lambda d: 1)(left.nodes[a])
+        else:
+            total += costs.get("node_subst_cost", lambda x, y: 0)(left.nodes[a], right.nodes[b])
+    for a, b in edges:
+        if a is None:
+            total += costs.get("edge_ins_cost", lambda d: 1)(right.get_edge_data(*b))
+        elif b is None:
+            total += costs.get("edge_del_cost", lambda d: 1)(left.get_edge_data(*a))
+        else:
+            mapped = mapping[a[0]], mapping[a[1]]
+            assert mapped == b[:2] or (not left.is_directed() and mapped == b[:2][::-1])
+            total += costs.get("edge_subst_cost", lambda x, y: 0)(
+                left.get_edge_data(*a), right.get_edge_data(*b)
+            )
+    return total
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("library", [fnx, nx], ids=["native", "foreign"])
+@pytest.mark.parametrize("counts", [(0, 0), (2, 1), (1, 3), (2, 2)])
+def test_multigraph_edit_api_family_matches_networkx(graph_type, library, counts):
+    left, right = getattr(library, graph_type)(), getattr(library, graph_type)()
+    for graph, count, side in ((left, counts[0], "left"), (right, counts[1], "right")):
+        graph.add_nodes_from([0, 1])
+        for key in range(count):
+            graph.add_edge(0, 1, key=(side, key))
+    expected = abs(counts[0] - counts[1])
+    oracle_left, oracle_right = getattr(nx, graph_type)(left), getattr(nx, graph_type)(right)
+    assert nx.graph_edit_distance(oracle_left, oracle_right) == expected
+    assert fnx.graph_edit_distance(left, right) == expected
+    paths, cost = fnx.optimal_edit_paths(left, right)
+    assert cost == expected
+    assert paths
+    for nodes, edges in paths:
+        assert _edit_script_cost(left, right, nodes, edges) == cost
+    improving = list(fnx.optimize_edit_paths(left, right))
+    assert improving[-1][2] == expected
+    for nodes, edges, value in improving:
+        assert _edit_script_cost(left, right, nodes, edges) == value
+    estimates = list(fnx.optimize_graph_edit_distance(left, right))
+    assert estimates[-1] == expected
+    assert all(a > b for a, b in zip(estimates, estimates[1:]))
+
+
+@pytest.mark.parametrize("types", [("Graph", "MultiGraph"), ("DiGraph", "MultiDiGraph")])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_graph_edit_mixed_simple_multigraph_preserves_edge_shape(types, reverse):
+    left, right = getattr(nx, types[0])(), getattr(fnx, types[1])()
+    left.add_edge("u", "v")
+    right.add_edge("u", "v", key="first")
+    right.add_edge("u", "v", key=("second", 2))
+    if reverse:
+        left, right = right, left
+    paths, cost = fnx.optimal_edit_paths(left, right)
+    assert cost == 1
+    for nodes, edges in paths:
+        assert _edit_script_cost(left, right, nodes, edges) == cost
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("large_baseline", [False, True])
+def test_multigraph_edit_uses_global_parallel_edge_assignment(graph_type, large_baseline):
+    left, right = getattr(fnx, graph_type)(), getattr(fnx, graph_type)()
+    for graph in (left, right):
+        graph.add_nodes_from([(0, {"rank": 0}), (1, {"rank": 1})])
+        graph.add_edge(0, 1, key="a", rank=0)
+        graph.add_edge(0, 1, key="b", rank=1)
+    matrix = [[2, 1], [1, 2]] if large_baseline else [[1, 2], [2, 100]]
+    baseline = 1e20 if large_baseline else 50
+    costs = {
+        "node_subst_cost": lambda a, b: 0 if a["rank"] == b["rank"] else baseline,
+        "node_del_cost": lambda a: baseline,
+        "node_ins_cost": lambda a: baseline,
+        "edge_subst_cost": lambda a, b: matrix[a["rank"]][b["rank"]],
+        "edge_del_cost": lambda a: baseline,
+        "edge_ins_cost": lambda a: baseline,
+    }
+    expected = 2 if large_baseline else 4
+    nodes, edges, value = list(fnx.optimize_edit_paths(left, right, **costs))[-1]
+    assert value == expected
+    assert _edit_script_cost(left, right, nodes, edges, **costs) == value
+    assert {(a[2], b[2]) for a, b in edges} == {("a", "b"), ("b", "a")}
+    assert fnx.graph_edit_distance(left, right, **costs) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+def test_multigraph_edit_prefers_deletion_and_insertion_to_expensive_substitution(graph_type):
+    left, right = getattr(fnx, graph_type)(), getattr(fnx, graph_type)()
+    for key in ("a", "b"):
+        left.add_edge(0, 1, key=key)
+        right.add_edge(0, 1, key=key)
+    costs = {"edge_subst_cost": lambda a, b: 5}
+    paths, value = fnx.optimal_edit_paths(left, right, **costs)
+    assert value == 4
+    for nodes, edges in paths:
+        assert len(edges) == 4
+        assert all(a is None or b is None for a, b in edges)
+        assert _edit_script_cost(left, right, nodes, edges, **costs) == value
+
+
+@pytest.mark.parametrize("infinite", ["delete", "insert", "both"])
+def test_multigraph_edit_infinite_costs_still_admit_finite_substitutions(infinite):
+    left, right = fnx.MultiGraph(), fnx.MultiGraph()
+    for graph in (left, right):
+        graph.add_edge(0, 1, key="a")
+        graph.add_edge(0, 1, key="b")
+    costs = {}
+    if infinite in ("delete", "both"):
+        costs["edge_del_cost"] = lambda a: math.inf
+    if infinite in ("insert", "both"):
+        costs["edge_ins_cost"] = lambda a: math.inf
+    nodes, edges, value = next(fnx.optimize_edit_paths(left, right, **costs))
+    assert value == 0
+    assert _edit_script_cost(left, right, nodes, edges, **costs) == value
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+def test_multigraph_edit_callbacks_see_individual_original_dictionaries(graph_type):
+    left, right = getattr(nx, graph_type)(), getattr(nx, graph_type)()
+    for graph in (left, right):
+        graph.add_edge(0, 1, key="a", color="red")
+        graph.add_edge(0, 1, key="b", color="blue")
+    left_attrs = [left.edges[e] for e in left.edges(keys=True)]
+    right_attrs = [right.edges[e] for e in right.edges(keys=True)]
+    calls = []
+
+    def substitution(a, b):
+        assert any(a is data for data in left_attrs)
+        assert any(b is data for data in right_attrs)
+        calls.append((a, b))
+        return int(a["color"] != b["color"])
+
+    def overridden_match(a, b):
+        raise AssertionError("explicit edge cost overrides edge_match")
+
+    paths = fnx.optimize_edit_paths(left, right, edge_subst_cost=substitution, edge_match=overridden_match)
+    assert calls == []
+    assert next(paths)[2] == 0
+    assert len(calls) == 4
+    paths.close()
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("library", [fnx, nx], ids=["native", "foreign"])
+def test_multigraph_edit_views_remain_live_until_first_advance(graph_type, library):
+    left, right = getattr(library, graph_type)(), getattr(library, graph_type)()
+    left.add_edge(0, 1, key="a", color="red")
+    right.add_edge(0, 1, key="other", color="red")
+    view = left.subgraph([0, 1])
+    paths = fnx.optimize_edit_paths(view, right, edge_match=lambda a, b: a["color"] == b["color"])
+    left.add_edge(0, 1, key="b", color="blue")
+    nodes, edges, value = next(paths)
+    assert value == 1
+    assert len(edges) == 2
+    assert any(a[2] == "a" and b[2] == "other" for a, b in edges if b is not None)
+    paths.close()
+
+
+@pytest.mark.parametrize("graph_type", ["MultiGraph", "MultiDiGraph"])
+def test_multigraph_edit_scripts_cover_parallel_self_loops(graph_type):
+    left, right = getattr(fnx, graph_type)(), getattr(fnx, graph_type)()
+    left.add_edge("root", "root", key="a")
+    left.add_edge("root", "root", key="b")
+    right.add_edge("root", "root", key="x")
+    # NetworkX 3.6.1 omits singleton loops in some edit scripts. Assert valid
+    # operations directly instead of treating that omission as an oracle.
+    nodes, edges, value = next(fnx.optimize_edit_paths(left, right, roots=("root", "root")))
+    assert value == 1
+    assert _edit_script_cost(left, right, nodes, edges) == value
+
+
+def test_multigraph_edit_preserves_unorderable_node_and_key_objects():
+    a, b, key = object(), object(), object()
+    left, right = nx.MultiGraph(), fnx.MultiGraph()
+    for graph in (left, right):
+        graph.add_edge(a, b, key=key)
+        graph.add_edge(a, b, key=("tuple", 1))
+    nodes, edges, value = next(fnx.optimize_edit_paths(left, right, roots=(a, a)))
+    assert value == 0
+    assert any(x is a and y is a for x, y in nodes)
+    assert any(x[2] is key and y[2] is key for x, y in edges)
+    assert _edit_script_cost(left, right, nodes, edges) == value
+
+
+@pytest.mark.parametrize("strict", [False, True])
+def test_multigraph_edit_roots_bounds_and_equal_cost_paths(strict):
+    left, right = fnx.MultiDiGraph(), fnx.MultiDiGraph()
+    left.add_nodes_from([0, 1])
+    right.add_nodes_from([0, 1])
+    left.add_edge(0, 1, key="a")
+    left.add_edge(0, 1, key="b")
+    right.add_edge(1, 0, key="c")
+    assert fnx.graph_edit_distance(left, right) == 1
+    assert fnx.graph_edit_distance(left, right, roots=(0, 0)) == 3
+    assert fnx.graph_edit_distance(left, right, roots=(0, 1)) == 1
+    assert fnx.graph_edit_distance(left, right, upper_bound=0) is None
+    assert fnx.optimal_edit_paths(left, right, upper_bound=0) == ([], None)
+    assert list(fnx.optimize_edit_paths(left, right, upper_bound=0, strictly_decreasing=strict)) == []
+    results = list(fnx.optimize_edit_paths(left, right, upper_bound=1, strictly_decreasing=strict))
+    assert results and all(value == 1 for _, _, value in results)
+
+
+def test_multigraph_edit_prefix_scales_with_parallel_edges_and_can_close():
+    graph = fnx.MultiGraph()
+    for key in range(1500):
+        graph.add_edge(0, 1, key=key)
+    paths = fnx.optimize_edit_paths(graph, graph)
+    nodes, edges, value = next(paths)
+    assert value == 0
+    assert len(nodes) == 2
+    assert len(edges) == 1500
+    paths.close()
 
 
 # ---------------------------------------------------------------------------

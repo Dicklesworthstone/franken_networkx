@@ -867,8 +867,7 @@ def _graph_edit_node_ins_cost(G, node, node_ins_cost):
 
 
 def _graph_edit_edge_attrs(G, edge):
-    u, v = edge
-    return G.get_edge_data(u, v)
+    return G.get_edge_data(*edge)
 
 
 def _graph_edit_edge_subst_cost(
@@ -896,6 +895,92 @@ def _graph_edit_edge_ins_cost(G, edge, edge_ins_cost):
     return 1 if edge_ins_cost is None else edge_ins_cost(_graph_edit_edge_attrs(G, edge))
 
 
+def _graph_edit_edge_assignment(left, right, substitutions, deletions, insertions, expired):
+    """Return the cheapest partial edge matching, or None on search timeout.
+
+    A shortest augmenting path assignment includes explicit deletion columns
+    and insertion rows. Keeping those edits explicit avoids subtracting large
+    insertion baselines from small substitution costs, and also admits
+    infinite costs without constructing an infinity-minus-infinity entry.
+    """
+    n, m = len(left), len(right)
+    if not n or not m:
+        return sum((deletions[e] for e in left), 0.0) + sum(
+            (insertions[f] for f in right), 0.0
+        ), ()
+    if substitutions is None and all(deletions[e] == 1 for e in left) and all(
+        insertions[f] == 1 for f in right
+    ):
+        return float(abs(n - m)), tuple(zip(left, right))
+
+    size = n + m
+
+    def entry(row, column):
+        if row < n:
+            if column < m:
+                return 0.0 if substitutions is None else substitutions[left[row]][right[column]]
+            return deletions[left[row]] if column - m == row else _math.inf
+        if column >= m:
+            return 0.0
+        return insertions[right[column]] if row - n == column else _math.inf
+
+    row_price, column_price = [0.0] * (size + 1), [0.0] * (size + 1)
+    owner, predecessor = [0] * (size + 1), [0] * (size + 1)
+    feasible = True
+    for row in range(1, size + 1):
+        owner[0] = row
+        column = 0
+        distance, visited = [_math.inf] * (size + 1), [False] * (size + 1)
+        while True:
+            if expired():
+                return None
+            visited[column] = True
+            current = owner[column]
+            delta, following = _math.inf, 0
+            for candidate in range(1, size + 1):
+                if visited[candidate]:
+                    continue
+                reduced = entry(current - 1, candidate - 1) - row_price[current] - column_price[candidate]
+                if reduced < distance[candidate]:
+                    distance[candidate] = reduced
+                    predecessor[candidate] = column
+                if distance[candidate] < delta:
+                    delta, following = distance[candidate], candidate
+            if delta == _math.inf:
+                feasible = False
+                break
+            for candidate in range(size + 1):
+                if visited[candidate]:
+                    row_price[owner[candidate]] += delta
+                    column_price[candidate] -= delta
+                else:
+                    distance[candidate] -= delta
+            column = following
+            if owner[column] == 0:
+                break
+        if not feasible:
+            break
+        while column:
+            previous = predecessor[column]
+            owner[column] = owner[previous]
+            column = previous
+
+    matches = []
+    if feasible:
+        for column in range(1, size + 1):
+            row = owner[column] - 1
+            if 0 <= row < n and column <= m:
+                matches.append((left[row], right[column - 1]))
+    # Sum the actual edits, not the reduced objective: cancellation of a large
+    # baseline must not erase a small, observable substitution cost.
+    matched_left, matched_right = {e for e, _ in matches}, {f for _, f in matches}
+    cost = sum((deletions[e] for e in left if e not in matched_left), 0.0)
+    cost += sum((insertions[f] for f in right if f not in matched_right), 0.0)
+    if substitutions is not None:
+        cost += sum(substitutions[e][f] for e, f in matches)
+    return cost, tuple(matches)
+
+
 def _graph_edit_search_python(
     G1,
     G2,
@@ -913,7 +998,7 @@ def _graph_edit_search_python(
     strictly_decreasing=True,
     timeout=None,
 ):
-    """Yield improving simple-graph edit scripts from an iterative exact search.
+    """Yield improving graph edit scripts from an iterative exact search.
 
     A state assigns each visited left node to a distinct right node or to a
     deletion. Edges become final when both endpoints have been assigned.
@@ -922,8 +1007,6 @@ def _graph_edit_search_python(
     """
     from time import perf_counter
 
-    if G1.is_multigraph() or G2.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
     if G1.is_directed() != G2.is_directed():
         raise NetworkXError("G1 and G2 must be both directed or both undirected")
 
@@ -938,23 +1021,29 @@ def _graph_edit_search_python(
             raise NodeNotFound("Root node not in graph.")
         root_pair = left_index[root_left], right_index[root_right]
 
-    left_edges = list(G1.edges())
-    right_edges = list(G2.edges())
+    left_edges = list(G1.edges(keys=True) if G1.is_multigraph() else G1.edges())
+    right_edges = list(G2.edges(keys=True) if G2.is_multigraph() else G2.edges())
     directed = G1.is_directed()
 
     def pair(u, v):
         return (u, v) if directed or u <= v else (v, u)
 
-    left_pairs = [(left_index[u], left_index[v]) for u, v in left_edges]
-    right_pairs = [(right_index[u], right_index[v]) for u, v in right_edges]
-    left_lookup = {pair(u, v): e for e, (u, v) in enumerate(left_pairs)}
-    right_lookup = {pair(u, v): e for e, (u, v) in enumerate(right_pairs)}
+    left_pairs = [(left_index[edge[0]], left_index[edge[1]]) for edge in left_edges]
+    right_pairs = [(right_index[edge[0]], right_index[edge[1]]) for edge in right_edges]
+    left_lookup, right_lookup = {}, {}
     left_incident, right_incident = [[] for _ in left_nodes], [[] for _ in right_nodes]
-    for edges, incident in ((left_pairs, left_incident), (right_pairs, right_incident)):
+    for edges, lookup, incident in (
+        (left_pairs, left_lookup, left_incident),
+        (right_pairs, right_lookup, right_incident),
+    ):
         for e, (u, v) in enumerate(edges):
-            incident[u].append(e)
-            if u != v:
-                incident[v].append(e)
+            key = pair(u, v)
+            if key not in lookup:
+                lookup[key] = []
+                incident[u].append(key)
+                if u != v:
+                    incident[v].append(key)
+            lookup[key].append(e)
 
     # Resolve callbacks once, before the search clock starts. Default zero
     # substitution costs need no quadratic matrix, even on large graphs.
@@ -989,6 +1078,21 @@ def _graph_edit_search_python(
         order.insert(0, root_pair[0])
     best = _math.inf
     min_edge_del, min_edge_ins = min(edge_del, default=0), min(edge_ins, default=0)
+    assignments = {}
+
+    def bundle_assignment(left_key, right_key):
+        if right_key not in right_lookup:
+            right_key = None
+        key = left_key, right_key
+        if key not in assignments:
+            result = _graph_edit_edge_assignment(
+                left_lookup[left_key], right_lookup.get(right_key, ()),
+                edge_sub, edge_del, edge_ins, expired,
+            )
+            if result is None:
+                return None
+            assignments[key] = result
+        return assignments[key]
 
     def allowed(cost):
         return (upper_bound is None or cost <= upper_bound) and (
@@ -1006,25 +1110,25 @@ def _graph_edit_search_python(
 
     def close_edges(i, j):
         cost, closed_left, closed_right = 0.0, 0, 0
-        for e in left_incident[i]:
-            u, v = left_pairs[e]
+        for left_key in left_incident[i]:
+            u, v = left_key
             a, b = mapping[u], mapping[v]
             if a == -2 or b == -2:
                 continue
-            closed_left += 1
-            f = right_lookup.get(pair(a, b)) if a >= 0 and b >= 0 else None
-            cost += edge_del[e] if f is None else min(
-                0 if edge_sub is None else edge_sub[e][f], edge_del[e] + edge_ins[f]
-            )
+            closed_left += len(left_lookup[left_key])
+            assignment = bundle_assignment(left_key, pair(a, b) if a >= 0 and b >= 0 else None)
+            if assignment is None:
+                return None
+            cost += assignment[0]
         if j >= 0:
-            for f in right_incident[j]:
-                u, v = right_pairs[f]
+            for right_key in right_incident[j]:
+                u, v = right_key
                 a, b = reverse[u], reverse[v]
                 if a == -2 or b == -2:
                     continue
-                closed_right += 1
+                closed_right += len(right_lookup[right_key])
                 if pair(a, b) not in left_lookup:
-                    cost += edge_ins[f]
+                    cost += sum(edge_ins[f] for f in right_lookup[right_key])
         return cost, closed_left, closed_right
 
     def remaining_bound(depth, unused, closed_left, closed_right):
@@ -1046,15 +1150,17 @@ def _graph_edit_search_python(
         node_path = [(left_nodes[i], right_nodes[mapping[i]]) for i in order if mapping[i] >= 0]
         node_path.extend((left_nodes[i], None) for i in range(n) if mapping[i] == -1)
         node_path.extend((None, right_nodes[j]) for j in range(m) if reverse[j] == -2)
-        edge_path, substituted = [], set()
-        for e, (u, v) in enumerate(left_pairs):
+        substitutions = {}
+        for left_key in left_lookup:
+            u, v = left_key
             a, b = mapping[u], mapping[v]
-            f = right_lookup.get(pair(a, b)) if a >= 0 and b >= 0 else None
-            if f is not None and (0 if edge_sub is None else edge_sub[e][f]) <= edge_del[e] + edge_ins[f]:
-                edge_path.append((left_edges[e], right_edges[f]))
-                substituted.add(f)
-            else:
-                edge_path.append((left_edges[e], None))
+            right_key = pair(a, b) if a >= 0 and b >= 0 else None
+            if right_key not in right_lookup:
+                right_key = None
+            substitutions.update(assignments[left_key, right_key][1])
+        substituted = set(substitutions.values())
+        edge_path = [(edge, right_edges[substitutions[e]] if e in substitutions else None)
+                     for e, edge in enumerate(left_edges)]
         edge_path.extend((None, edge) for f, edge in enumerate(right_edges) if f not in substituted)
         return node_path, edge_path
 
@@ -1088,7 +1194,10 @@ def _graph_edit_search_python(
         mapping[i] = j
         if j >= 0:
             reverse[j] = i
-        extra, closed_left, closed_right = close_edges(i, j)
+        closed = close_edges(i, j)
+        if closed is None:
+            return
+        extra, closed_left, closed_right = closed
         cost = prefix + (node_del[i] if j < 0 else 0 if node_sub is None else node_sub[i][j]) + extra
         count_left += closed_left
         count_right += closed_right

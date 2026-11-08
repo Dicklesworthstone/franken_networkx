@@ -1514,8 +1514,9 @@ def test_graph_edit_directed_mismatch_and_multigraphs_do_not_fallback(monkeypatc
 
     multigraph = fnx.MultiGraph()
     multigraph.add_edge(1, 2)
-    with pytest.raises(fnx.NetworkXNotImplemented):
-        fnx.optimal_edit_paths(multigraph, fnx.Graph())
+    paths, cost = fnx.optimal_edit_paths(multigraph, fnx.Graph())
+    assert cost == 3
+    assert paths == [([(1, None), (2, None)], [((1, 2, 0), None)])]
 
 def test_graph_edit_distance_roots_matches_networkx_without_fallback(monkeypatch):
     expected_cost = nx.graph_edit_distance(nx.path_graph(3), nx.path_graph(3), roots=(1, 0))
