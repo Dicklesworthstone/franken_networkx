@@ -13,6 +13,7 @@ Usage::
 import logging
 import inspect
 import weakref
+from contextvars import ContextVar
 
 import franken_networkx as fnx
 
@@ -133,6 +134,15 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
 )
 _LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "heuristic", "key")
 
+# These APIs have two independently observable graph inputs. A converted
+# graph can also be supplied explicitly as the auxiliary, so its weak source
+# marker cannot identify both arguments' owners. NetworkX calls can_run with
+# original arguments, then looks up the callable before converting anything.
+# Capture that single invocation in the returned wrapper; nested conversions
+# and other execution contexts cannot replace its original inputs.
+_DISJOINT_ALGORITHMS = frozenset({"edge_disjoint_paths", "node_disjoint_paths"})
+_DISJOINT_CALL_INPUTS = ContextVar("franken_networkx_disjoint_inputs", default=None)
+
 
 def _refresh_dispatch_source(graph):
     """Associate cached conversions with the graph used for this invocation."""
@@ -175,6 +185,54 @@ def _iterate_callback_result(iterator, graph):
         iterator.close()
         _clear_callback_conversions(graph)
 
+
+def _call_disjoint_with_original_inputs(fn, signature, inputs, args, kwargs):
+    bound = signature.bind(*args, **kwargs)
+    originals = []
+    for parameter, source_ref in inputs:
+        source = source_ref()
+        if source is None or not _is_dispatch_conversion(
+            bound.arguments.get(parameter), source
+        ):
+            # A standalone backend call may follow an unrelated can_run
+            # probe. Never substitute that probe's graph into a new call.
+            return fn(*args, **kwargs)
+        originals.append((parameter, source))
+    graphs = []
+    for parameter, source in originals:
+        bound.arguments[parameter] = source
+        if not any(source is graph for graph in graphs):
+            graphs.append(source)
+    if not callable(bound.arguments.get("flow_func")):
+        return fn(*bound.args, **bound.kwargs)
+
+    for graph in graphs:
+        _clear_callback_conversions(graph)
+    try:
+        result = fn(*bound.args, **bound.kwargs)
+    finally:
+        for graph in graphs:
+            _clear_callback_conversions(graph)
+    if inspect.isgenerator(result):
+        for graph in graphs:
+            result = _iterate_callback_result(result, graph)
+    return result
+
+
+def _is_dispatch_conversion(graph, source):
+    if graph is source:
+        return True
+    source_ref = getattr(graph, "__dict__", {}).get("_fnx_networkx_source")
+    if isinstance(source_ref, weakref.ReferenceType) and source_ref() is source:
+        return True
+    cache = getattr(source, "__networkx_cache__", None)
+    if cache is None:
+        return False
+    # Deepcopy and pickle discard private fields on native cached graphs.
+    # Their source's cache still establishes the conversion's owner.
+    conversions = cache.get("backends", {}).get("franken_networkx", {})
+    return any(graph is converted for converted in conversions.values())
+
 # ---------------------------------------------------------------------------
 # Supported algorithm registry
 # ---------------------------------------------------------------------------
@@ -196,6 +254,8 @@ _SUPPORTED_ALGORITHMS = {
     "node_connectivity": fnx.node_connectivity,
     "minimum_node_cut": fnx.minimum_node_cut,
     "edge_connectivity": fnx.edge_connectivity,
+    "edge_disjoint_paths": fnx.edge_disjoint_paths,
+    "node_disjoint_paths": fnx.node_disjoint_paths,
     "articulation_points": fnx.articulation_points,
     "bridges": fnx.bridges,
     "local_bridges": fnx.local_bridges,
@@ -1172,7 +1232,18 @@ class BackendInterface:
             bound.apply_defaults()
             if bound.arguments.get("flow_func") is not None:
                 return False
-        if name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
+        if name in _DISJOINT_ALGORITHMS:
+            try:
+                inputs = tuple(
+                    (parameter, weakref.ref(bound.arguments[parameter]))
+                    for parameter in ("G", "auxiliary")
+                    if bound.arguments.get(parameter) is not None
+                )
+            except TypeError:
+                _DISJOINT_CALL_INPUTS.set(None)
+                return False
+            _DISJOINT_CALL_INPUTS.set((name, inputs))
+        elif name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
             _refresh_dispatch_source(bound.arguments.get("G"))
         return True
 
@@ -1232,10 +1303,26 @@ class BackendInterface:
                 inspect.signature(fn)
                 if live_input or name in _CALLBACK_INPUT_ALGORITHMS else None
             )
+            disjoint_inputs = None
+            if name in _DISJOINT_ALGORITHMS:
+                pending = _DISJOINT_CALL_INPUTS.get()
+                if pending is not None and pending[0] == name:
+                    disjoint_inputs = pending[1]
+                    disjoint_signature = inspect.signature(fn)
 
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
+                    if disjoint_inputs is not None:
+                        # hasattr probes may look up and discard wrappers.
+                        # Capture before conversion, but consume only on call.
+                        # A nested conversion may already have installed and
+                        # consumed another record in this execution context.
+                        if _DISJOINT_CALL_INPUTS.get() is pending:
+                            _DISJOINT_CALL_INPUTS.set(None)
+                        return _call_disjoint_with_original_inputs(
+                            fn, disjoint_signature, disjoint_inputs, args, kwargs
+                        )
                     source = None
                     has_callbacks = False
                     reads_lazily = live_input

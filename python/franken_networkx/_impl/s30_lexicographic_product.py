@@ -745,8 +745,13 @@ def _edge_disjoint_paths_gen(
         raise NetworkXError(f"node {s} not in graph")
     if t not in G:
         raise NetworkXError(f"node {t} not in graph")
+    # Foreign graphs, live views, and subclass/private providers must build
+    # their auxiliary from the public graph protocol at first advancement.
+    # The raw kernel only accepts concrete native storage.
     if (cutoff is not None or flow_func is not None
-            or auxiliary is not None or residual is not None):
+            or auxiliary is not None or residual is not None
+            or type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+            or _has_networkx_private_storage(G)):
         yield from _edge_disjoint_paths_inproc(
             G, s, t,
             flow_func=flow_func, cutoff=cutoff,
@@ -809,7 +814,9 @@ def _node_disjoint_paths_gen(
     if t not in G:
         raise NetworkXError(f"node {t} not in graph")
     if (cutoff is not None or flow_func is not None
-            or auxiliary is not None or residual is not None):
+            or auxiliary is not None or residual is not None
+            or type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+            or _has_networkx_private_storage(G)):
         yield from _node_disjoint_paths_inproc(
             G, s, t,
             flow_func=flow_func, cutoff=cutoff,

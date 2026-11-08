@@ -1028,3 +1028,35 @@ endpoints. Some callback cost models also produce different optima from
 NetworkX's search. These are pre-existing differences, not resolved by adding
 incremental search. Small exhaustive comparisons against the previous owned
 solver additionally check that pruning preserves its minimum costs.
+
+## 41. Disjoint Paths Across Graph Inputs and Backend Dispatch
+
+`edge_disjoint_paths` and `node_disjoint_paths` accept all four graph classes,
+including NetworkX inputs, live views, and graph subclasses. They expose
+generators: endpoint validation, auxiliary-network construction, and flow
+execution start on advancement. Changes made before the first advancement
+affect the result. Unit-capacity auxiliaries use the caller's public node and
+edge providers, including their order and custom behavior. Concrete native
+graphs without Python storage overrides retain their native default route.
+
+An explicit auxiliary graph or residual network remains the caller's object;
+custom flow functions receive those same objects and the established solver
+options. Cutoff, missing endpoints, disconnected terminals, and same-terminal
+queries retain NetworkX's outcomes and error timing. Path decomposition does
+not consume the residual network, which can immediately be reused for another
+terminal pair. For node-disjoint paths, auxiliary node identifiers map back to
+the original node objects through the supplied `mapping` and node `id` data.
+
+Both algorithms are registered for public NetworkX backend dispatch. The main
+graph and an optional auxiliary graph recover their own live source on a
+conversion-cache hit. This applies independently when either input is already
+native, when arguments are positional or keyword arguments, and when cached
+conversions survive graph copying. Callback writes invalidate conversions of
+every restored graph, including on later generator advances and failures;
+ordinary unrelated native kernels retain their normal cached inputs.
+
+`tests/python/test_disjoint_paths_nopath_contract.py` compares ordered paths,
+lazy validation, changed views, caller-owned auxiliary/residual state, and
+public backend dispatch with cold and pre-populated caches against NetworkX
+3.6.1. Existing solver-specific cutoff and path-order cases remain part of the
+contract.

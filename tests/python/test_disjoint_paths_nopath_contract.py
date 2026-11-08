@@ -19,7 +19,10 @@ exceptions by type and args.
 
 from __future__ import annotations
 
+import copy
+import gc
 import random
+import weakref
 
 import pytest
 import networkx as nx
@@ -379,5 +382,327 @@ def test_owned_edge_disjoint_custom_residual_cycle_through_source(monkeypatch):
         fnx.edge_disjoint_paths, actual, "s", "t", flow_func=circulation,
         auxiliary=auxiliary, residual=residual,
     ) == expected
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("graph_type", _DISJOINT_GRAPH_TYPES)
+def test_disjoint_default_accepts_networkx_graphs(name, graph_type):
+    _, graph = _optional_disjoint_pair(graph_type)
+    for source, target in (
+        (("source",), "sink"), (("source",), ("source",)),
+        (("source",), "isolated"), ("outside", "sink"),
+    ):
+        expected = _outcome(getattr(nx, name), graph, source, target)
+        paths = getattr(fnx, name)(graph, source, target)
+        assert iter(paths) is paths
+        assert _outcome(lambda: paths) == expected
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_paths_support_public_backend_dispatch(name):
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
+    expected = _outcome(getattr(nx, name), graph, 0, 3, backend="networkx")
+    assert _outcome(
+        getattr(nx, name), graph, 0, 3, backend="franken_networkx"
+    ) == expected
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("module", [fnx, nx], ids=["native", "networkx"])
+@pytest.mark.parametrize("view_kind", ["filtered", "reverse", "undirected"])
+def test_disjoint_views_read_the_graph_at_first_resume(name, graph_type, module, view_kind):
+    graph = getattr(module, graph_type)([(0, 1), (1, 3), (0, 2)])
+    reference = getattr(nx, graph_type)([(0, 1), (1, 3), (0, 2)])
+    blocked = {2}
+    if view_kind == "filtered":
+        view = module.subgraph_view(graph, filter_node=lambda node: node not in blocked)
+        oracle_view = nx.subgraph_view(reference, filter_node=lambda node: node not in blocked)
+    elif view_kind == "reverse":
+        view, oracle_view = graph.reverse(copy=False), reference.reverse(copy=False)
+    else:
+        view = graph.to_undirected(as_view=True)
+        oracle_view = reference.to_undirected(as_view=True)
+    source, target = (3, 0) if view_kind == "reverse" else (0, 3)
+    paths = getattr(fnx, name)(view, source, target)
+    blocked.clear()
+    graph.add_edge(2, 3)
+    reference.add_edge(2, 3)
+    assert list(paths) == list(getattr(nx, name)(oracle_view, source, target))
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("graph_type", _DISJOINT_GRAPH_TYPES)
+def test_disjoint_default_uses_assigned_python_rows(name, graph_type):
+    graph = getattr(fnx, graph_type)([(0, 9), (9, 3)])
+    reference = getattr(nx, graph_type)([(0, 1), (1, 3), (0, 2), (2, 3)])
+    graph._node = reference._node
+    graph._adj = reference._adj
+    if graph.is_directed():
+        graph._pred = reference._pred
+    assert list(getattr(fnx, name)(graph, 0, 3)) == list(getattr(nx, name)(reference, 0, 3))
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("module", [fnx, nx], ids=["native", "networkx"])
+def test_disjoint_default_observes_subclass_edge_provider(name, module):
+    class PublicEdges(module.DiGraph):
+        def edges(self):
+            return [(0, 1), (1, 3)]
+
+    graph = PublicEdges([(0, 1), (1, 3), (0, 2), (2, 3)])
+    assert list(getattr(fnx, name)(graph, 0, 3)) == [[0, 1, 3]]
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_concrete_native_default_keeps_its_kernel(monkeypatch, name):
+    implementation = getattr(fnx, f"_{name}_gen")
+
+    def unexpected_python_route(*args, **kwargs):
+        pytest.fail("an ordinary concrete native graph must retain its default kernel")
+
+    monkeypatch.setitem(implementation.__globals__, f"_{name}_inproc", unexpected_python_route)
+    graph = fnx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
+    assert list(getattr(fnx, name)(graph, 0, 3)) == [[0, 1, 3], [0, 2, 3]]
+    assert list(getattr(nx, name)(graph, 0, 3, backend="franken_networkx")) == [
+        [0, 1, 3], [0, 2, 3],
+    ]
+
+
+def _warm_disjoint_conversion_cache(monkeypatch, *graphs):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    for graph in graphs:
+        if isinstance(graph, nx.Graph):
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    converter = fnx_backend.BackendInterface.convert_from_nx
+
+    def unexpected_conversion(*args, **kwargs):
+        pytest.fail("compatible cached conversions must be reused")
+
+    monkeypatch.setattr(
+        fnx_backend.BackendInterface, "convert_from_nx", staticmethod(unexpected_conversion)
+    )
+    return converter
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("cached", [False, True])
+def test_disjoint_backend_keeps_main_input_live_before_first_resume(monkeypatch, name, cached):
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2)])
+    if cached:
+        _warm_disjoint_conversion_cache(monkeypatch, graph)
+    paths = getattr(nx, name)(graph, 0, 3, backend="franken_networkx")
+    graph.add_edge(2, 3)
+    assert list(paths) == list(getattr(nx, name)(graph, 0, 3, backend="networkx"))
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("native_graph,native_auxiliary,positional", [
+    (False, False, False), (False, False, True),
+    (True, False, False), (False, True, True), (True, True, True),
+])
+def test_disjoint_backend_preserves_auxiliary_and_residual_identity(
+    monkeypatch, name, cached, native_graph, native_auxiliary, positional
+):
+    edges = [(0, 1), (1, 3), (0, 2), (2, 3)]
+    graph = (fnx if native_graph else nx).DiGraph(edges)
+    reference = nx.DiGraph(edges)
+    builder = (
+        "build_auxiliary_node_connectivity" if name == "node_disjoint_paths"
+        else "build_auxiliary_edge_connectivity"
+    )
+    module = fnx_connectivity if native_auxiliary else nx.algorithms.connectivity
+    auxiliary = getattr(module, builder)(graph)
+    oracle_auxiliary = getattr(nx.algorithms.connectivity, builder)(reference)
+    residual = fnx_flow.build_residual_network(auxiliary, "capacity")
+    expected = list(getattr(nx, name)(
+        reference, 0, 3, cutoff=1, auxiliary=oracle_auxiliary, backend="networkx"
+    ))
+    calls = []
+
+    def solver(H, source, target, **kwargs):
+        assert H is auxiliary
+        assert kwargs["residual"] is residual
+        calls.append((source, target))
+        return fnx_flow.edmonds_karp(H, source, target, **kwargs)
+
+    if cached:
+        _warm_disjoint_conversion_cache(monkeypatch, graph, auxiliary)
+    if positional:
+        paths = getattr(nx, name)(
+            graph, 0, 3, solver, 1, auxiliary, residual, backend="franken_networkx"
+        )
+    else:
+        paths = getattr(nx, name)(
+            graph, 0, 3, flow_func=solver, cutoff=1, auxiliary=auxiliary,
+            residual=residual, backend="franken_networkx",
+        )
+    assert calls == []
+    assert list(paths) == expected
+    assert len(calls) == 1
+
+
+def test_disjoint_backend_distinguishes_native_auxiliary_from_main_conversion(monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_edges_from([(0, 1), (1, 3)], capacity=1)
+    _warm_disjoint_conversion_cache(monkeypatch, graph)
+    auxiliary = next(iter(graph.__networkx_cache__["backends"]["franken_networkx"].values()))
+    auxiliary.add_edges_from([(0, 2), (2, 3)], capacity=1)
+    residual = fnx_flow.build_residual_network(auxiliary, "capacity")
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS["edge_disjoint_paths"]
+    observed = []
+
+    def record_inputs(G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None):
+        observed.append((G, auxiliary))
+        return implementation(
+            G, s, t, flow_func=flow_func, cutoff=cutoff,
+            auxiliary=auxiliary, residual=residual,
+        )
+
+    def solver(H, source, target, **kwargs):
+        assert H is auxiliary
+        return fnx_flow.edmonds_karp(H, source, target, **kwargs)
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, "edge_disjoint_paths", record_inputs)
+    paths = nx.edge_disjoint_paths(
+        graph, 0, 3, flow_func=solver, auxiliary=auxiliary, residual=residual,
+        backend="franken_networkx",
+    )
+    assert list(paths) == [[0, 1, 3], [0, 2, 3]]
+    assert observed[0][0] is graph
+    assert observed[0][1] is auxiliary
+    assert not graph.has_edge(0, 2)
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_backend_capture_survives_nested_conversion(monkeypatch, name):
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2)])
+    nested = nx.DiGraph([(10, 11)])
+    converter = fnx_backend.BackendInterface.convert_from_nx
+    calls = []
+
+    def convert(G, *args, **kwargs):
+        if G is graph:
+            calls.append(list(getattr(nx, name)(nested, 10, 11, backend="franken_networkx")))
+        return converter(G, *args, **kwargs)
+
+    monkeypatch.setattr(fnx_backend.BackendInterface, "convert_from_nx", staticmethod(convert))
+    paths = getattr(nx, name)(graph, 0, 3, backend="franken_networkx")
+    graph.add_edge(2, 3)
+    assert calls == [[[10, 11]]]
+    assert list(paths) == [[0, 1, 3], [0, 2, 3]]
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_backend_cached_auxiliary_remains_live_after_deepcopy(monkeypatch, name):
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
+    builder = (
+        "build_auxiliary_node_connectivity" if name == "node_disjoint_paths"
+        else "build_auxiliary_edge_connectivity"
+    )
+    auxiliary = getattr(nx.algorithms.connectivity, builder)(graph)
+    _warm_disjoint_conversion_cache(monkeypatch, graph, auxiliary)
+    copied_graph, copied_auxiliary = copy.deepcopy((graph, auxiliary))
+    paths = getattr(nx, name)(
+        copied_graph, 0, 3, auxiliary=copied_auxiliary, backend="franken_networkx"
+    )
+    if name == "node_disjoint_paths":
+        mapping = copied_auxiliary.graph["mapping"]
+        copied_auxiliary.remove_edge(f"{mapping[0]}B", f"{mapping[2]}A")
+    else:
+        copied_auxiliary.remove_edge(0, 2)
+    assert list(paths) == list(getattr(nx, name)(
+        copied_graph, 0, 3, auxiliary=copied_auxiliary, backend="networkx"
+    )) == [[0, 1, 3]]
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_backend_callback_failure_clears_both_reentrant_caches(monkeypatch, name):
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
+    builder = (
+        "build_auxiliary_node_connectivity" if name == "node_disjoint_paths"
+        else "build_auxiliary_edge_connectivity"
+    )
+    auxiliary = getattr(nx.algorithms.connectivity, builder)(graph)
+    converter = _warm_disjoint_conversion_cache(monkeypatch, graph, auxiliary)
+    failure = RuntimeError("solver stopped after writing input attributes")
+
+    def solver(H, source, target, **kwargs):
+        assert H is auxiliary
+        for original in (graph, auxiliary):
+            original.graph["changed"] = True
+            nx.relabel_nodes(original, {}, backend="franken_networkx")
+            assert original.__networkx_cache__["backends"]["franken_networkx"]
+        raise failure
+
+    paths = getattr(nx, name)(
+        graph, 0, 3, flow_func=solver, auxiliary=auxiliary, backend="franken_networkx"
+    )
+    monkeypatch.setattr(fnx_backend.BackendInterface, "convert_from_nx", staticmethod(converter))
+    with pytest.raises(RuntimeError) as error:
+        next(paths)
+    assert error.value is failure
+    for original in (graph, auxiliary):
+        assert original.graph["changed"] is True
+        assert not original.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_backend_hasattr_probe_does_not_discard_inputs(name):
+    interface = fnx_backend.BackendInterface()
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2)])
+    assert interface.can_run(name, (graph, 0, 3), {}) is True
+    assert hasattr(interface, name)
+    converted = interface.convert_from_nx(graph, name=name)
+    paths = getattr(interface, name)(converted, 0, 3)
+    graph.add_edge(2, 3)
+    assert list(paths) == [[0, 1, 3], [0, 2, 3]]
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_backend_stale_probe_does_not_replace_an_independent_graph(name):
+    interface = fnx_backend.BackendInterface()
+    graph = nx.DiGraph([(0, 1)])
+    assert interface.can_run(name, (graph, 0, 1), {}) is True
+    nx.degree_centrality(graph, backend="franken_networkx")
+    independent = fnx.DiGraph([(10, 11)])
+    assert list(getattr(interface, name)(independent, 10, 11)) == [[10, 11]]
+
+
+@pytest.mark.parametrize("parameter", ["G", "auxiliary"])
+def test_disjoint_backend_declines_inputs_without_weakrefs(parameter):
+    class GraphProtocol:
+        __slots__ = ()
+
+    graph = nx.DiGraph([(0, 1)])
+    kwargs = {"G": graph, "s": 0, "t": 1, parameter: GraphProtocol()}
+    assert fnx_backend.BackendInterface.can_run("edge_disjoint_paths", (), kwargs) is False
+
+
+def test_disjoint_backend_pending_probe_does_not_retain_input():
+    graph = nx.DiGraph([(0, 1)])
+    source = weakref.ref(graph)
+    assert fnx_backend.BackendInterface.can_run("edge_disjoint_paths", (graph, 0, 1), {})
+    del graph
+    gc.collect()
+    assert source() is None
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+def test_disjoint_backend_priority_uses_the_registered_implementation(monkeypatch, name):
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS[name]
+    calls = []
+
+    def record_input(G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None):
+        calls.append(G)
+        return implementation(G, s, t, flow_func, cutoff, auxiliary, residual)
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, name, record_input)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
+    assert list(getattr(nx, name)(graph, 0, 3)) == [[0, 1, 3], [0, 2, 3]]
+    assert len(calls) == 1 and calls[0] is graph
 
 
