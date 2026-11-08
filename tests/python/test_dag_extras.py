@@ -181,6 +181,65 @@ class TestDagLongestPath:
         with pytest.raises(fnx.NetworkXUnfeasible):
             fnx.dag_longest_path(D)
 
+    @pytest.mark.parametrize("graph_input", ["native", "networkx", "view"])
+    @pytest.mark.parametrize("mutation", ["weight", "add-parallel", "remove-parallel"])
+    def test_multigraph_reads_weights_after_resuming_topo_order(self, graph_input, mutation):
+        import networkx as nx
+
+        def run(module):
+            graph_module = nx if graph_input == "networkx" else module
+            root = graph_module.MultiDiGraph()
+            root.add_weighted_edges_from([(0, 1, 1), (1, 3, 1), (0, 2, 3), (2, 3, 1)])
+            root.add_edge(0, 2, weight=0.5)
+            graph = root.subgraph(list(root)) if graph_input == "view" else root
+
+            def order():
+                yield 0
+                if mutation == "weight":
+                    root[0][1][0]["weight"] = 10
+                elif mutation == "add-parallel":
+                    root.add_edge(0, 1, weight=10)
+                else:
+                    root.remove_edge(0, 2, 0)
+                yield from (1, 2, 3)
+
+            return module.dag_longest_path(graph, topo_order=order())
+
+        assert run(fnx) == run(nx) == [0, 1, 3]
+
+    @pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+    @pytest.mark.parametrize("explicit_order", [False, True])
+    def test_assigned_predecessors_determine_the_longest_path(self, graph_type, explicit_order):
+        import networkx as nx
+
+        def build(module):
+            graph = getattr(module, graph_type)()
+            graph.add_weighted_edges_from([(0, 2, 100), (2, 3, 1)])
+            logical = getattr(nx, graph_type)()
+            logical.add_weighted_edges_from([(0, 1, 10), (1, 3, 1), (0, 2, 3), (2, 3, 1)])
+            graph._node = logical._node
+            graph._succ = logical._succ
+            graph._pred = logical._pred
+            return graph
+
+        options = {"topo_order": [0, 1, 2, 3]} if explicit_order else {}
+        assert fnx.dag_longest_path(build(fnx), **options) == nx.dag_longest_path(
+            build(nx), **options
+        ) == [0, 1, 3]
+
+    @pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+    def test_custom_edge_attribute_mappings_are_not_replaced_by_defaults(self, graph_type):
+        from collections import UserDict
+        import networkx as nx
+
+        class MappedEdges(getattr(nx, graph_type)):
+            edge_attr_dict_factory = UserDict
+
+        graph = MappedEdges()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 3, 1), (0, 2, 10), (2, 3, 1)])
+        assert fnx.dag_longest_path(graph) == nx.dag_longest_path(graph) == [0, 2, 3]
+        assert fnx.dag_longest_path_length(graph) == nx.dag_longest_path_length(graph) == 11
+
 
 # ---------------------------------------------------------------------------
 # dag_longest_path_length
@@ -205,6 +264,157 @@ class TestDagLongestPathLength:
     def test_wide(self, wide_dag):
         length = fnx.dag_longest_path_length(wide_dag)
         assert length == 2
+
+    def test_multigraph_length_reads_the_selected_path_again(self):
+        import networkx as nx
+
+        def run(module):
+            graph = module.MultiDiGraph()
+
+            class ReweightOnAdd(int):
+                def __radd__(self, other):
+                    # Path selection uses 2, but summing the selected path
+                    # must observe the edge's current value, as NetworkX does.
+                    graph[0][1][0]["weight"] = 7
+                    return other + int(self)
+
+            graph.add_edge(0, 1, weight=ReweightOnAdd(2))
+            graph.add_edge(1, 2, weight=3)
+            return module.dag_longest_path_length(graph)
+
+        assert run(fnx) == run(nx) == 10
+
+
+class TestDagLongestPathLiveCallbacks:
+    @pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+    @pytest.mark.parametrize("query", ["dag_longest_path", "dag_longest_path_length"])
+    @pytest.mark.parametrize("source", ["weight", "default"])
+    @pytest.mark.parametrize("mutation", ["later-edge", "private-storage"])
+    def test_arithmetic_reads_later_rows_live(self, graph_type, query, source, mutation):
+        import networkx as nx
+
+        def run(module):
+            graph = getattr(module, graph_type)()
+            events = []
+
+            class ReweightOnAdd(int):
+                def __radd__(self, other):
+                    events.append(other)
+                    if mutation == "private-storage":
+                        logical = getattr(nx, graph_type)()
+                        logical.add_weighted_edges_from(
+                            [(0, 1, 10), (1, 3, 1), (0, 2, 3), (2, 3, 100)]
+                        )
+                        graph._node = logical._node
+                        graph._succ = logical._succ
+                        graph._pred = logical._pred
+                    else:
+                        attrs = graph[2][3][0] if graph.is_multigraph() else graph[2][3]
+                        attrs["weight"] = 100
+                    return other + int(self)
+
+            first_attrs = {"weight": ReweightOnAdd(10)} if source == "weight" else {}
+            graph.add_edge(0, 1, **first_attrs)
+            graph.add_weighted_edges_from([(1, 3, 1), (0, 2, 3), (2, 3, 1)])
+            options = {"default_weight": ReweightOnAdd(10)} if source == "default" else {}
+            return getattr(module, query)(graph, **options), events
+
+        expected = [0, 2, 3] if query == "dag_longest_path" else 103
+        assert run(fnx) == run(nx) == (expected, [0])
+
+    @pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+    @pytest.mark.parametrize("query", ["dag_longest_path", "dag_longest_path_length"])
+    def test_attribute_key_callbacks_read_later_edges_live(self, graph_type, query):
+        import networkx as nx
+
+        def run(module):
+            graph = getattr(module, graph_type)()
+            graph.add_weighted_edges_from([(0, 1, 10), (1, 3, 1), (0, 2, 3), (2, 3, 1)])
+            events = []
+
+            class WeightKey(str):
+                def __hash__(self):
+                    events.append("lookup")
+                    attrs = graph[2][3][0] if graph.is_multigraph() else graph[2][3]
+                    attrs["weight"] = 100
+                    return str.__hash__(self)
+
+            result = getattr(module, query)(graph, weight=WeightKey("weight"))
+            return result, events
+
+        actual, expected = run(fnx), run(nx)
+        assert actual == expected
+        assert actual[0] == ([0, 2, 3] if query == "dag_longest_path" else 103)
+        assert actual[1]
+
+    @pytest.mark.parametrize("has_edge", [False, True])
+    def test_invalid_attribute_key_is_only_read_during_relaxation(self, has_edge):
+        import networkx as nx
+
+        def run(module):
+            graph = module.DiGraph()
+            graph.add_node(0)
+            if has_edge:
+                graph.add_edge(0, 1)
+            events = []
+
+            class InvalidKey:
+                def __hash__(self):
+                    events.append("lookup")
+                    raise LookupError("weight lookup reached")
+
+            try:
+                result = module.dag_longest_path(graph, weight=InvalidKey())
+            except Exception as exc:
+                result = type(exc).__name__, str(exc)
+            return result, events
+
+        expected = (("LookupError", "weight lookup reached"), ["lookup"]) if has_edge else ([0], [])
+        assert run(fnx) == run(nx) == expected
+
+    @pytest.mark.parametrize("callback", [False, True])
+    def test_relaxation_error_precedes_a_later_cycle(self, callback):
+        import networkx as nx
+
+        def run(module):
+            graph = module.DiGraph()
+            events = []
+
+            class InvalidWeight(int):
+                def __radd__(self, other):
+                    events.append(other)
+                    raise LookupError("weight arithmetic reached")
+
+            graph.add_edge(0, 1, weight=InvalidWeight(1) if callback else "invalid")
+            graph.add_edges_from([(2, 3), (3, 2)])
+            with pytest.raises(Exception) as exc:
+                module.dag_longest_path(graph)
+            return type(exc.value).__name__, str(exc.value), events
+
+        actual, expected = run(fnx), run(nx)
+        assert actual == expected
+        assert actual[0] == ("LookupError" if callback else "TypeError")
+        assert actual[2] == ([0] if callback else [])
+
+    @pytest.mark.parametrize("weight", ["weight", None])
+    @pytest.mark.parametrize("value", [1, 2.5, True])
+    def test_plain_numeric_weights_keep_the_native_snapshot(self, monkeypatch, weight, value):
+        import networkx as nx
+
+        graph, expected = fnx.DiGraph(), nx.DiGraph()
+        for instance in (graph, expected):
+            instance.add_edge(0, 1)
+            instance[0][1][weight] = value
+            instance.add_edge(1, 2)
+        want = nx.dag_longest_path(expected, weight=weight)
+
+        def live_sort_was_called(*args, **kwargs):
+            raise AssertionError("plain numeric DAG unexpectedly used the live fallback")
+
+        monkeypatch.setitem(
+            fnx.dag_longest_path.__globals__, "topological_sort", live_sort_was_called
+        )
+        assert fnx.dag_longest_path(graph, weight=weight) == want
 
 
 # ---------------------------------------------------------------------------

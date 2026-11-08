@@ -1,46 +1,5 @@
 
 
-def _dag_longest_path_length_multigraph(G, weight, default_weight):
-    topo_order = topological_sort(G)
-    _prd = getattr(G, "_native_predecessor_row_dict", None)
-    multi_pred = {}
-    if _prd is not None:
-        for _v in G:
-            _pw = {}
-            for _u, _keydict in _prd(_v).items():
-                _pw[_u] = max(
-                    (
-                        attrs.get(weight, default_weight)
-                        if isinstance(attrs, dict)
-                        else default_weight
-                        for attrs in _keydict.values()
-                    ),
-                    default=default_weight,
-                )
-            multi_pred[_v] = _pw
-    else:
-        for _v, _preds in G.pred.items():
-            _pw = {}
-            for _u, _keydict in _preds.items():
-                _pw[_u] = max(
-                    (
-                        attrs.get(weight, default_weight)
-                        if isinstance(attrs, dict)
-                        else default_weight
-                        for attrs in _keydict.values()
-                    ),
-                    default=default_weight,
-                )
-            multi_pred[_v] = _pw
-
-    dist = {}
-    for v in topo_order:
-        us = [(dist[u][0] + _w, u) for u, _w in multi_pred[v].items()]
-        maxu = max(us, key=lambda x: x[0]) if us else (0, v)
-        dist[v] = maxu if maxu[0] >= 0 else (0, v)
-    return max((length for length, _ in dist.values()), default=0)
-
-
 def dag_longest_path_length(G, weight="weight", default_weight=1):
     """Return the length of the longest path in a DAG.
 
@@ -78,10 +37,6 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if G.is_multigraph():
-        return _dag_longest_path_length_multigraph(
-            G, weight=weight, default_weight=default_weight
-        )
     path = dag_longest_path(
         G, weight=weight, default_weight=default_weight
     )

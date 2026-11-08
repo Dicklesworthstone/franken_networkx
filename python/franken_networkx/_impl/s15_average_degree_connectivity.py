@@ -1392,7 +1392,7 @@ def topological_generations(G):
     in-degree state at that boundary (nro4w.11). Any other directed graph
     (a subclass, a view, a networkx graph) runs networkx's loop as written.
     """
-    if type(G) is DiGraph or type(G) is MultiDiGraph:
+    if type(G) in (DiGraph, MultiDiGraph) and not _has_networkx_private_storage(G):
         yield from _topological_generations_native(G)
     else:
         yield from _topological_generations_as_networkx(G)
@@ -1403,7 +1403,7 @@ def _topological_generations_native(G):
     revision = G._fnx_revision
     start = revision()
     for k, generation in enumerate(generations):
-        if revision() != start:
+        if revision() != start or _has_networkx_private_storage(G):
             yield from _topological_generations_live(
                 G, generation, state.indegree_map(k), G.is_multigraph()
             )
@@ -1450,14 +1450,32 @@ def _topological_generations_live(G, zero_indegree, indegree_map, multigraph):
 
 def _dag_longest_path_digraph_native(G, weight, default_weight):
     topo_pred_snapshot = getattr(G, "_native_dag_topo_pred_data_key", None)
-    if topo_pred_snapshot is not None:
-        topo_order, pred_groups = topo_pred_snapshot(weight, default_weight)
-    else:
-        topo_order = list(topological_sort(G))
-        pred_map = {node: [] for node in topo_order}
-        for u, v, edge_weight in G._native_in_edges_data_key(weight, default_weight):
-            pred_map[v].append((u, edge_weight))
-        pred_groups = [pred_map[node] for node in topo_order]
+    try:
+        if topo_pred_snapshot is not None:
+            topo_order, pred_groups = topo_pred_snapshot(weight, default_weight)
+        else:
+            topo_order = list(topological_sort(G))
+            pred_map = {node: [] for node in topo_order}
+            for u, v, edge_weight in G._native_in_edges_data_key(weight, default_weight):
+                pred_map[v].append((u, edge_weight))
+            pred_groups = [pred_map[node] for node in topo_order]
+    except NetworkXUnfeasible:
+        # NetworkX relaxes each available generation before discovering a later
+        # cycle. An eager snapshot must not outrun a weight callback or error.
+        return dag_longest_path(
+            G, weight, default_weight, topo_order=topological_sort(G)
+        )
+
+    if any(
+        type(edge_weight) not in (int, float, bool)
+        for preds in pred_groups
+        for _, edge_weight in preds
+    ):
+        # Numeric protocols may change a later edge or the graph's storage.
+        # Read those rows at relaxation time, before invoking their callbacks.
+        return dag_longest_path(
+            G, weight, default_weight, topo_order=topological_sort(G)
+        )
 
     dist = {}
     for v, preds in zip(topo_order, pred_groups):
@@ -1524,7 +1542,13 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     if len(G) == 0:
         return []
 
-    if topo_order is None and type(G) is DiGraph:
+    if (
+        topo_order is None
+        and type(G) is DiGraph
+        and not _has_networkx_private_storage(G)
+        and (weight is None or type(weight) is str)
+        and type(default_weight) in (int, float, bool)
+    ):
         native_in_edges = getattr(G, "_native_in_edges_data_key", None)
         if native_in_edges is not None:
             return _dag_longest_path_digraph_native(
@@ -1536,57 +1560,37 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
 
     is_multi = G.is_multigraph()
     dist = {}  # {v: (length, u)}
-    multi_pred = None
-    if is_multi:
-        # br-r37-c1-5m18w (cc): build the predecessor adjacency (heaviest parallel-edge
-        # weight per (u, v)) via the native _native_predecessor_row_dict(v) per node —
-        # a row-ordered {u: keydict} that MATCHES G.pred[v]'s order exactly (so the
-        # max() tie-break is byte-identical) and is ~3.5x faster than iterating the
-        # MultiAdjacencyView (G.pred.items()), which re-materialises the whole adjacency
-        # per row. (The native EDGE list is faster still but raw-insertion-order, which
-        # diverges from the row-ordered G.pred on ties — this per-row accessor is both.)
-        multi_pred = {}
-        _prd = getattr(G, "_native_predecessor_row_dict", None)
-        if _prd is not None:
-            for _v in G:
-                _pw = {}
-                for _u, _keydict in _prd(_v).items():
-                    _pw[_u] = max(
-                        (
-                            attrs.get(weight, default_weight)
-                            if isinstance(attrs, dict)
-                            else default_weight
-                            for attrs in _keydict.values()
-                        ),
-                        default=default_weight,
-                    )
-                multi_pred[_v] = _pw
-        else:
-            for _v, _preds in G.pred.items():
-                _pw = {}
-                for _u, _keydict in _preds.items():
-                    _pw[_u] = max(
-                        (
-                            attrs.get(weight, default_weight)
-                            if isinstance(attrs, dict)
-                            else default_weight
-                            for attrs in _keydict.values()
-                        ),
-                        default=default_weight,
-                    )
-                multi_pred[_v] = _pw
+    native_pred = None
+    if type(G) is MultiDiGraph and not _has_networkx_private_storage(G):
+        native_pred = getattr(G, "_native_predecessor_row_dict", None)
     for v in topo_order:
+        # A supplied ordering can mutate weights, parallel edges, or assigned
+        # storage before yielding each node. Read that node's predecessors only
+        # after resuming it; a graph-wide weight snapshot loses those writes.
+        # Ordinary multigraphs retain the ordered native row accessor, while
+        # views, subclasses, and assigned mappings use their public protocol.
+        preds = (
+            native_pred(v)
+            if native_pred is not None and not _has_networkx_private_storage(G)
+            else G.pred[v]
+        )
         if is_multi:
-            us = [(dist[u][0] + _w, u) for u, _w in multi_pred[v].items()]
-        else:
-            us = []
-            for u, data in G.pred[v].items():
-                edge_weight = (
-                    data.get(weight, default_weight)
-                    if isinstance(data, dict)
-                    else default_weight
+            us = [
+                (
+                    dist[u][0]
+                    + max(
+                        keydict.values(),
+                        key=lambda attrs: attrs.get(weight, default_weight),
+                    ).get(weight, default_weight),
+                    u,
                 )
-                us.append((dist[u][0] + edge_weight, u))
+                for u, keydict in preds.items()
+            ]
+        else:
+            us = [
+                (dist[u][0] + data.get(weight, default_weight), u)
+                for u, data in preds.items()
+            ]
         # nx's tie-break: max with key=x[0] returns the FIRST element
         # with the max first component (Python's max stability).
         maxu = max(us, key=lambda x: x[0]) if us else (0, v)

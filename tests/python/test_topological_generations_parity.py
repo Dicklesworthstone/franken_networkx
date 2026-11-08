@@ -207,3 +207,33 @@ def test_random_mutation_during_iteration_matches_networkx(cls):
                 nx_input.add_nodes_from(range(n))
                 nx_input.add_edges_from(edges)
                 assert _drive(fnx, fn, nx_input, schedule) == expected, ("nx input", trial, fn)
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("fn", ["topological_generations", "topological_sort"])
+@pytest.mark.parametrize("assign_before_start", [False, True])
+def test_assigned_rows_remain_live_between_topological_yields(cls, fn, assign_before_start):
+    def run(module):
+        graph = getattr(module, cls)([(0, 1), (1, 2), (2, 3)])
+        logical = getattr(nx, cls)([(0, 1), (1, 2), (2, 3)])
+
+        def assign():
+            graph._node = logical._node
+            graph._succ = logical._succ
+            graph._pred = logical._pred
+
+        if assign_before_start:
+            assign()
+
+        def mutate(_graph):
+            if not assign_before_start:
+                assign()
+            # This does not advance the original native graph's revision.
+            # The held traversal must still notice the new, uncounted child.
+            logical.add_edge(1, 9)
+
+        return _drive(module, fn, graph, {0: [mutate]})
+
+    expected = run(nx)
+    assert expected[1] == "RuntimeError"
+    assert run(fnx) == expected
