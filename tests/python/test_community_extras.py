@@ -591,16 +591,15 @@ def test_louvain_communities_advances_the_callers_generator_as_networkx_does(lou
     assert fallbacks == []
 
 
-def test_louvain_communities_runs_networkx_for_weights_it_cannot_add_natively(louvain_fallbacks):
-    """A Fraction keeps exact arithmetic in networkx; a string makes it raise.
-    Neither may run on the kernel's floats."""
+def test_louvain_communities_owns_weights_it_cannot_add_natively(louvain_fallbacks):
+    """Fractions and invalid weights retain Python arithmetic without delegation."""
     from fractions import Fraction
 
     reference, fallbacks = louvain_fallbacks
     edges = [(u, v, {"weight": Fraction(1 + (u + v) % 3, 2)}) for u, v in nx.karate_club_graph().edges()]
     graph, nx_graph = _louvain_pair(edges)
     assert fnx.community.louvain_communities(graph, seed=3) == reference(nx_graph, seed=3)
-    assert len(fallbacks) == 1
+    assert fallbacks == []
 
     graph.add_edge(0, 1, weight="heavy")
     nx_graph.add_edge(0, 1, weight="heavy")
@@ -609,6 +608,7 @@ def test_louvain_communities_runs_networkx_for_weights_it_cannot_add_natively(lo
     with pytest.raises(TypeError) as actual:
         fnx.community.louvain_communities(graph, seed=3)
     assert str(actual.value) == str(expected.value)
+    assert fallbacks == []
 
 
 @pytest.fixture
@@ -707,14 +707,14 @@ def test_louvain_partitions_reads_the_graph_at_the_first_resume(louvain_partitio
     assert str(actual.value) == str(expected.value)
 
 
-def test_louvain_partitions_runs_networkx_where_the_kernel_declines(louvain_partitions_fallbacks):
+def test_louvain_partitions_owns_levels_where_the_kernel_declines(louvain_partitions_fallbacks):
     from fractions import Fraction
 
     reference, fallbacks = louvain_partitions_fallbacks
     edges = [(u, v, {"weight": Fraction(1 + (u + v) % 3, 2)}) for u, v in nx.karate_club_graph().edges()]
     graph, nx_graph = _louvain_pair(edges)
     assert list(fnx.community.louvain_partitions(graph, seed=3)) == list(reference(nx_graph, seed=3))
-    assert len(fallbacks) == 1
+    assert fallbacks == []
 
 
 def test_louvain_communities_max_level_error_contract_matches_networkx():

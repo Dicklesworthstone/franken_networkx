@@ -105,6 +105,16 @@ advancing an arbitrary input iterator; completed plain adjacency rows can use
 the existing batch API when its original method and ordinary labels make that
 safe. No cross-record buffer or NetworkX parser delegation is introduced.
 
+The Louvain fallback lives in `_louvain.py`, with indexed level state and
+ordered sparse neighbor rows. It owns node moves, modularity stopping, and
+coarsening while streaming moves into the existing partition-set replay.
+The community wrappers retain the native kernel for ordinary inputs and
+admit custom graph/numeric/random protocols to the owned level iterator.
+Its suspension boundary is also the random-draw and graph-snapshot boundary;
+finishing a level does not eagerly compute the next one. Degree and size
+retain their shared exact numeric routes, including the native live-mirror
+refresh that rejects unsupported scalar types before using stored floats.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

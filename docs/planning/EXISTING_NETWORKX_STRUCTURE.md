@@ -1321,6 +1321,78 @@ use owned traversal without being handed to a strict native type gate. Exact
 native graphs keep their native route, and an eligible native reverse view
 still uses the root's forward BFS when the cutoff supports that route.
 
+## 47. Owned Louvain Levels and Random-Source Protocol
+
+`community.louvain_communities` and `community.louvain_partitions` use the
+same weighted Louvain level semantics for Graph, DiGraph, MultiGraph, and
+MultiDiGraph. Ordinary native inputs retain the existing kernel. Views,
+subclasses, nonstring weight keys, unsupported numeric domains, and custom
+random sources run an owned Python level engine without calling NetworkX's
+Louvain algorithms or converting the caller to a NetworkX graph.
+
+Resolve and validate the random source when the public API is called, before
+graph traversal or `max_level` validation. An integer seed, the global
+`random` module, `None`, `random.Random`, and NumPy random sources retain
+NetworkX 3.6.1's state and error behavior. The native MT19937 state handoff
+must not bypass custom `shuffle`, `_randbelow`, `getrandbits`, `random`,
+`getstate`, `setstate`, or Random construction/seed hooks. Resolve an integer
+seed only once, including large integers that require an RNG object.
+Instance overrides, Random subclasses, and class-level monkeypatches after
+import require the owned route.
+
+The partition iterator does not inspect graph topology or weights until
+its first resume. Edits before that resume are visible. Once the working
+graph has been built, later edits to the caller's graph do not change the
+remaining levels. Each yielded partition has independent sets. Consuming
+one level must not compute later levels or consume their random draws;
+external RNG draws between resumes affect subsequent shuffles normally.
+
+Start with one community per node in graph iteration order. An edgeless
+graph yields this partition once without shuffling, including `[]` for
+the null graph. Otherwise compute its initial modularity before preparing
+the working graph. Parallel-edge weights are added in input edge order;
+self-loops contribute to degree/modularity but are excluded from candidate
+neighbor communities. A simple graph preserves its construction class;
+multigraphs reduce to the corresponding simple directed/undirected graph.
+Subclass constructors can change working-node order and node memberships;
+read a moved node's actual `nodes` membership at each move.
+Read live attribute dictionaries explicitly so filtered views support
+arbitrary weight keys. Preserve NetworkX's algorithm-specific behavior for
+`weight=None`: degrees use the unweighted convention, while projected edge
+values can select an actual `None` key; absent keys default to one. Literal
+boolean selectors retain their upstream errors.
+
+At each level, shuffle the current node labels once and reuse that order
+until a complete pass makes no moves. Candidate communities follow the
+first encounter of neighbors; directed graphs consider outgoing then
+incoming neighbors. Remove the node's degree from its current community
+temporarily and choose only a strictly positive modularity gain. Equal
+gains retain the first candidate. The undirected gain includes the
+resolution-scaled product of community degree and node degree divided by
+`2*m**2`; the directed gain uses the sum of outgoing/incoming cross-products
+divided by `m**2`. Keep Python arithmetic and summation order, including
+the float-zero accumulation used for neighbor-community weights; do not
+coerce arbitrary input weights to float64.
+
+Communities retain their set update history and list order. Coarsening
+assigns integer node IDs in nonempty community order, sums inter-community
+edges in the previous graph's edge order, and preserves merged self-loops.
+The original working graph's weighted size `m` remains the denominator for
+subsequent move phases. Yield the first local optimum even if no node moved.
+After a yield resumes, stop when its modularity gain is at most `threshold`;
+otherwise coarsen and search again, yielding only levels that improve by
+moving nodes. `max_level` limits consumption rather than computing levels
+in advance. Nonpositive values raise the existing ValueError; other invalid
+limits retain `itertools.islice` validation and timing.
+
+`tests/python/test_louvain_owned.py` compares yielded levels and RNG state,
+custom shuffle hooks, exact/nonstring weights, directed parallel edges,
+filtered/private graphs, level limits, independent yielded sets, graph edits
+before/after first resume, and native-route retention. Its large-Fraction
+regressions also require weighted degree and size to preserve exact numeric
+types before exponentiation; matching ordinary partitions alone does not
+establish that numeric-domain contract.
+
 ## 48. Streaming Line-Based Graph I/O
 
 `parse_edgelist`, `parse_adjlist`, and `parse_multiline_adjlist` consume an

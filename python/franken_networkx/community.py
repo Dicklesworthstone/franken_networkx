@@ -16,6 +16,7 @@ but routes the algorithms with fnx fast paths through them.
 from __future__ import annotations
 
 import math as _math
+import random as _random
 
 import networkx.algorithms.community as _nx_community
 from networkx.algorithms.community import *  # noqa: F401,F403
@@ -25,6 +26,41 @@ from franken_networkx._fnx import (
     louvain_partitions_start as _native_louvain_partitions_start,
     networkx_greedy_modularity_merges as _native_greedy_modularity_merges,
 )
+
+
+_LOUVAIN_RANDOM_CLASS = _random.Random
+_LOUVAIN_RANDOM_PROTOCOL = {
+    name: getattr(_LOUVAIN_RANDOM_CLASS, name)
+    for name in (
+        "shuffle", "_randbelow", "getrandbits", "random", "getstate", "setstate",
+        "seed", "__init__", "__new__", "__getattribute__",
+    )
+}
+
+
+def _louvain_native_rng_allowed(seed):
+    """A state handoff cannot replace custom shuffle or random-state hooks."""
+    if _random.Random is not _LOUVAIN_RANDOM_CLASS or any(
+        getattr(_LOUVAIN_RANDOM_CLASS, name) is not method
+        for name, method in _LOUVAIN_RANDOM_PROTOCOL.items()
+    ):
+        return False
+    if type(seed) is int:
+        return True
+    return type(seed) is _LOUVAIN_RANDOM_CLASS and not any(
+        name in vars(seed) for name in _LOUVAIN_RANDOM_PROTOCOL
+    )
+
+
+def _louvain_random_sources(seed):
+    kernel_seed = _fnx._kernel_seed(seed)
+    # Large integers are already normalized by _kernel_seed. Reusing that
+    # instance avoids invoking overridden Random construction/seed hooks twice.
+    rng = (
+        kernel_seed if type(kernel_seed) is _random.Random
+        else _fnx._generator_random_state(seed)
+    )
+    return rng, kernel_seed
 
 
 def modularity(G, communities, weight="weight", resolution=1, *, backend=None, **backend_kwargs):
@@ -305,74 +341,53 @@ def louvain_communities(
     backend=None,
     **backend_kwargs,
 ):
-    """Find communities via the Louvain algorithm.
+    """Find communities via native or owned Python Louvain levels.
 
-    br-r37-c1-rc0923-epic-perf-where-we-lose-sfq4w.5: the four graph classes
-    run the native kernel, which follows networkx's ``louvain_partitions``
-    step for step - ``_convert_multigraph``, its level graphs' row order, its
-    int / float sums, its directed and undirected gain expressions and
-    ``seed.shuffle`` on the same generator (``seed=None`` draws from
-    ``random._inst``, a ``random.Random`` is advanced as networkx advances
-    it) - so weighted graphs, self-loops and every seed networkx resolves to
-    a ``random.Random`` give networkx's partition. The kernel returns
-    ``None`` where networkx must run instead: a weight it cannot add as
-    networkx does (a NumPy scalar, a Fraction, a string), or an input
-    networkx raises on. Everything else - a graph view or subclass, a
-    numpy-backed seed - converts via ``_networkx_graph_for_parity`` and runs
-    networkx (br-r37-c1-louvainsubmod / br-r37-c1-cy2me).
-
-    Accepts ``backend=`` and arbitrary backend kwargs to match nx's
-    public signature (``nx.community.louvain_communities`` exposes
-    ``*, backend=None, **backend_kwargs``). They are validated via
-    the shared dispatch-keyword guard, then discarded — fnx is the
-    backend.
+    Ordinary graph/numeric/random inputs retain the native kernel. The owned
+    level engine preserves custom random hooks, Python numeric arithmetic,
+    graph views and subclasses, without NetworkX algorithm delegation.
     """
     _fnx._validate_backend_dispatch_keywords(
         "louvain_communities", backend, backend_kwargs
     )
-    # networkx's decorator resolves the seed before the body runs.
-    kernel_seed = _fnx._kernel_seed(seed)
+    from collections import deque
+    from itertools import islice
+
+    from franken_networkx._louvain import partitions
+
+    # Resolve the seed before graph traversal and level-limit validation.
+    rng, kernel_seed = _louvain_random_sources(seed)
+    levels = partitions(G, weight, resolution, threshold, rng, _LouvainLevelSets)
+    if max_level is not None:
+        if max_level <= 0:
+            raise ValueError("max_level argument must be a positive integer or None")
+        # Use the actual iterator adapter for integer/index and range errors;
+        # it validates now but does not inspect the graph or draw randomness.
+        levels = islice(levels, max_level)
     native = _louvain_native_arguments(G, weight, resolution, threshold, kernel_seed)
     if native is not None and (
         max_level is None or (type(max_level) is int and max_level > 0)
     ):
         run = _fnx._raw_louvain_communities(G, weight, *native, max_level, kernel_seed)
         if run is not None:
-            nodes, levels = run
+            nodes, native_levels = run
             sets = _LouvainLevelSets(nodes)
-            for moves in levels:
+            for moves in native_levels:
                 partition = sets.level(moves)
             return partition
-
-    # br-r37-c1-egjfn: ``backend="networkx"`` is load-bearing, not decoration.
-    # ``louvain_communities`` is a registered entry of
-    # ``backend._SUPPORTED_ALGORITHMS``, so under
-    # ``nx.config.backend_priority = ["franken_networkx"]`` an unpinned call
-    # here is routed by nx's dispatcher straight back into this function, which
-    # falls back again — the documented drop-in mode recursed until
-    # ``RecursionError``. ``tournament.py`` pins the same way.
-    return _nx_community.louvain_communities(
-        _fnx._networkx_graph_for_parity(G),
-        weight=weight,
-        resolution=resolution,
-        threshold=threshold,
-        max_level=max_level,
-        seed=seed,
-        backend="networkx",
-    )
+    return deque(levels, maxlen=1).pop()
 
 
 def _louvain_native_arguments(G, weight, resolution, threshold, kernel_seed):
-    """``(resolution, threshold)`` as the Louvain kernel takes them, or
-    ``None`` when networkx must run: a graph view or subclass, a seed with no
-    MT19937 state, a non-str weight, or a resolution / threshold whose float
-    is not what networkx's arithmetic uses."""
-    if kernel_seed is None or type(G) not in (
+    """Return native parameters only when graph and RNG protocols are plain."""
+    if not _louvain_native_rng_allowed(kernel_seed) or type(G) not in (
         _fnx.Graph,
         _fnx.DiGraph,
         _fnx.MultiGraph,
         _fnx.MultiDiGraph,
     ):
+        return None
+    if _fnx._has_networkx_private_storage(G):
         return None
     resolution = _as_exact_float(resolution)
     threshold = _as_exact_float(threshold)
@@ -405,31 +420,27 @@ def louvain_partitions(
     the seed is resolved when the generator is created, ``G`` is read at the
     first resume, and each resume draws from the seed's generator only what
     networkx's would - so a caller drawing between levels sees networkx's
-    stream. Where the kernel declines, networkx's generator runs on a
-    converted graph.
+    stream. Where the kernel declines, the owned level engine reads the
+    caller's graph directly and preserves custom numeric and random protocols.
     """
     _fnx._validate_backend_dispatch_keywords(
         "louvain_partitions", backend, backend_kwargs
     )
-    kernel_seed = _fnx._kernel_seed(seed)
-    return _louvain_partition_levels(G, weight, resolution, threshold, seed, kernel_seed)
+    rng, kernel_seed = _louvain_random_sources(seed)
+    return _louvain_partition_levels(G, weight, resolution, threshold, rng, kernel_seed)
 
 
-def _louvain_partition_levels(G, weight, resolution, threshold, seed, kernel_seed):
+def _louvain_partition_levels(G, weight, resolution, threshold, rng, kernel_seed):
     # networkx's generator body: nothing runs before the first resume.
     native = _louvain_native_arguments(G, weight, resolution, threshold, kernel_seed)
     stepper = (
         None if native is None else _native_louvain_partitions_start(G, weight, *native)
     )
     if stepper is None:
-        # Pinned for the reason louvain_communities' fallback is (br-r37-c1-egjfn).
-        yield from _nx_community.louvain_partitions(
-            _fnx._networkx_graph_for_parity(G),
-            weight=weight,
-            resolution=resolution,
-            threshold=threshold,
-            seed=seed,
-            backend="networkx",
+        from franken_networkx._louvain import partitions
+
+        yield from partitions(
+            G, weight, resolution, threshold, rng, _LouvainLevelSets
         )
         return
     sets = _LouvainLevelSets(stepper.node_keys())
@@ -460,8 +471,12 @@ class _LouvainLevelSets:
         self.coms = None  # the first level's nodes are the graph's own
         self.inner = None
 
-    def level(self, moves):
-        if self.inner is not None:
+    def level(self, moves, *, nodes=None, membership=None):
+        if nodes is not None:
+            # The owned engine has a real level graph. Its constructor and
+            # node-attribute factories may define order and memberships.
+            self.nodes, self.coms = nodes, None
+        elif self.inner is not None:
             # _gen_graph of the level before: node i stands for inner[i].
             coms = self.coms
             self.coms = new_coms = []
@@ -475,7 +490,10 @@ class _LouvainLevelSets:
         inner = [{u} for u in nodes]
         for u, a, b in moves:
             node = nodes[u]
-            com = {node} if coms is None else coms[u]
+            com = (
+                membership(node) if membership is not None
+                else ({node} if coms is None else coms[u])
+            )
             partition[a].difference_update(com)
             inner[a].remove(node)
             partition[b].update(com)
