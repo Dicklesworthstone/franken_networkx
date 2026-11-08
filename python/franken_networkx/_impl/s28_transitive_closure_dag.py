@@ -218,14 +218,13 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
         )
     # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-m0cj7: a simple graph runs networkx's search natively - cutoff
-    # and target inside the search, distances typed and paths built as
-    # networkx's are, weights checked on the rows it reads after a write. It
-    # used to run an UNBOUNDED whole-graph search and filter, re-type and
-    # re-sort the result in Python (87 us beside a 32k ring for cutoff=2), and
-    # sent every float-weighted graph to networkx.
+    # All four concrete graph classes use the typed native search, with cutoff
+    # and target applied during relaxation. Directed multigraphs use its
+    # ordered minimum-parallel-edge projection, preserving the selected edge's
+    # numeric type. Their former route searched every reachable node, built all
+    # paths, and only then filtered and retyped the result in Python.
     if (
-        type(G) in (Graph, DiGraph, MultiGraph)
+        type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
         and isinstance(weight, str)
     ):
         route = _dijkstra_weight_route(G, weight)
@@ -259,77 +258,9 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
             path = paths[target]
             path[-1] = target
             return dists[target], path
-    # br-r37-c1-msd-projfix (cc): multigraphs and the rest keep the raw binding
-    # on the BORROWED ORIGINAL graph (nx's finalize order) with the Python
-    # cutoff filter and int-typing below; float/mixed, callable, negative and
-    # sync-gated weights delegate.
-    if (
-        callable(weight)
-        or _should_delegate_dijkstra_to_networkx(G, weight)
-        or (
-            _mst_has_weight_edge_attr(G, weight)
-            and not _sp_edge_weights_all_int(G, weight)
-        )
-        or _binding_self_syncs_gate(G, weight)
-    ):
-        return _multi_source_dijkstra_inproc(
-            G,
-            sources,
-            target=target,
-            cutoff=cutoff,
-            weight=weight,
-        )
-    # br-r37-c1-k4pod: pre-check membership for nx's exact wording
-    # ('Node X not found in graph') — Rust binding emits a quoted-repr
-    # variant that breaks message-matching code.
-    for s in sources:
-        if s not in G:
-            raise NodeNotFound(f"Node {s} not found in graph")
-    dists, paths = _raw_multi_source_dijkstra(G, sources, weight=weight)
-    # br-r37-c1-msd-cutnan: nx Dijkstra's cutoff check is
-    # ``if d > cutoff: continue`` so ``cutoff=NaN`` and
-    # ``cutoff=+inf`` both behave as unbounded (comparison
-    # always False → never skips).  fnx's inverse predicate
-    # ``distance <= cutoff`` is ALSO always False for NaN →
-    # filters out everything (sister of the single-source fix
-    # br-r37-c1-djk-cutnan).  Short-circuit before the filter.
-    if cutoff is not None:
-        if not (isinstance(cutoff, float) and (_math.isnan(cutoff) or cutoff == _math.inf)):
-            # nx always retains the source nodes even when
-            # ``cutoff < 0`` (sources have d=0 and the filter
-            # ``d <= cutoff`` would drop them; nx's loop adds
-            # them before applying the cutoff via the priority
-            # queue's pop order).
-            source_set = set(sources)
-            dists = {
-                node: distance for node, distance in dists.items()
-                if distance <= cutoff or node in source_set
-            }
-            paths = {node: path for node, path in paths.items() if node in dists}
-    # br-r37-c1-msd-intfloat: nx preserves int distances when
-    # every edge weight is int (path graph default = unit
-    # weight).  fnx's Rust binding casts to f64.  Mirror nx's
-    # int/float parity (sister of br-ssintfloat for single-
-    # source).
-    if _sp_edge_weights_all_int(G, weight):
-        dists = _sp_coerce_dist_to_int(dists)
-    else:
-        # br-r37-c1-srczero: per-path int-type propagation (see helper).
-        dists = _sp_propagate_int_types(G, weight, dists, paths)
-    # br-r37-c1-msd-order: nx's Dijkstra emits nodes in pop
-    # order from the priority queue → ascending distance.  fnx's
-    # Rust binding returns a dict in adjacency-walk order.
-    # Reorder by distance to match nx's iteration contract
-    # (dict order is observable in py3.7+).  Sister of the
-    # br-r37-c1-62jy2 single-source reorder.
-    order = _reorder_by_distance(dists)
-    dists = {k: dists[k] for k in order}
-    paths = {k: paths[k] for k in order if k in paths}
-    if target is not None:
-        if target not in dists:
-            raise NetworkXNoPath(f"No path to {target}.")
-        return dists[target], paths[target]
-    return dists, paths
+    return _multi_source_dijkstra_inproc(
+        G, sources, target=target, cutoff=cutoff, weight=weight
+    )
 
 
 def multi_source_dijkstra_path(G, sources, cutoff=None, weight="weight"):
@@ -377,15 +308,13 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
             G, sources, _weight_function(G, weight), cutoff=cutoff,
         )
     G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-msd-projfix (cc): the native length-only binding runs on the
-    # BORROWED ORIGINAL graph (after syncing the mirror), so its settle order is
-    # networkx's heap-pop order even on dense tie-heavy graphs.
-    # br-r37-c1-m0cj7: it now types distances as networkx does (per path) and
-    # applies cutoff inside the search, so float / mixed weights and a cutoff
-    # stay native too; after a write it checks the rows it read.
+    # A length query must never materialize source-to-node paths. On a chain,
+    # those lists contain quadratically many node references even though the
+    # requested distance dictionary is linear. Reuse the typed length-only
+    # binding for directed multigraphs as well as the other concrete classes.
     if (
         isinstance(weight, str)
-        and type(G) in (Graph, DiGraph, MultiGraph)
+        and type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
     ):
         route = _dijkstra_weight_route(G, weight)
         if route != "networkx" and not _binding_self_syncs_gate(G, weight):
@@ -401,8 +330,12 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
             return _rerun_with_weight_scan(
                 multi_source_dijkstra_path_length, G, sources, cutoff=cutoff, weight=weight
             )
-    dists, _ = multi_source_dijkstra(G, sources, cutoff=cutoff, weight=weight)
-    return dists
+    for source in sources:
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+    return _dijkstra_multisource_inproc(
+        G, sources, _weight_function(G, weight), cutoff=cutoff
+    )
 
 
 def _build_paths_from_predecessors(sources, target, pred):
