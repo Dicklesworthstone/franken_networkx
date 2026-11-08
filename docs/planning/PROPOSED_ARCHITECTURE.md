@@ -73,6 +73,14 @@ Implementation protocol:
 
 ## 6. Conformance Contract
 
+The Python capacity-scaling flow seam owns an indexed residual network in
+`_capacity_scaling.py`. Node imbalances/potentials and paired residual arcs
+live in arrays; ordered neighbor groups retain the public tie-break contract.
+The wrapper preserves caller graph and heap protocols, and the solver neither
+constructs a NetworkX residual graph nor substitutes the simplex algorithm.
+This module isolates the algorithm from graph storage and provides a future
+native-kernel boundary without changing the public API.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

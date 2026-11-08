@@ -191,8 +191,9 @@ def capacity_scaling(
 ):
     """Find minimum cost flow using capacity scaling.
 
-    This is an alias for ``min_cost_flow`` — the successive shortest
-    paths implementation provides the same optimality guarantees.
+    Runs a capacity-scaling successive shortest augmenting path solver over
+    an indexed residual network. Parallel arcs retain their keys and each
+    search uses the supplied heap implementation.
 
     Parameters
     ----------
@@ -200,9 +201,8 @@ def capacity_scaling(
     demand, capacity, weight : str, optional
     heap : class, optional
         Heap class. Default ``networkx.utils.heaps.BinaryHeap`` so the
-        introspectable signature matches nx exactly. The fnx
-        implementation manages its own heap; the kwarg is accepted
-        for API drop-in compatibility.
+        introspectable signature matches nx exactly. A custom heap must
+        implement the NetworkX MinHeap interface.
 
     Returns
     -------
@@ -210,46 +210,13 @@ def capacity_scaling(
         ``(flowCost, flowDict)`` matching NetworkX's return signature.
     """
     _validate_backend_dispatch_keywords("capacity_scaling", backend, backend_kwargs)
-    # br-r37-c1-3qt4m: nx's @not_implemented_for('undirected') on
-    # capacity_scaling raises NetworkXNotImplemented before the
-    # network_simplex empty-graph check.  Match the ordering.
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-    # br-r37-c1-kpaki: nx's capacity_scaling uses its own path that
-    # returns (0, {}) on empty input — it does NOT raise the
-    # network_simplex "graph has no nodes" error min_cost_flow now
-    # surfaces.  Match nx by short-circuiting before delegating.
-    if len(G) == 0:
-        return 0, {}
-    try:
-        flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
-    except NetworkXUnfeasible as exc:
-        # br-r37-c1-8lsax: nx's capacity_scaling and network_simplex
-        # raise NetworkXUnfeasible with DIFFERENT wording — capacity_
-        # scaling uses "No flow satisfying all demands." (cap+period),
-        # network_simplex uses "no flow satisfies all node demands".
-        # min_cost_flow shares the network_simplex wording; translate
-        # at this boundary so caller message-matching code aligns.
-        msg = str(exc)
-        if msg == "no flow satisfies all node demands":
-            raise NetworkXUnfeasible("No flow satisfying all demands.") from None
-        raise
-    # br-r37-c1-33ctq: nx's capacity_scaling adds flow * weight to the int 0 only
-    # where flow moves, so an edge carrying none never makes the cost a float
-    # (cost_of_flow scores every edge, and 0 * 1.5 is 0.0).
-    if G.is_multigraph():
-        cost = sum(
-            flow[u][v][key] * data.get(weight, 0)
-            for u, v, key, data in G.edges(keys=True, data=True)
-            if flow[u][v][key]
-        )
-    else:
-        cost = sum(
-            flow[u][v] * data.get(weight, 0)
-            for u, v, data in G.edges(data=True)
-            if flow[u][v]
-        )
-    return cost, flow
+    from ._capacity_scaling import capacity_scaling as _capacity_scaling
+
+    if heap is _BINARY_HEAP_DEFAULT:
+        from franken_networkx.utils import BinaryHeap
+
+        heap = BinaryHeap
+    return _capacity_scaling(G, demand, capacity, weight, heap)
 
 
 def _validate_network_simplex_inputs(G, demand, capacity, weight):

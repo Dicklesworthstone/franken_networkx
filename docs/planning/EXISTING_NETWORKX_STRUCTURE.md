@@ -603,6 +603,38 @@ Regression cases are in
 `test_custom_flow_solver_owns_input_validation`.
 
 
+### 23.2 Capacity-scaling minimum-cost flow
+
+`capacity_scaling` is a successive shortest augmenting path algorithm with
+decreasing powers-of-two residual-capacity thresholds. It is not an alias
+for network simplex: equivalent optimal costs do not imply the same flow
+assignment, heap callbacks, or validation contract.
+
+- Directed simple and multigraph inputs retain node, neighbor, and parallel
+  arc order. A residual arc has an independent reverse arc, including when
+  the input already contains an antiparallel edge.
+- The exact sum of demands must be zero; the failure message is
+  `Sum of the demands should be 0.`. Nonpositive capacities are excluded
+  from the residual and remain zero in the result.
+- Missing capacities are infinite. Infinite-capacity negative cycles,
+  including self-loops, raise `NetworkXUnbounded`; finite negative loops
+  saturate and contribute to cost. No floating-point conversion is allowed.
+- Each scaling phase saturates negative reduced-cost residual arcs,
+  searches from active supply nodes to active deficit nodes, and updates
+  node potentials after each successful augmentation. Equal-cost arc and
+  heap order are observable through the returned flow dictionary.
+- A caller-supplied MinHeap-compatible class is instantiated for each
+  search, receives original node labels, and owns its errors and callbacks.
+- Cost includes positive residual flows and negative self-loops. Unused
+  float-weighted edges do not convert an integer cost to float.
+- Empty residuals retain the upstream early-return behavior; otherwise
+  any remaining imbalance raises `No flow satisfying all demands.`.
+
+The owned implementation uses paired arc arrays and ordered neighbor groups
+in `_capacity_scaling.py`; its public wrapper validates backend keywords.
+Differential contracts live in `test_capacity_scaling_solver.py`.
+
+
 ## 24. Bethe Hessian Matrix Selection Contract
 
 For an undirected simple graph, `bethe_hessian_matrix(G, r, nodelist)`
