@@ -678,6 +678,130 @@ def test_edge_betweenness_centrality_subset_backend_keyword_surface_matches_netw
         )
 
 
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight", lambda u, v, data: 1])
+def test_subset_betweenness_consumes_one_shot_targets_once(algorithm, graph_class, weight):
+    reference = getattr(nx, graph_class)([(0, 1), (1, 2), (2, 3)])
+    graph = getattr(fnx, graph_class)([(0, 1), (1, 2), (2, 3)])
+
+    expected = getattr(nx, algorithm)(reference, [0, 1], iter([3]), weight=weight)
+    actual = getattr(fnx, algorithm)(graph, [0, 1], iter([3]), weight=weight)
+    assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_subset_betweenness_preserves_shared_selection_iterator(algorithm, graph_class):
+    def run(library):
+        graph = getattr(library, graph_class)([(0, 1), (1, 2), (2, 3)])
+        selection = iter([0, 1, 2, 3])
+        return getattr(library, algorithm)(graph, selection, selection)
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_subset_betweenness_interleaves_lazy_sources_and_weight_changes(
+    algorithm, graph_class
+):
+    def run(library):
+        graph = getattr(library, graph_class)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 3, 1), (0, 2, 1), (2, 3, 5)])
+
+        def sources():
+            yield 0
+            attrs = graph[2][3][0] if graph.is_multigraph() else graph[2][3]
+            attrs["weight"] = 1
+            yield 1
+
+        return getattr(library, algorithm)(graph, sources(), [3], weight="weight")
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+def test_subset_betweenness_weight_callbacks_keep_selection_lists_live(algorithm):
+    def run(library):
+        graph = library.DiGraph([(0, 1), (1, 2), (2, 3)])
+        sources, targets, calls = [0], [3], []
+
+        def weight(u, v, data):
+            calls.append((u, v))
+            if len(calls) == 1:
+                sources.append(1)
+                targets[:] = [2]
+            return 1
+
+        result = getattr(library, algorithm)(graph, sources, targets, weight=weight)
+        return result, calls
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+def test_subset_betweenness_empty_sources_do_not_consume_targets(algorithm):
+    def targets():
+        raise AssertionError("empty sources must not consume targets")
+        yield 3
+
+    reference = nx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    expected = getattr(nx, algorithm)(reference, [], targets())
+    assert getattr(fnx, algorithm)(graph, [], targets()) == expected
+    assert getattr(fnx, algorithm)(graph, [], [[3]]) == expected
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("sources", [[99], [0, 99], [[0]]])
+def test_subset_betweenness_validates_each_search_before_its_targets(algorithm, sources):
+    reference = nx.DiGraph([(0, 1), (1, 2)])
+    graph = fnx.DiGraph([(0, 1), (1, 2)])
+    with pytest.raises((KeyError, TypeError)) as expected:
+        getattr(nx, algorithm)(reference, sources, [[2]])
+    with pytest.raises(type(expected.value)) as actual:
+        getattr(fnx, algorithm)(graph, sources, [[2]])
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("sequence", [list, tuple])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_subset_betweenness_reusable_sequences_retain_native_route(
+    monkeypatch, algorithm, sequence, weight
+):
+    reference = nx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    expected = getattr(nx, algorithm)(reference, [0, 1], [3], weight=weight)
+    raw_name = f"_{algorithm}{'_weighted' if weight is not None else ''}_rust"
+    raw = getattr(fnx, raw_name)
+    calls = []
+
+    def record(*args, **kwargs):
+        calls.append(True)
+        return raw(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, raw_name, record)
+    result = getattr(fnx, algorithm)(graph, sequence([0, 1]), sequence([3]), weight=weight)
+    assert result == expected
+    assert calls == [True]
+
+
 def test_communicability_betweenness_centrality_matches_networkx():
     graph = fnx.path_graph(4)
 

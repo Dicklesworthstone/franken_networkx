@@ -82,6 +82,37 @@ def current_flow_closeness_centrality(
     return {node: float(1.0 / centrality_arr[rank[node]]) for node in G}
 
 
+def _subset_betweenness_uses_live_python_rows(G, sources, targets, weight):
+    """Keep iterable consumption interleaved with each source's traversal.
+
+    The native batch kernels need reusable source/target sequences. A target
+    iterator is consumed by the first source's dependency accumulation, and a
+    source iterator can change weights between searches. Weight callbacks may
+    also mutate a supplied list, so their selections must stay live too.
+
+    Invalid selections use the Python traversal to preserve validation order:
+    an empty source set never touches targets, and a source's search runs before
+    its targets are hashed. Native kernels otherwise ignore invalid labels.
+    """
+    if (
+        type(sources) not in (list, tuple)
+        or type(targets) not in (list, tuple)
+        or not sources
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
+        return True
+    try:
+        for source in sources:
+            _HASH_PROBE.get(source)
+            if source not in G:
+                return True
+        for target in targets:
+            _HASH_PROBE.get(target)
+    except TypeError:
+        return True
+    return False
+
+
 def betweenness_centrality_subset(
     G,
     sources,
@@ -99,29 +130,9 @@ def betweenness_centrality_subset(
         backend_kwargs,
     )
 
-    # br-r37-c1-tm1tq: nx hashes each source/target into a dict /
-    # tuple-iter — raises ``TypeError: unhashable type`` on the
-    # first unhashable element.  fnx's Rust binding silently
-    # ignored unhashable members.  Materialize and hash-validate
-    # both lists to match nx's contract.
-    sources = list(sources)
-    targets = list(targets)
-    for s in sources:
-        _HASH_PROBE.get(s)
-    for t in targets:
-        _HASH_PROBE.get(t)
-    # br-r37-c1-bcs-bad-src: nx's SSSP raises KeyError when called
-    # with a source not in G (it tries to index ``predecessors[s]``
-    # before the source is initialized).  fnx's Rust binding
-    # silently treated unknown sources as no-op contributions and
-    # returned an all-zero dict, masking the contract.  Targets are
-    # not validated by nx (absence just yields zeros for those
-    # paths) — match that asymmetry.
-    for s in sources:
-        if s not in G:
-            raise KeyError(s)
-
-    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    live_rows = _subset_betweenness_uses_live_python_rows(
+        G, sources, targets, weight
+    )
     if not live_rows and isinstance(weight, str) and not G.is_multigraph():
         G = _coerce_arg_to_fnx_graph(G)
 
@@ -184,23 +195,9 @@ def edge_betweenness_centrality_subset(
         backend_kwargs,
     )
 
-    # br-r37-c1-39gx2: nx hashes each source/target into a dict —
-    # raises TypeError on the first unhashable element.  Without
-    # this check fnx silently ignores unhashable members.  Mirror
-    # the fix already in betweenness_centrality_subset (br-r37-c1-tm1tq).
-    sources = list(sources)
-    targets = list(targets)
-    for s in sources:
-        _HASH_PROBE.get(s)
-    for t in targets:
-        _HASH_PROBE.get(t)
-    # br-r37-c1-bcs-bad-src: nx's SSSP raises KeyError on sources
-    # not in G; mirror the betweenness_centrality_subset fix.
-    for s in sources:
-        if s not in G:
-            raise KeyError(s)
-
-    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    live_rows = _subset_betweenness_uses_live_python_rows(
+        G, sources, targets, weight
+    )
     if not live_rows and isinstance(weight, str) and not G.is_multigraph():
         G = _coerce_arg_to_fnx_graph(G)
 
