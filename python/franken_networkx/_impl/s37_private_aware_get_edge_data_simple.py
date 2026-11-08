@@ -799,6 +799,80 @@ _MULTIGRAPH_RAW_REDUCE_EX = MultiGraph.__reduce_ex__
 _MULTIDIGRAPH_RAW_REDUCE_EX = MultiDiGraph.__reduce_ex__
 
 
+def _graph_pickle_native_class(graph):
+    for cls in type(graph).__mro__:
+        if cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+            return cls
+    raise TypeError("Expected a FrankenNetworkX graph")
+
+
+def _graph_pickle_stores(graph):
+    """Expose logical storage without copying user attribute dictionaries.
+
+    Native facades need materialization; assigned mappings already are the
+    storage and must retain their own pickle protocols. Remember facade objects
+    while walking, including shared multigraph key dictionaries, so their ids
+    cannot be reused and undirected/successor/predecessor sharing is retained.
+    """
+    materialized = {}
+
+    def mapping(source, depth):
+        if isinstance(source, dict):
+            return source
+        previous = materialized.get(id(source))
+        if previous is not None:
+            return previous[1]
+        target = {}
+        materialized[id(source)] = (source, target)
+        for key, value in source.items():
+            target[key] = mapping(value, depth - 1) if depth > 1 else value
+        return target
+
+    assigned = _captured_private_overrides(graph)
+    node_source = graph._node
+    adj_source = graph._adj
+    nodes = node_source if "_node" in assigned else mapping(node_source, 1)
+    depth = 3 if graph.is_multigraph() else 2
+    adjacency = (
+        adj_source
+        if {"_adj", "_succ"} & assigned.keys()
+        else mapping(adj_source, depth)
+    )
+    stores = [(_PRIVATE_NODE_OVERRIDE, nodes), (_PRIVATE_ADJ_OVERRIDE, adjacency)]
+    if graph.is_directed():
+        succ_source = graph._succ
+        successors = succ_source if "_succ" in assigned else adjacency
+        pred_source = graph._pred
+        predecessors = (
+            pred_source if "_pred" in assigned else mapping(pred_source, depth)
+        )
+        stores.extend(
+            (
+                (_PRIVATE_SUCC_OVERRIDE, successors),
+                (_PRIVATE_PRED_OVERRIDE, predecessors),
+            )
+        )
+    return stores
+
+
+def _restore_graph_pickle_state(graph, state):
+    """Restore only after pickle has memoized the allocated graph."""
+    # Reset the native policy without rebuilding logical dictionaries. Native
+    # __setstate__ copies those dictionaries and would sever aliases to objects
+    # elsewhere in the same pickle, even when every attribute is a scalar.
+    native_class = _graph_pickle_native_class(graph)
+    native_class.__setstate__(graph, state["native"])
+    setattr(graph, _GRAPH_ATTR_OVERRIDE, state["graph"])
+    _set_private_overrides(graph, state["stores"])
+    if state["frozen"]:
+        freeze(graph)
+    # Default Python object reconstruction updates __dict__ without rerunning
+    # __init__ or invoking user attribute setters. Preserve that distinction.
+    vars(graph).update(state["instance"])
+    for owner, name, value in state["slots"]:
+        vars(owner)[name].__set__(graph, value)
+
+
 def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
     def _reduce_ex(self, protocol=2):
         # br-r37-c1-ish29 follow-up: _FilteredGraphView has its own
@@ -813,47 +887,75 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
             self, (_FilteredGraphView, _ConversionGraphViewBase, _ReverseDirectedViewBase)
         ):
             return self.__reduce__()
+
+        native_class = _graph_pickle_native_class(self)
+        # A subclass that supplies its own persistence protocol owns its state.
+        # In particular, do not swallow exceptions or replace a custom reducer's
+        # state/iterator/state-setter fields with our ordinary graph snapshot.
+        for cls in type(self).__mro__:
+            if cls is native_class:
+                break
+            if any(name in vars(cls) for name in ("__reduce__", "__getstate__", "__setstate__")):
+                return raw_reduce_ex(self, protocol)
+
+        # The native base's default reduction supplies the correct allocation
+        # function and __getnewargs[_ex__] arguments. Its protocol-0/1 path cannot
+        # allocate a PyO3 class, but the ordinary __newobj__ reduction is valid as
+        # a REDUCE operation in those protocols too. Do not call cls(*args): that
+        # reruns user initialization and fails for required constructor arguments.
+        inner = raw_reduce_ex(self, max(protocol, 2))
         target = vars(self).get(_SHARED_STORAGE_SOURCE, self)
-        inner = raw_reduce_ex(target, protocol)
-        if isinstance(inner, tuple) and len(inner) >= 2:
-            reconstructor = inner[0]
-            if reconstructor is copyreg.__newobj__:
-                cls = inner[1][0]
-                rest_args = inner[1][1:]
-                normalized = (cls, rest_args) + inner[2:]
-            else:
-                normalized = inner
-        else:
-            normalized = inner
-        was_frozen = bool(getattr(self, "frozen", False))
-        # br-r37-c1-8nz0x: capture custom Python-side __dict__ attrs
-        # the user set on the graph (e.g. ``g.custom_attr = 'x'``) so
-        # they survive pickle, matching nx's __dict__ preservation.
-        extra = {}
-        # br-r37-c1-wbwkb: skip views memoised under their public name by
-        # ``_CachedViewDescriptor`` — see the matching note in _graph_deepcopy.
-        descriptor_cached = vars(self).get(_DESCRIPTOR_CACHED_VIEWS) or ()
-        private_method_shadows = (
-            vars(self).get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
+        native_state = (
+            inner[2] if target is self else native_class.__getstate__(target)
         )
-        for key, val in vars(self).items():
-            if key.startswith("_fnx_") or key in descriptor_cached:
+        native_policy = {
+            key: native_state[key]
+            for key in ("mode", "runtime_policy")
+            if key in native_state
+        }
+
+        extra = {}
+        storage = vars(self)
+        descriptor_cached = storage.get(_DESCRIPTOR_CACHED_VIEWS) or ()
+        private_method_shadows = storage.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
+        for key, val in storage.items():
+            if (isinstance(key, str) and key.startswith("_fnx_")) or key in descriptor_cached:
                 continue
             if key in private_method_shadows and val is private_method_shadows[key]:
                 continue
-            if key == "frozen":
-                # Handled separately so the freeze() re-application
-                # also restores the mutator overrides.
-                continue
             extra[key] = val
-        # br-r37-c1-s8obc: carry assigned private stores under their PUBLIC
-        # names. The reconstructor applies ``extra`` with setattr, so the
-        # interception that stashed them in the first place runs again on the
-        # unpickled graph and rebuilds its method shadows.
-        extra.update(_captured_private_overrides(self))
+
+        slots = []
+        for cls in type(self).__mro__:
+            names = vars(cls).get("__slots__", ())
+            if isinstance(names, str):
+                names = (names,)
+            for name in names:
+                if name in ("__dict__", "__weakref__"):
+                    continue
+                class_name = cls.__name__.lstrip("_")
+                if class_name and name.startswith("__") and not name.endswith("__"):
+                    name = f"_{class_name}{name}"
+                try:
+                    value = vars(cls)[name].__get__(self, type(self))
+                except AttributeError:
+                    continue
+                slots.append((cls, name, value))
+
+        state = {
+            "native": native_policy,
+            "graph": self.graph,
+            "stores": _graph_pickle_stores(self),
+            "instance": extra,
+            "slots": slots,
+            "frozen": bool(getattr(self, "frozen", False)),
+        }
+        # State belongs in the third field: pickle memoizes the allocation before
+        # walking it. Embedding state in constructor arguments loses self-links
+        # or recurses forever. The explicit setter works for every pickle protocol
+        # and leaves the native __setstate__ entry point available for old states.
         return (
-            _reconstruct_graph_preserving_frozen,
-            (normalized, was_frozen, extra or None),
+            inner[0], inner[1], state, None, None, _restore_graph_pickle_state,
         )
     return _reduce_ex
 
@@ -862,6 +964,81 @@ Graph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_GRAPH_RAW_REDUCE_EX)
 DiGraph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_DIGRAPH_RAW_REDUCE_EX)
 MultiGraph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_MULTIGRAPH_RAW_REDUCE_EX)
 MultiDiGraph.__reduce_ex__ = _make_reduce_ex_preserving_frozen(_MULTIDIGRAPH_RAW_REDUCE_EX)
+
+
+def _allocate_graph_pickle_view(view_class):
+    # Allocate before walking the owner/state. A graph attribute may contain
+    # this same view, so its graph need not have been restored yet.
+    return object.__new__(view_class)
+
+
+def _graph_pickle_edge_view_reduce(self):
+    graph = self._graph
+    if graph.is_multigraph():
+        view_class = (
+            _AssignedPrivateOutMultiEdgeView
+            if graph.is_directed()
+            else _AssignedPrivateMultiEdgeView
+        )
+    else:
+        view_class = _AssignedPrivateOutEdgeView
+    state = {
+        key: value
+        for key, value in vars(self).items()
+        if not (isinstance(key, str) and key.startswith("_fnx_"))
+    }
+    return (_allocate_graph_pickle_view, (view_class,), state)
+
+
+def _graph_pickle_degree_view_reduce(self):
+    view_class = (
+        _AssignedDiMultiDegreeView
+        if self._graph.is_directed()
+        else _AssignedMultiDegreeView
+    )
+    state = vars(self).copy()
+    state.pop("_raw_base_view", None)
+    state.pop("_fnx_nodes_seq", None)
+    # These existing logical views can read the graph without a bound native
+    # degree object. Leave their optional direct-mapping cache empty: binding
+    # it now would inspect a possibly unfinished graph in an owner/view cycle.
+    state.update(
+        _fast_directed=self._graph.is_directed(),
+        _fast_multi=True,
+        _fast_map=None,
+        _fast_pred=None,
+    )
+    return (_allocate_graph_pickle_view, (view_class,), state)
+
+
+def _graph_pickle_directional_degree_reduce(self):
+    state = vars(self).copy()
+    for key in ("_fast_degree", "_fnx_member_of", "_fnx_nodes_seq"):
+        state.pop(key, None)
+    return (_allocate_graph_pickle_view, (type(self),), state)
+
+
+def _graph_pickle_directional_degree_setstate(self, state):
+    vars(self).update(state)
+    self._fast_degree = None
+    self._fnx_private_storage = True
+    self._fnx_nodes_seq = getattr(self._graph, "nodes_seq", None)
+    # The owner may still be waiting for its pickle state. Resolve successor
+    # membership when the view is used, after that owner has its logical rows.
+    # The reducer omits this runtime-only proxy, so repickling remains safe.
+    self._fnx_member_of = AdjacencyView(lambda: self._graph._succ)
+
+
+# Restored graphs own Python dictionaries. Native-only view classes must not
+# retain a raw edge/degree reader against their now-empty native backing store.
+# Keep the established public view names and APIs through the logical readers.
+_DiGraphEdgeView.__reduce__ = _graph_pickle_edge_view_reduce
+_MultiGraphEdgeView.__reduce__ = _graph_pickle_edge_view_reduce
+_MultiDiGraphEdgeView.__reduce__ = _graph_pickle_edge_view_reduce
+MultiGraphDegreeView.__reduce__ = _graph_pickle_degree_view_reduce
+MultiDiGraphDegreeView.__reduce__ = _graph_pickle_degree_view_reduce
+_DirectedDegreeView.__reduce__ = _graph_pickle_directional_degree_reduce
+_DirectedDegreeView.__setstate__ = _graph_pickle_directional_degree_setstate
 
 
 def _reconstruct_filtered_view_as_copy(graph_copy):

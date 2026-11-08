@@ -469,8 +469,10 @@ def test_multi_degree_cached_raw_base_stays_live_and_pickle_safe(graph_class):
     # ast-grep-ignore: trusted in-memory pickle round-trip fixture
     restored = pickle.loads(pickle.dumps(view))  # nosec B301
     deepcopied = copy.deepcopy(view)
-    assert restored._raw_base_view is not raw_base
-    assert deepcopied._raw_base_view is not raw_base
+    # Restored owners use logical dictionaries so their views must follow that
+    # storage instead of retaining a native-only degree reader.
+    assert restored._graph is not graph
+    assert deepcopied._graph is not graph
     assert dict(restored) == dict(view)
     assert dict(deepcopied) == dict(view)
 

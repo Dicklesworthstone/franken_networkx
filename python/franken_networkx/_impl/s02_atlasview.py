@@ -496,7 +496,9 @@ class _MultiEdgeKeydict(dict):
         return self
 
     def __reduce__(self):
-        return (dict, (dict(self),))
+        # An edge payload may refer back to this parallel-edge dictionary.
+        # Serialize entries only after pickle has memoized the empty result.
+        return (dict, (), None, None, iter(dict.items(self)))
 
 
 _fnx._set_multigraph_keydict_class(_MultiEdgeKeydict)
@@ -566,7 +568,10 @@ class _EdgeAttrDict(dict):
         return self
 
     def __reduce__(self):
-        return (dict, (dict(self),))
+        # Allocate and memoize the result before serializing its contents.
+        # Constructor arguments cannot represent a dictionary that contains
+        # itself, directly or through its graph/other attribute dictionaries.
+        return (dict, (), None, None, iter(dict.items(self)))
 
     def __deepcopy__(self, memo):
         # br-r37-c1-uwvq4: what copy.deepcopy makes of networkx's plain dict

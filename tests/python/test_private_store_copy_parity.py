@@ -134,15 +134,20 @@ def test_clone_shadows_are_bound_to_the_clone_not_the_source(clone_fn):
     assert clone_shadows is not vars(graph).get("_fnx_private_node_method_shadows")
 
 
-def test_graph_without_private_store_is_unaffected():
-    """The ordinary path must not change — no override, nothing re-applied."""
+def test_graph_without_private_store_keeps_public_copy_behavior():
+    """Native copies stay native; pickle retains dictionaries for outer aliases."""
     graph = fnx.Graph()
     graph.add_edges_from([(0, 1), (1, 2)])
 
     round_trip = pickle.loads(pickle.dumps(graph))  # nosec B301  # ubs:ignore - self-dumped
-    for clone in (copy.copy(graph), copy.deepcopy(graph), round_trip):
+    native_copies = (copy.copy(graph), copy.deepcopy(graph))
+    for clone in (*native_copies, round_trip):
         assert sorted(clone.nodes()) == [0, 1, 2]
         assert sorted(map(sorted, clone.edges())) == [[0, 1], [1, 2]]
+        clone.add_edge(2, 3)
+        assert sorted(clone.nodes()) == [0, 1, 2, 3]
+        assert graph.number_of_nodes() == 3
+    for clone in native_copies:
         assert "_fnx_private_node_override" not in vars(clone)
 
 
