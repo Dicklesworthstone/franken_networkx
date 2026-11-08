@@ -8,9 +8,8 @@ catch-all instead of the documented per-arg surface, and worse, the
 native fast path didn't fire — leaving drop-in callers with no way to
 get a bounded-time result.
 
-Aligned: signatures now spell out every nx parameter explicitly, and
-the timeout branch delegates to networkx so the iterative algorithm
-honours the cutoff.
+Signatures spell out every nx parameter explicitly. The owned incremental
+search now honors the timeout without delegating to NetworkX.
 """
 
 from __future__ import annotations
@@ -56,18 +55,16 @@ def test_signature_parameter_list_matches_networkx(name):
 
 
 @needs_nx
-def test_graph_edit_distance_timeout_raises_not_implemented():
-    """fnx's contract is to NOT fall back to nx for the timeout-cutoff
-    iterative path (test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback
-    locks this). The native exact-paths algorithm doesn't honour
-    timeout, so the call surfaces NetworkXNotImplemented when the
-    fast path can't handle the input."""
-    # complete_graph(7) is large enough to exceed the native fast path,
-    # forcing the iterative branch where timeout would apply.
+def test_graph_edit_distance_timeout_uses_owned_search(monkeypatch):
+    def unexpected_fallback(*args, **kwargs):
+        raise AssertionError("timed edit search must remain locally owned")
+
+    monkeypatch.setattr(nx, "graph_edit_distance", unexpected_fallback)
+    monkeypatch.setattr(nx, "optimize_edit_paths", unexpected_fallback)
+    monkeypatch.setattr(fnx, "_graph_edit_distance_common_rust", unexpected_fallback)
     G1 = fnx.complete_graph(7)
     G2 = fnx.complete_graph(7)
-    with pytest.raises(fnx.NetworkXNotImplemented):
-        fnx.graph_edit_distance(G1, G2, timeout=1.0)
+    assert fnx.graph_edit_distance(G1, G2, timeout=1.0) == 0.0
 
 
 @needs_nx
@@ -108,16 +105,18 @@ def test_optimize_edit_paths_yields_same_node_path_count_as_networkx():
 
 
 @needs_nx
-def test_optimize_edit_paths_timeout_raises_not_implemented():
-    """Same policy as graph_edit_distance: timeout requires the
-    iterative algorithm, which fnx doesn't have, and project contract
-    forbids falling back to nx
-    (test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback
-    locks this)."""
+def test_optimize_edit_paths_timeout_uses_owned_search(monkeypatch):
+    def unexpected_fallback(*args, **kwargs):
+        raise AssertionError("timed edit search must remain locally owned")
+
+    monkeypatch.setattr(nx, "optimize_edit_paths", unexpected_fallback)
+    monkeypatch.setattr(fnx, "_graph_edit_distance_common_rust", unexpected_fallback)
     G1 = fnx.complete_graph(7)
     G2 = fnx.complete_graph(7)
-    with pytest.raises(fnx.NetworkXNotImplemented):
-        list(fnx.optimize_edit_paths(G1, G2, timeout=1.0))
+    paths = list(fnx.optimize_edit_paths(G1, G2, timeout=1.0))
+    assert [cost for _, _, cost in paths] == [0.0]
+    assert len(paths[0][0]) == 7
+    assert len(paths[0][1]) == 21
 
 
 @needs_nx

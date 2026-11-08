@@ -841,9 +841,6 @@ def panther_similarity(
     return result
 
 
-_PY_GRAPH_EDIT_DISTANCE_MAX_NODES = 8
-
-
 def _graph_edit_node_subst_cost(
     G1,
     G2,
@@ -899,7 +896,7 @@ def _graph_edit_edge_ins_cost(G, edge, edge_ins_cost):
     return 1 if edge_ins_cost is None else edge_ins_cost(_graph_edit_edge_attrs(G, edge))
 
 
-def _graph_edit_exact_paths_python(
+def _graph_edit_search_python(
     G1,
     G2,
     *,
@@ -913,123 +910,218 @@ def _graph_edit_exact_paths_python(
     edge_ins_cost=None,
     upper_bound=None,
     roots=None,
+    strictly_decreasing=True,
+    timeout=None,
 ):
+    """Yield improving simple-graph edit scripts from an iterative exact search.
+
+    A state assigns each visited left node to a distinct right node or to a
+    deletion. Edges become final when both endpoints have been assigned.
+    Remaining node-edit minima and edge-count imbalance are admissible lower
+    bounds; they never assume that independently cheapest matches are distinct.
+    """
+    from time import perf_counter
+
     if G1.is_multigraph() or G2.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G1.is_directed() != G2.is_directed():
         raise NetworkXError("G1 and G2 must be both directed or both undirected")
-    if G1.number_of_nodes() + G2.number_of_nodes() > _PY_GRAPH_EDIT_DISTANCE_MAX_NODES:
-        raise NetworkXNotImplemented(
-            "local optimal_edit_paths is bounded to small simple graphs",
-        )
 
-    left_nodes = list(G1.nodes())
-    right_nodes = list(G2.nodes())
-    left_edges = list(G1.edges())
-    right_edges = list(G2.edges())
-    best_cost = _math.inf
-    best_mappings = []
-    initial_mapping = {}
-
+    left_nodes, right_nodes = list(G1), list(G2)
+    n, m = len(left_nodes), len(right_nodes)
+    left_index = {node: i for i, node in enumerate(left_nodes)}
+    right_index = {node: j for j, node in enumerate(right_nodes)}
+    root_pair = None
     if roots is not None:
         root_left, root_right = roots
         if root_left not in G1 or root_right not in G2:
             raise NodeNotFound("Root node not in graph.")
-        initial_mapping[root_left] = root_right
-        left_nodes = [node for node in left_nodes if node != root_left]
-        right_nodes = [node for node in right_nodes if node != root_right]
+        root_pair = left_index[root_left], right_index[root_right]
 
-    def evaluate(mapping):
-        matched_right_nodes = set(mapping.values())
-        # br-r37-c1-ged-flt: nx's graph_edit_distance always returns
-        # ``float`` (the recursive minimization in nx uses ``min`` over
-        # float costs so int-zero never bubbles up).  fnx's local
-        # accumulator started at int 0 and stayed int when all costs
-        # were zero (identical graphs with ``roots=`` set).  Initialize
-        # at ``0.0`` so the type matches nx.
-        cost = 0.0
-        for left, right in mapping.items():
-            cost += _graph_edit_node_subst_cost(
-                G1,
-                G2,
-                left,
-                right,
-                node_match,
-                node_subst_cost,
-            )
-        for left in left_nodes:
-            if left not in mapping:
-                cost += _graph_edit_node_del_cost(G1, left, node_del_cost)
-        for right in right_nodes:
-            if right not in matched_right_nodes:
-                cost += _graph_edit_node_ins_cost(G2, right, node_ins_cost)
+    left_edges = list(G1.edges())
+    right_edges = list(G2.edges())
+    directed = G1.is_directed()
 
-        matched_right_edges = set()
-        for left_edge in left_edges:
-            left_u, left_v = left_edge
-            right_u = mapping.get(left_u)
-            right_v = mapping.get(left_v)
-            if right_u is not None and right_v is not None and G2.has_edge(right_u, right_v):
-                right_edge = (right_u, right_v)
-                subst_cost = _graph_edit_edge_subst_cost(
-                    G1,
-                    G2,
-                    left_edge,
-                    right_edge,
-                    edge_match,
-                    edge_subst_cost,
-                )
-                edit_as_delete_insert = _graph_edit_edge_del_cost(
-                    G1,
-                    left_edge,
-                    edge_del_cost,
-                ) + _graph_edit_edge_ins_cost(G2, right_edge, edge_ins_cost)
-                cost += min(subst_cost, edit_as_delete_insert)
-                matched_right_edges.add(_graph_edit_distance_edge_key(G2, right_edge))
-            else:
-                cost += _graph_edit_edge_del_cost(G1, left_edge, edge_del_cost)
+    def pair(u, v):
+        return (u, v) if directed or u <= v else (v, u)
 
-        for right_edge in right_edges:
-            if _graph_edit_distance_edge_key(G2, right_edge) not in matched_right_edges:
-                cost += _graph_edit_edge_ins_cost(G2, right_edge, edge_ins_cost)
-        return cost
+    left_pairs = [(left_index[u], left_index[v]) for u, v in left_edges]
+    right_pairs = [(right_index[u], right_index[v]) for u, v in right_edges]
+    left_lookup = {pair(u, v): e for e, (u, v) in enumerate(left_pairs)}
+    right_lookup = {pair(u, v): e for e, (u, v) in enumerate(right_pairs)}
+    left_incident, right_incident = [[] for _ in left_nodes], [[] for _ in right_nodes]
+    for edges, incident in ((left_pairs, left_incident), (right_pairs, right_incident)):
+        for e, (u, v) in enumerate(edges):
+            incident[u].append(e)
+            if u != v:
+                incident[v].append(e)
 
-    def search(index, available_right, mapping):
-        nonlocal best_cost, best_mappings
-        if index == len(left_nodes):
-            cost = evaluate(mapping)
-            if upper_bound is not None and cost > upper_bound:
-                return
-            if cost < best_cost:
-                best_cost = cost
-                best_mappings = [dict(mapping)]
-            elif cost == best_cost:
-                best_mappings.append(dict(mapping))
-            return
+    # Resolve callbacks once, before the search clock starts. Default zero
+    # substitution costs need no quadratic matrix, even on large graphs.
+    node_sub = None if node_match is None and node_subst_cost is None else [
+        [float(_graph_edit_node_subst_cost(G1, G2, u, v, node_match, node_subst_cost))
+         for v in right_nodes] for u in left_nodes
+    ]
+    node_del = [float(_graph_edit_node_del_cost(G1, u, node_del_cost)) for u in left_nodes]
+    node_ins = [float(_graph_edit_node_ins_cost(G2, v, node_ins_cost)) for v in right_nodes]
+    edge_sub = None if edge_match is None and edge_subst_cost is None else [
+        [float(_graph_edit_edge_subst_cost(G1, G2, e, f, edge_match, edge_subst_cost))
+         for f in right_edges] for e in left_edges
+    ]
+    edge_del = [float(_graph_edit_edge_del_cost(G1, e, edge_del_cost)) for e in left_edges]
+    edge_ins = [float(_graph_edit_edge_ins_cost(G2, e, edge_ins_cost)) for e in right_edges]
+    nonnegative = all(c >= 0 for c in _itertools.chain(
+        node_del, node_ins, edge_del, edge_ins,
+        _itertools.chain.from_iterable(node_sub or ()),
+        _itertools.chain.from_iterable(edge_sub or ()),
+    ))
+    if timeout is not None and timeout <= 0:
+        raise NetworkXError("Timeout value must be greater than 0")
+    started = perf_counter()
 
-        left = left_nodes[index]
-        search(index + 1, available_right, mapping)
-        for right_index, right in enumerate(available_right):
-            mapping[left] = right
-            search(
-                index + 1,
-                available_right[:right_index] + available_right[right_index + 1 :],
-                mapping,
-            )
-            del mapping[left]
+    def expired():
+        return timeout is not None and perf_counter() - started > timeout
 
-    search(0, tuple(right_nodes), dict(initial_mapping))
-    if not best_mappings:
-        return [], None
-    return [
-        _graph_edit_distance_paths_from_mapping(
-            G1,
-            G2,
-            mapping,
-            normalize_undirected_right_edges=roots is not None,
+    mapping, reverse = [-2] * n, [-2] * m
+    order = list(range(n))
+    if root_pair is not None:
+        order.remove(root_pair[0])
+        order.insert(0, root_pair[0])
+    best = _math.inf
+    min_edge_del, min_edge_ins = min(edge_del, default=0), min(edge_ins, default=0)
+
+    def allowed(cost):
+        return (upper_bound is None or cost <= upper_bound) and (
+            cost < best or (not strictly_decreasing and cost == best)
         )
-        for mapping in best_mappings
-    ], best_cost
+
+    def candidates(i):
+        if root_pair is not None and i == root_pair[0]:
+            return iter((root_pair[1],))
+        if node_sub is None and node_del_cost is None and node_ins_cost is None:
+            return iter(range(m + 1))  # m denotes deletion; no copied candidate list.
+        return iter(sorted(range(m + 1), key=lambda j: (
+            node_del[i] if j == m else (0 if node_sub is None else node_sub[i][j]) - node_ins[j]
+        )))
+
+    def close_edges(i, j):
+        cost, closed_left, closed_right = 0.0, 0, 0
+        for e in left_incident[i]:
+            u, v = left_pairs[e]
+            a, b = mapping[u], mapping[v]
+            if a == -2 or b == -2:
+                continue
+            closed_left += 1
+            f = right_lookup.get(pair(a, b)) if a >= 0 and b >= 0 else None
+            cost += edge_del[e] if f is None else min(
+                0 if edge_sub is None else edge_sub[e][f], edge_del[e] + edge_ins[f]
+            )
+        if j >= 0:
+            for f in right_incident[j]:
+                u, v = right_pairs[f]
+                a, b = reverse[u], reverse[v]
+                if a == -2 or b == -2:
+                    continue
+                closed_right += 1
+                if pair(a, b) not in left_lookup:
+                    cost += edge_ins[f]
+        return cost, closed_left, closed_right
+
+    def remaining_bound(depth, unused, closed_left, closed_right):
+        remaining = order[depth:]
+        if node_sub is None:
+            bound = sum(min(node_del[i], 0.0) if unused else node_del[i] for i in remaining)
+        else:
+            bound = sum(min(node_del[i], min((node_sub[i][j] for j in unused), default=_math.inf))
+                        for i in remaining)
+        excess_nodes = len(unused) - len(remaining)
+        if excess_nodes > 0:
+            bound += sum(sorted(node_ins[j] for j in unused)[:excess_nodes])
+        excess_edges = len(left_pairs) - closed_left - len(right_pairs) + closed_right
+        if excess_edges == 0:
+            return bound
+        return bound + (excess_edges * min_edge_del if excess_edges > 0 else -excess_edges * min_edge_ins)
+
+    def edit_script():
+        node_path = [(left_nodes[i], right_nodes[mapping[i]]) for i in order if mapping[i] >= 0]
+        node_path.extend((left_nodes[i], None) for i in range(n) if mapping[i] == -1)
+        node_path.extend((None, right_nodes[j]) for j in range(m) if reverse[j] == -2)
+        edge_path, substituted = [], set()
+        for e, (u, v) in enumerate(left_pairs):
+            a, b = mapping[u], mapping[v]
+            f = right_lookup.get(pair(a, b)) if a >= 0 and b >= 0 else None
+            if f is not None and (0 if edge_sub is None else edge_sub[e][f]) <= edge_del[e] + edge_ins[f]:
+                edge_path.append((left_edges[e], right_edges[f]))
+                substituted.add(f)
+            else:
+                edge_path.append((left_edges[e], None))
+        edge_path.extend((None, edge) for f, edge in enumerate(right_edges) if f not in substituted)
+        return node_path, edge_path
+
+    if not order:
+        cost = sum(node_ins, 0.0) + sum(edge_ins, 0.0)
+        if not expired() and allowed(cost):
+            node_path, edge_path = edit_script()
+            yield node_path, edge_path, cost
+        return
+
+    # Each frame owns only its next-choice iterator and the already finalized
+    # cost/counts. Graphs are never mutated, and no recursive search is needed.
+    stack = [(candidates(order[0]), 0.0, 0, 0)]
+    while stack:
+        if expired():
+            return
+        choices, prefix, count_left, count_right = stack[-1]
+        i = order[len(stack) - 1]
+        choice = next(choices, None)
+        if choice is None:
+            stack.pop()
+            if stack:
+                parent = order[len(stack) - 1]
+                if mapping[parent] >= 0:
+                    reverse[mapping[parent]] = -2
+                mapping[parent] = -2
+            continue
+        j = -1 if choice == m else choice
+        if j >= 0 and reverse[j] != -2:
+            continue
+        mapping[i] = j
+        if j >= 0:
+            reverse[j] = i
+        extra, closed_left, closed_right = close_edges(i, j)
+        cost = prefix + (node_del[i] if j < 0 else 0 if node_sub is None else node_sub[i][j]) + extra
+        count_left += closed_left
+        count_right += closed_right
+        unused = [k for k in range(m) if reverse[k] == -2]
+        depth = len(stack)
+        if depth == n:
+            cost += sum(node_ins[k] for k in unused)
+            cost += sum(edge_ins[f] for f, (u, v) in enumerate(right_pairs)
+                        if reverse[u] == -2 or reverse[v] == -2)
+            if not expired() and allowed(cost):
+                best = cost
+                node_path, edge_path = edit_script()
+                yield node_path, edge_path, cost
+                if strictly_decreasing and nonnegative and cost == 0:
+                    return
+        elif not nonnegative or allowed(cost + remaining_bound(depth, unused, count_left, count_right)):
+            stack.append((candidates(order[depth]), cost, count_left, count_right))
+            continue
+        if j >= 0:
+            reverse[j] = -2
+        mapping[i] = -2
+
+
+def _graph_edit_exact_paths_python(G1, G2, **kwargs):
+    paths, best = [], None
+    for node_path, edge_path, cost in _graph_edit_search_python(
+        G1, G2, strictly_decreasing=False, **kwargs
+    ):
+        if best is None or cost < best:
+            paths = []
+            best = cost
+        paths.append((node_path, edge_path))
+    return paths, best
 
 
 def optimal_edit_paths(
@@ -1046,9 +1138,6 @@ def optimal_edit_paths(
     upper_bound=None,
 ):
     """Find optimal edit paths."""
-    # br-r37-c1-jwdzp: accept nx-typed inputs.
-    G1 = _coerce_arg_to_fnx_graph(G1)
-    G2 = _coerce_arg_to_fnx_graph(G2)
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
         G2,
@@ -1102,58 +1191,15 @@ def optimize_edit_paths(
     roots=None,
     timeout=None,
 ):
-    """_Iterator yielding final edit paths from the local optimal-path
-    wrapper.
-
-    Matches networkx's full positional + keyword surface so
-    ``inspect.signature`` introspection is identical (br-r37-c1-gedsig).
-    The native exact-paths search runs the full solver; ``timeout``
-    requires the iterative algorithm and is delegated to networkx.
-    """
-    if timeout is not None:
-        # Same policy as graph_edit_distance: surface NotImplemented
-        # rather than fall back to nx (locked in
-        # test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback).
-        raise NetworkXNotImplemented(
-            "timeout is not supported by local optimize_edit_paths",
-        )
-    if roots is None:
-        paths, cost = optimal_edit_paths(
-            G1,
-            G2,
-            node_match=node_match,
-            edge_match=edge_match,
-            node_subst_cost=node_subst_cost,
-            node_del_cost=node_del_cost,
-            node_ins_cost=node_ins_cost,
-            edge_subst_cost=edge_subst_cost,
-            edge_del_cost=edge_del_cost,
-            edge_ins_cost=edge_ins_cost,
-            upper_bound=upper_bound,
-        )
-    else:
-        paths, cost = _graph_edit_exact_paths_python(
-            G1,
-            G2,
-            node_match=node_match,
-            edge_match=edge_match,
-            node_subst_cost=node_subst_cost,
-            node_del_cost=node_del_cost,
-            node_ins_cost=node_ins_cost,
-            edge_subst_cost=edge_subst_cost,
-            edge_del_cost=edge_del_cost,
-            edge_ins_cost=edge_ins_cost,
-            upper_bound=upper_bound,
-            roots=roots,
-        )
-    if cost is None:
-        return
-    if strictly_decreasing:
-        node_path, edge_path = paths[0]
-        yield node_path, edge_path, cost
-        return
-    for node_path, edge_path in paths:
-        yield node_path, edge_path, cost
+    """Yield improving complete edit scripts, optionally bounded by search time."""
+    yield from _graph_edit_search_python(
+        G1, G2, node_match=node_match, edge_match=edge_match,
+        node_subst_cost=node_subst_cost, node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost, edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost, edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound, roots=roots,
+        strictly_decreasing=strictly_decreasing, timeout=timeout,
+    )
 
 
 # ---------------------------------------------------------------------------

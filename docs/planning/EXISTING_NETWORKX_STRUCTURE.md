@@ -979,3 +979,52 @@ yields, multigraph callback dictionaries, native-cache reuse, and input
 lifetime, independent native conversions, copied caches, and queries after
 callback writes. The underlying direct-call algorithm contracts remain authoritative
 for each supported iterator's exact mutation and error timing.
+
+## 39. Incremental Graph Edit Search
+
+Graph edit distance on simple directed or undirected graphs minimizes node
+and edge substitution, deletion, and insertion costs. Cost callbacks receive
+attribute dictionaries; explicit substitution costs take precedence over
+matching predicates. Roots force the specified node pair to be substituted.
+Missing roots raise before timeout validation. The documented cost domain is
+nonnegative numeric costs, including zero-cost substitutions.
+
+`optimize_edit_paths` yields a complete, valid edit script whenever the search
+improves its incumbent. With `strictly_decreasing=False`, equal-cost scripts
+may also be yielded. `optimize_graph_edit_distance` exposes the decreasing
+cost sequence. Neither iterator waits for every node correspondence to be
+enumerated before yielding, and neither retains a list of all solutions.
+Intermediate estimates and tie order follow the local search order; their
+costs decrease, and an exhausted search reaches the exact optimum.
+
+The owned search uses an explicit stack of partial injective node mappings,
+including node deletions. It charges edge edits when their endpoints become
+decided and uses admissible remaining-cost bounds. Its domain is no longer
+limited to eight total nodes. Existing small, callback-free native distance
+and all-optimal-path queries remain available. Multigraph edit search remains
+explicitly unsupported.
+
+A supplied timeout must be greater than zero and bounds search time using a
+monotonic clock. As in NetworkX 3.6.1, root and cost setup precede the timeout
+check. Expiration stops enumeration; `graph_edit_distance` returns the best
+complete cost seen, or `None` if no admissible complete script was found.
+User callbacks cannot be preempted. An upper bound excludes more expensive
+scripts, including when a timeout is used. Iterators validate and initialize
+on advancement, and can be closed without completing the search.
+
+Returned edge edits must realize the reported cost: when deleting and
+reinserting an edge is cheaper than substituting it, the script contains the
+deletion and insertion. Equal-cost alternatives remain eligible for the
+all-optimal-path collector across node correspondences; tied edge operations
+need not have the same representative or order as NetworkX. Tests compare
+exact final costs against NetworkX,
+validate edit scripts, and exercise bounded prefix work, roots, callbacks,
+timeouts, upper bounds, loops, and graphs beyond the former size limit.
+
+Existing compatibility limits remain: NetworkX 3.6.1 sometimes substitutes a
+self-loop for a non-loop under a node mapping that does not preserve both
+endpoints, whereas both the previous owned solver and this search preserve
+endpoints. Some callback cost models also produce different optima from
+NetworkX's search. These are pre-existing differences, not resolved by adding
+incremental search. Small exhaustive comparisons against the previous owned
+solver additionally check that pruning preserves its minimum costs.

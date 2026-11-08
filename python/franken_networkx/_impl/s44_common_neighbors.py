@@ -420,12 +420,10 @@ def graph_edit_distance(
 
     br-r37-c1-jwdzp: accept nx-typed inputs so cross-library calls
     don't get rejected by the Rust kernel's strict type check.
-    The native fast path handles common small-graph cases;
-    ``timeout`` requires the iterative algorithm and is delegated to
-    networkx.
+    The native fast path handles common small-graph cases. Other inputs use
+    the owned incremental search, returning its best complete cost when the
+    requested search timeout expires.
     """
-    G1 = _coerce_arg_to_fnx_graph(G1)
-    G2 = _coerce_arg_to_fnx_graph(G2)
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
         G2,
@@ -447,16 +445,8 @@ def graph_edit_distance(
         _, cost = native_result
         return cost
 
-    if timeout is not None:
-        # nx's timeout cutoff requires the iterative variant we don't
-        # ship; project policy is to surface NetworkXNotImplemented
-        # rather than fall back to the upstream Python implementation
-        # (test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback
-        # locks this contract).
-        raise NetworkXNotImplemented(
-            "timeout is not supported by local graph_edit_distance",
-        )
-    _, cost = _graph_edit_exact_paths_python(
+    best = None
+    for _, _, cost in optimize_edit_paths(
         G1,
         G2,
         node_match=node_match,
@@ -469,8 +459,10 @@ def graph_edit_distance(
         edge_ins_cost=edge_ins_cost,
         upper_bound=upper_bound,
         roots=roots,
-    )
-    return cost
+        timeout=timeout,
+    ):
+        best = cost
+    return best
 
 
 def optimize_graph_edit_distance(
@@ -486,12 +478,8 @@ def optimize_graph_edit_distance(
     edge_ins_cost=None,
     upper_bound=None,
 ):
-    """_Iterator yielding successive graph edit distance estimates.
-
-    Matches networkx's signature; the local wrapper currently yields a
-    single final cost. (br-r37-c1-gedsig)
-    """
-    cost = graph_edit_distance(
+    """Yield successive strictly improving graph edit distance estimates."""
+    for _, _, cost in optimize_edit_paths(
         G1,
         G2,
         node_match=node_match,
@@ -503,8 +491,7 @@ def optimize_graph_edit_distance(
         edge_del_cost=edge_del_cost,
         edge_ins_cost=edge_ins_cost,
         upper_bound=upper_bound,
-    )
-    if cost is not None:
+    ):
         yield cost
 
 
@@ -602,8 +589,8 @@ def _native_graph_edit_distance_common_case(
     if G1.number_of_nodes() + G2.number_of_nodes() > _COMMON_GRAPH_EDIT_DISTANCE_MAX_NODES:
         return False, None
     return True, _graph_edit_distance_common_rust(
-        G1,
-        G2,
+        _coerce_arg_to_fnx_graph(G1),
+        _coerce_arg_to_fnx_graph(G2),
         upper_bound=upper_bound,
     )
 
