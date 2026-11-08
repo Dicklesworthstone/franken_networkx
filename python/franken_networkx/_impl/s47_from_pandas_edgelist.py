@@ -211,8 +211,8 @@ def to_numpy_array(
     if (
         native_dtype_ok
         and _native_adjacency_arrays is not None
-        and not G.is_multigraph()
-        and isinstance(G, (Graph, DiGraph))
+        and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
         and isinstance(weight, str)
     ):
         # Keep the common float64 weighted path native while reading live

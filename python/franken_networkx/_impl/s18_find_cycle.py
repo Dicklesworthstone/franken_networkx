@@ -330,7 +330,7 @@ def is_regular(G):
     # circuit) for simple graphs. Multigraph degree counts parallel-edge
     # multiplicity (which the simple-graph projection collapses), so those stay
     # on the Python degree-view path below.
-    if not G.is_multigraph():
+    if type(G) in (Graph, DiGraph) and not _has_networkx_private_storage(G):
         try:
             return _raw_is_regular(G)
         except NetworkXPointlessConcept:

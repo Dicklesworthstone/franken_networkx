@@ -817,7 +817,7 @@ def set_node_attributes(G, values, name=None):
             # (was 3 PyO3 round-trips/node: has_node + G.nodes[n] +
             # setitem). node_py_attrs is the authoritative store.
             native = getattr(G, "_native_set_node_attribute_scalar", None)
-            if native is not None and isinstance(values, dict):
+            if native is not None and isinstance(values, dict) and not _has_networkx_private_storage(G):
                 native(values, name)
                 return
             for node, value in values.items():
@@ -830,7 +830,7 @@ def set_node_attributes(G, values, name=None):
         # ~0.27x vs nx). node_py_attrs is authoritative across all graph types.
         if isinstance(values, dict):
             native = getattr(G, "_native_set_node_attributes_dict", None)
-            if native is not None:
+            if native is not None and not _has_networkx_private_storage(G):
                 native(values)
                 return
         for node, attrs in values.items():
@@ -842,7 +842,7 @@ def set_node_attributes(G, values, name=None):
         # br-r37-c1-setattrbcast (cc): native one-pass broadcast onto every node
         # (was a per-node NodeView __getitem__ loop, ~0.22x vs nx).
         native = getattr(G, "_native_broadcast_node_attribute", None)
-        if native is not None:
+        if native is not None and not _has_networkx_private_storage(G):
             native(name, values)
             return
         for node in G.nodes():
@@ -874,7 +874,11 @@ def get_node_attributes(G, name, default=None):
     # the per-node attribute-dict materialization tax. Otherwise use nx's single-
     # pass nodes(data=True) comprehension; the old per-node ``G.nodes[node]`` loop
     # did N separate Rust->Python attr-dict reconstructions (~2.4x slower).
-    no_attrs = type(G) in (Graph, DiGraph) and _fnx.graph_has_any_attrs(G) is False
+    no_attrs = (
+        type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+        and _fnx.graph_has_any_attrs(G) is False
+    )
     if default is None:
         if no_attrs:
             return {}
@@ -909,7 +913,10 @@ def set_edge_attributes(G, values, name=None):
             # inner flush reaches the kernels. Simple graphs only (Multi
             # edge keys are 3-tuples); others fall back.
             arity = 3 if G.is_multigraph() else 2
-            if _native_edge_mapping_has_exact_tuple_keys(values, arity):
+            if (
+                not _has_networkx_private_storage(G)
+                and _native_edge_mapping_has_exact_tuple_keys(values, arity)
+            ):
                 if arity == 2:
                     native = getattr(G, "_native_set_edge_attribute_scalar", None)
                     if native is not None:
@@ -933,6 +940,7 @@ def set_edge_attributes(G, values, name=None):
         # only (Multi edge keys are 3-tuples; others keep the loop).
         if (
             not G.is_multigraph()
+            and not _has_networkx_private_storage(G)
             and _native_edge_mapping_has_exact_tuple_keys(values, 2)
         ):
             native = getattr(G, "_native_set_edge_attributes_dict", None)
@@ -954,7 +962,7 @@ def set_edge_attributes(G, values, name=None):
             # br-r37-c1-setattrbcast (cc): native one-pass broadcast onto every
             # edge (was a per-edge edges(data=True) loop, ~0.39x vs nx).
             native = getattr(G, "_native_broadcast_edge_attribute", None)
-            if native is not None:
+            if native is not None and not _has_networkx_private_storage(G):
                 native(name, values)
                 return
             for u, v, attrs in G.edges(data=True):
@@ -985,6 +993,7 @@ def get_edge_attributes(G, name, default=None):
     if (
         default is None
         and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
         and _fnx.graph_has_any_attrs(G) is False
     ):
         return {}
@@ -993,7 +1002,7 @@ def get_edge_attributes(G, name, default=None):
     # walk (was 0.79x vs nx). Returns None (fall through to the exact walk below)
     # for dirty/mutated graphs, string/non-scalar values (ambiguous py->inner
     # fidelity), and default != None, so nx semantics stay byte-exact.
-    if default is None and type(G) is Graph:
+    if default is None and type(G) is Graph and not _has_networkx_private_storage(G):
         native = _fnx.get_edge_attributes_native(G, name)
         if native is not None:
             return native
@@ -1048,7 +1057,11 @@ def create_empty_copy(G, with_data=True):
         # in the Rust AttrMap, even though create_empty_copy only needs a shallow
         # Python-visible attr copy.
         native_keys = getattr(G, "_native_node_keys", None)
-        if type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph) and native_keys is not None:
+        if (
+            type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+            and native_keys is not None
+            and not _has_networkx_private_storage(G)
+        ):
             keys = native_keys()
             if keys is not None:
                 has_any_attrs = None
@@ -1067,7 +1080,7 @@ def create_empty_copy(G, with_data=True):
         else:
             H.add_nodes_from(list(G.nodes(data=True)))
     else:
-        keys = G._native_node_keys() if type(G) is Graph else None
+        keys = G._native_node_keys() if type(G) is Graph and not _has_networkx_private_storage(G) else None
         H.add_nodes_from(keys if keys is not None else list(G.nodes()))
     # br-norebuild2: H is already the canonical fnx type from
     # _concrete_class_for(G)(); the _from_nx_graph rebuild was a redundant second
@@ -1128,15 +1141,17 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     iterator
         _Iterator over self-loop edges.
     """
-    G = _coerce_arg_to_fnx_graph(G)
-    if G.is_multigraph():
+    logical_storage = _has_networkx_private_storage(G)
+    if not logical_storage:
+        G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph() and not logical_storage:
         native_edges = getattr(G, "_native_selfloop_edges", None)
         if native_edges is not None:
             try:
                 return native_edges(data, keys=keys, default=default)
             except Exception:
                 pass
-    elif data is True:
+    elif data is True and not logical_storage:
         # br-r37-c1-slgraph (cc): native simple-Graph path for data=True ONLY. The
         # old `G[n]`/`nbrs[n]` per-self-loop-node AtlasView machinery made
         # selfloop_edges(data=True) 0.16x vs nx; the native binding emits the tuples
@@ -1157,7 +1172,7 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     # (300-420x slower than nx). Bench on BA500: has_edge-per-node
     # is ~3x faster than raw_nbrs-per-node and ~4x faster than the
     # original AdjacencyView walk.
-    _raw_nbrs = _raw_neighbors_dispatch(G)
+    _raw_nbrs = None if logical_storage else _raw_neighbors_dispatch(G)
 
     def adjacency_entries():
         # br-r37-c1-nodekeys: find the self-loop nodes in node-iteration order,
@@ -1167,6 +1182,11 @@ def selfloop_edges(G, data=False, keys=False, default=None):
         # native nodes_with_selfloops_rust scan is fast; for MULTIGRAPHS it is
         # slow/wrong (~29ms), so probe has_edge(n, n) (native O(1)) over the
         # bulk node-key list instead.
+        if logical_storage:
+            for node, row in G.adj.items():
+                if node in row:
+                    yield node, row
+            return
         if not G.is_multigraph():
             try:
                 sl_nodes = list(_fnx.nodes_with_selfloops_rust(G))
@@ -1248,13 +1268,17 @@ def nodes_with_selfloops(G):
     """Return nodes that have self-loops."""
     # br-selfloopnative: native scan -- preserves networkx's node-iteration order
     # (verified) and is much faster than walking the AdjacencyView.
-    G = _coerce_arg_to_fnx_graph(G)
+    if not _has_networkx_private_storage(G):
+        G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-oz595: a generator, as nx's (n for n, nbrs in G._adj.items()
     # if n in nbrs) is, scanning when first advanced rather than at the call.
     return _selfloop_nodes_gen(G)
 
 
 def _selfloop_nodes_gen(G):
+    if _has_networkx_private_storage(G):
+        yield from (node for node in G.adj if node in G.adj[node])
+        return
     # br-r37-c1-mgselfloopnodes (cc): nodes_with_selfloops_rust raises on
     # multigraphs, so MG/MDG fell to the `node in G.adj[node]` generator that
     # materializes a per-node AdjacencyView (~1175x slower than nx). Route
@@ -1293,7 +1317,7 @@ def all_neighbors(graph, node):
 
 def is_path(G, path):
     """Return whether or not the specified path exists in *G*."""
-    if type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    if type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph) and not _has_networkx_private_storage(G):
         try:
             return _fnx.path_exists_rust(G, path)
         except (KeyError, TypeError):
@@ -1314,7 +1338,7 @@ def path_weight(G, path, weight):
     # ~0.27x bottleneck). Returns None (fall through to the exact Python loop
     # below) for multigraphs, mutated/unsynced edge dicts, and missing/
     # non-numeric weights, so the fallback preserves byte-exact nx semantics.
-    if type(G) in (Graph, DiGraph):
+    if type(G) in (Graph, DiGraph) and not _has_networkx_private_storage(G):
         native = _fnx.path_weight_rust(G, path, weight)
         if native is not None:
             return native
@@ -1436,7 +1460,11 @@ def _cross_product_edge_key(g_is_multigraph, h_is_multigraph, g_key, h_key):
 
 def _graph_has_any_attrs(G):
     """True if any node or edge of *G* carries a non-empty attribute dict."""
-    if _native_graph_has_any_attrs is not None and not G.is_multigraph():
+    if (
+        _native_graph_has_any_attrs is not None
+        and not G.is_multigraph()
+        and not _has_networkx_private_storage(G)
+    ):
         try:
             native = _native_graph_has_any_attrs(G)
         except Exception:
@@ -1453,7 +1481,7 @@ def _graph_has_any_attrs(G):
 
 def _graph_has_any_edge_attrs(G):
     """True if any edge of *G* carries a non-empty attribute dict."""
-    if not G.is_multigraph():
+    if not G.is_multigraph() and not _has_networkx_private_storage(G):
         try:
             r = _fnx.graph_has_any_edge_attrs(G)
         except Exception:
@@ -1461,7 +1489,9 @@ def _graph_has_any_edge_attrs(G):
         if r is not None:
             return bool(r)
         return any(d for *_e, d in G.edges(data=True))
-    return any(d for *_e, d in G.edges(keys=True, data=True))
+    if G.is_multigraph():
+        return any(d for *_e, d in G.edges(keys=True, data=True))
+    return any(d for *_e, d in G.edges(data=True))
 
 
 def _graph_has_any_node_attrs(G):
@@ -1498,6 +1528,8 @@ def _native_graph_product(G, H, *, kind="cartesian"):
     _product_node_attrs and the edge set is the same canonical set the parity tests
     already accept for the no-attr native path.
     """
+    if _has_networkx_private_storage(G) or _has_networkx_private_storage(H):
+        return None
     if G.is_multigraph() or H.is_multigraph():
         # br-r37-c1-mg-product-native-kernel-9fe9f: Cartesian products of two
         # like-kind multigraphs can keep their inherited keyed-edge structure

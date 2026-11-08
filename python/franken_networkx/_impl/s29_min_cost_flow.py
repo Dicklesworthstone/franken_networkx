@@ -63,7 +63,11 @@ def min_cost_flow(
     # br-r37-c1-8foqi: read edge attrs via the native bulk reader (same
     # node-major order as ``G.edges(data=True)`` so the first-offending-edge
     # message is unchanged) instead of the per-edge AdjacencyView view.
-    _new_edges = getattr(G, "_native_edges_with_data", None)
+    _new_edges = (
+        getattr(G, "_native_edges_with_data", None)
+        if type(G) is DiGraph and not _has_networkx_private_storage(G)
+        else None
+    )
     _edge_iter = _new_edges() if _new_edges is not None else G.edges(data=True)
     for u, v, edge_attrs in _edge_iter:
         if isinstance(edge_attrs, dict):

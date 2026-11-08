@@ -893,7 +893,7 @@ def shortest_path_length_matrix(G, sources=None, cutoff=None):
 
 # Algorithm functions — graph predicates & utilities
 from franken_networkx._fnx import (
-    is_empty,
+    is_empty as _raw_is_empty,
     non_neighbors,
     all_triangles as _rust_all_triangles,
     enumerate_all_cliques_iter as _raw_enumerate_all_cliques,
@@ -903,6 +903,13 @@ from franken_networkx._fnx import (
     make_max_clique_graph as _rust_make_max_clique_graph,
     ring_of_cliques,
 )
+
+
+def is_empty(G):
+    """Return whether the public graph has no edges."""
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES and not _has_networkx_private_storage(G):
+        return _raw_is_empty(G)
+    return not any(G.adj.values())
 
 
 def chordal_graph_cliques(G):

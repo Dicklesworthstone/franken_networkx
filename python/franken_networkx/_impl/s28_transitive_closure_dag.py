@@ -597,7 +597,11 @@ def johnson(G, weight="weight"):
     finite numeric weights include a negative edge and whose synced Rust attrs
     are all integer-typed, preserving the proof surface for tie/order parity.
     """
-    if type(G) in (Graph, DiGraph) and isinstance(weight, str):
+    if (
+        type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+        and isinstance(weight, str)
+    ):
         fast_result = None
         if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
             try:
@@ -843,7 +847,10 @@ def _complete_normalized_laplacian_spectrum_sorted_value_safe(G, weight):
     n = len(G)
     if n == 0:
         return None
-    native = getattr(G, "_native_is_complete_unweighted_graph", None)
+    native = (
+        None if _has_networkx_private_storage(G)
+        else getattr(G, "_native_is_complete_unweighted_graph", None)
+    )
     if native is not None:
         if not native(weight):
             return None
@@ -980,7 +987,10 @@ def _complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(G, weigh
     n = len(G)
     certificate_parts = _complete_bipartite_shape_certificate_parts(G, weight)
     if certificate_parts is None:
-        native = getattr(G, "_native_complete_bipartite_unweighted_parts", None)
+        native = (
+            None if _has_networkx_private_storage(G)
+            else getattr(G, "_native_complete_bipartite_unweighted_parts", None)
+        )
         if native is not None:
             if native(weight) is None:
                 return None
@@ -1032,6 +1042,8 @@ def _complete_bipartite_normalized_laplacian_spectrum_sorted_value_safe(G, weigh
 
 
 def _complete_bipartite_shape_certificate_parts(G, weight):
+    if _has_networkx_private_storage(G):
+        return None
     certificate = vars(G).get("_fnx_complete_bipartite_shape")
     if certificate is None:
         return None
@@ -1201,6 +1213,7 @@ def attr_matrix(
         and (edge_attr is None or edge_attr == "weight")
         and not G.is_multigraph()
         and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
         and _native_adjacency_nodelist_typed_arrays is not None
         # br-r37-c1-64xcg: the native scatter drops an edge whose endpoint is
         # not in rc_order; networkx raises KeyError, so such a call takes the
@@ -1283,7 +1296,11 @@ def attr_matrix(
 
     # br-r37-c1-amdsnap: G.adjacency() is ~12× slower than G._adj.items()
     # because of AdjacencyView wrapping.  Same yield shape.
-    if node_attr is None and type(G) in (Graph, DiGraph):
+    if (
+        node_attr is None
+        and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+    ):
         edgelist = _fnx.to_edgelist_simple(G)
         if edgelist is not None:
             for u, v, attrs in edgelist:

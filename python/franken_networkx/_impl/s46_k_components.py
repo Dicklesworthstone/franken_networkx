@@ -1036,7 +1036,11 @@ def to_dict_of_lists(G, nodelist=None):
     # Graph/DiGraph with no nodelist. Builds {u: [v,...]} in Rust with
     # adjacency/successor-order neighbor lists, bypassing the slow per-node
     # G.neighbors() wrapper iteration.
-    if nodelist is None and (type(G) is Graph or type(G) is DiGraph):
+    if (
+        nodelist is None
+        and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+    ):
         _fast = _fnx.to_dict_of_lists_undirected(G)
         if _fast is not None:
             return _fast
@@ -1048,9 +1052,9 @@ def to_dict_of_lists(G, nodelist=None):
         # node) — skip it AND the private-storage-aware G.neighbors() wrapper
         # (the ``nb in G`` __contains__ check was ~half the runtime; MultiGraph
         # ~3.4x, MultiDiGraph ~3.6x).
-        if type(G) is MultiGraph:
+        if type(G) is MultiGraph and not _has_networkx_private_storage(G):
             return {u: list(G._native_adjacency_row(u)) for u in G}
-        if type(G) is MultiDiGraph:
+        if type(G) is MultiDiGraph and not _has_networkx_private_storage(G):
             return {u: list(G._native_successor_row(u)) for u in G}
         nodelist = G
     return {n: [nb for nb in G.neighbors(n) if nb in nodelist] for n in nodelist}

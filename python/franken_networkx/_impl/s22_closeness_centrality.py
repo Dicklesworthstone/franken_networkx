@@ -1504,8 +1504,8 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
 
     if (
         _native_adjacency_index_arrays is not None
-        and isinstance(G, (Graph, DiGraph))
-        and not G.is_multigraph()
+        and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
         and (weight is None or isinstance(weight, str))
         and G.number_of_edges() > 0
     ):

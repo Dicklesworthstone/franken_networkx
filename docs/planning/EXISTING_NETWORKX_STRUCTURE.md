@@ -1060,3 +1060,31 @@ lazy validation, changed views, caller-owned auxiliary/residual state, and
 public backend dispatch with cold and pre-populated caches against NetworkX
 3.6.1. Existing solver-specific cutoff and path-order cases remain part of the
 contract.
+
+## 42. Native Eligibility with Logical Python Storage
+
+Assigned node and adjacency mappings are the authoritative graph, including
+when they represent a deep copy with recursive Python objects. A native
+kernel that reads a graph's internal Rust storage is eligible only when that
+storage represents the public graph. Exact concrete type alone does not prove
+this: concrete graphs can carry assigned mappings too. Views and subclasses
+retain their public mapping behavior.
+
+Predicates, path validation, attribute readers and writers, graph copies,
+dictionary exports, matrix exports, and minimum-cost flow must observe the
+same logical nodes, edges, keys, and attributes as ordinary graph iteration.
+Replacing or mutating a logical row affects the next call. In-place setters
+write the caller's attribute dictionaries rather than hidden native mirrors.
+The ordinary concrete graph route retains its native fast paths.
+
+Native admission checks fall back to existing owned public-row operations,
+or materialize a graph only at a static read-only kernel boundary. Callback
+algorithms continue receiving the caller's live dictionaries. Minimum-cost
+flow extracts capacities, costs, and demands from the same graph and rejects
+negative logical capacities before optimization. Dense and sparse matrix
+families and their Laplacian/spectral consumers preserve logical graph data
+and nodelist order instead of interpreting empty or stale native storage.
+
+Focused tests compare assigned-storage graphs, graph views, and copied graphs
+against NetworkX, with deliberately different native and logical contents.
+They also verify retained native routes on ordinary concrete graphs.

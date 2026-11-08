@@ -306,7 +306,7 @@ def is_planar(G, *, backend=None, **backend_kwargs):
     # that check_planarity pays. Planarity is a graph invariant, so the
     # boolean is order-independent and matches check_planarity(G)[0] exactly.
     try:
-        return _fnx.is_planar_lr(G)
+        return _fnx.is_planar_lr(_coerce_arg_to_fnx_graph(G))
     except Exception:
         is_p, _ = check_planarity(G)
         return is_p

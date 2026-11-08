@@ -969,7 +969,11 @@ def generalized_degree(G, nodes=None):
         # neighbor-intersection loop. Wrap each value as Counter to match nx's
         # return type and iterate G to preserve node order. Verified vs nx.
         from collections import Counter as _gd_counter
-        if number_of_selfloops(G) == 0:
+        if (
+            type(G) is Graph
+            and not _has_networkx_private_storage(G)
+            and number_of_selfloops(G) == 0
+        ):
             kr = dict(_fnx.generalized_degree_rust(G))
             return {node: _gd_counter(dict(kr[node])) for node in G}
         # br-r37-c1-gdself (cc): the native kernel counts a self-loop as a neighbour
@@ -990,6 +994,7 @@ def generalized_degree(G, nodes=None):
     # Counter wrap + selected_nodes order match the port and nx byte-for-byte.
     if (
         type(G) is Graph
+        and not _has_networkx_private_storage(G)
         and len(selected_nodes) >= 32
         and number_of_selfloops(G) == 0
     ):

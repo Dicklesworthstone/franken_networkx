@@ -6,6 +6,128 @@ import pytest
 import franken_networkx as fnx
 
 
+def _assigned_storage_pair(graph_name, native_state="stale_attributed"):
+    expected = getattr(nx, graph_name)()
+    expected.add_nodes_from([(0, {"color": "red"}), (1, {}), (2, {"color": "blue"}), (3, {})])
+    expected.add_weighted_edges_from([(0, 1, 3), (1, 2, 5), (2, 2, 7)])
+    if expected.is_multigraph():
+        expected.add_edge(0, 1, key="parallel", weight=11)
+    expected.graph["payload"] = []
+    logical = expected.copy()
+    graph = getattr(fnx, graph_name)()
+    if native_state != "empty":
+        graph.add_edge("hidden", "native", **({"weight": 999} if native_state == "stale_attributed" else {}))
+    graph._node = logical._node
+    graph._adj = logical._adj
+    if graph.is_directed():
+        graph._succ = logical._succ
+        graph._pred = logical._pred
+    graph.graph.update(logical.graph)
+    return graph, expected
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("default", [None, "missing"])
+@pytest.mark.parametrize("native_state", ["empty", "stale_unattributed", "stale_attributed"])
+def test_attribute_getters_read_assigned_stores(graph_name, default, native_state):
+    graph, expected = _assigned_storage_pair(graph_name, native_state)
+    assert fnx.get_node_attributes(graph, "color", default=default) == nx.get_node_attributes(
+        expected, "color", default=default
+    )
+    assert fnx.get_edge_attributes(graph, "weight", default=default) == nx.get_edge_attributes(
+        expected, "weight", default=default
+    )
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("layer", ["node", "edge"])
+@pytest.mark.parametrize("form", ["named_mapping", "attribute_mapping", "broadcast"])
+def test_attribute_setters_write_assigned_stores(graph_name, layer, form):
+    graph, expected = _assigned_storage_pair(graph_name)
+    key = 0 if layer == "node" else (0, 1, 0) if graph.is_multigraph() else (0, 1)
+    missing = 99 if layer == "node" else (99, 98, 0) if graph.is_multigraph() else (99, 98)
+    value = ["shared payload"]
+    if form == "attribute_mapping":
+        values, name = {key: {"new": value}, missing: {"ignored": True}}, None
+    elif form == "named_mapping":
+        values, name = {key: value, missing: "ignored"}, "new"
+    else:
+        values, name = value, "new"
+    getattr(fnx, f"set_{layer}_attributes")(graph, values, name)
+    getattr(nx, f"set_{layer}_attributes")(expected, values, name)
+    assert _edge_attribute_graph_snapshot(graph) == _edge_attribute_graph_snapshot(expected)
+    attributes = graph.nodes[key] if layer == "node" else graph.edges[key]
+    assert attributes["new"] is value
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("with_data", [False, True])
+def test_create_empty_copy_uses_logical_nodes(graph_name, with_data):
+    graph, expected = _assigned_storage_pair(graph_name)
+    actual = fnx.create_empty_copy(graph, with_data=with_data)
+    oracle = nx.create_empty_copy(expected, with_data=with_data)
+    assert _edge_attribute_graph_snapshot(actual) == _edge_attribute_graph_snapshot(oracle)
+    if with_data:
+        assert actual.graph["payload"] is graph.graph["payload"]
+        assert actual.nodes[0] is not graph.nodes[0]
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_path_helpers_read_and_follow_assigned_rows(graph_name):
+    graph, expected = _assigned_storage_pair(graph_name)
+    for path in ([0, 1, 2], [0, 2], [], [99], ["hidden", "native"]):
+        assert fnx.is_path(graph, path) == nx.is_path(expected, path)
+    assert fnx.path_weight(graph, [0, 1, 2], "weight") == 8
+    for candidate in (graph, expected):
+        attrs = candidate[0][1][0] if candidate.is_multigraph() else candidate[0][1]
+        attrs["weight"] = 17
+    assert fnx.path_weight(graph, [0, 1, 2], "weight") == nx.path_weight(expected, [0, 1, 2], "weight")
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_selfloop_iterators_preserve_assigned_data_and_liveness(graph_name):
+    graph, expected = _assigned_storage_pair(graph_name)
+    for data in (False, True, "weight"):
+        for keys in (False, True):
+            assert list(fnx.selfloop_edges(graph, data=data, keys=keys)) == list(
+                nx.selfloop_edges(expected, data=data, keys=keys)
+            )
+    attrs = next(iter(fnx.selfloop_edges(graph, data=True)))[-1]
+    original = graph[2][2][0] if graph.is_multigraph() else graph[2][2]
+    assert attrs is original
+    attrs["weight"] = 23
+    assert original["weight"] == 23
+    paths = fnx.selfloop_edges(graph)
+    nodes = fnx.nodes_with_selfloops(graph)
+    graph.add_edge(0, 0)
+    expected.add_edge(0, 0)
+    assert list(paths) == list(nx.selfloop_edges(expected))
+    assert list(nodes) == list(nx.nodes_with_selfloops(expected))
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_selfloop_iterators_scan_adjacency_with_independent_node_store(graph_name):
+    graph = getattr(fnx, graph_name)([(0, 0), (1, 2)])
+    expected = getattr(nx, graph_name)([(0, 0), (1, 2)])
+    graph._node = {1: {}, 2: {}}
+    expected._node = {1: {}, 2: {}}
+    for data in (False, True):
+        assert list(fnx.selfloop_edges(graph, data=data)) == list(nx.selfloop_edges(expected, data=data))
+    assert list(fnx.nodes_with_selfloops(graph)) == list(nx.nodes_with_selfloops(expected))
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("kind", ["cartesian_product", "tensor_product", "strong_product", "lexicographic_product"])
+def test_graph_products_preserve_assigned_graphs(graph_name, kind):
+    graph, expected = _assigned_storage_pair(graph_name)
+    other = getattr(fnx, graph_name)([(4, 5)])
+    oracle_other = getattr(nx, graph_name)([(4, 5)])
+    actual = getattr(fnx, kind)(graph, other)
+    oracle = getattr(nx, kind)(expected, oracle_other)
+    assert dict(actual.nodes(data=True)) == dict(oracle.nodes(data=True))
+    assert fnx.to_dict_of_dicts(actual) == nx.to_dict_of_dicts(oracle)
+
+
 def _instance_predicate_override():
     return "instance override"
 

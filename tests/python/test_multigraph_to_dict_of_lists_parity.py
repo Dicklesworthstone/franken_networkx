@@ -40,3 +40,21 @@ def test_to_dict_of_lists_multigraph_nodelist_fallback_matches_networkx(graph_na
     assert fnx.to_dict_of_lists(_build(fnx, graph_name), nodelist=nodelist) == (
         nx.to_dict_of_lists(_build(nx, graph_name), nodelist=nodelist)
     )
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("nodelist", [None, [2, 0]])
+def test_to_dict_of_lists_reads_assigned_rows(graph_name, nodelist):
+    expected = getattr(nx, graph_name)()
+    expected.add_nodes_from([2, 1, 0])
+    expected.add_edges_from([(0, 1), (0, 2), (2, 2)])
+    graph = getattr(fnx, graph_name)([("hidden", "native")])
+    graph._node = expected._node
+    graph._adj = expected._adj
+    if graph.is_directed():
+        graph._succ = expected._succ
+        graph._pred = expected._pred
+    assert fnx.to_dict_of_lists(graph, nodelist=nodelist) == nx.to_dict_of_lists(expected, nodelist=nodelist)
+    graph.add_edge(1, 2)
+    assert fnx.to_dict_of_lists(graph, nodelist=nodelist) == nx.to_dict_of_lists(expected, nodelist=nodelist)

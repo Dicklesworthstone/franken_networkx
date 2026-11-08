@@ -99,7 +99,13 @@ class _FastG:
             # reconstruction cannot merge capacities, costs, or flow values.
             self._edges = list(G.edges(data=True, keys=True))
         else:
-            _new = getattr(G, "_native_edges_with_data", None)
+            from . import DiGraph, _has_networkx_private_storage
+
+            _new = (
+                getattr(G, "_native_edges_with_data", None)
+                if type(G) is DiGraph and not _has_networkx_private_storage(G)
+                else None
+            )
             self._edges = list(_new()) if _new is not None else list(G.edges(data=True))
         self._selfloops = [e for e in self._edges if e[0] == e[1]]
 

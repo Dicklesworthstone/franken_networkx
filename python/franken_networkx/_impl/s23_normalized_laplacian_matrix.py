@@ -14,8 +14,8 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
 
     if (
         _native_adjacency_index_arrays is not None
-        and isinstance(G, (Graph, DiGraph))
-        and not G.is_multigraph()
+        and type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
         and weight is None
     ):
         # br-r37-c1-04z53.12: for unit/default-absent weights, build
@@ -125,6 +125,7 @@ def laplacian_spectrum(G, weight="weight"):
 
     if (
         type(G) is Graph
+        and not _has_networkx_private_storage(G)
         and (weight is None or isinstance(weight, str))
         and 0 < len(G) <= _LAPLACIAN_SPECTRUM_NATIVE_MAX_N
     ):
@@ -173,7 +174,10 @@ def _complete_laplacian_spectrum_sorted_value_safe(G, weight):
     n = len(G)
     if n == 0:
         return None
-    native = getattr(G, "_native_is_complete_unweighted_graph", None)
+    native = (
+        None if _has_networkx_private_storage(G)
+        else getattr(G, "_native_is_complete_unweighted_graph", None)
+    )
     if native is not None:
         if not native(weight):
             return None
@@ -238,6 +242,8 @@ def _star_laplacian_spectrum_sorted_value_safe(G, weight):
 
 
 def _star_shape_certificate_size(G, weight):
+    if _has_networkx_private_storage(G):
+        return None
     certificate = vars(G).get("_fnx_star_shape")
     if certificate is None:
         return None
@@ -324,7 +330,10 @@ def _complete_adjacency_spectrum_sorted_value_safe(G, weight):
     n = len(G)
     if n == 0:
         return None
-    native = getattr(G, "_native_is_complete_unweighted_graph", None)
+    native = (
+        None if _has_networkx_private_storage(G)
+        else getattr(G, "_native_is_complete_unweighted_graph", None)
+    )
     if native is not None:
         if not native(weight):
             return None
@@ -403,7 +412,10 @@ def _complete_bipartite_adjacency_spectrum_sorted_value_safe(G, weight):
     n = len(G)
     parts = _complete_bipartite_shape_certificate_parts(G, weight)
     if parts is None:
-        native = getattr(G, "_native_complete_bipartite_unweighted_parts", None)
+        native = (
+            None if _has_networkx_private_storage(G)
+            else getattr(G, "_native_complete_bipartite_unweighted_parts", None)
+        )
         if native is not None:
             parts = native(weight)
     if parts is None:
