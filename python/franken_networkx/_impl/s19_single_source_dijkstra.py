@@ -11,7 +11,10 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     sources = {source}
     # Authoritative Python rows must survive view coercion, including cutoffs
     # and callable weights. The path-only entrypoint calls this one too.
-    if _weighted_query_uses_live_python_rows(G, weight):
+    if (
+        not _dijkstra_cutoff_uses_native_comparisons(cutoff)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
         return _multi_source_dijkstra_inproc(
             G, sources, target=target, cutoff=cutoff, weight=weight
         )
@@ -105,23 +108,11 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 _sync_rust_edge_attrs(G, edge_only=True)
                 length, all_int, path = _ptt(G, source, target, weight, check_rows)
                 return (int(length) if all_int else float(length), path)
-        # br-r37-c1-qnj0n: a float cutoff, or an int a float holds exactly, bounds
-        # the native search as networkx bounds its own (NaN and +inf compare as
-        # there: unbounded). Any other cutoff keeps the view below, which compares
-        # it the Python way.
-        if (
-            cutoff is None
-            or type(cutoff) is float
-            or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
-        ):
-            dists, paths = _raw_single_source_dijkstra(
-                G, source, weight=weight, cutoff=cutoff, check_rows=check_rows
-            )
-        else:
-            dists, paths = _raw_single_source_dijkstra(
-                G, source, weight=weight, check_rows=check_rows
-            )
-            dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
+        # The cutoff admission check above guarantees that f64 comparisons
+        # preserve the caller's boundary. Apply it during the native search.
+        dists, paths = _raw_single_source_dijkstra(
+            G, source, weight=weight, cutoff=cutoff, check_rows=check_rows
+        )
     except _WeightRowsUnverified:
         dists = None
     if dists is None:
@@ -387,7 +378,10 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     """
     # Match NetworkX's source-set validation rather than a dict-key probe.
     sources = {source}
-    if _weighted_query_uses_live_python_rows(G, weight):
+    if (
+        not _dijkstra_cutoff_uses_native_comparisons(cutoff)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
         if source not in G:
             raise NodeNotFound(f"Node {source} not found in graph")
         # Do not build quadratic path output for a length-only query.

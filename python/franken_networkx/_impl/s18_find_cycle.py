@@ -1263,34 +1263,22 @@ def _negative_edge_cycle_inprocess(G, weight, heuristic=True):
     ) is not None
 
 
-def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):
-    # br-r37-c1-djk-cutnan: nx Dijkstra's cutoff check is
-    # ``if d > cutoff: continue`` (skip nodes with d > cutoff).
-    # For cutoff=NaN, ``d > NaN`` is always False so the check
-    # NEVER skips → unbounded result.  fnx used the inverse form
-    # ``if distance <= cutoff`` which is ALSO always False for
-    # NaN → filters out everything.  Symmetric inversion turned
-    # nx's "NaN means unbounded" into fnx's "NaN means empty".
-    # Fix: treat NaN (and +inf — same outcome) as ``None``
-    # before the filter loop.
-    if cutoff is None:
-        return dists, paths
-    if isinstance(cutoff, float) and (_math.isnan(cutoff) or cutoff == _math.inf):
-        return dists, paths
+def _dijkstra_cutoff_uses_native_comparisons(cutoff):
+    """Whether converting a cutoff to f64 preserves Python comparisons.
 
-    filtered_dists = {}
-    filtered_paths = {}
-    if source in dists:
-        filtered_dists[source] = dists[source]
-        filtered_paths[source] = paths[source]
-
-    for node, distance in dists.items():
-        if node == source:
-            continue
-        if distance <= cutoff:
-            filtered_dists[node] = distance
-            filtered_paths[node] = paths[node]
-    return filtered_dists, filtered_paths
+    Decimal and Fraction cutoffs can round across a reachable distance, and
+    numeric subclasses can override comparison or conversion. Keep those
+    objects in the Python search, where ``distance > cutoff`` runs during
+    relaxation. Filtering a completed search is not equivalent: it loses
+    callback order, can inspect edges beyond the cutoff, and reverses the
+    comparison protocol. Exact builtin floats (including NaN/infinity) and
+    integers within the exact f64 range retain the native bounded search.
+    """
+    return (
+        cutoff is None
+        or type(cutoff) is float
+        or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
+    )
 
 
 def _sp_edge_weights_all_int(G, weight):

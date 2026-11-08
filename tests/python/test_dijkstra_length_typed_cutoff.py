@@ -1,5 +1,7 @@
 import math
 import time
+from decimal import Decimal
+from fractions import Fraction
 
 import franken_networkx as fnx
 import networkx as nx
@@ -359,3 +361,170 @@ def test_bounded_dijkstra_cost_does_not_grow_with_the_parent(call):
             lambda: call(lib, small)
         )
     assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), growth
+
+
+_CUTOFF_GRAPH_TYPES = ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+_CUTOFF_QUERIES = (
+    "single_source_dijkstra",
+    "single_source_dijkstra_path",
+    "single_source_dijkstra_path_length",
+    "dijkstra_predecessor_and_distance",
+    "multi_source_dijkstra",
+    "multi_source_dijkstra_path",
+    "multi_source_dijkstra_path_length",
+    "all_pairs_dijkstra",
+    "all_pairs_dijkstra_path",
+    "all_pairs_dijkstra_path_length",
+)
+
+
+def _cutoff_query(module, graph, name, cutoff):
+    query = getattr(module, name)
+    if name.startswith("all_pairs"):
+        return list(query(graph, cutoff=cutoff))
+    source = [0] if name.startswith("multi_source") else 0
+    return query(graph, source, cutoff=cutoff)
+
+
+def _ordered_cutoff_result(result):
+    if isinstance(result, dict):
+        return ("dict", [(key, _ordered_cutoff_result(value)) for key, value in result.items()])
+    if isinstance(result, (list, tuple)):
+        return (type(result).__name__, [_ordered_cutoff_result(value) for value in result])
+    return (type(result).__name__, result)
+
+
+def _cutoff_graph(module, graph_type):
+    graph = getattr(module, graph_type)()
+    graph.add_weighted_edges_from([(0, 1, 1), (0, 2, 3), (1, 3, 1), (2, 3, 1)])
+    graph.add_node(4)
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, weight=5)
+    return graph
+
+
+@pytest.mark.parametrize("graph_type", _CUTOFF_GRAPH_TYPES)
+@pytest.mark.parametrize("name", _CUTOFF_QUERIES)
+@pytest.mark.parametrize(
+    "cutoff",
+    [
+        Decimal("0.9999999999999999999999999999"),
+        Fraction((1 << 60) - 1, 1 << 60),
+        10**400,
+    ],
+    ids=["decimal-below-one", "fraction-below-one", "integer-beyond-f64"],
+)
+def test_exact_dijkstra_cutoffs_match_networkx(graph_type, name, cutoff):
+    """A cutoff must not round onto a reachable node or overflow at conversion."""
+    actual = _cutoff_query(fnx, _cutoff_graph(fnx, graph_type), name, cutoff)
+    expected = _cutoff_query(nx, _cutoff_graph(nx, graph_type), name, cutoff)
+    assert _ordered_cutoff_result(actual) == _ordered_cutoff_result(expected)
+    if cutoff < 1:
+        assert float(cutoff) == 1.0  # the native conversion crossed the boundary
+        assert nx.single_source_dijkstra_path_length(
+            _cutoff_graph(nx, graph_type), 0, cutoff=cutoff
+        ) == {0: 0}
+
+
+@pytest.mark.parametrize("graph_type", _CUTOFF_GRAPH_TYPES)
+@pytest.mark.parametrize(
+    "name",
+    [
+        "single_source_dijkstra",
+        "single_source_dijkstra_path_length",
+        "dijkstra_predecessor_and_distance",
+        "multi_source_dijkstra",
+        "multi_source_dijkstra_path_length",
+    ],
+)
+def test_cutoff_comparison_callbacks_see_live_graph_and_relaxation_order(graph_type, name):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = _cutoff_graph(module, graph_type)
+        events = []
+
+        class Cutoff(float):
+            def __lt__(self, distance):
+                events.append((type(distance).__name__, distance))
+                # The first comparison changes an edge that the search has
+                # not visited. A copied graph or post-search filter misses it.
+                attrs = graph[1][3][0] if graph.is_multigraph() else graph[1][3]
+                attrs["weight"] = 0
+                return distance > 1
+
+            def __ge__(self, distance):
+                raise AssertionError("cutoff comparison was inverted")
+
+            def __float__(self):
+                raise AssertionError("custom cutoff was coerced to float")
+
+        result = _cutoff_query(module, graph, name, Cutoff(1.0))
+        outcomes.append((_ordered_cutoff_result(result), events))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][1], "the comparison callback must actually run"
+
+
+@pytest.mark.parametrize("graph_type", _CUTOFF_GRAPH_TYPES)
+@pytest.mark.parametrize("name", _CUTOFF_QUERIES)
+@pytest.mark.parametrize("has_edge", [False, True], ids=["isolated-source", "edge-relaxation"])
+def test_invalid_cutoff_raises_only_when_an_edge_is_compared(graph_type, name, has_edge):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        graph.add_node(0)
+        if has_edge:
+            graph.add_edge(0, 1, weight=1)
+        try:
+            result = _cutoff_query(module, graph, name, "invalid-cutoff")
+        except Exception as exc:
+            outcomes.append(("error", type(exc).__name__, str(exc)))
+        else:
+            outcomes.append(("result", _ordered_cutoff_result(result)))
+    assert outcomes[0] == outcomes[1]
+    assert (outcomes[0][0] == "error") is has_edge
+
+
+@pytest.mark.parametrize("graph_type", _CUTOFF_GRAPH_TYPES)
+@pytest.mark.parametrize("name", ["single_source_dijkstra", "multi_source_dijkstra"])
+def test_custom_cutoff_is_not_compared_after_target_is_settled(graph_type, name):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = _cutoff_graph(module, graph_type)
+        events = []
+
+        class Cutoff:
+            def __lt__(self, distance):
+                events.append(distance)
+                return False
+
+            def __float__(self):
+                raise AssertionError("custom cutoff was coerced to float")
+
+        source = [0] if name.startswith("multi_source") else 0
+        result = getattr(module, name)(graph, source, target=1, cutoff=Cutoff())
+        outcomes.append((_ordered_cutoff_result(result), events))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][1] == [1, 3]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "single_source_dijkstra",
+        "single_source_dijkstra_path_length",
+        "dijkstra_predecessor_and_distance",
+        "multi_source_dijkstra",
+        "multi_source_dijkstra_path_length",
+    ],
+)
+@pytest.mark.parametrize("cutoff", [None, 1, 1.0, math.nan, math.inf])
+def test_plain_dijkstra_cutoffs_keep_native_search(monkeypatch, graph_type, name, cutoff):
+    def unexpected_python_search(*args, **kwargs):
+        raise AssertionError("ordinary cutoff disabled the native Dijkstra search")
+
+    graph = _cutoff_graph(fnx, graph_type)
+    expected = _cutoff_query(nx, _cutoff_graph(nx, graph_type), name, cutoff)
+    monkeypatch.setattr(fnx, "_dijkstra_multisource_inproc", unexpected_python_search)
+    actual = _cutoff_query(fnx, graph, name, cutoff)
+    assert _ordered_cutoff_result(actual) == _ordered_cutoff_result(expected)

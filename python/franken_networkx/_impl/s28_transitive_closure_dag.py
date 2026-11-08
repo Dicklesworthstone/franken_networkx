@@ -153,7 +153,10 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     """
     # Private root rows remain authoritative through views; coercion can read
     # stale native edges or replace the row's discovery objects before routing.
-    if _weighted_query_uses_live_python_rows(G, weight):
+    if (
+        not _dijkstra_cutoff_uses_native_comparisons(cutoff)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
         return _dijkstra_predecessor_and_distance_inproc(
             G, source, cutoff=cutoff, weight=weight,
         )
@@ -181,7 +184,6 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
         )
     if (
         type(G) not in (Graph, DiGraph)
-        or (cutoff is not None and not isinstance(cutoff, _numbers.Real))
         or _should_delegate_dijkstra_to_networkx(G, weight)
     ):
         return _dijkstra_predecessor_and_distance_via_parity(
@@ -207,7 +209,10 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     """Return shortest path lengths and paths from any source in *sources*."""
     if not sources:
         raise ValueError("sources must not be empty")
-    if _weighted_query_uses_live_python_rows(G, weight):
+    if (
+        not _dijkstra_cutoff_uses_native_comparisons(cutoff)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
         return _multi_source_dijkstra_inproc(
             G, sources, target=target, cutoff=cutoff, weight=weight,
         )
@@ -222,11 +227,6 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     if (
         type(G) in (Graph, DiGraph, MultiGraph)
         and isinstance(weight, str)
-        and (
-            cutoff is None
-            or type(cutoff) is float
-            or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
-        )
     ):
         route = _dijkstra_weight_route(G, weight)
         if route != "networkx" and not _binding_self_syncs_gate(G, weight):
@@ -366,7 +366,10 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     """
     if not sources:
         raise ValueError("sources must not be empty")
-    if _weighted_query_uses_live_python_rows(G, weight):
+    if (
+        not _dijkstra_cutoff_uses_native_comparisons(cutoff)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
         for source in sources:
             if source not in G:
                 raise NodeNotFound(f"Node {source} not found in graph")
@@ -383,11 +386,6 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     if (
         isinstance(weight, str)
         and type(G) in (Graph, DiGraph, MultiGraph)
-        and (
-            cutoff is None
-            or type(cutoff) is float
-            or (type(cutoff) is int and -(2**53) <= cutoff <= 2**53)
-        )
     ):
         route = _dijkstra_weight_route(G, weight)
         if route != "networkx" and not _binding_self_syncs_gate(G, weight):
