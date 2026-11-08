@@ -90,108 +90,259 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
 
 
 def _graph_deepcopy(self, memo=None):
-    """br-dcpy: the Rust __deepcopy__ didn't traverse nested attribute
-    values, so _deepcopy(G).nodes[n]['x'].append(...) mutated the
-    original graph's attrs too. Start from copy.copy's structure-preserving
-    clone, then deep-copy every attrs dict without rebuilding adjacency rows.
-    """
-    from copy import copy as _copy, deepcopy as _dc
+    """Copy the complete object graph with one memo, including node identities."""
+    from copy import _keep_alive, deepcopy as _dc
 
-    # perf (br-r37-c1-bjomp, cc): when every value in an attrs dict is an
-    # immutable scalar (None/bool/int/float/str), copy.deepcopy is observably
-    # identical to a shallow dict copy — immutables are never copied and there
-    # are no nested containers for the memo to matter. Fast-path those to a plain
-    # `dict(attrs)`, falling back to copy.deepcopy (with the shared memo) for ANY
-    # non-scalar value so nested-mutable + cross-attr memo sharing is unchanged.
-    # Mirrors the deepcopy_py_dict Rust fast-path; cProfile showed copy.deepcopy
-    # dominating __deepcopy__ (269k calls / 1.42s on attributed DiGraph(1500)).
-    _immut = (bool, int, float, str)
+    if memo is None:
+        memo = {}
+    if id(self) in memo:
+        return memo[id(self)]
 
-    def _dc_attrs(attrs):
-        d = dict(attrs)
-        for v in d.values():
-            if v is not None and type(v) not in _immut:
-                return _dc(d, memo)
-        return d
-
-    # br-r37-c1-489mp: when the Rust type exposes a native same-type deepcopy, use
-    # it — it clones the structure VERBATIM (matching copy.copy) and deep-copies the
-    # node/edge attr dicts under the shared ``memo`` natively, replacing the
-    # per-node/edge AtlasView walk below (``out[u][v]`` rebuilt the adjacency row
-    # keydict O(E) times — the profiled deepcopy bottleneck). Byte-identical result;
-    # graph attrs + frozen + custom instance attrs are applied by the shared tail.
-    owner = _shared_unsplit_owner(self)
-    if owner is not None:
-        _native_deepcopy = getattr(owner, "_native_deepcopy", None)
-    elif _SHARED_STORAGE_SOURCE in vars(self):
-        _native_deepcopy = None
-    else:
-        _native_deepcopy = getattr(self, "_native_deepcopy", None)
-    if _native_deepcopy is not None:
-        out = _native_deepcopy(memo)
-    else:
-        out = self.copy()
-        for node, attrs in self.nodes(data=True):
-            out_attrs = out.nodes[node]
-            out_attrs.clear()
-            out_attrs.update(_dc_attrs(attrs))
-        if self.is_multigraph():
-            for u, v, key, attrs in self.edges(keys=True, data=True):
-                out_attrs = out[u][v][key]
-                out_attrs.clear()
-                out_attrs.update(_dc_attrs(attrs))
-        else:
-            for u, v, attrs in self.edges(data=True):
-                out_attrs = out[u][v]
-                out_attrs.clear()
-                out_attrs.update(_dc_attrs(attrs))
-    vars(out)[_GRAPH_ATTR_OVERRIDE] = _dc(dict(self.graph), memo)
-    # br-r37-c1-9e7gd: nx preserves the frozen-graph flag (and its
-    # mutator overrides) across deepcopy because it copies the
-    # instance __dict__. fnx's _graph_deepcopy constructs a fresh
-    # cls() and populates it, so the frozen attribute and the
-    # ``add_node=_frozen`` overrides are lost. Re-apply freeze on
-    # the new graph when the source was frozen.
-    if getattr(self, "frozen", False):
-        freeze(out)
-    # br-r37-c1-8nz0x: generalize — copy over any custom
-    # Python-side instance attributes the user set (g.custom_attr = ...)
-    # that aren't already part of the freshly-constructed graph's
-    # state and aren't fnx-internal override slots. nx preserves
-    # them via its default __dict__ deepcopy.
     src_dict = vars(self)
-    out_dict = vars(out)
-    # br-r37-c1-wbwkb: a view memoised by ``_CachedViewDescriptor`` lives under
-    # its PUBLIC name (``nodes``/``edges``/``degree``) and so is not caught by
-    # the ``_fnx_`` prefix rule, but it is an internal cache bound to THIS
-    # graph — copying it would hand the copy a view of the original. Skip it;
-    # the descriptor rebuilds it on the copy's first access.
     descriptor_cached = src_dict.get(_DESCRIPTOR_CACHED_VIEWS) or ()
     private_method_shadows = src_dict.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
-    for key, val in src_dict.items():
-        if key in out_dict:
-            continue
-        if key.startswith("_fnx_") or key in descriptor_cached:
-            continue
-        if key in private_method_shadows and val is private_method_shadows[key]:
-            continue
-        try:
-            out_dict[key] = _dc(val, memo)
-        except Exception:
-            out_dict[key] = val
-    # br-r37-c1-s8obc: assigned private stores are skipped by the ``_fnx_``
-    # rule above (they are stashed under ``_fnx_private_*_override``), so
-    # re-apply them explicitly. Deep-copied under the shared memo, because this
-    # is deepcopy — copy.copy shares them instead, see _graph_shallowcopy.
-    private_overrides = _captured_private_overrides(self)
-    if private_overrides:
-        _reapply_private_overrides(
-            out,
-            {
-                public: _dc(value, memo)
-                for public, value in private_overrides.items()
-            },
+    instance_items = [
+        (key, value)
+        for key, value in src_dict.items()
+        if not (isinstance(key, str) and key.startswith("_fnx_"))
+        and key not in descriptor_cached
+        and not (
+            key in private_method_shadows and value is private_method_shadows[key]
         )
+    ]
+    private_overrides = _captured_private_overrides(self)
+
+    # The native clone preserves row order efficiently, but retains node/key
+    # objects and cannot memoize the new graph before copying attributes. It is
+    # therefore safe only for ordinary graphs containing exact atomic objects.
+    # A supplied memo may remap even an atomic key, so it takes the general path.
+    atomic_types = (type(None), bool, int, float, complex, str, bytes)
+    seen_attrs = set()
+
+    def atomic_attrs(attrs):
+        if (
+            type(attrs) not in (dict, _EdgeAttrDict, _SlottedEdgeAttrDict)
+            or id(attrs) in seen_attrs
+        ):
+            return False
+        seen_attrs.add(id(attrs))
+        return all(
+            type(key) in atomic_types and type(value) in atomic_types
+            for key, value in attrs.items()
+        )
+
+    native = getattr(self, "_native_deepcopy", None)
+    use_native = (
+        not memo
+        and type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+        and not private_overrides
+        and _SHARED_STORAGE_SOURCE not in src_dict
+        and native is not None
+        and all(
+            type(key) in atomic_types and type(value) in atomic_types
+            for key, value in instance_items
+        )
+        and atomic_attrs(self.graph)
+    )
+    node_items = edge_items = ()
+    if use_native:
+        node_items = list(self.nodes(data=True))
+        edge_items = list(
+            self.edges(keys=True, data=True)
+            if self.is_multigraph()
+            else self.edges(data=True)
+        )
+        use_native = all(
+            type(node) in atomic_types and atomic_attrs(attrs)
+            for node, attrs in node_items
+        ) and all(
+            all(type(key) in atomic_types for key in edge[:-1])
+            and atomic_attrs(edge[-1])
+            for edge in edge_items
+        )
+
+    def cached_views(graph):
+        storage = vars(graph)
+        names = storage.get(_DESCRIPTOR_CACHED_VIEWS) or ()
+        for name in (
+            "nodes", "edges", "degree", "adj", "succ", "pred",
+            "in_degree", "out_degree", "in_edges", "out_edges",
+        ):
+            if name in names and name in storage:
+                yield name, storage[name]
+            elif name not in storage:
+                for key in (f"_fnx_view_{name}_assigned", f"_fnx_view_{name}"):
+                    if key in storage:
+                        yield name, storage[key]
+                        break
+
+    source_views = list(cached_views(self))
+    copied_views = []
+    store_source_ids = set()
+
+    def memoize_views():
+        for name, view in source_views:
+            # A custom assigned mapping can itself be the public adjacency.
+            # Its deepcopy protocol, not a replacement view, owns that object.
+            if id(view) in store_source_ids:
+                continue
+            if id(view) not in memo:
+                memo[id(view)] = getattr(out, name)
+                _keep_alive(view, memo)
+            copied_views.append((name, memo[id(view)]))
+
+    def restore_cached_view(name, view):
+        current = getattr(out, name)
+        if current is not view:
+            storage = vars(out)
+            for key, value in tuple(storage.items()):
+                if value is current:
+                    storage[key] = view
+
+    if use_native:
+        out = native(memo)
+        memo[id(self)] = out
+        setattr(out, _GRAPH_ATTR_OVERRIDE, _dc(self.graph, memo))
+        # Native scalar-dict cloning bypasses Python's memo. Register every
+        # live result so later copies in the same memo retain dictionary aliases.
+        for node, attrs in node_items:
+            memo[id(attrs)] = out.nodes[node]
+            _keep_alive(attrs, memo)
+        for edge in edge_items:
+            attrs = out[edge[0]][edge[1]]
+            if self.is_multigraph():
+                attrs = attrs[edge[2]]
+            memo[id(edge[-1])] = attrs
+            _keep_alive(edge[-1], memo)
+        memoize_views()
+    else:
+        # Allocate without rerunning a subclass's __init__, then register BEFORE
+        # calling any user copy hook. Graphs can be their own nodes or attributes.
+        out = type(self).__new__(type(self))
+        memo[id(self)] = out
+        prepared = []
+        prepared_ids = set()
+
+        def prepare_mapping(source, depth, *, native=False):
+            if id(source) in memo or (not native and type(source) is not dict):
+                return
+            target = {}
+            memo[id(source)] = target
+            prepared.append((source, target))
+            prepared_ids.add(id(source))
+            _keep_alive(source, memo)
+            if depth > 1:
+                for value in source.values():
+                    prepare_mapping(value, depth - 1, native=native)
+
+        def alias_mapping(source, original, depth):
+            if source is original or id(source) in memo:
+                return
+            memo[id(source)] = memo[id(original)]
+            _keep_alive(source, memo)
+            if depth > 1 and id(original) in prepared_ids:
+                for key, value in source.items():
+                    alias_mapping(value, original[key], depth - 1)
+
+        # Native storage facades become independent dictionaries. Pre-register
+        # their entire hierarchy so attributes may refer back to adjacency rows
+        # or parallel-key dictionaries. Assigned mappings retain their own copy
+        # protocol, including custom dictionary classes and supplied memo entries.
+        node_source = self._node
+        adj_source = self._adj
+        depth = 3 if self.is_multigraph() else 2
+        native_nodes = "_node" not in private_overrides and not isinstance(
+            node_source, dict
+        )
+        prepare_mapping(node_source, 1, native=native_nodes)
+        native_adjacency = not (
+            {"_adj", "_succ"} & private_overrides.keys()
+        ) and not isinstance(adj_source, dict)
+        prepare_mapping(adj_source, depth, native=native_adjacency)
+        store_sources = [
+            (_PRIVATE_NODE_OVERRIDE, node_source),
+            (_PRIVATE_ADJ_OVERRIDE, adj_source),
+        ]
+        if self.is_directed():
+            succ_source = self._succ
+            pred_source = self._pred
+            if native_adjacency:
+                alias_mapping(succ_source, adj_source, depth)
+            else:
+                prepare_mapping(succ_source, depth)
+            native_pred = "_pred" not in private_overrides and not isinstance(
+                pred_source, dict
+            )
+            prepare_mapping(pred_source, depth, native=native_pred)
+            store_sources.extend(
+                (
+                    (_PRIVATE_SUCC_OVERRIDE, succ_source),
+                    (_PRIVATE_PRED_OVERRIDE, pred_source),
+                )
+            )
+        store_source_ids.update(id(source) for _, source in store_sources)
+
+        # Copy hooks may ask the memoized graph for its live views. Install the
+        # eventual dictionaries first, so those views cannot bind to empty native
+        # storage. Custom mappings supply their final objects through deepcopy;
+        # use temporary private stores until their protocols finish.
+        initial_stores = [
+            (name, memo.get(id(source), {})) for name, source in store_sources
+        ]
+        _set_private_overrides(out, initial_stores)
+        memoize_views()
+
+        setattr(out, _GRAPH_ATTR_OVERRIDE, _dc(self.graph, memo))
+        for source, target in prepared:
+            for key, value in source.items():
+                target[_dc(key, memo)] = _dc(value, memo)
+
+        stores = [
+            (name, _dc(source, memo)) for name, source in store_sources
+        ]
+        if any(value is not initial for (_, value), (_, initial) in zip(stores, initial_stores)):
+            held_views = list(cached_views(out))
+            _set_private_overrides(out, stores)
+            # Preserve references already returned by a copy hook while rebinding
+            # their internal mapping snapshots to the custom stores now installed.
+            for name, view in held_views:
+                current = getattr(out, name)
+                if current is not view:
+                    if type(current) is not type(view):
+                        continue
+                    view_state = getattr(view, "__dict__", None)
+                    if view_state is not None:
+                        view_state.clear()
+                        view_state.update(vars(current))
+                    # Slotted directed edge views already read through out.
+                    restore_cached_view(name, view)
+
+    for name, view in copied_views:
+        restore_cached_view(name, view)
+
+    if getattr(self, "frozen", False):
+        freeze(out)
+    # Custom state is copied with the same memo; exceptions from user copy
+    # hooks must propagate rather than silently retaining mutable source objects.
+    out_dict = vars(out)
+    for key, value in instance_items:
+        out_dict[_dc(key, memo)] = _dc(value, memo)
+    for cls in type(self).__mro__:
+        slots = vars(cls).get("__slots__", ())
+        if isinstance(slots, str):
+            slots = (slots,)
+        for name in slots:
+            if name in ("__dict__", "__weakref__"):
+                continue
+            class_name = cls.__name__.lstrip("_")
+            if class_name and name.startswith("__") and not name.endswith("__"):
+                name = f"_{class_name}{name}"
+            descriptor = vars(cls)[name]
+            try:
+                value = descriptor.__get__(self, type(self))
+            except AttributeError:
+                continue
+            descriptor.__set__(out, _dc(value, memo))
     return out
 
 

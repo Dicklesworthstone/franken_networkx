@@ -1029,6 +1029,32 @@ NetworkX's search. These are pre-existing differences, not resolved by adding
 incremental search. Small exhaustive comparisons against the previous owned
 solver additionally check that pruning preserves its minimum costs.
 
+## 40. Graph Deepcopy Object Identity
+
+`copy.deepcopy(G, memo)` creates an independent graph of the same class and
+registers it in the shared memo before copying any user-controlled contents.
+Graph, node, edge, and custom instance attributes can refer back to the graph,
+to their own dictionaries, or to dictionaries in another attribute layer.
+Those cycles and aliases remain intact in the copy, without references leaking
+back to mutable source objects. Existing memo entries remain authoritative.
+
+Node objects, multigraph keys, attribute keys, and attribute values all follow
+Python's deepcopy protocol. A copied node referenced by an attribute is the
+same object as that node's key in the copied graph. Neighbor and parallel-key
+order, undirected edge sharing, and directed successor/predecessor sharing
+remain unchanged. Frozen state and user instance attributes survive copying;
+exceptions raised by a user object's `__deepcopy__` propagate unchanged.
+Canonical cached graph views referenced by attributes remain bound to the
+copied graph and retain live access to its copied stores.
+
+The ordinary native route is eligible only when its inputs cannot require
+object remapping or observable copy callbacks. General Python object graphs
+use a memo-aware route that preserves the complete identity relationships.
+`tests/python/test_deepcopy_conformance_guard.py` and
+`tests/python/test_copy_semantics_parity.py` compare these semantics with
+NetworkX across all four graph classes, including recursive attributes,
+mutable node objects, shared dictionaries, supplied memos, and copy failures.
+
 ## 41. Disjoint Paths Across Graph Inputs and Backend Dispatch
 
 `edge_disjoint_paths` and `node_disjoint_paths` accept all four graph classes,
