@@ -96,6 +96,15 @@ assigned private rows use the existing owned live-row relaxation engine.
 Public self-loop checks and full reachable-map target semantics are shared;
 there is no second heuristic loop or new native kernel.
 
+The owned readwrite module normalizes iterable line sources lazily and parses
+records directly into the caller's graph. Existing compressed-path and decoded
+line helpers own opened handles; caller-supplied streams retain their lifetime.
+Weighted and multiline writers share an incremental encoded-line sink.
+Ordinary native file routes remain independent. Insertion completes before
+advancing an arbitrary input iterator; completed plain adjacency rows can use
+the existing batch API when its original method and ordinary labels make that
+safe. No cross-record buffer or NetworkX parser delegation is introduced.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

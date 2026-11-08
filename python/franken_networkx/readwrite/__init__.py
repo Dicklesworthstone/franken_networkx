@@ -4,6 +4,7 @@ import ast as _ast
 import bz2 as _bz2
 import gzip as _gzip
 from io import BytesIO as _BytesIO, StringIO as _StringIO
+import os as _os
 from pathlib import Path as _Path
 import re as _re
 import shlex as _shlex
@@ -31,10 +32,45 @@ _NX_READWRITE_SUBMODULES = (
 
 
 def _normalize_lines(lines):
-    """Normalize a string or iterable into a list of text lines."""
+    """Keep iterable line sources lazy; retain the string convenience form."""
     if isinstance(lines, str):
         return lines.splitlines()
-    return list(lines)
+    return lines
+
+
+def _normalize_io_path(path):
+    """Retain the readers' filesystem-path extensions around the shared opener."""
+    if isinstance(path, (str, _Path)) or hasattr(path, "read") or hasattr(path, "write"):
+        return path
+    if isinstance(path, (bytes, _os.PathLike)):
+        return _os.fsdecode(_os.fspath(path))
+    return path
+
+
+def _write_lines_via_open_file(path, lines, encoding):
+    """Write encoded records without buffering or closing a caller's stream."""
+    import franken_networkx as fnx
+
+    def write_lines(handle):
+        text_stream = None
+        for line in lines:
+            encoded = line.encode(encoding)
+            if text_stream:
+                handle.write(encoded.decode(encoding))
+            elif text_stream is False:
+                handle.write(encoded)
+            else:
+                try:
+                    handle.write(encoded)
+                except TypeError:
+                    # Retain the existing text-handle extension alongside
+                    # NetworkX's binary file contract. Probe only once.
+                    handle.write(encoded.decode(encoding))
+                    text_stream = True
+                else:
+                    text_stream = False
+
+    return fnx._open_path_and_call(_normalize_io_path(path), "wb", write_lines)
 
 
 def _new_graph(create_using=None):
@@ -854,17 +890,9 @@ def parse_adjlist(
         "parse_adjlist", backend, backend_kwargs
     )
     G = _new_graph(create_using)
-    # br-r37-c1-pjadl: accumulate the whole stream and commit nodes + edges in
-    # two bulk insertions instead of per-line add_node + add_edges_from (the
-    # latter pays the batch-setup + PyO3 boundary cost once PER LINE — ~3.8x nx).
-    # `nodes_in_order` reproduces nx's first-occurrence node order EXACTLY (per
-    # line: the source u, then each target v in list order, deduped on first
-    # sight — identical to nx's per-line add_node(u) then add_edges_from), and the
-    # flat `edges` list preserves nx's per-line edge order, so output is
-    # byte-identical. nodetype conversion + its TypeError contract are unchanged.
-    nodes_in_order = []
-    seen_nodes = set()
-    edges = []
+    # Input iteration and converters may inspect the supplied graph. Commit
+    # each row before requesting another, and its source before converting
+    # neighbors, so errors retain the same successful prefix as NetworkX.
     for line in _normalize_lines(lines):
         idx = line.find(comments)
         if idx >= 0:
@@ -880,9 +908,7 @@ def parse_adjlist(
                 raise TypeError(
                     f"Failed to convert node ({u}) to type {nodetype}"
                 ) from err
-        if u not in seen_nodes:
-            seen_nodes.add(u)
-            nodes_in_order.append(u)
+        G.add_node(u)
         if nodetype is not None:
             try:
                 vlist = list(map(nodetype, vlist))
@@ -890,13 +916,43 @@ def parse_adjlist(
                 raise TypeError(
                     f"Failed to convert nodes ({','.join(vlist)}) to type {nodetype}"
                 ) from err
-        for v in vlist:
-            if v not in seen_nodes:
-                seen_nodes.add(v)
-                nodes_in_order.append(v)
-            edges.append((u, v))
-    G.add_nodes_from(nodes_in_order)
-    G.add_edges_from(edges)
+        add_edges = G.add_edges_from
+        method = getattr(add_edges, "__func__", None)
+        if method is fnx._multi_add_edges_from and isinstance(
+            G, (fnx.MultiGraph, fnx.MultiDiGraph)
+        ):
+            base = fnx.MultiDiGraph if isinstance(G, fnx.MultiDiGraph) else fnx.MultiGraph
+            if (
+                type(G).add_edge is not fnx._RAW_ADD_EDGE_BY_CLASS[base]
+                or "add_edge" in vars(G)
+            ):
+                # Unlike simple graphs, NetworkX's multigraph row insertion
+                # calls the public add_edge hook with an explicit auto key.
+                # Existing native batch paths bypass that hook. Preserve its
+                # return-key check and failures without bypassing a custom
+                # add_edges_from method or assigned-storage implementation.
+                for v in vlist:
+                    key = G.add_edge(u, v, None)
+                    G[u][v][key].update({})
+                continue
+        original = fnx._RAW_ADD_EDGES_FROM_BY_CLASS.get(type(G))
+        if (
+            original is not None
+            and method is original
+            and type(u) in (str, int)
+            and all(type(v) in (str, int) for v in vlist)
+        ):
+            # A completed plain row has no remaining input/user callbacks.
+            # Concrete pairs reach the existing tiny/bulk insertion paths;
+            # a generator would repeat materialization and native probes.
+            if len(vlist) == 1:
+                # The original add_edges_from uses this same raw mutator for
+                # a tiny plain row. Avoid its repeated setup for one edge.
+                fnx._RAW_ADD_EDGE_BY_CLASS[type(G)](G, u, vlist[0])
+            elif vlist:
+                add_edges([(u, v) for v in vlist])
+        else:
+            add_edges((u, v) for v in vlist)
     return G
 
 
@@ -918,12 +974,8 @@ def parse_edgelist(
         "parse_edgelist", backend, backend_kwargs
     )
     G = _new_graph(create_using)
-    # br-r37-c1-pjadl: accumulate (u, v, edgedata) triples and commit them in one
-    # bulk add_edges_from instead of a per-line add_edge (~2.1x nx). add_edges_from
-    # adds endpoints in the same first-occurrence order as sequential add_edge and
-    # carries the per-edge attr dict identically, so output is byte-identical; the
-    # per-line parse / nodetype / data error contracts are unchanged.
-    edges = []
+    # Do not read ahead of graph mutations: a generator, converter, or graph
+    # hook can observe each completed edge, and later failures retain it.
     for line in _normalize_lines(lines):
         if comments is not None:
             idx = line.find(comments)
@@ -978,8 +1030,11 @@ def parse_edgelist(
                     raise TypeError(
                         f"Failed to convert {name} data {val} to type {tp}."
                     ) from err
-        edges.append((u, v, edgedata))
-    G.add_edges_from(edges)
+        if edgedata and not all(isinstance(name, str) for name in edgedata):
+            # Native keyword collectors do not necessarily perform Python's
+            # function-call check before accepting a dictionary literal.
+            raise TypeError("keywords must be strings")
+        G.add_edge(u, v, **edgedata)
     return G
 
 
@@ -1900,6 +1955,7 @@ def read_multiline_adjlist(
     fnx._validate_backend_dispatch_keywords(
         "read_multiline_adjlist", backend, backend_kwargs
     )
+    path = _normalize_io_path(path)
     # The ordinary path pays for one decoded Python string per physical line
     # before parse_multiline_adjlist starts doing useful work.  The registered
     # default file workload has no conversion hooks, so scan its UTF-8 bytes
@@ -1913,25 +1969,23 @@ def read_multiline_adjlist(
         and nodetype is None
         and edgetype is None
         and encoding == "utf-8"
-        and not hasattr(path, "read")
+        and isinstance(path, (str, _Path))
+        and not str(path).endswith((".gz", ".gzip", ".bz2"))
     ):
         with open(path, "rb") as fh:
             return _parse_default_multiline_adjlist_bytes(fh.read())
-    if hasattr(path, "read"):
-        data = path.read()
-        if isinstance(data, bytes):
-            data = data.decode(encoding)
-        lines = data.splitlines(keepends=True)
-    else:
-        with open(path, encoding=encoding) as fh:
-            lines = fh.readlines()
-    return parse_multiline_adjlist(
-        lines,
-        comments=comments,
-        delimiter=delimiter,
-        create_using=create_using,
-        nodetype=nodetype,
-        edgetype=edgetype,
+    return fnx._read_decoded_lines_via_open_file(
+        path,
+        encoding,
+        lambda lines: parse_multiline_adjlist(
+            lines,
+            comments=comments,
+            delimiter=delimiter,
+            create_using=create_using,
+            nodetype=nodetype,
+            edgetype=edgetype,
+        ),
+        keep_str_lines=True,
     )
 
 
@@ -2022,27 +2076,16 @@ def write_multiline_adjlist(G, path, delimiter=" ", comments="#", encoding="utf-
     import sys
     import time as _time
 
-    pargs = comments + " ".join(sys.argv)
-    header = (
-        f"{pargs}\n"
-        + comments
-        + f" GMT {_time.asctime(_time.gmtime())}\n"
-        + comments
-        + f" {G.name}\n"
-    )
-    body = "".join(line + "\n" for line in generate_multiline_adjlist(G, delimiter=delimiter))
-    text = header + body
-    data = text.encode(encoding)
-    if hasattr(path, "write"):
-        try:
-            path.write(data)
-        except TypeError:
-            # Caller passed a text-mode file-like object.
-            path.write(data.decode(encoding))
-        return None
-    with open(path, "w", encoding=encoding) as fh:
-        fh.write(text)
-    return None
+    def lines():
+        yield (
+            comments + " ".join(sys.argv) + "\n"
+            + comments + f" GMT {_time.asctime(_time.gmtime())}\n"
+            + comments + f" {G.name}\n"
+        )
+        for line in _generate_multiline_adjlist_streaming(G, delimiter):
+            yield line + "\n"
+
+    return _write_lines_via_open_file(path, lines(), encoding)
 
 
 def parse_multiline_adjlist(
@@ -2065,7 +2108,11 @@ def parse_multiline_adjlist(
     G = _new_graph(create_using)
     it = iter(_normalize_lines(lines))
     import ast as _ast
-    for line in it:
+    while True:
+        try:
+            line = next(it)
+        except StopIteration:
+            break
         p = line.find(comments)
         if p >= 0:
             line = line[:p]
@@ -2165,6 +2212,7 @@ def read_weighted_edgelist(
     fnx._validate_backend_dispatch_keywords(
         "read_weighted_edgelist", backend, backend_kwargs
     )
+    path = _normalize_io_path(path)
     # br-r37-c1-2vmel: default-kwargs fast path (see _read_edgelist_via_nx).
     # The kernel bails (returns None) on weight tokens Rust can't parse
     # bit-identically to Python float() (underscore separators), on
@@ -2176,30 +2224,25 @@ def read_weighted_edgelist(
         and nodetype is None
         and encoding == "utf-8"
         and isinstance(path, str)
-        and not path.endswith((".gz", ".bz2"))
+        and not path.endswith((".gz", ".gzip", ".bz2"))
         and (create_using is None or create_using is fnx.Graph)
     ):
         native = fnx._fnx.read_edgelist_simple(path, "weight_float")
         if native is not None:
             return native
-    if hasattr(path, "read"):
-        data = path.read()
-        if isinstance(data, bytes):
-            data = data.decode(encoding)
-        lines = data.splitlines(keepends=True)
-    else:
-        with open(path, encoding=encoding) as fh:
-            lines = fh.readlines()
-    return parse_edgelist(
-        lines,
-        comments=comments,
-        delimiter=delimiter,
-        create_using=create_using,
-        nodetype=nodetype,
-        # br-r37-c1-2vmel: nx passes a TUPLE here; the container repr leaks
-        # into the IndexError message on length-mismatched lines ("data_keys
-        # (('weight', <class 'float'>),)" vs "[...]"), so a list diverges.
-        data=(("weight", float),),
+    return fnx._read_decoded_lines_via_open_file(
+        path,
+        encoding,
+        lambda lines: parse_edgelist(
+            lines,
+            comments=comments,
+            delimiter=delimiter,
+            create_using=create_using,
+            nodetype=nodetype,
+            # The container repr is visible in arity-mismatch errors.
+            data=(("weight", float),),
+        ),
+        keep_str_lines=True,
     )
 
 
@@ -2213,20 +2256,47 @@ def write_weighted_edgelist(G, path, comments="#", delimiter=" ", encoding="utf-
     mode). Mirrors nx's ``@open_file`` decorator semantics so
     BytesIO/StringIO destinations work the same as nx.
     """
-    text = "".join(
-        delimiter.join([str(u), str(v), str(d.get("weight", 1.0))]) + "\n"
-        for u, v, d in G.edges(data=True)
+    return _write_lines_via_open_file(
+        path,
+        (line + "\n" for line in generate_edgelist(G, delimiter, data=["weight"])),
+        encoding,
     )
-    data = text.encode(encoding)
-    if hasattr(path, "write"):
-        try:
-            path.write(data)
-        except TypeError:
-            path.write(data.decode(encoding))
-        return None
-    with open(path, "w", encoding=encoding) as fh:
-        fh.write(text)
-    return None
+
+
+def _generate_multiline_adjlist_streaming(G, delimiter):
+    """Keep only one output row, without a whole-graph attribute snapshot."""
+    import franken_networkx as fnx
+
+    directed = G.is_directed()
+    multigraph = G.is_multigraph()
+    adjacency = G.adjacency
+    ordinary = fnx._multigraph_adjacency if multigraph else fnx._simple_graph_adjacency
+    if (
+        type(G) in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
+        and getattr(adjacency, "__func__", None) is ordinary
+        and not fnx._has_networkx_private_storage(G)
+    ):
+        # The ordinary native adjacency() methods assemble all rows eagerly.
+        # Read one public row only when its output is requested instead.
+        rows = ((node, G[node]) for node in G)
+    else:
+        rows = adjacency()
+    seen = set()
+    for node, adjacency in rows:
+        row = []
+        for neighbor, data in adjacency.items():
+            if not directed and neighbor in seen:
+                continue
+            if multigraph:
+                row.extend((neighbor, attrs) for attrs in data.values())
+            else:
+                row.append((neighbor, data))
+        yield delimiter.join((str(node), str(len(row))))
+        for neighbor, attrs in row:
+            data = dict(attrs) if hasattr(attrs, "items") else attrs
+            yield delimiter.join((str(neighbor), str(data)))
+        if not directed:
+            seen.add(node)
 
 
 def generate_multiline_adjlist(G, delimiter=" "):

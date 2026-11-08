@@ -1320,3 +1320,44 @@ BFS boundary behavior. Logical/private stores and nonconcrete graph objects
 use owned traversal without being handed to a strict native type gate. Exact
 native graphs keep their native route, and an eligible native reverse view
 still uses the root's forward BFS when the cutoff supports that route.
+
+## 48. Streaming Line-Based Graph I/O
+
+`parse_edgelist`, `parse_adjlist`, and `parse_multiline_adjlist` consume an
+arbitrary line iterator in order. They clear an existing `create_using`
+graph before requesting its first line. Completed records are visible before
+the iterator is advanced again, and a later iteration, decoding, conversion,
+or graph-mutation failure retains the successful prefix. An adjacency-list
+record adds its source before converting neighbors; a multiline record adds
+its source before requesting neighbor records. Edge-list conversion finishes
+before the corresponding edge is added. Per-line graph method hooks remain
+observable, including subclass and instance methods. Node and edge order,
+parallel-edge multiplicity, duplicate updates, literal attributes, and typed
+attribute error messages retain their existing public contracts.
+
+Readers accept string and pathlib paths with suffix-directed gzip (`.gz` or
+`.gzip`) and bzip2 (`.bz2`) decompression. They also accept caller-owned binary
+and text streams without closing them. Streaming reader fallbacks decode and
+parse one physical line at a time; they must not require an unbounded `read`,
+seek, full line list, or whole-graph edge buffer. String convenience parser
+inputs retain their established split-lines interpretation. Existing default
+native file routes and the default multiline byte scanner are separately
+admitted fast paths, with no claim that these whole-file routes are bounded.
+
+`write_weighted_edgelist` and `write_multiline_adjlist` use the same compressed
+path ownership contract, encode and write records incrementally, and leave
+caller-owned binary/text destinations open on success or failure. Weighted
+output includes only an existing `weight` attribute; a missing weight does
+not invent a numeric value. Multiline output retains its three comment
+headers and the format's node/edge order. Successfully written prefix records
+remain when a later conversion, encoding, or output operation fails.
+
+FrankenNetworkX's existing acceptance of text-mode multiline reader handles
+and dictionary-literal multiline attributes with an `edgetype` hint remains
+available. NetworkX 3.6.1 rejects those combinations; tests distinguish
+these established extensions from direct oracle comparisons.
+
+`tests/python/test_streaming_line_io.py` covers all four graph classes,
+compressed roundtrips, foreign graph protocols, subclass/instance mutation
+hooks, source/converter event ordering, invalid later lines, encoding
+failures, nonseekable streams, handle lifetime, and bounded outstanding input.
