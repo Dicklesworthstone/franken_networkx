@@ -958,6 +958,18 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         }
         return custom_object_canonical_key(py, key, "");
     }
+    // A complex with zero imaginary part and a non-NaN real is ONE dict key with
+    // its equal real (equal value + equal hash), so route the real through
+    // float_key_canonical via a fresh PyFloat (int-aliasing applies); a non-zero
+    // imag or NaN real keeps identity through the interner.
+    if let Ok(c) = key.downcast::<pyo3::types::PyComplex>() {
+        let re = c.real();
+        if c.imag() == 0.0 && !re.is_nan() {
+            let as_float = re.into_pyobject(py)?;
+            return float_key_canonical(py, as_float.as_any(), re);
+        }
+        return custom_object_canonical_key(py, key, "");
+    }
     // br-r37-c1-epic-storage-architecture-yr2oc.5: for custom hashable objects,
     // use a weakref-backed hash-bucket interner + integer-hash equality check so
     // custom `__eq__`/`__hash__`, hash collisions, and same-repr distinct objects
@@ -2940,6 +2952,17 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
             return structural_tuple_canonical_key(py, effective, "tuple:");
         }
         return custom_object_canonical_key(py, key, "tuple:");
+    }
+    // Edge-key axis of the complex alias: a zero-imag, non-NaN-real complex routes
+    // its real through the edge float canonical (fresh PyFloat), so complex(1,0)
+    // shares an edge with key 1 and complex(1.5,0) with 1.5.
+    if let Ok(c) = key.downcast::<pyo3::types::PyComplex>() {
+        let re = c.real();
+        if c.imag() == 0.0 && !re.is_nan() {
+            let as_float = re.into_pyobject(py)?;
+            return edge_key_lookup_string(py, as_float.as_any());
+        }
+        return custom_object_canonical_key(py, key, "obj:");
     }
     custom_object_canonical_key(py, key, "obj:")
 }
