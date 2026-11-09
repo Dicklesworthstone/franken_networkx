@@ -7,6 +7,7 @@ node order, malformed-input partial state (nx leaves nodes-but-no-edge),
 and that DiGraph / multigraph_input variants keep their contracts.
 """
 
+from collections.abc import Mapping
 import random
 
 import networkx as nx
@@ -124,3 +125,181 @@ def test_subclass_create_using_is_not_read_back_like_networkx():
     G = fnx.from_dict_of_dicts(_symmetric_dod(), create_using=_NoLookupGraph)
     H = nx.from_dict_of_dicts(_symmetric_dod(), create_using=_NxNoLookupGraph)
     assert sorted(G.edges(data=True)) == sorted(H.edges(data=True))
+
+
+def _decode_outcome(module, data, graph):
+    try:
+        module.from_dict_of_dicts(data, create_using=graph)
+        error = None
+    except Exception as exc:
+        error = type(exc), str(exc)
+    return error, _canon(graph)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("input_kind", ["dict", "adjacency_view"])
+@pytest.mark.parametrize("mutation", ["later_row", "current_row", "later_value"])
+def test_edge_attribute_providers_observe_incremental_source_rows(class_name, input_kind, mutation):
+    def run(module):
+        graph = getattr(module, class_name)()
+        data = {0: {1: {}}, 1: {0: {}, 2: {}}, 2: {1: {}}, 3: {}}
+        calls = []
+
+        class Attributes(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                return iter(("cost",))
+
+            def __getitem__(self, key):
+                calls.append((key, graph.has_edge(0, 1), graph.has_edge(1, 2)))
+                if mutation == "later_row":
+                    data[2][3] = data[3][2] = {"cost": 99}
+                elif mutation == "current_row":
+                    data[0][3] = data[3][0] = {"cost": 99}
+                else:
+                    data[1][2]["cost"] = 99
+                return 7
+
+        data[0][1] = data[1][0] = Attributes()
+        source = data if input_kind == "dict" else nx.classes.coreviews.AdjacencyView(data)
+        outcome = _decode_outcome(module, source, graph)
+        return outcome, calls
+
+    expected = run(nx)
+    assert expected[1], "the fixture must read the attribute provider"
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("provider_kind", ["outer", "row"])
+def test_mapping_rows_see_each_edge_before_yielding_another(class_name, provider_kind):
+    def run(module):
+        graph = getattr(module, class_name)()
+        calls = []
+
+        class Rows(dict):
+            def items(self):
+                for key, value in super().items():
+                    calls.append((key, tuple(graph.edges())))
+                    yield key, value
+
+        if provider_kind == "outer":
+            data = Rows({0: {1: {"cost": 1}}, 1: {2: {"cost": 2}}, 2: {}})
+        else:
+            data = {0: Rows({1: {"cost": 1}, 2: {"cost": 2}}), 1: {}, 2: {}}
+        return _decode_outcome(module, data, graph), calls
+
+    expected = run(nx)
+    assert expected[1][1][1] == ((0, 1),)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("existing_edge", [False, True])
+def test_attribute_provider_errors_keep_the_completed_prefix(class_name, existing_edge):
+    def run(module):
+        graph = getattr(module, class_name)()
+
+        class FailsAfterOne(Mapping):
+            def __len__(self):
+                return 2
+
+            def __iter__(self):
+                return iter(("completed", "failure"))
+
+            def __getitem__(self, key):
+                if key == "failure":
+                    raise ValueError("attribute provider stopped")
+                return 99
+
+        data = {0: {1: {"first": 1}}, 1: {}, 2: {}}
+        if existing_edge:
+            data[1][0] = FailsAfterOne()
+        else:
+            data[1][2] = FailsAfterOne()
+        return _decode_outcome(module, data, graph)
+
+    expected = run(nx)
+    assert expected[0] == (ValueError, "attribute provider stopped")
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+def test_new_edge_provider_sees_missing_endpoint_before_its_error(class_name):
+    def run(module):
+        graph = getattr(module, class_name)()
+        calls = []
+
+        class Attributes(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                return iter(("cost",))
+
+            def __getitem__(self, key):
+                calls.append((tuple(graph), tuple(graph.edges())))
+                raise ValueError("no edge attributes")
+
+        outcome = _decode_outcome(module, {"source": {"new": Attributes()}}, graph)
+        return outcome, calls
+
+    expected = run(nx)
+    assert expected[1] == [(("source", "new"), ())]
+    assert expected[0][0] == (ValueError, "no edge attributes")
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+def test_streaming_decode_does_not_dispatch_through_unrelated_instance_hooks(class_name):
+    def run(module):
+        graph = getattr(module, class_name)()
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("add_edges_from does not invoke this instance method")
+
+        graph.add_node = forbidden
+        graph.get_edge_data = forbidden
+
+        class Attributes(Mapping):
+            def __len__(self):
+                return 1
+
+            def __iter__(self):
+                return iter(("cost",))
+
+            def __getitem__(self, key):
+                return 7
+
+        return _decode_outcome(module, {0: {1: Attributes()}}, graph)
+
+    expected = run(nx)
+    assert expected[0] is None
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+def test_patched_standard_adjacency_view_keeps_its_public_iteration(monkeypatch, class_name):
+    view_class = nx.classes.coreviews.AdjacencyView
+    original = view_class.items
+
+    def run(module):
+        graph = getattr(module, class_name)()
+        source = view_class({0: {1: {}}, 1: {2: {}}, 2: {}})
+        calls = []
+
+        def observed(view):
+            for node, row in original(view):
+                calls.append((node, tuple(graph.edges())))
+                yield node, row
+
+        with monkeypatch.context() as patch:
+            patch.setattr(view_class, "items", observed)
+            outcome = _decode_outcome(module, source, graph)
+        return outcome, calls
+
+    expected = run(nx)
+    assert expected[1][1][1] == ((0, 1),)
+    assert run(fnx) == expected

@@ -697,7 +697,7 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None)
 
 
 def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
-    """Populate constructor target from another graph in public edge order.
+    """Populate a constructor target from the source's authoritative storage.
 
     br-graphtodigraph: when target is directed and source is undirected,
     nx expands each undirected edge into both directions (matching
@@ -708,11 +708,17 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     second_order_centrality and any other algorithm that depends on
     the bidirected view.
     """
+    source_type = type(source)
+    native_source = (
+        source_type is Graph or source_type is DiGraph
+        or source_type is MultiGraph or source_type is MultiDiGraph
+    ) and not _has_networkx_private_storage(source)
+
     # br-r37-c1-dgctor: DiGraph(Graph) fast path — native bidirected
     # shallow copy in one pass (adjacency-row edge order, matching nx's
-    # from_dict_of_dicts walk; the Python expand loop below emits
-    # u->v,v->u adjacent which DIVERGES from nx succ/pred row order, and
-    # paid per-edge DiGraph.add_edges_from ~9.4x nx). The kernel replaces
+    # from_dict_of_dicts walk; the former Python expansion emitted reverse
+    # arcs together, changing succ/pred row order and paying per-edge
+    # DiGraph.add_edges_from ~9.4x nx). The kernel replaces
     # ALL of self's state wholesale, which is exactly the clear()+rebuild
     # this function otherwise performs — including discarding whatever the
     # Rust __new__ already absorbed from `source` (the old path paid that
@@ -721,6 +727,7 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     if (
         type(self) is DiGraph
         and type(source) is Graph
+        and native_source
         and _fnx.digraph_absorb_graph_bidirected(self, source)
     ):
         if attr:
@@ -736,7 +743,7 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     if (
         type(self) is Graph
         and type(source) is DiGraph
-        and not _has_networkx_private_storage(source)
+        and native_source
         and _fnx.graph_absorb_digraph(self, source)
     ):
         if attr:
@@ -751,17 +758,23 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     if (
         type(self) is MultiGraph
         and type(source) is Graph
-        and _fnx.multigraph_absorb_graph(self, source)
+        and native_source
     ):
-        if attr:
-            self.graph.update(attr)
-        return
+        plain_attr_types = _plain_read_attr_dict_types()
+        if all(
+            type(attrs) in plain_attr_types and _multigraph_import_plain_attrs(attrs)
+            for _, _, attrs in source.edges(data=True)
+        ) and _fnx.multigraph_absorb_graph(self, source):
+            if attr:
+                self.graph.update(attr)
+            return
 
     # br-r37-c1-k1k74: MultiDiGraph(Graph) native absorb — exact fnx simple
     # graph source, bidirected key-0 target, no Python edge-list replay.
     if (
         type(self) is MultiDiGraph
         and type(source) is Graph
+        and native_source
         and self._fnx_absorb_graph_bidirected(source)
     ):
         if attr:
@@ -778,6 +791,7 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     if (
         type(self) is MultiDiGraph
         and type(source) is DiGraph
+        and native_source
         and self._fnx_absorb_digraph_keyed(source)
     ):
         if attr:
@@ -789,7 +803,7 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     # adjacency/pred rows, graph attrs, shallow attr-dict copying).
     # Wholesale-absorb the native copy instead of the Python re-add walk
     # (DiGraph(DiGraph) was 4.4-5.0x slower than nx).
-    if type(self) is type(source) and type(self) in (
+    if native_source and type(self) is type(source) and type(self) in (
         Graph,
         DiGraph,
         MultiGraph,
@@ -802,127 +816,21 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
                 self.graph.update(attr)
             return
 
-    self.clear()
-    self.graph.update(dict(getattr(source, "graph", {})))
+    # The public adjacency walk is authoritative for private stores, views and
+    # foreign graphs. Reuse the owned decoder so bidirected expansion follows
+    # source row order, keyed reciprocal cells collapse consistently, and
+    # topology is populated before graph/node attributes are read.
+    try:
+        from_dict_of_dicts(
+            source.adj, create_using=self, multigraph_input=source.is_multigraph(),
+        )
+        self.graph.update(source.graph)
+        for node, attrs in source.nodes.items():
+            self._node[node].update(attrs)
+    except Exception as exc:
+        raise NetworkXError("Input is not a correct NetworkX graph.") from exc
     if attr:
         self.graph.update(attr)
-    self.add_nodes_from((node, dict(attrs)) for node, attrs in source.nodes(data=True))
-    target_is_directed = self.is_directed()
-    source_is_directed = source.is_directed()
-    expand_undirected_to_directed = target_is_directed and not source_is_directed
-
-    if source.is_multigraph():
-        if is_multigraph:
-            if expand_undirected_to_directed:
-                edges = []
-                for u, v, key, attrs in source.edges(keys=True, data=True):
-                    edges.append((u, v, key, dict(attrs)))
-                    if u != v:
-                        edges.append((v, u, key, dict(attrs)))
-                self.add_edges_from(edges)
-            elif source_is_directed and not target_is_directed:
-                # br-r37-c1-bt8m4: collapsing directed -> undirected, nx's
-                # from_dict_of_dicts walks adjacency CELLS with a `seen`
-                # reverse-pair skip: the FIRST direction encountered keeps
-                # ALL its parallel keys; the reverse direction is skipped
-                # ENTIRELY (attrs never merge across directions). The old
-                # flat add_edges_from let the reverse direction's attrs
-                # overwrite (last-wins) — MultiGraph(MultiDiGraph) diverged.
-                groups = {}
-                for u, v, key, attrs in source.edges(keys=True, data=True):
-                    groups.setdefault((u, v), []).append((key, dict(attrs)))
-                seen = set()
-                edges = []
-                for (u, v), items in groups.items():
-                    if (u, v) in seen:
-                        continue
-                    seen.add((v, u))
-                    for key, attrs in items:
-                        edges.append((u, v, key, attrs))
-                self.add_edges_from(edges)
-            else:
-                self.add_edges_from(
-                    (u, v, key, dict(attrs))
-                    for u, v, key, attrs in source.edges(keys=True, data=True)
-                )
-        else:
-            if expand_undirected_to_directed:
-                edges = []
-                for u, v, _key, attrs in source.edges(keys=True, data=True):
-                    edges.append((u, v, dict(attrs)))
-                    if u != v:
-                        edges.append((v, u, dict(attrs)))
-                self.add_edges_from(edges)
-            elif source_is_directed and not target_is_directed:
-                # br-r37-c1-bt8m4: Graph(MultiDiGraph) — same reverse-pair
-                # skip; parallel keys within the kept direction merge in key
-                # order (nx's per-key G[u][v].update inside the cell visit).
-                groups = {}
-                for u, v, _key, attrs in source.edges(keys=True, data=True):
-                    groups.setdefault((u, v), []).append(dict(attrs))
-                seen = set()
-                edges = []
-                for (u, v), datas in groups.items():
-                    if (u, v) in seen:
-                        continue
-                    seen.add((v, u))
-                    for d in datas:
-                        edges.append((u, v, d))
-                self.add_edges_from(edges)
-            else:
-                self.add_edges_from(
-                    (u, v, dict(attrs))
-                    for u, v, _key, attrs in source.edges(keys=True, data=True)
-                )
-    elif is_multigraph:
-        if expand_undirected_to_directed:
-            # br-r37-c1-1o74q: MultiDiGraph(Graph) — the source is simple, so
-            # each directed endpoint pair appears at most ONCE. Emitting 3-tuples
-            # ``(u, v, attrs)`` lets the directed-multigraph ``add_edges_from``
-            # auto-assign key 0 (lowest unused == 0 on a fresh graph) — byte-
-            # identical to the explicit ``(u, v, 0, attrs)`` 4-tuple but routed
-            # through the native attributed-batch fast-path instead of the
-            # per-edge add_edge loop (~2.46x faster; was ~3.3x slower than nx).
-            # NB: this win is directed-only — for the undirected MultiGraph
-            # targets below, the symmetric auto-key lookup makes 3-tuples SLOWER,
-            # so those keep the explicit-key 4-tuple form.
-            edges = []
-            for u, v, attrs in source.edges(data=True):
-                edges.append((u, v, dict(attrs)))
-                if u != v:
-                    edges.append((v, u, dict(attrs)))
-            self.add_edges_from(edges)
-        elif source_is_directed and not target_is_directed:
-            # br-r37-c1-bt8m4: MultiGraph(DiGraph) — reverse-pair skip,
-            # first direction wins (nx keeps ONE key-0 edge, not two
-            # parallels and not last-wins attrs).
-            seen = set()
-            edges = []
-            for u, v, attrs in source.edges(data=True):
-                if (u, v) in seen:
-                    continue
-                seen.add((v, u))
-                edges.append((u, v, 0, dict(attrs)))
-            self.add_edges_from(edges)
-        else:
-            # MultiGraph(Graph) / MultiDiGraph(DiGraph): the explicit-key 4-tuple
-            # is at-or-faster than auto-key here (the 3-tuple win is specific to
-            # the undirected-source -> directed-multi expansion above).
-            self.add_edges_from(
-                (u, v, 0, dict(attrs)) for u, v, attrs in source.edges(data=True)
-            )
-    else:
-        if expand_undirected_to_directed:
-            edges = []
-            for u, v, attrs in source.edges(data=True):
-                edges.append((u, v, dict(attrs)))
-                if u != v:
-                    edges.append((v, u, dict(attrs)))
-            self.add_edges_from(edges)
-        else:
-            self.add_edges_from(
-                (u, v, dict(attrs)) for u, v, attrs in source.edges(data=True)
-            )
 
 
 def _validate_graph_constructor_backend(graph, backend):

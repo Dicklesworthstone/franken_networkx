@@ -602,6 +602,21 @@ _SlottedEdgeAttrDict.__name__ = _SlottedEdgeAttrDict.__qualname__ = "dict"
 _fnx._set_edge_attr_dict_class(_EdgeAttrDict, _SlottedEdgeAttrDict)
 
 
+def _plain_read_attr_dict_types():
+    """Dict implementations whose reads cannot invoke caller protocols.
+
+    Owned edge dictionaries observe writes to keep native attributes in sync.
+    Their unchanged builtin reads remain safe for bulk extraction; a patched
+    read method sends that exact class through the public protocol instead.
+    Compute admission once per operation so later calls observe class changes.
+    """
+    methods = ("get", "items", "keys", "__iter__", "__getitem__", "__getattribute__")
+    return (dict,) + tuple(
+        cls for cls in (_EdgeAttrDict, _SlottedEdgeAttrDict)
+        if all(getattr(cls, name) is getattr(dict, name) for name in methods)
+    )
+
+
 def _graph_is_filtered(graph, _depth=0):
     """True when nx would be serving this graph through a FilterAtlas.
 

@@ -1,3 +1,82 @@
+import networkx.classes.coreviews as _nx_dict_import_views
+
+
+_SIMPLE_DICT_IMPORT_ADD_EDGES_FROM = {
+    cls: cls.add_edges_from for cls in (Graph, DiGraph)
+}
+_SIMPLE_DICT_IMPORT_GRAPH_METHODS = {
+    cls: (cls.__contains__, cls.add_node, cls.get_edge_data)
+    for cls in (Graph, DiGraph)
+}
+_SIMPLE_DICT_IMPORT_VIEW_METHODS = {
+    cls: tuple(
+        (name, getattr(cls, name))
+        for name in ("__getattribute__", "__iter__", "__getitem__", "items", "_atlas")
+    )
+    for cls in (_nx_dict_import_views.AdjacencyView, _nx_dict_import_views.AtlasView)
+}
+
+
+def _simple_dict_import_plain_rows(data):
+    """Return plain backing rows only when inspection cannot run user code."""
+    plain_attrs = _plain_read_attr_dict_types()
+    if type(data) is dict:
+        rows = data
+    else:
+        # Standard NetworkX adjacency views wrap a dict without transforming
+        # it. Capture their protocols so a class patch cannot silently become
+        # permission to inspect custom rows before their public traversal.
+        if type(data) is not _nx_dict_import_views.AdjacencyView:
+            return None
+        for cls, methods in _SIMPLE_DICT_IMPORT_VIEW_METHODS.items():
+            if getattr(_nx_dict_import_views, cls.__name__, None) is not cls or any(
+                getattr(cls, name) is not original for name, original in methods
+            ):
+                return None
+        rows = data._atlas
+        if type(rows) is not dict:
+            return None
+    for node, neighbors in rows.items():
+        if not _multigraph_import_plain_key(node) or type(neighbors) is not dict:
+            return None
+        for neighbor, attrs in neighbors.items():
+            if (
+                not _multigraph_import_plain_key(neighbor)
+                or type(attrs) not in plain_attrs
+                or not _multigraph_import_plain_attrs(attrs)
+            ):
+                return None
+    return rows
+
+
+def _add_dict_simple_edge(graph, add_edges, source, target, attrs):
+    """Run attribute providers outside the native graph's mutable borrow."""
+    contains, add_node, get_edge_data = _SIMPLE_DICT_IMPORT_GRAPH_METHODS[type(graph)]
+    # add_edges_from does not dispatch through overridable add_node or
+    # get_edge_data methods. Internal setup must retain that same boundary.
+    if not contains(graph, source):
+        add_node(graph, source)
+    if not contains(graph, target):
+        add_node(graph, target)
+    existing = get_edge_data(graph, source, target)
+    if existing is None:
+        # A failing provider leaves the endpoint nodes, but no new edge.
+        # Its callbacks can inspect the graph while this dict is unlinked.
+        prepared = {}
+        prepared.update(attrs)
+        add_edges([(source, target, prepared)])
+    else:
+        # Updating an existing edge is visible incrementally, including fields
+        # written before a provider raises. Preserve the native write-watch
+        # notification which dict.update cannot reach after such an error.
+        try:
+            existing.update(attrs)
+        except BaseException:
+            if type(existing) in (_EdgeAttrDict, _SlottedEdgeAttrDict):
+                watch = existing._fnx_watch
+                if watch is not None:
+                    watch.note(existing)
+            raise
 
 
 _MULTIGRAPH_IMPORT_METHODS = {
@@ -1173,54 +1252,52 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
                         continue
                     _add_json_multiedge(graph, u, v, 0, dict(edge_attrs))
                     seen.add((v, u))
-    elif type(graph) is Graph:
-        # br-r37-c1-nlanb: batch the whole edge set through add_edges_from
-        # (nx does exactly this with a generator of (u, v, data) triples) so
-        # the attributed batch path (br-r37-c1-pr8q6) commits it in one bulk
-        # insertion instead of per-edge Python add_edge + two adjacency-view
-        # __getitem__ + dict.update (~7.8x nx). Semantics are identical for
-        # well-formed input; for a NON-dict attrs value this also corrects a
-        # divergence: the old loop added the edge BEFORE update() raised,
-        # while nx's add_edges_from leaves nodes-but-no-edge (datadict is
-        # only linked into _adj after a successful update).
-        #
-        # br-r37-c1-dodsymdedup: an UNDIRECTED dict-of-dicts lists every edge
-        # twice (u->v and v->u). nx feeds both to add_edges_from (the reverse is
-        # a redundant no-op update). Skip the reverse when it is the SAME attrs
-        # object (the symmetric case produced by to_dict_of_dicts), halving the
-        # batch. An asymmetric reverse (different dict) is still emitted so the
-        # later one wins exactly as nx's add_edges_from does — byte-identical
-        # result, ~2x less batch work. (The existing-nodes attr index batch,
-        # br-r37-c1-dodattrbatch, only fires when node labels equal their indices;
-        # a graph from to_dict_of_dicts of a non-0..n-ordered source falls back to
-        # the String-keyed batch, where halving the work still helps.)
-        seen = set()
-        batch = []
-        for u, nbrs in d.items():
-            for v, edge_attrs in nbrs.items():
-                if (
-                    u != v
-                    and (v, u) in seen
-                    and v in d
-                    and d[v].get(u) is edge_attrs
-                ):
-                    continue
-                batch.append((u, v, edge_attrs))
-                seen.add((u, v))
-        graph.add_edges_from(batch)
-    elif type(graph) is DiGraph:
-        # br-r37-c1-doddir (cc): the directed simple-graph case had NO batch
-        # branch and fell to the per-edge ``add_edge`` + ``graph[u][v].update``
-        # loop below. That per-edge adjacency-view __getitem__ is O(N), making
-        # the whole build O(N^2) — 963ms @ n=800 (0.003x vs nx, ~430x slower).
-        # Directed dict-of-dicts edges are UNIQUE (no symmetric (v,u) dedup like
-        # the undirected branch), so emit (u, v, attrs) triples through ONE
-        # add_edges_from — byte-identical (nx does exactly this) and O(E).
-        graph.add_edges_from(
-            (u, v, edge_attrs)
-            for u, nbrs in d.items()
-            for v, edge_attrs in nbrs.items()
-        )
+    elif type(graph) in (Graph, DiGraph):
+        add_edges = graph.add_edges_from
+        if getattr(add_edges, "__func__", None) is not _SIMPLE_DICT_IMPORT_ADD_EDGES_FROM[type(graph)]:
+            # Assigned storage and overridden graph methods retain their own
+            # incremental implementation and one public add_edges_from call.
+            add_edges(
+                (u, v, attrs) for u, neighbors in d.items()
+                for v, attrs in neighbors.items()
+            )
+            return graph
+        rows = None
+        if (
+            not _has_networkx_private_storage(graph)
+            and graph.node_attr_dict_factory is dict
+            and graph.edge_attr_dict_factory is dict
+        ):
+            rows = _simple_dict_import_plain_rows(d)
+        if rows is None:
+            # A row or attribute provider may observe the target, change a
+            # later source row, or fail after a valid prefix. The general
+            # add_edges_from wrapper buffers iterators; commit each edge
+            # before advancing the caller's traversal.
+            for u, neighbors in d.items():
+                for v, attrs in neighbors.items():
+                    _add_dict_simple_edge(graph, add_edges, u, v, attrs)
+        elif type(graph) is Graph:
+            # Identical symmetric plain dictionaries have no observable
+            # second update. Keep the existing deduplicated native batch for
+            # this common case; distinct reciprocal attrs still merge in order.
+            seen = set()
+            batch = []
+            for u, neighbors in rows.items():
+                for v, attrs in neighbors.items():
+                    if (
+                        u != v and (v, u) in seen
+                        and v in rows and rows[v].get(u) is attrs
+                    ):
+                        continue
+                    batch.append((u, v, attrs))
+                    seen.add((u, v))
+            add_edges(batch)
+        else:
+            add_edges(
+                (u, v, attrs) for u, neighbors in rows.items()
+                for v, attrs in neighbors.items()
+            )
     else:
         # Subclasses and networkx graphs given as create_using: networkx's own
         # statement, one add_edges_from over the triples. The former

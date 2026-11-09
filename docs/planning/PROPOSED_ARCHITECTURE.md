@@ -177,6 +177,21 @@ advancement and select their existing owned engines for public protocols;
 native selector admission is checked against concrete storage at that point.
 No new graph cache or duplicate shortest-path/spanning algorithm is added.
 
+Graph-source constructors admit native absorb only for authoritative native
+storage. The public-protocol route uses the existing owned adjacency decoder
+for every source/target graph-kind combination, then applies shallow graph
+and node attributes and explicit overrides. This keeps conversion ordering,
+parallel-key merging and factory behavior in one implementation.
+The decoder retains batch insertion for ordinary mappings and consumes
+observable mapping providers incrementally without a second constructor
+implementation.
+The simple-to-undirected-multigraph absorb route shares existing scalar
+attribute admission rather than allowing its lazy native mirror to replace
+non-round-trippable Python values.
+Flow extraction and graph conversion share admission for plain attribute
+reads, including owned write-watched dictionaries whose read methods remain
+builtin. Caller overrides select the public route on the next operation.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

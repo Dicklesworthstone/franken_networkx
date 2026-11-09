@@ -1665,3 +1665,34 @@ first advancement are visible, yielded attribute dictionaries remain the
 caller's dictionaries, and later Prim/Boruvka reads observe subsequent
 mutations. Kruskal reads and sorts its edge records before its first yield.
 Ordinary concrete native storage retains its existing selector routes.
+
+## 58. Constructor Copies of Authoritative Graph Storage
+
+All graph-to-graph constructors use the source's active logical storage.
+Assigned node, adjacency, successor or predecessor mappings and shared view
+storage take precedence over any obsolete native graph underneath them.
+Native absorb operations require an ordinary concrete source with native
+storage; matching source and destination classes alone are insufficient.
+The simple-to-undirected-multigraph absorb route also requires edge
+attributes that round-trip through its native store. Arbitrary attribute
+keys, large integers and nested Python values use public reconstruction so
+their types and shallow identity remain intact.
+
+Across all sixteen combinations of `Graph`, `DiGraph`, `MultiGraph` and
+`MultiDiGraph`, reconstruction preserves node order, adjacency-row order,
+parallel-edge keys and the reference directed/undirected merge rules. A
+directed target receives reciprocal arcs in source adjacency order instead
+of interleaving reverse arcs while visiting an undirected edge list.
+
+Graph, node and edge attribute dictionaries belong to the new graph while
+their nested values retain shallow-copy identity. Explicit constructor
+attributes override copied graph attributes. Generic graph reconstruction
+uses the established adjacency decoder and preserves the reference error
+boundary when public graph providers cannot be converted. Algorithms that
+construct an auxiliary graph inherit these storage and copy guarantees.
+
+Adjacency decoding consumes observable mapping providers incrementally. A
+custom edge-attribute read can change a later adjacency row, which must be
+read after that callback runs. Ordinary dictionary-backed inputs retain bulk
+insertion, while custom mapping protocols preserve public read, mutation
+and partial-construction error order through the shared decoder.

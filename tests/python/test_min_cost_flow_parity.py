@@ -675,3 +675,48 @@ def test_cost_flow_solves_safe_integer_problem_once(api, cls, monkeypatch):
     assert len(calls) == 1
     if api == "min_cost_flow_cost":
         assert result == 6 and type(result) is int
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_cost_flow_bulk_adapter_retains_owned_plain_read_attributes(cls):
+    simplex = import_module("franken_networkx._network_simplex_native")
+    graph = getattr(fnx, cls)()
+    graph.add_node("source", demand=-1, payload=object())
+    graph.add_node("sink", demand=1)
+    graph.add_edge("source", "sink", capacity=1, weight=2, payload=object())
+    adapter = simplex._FastG(graph)
+    assert adapter._source is None
+    assert list(adapter.edges(data=True, keys=graph.is_multigraph())) == list(
+        graph.edges(data=True, keys=True) if graph.is_multigraph()
+        else graph.edges(data=True)
+    )
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_cost_flow_respects_patched_owned_attribute_read_protocols(api, cls, monkeypatch):
+    graph = getattr(fnx, cls)()
+    graph.add_node("source", demand=-1)
+    graph.add_node("sink", demand=1)
+    graph.add_edge("source", "sink", capacity=1, weight=2)
+    expected_graph = getattr(nx, cls)()
+    expected_graph.add_node("source", demand=-1)
+    expected_graph.add_node("sink", demand=1)
+    expected_graph.add_edge("source", "sink", capacity=1, weight=2)
+    expected = _cost_flow_outcome(getattr(nx, api), expected_graph)
+    attrs = graph["source"]["sink"]
+    if graph.is_multigraph():
+        attrs = attrs[0]
+    events = []
+
+    def observed_get(self, key, default=None):
+        value = dict.get(self, key, default)
+        if key == "weight":
+            events.append(value)
+            self["weight"] = 37
+        return value
+
+    monkeypatch.setattr(type(attrs), "get", observed_get)
+    assert _cost_flow_outcome(getattr(fnx, api), graph) == expected
+    assert events == [2]
+    assert attrs["weight"] == 37

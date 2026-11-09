@@ -87,7 +87,10 @@ class _FastG:
     __slots__ = ("_source", "_nodes", "_nattr", "_edges", "_selfloops", "_is_multi")
 
     def __init__(self, G, *, demand="demand", capacity="capacity", weight="weight"):
-        from . import DiGraph, MultiDiGraph, _has_networkx_private_storage
+        from . import (
+            DiGraph, MultiDiGraph, _has_networkx_private_storage,
+            _plain_read_attr_dict_types,
+        )
 
         self._source = G
         if (
@@ -100,8 +103,9 @@ class _FastG:
             return
         nd = list(G.nodes(data=True))
         scalar_types = (int, float, bool)
+        plain_attr_types = _plain_read_attr_dict_types()
         if any(
-            type(attrs) is not dict or type(attrs.get(demand, 0)) not in scalar_types
+            type(attrs) not in plain_attr_types or type(attrs.get(demand, 0)) not in scalar_types
             for _, attrs in nd
         ):
             return
@@ -119,7 +123,7 @@ class _FastG:
         # unrelated payload values do not affect bulk-storage admission.
         inf = float("inf")
         if any(
-            type(edge[-1]) is not dict
+            type(edge[-1]) not in plain_attr_types
             or type(edge[-1].get(capacity, inf)) not in scalar_types
             or type(edge[-1].get(weight, 0)) not in scalar_types
             for edge in edges
