@@ -39607,8 +39607,7 @@ pub fn negative_edge_cycle_directed(digraph: &DiGraph, weight_attr: &str) -> boo
     let mut dist = vec![1.0f64; n];
     let mut pred = vec![Vec::<usize>::new(); n];
     let mut pred_edge = vec![SOURCE; n];
-    let mut recent_update: Vec<(usize, usize)> =
-        (0..n).map(|u| (SOURCE, u)).collect();
+    let mut recent_update: Vec<(usize, usize)> = (0..n).map(|u| (SOURCE, u)).collect();
     // Each original node has already been enqueued once by the virtual source.
     let mut count = vec![1usize; n];
     let mut queued = vec![true; n];
@@ -39631,11 +39630,7 @@ pub fn negative_edge_cycle_directed(digraph: &DiGraph, weight_attr: &str) -> boo
                 if v == recent.0 || v == recent.1 {
                     return true;
                 }
-                recent_update[v] = if pred_edge[v] == u {
-                    recent
-                } else {
-                    (u, v)
-                };
+                recent_update[v] = if pred_edge[v] == u { recent } else { (u, v) };
 
                 if !queued[v] {
                     queue.push_back(v);
@@ -68909,10 +68904,8 @@ mod tests {
             let expected_len = if cutoff == Some(1.0e308) { 2 } else { 4 };
             let mut expected_csr_rows = vec![(0, 0.0, true, u32::MAX), (1, 1.0e308, false, 0)];
             if expected_len == 4 {
-                expected_csr_rows.extend([
-                    (2, f64::INFINITY, false, 1),
-                    (3, f64::INFINITY, false, 2),
-                ]);
+                expected_csr_rows
+                    .extend([(2, f64::INFINITY, false, 1), (3, f64::INFINITY, false, 2)]);
             }
             assert_eq!(
                 super::single_source_dijkstra_typed_csr_indexed(
@@ -81381,7 +81374,10 @@ mod tests {
                 let _ = g.add_edge(*left, *right);
             }
         }
-        assert!(!is_planar(&g), "K3,3 must be rejected despite the Euler bound");
+        assert!(
+            !is_planar(&g),
+            "K3,3 must be rejected despite the Euler bound"
+        );
     }
 
     #[test]
@@ -81403,7 +81399,10 @@ mod tests {
         for i in 0..5 {
             let _ = g.add_edge(outer[i], inner[i]);
         }
-        assert!(!is_planar(&g), "Petersen must be rejected despite the Euler bound");
+        assert!(
+            !is_planar(&g),
+            "Petersen must be rejected despite the Euler bound"
+        );
     }
 
     #[test]
@@ -81432,7 +81431,10 @@ mod tests {
         for edge in complete_bipartite(3, 3).edges_ordered() {
             let _ = g.add_edge(edge.left, edge.right);
         }
-        assert!(!is_planar(&g), "a non-planar component makes the union non-planar");
+        assert!(
+            !is_planar(&g),
+            "a non-planar component makes the union non-planar"
+        );
     }
 
     #[test]
