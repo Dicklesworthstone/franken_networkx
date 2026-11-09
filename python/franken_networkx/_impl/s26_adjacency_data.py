@@ -1070,8 +1070,6 @@ def all_pairs_node_connectivity(
         "all_pairs_node_connectivity", backend, backend_kwargs
     )
     _validate_flow_func_selector(flow_func)
-    # br-r37-c1-1y7h1: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     # The bulk Rust helper projects onto an undirected graph. Directed inputs
     # need ordered pairs over the node-split digraph, while a caller's solver
     # must compute every pair. Reuse one auxiliary and residual graph for both
@@ -1082,6 +1080,9 @@ def all_pairs_node_connectivity(
             nbunch=nbunch,
             flow_func=flow_func,
         )
+    # Only the native path needs a concrete graph. The owned pairwise path
+    # above must preserve a caller's live node and edge providers.
+    G = _coerce_arg_to_fnx_graph(G)
     # NetworkX normalizes an explicit nbunch to a set, including its iteration
     # order. Materialize it once: consuming a generator again below previously
     # made the full/near-full and multigraph routes return an empty result.

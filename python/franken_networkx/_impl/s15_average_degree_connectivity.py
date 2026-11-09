@@ -657,7 +657,8 @@ def average_node_connectivity(G, flow_func=None, *, backend=None, **backend_kwar
     # mean of those per-pair values over combinations (undirected) /
     # permutations (directed), so average over that result instead of
     # re-delegating the whole O(n^2)-flow computation to nx (br-anc-allpairs).
-    G = _coerce_arg_to_fnx_graph(G)
+    if flow_func is None:
+        G = _coerce_arg_to_fnx_graph(G)
     apnc = all_pairs_node_connectivity(G, flow_func=flow_func)
     iter_func = _itertools.permutations if G.is_directed() else _itertools.combinations
     num = den = 0

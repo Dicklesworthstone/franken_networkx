@@ -379,3 +379,57 @@ def test_connectivity_solver_validation_precedence(name, graph_type, nodes, edge
         else:
             outcomes.append(("value", result))
     assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize(
+    "name", ["node_connectivity", "all_pairs_node_connectivity", "average_node_connectivity"]
+)
+def test_custom_node_connectivity_uses_original_public_graph(directed, name):
+    graph_type = nx.DiGraph if directed else nx.Graph
+    outcomes = []
+    for module in (nx, fnx):
+        class PublicGraph(graph_type):
+            @property
+            def nodes(self):
+                raise AssertionError("node connectivity exported input node attributes")
+
+        graph = PublicGraph()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+        if directed:
+            graph.add_edges_from([(1, 0), (2, 1), (3, 2), (0, 3), (2, 0)])
+        calls = []
+        auxiliary_ids = set()
+        residual_ids = set()
+
+        def solver(auxiliary, source, target, **kwargs):
+            auxiliary_ids.add(id(auxiliary))
+            residual_ids.add(id(kwargs["residual"]))
+            calls.append((source, target, kwargs.get("cutoff")))
+            return nx.algorithms.flow.edmonds_karp(
+                auxiliary, source, target, backend="networkx", **kwargs
+            )
+
+        options = {"backend": "networkx"} if module is nx else {}
+        result = getattr(module, name)(graph, flow_func=solver, **options)
+        assert len(auxiliary_ids) == 1
+        assert len(residual_ids) == 1
+        outcomes.append((result, calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_local_node_connectivity_uses_original_public_graph(directed):
+    graph_type = nx.DiGraph if directed else nx.Graph
+
+    class PublicGraph(graph_type):
+        @property
+        def nodes(self):
+            raise AssertionError("local node connectivity exported input attributes")
+
+    graph = PublicGraph([(0, 1), (1, 2), (0, 3), (3, 2)])
+    expected = nx.node_connectivity(
+        graph, 0, 2, flow_func=nx.algorithms.flow.edmonds_karp, backend="networkx"
+    )
+    actual = fnx.node_connectivity(graph, 0, 2, flow_func=fnx.flow.edmonds_karp)
+    assert actual == expected == 2

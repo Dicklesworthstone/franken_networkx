@@ -94,7 +94,9 @@ def build_residual_network(G, capacity, *, backend=None, **backend_kwargs):
     _fnx._validate_backend_dispatch_keywords(
         "build_residual_network", backend, backend_kwargs
     )
-    G = _fnx._coerce_arg_to_fnx_graph(G)
+    # The residual owns its storage; the input only supplies its public graph
+    # protocol. Converting G first copies unrelated attributes and suppresses
+    # custom node/edge providers before this builder can observe them.
     if G.is_multigraph():
         raise _fnx.NetworkXError("MultiGraph and MultiDiGraph not supported (yet).")
 
@@ -243,7 +245,8 @@ def _edmonds_karp_core(R, s, t, cutoff):
 
 
 def _edmonds_karp_impl(G, s, t, capacity, residual, cutoff):
-    G = _fnx._coerce_arg_to_fnx_graph(G)
+    # A supplied residual replaces the input topology. Keep the caller's G
+    # for endpoint validation and avoid rebuilding it on every flow query.
     if s not in G:
         raise _fnx.NetworkXError(f"node {str(s)} not in graph")
     if t not in G:
@@ -285,7 +288,6 @@ def edmonds_karp(
 
 
 def _dinitz_impl(G, s, t, capacity, residual, cutoff):
-    G = _fnx._coerce_arg_to_fnx_graph(G)
     if s not in G:
         raise _fnx.NetworkXError(f"node {str(s)} not in graph")
     if t not in G:
@@ -395,7 +397,6 @@ def dinitz(
 def _shortest_augmenting_path_impl(
     G, s, t, capacity, residual, two_phase, cutoff
 ):
-    G = _fnx._coerce_arg_to_fnx_graph(G)
     if s not in G:
         raise _fnx.NetworkXError(f"node {str(s)} not in graph")
     if t not in G:
@@ -547,7 +548,6 @@ def shortest_augmenting_path(
 def _preflow_push_impl(
     G, s, t, capacity, residual, global_relabel_freq, value_only
 ):
-    G = _fnx._coerce_arg_to_fnx_graph(G)
     if s not in G:
         raise _fnx.NetworkXError(f"node {str(s)} not in graph")
     if t not in G:
@@ -771,7 +771,6 @@ def preflow_push(
 
 
 def _boykov_kolmogorov_impl(G, s, t, capacity, residual, cutoff):
-    G = _fnx._coerce_arg_to_fnx_graph(G)
     if s not in G:
         raise _fnx.NetworkXError(f"node {str(s)} not in graph")
     if t not in G:

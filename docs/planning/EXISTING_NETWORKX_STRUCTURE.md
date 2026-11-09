@@ -1518,3 +1518,26 @@ during traversal can make the final keyed contribution split fail. The
 regression matrix compares returned scores or exception type/arguments,
 callback traces, edge dictionary identity, resulting graph attributes,
 private adjacency, filtered views and sampled RNG state.
+
+## 52. Flow Solvers over Caller Graphs and Residuals
+
+Residual construction consumes the original graph's node iteration,
+`edges(data=True)`, direction and multigraph predicates. Numeric attributes
+and custom graph providers retain their identity and evaluation order.
+Edmonds-Karp, Dinitz, shortest augmenting path, preflow push and
+Boykov-Kolmogorov validate source, sink and endpoint equality against that
+original graph. A supplied residual is reused by identity and avoids reading
+input topology that the solver does not need. Solver-specific initialization,
+attribute mutation, errors and partial results remain observable.
+
+Custom-solver node connectivity, all-pairs connectivity and average node
+connectivity preserve the caller's graph, degree and neighbor protocols.
+Global queries share their auxiliary and residual objects across local
+computations. Directed all-pairs queries also use this owned protocol path.
+Ordinary native routes keep their existing input admission.
+
+The regression cases prohibit unnecessary input topology/attribute exports,
+compare live capacity-provider reads and endpoint validation, and retain
+residual and edge-dictionary identity across all five solvers. Removing
+conversion avoids rebuilding the input when a reusable residual is supplied;
+it is not evidence of a measured speedup.

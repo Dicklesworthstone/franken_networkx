@@ -1652,16 +1652,15 @@ def _node_connectivity_inproc(G, s=None, t=None, flow_func=None):
     if s is not None and t is not None:
         return local_node_connectivity(G, s, t, flow_func=flow_func)
 
-    if G.is_directed():
-        if not is_weakly_connected(G):
-            return 0
+    directed = G.is_directed()
+    if len(next(_connected_component_sets(G, weak=directed))) != len(G):
+        return 0
+    if directed:
         pairs = _itertools.permutations
 
         def neighbors(node):
             return _itertools.chain(G.predecessors(node), G.successors(node))
     else:
-        if not is_connected(G):
-            return 0
         pairs = _itertools.combinations
         neighbors = G.neighbors
 

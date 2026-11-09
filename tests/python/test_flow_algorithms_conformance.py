@@ -770,3 +770,116 @@ def test_custom_flow_solver_owns_input_validation(name, kind):
             getattr(module, name)(graph, "s", "t", flow_func=solver)
         assert len(calls) == 1
         assert calls[0] is graph
+
+
+class _ResidualOnlyInput(nx.DiGraph):
+    """An input whose topology is unnecessary once its residual is supplied."""
+
+    forbid_topology = False
+
+    def __getattribute__(self, name):
+        if name in ("edges", "adj", "_adj", "succ", "pred", "nodes"):
+            if object.__getattribute__(self, "forbid_topology"):
+                raise AssertionError("input topology read despite supplied residual")
+        return super().__getattribute__(name)
+
+
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+@pytest.mark.parametrize("residual_module", [nx, fnx], ids=["networkx", "franken_networkx"])
+def test_supplied_residual_avoids_reading_input_topology(algorithm, residual_module):
+    outcomes = []
+    for flow_module in (nx_flow, fnx.flow):
+        graph = _ResidualOnlyInput()
+        graph.add_weighted_edges_from(
+            [("s", "a", 4), ("a", "t", 3), ("s", "t", 2)], weight="capacity"
+        )
+        residual = residual_module.flow.build_residual_network(graph, "capacity")
+        held_attributes = {(u, v): data for u, v, data in residual.edges(data=True)}
+        graph.forbid_topology = True
+        options = {"backend": "networkx"} if flow_module is nx_flow else {}
+
+        result = getattr(flow_module, algorithm)(
+            graph, "s", "t", residual=residual, **options
+        )
+
+        assert result is residual
+        assert result.graph["flow_value"] == 5
+        assert all(result[u][v] is attrs for (u, v), attrs in held_attributes.items())
+        outcomes.append([
+            (u, v, dict(attrs)) for u, v, attrs in result.edges(data=True)
+        ])
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+@pytest.mark.parametrize("endpoints", [("missing", "t"), ("s", "missing"), ("s", "s")])
+def test_flow_endpoint_validation_precedes_input_topology(algorithm, endpoints):
+    outcomes = []
+    for flow_module in (nx_flow, fnx.flow):
+        graph = _ResidualOnlyInput()
+        graph.add_edge("s", "t", capacity=3)
+        graph.forbid_topology = True
+        options = {"backend": "networkx"} if flow_module is nx_flow else {}
+        with pytest.raises(Exception) as error:
+            getattr(flow_module, algorithm)(graph, *endpoints, **options)
+        outcomes.append((type(error.value).__name__, str(error.value)))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == "NetworkXError"
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_residual_builder_reads_public_graph_without_node_attribute_export(directed):
+    graph_type = nx.DiGraph if directed else nx.Graph
+
+    class PublicGraph(graph_type):
+        @property
+        def nodes(self):
+            raise AssertionError("residual construction exported input node attributes")
+
+    graph = PublicGraph()
+    graph.add_edge("s", "a", capacity=Fraction(7, 2))
+    graph.add_edge("a", "t", capacity=Fraction(5, 2))
+    graph.add_edge("s", "t", capacity=0)
+    graph.add_edge("t", "t", capacity=100)
+    graph.add_node("isolated", payload=object())
+    expected = nx_flow.build_residual_network(graph, "capacity", backend="networkx")
+    actual = fnx.flow.build_residual_network(graph, "capacity")
+
+    assert list(actual) == list(expected)
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    assert list(actual.edges(data=True)) == list(expected.edges(data=True))
+    assert actual.graph == expected.graph
+    assert isinstance(actual, fnx.DiGraph)
+
+
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+def test_flow_solver_keeps_live_public_edge_capacity_provider(algorithm):
+    outcomes = []
+    for flow_module in (nx_flow, fnx.flow):
+        reads = []
+
+        class Capacity(dict):
+            def get(self, key, default=None):
+                reads.append(("get", key))
+                return super().get(key, default)
+
+            def __getitem__(self, key):
+                reads.append(("getitem", key))
+                return super().__getitem__(key)
+
+        class PublicGraph(nx.DiGraph):
+            edge_attr_dict_factory = Capacity
+
+            @property
+            def nodes(self):
+                raise AssertionError("solver exported input node attributes")
+
+        graph = PublicGraph()
+        graph.add_edge("s", "a", capacity=4)
+        graph.add_edge("a", "t", capacity=3)
+        graph.add_edge("s", "t", capacity=2)
+        options = {"backend": "networkx"} if flow_module is nx_flow else {}
+        result = getattr(flow_module, algorithm)(graph, "s", "t", **options)
+        outcomes.append((result.graph["flow_value"], reads))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == 5

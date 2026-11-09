@@ -20,7 +20,8 @@ def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **back
         The node connectivity of G.
     """
     _validate_backend_dispatch_keywords("node_connectivity", backend, backend_kwargs)
-    G = _coerce_arg_to_fnx_graph(G)
+    if flow_func is None:
+        G = _coerce_arg_to_fnx_graph(G)
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
     if s is not None and s not in G:
@@ -33,6 +34,9 @@ def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **back
             "Connectivity is undefined for the null graph."
         )
     if flow_func is not None:
+        # Custom solvers compose with the caller's public graph protocol.
+        # Conversion here would replace subclass degree/neighbor providers
+        # and freeze mutations before the auxiliary graph is constructed.
         return _node_connectivity_inproc(
             G,
             s=s,

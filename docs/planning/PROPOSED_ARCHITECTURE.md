@@ -134,6 +134,12 @@ handle callback-sensitive traversals, private adjacency and asymmetric
 undirected views while preserving caller mappings, arithmetic and RNG state.
 Ordinary native routes remain separate.
 
+Flow solvers consume original graph protocols and caller-owned residuals.
+Residual construction is the boundary that reads input edge data when
+no residual is supplied. Custom node-connectivity orchestration follows the
+same public-protocol path as edge connectivity, while native paths keep
+their existing graph admission. No persistent adjacency cache is introduced.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.
