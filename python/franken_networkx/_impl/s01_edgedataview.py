@@ -230,8 +230,6 @@ class EdgeDataView:
         # ``TypeError("data must be True, False, or a string
         # attribute name")`` on any other type.  Compute in Python
         # for parity when ``data`` is a non-string non-bool key.
-        if not data_is_none and not isinstance(data, (bool, str)):
-            return self._materialize_data_as_key(data, default)
         if self._nbunch_list is not None and self._graph is not None:
             # br-r37-c1-dc14n: nx's edges(nbunch) iterates nbunch in
             # user-given order and for each node yields edges (u, v)
@@ -243,6 +241,8 @@ class EdgeDataView:
             # graphs. (Directed/multigraph go through different
             # EdgeView classes which already match nx.)
             return self._materialize_via_adj_walk(data, default, data_is_none)
+        if not data_is_none and not isinstance(data, (bool, str)):
+            return self._materialize_data_as_key(data, default)
         result = self._call(
             self._view,
             data=rust_data,
@@ -396,7 +396,11 @@ class EdgeDataView:
             rows = _fnx.edges_nbunch_data(graph, self._nbunch_list, data, default)
             if rows is not None:
                 return rows
-        elif type(graph) is Graph and self._nbunch_list is not None:
+        elif (
+            type(graph) is Graph
+            and self._nbunch_list is not None
+            and (data is False or data is True or data_is_none)
+        ):
             # br-r37-c1-gnbmemo: the last member of the nbunch edge-view family
             # to get the memo. `with_data` rides in native_args, so the
             # attrs/no-attrs shapes cannot answer for each other.
@@ -488,8 +492,10 @@ class EdgeDataView:
                 len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
                 or len(self._nbunch_list) <= _edges_nbunch_py_walk_limit(self._graph)
             )
-            and (self._data is False or self._data is True)
         ):
+            # Project attribute selectors at each yield, too. A numeric
+            # callback consuming one edge may update a later edge in this
+            # same row without changing the graph's structural revision.
             self._raise_if_frozen_nbunch_node_removed()
             lazy = self._walk_rows_lazily(
                 self._data, self._default, self._data is None
@@ -516,11 +522,8 @@ class EdgeDataView:
         # preserves that contract for nbunches above the lazy-walk gate.  Its
         # native snapshot reuses public node-index lookasides for exact scalar
         # keys, so repeated long-key views do not recreate canonical strings.
-        # br-r37-c1-8c7m5: the `data=<key>` spelling has no lazy walk — the gate
-        # just above admits only `data is False or data is True`, because the
-        # walk yields the raw attribute dict and this form needs
-        # `attrs.get(key, default)`. So it arrives here, materialised, and was
-        # then STALE for every mutation networkx reads through: a later row
+        # br-r37-c1-8c7m5: larger nbunches arrive here materialised. They were
+        # STALE for structural mutations networkx reads through: a later row
         # grown or shrunk, a self-loop added, all invisible.
         #
         # Two arguments close it, and both are needed. `refresh_rows` lets the

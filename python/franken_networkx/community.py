@@ -37,6 +37,15 @@ _LOUVAIN_RANDOM_PROTOCOL = {
     )
 }
 
+_LABEL_PROPAGATION_RANDOM_CLASS = _random.Random
+_LABEL_PROPAGATION_RANDOM_PROTOCOL = {
+    name: getattr(_LABEL_PROPAGATION_RANDOM_CLASS, name)
+    for name in (
+        "shuffle", "choice", "_randbelow", "getrandbits", "random",
+        "__getattribute__",
+    )
+}
+
 
 def _louvain_native_rng_allowed(seed):
     """A state handoff cannot replace custom shuffle or random-state hooks."""
@@ -645,16 +654,17 @@ def greedy_modularity_communities(
 
 def _label_propagation_snapshot_allowed(G, rng):
     """Only snapshot graphs and random sources without observable overrides."""
-    import random
-
     return (
         type(G) is _fnx.Graph
         and not _fnx._has_networkx_private_storage(G)
-        and type(rng) is random.Random
-        and not any(
-            name in vars(rng)
-            for name in ("shuffle", "choice", "random", "getrandbits", "_randbelow")
+        and G.edge_attr_dict_factory is dict
+        and type(rng) is _LABEL_PROPAGATION_RANDOM_CLASS
+        and _random.Random is _LABEL_PROPAGATION_RANDOM_CLASS
+        and all(
+            getattr(_LABEL_PROPAGATION_RANDOM_CLASS, name) is method
+            for name, method in _LABEL_PROPAGATION_RANDOM_PROTOCOL.items()
         )
+        and not any(name in vars(rng) for name in _LABEL_PROPAGATION_RANDOM_PROTOCOL)
     )
 
 
@@ -698,44 +708,43 @@ def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_k
     return _gen()
 
 
+def _asyn_lpa_live(G, weight, rng):
+    """Traverse caller rows when graph, numeric or random hooks are observable."""
+    from collections import Counter as _Counter, defaultdict
+
+    labels = {node: i for i, node in enumerate(G)}
+    cont = True
+    while cont:
+        cont = False
+        nodes = list(G)
+        rng.shuffle(nodes)
+        for node in nodes:
+            if not G[node]:
+                continue
+            if weight is None:
+                label_freq = _Counter(map(labels.get, G[node]))
+            else:
+                label_freq = defaultdict(float)
+                for _, v, wt in G.edges(node, data=weight, default=1):
+                    label_freq[labels[v]] += wt
+            max_freq = max(label_freq.values())
+            best_labels = [
+                label for label, freq in label_freq.items() if freq == max_freq
+            ]
+            if labels[node] not in best_labels:
+                labels[node] = rng.choice(best_labels)
+                cont = True
+    yield from _community_groups(labels).values()
+
+
 def _asyn_lpa_communities(G, weight, rng):
-    if not _label_propagation_snapshot_allowed(G, rng):
-        # Custom RNG callbacks receive the original node keys and observe the
-        # live graph, including changes made by shuffle/choice themselves.
-        # Assigned private mappings likewise remain the authoritative storage.
-        from collections import Counter as _Counter, defaultdict
-
-        rng_fb = rng
-
-        def _fallback_gen():
-            labels = {node: i for i, node in enumerate(G)}
-            cont = True
-            while cont:
-                cont = False
-                nodes = list(G)
-                rng_fb.shuffle(nodes)
-                for node in nodes:
-                    if not G[node]:
-                        continue
-                    if weight is None:
-                        label_freq = _Counter(map(labels.get, G[node]))
-                    else:
-                        label_freq = defaultdict(float)
-                        for _, v, wt in G.edges(node, data=weight, default=1):
-                            label_freq[labels[v]] += wt
-                    max_freq = max(label_freq.values())
-                    best_labels = [
-                        label for label, freq in label_freq.items() if freq == max_freq
-                    ]
-                    if labels[node] not in best_labels:
-                        labels[node] = rng_fb.choice(best_labels)
-                        cont = True
-            groups = defaultdict(set)
-            for node, label in labels.items():
-                groups[label].add(node)
-            yield from groups.values()
-
-        return _fallback_gen()
+    if (
+        not _label_propagation_snapshot_allowed(G, rng)
+        or (weight is not None and type(weight) is not str)
+    ):
+        # Custom selectors retain the public edge-view protocol, including
+        # the special meanings of literal data=True and data=False.
+        return _asyn_lpa_live(G, weight, rng)
 
     node_list = list(G)
     n = len(node_list)
@@ -771,20 +780,28 @@ def _asyn_lpa_communities(G, weight, rng):
                 [(idx[v], dd.get(weight, 1)) for v, dd in G._adj[u].items()]
                 for u in node_list
             ]
+        if any(type(value) not in (int, float, bool) for row in adj for _, value in row):
+            # A numeric callback can mutate weights that a later node reads.
+            # Do not turn that live traversal into a value snapshot or coerce
+            # types such as Decimal, Fraction and NumPy scalars to float64.
+            return _asyn_lpa_live(G, weight, rng)
 
     unweighted = weight is None
 
     def _gen():
         labels = list(range(n))
         order = list(range(n))
-        # Reusable mark-array keyed by label (labels live in 0..n-1): avoids
+        # Reusable arrays keyed by label (labels live in 0..n-1): avoid
         # nx's per-node Counter/defaultdict (hashing + an ABC instancecheck
         # per node per round — ~half the runtime in cProfile). ``freq`` is
         # zeroed only at the touched entries, so reuse is O(degree) not O(n).
         # ``touched`` preserves first-seen label order, matching Counter /
         # defaultdict insertion order exactly, so the best-label tie set and
         # thus every ``seed.choice`` draw is byte-identical to nx.
-        freq = [0] * n
+        zero = 0 if unweighted else 0.0
+        freq = [zero] * n
+        visited = [0] * n if not unweighted else None
+        visit = 0
         cont = True
         while cont:
             cont = False
@@ -802,9 +819,14 @@ def _asyn_lpa_communities(G, weight, rng):
                             touched.append(lab)
                         freq[lab] += 1
                 else:
+                    visit += 1
                     for v, wt in nbrs:
                         lab = labels[v]
-                        if freq[lab] == 0:
+                        # Zero is a valid sum, including after cancellation.
+                        # Re-adding an already seen label biases choice() by
+                        # duplicating that label in the tied candidates.
+                        if visited[lab] != visit:
+                            visited[lab] = visit
                             touched.append(lab)
                         freq[lab] += wt
                 max_freq = freq[touched[0]]
@@ -814,7 +836,7 @@ def _asyn_lpa_communities(G, weight, rng):
                 cur = labels[node]
                 best_labels = [lab for lab in touched if freq[lab] == max_freq]
                 for lab in touched:
-                    freq[lab] = 0
+                    freq[lab] = zero
                 if cur not in best_labels:
                     labels[node] = rng.choice(best_labels)
                     cont = True

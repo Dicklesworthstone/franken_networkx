@@ -158,3 +158,57 @@ def test_edges_directed_unchanged():
     assert list(dg.edges(["c", "a"])) == list(dgx.edges(["c", "a"]))
     assert list(dg.out_edges(["c", "a"])) == list(dgx.out_edges(["c", "a"]))
     assert list(dg.in_edges(["c", "a"])) == list(dgx.in_edges(["c", "a"]))
+
+
+@needs_nx
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("nbunch", [None, 2, [2, 1], [2, 99, 1, 2]])
+@pytest.mark.parametrize("selector", ["cost", 7, ("cost", 0), 0, 1, 0.0])
+def test_attribute_selectors_preserve_nbunch_orientation_and_order(class_name, nbunch, selector):
+    graphs = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for graph in graphs:
+        graph.add_nodes_from(range(4))
+        for index, (u, v) in enumerate([(0, 2), (1, 2), (2, 3), (2, 2)]):
+            attrs = {
+                "cost": index, 7: index + 10, ("cost", 0): index + 20,
+                0: index + 30, 1: index + 40,
+            }
+            graph.add_edges_from([(u, v, attrs)])
+        if graph.is_multigraph():
+            graph.add_edges_from([(0, 2, {selector: "parallel"})])
+    views = ["edges"]
+    if graphs[0].is_directed():
+        views.extend(["out_edges", "in_edges"])
+    for name in views:
+        expected = list(getattr(graphs[1], name)(nbunch, data=selector, default="missing"))
+        view = getattr(graphs[0], name)(nbunch, data=selector, default="missing")
+        assert list(view) == expected
+        assert list(iter(view)) == expected
+
+
+@needs_nx
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("selector", ["cost", 7, ("cost", 0), 0, 1, 0.0])
+def test_attribute_selectors_read_current_row_values_when_yielded(class_name, selector):
+    accessors = ["edges"]
+    if "DiGraph" in class_name:
+        accessors.extend(["out_edges", "in_edges"])
+
+    def run(module, accessor):
+        graph = getattr(module, class_name)()
+        endpoints = [(0, 1), (0, 2)]
+        if accessor == "in_edges":
+            endpoints = [(target, source) for source, target in endpoints]
+        graph.add_edges_from([(u, v, {selector: index}) for index, (u, v) in enumerate(endpoints)])
+        iterator = iter(getattr(graph, accessor)(0, data=selector))
+        first = next(iterator)
+        attrs = graph.get_edge_data(*endpoints[1])
+        if graph.is_multigraph():
+            attrs = attrs[0]
+        attrs[selector] = 99
+        return first, list(iterator)
+
+    for accessor in accessors:
+        expected = run(nx, accessor)
+        assert expected[1][0][-1] == 99
+        assert run(fnx, accessor) == expected

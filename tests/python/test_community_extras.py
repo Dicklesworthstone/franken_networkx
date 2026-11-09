@@ -1,6 +1,8 @@
 """Tests for community-analysis compatibility wrappers."""
 
 from collections.abc import ValuesView
+from decimal import Decimal
+from fractions import Fraction
 import networkx as nx
 import numpy as np
 import pytest
@@ -397,6 +399,182 @@ def test_label_propagation_random_callbacks_keep_node_keys_and_live_graph(name, 
     expected = run(nx)
     assert actual == expected
     assert actual[1][0][1] == ("a", "b", "c", "d")
+
+
+_WEIGHTED_LABEL_EDGES = [
+    (0, 1, 0), (0, 2, 2), (0, 4, 0), (0, 6, 0),
+    (1, 2, 2), (1, 3, 2), (1, 4, 0), (1, 5, 0),
+    (2, 3, 0), (2, 5, 0), (2, 6, 0), (3, 5, 2), (4, 6, 2),
+]
+_CANCELLING_LABEL_EDGES = [
+    (0, 1, 10), (0, 2, 10), (1, 2, 10),
+    (3, 0, 1), (3, 1, -1), (3, 2, 2), (3, 4, 2),
+]
+
+
+def _label_propagation_outcome(call):
+    try:
+        return "value", list(call())
+    except Exception as error:
+        return "error", type(error), str(error)
+
+
+@pytest.mark.parametrize("seed", range(8))
+@pytest.mark.parametrize("convert", [int, float, Fraction])
+@pytest.mark.parametrize("edges", [_WEIGHTED_LABEL_EDGES, _CANCELLING_LABEL_EDGES])
+def test_asyn_lpa_zero_and_cancelling_weights_keep_ties_and_random_state(seed, convert, edges):
+    import random
+
+    graphs = fnx.Graph(), nx.Graph()
+    for graph in graphs:
+        graph.add_nodes_from(range(7))
+        graph.add_weighted_edges_from(
+            [(u, v, convert(value)) for u, v, value in edges], weight="cost"
+        )
+    mine, theirs = random.Random(seed), random.Random(seed)
+    expected = list(nx_asyn_lpa_communities(graphs[1], weight="cost", seed=theirs))
+    actual = list(fnx.community.asyn_lpa_communities(graphs[0], weight="cost", seed=mine))
+    assert actual == expected
+    assert mine.getstate() == theirs.getstate()
+    if edges is _WEIGHTED_LABEL_EDGES and seed == 4:
+        assert expected == [{0, 2}, {1, 3, 5}, {4, 6}]
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize(
+    "value", [Decimal("1.25"), Fraction(1, 3), 10**400, "heavy", None, np.float32(1.25)]
+)
+def test_label_propagation_weight_arithmetic_and_error_rng_match(name, value):
+    import random
+
+    graphs = fnx.Graph(), nx.Graph()
+    for graph in graphs:
+        graph.add_edge(0, 1, cost=value)
+    mine, theirs = random.Random(3), random.Random(3)
+    actual = _label_propagation_outcome(
+        lambda: getattr(fnx.community, name)(graphs[0], weight="cost", seed=mine)
+    )
+    expected = _label_propagation_outcome(
+        lambda: getattr(nx.community, name)(graphs[1], weight="cost", seed=theirs)
+    )
+    assert actual == expected
+    assert mine.getstate() == theirs.getstate()
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("class_name", _COMMUNITY_GRAPH_CLASSES)
+@pytest.mark.parametrize("weight", [False, True, 7, ("cost", 0)])
+def test_label_propagation_nonstring_weight_selectors_keep_edge_view_semantics(name, class_name, weight):
+    import random
+
+    graphs = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for graph in graphs:
+        graph.add_edges_from([(0, 1, {weight: 2}), (1, 2, {weight: 3})])
+    mine, theirs = random.Random(7), random.Random(7)
+    actual = _label_propagation_outcome(
+        lambda: getattr(fnx.community, name)(graphs[0], weight=weight, seed=mine)
+    )
+    expected = _label_propagation_outcome(
+        lambda: getattr(nx.community, name)(graphs[1], weight=weight, seed=theirs)
+    )
+    assert actual == expected
+    assert mine.getstate() == theirs.getstate()
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+def test_label_propagation_numeric_callbacks_see_live_weight_updates(name):
+    def run(module):
+        graph = module.Graph()
+        graph.add_weighted_edges_from([
+            ("a", "b", 5), ("a", "c", 5), ("b", "c", 5),
+            ("c", "d", 1), ("d", "e", 5), ("d", "f", 5), ("e", "f", 5),
+        ], weight="cost")
+        calls = []
+
+        class UpdatingWeight(float):
+            def __radd__(self, other):
+                calls.append((type(other), other))
+                graph["c"]["d"]["cost"] = 100
+                return other + float(self)
+
+        graph["e"]["f"]["cost"] = UpdatingWeight(5)
+        result = getattr(module.community, name)(graph, weight="cost", seed=0)
+        assert calls == []
+        return list(result), calls, graph["c"]["d"]["cost"]
+
+    actual, expected = run(fnx), run(nx)
+    assert expected[1], "the fixture must execute arithmetic callbacks"
+    assert expected[2] == 100
+    assert actual == expected
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("class_name", _COMMUNITY_GRAPH_CLASSES)
+def test_label_propagation_numeric_callbacks_update_the_current_row(name, class_name):
+    import random
+
+    def run(module):
+        graph = getattr(module, class_name)()
+        graph.add_edges_from([("c", "a", {"cost": 5}), ("c", "b", {"cost": 1})])
+        choices = []
+
+        class OrderedRandom(random.Random):
+            def shuffle(self, values):
+                pass
+
+            def choice(self, values):
+                choices.append(tuple(values))
+                return super().choice(values)
+
+        def edge_data(neighbor):
+            attrs = graph["c"][neighbor]
+            return attrs[0] if graph.is_multigraph() else attrs
+
+        class UpdatingWeight(float):
+            def __radd__(self, other):
+                edge_data("b")["cost"] = 100
+                return other + float(self)
+
+        edge_data("a")["cost"] = UpdatingWeight(5)
+        rng = OrderedRandom(7)
+        result = list(getattr(module.community, name)(graph, weight="cost", seed=rng))
+        return result, choices, rng.getstate()
+
+    expected = run(nx)
+    assert expected[1][0] == (2,), "the first edge must update the next edge before its vote"
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("hook", ["shuffle", "choice"])
+def test_label_propagation_class_random_hooks_keep_graph_protocol(monkeypatch, name, hook):
+    import random
+
+    original = getattr(random.Random, hook)
+
+    def run(module):
+        graph = module.Graph([("a", "b"), ("b", "c"), ("c", "d")])
+        calls = []
+
+        def override(rng, values):
+            calls.append((type(values).__name__, tuple(values)))
+            if len(calls) == 1:
+                graph.remove_edge("a", "b")
+            return original(rng, values)
+
+        rng = random.Random(7)
+        with monkeypatch.context() as patch:
+            patch.setattr(random.Random, hook, override)
+            result = getattr(module.community, name)(graph, seed=rng)
+            assert calls == []
+            partition = list(result)
+        return partition, calls, rng.getstate()
+
+    actual, expected = run(fnx), run(nx)
+    assert expected[1], "the fixture must invoke the patched random method"
+    assert actual == expected
+    if hook == "shuffle":
+        assert actual[1][0][1] == ("a", "b", "c", "d")
 
 
 @pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS)
