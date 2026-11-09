@@ -83221,7 +83221,7 @@ mod tests {
                 .collect();
             graph.add_edge_with_attrs("t", "s", positive).unwrap();
             for node in 0..isolates {
-                graph.add_node(&format!("isolated-{node}"));
+                graph.add_node(format!("isolated-{node}"));
             }
             assert!(negative_edge_cycle_directed(&graph, "weight"));
         }
