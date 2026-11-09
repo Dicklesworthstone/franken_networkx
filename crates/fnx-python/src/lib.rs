@@ -1372,6 +1372,13 @@ fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResu
     //
     // The cost falls only on keys that got here through `__float__` and are not
     // exact floats: `str`, `int` and `float` never reach this function's tail.
+    // B1 (regressor ab5c56996 dropped `Ok(key.repr())` here): an EXACT, non-NaN
+    // float canonicalizes by its value repr, matching the Decimal/Fraction/np
+    // branch below (as_float.repr()). NaN is EXCLUDED so it follows dict IDENTITY
+    // via custom_object_canonical_key (same object = one key, different = two).
+    if key.is_exact_instance_of::<PyFloat>() && !f.is_nan() {
+        return Ok(key.repr()?.to_string());
+    }
     if !key.is_exact_instance_of::<PyFloat>() {
         let as_float = f.into_pyobject(py)?;
         if key.eq(&as_float)? {

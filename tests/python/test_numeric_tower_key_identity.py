@@ -125,19 +125,17 @@ def test_equal_keys_are_one_key_and_unequal_keys_are_two(cls_name, label):
     """
     a, b = PAIRS[label]
     equal = bool(a == b)
-    if equal != (hash(a) == hash(b)):
-        # NOT an fnx defect, and this test found it rather than assuming it:
-        # `np.float32(0.1) == 0.1` is True — numpy compares after narrowing the
-        # double to float32 — while `hash(np.float32(0.1)) != hash(0.1)`. A pair
-        # that is equal with different hashes breaks the contract CPython's dict
-        # is built on, so "equal means one key" has no meaning for it and a
-        # dict genuinely holds both. The nx-vs-fnx sweeps above still cover the
-        # pair, because both libraries meet the same numpy behaviour.
-        pytest.skip(f"{label}: numpy breaks hash/eq for this pair")
+    # `np.float32(0.1) == 0.1` is True while their hashes differ:
+    # numpy narrows the double to float32 for ==. A pair that is equal with
+    # different hashes is held as TWO keys by a CPython dict (and by networkx),
+    # so "equal means one key" does not apply; fnx must keep 2. Assert that,
+    # rather than skipping, to keep the contract live (334 ran).
+    hash_breaks = equal != (hash(a) == hash(b))
     g = getattr(fnx, cls_name)()
     g.add_node(a)
     g.add_node(b)
-    assert g.number_of_nodes() == (1 if equal else 2), (cls_name, label, equal)
+    expected = 2 if hash_breaks else (1 if equal else 2)
+    assert g.number_of_nodes() == expected, (cls_name, label, equal, hash_breaks)
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
