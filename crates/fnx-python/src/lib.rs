@@ -1360,7 +1360,10 @@ fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResu
     // An EXACT float skips it: `repr(x)` IS `float.__repr__(x)` there, so the
     // unbound lookup would be three Python operations to reproduce one. Only a
     // subclass can spell itself differently, and only a subclass pays for it.
-    if key.downcast::<PyFloat>().is_ok() && !key.is_exact_instance_of::<PyFloat>() {
+    // A NaN float SUBCLASS (including numpy.float64) must follow dict IDENTITY, not
+    // its repr "nan": two distinct NaN objects are two keys. Exclude NaN here so it
+    // falls to the interner; a non-NaN subclass still returns its value repr.
+    if key.downcast::<PyFloat>().is_ok() && !key.is_exact_instance_of::<PyFloat>() && !f.is_nan() {
         return float_value_repr(py, key);
     }
     // br-r37-c1-numtower-29ggu: a key that is not a float AT ALL, but that
