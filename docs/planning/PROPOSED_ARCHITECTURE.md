@@ -122,6 +122,12 @@ their distinct namespace recovery and stream lifetimes. Native simple-document
 admission and the hardened validation/recovery ledger remain separate routes;
 the complete decoder no longer rebuilds a NetworkX graph.
 
+Connectivity's Python orchestration composes the owned auxiliary builders,
+flow solvers, and local cut/connectivity helpers. Global custom-solver queries
+reuse one auxiliary/residual pair. Connectivity-specific cut extraction owns
+the residual mutation/replay protocol, while standalone minimum-cut extraction
+keeps its non-mutating contract. Existing ordinary native routes remain intact.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

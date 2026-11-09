@@ -106,6 +106,25 @@ def minimum_node_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backe
     )
 
 
+def _local_connectivity_flow_kwargs(flow_func, residual, cutoff):
+    from franken_networkx import flow
+    from networkx.algorithms import flow as nx_flow
+
+    if flow_func is None:
+        flow_func = flow.edmonds_karp
+    kwargs = {"flow_func": flow_func, "residual": residual}
+    # Algorithm-specific options belong to the actual built-in solvers.
+    # A user callback may have any name, including these two names.
+    if flow_func is not flow.preflow_push and flow_func is not nx_flow.preflow_push:
+        kwargs["cutoff"] = cutoff
+    if (
+        flow_func is flow.shortest_augmenting_path
+        or flow_func is nx_flow.shortest_augmenting_path
+    ):
+        kwargs["two_phase"] = True
+    return kwargs
+
+
 def local_node_connectivity(
     G,
     s,
@@ -132,21 +151,11 @@ def local_node_connectivity(
         and t in G
     ):
         return _fnx.node_connectivity(G, s, t)
-    if flow_func is None:
-        # networkx's default flow function; neither networkx nor fnx exports
-        # edmonds_karp at top level (br-r37-c1-7jhpr).
-        from franken_networkx.flow import edmonds_karp
-
-        flow_func = edmonds_karp
     H = build_auxiliary_node_connectivity(G) if auxiliary is None else auxiliary
     mapping = H.graph.get("mapping", None)
     if mapping is None:
         raise _fnx.NetworkXError("Invalid auxiliary digraph.")
-    kwargs = {"flow_func": flow_func, "residual": residual}
-    if getattr(flow_func, "__name__", None) != "preflow_push":
-        kwargs["cutoff"] = cutoff
-    if getattr(flow_func, "__name__", None) == "shortest_augmenting_path":
-        kwargs["two_phase"] = True
+    kwargs = _local_connectivity_flow_kwargs(flow_func, residual, cutoff)
     return _fnx.maximum_flow_value(H, f"{mapping[s]}B", f"{mapping[t]}A", **kwargs)
 
 
@@ -176,16 +185,8 @@ def local_edge_connectivity(
         and t in G
     ):
         return _fnx.edge_connectivity(G, s, t)
-    if flow_func is None:
-        from franken_networkx.flow import edmonds_karp
-
-        flow_func = edmonds_karp
     H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
-    kwargs = {"flow_func": flow_func, "residual": residual}
-    if getattr(flow_func, "__name__", None) != "preflow_push":
-        kwargs["cutoff"] = cutoff
-    if getattr(flow_func, "__name__", None) == "shortest_augmenting_path":
-        kwargs["two_phase"] = True
+    kwargs = _local_connectivity_flow_kwargs(flow_func, residual, cutoff)
     return _fnx.maximum_flow_value(H, s, t, **kwargs)
 
 
@@ -285,9 +286,30 @@ def minimum_st_edge_cut(
             from franken_networkx.flow import edmonds_karp
 
             flow_func = edmonds_karp
-        _, (reachable, non_reachable) = _fnx.minimum_cut(
-            H, s, t, capacity="capacity", flow_func=flow_func, residual=residual
+        cut_residual = _fnx._flow_residual_inproc(
+            H, s, t, "capacity", flow_func, {"residual": residual}, True, True
         )
+        # Connectivity reuses a residual across local queries. NetworkX's cut
+        # extraction removes saturated arcs and restores them at each row's
+        # end; the next solver call can observe that order and its new edge
+        # dictionaries. Replay that state transition here, while standalone
+        # minimum_cut retains its non-mutating residual contract.
+        saturated = [
+            (u, v, attrs)
+            for u, v, attrs in cut_residual.edges(data=True)
+            if attrs["flow"] == attrs["capacity"]
+        ]
+        cut_residual.remove_edges_from(saturated)
+        if t not in cut_residual:
+            # The minimum-cut protocol searches from t in the reversed
+            # residual, so its missing-endpoint error names a source.
+            raise _fnx.NodeNotFound(f"Source {t} is not in G")
+        non_reachable = set(_fnx.single_target_shortest_path_length(cut_residual, t))
+        reachable = set(H) - non_reachable
+        cut_residual.add_edges_from(saturated)
+        # A completed solver result must carry its flow value even though this
+        # API returns only the cut set. Check it after restoring the residual.
+        _ = cut_residual.graph["flow_value"]
     reachable = set(reachable)
     non_reachable = set(non_reachable)
     cutset = set()

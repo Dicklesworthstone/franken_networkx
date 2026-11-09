@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import math
 import sys
+from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
 
@@ -115,3 +117,265 @@ def test_default_flow_function_paths_match_networkx(directed):
     assert not fnx.has_path(cut_graph, 0, 5)
     with pytest.raises(KeyError):
         fnx_conn.local_node_connectivity(fg, 99, 5, cutoff=1)
+
+
+def _connectivity_pair(graph_type):
+    nodes = [1024 * i for i in range(6)]
+    edges = [
+        (0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0),
+        (0, 2), (0, 3), (1, 3), (2, 4), (3, 5),
+    ]
+    graphs = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from((nodes[u], nodes[v], {"capacity": 23}) for u, v in edges)
+        if graph.is_multigraph():
+            graph.add_edge(nodes[0], nodes[1], capacity=37)
+        graphs.append(graph)
+    return graphs
+
+
+def _forbid_connectivity_delegation(*args, **kwargs):
+    raise AssertionError("connectivity query delegated to NetworkX")
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("name", ["edge_connectivity", "minimum_edge_cut", "minimum_node_cut"])
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize(
+    "algorithm", ["edmonds_karp", "dinitz", "shortest_augmenting_path", "preflow_push"]
+)
+def test_connectivity_owned_solver_routes_match_networkx(
+    monkeypatch, graph_type, name, local, algorithm
+):
+    from networkx.algorithms import connectivity as nx_conn
+    from networkx.algorithms import flow as nx_flow
+    from franken_networkx import backend as fnx_backend
+    from franken_networkx import flow as fnx_flow
+
+    fg, ng = _connectivity_pair(graph_type)
+    kwargs = {"s": 0, "t": 4096} if local else {}
+    expected = getattr(nx, name)(ng, flow_func=getattr(nx_flow, algorithm), **kwargs)
+    for module in (nx, nx_conn, nx_conn.connectivity, nx_conn.cuts):
+        if hasattr(module, name):
+            monkeypatch.setattr(module, name, _forbid_connectivity_delegation)
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _forbid_connectivity_delegation)
+
+    actual = getattr(fnx_conn, name)(fg, flow_func=getattr(fnx_flow, algorithm), **kwargs)
+    assert actual == expected
+    assert type(actual) is type(expected)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("cutoff", [-1, 0, Fraction(1, 2), Fraction(3, 2), 2, math.inf, math.nan])
+def test_connectivity_owned_cutoff_keeps_exact_value_and_local_flow(
+    monkeypatch, graph_type, local, cutoff
+):
+    from networkx.algorithms import connectivity as nx_conn
+
+    fg, ng = _connectivity_pair(graph_type)
+    kwargs = {"s": 0, "t": 4096} if local else {}
+    expected = nx.edge_connectivity(ng, cutoff=cutoff, **kwargs)
+    monkeypatch.setattr(
+        nx_conn.connectivity, "edge_connectivity", _forbid_connectivity_delegation
+    )
+    actual = fnx.edge_connectivity(fg, cutoff=cutoff, **kwargs)
+    if isinstance(expected, float) and math.isnan(expected):
+        assert math.isnan(actual)
+    else:
+        assert actual == expected
+    assert type(actual) is type(expected)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("name", ["edge_connectivity", "minimum_edge_cut", "minimum_node_cut"])
+@pytest.mark.parametrize("local", [False, True])
+def test_connectivity_solver_callback_schedule_and_shared_residual(graph_type, name, local):
+    """Check callback options, graph snapshots, residual order and state reuse."""
+    from networkx.algorithms.flow import edmonds_karp
+
+    outcomes = []
+    for module, graph in zip((fnx, nx), _connectivity_pair(graph_type)):
+        run_flow = fnx.flow.edmonds_karp if module is fnx else edmonds_karp
+        calls = []
+        auxiliaries = []
+        residuals = []
+        returned_residuals = []
+
+        class Solver:
+            def __bool__(self):
+                return False
+
+            def __call__(self, auxiliary, source, target, **kwargs):
+                residual = kwargs["residual"]
+                calls.append((
+                    source,
+                    target,
+                    tuple((key, value) for key, value in kwargs.items() if key != "residual"),
+                    list(auxiliary.nodes(data=True)),
+                    list(auxiliary.edges(data=True)),
+                    list(residual.edges()) if residual is not None else None,
+                    residual.graph.get("callback_visits", 0) if residual is not None else None,
+                ))
+                auxiliaries.append(auxiliary)
+                residuals.append(residual)
+                result = run_flow(auxiliary, source, target, **kwargs)
+                result.graph["callback_visits"] = result.graph.get("callback_visits", 0) + 1
+                returned_residuals.append(result)
+                return result
+
+        kwargs = {"s": 0, "t": 4096} if local else {}
+        result = getattr(module, name)(graph, flow_func=Solver(), **kwargs)
+        assert calls
+        assert all(auxiliary is auxiliaries[0] for auxiliary in auxiliaries)
+        assert all(residual is residuals[0] for residual in residuals)
+        outcomes.append((result, calls, [list(r.edges()) for r in returned_residuals]))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", ["local_node_connectivity", "local_edge_connectivity"])
+@pytest.mark.parametrize("solver_name", ["preflow_push", "shortest_augmenting_path", "custom"])
+def test_connectivity_callback_names_do_not_select_builtin_options(name, solver_name):
+    from networkx.algorithms import connectivity as nx_conn
+    from networkx.algorithms.flow import edmonds_karp
+
+    outcomes = []
+    for module, graph in zip((fnx_conn, nx_conn), _connectivity_pair("Graph")):
+        calls = []
+
+        def solver(auxiliary, source, target, **kwargs):
+            calls.append(tuple((key, value) for key, value in kwargs.items() if key != "residual"))
+            return edmonds_karp(auxiliary, source, target, **kwargs)
+
+        solver.__name__ = solver_name
+        value = getattr(module, name)(graph, 0, 4096, flow_func=solver, cutoff=Fraction(1, 2))
+        outcomes.append((value, calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_connectivity_edge_cut_keeps_auxiliary_snapshot_during_solver_mutation(monkeypatch, graph_type):
+    from networkx.algorithms.flow import edmonds_karp
+    from franken_networkx import backend as fnx_backend
+
+    outcomes = []
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", _forbid_connectivity_delegation)
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 3)])
+        run_flow = fnx.flow.edmonds_karp if module is fnx else edmonds_karp
+
+        def solver(auxiliary, source, target, **kwargs):
+            graph.add_edge(0, 3, callback=True)
+            return run_flow(auxiliary, source, target, **kwargs)
+
+        result = module.minimum_edge_cut(graph, 0, 3, flow_func=solver)
+        assert graph.has_edge(0, 3)
+        assert (0, 3) not in result
+        outcomes.append(result)
+    assert outcomes[0] == outcomes[1]
+
+
+def test_connectivity_cut_reads_residual_after_removal_hooks():
+    """A callback-owned residual may change its topology when arcs are removed."""
+    from networkx.algorithms import connectivity as nx_conn
+    from networkx.algorithms.flow import edmonds_karp
+
+    outcomes = []
+    for module in (fnx_conn, nx_conn):
+        events = []
+
+        class Residual(nx.DiGraph):
+            def remove_edges_from(self, edges):
+                edges = list(edges)
+                events.append(("remove", [(u, v) for u, v, _ in edges]))
+                super().remove_edges_from(edges)
+                # The newly inserted arc is saturated too. Reachability must
+                # inspect the residual after this hook, not re-filter it.
+                self.add_edge(0, 3, capacity=1, flow=1)
+
+        def solver(auxiliary, source, target, **kwargs):
+            return Residual(edmonds_karp(auxiliary, source, target, **kwargs))
+
+        graph = nx.path_graph(4)
+        cut = module.minimum_st_edge_cut(graph, 0, 3, flow_func=solver)
+        outcomes.append((cut, events))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == set()
+
+
+@pytest.mark.parametrize("name", ["minimum_st_edge_cut", "minimum_st_node_cut"])
+def test_connectivity_cut_requires_flow_value_after_restoring_residual(name):
+    from networkx.algorithms import connectivity as nx_conn
+    from networkx.algorithms.flow import edmonds_karp
+
+    for module in (fnx_conn, nx_conn):
+        returned = []
+
+        def solver(auxiliary, source, target, **kwargs):
+            residual = edmonds_karp(auxiliary, source, target, **kwargs)
+            returned.append((residual, set(residual.edges())))
+            del residual.graph["flow_value"]
+            return residual
+
+        with pytest.raises(KeyError, match="flow_value"):
+            getattr(module, name)(nx.path_graph(3), 0, 2, flow_func=solver)
+        residual, edges = returned[0]
+        assert set(residual.edges()) == edges
+
+
+@pytest.mark.parametrize("name", ["minimum_st_edge_cut", "minimum_st_node_cut"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_connectivity_cut_residual_missing_sink_reports_reverse_source(name, empty):
+    from networkx.algorithms import connectivity as nx_conn
+
+    outcomes = []
+    for module in (fnx_conn, nx_conn):
+        residual = nx.DiGraph()
+        if not empty:
+            residual.add_edge(0, 1, capacity=1, flow=1)
+        residual.graph["flow_value"] = 1
+
+        def solver(*args, **kwargs):
+            return residual
+
+        try:
+            getattr(module, name)(nx.path_graph(3), 0, 2, flow_func=solver)
+        except Exception as exc:
+            outcomes.append((type(exc).__name__, str(exc), list(residual.edges())))
+        else:
+            pytest.fail("residual without a sink was accepted")
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == "NodeNotFound"
+    assert outcomes[0][1].startswith("Source ")
+
+
+@pytest.mark.parametrize("name", ["edge_connectivity", "minimum_edge_cut", "minimum_node_cut"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "nodes,edges,kwargs",
+    [
+        ([], [], {}),
+        ([], [], {"s": 0}),
+        ([], [], {"s": 0, "t": 1}),
+        ([0], [], {"s": 0, "t": 0}),
+        ([0, 1], [], {}),
+        ([0, 1], [], {"s": 0, "t": 7}),
+    ],
+)
+def test_connectivity_solver_validation_precedence(name, graph_type, nodes, edges, kwargs):
+    from networkx.algorithms.flow import edmonds_karp
+
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+        try:
+            result = getattr(module, name)(graph, flow_func=edmonds_karp, **kwargs)
+        except Exception as exc:
+            outcomes.append((type(exc).__name__, str(exc)))
+        else:
+            outcomes.append(("value", result))
+    assert outcomes[0] == outcomes[1]

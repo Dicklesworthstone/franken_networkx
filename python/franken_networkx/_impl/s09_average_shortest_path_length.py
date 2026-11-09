@@ -1225,14 +1225,49 @@ def number_connected_components(G, *, backend=None, **backend_kwargs):
 
 
 def _minimum_node_cut_inproc(G, s=None, t=None, flow_func=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.connectivity.cuts.minimum_node_cut(
-            H, s=s, t=t, flow_func=flow_func, backend="networkx"
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    """Select an exact node cut through the owned local cut implementation."""
+    from franken_networkx.connectivity import (
+        build_auxiliary_node_connectivity,
+        minimum_st_node_cut,
+    )
+    from franken_networkx.flow import build_residual_network
+
+    if s is not None and t is not None:
+        return minimum_st_node_cut(G, s, t, flow_func=flow_func)
+
+    directed = G.is_directed()
+    if len(next(_connected_component_sets(G, weak=directed))) != len(G):
+        raise NetworkXError("Input graph is not connected")
+
+    auxiliary = build_auxiliary_node_connectivity(G)
+    residual = build_residual_network(auxiliary, "capacity")
+    kwargs = {
+        "flow_func": flow_func,
+        "auxiliary": auxiliary,
+        "residual": residual,
+    }
+    if directed:
+        pairs = _itertools.permutations
+
+        def neighbors(node):
+            return _itertools.chain(G.predecessors(node), G.successors(node))
+    else:
+        pairs = _itertools.combinations
+        neighbors = G.neighbors
+
+    node = min(G, key=G.degree)
+    cut = set(G[node])
+    for other in set(G) - set(neighbors(node)) - {node}:
+        candidate = minimum_st_node_cut(G, node, other, **kwargs)
+        if len(candidate) <= len(cut):
+            cut = candidate
+    for source, target in pairs(neighbors(node), 2):
+        if target in G[source]:
+            continue
+        candidate = minimum_st_node_cut(G, source, target, **kwargs)
+        if len(candidate) <= len(cut):
+            cut = candidate
+    return cut
 
 
 def minimum_node_cut(
@@ -1259,22 +1294,23 @@ def minimum_node_cut(
     cut ~3-3.7x faster than the fnx->nx conversion.
     """
     _validate_backend_dispatch_keywords("minimum_node_cut", backend, backend_kwargs)
-    G = _coerce_arg_to_fnx_graph(G)
+    if flow_func is None:
+        G = _coerce_arg_to_fnx_graph(G)
     if (s is None) != (t is None):
         raise NetworkXError("Both source and target must be specified.")
-    if flow_func is not None:
-        return _minimum_node_cut_inproc(
-            G, s=s, t=t, flow_func=flow_func,
-        )
     if s is not None and t is not None:
         if s not in G:
             raise NetworkXError(f"node {s} not in graph")
         if t not in G:
             raise NetworkXError(f"node {t} not in graph")
+        if flow_func is not None:
+            return _minimum_node_cut_inproc(G, s=s, t=t, flow_func=flow_func)
         return _native_minimum_st_node_cut(G, s, t)
     # br-r37-c1-ct24s: only the global cut meets the null graph, as in nx.
     if len(G) == 0:
         raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+    if flow_func is not None:
+        return _minimum_node_cut_inproc(G, flow_func=flow_func)
 
     if G.is_directed():
         if not is_weakly_connected(G):

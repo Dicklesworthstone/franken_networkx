@@ -535,24 +535,61 @@ def local_bridges(G, with_span=True, weight=None, *, backend=None, **backend_kwa
 
 
 def _minimum_edge_cut_inproc(G, s=None, t=None, flow_func=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.connectivity.cuts.minimum_edge_cut(
-            H, s=s, t=t, flow_func=flow_func, backend="networkx"
-        )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+    """Find local and global cuts without copying the caller's graph."""
+    from franken_networkx.connectivity import (
+        build_auxiliary_edge_connectivity,
+        minimum_st_edge_cut,
+    )
+    from franken_networkx.flow import build_residual_network
+
+    auxiliary = build_auxiliary_edge_connectivity(G)
+    residual = build_residual_network(auxiliary, "capacity")
+    kwargs = {
+        "flow_func": flow_func,
+        "auxiliary": auxiliary,
+        "residual": residual,
+    }
+    if s is not None and t is not None:
+        return minimum_st_edge_cut(auxiliary, s, t, **kwargs)
+
+    directed = G.is_directed()
+    if len(next(_connected_component_sets(G, weak=directed))) != len(G):
+        raise NetworkXError("Input graph is not connected")
+
+    cut = set(G.edges(min(G, key=G.degree)))
+    if directed:
+        nodes = list(G)
+        pairs = zip(nodes, nodes[1:] + nodes[:1])
+    else:
+        for node in G:
+            dominating = dominating_set(G, start_with=node)
+            source = dominating.pop()
+            if dominating:
+                break
+        else:
+            return cut
+        pairs = ((source, target) for target in dominating)
+
+    for source, target in pairs:
+        candidate = minimum_st_edge_cut(auxiliary, source, target, **kwargs)
+        if len(candidate) <= len(cut):
+            cut = candidate
+    return cut
 
 
 def minimum_edge_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Return a minimum edge cut of *G*."""
     _validate_backend_dispatch_keywords("minimum_edge_cut", backend, backend_kwargs)
-    G = _coerce_arg_to_fnx_graph(G)
-    if len(G) == 0:
-        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+    if flow_func is None:
+        G = _coerce_arg_to_fnx_graph(G)
     if (s is not None and t is None) or (s is None and t is not None):
         raise NetworkXError("Both source and target must be specified.")
+    if s is not None and s not in G:
+        raise NetworkXError(f"node {s} not in graph")
+    if t is not None and t not in G:
+        raise NetworkXError(f"node {t} not in graph")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
 
     if flow_func is not None:
         return _minimum_edge_cut_inproc(

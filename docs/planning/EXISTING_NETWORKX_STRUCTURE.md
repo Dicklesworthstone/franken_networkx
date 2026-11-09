@@ -1469,3 +1469,34 @@ decisions and audit records, including existing unsupported-recovery errors.
 `tests/python/test_graphml_reader_surface.py` and the GraphML cases in
 `tests/python/test_gml_graphml_attribute_roundtrip.py` cover these contracts,
 including planted failures if the full decoder delegates to NetworkX.
+
+## 50. Connectivity Queries with Custom Flow Solvers and Cutoffs
+
+`edge_connectivity` owns local and global queries with a supplied solver or
+cutoff. `minimum_edge_cut` and `minimum_node_cut` own their custom-solver
+orchestration. These routes use the caller's graph protocol without converting
+it into a NetworkX graph. Ordinary default native routes remain separately
+admitted. Global queries construct one auxiliary graph and one residual and
+reuse them for their local flow computations; callback-visible endpoints,
+solver options, residual identity, and invocation order are observable.
+
+Default flow selection uses Edmonds-Karp. Solver-specific options depend on
+the identity of actual built-in solvers, not a callable's name. Falsey callable
+objects are still supplied solvers. Cutoffs keep their numeric semantics:
+global bounds can remain fractional, while a local query reports the achieved
+flow. Source/target omissions, missing endpoints, null graphs, disconnected
+graphs, and malformed callback results retain their existing error precedence.
+
+Connectivity's local cut extraction removes saturated residual arcs, traverses
+the resulting residual, then restores the removed arcs. This operation is
+observable through custom mutation hooks and through residual row ordering on
+later solver calls. Required flow metadata is read at the same completion
+boundary. The standalone `minimum_cut` API retains its existing non-mutating
+residual contract. High-level edge-cut extraction uses the auxiliary graph
+captured before the callback; mutation of the original graph remains visible
+to the caller without retroactively changing that captured cut graph.
+
+`tests/python/test_connectivity_namespace_native_routing.py` compares all four
+graph families and four flow solvers, exact cutoff domains, shared state,
+callback mutations, invalid residuals, and the custom-hook cut lifecycle, with
+NetworkX connectivity delegation and whole-graph conversion disabled.

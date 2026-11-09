@@ -86,14 +86,55 @@ def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **back
 
 
 def _edge_connectivity_inproc(G, s=None, t=None, flow_func=None, cutoff=None):
-    from franken_networkx.backend import _fnx_to_nx
-    H = _fnx_to_nx(G)
-    try:
-        return _nx.algorithms.connectivity.connectivity.edge_connectivity(
-            H, s=s, t=t, flow_func=flow_func, cutoff=cutoff, backend="networkx"
+    """Compute connectivity with the caller's solver and exact cutoff values."""
+    from franken_networkx.connectivity import (
+        build_auxiliary_edge_connectivity,
+        local_edge_connectivity,
+    )
+    from franken_networkx.flow import build_residual_network
+
+    if s is not None and t is not None:
+        return local_edge_connectivity(
+            G, s, t, flow_func=flow_func, cutoff=cutoff
         )
-    except Exception as exc:
-        _raise_translated_networkx_exception(exc)
+
+    directed = G.is_directed()
+    if len(next(_connected_component_sets(G, weak=directed))) != len(G):
+        return 0
+
+    # Global queries share their auxiliary and residual for every local flow.
+    # Rebuilding either would discard state visible to a custom solver.
+    auxiliary = build_auxiliary_edge_connectivity(G)
+    residual = build_residual_network(auxiliary, "capacity")
+    connectivity = min(degree for _, degree in G.degree())
+    if cutoff is not None:
+        connectivity = min(cutoff, connectivity)
+
+    if directed:
+        nodes = list(G)
+        pairs = zip(nodes, nodes[1:] + nodes[:1])
+    else:
+        for node in G:
+            dominating = dominating_set(G, start_with=node)
+            source = dominating.pop()
+            if dominating:
+                break
+        else:
+            return connectivity
+        pairs = ((source, target) for target in dominating)
+
+    for source, target in pairs:
+        value = local_edge_connectivity(
+            G,
+            source,
+            target,
+            flow_func=flow_func,
+            auxiliary=auxiliary,
+            residual=residual,
+            cutoff=connectivity,
+        )
+        connectivity = min(connectivity, value)
+    return connectivity
 
 
 def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend=None, **backend_kwargs):
@@ -118,7 +159,10 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend
         The edge connectivity of G.
     """
     _validate_backend_dispatch_keywords("edge_connectivity", backend, backend_kwargs)
-    G = _coerce_arg_to_fnx_graph(G)
+    # Solver callbacks and cutoff comparisons may inspect or mutate the input.
+    # Keep its live graph protocol on the owned Python route.
+    if flow_func is None and cutoff is None:
+        G = _coerce_arg_to_fnx_graph(G)
     if (s is None) ^ (t is None):
         raise NetworkXError("Both source and target must be specified.")
     if s is not None and s not in G:
