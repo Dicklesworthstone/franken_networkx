@@ -11,6 +11,7 @@ round-trip identity test only compares attribute *keys* for the GML format,
 never values. This locks the value types to nx's.
 """
 
+from io import BytesIO, StringIO
 import math
 
 import networkx as nx
@@ -150,17 +151,14 @@ def test_parse_gml_preserves_full_document_values(graph_type, case, mode, parser
 
 
 @pytest.mark.parametrize("mode", ["strict", "hardened"])
-def test_parse_gml_canonical_simple_payload_keeps_native_route(mode, monkeypatch):
+def test_parse_gml_canonical_simple_payload_does_not_delegate(mode, monkeypatch):
     source = fnx.DiGraph()
     source.add_nodes_from(["first", "last", "isolated"])
     source.add_edge("first", "last", weight=3)
     lines = list(fnx.generate_gml(source))
     expected = nx.parse_gml(lines)
 
-    def no_fallback(*args, **kwargs):
-        pytest.fail("canonical lossless GML must retain the native reader")
-
-    monkeypatch.setattr(nx, "parse_gml", no_fallback)
+    _forbid_gml_delegation(monkeypatch)
     with fnx.compatibility_mode(mode):
         actual = fnx.parse_gml(iter(lines))
     assert _gml_graph_state(actual) == _gml_graph_state(expected)
@@ -178,3 +176,305 @@ def test_parse_gml_hardened_repair_keeps_native_decision_ledger():
     assert list(actual) == ["0"]
     assert actual.mode == "hardened"
     assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+
+def _forbid_gml_delegation(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("complete GML decoding must be owned")
+
+    for module in (nx, nx.readwrite.gml):
+        monkeypatch.setattr(module, "parse_gml", forbidden)
+        monkeypatch.setattr(module, "read_gml", forbidden)
+    monkeypatch.setattr(nx.readwrite.gml, "parse_gml_lines", forbidden)
+    monkeypatch.setattr(fnx.readwrite, "_from_nx_graph", forbidden)
+
+
+def _gml_outcome(function, *args, **kwargs):
+    try:
+        return ("return", _gml_graph_state(function(*args, **kwargs)))
+    except Exception as exc:
+        return ("raise", type(exc).__name__, exc.args)
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+@pytest.mark.parametrize("label", [None, "label"])
+@pytest.mark.parametrize("entrypoint", ["top", "readwrite", "submodule", "read"])
+def test_owned_gml_wide_ids_and_edges_before_nodes(
+    directed, multigraph, label, entrypoint, monkeypatch
+):
+    wide = 2**120 + 17
+    text = (
+        f"graph [ directed {int(directed)} multigraph {int(multigraph)} "
+        f"edge [ source {wide} target {-wide} weight 3.5 ] "
+        f'node [ id {-wide} label "second" ] '
+        f'node [ id {wide} label "first" ] ]'
+    )
+    expected = nx.parse_gml(text, label=label)
+    _forbid_gml_delegation(monkeypatch)
+    if entrypoint == "read":
+        actual = fnx.read_gml(BytesIO(text.encode("ascii")), label=label)
+    else:
+        reader = {
+            "top": fnx.parse_gml,
+            "readwrite": fnx.readwrite.parse_gml,
+            "submodule": fnx.readwrite.gml.parse_gml,
+        }[entrypoint]
+        actual = reader(text, label=label)
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_owned_gml_complete_value_model_without_native_or_networkx_reparse(graph_type, monkeypatch):
+    graph = getattr(nx, graph_type)()
+    graph.graph["nested"] = {"values": [1, 2.5, "&#169;"], "single": [7]}
+    graph.add_node("isolated", empty_list=[], empty_tuple=())
+    graph.add_edge("second", "first", weight=2**100 + 1, text=r"C:\graph\edge")
+    if graph.is_multigraph():
+        graph.add_edge("second", "first", key="parallel", values=[1, 2])
+    text = "\n".join(nx.generate_gml(graph))
+    expected = nx.parse_gml(text)
+    _forbid_gml_delegation(monkeypatch)
+
+    def no_reparse(*args, **kwargs):
+        raise AssertionError("strict complete decoding must not parse/write/reparse")
+
+    monkeypatch.setattr(fnx._fnx, "read_gml", no_reparse)
+    monkeypatch.setattr(fnx.readwrite, "generate_gml", no_reparse)
+    actual = fnx.parse_gml(text)
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+
+
+_GML_GRAMMAR_CASES = [
+    "",
+    "graph [ ]",
+    "graph [ ] graph [ ]",
+    "graph 1",
+    "graph [ node [ id 0 ] ]",
+    'graph [ node [ label "a" ] ]',
+    'graph [ node [ id 0 label "a" ] node [ id 0 label "b" ] ]',
+    'graph [ node [ id 0 label "a" ] node [ id 1 label "a" ] ]',
+    'graph [ node [ id 0 label "a" ] edge [ source 0 ] ]',
+    'graph [ node [ id 0 label "a" ] edge [ source 1 target 2 ] ]',
+    'graph [ node [ id 0 label "a" ] edge [ source 0 target 2 ] ]',
+    'graph [ node [ id 0 label "a" ] edge [ source 0 target 0 ] edge [ source 0 target 0 ] ]',
+    'graph [ multigraph 1 node [ id 0 label "a" ] edge [ source 0 target 0 key 2 ] edge [ source 0 target 0 key 2 ] ]',
+    'graph [ node [ id 0 label a ] ]',
+    'graph [ node [ id alpha label "a" ] edge [ source alpha target alpha ] ]',
+    'graph [ node [ id 0 label "a" value INF ] ]',
+    'graph [ node [ id 0 label "a" value +INF ] ]',
+    'graph [ node [ id 0 label "a" value -INF ] ]',
+    'graph [ node [ id 0 label "a" value NAN ] ]',
+    'graph [ node [ id 0 label "a" value 1E+4 ] ]',
+    'graph [ node [ id 0 label "a" value .5E-3 ] ]',
+    'graph [ node [ id 0 label "a" value 2. ] ]',
+    'graph [ node [ id 0 label "a" value "&amp;&quot;&#169;&#x1f680;&unknown;&#999999999;" ] ]',
+    'graph [ node [ id 0 label "a" value "_networkx_list_start" value 7 ] ]',
+    'graph [ node [ id 0 label "a" value [ inner 1 inner 2 ] ] ]',
+    'graph [ node [ id 0 label "a" value "[]" other "()" ] ]',
+    'graph [ node [ id 0 label "a" value true ] ]',
+    'graph [ node [ id 0 label "a" value +NAN ] ]',
+    'graph [ _bad 1 ]',
+    'graph [ node [ id 0 label "a" ] ] @',
+    'graph [ node [ id 0 label "a" ]',
+    '] graph [ ]',
+    'graph [ ] ]',
+    'graph [ node [ id 0 label "a" note "a\nline\nends"\n] ]',
+    'graph [ node [ id 0 label "a" note "unfinished\n\n] ]',
+    '# header\ngraph [ # graph comment\nnode [ id 0 label "a#b" ] ]',
+]
+
+
+@pytest.mark.parametrize("text", _GML_GRAMMAR_CASES)
+@pytest.mark.parametrize("label", [None, "label"])
+def test_owned_gml_grammar_and_failure_boundaries(text, label, monkeypatch):
+    expected = _gml_outcome(nx.parse_gml, text, label=label)
+    _forbid_gml_delegation(monkeypatch)
+    actual = _gml_outcome(fnx.parse_gml, text, label=label)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("failure", [None, ValueError, RuntimeError])
+@pytest.mark.parametrize("falsey", [False, True])
+@pytest.mark.parametrize("suffix", ["", " @"])
+def test_owned_gml_destringizer_order_and_errors(failure, falsey, suffix, monkeypatch):
+    text = (
+        'graph [ note "before" node [ id 0 label "0" nested [ value "1" ] ] '
+        'node [ id 1 label "1" ] edge [ source 0 target 1 note "after" ] ]'
+    ) + suffix
+    outcomes = []
+    for module in (nx, fnx):
+        events = []
+
+        class Convert:
+            def __bool__(self):
+                events.append("bool")
+                return not falsey
+
+            def __call__(self, value):
+                events.append(("convert", value))
+                if value == "1" and failure is not None:
+                    raise failure("conversion stopped")
+                try:
+                    return int(value)
+                except ValueError:
+                    return value
+
+        if module is fnx:
+            _forbid_gml_delegation(monkeypatch)
+        outcomes.append((_gml_outcome(module.parse_gml, text, destringizer=Convert()), events))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("suffix", [".gml", ".gml.gz", ".gml.bz2"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_owned_gml_compressed_roundtrip(graph_type, suffix, tmp_path, monkeypatch):
+    graph = getattr(nx, graph_type)()
+    graph.add_node("first", nested={"count": [3, 5]})
+    graph.add_edge("second", "first", value=2**100)
+    if graph.is_multigraph():
+        graph.add_edge("second", "first", key="second-edge")
+    path = tmp_path / ("complete" + suffix)
+    nx.write_gml(graph, path)
+    expected = nx.read_gml(path)
+    _forbid_gml_delegation(monkeypatch)
+    assert _gml_graph_state(fnx.read_gml(path)) == _gml_graph_state(expected)
+    assert _gml_graph_state(fnx.read_gml(str(path))) == _gml_graph_state(expected)
+
+
+@pytest.mark.parametrize("stream_type", [BytesIO, StringIO])
+@pytest.mark.parametrize("text", ['graph [ node [ id 0 label "a" ] ]', 'graph [ @ ]'])
+def test_owned_gml_stream_ownership_on_success_and_failure(stream_type, text, monkeypatch):
+    expected = _gml_outcome(nx.read_gml, BytesIO(text.encode("ascii")))
+    _forbid_gml_delegation(monkeypatch)
+    stream = stream_type(text.encode("ascii") if stream_type is BytesIO else text)
+    assert _gml_outcome(fnx.read_gml, stream) == expected
+    assert not stream.closed
+
+
+def test_owned_gml_reader_rejects_non_ascii_bytes(monkeypatch):
+    payload = 'graph [ node [ id 0 label "café" ] ]'.encode("utf-8")
+    expected = _gml_outcome(nx.read_gml, BytesIO(payload))
+    _forbid_gml_delegation(monkeypatch)
+    assert _gml_outcome(fnx.read_gml, BytesIO(payload)) == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '__fnx_incompatible_future 1',
+        'node [ id 0 label "a" __fnx_incompatible_future 1 ]',
+        'node [ id 0 label "a" ] edge [ source 0 target 0 __fnx_incompatible_future 1 ]',
+    ],
+)
+def test_owned_gml_rejects_incompatible_attribute_keys(body, monkeypatch):
+    text = "graph [ " + body + " ]"
+    expected = _gml_outcome(nx.parse_gml, text)
+    assert expected[0:2] == ("raise", "NetworkXError")
+    _forbid_gml_delegation(monkeypatch)
+    assert _gml_outcome(fnx.parse_gml, text) == expected
+    assert _gml_outcome(fnx.read_gml, BytesIO(text.encode("ascii"))) == expected
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+@pytest.mark.parametrize("as_float", [False, True])
+def test_owned_gml_equal_labels_preserve_type_and_relabel_order(
+    directed, multigraph, as_float, monkeypatch
+):
+    text = (
+        f"graph [ directed {int(directed)} multigraph {int(multigraph)} "
+        + " ".join(
+            f'node [ id {node} label "{float(node) if as_float else node}" ]'
+            for node in range(3)
+        )
+        + " edge [ source 1 target 2 ] edge [ source 0 target 2 ] ]"
+    )
+    destringizer = nx.readwrite.gml.literal_destringizer
+    expected = nx.parse_gml(text, destringizer=destringizer)
+    _forbid_gml_delegation(monkeypatch)
+    actual = fnx.parse_gml(text, destringizer=destringizer)
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+    assert [list(actual.adj[node]) for node in actual] == [list(expected.adj[node]) for node in expected]
+    if directed:
+        assert [list(actual.pred[node]) for node in actual] == [list(expected.pred[node]) for node in expected]
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+@pytest.mark.parametrize("scope", ["node", "edge"])
+@pytest.mark.parametrize(
+    "key", ["node_for_adding", "u_of_edge", "v_of_edge", "u_for_edge", "v_for_edge", "self", "attr", "weight"]
+)
+def test_owned_gml_attribute_keyword_binding_matches_networkx(
+    directed, multigraph, scope, key, monkeypatch
+):
+    attribute = f"{key} 7"
+    node_attribute = attribute if scope == "node" else ""
+    edge_attribute = attribute if scope == "edge" else ""
+    text = (
+        f"graph [ directed {int(directed)} multigraph {int(multigraph)} "
+        f'node [ id 0 label "a" {node_attribute} ] node [ id 1 label "b" ] '
+        f"edge [ source 0 target 1 {edge_attribute} ] ]"
+    )
+    expected = _gml_outcome(nx.parse_gml, text)
+    _forbid_gml_delegation(monkeypatch)
+    assert _gml_outcome(fnx.parse_gml, text) == expected
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+@pytest.mark.parametrize("edge_count", [0, 1, 2])
+def test_owned_gml_direction_flag_callback_order(
+    directed, multigraph, edge_count, monkeypatch
+):
+    text = (
+        'graph [ directed "DIRECTED" multigraph "MULTIGRAPH" '
+        'node [ id 0 label "a" ] node [ id 1 label "b" ] '
+        + "edge [ source 0 target 1 ] " * edge_count
+        + "]"
+    )
+    outcomes = []
+    for module in (nx, fnx):
+        events = []
+
+        class Flag:
+            def __init__(self, name, value):
+                self.name, self.value = name, value
+
+            def __bool__(self):
+                events.append(("bool", self.name))
+                return self.value
+
+        def convert(value):
+            events.append(("convert", value))
+            if value == "DIRECTED":
+                return Flag("directed", directed)
+            if value == "MULTIGRAPH":
+                return Flag("multigraph", multigraph)
+            return value
+
+        if module is fnx:
+            _forbid_gml_delegation(monkeypatch)
+        outcomes.append((_gml_outcome(module.parse_gml, text, destringizer=convert), events))
+    assert outcomes[0] == outcomes[1]
+
+
+def test_owned_gml_parser_retains_eager_byte_line_normalization(monkeypatch):
+    events = []
+    text = 'graph [\nnode [ id 0 label "a" ]\n]'
+    expected = nx.parse_gml(text)
+
+    def lines():
+        events.append("input")
+        yield text.encode("utf-8")
+        events.append("end")
+
+    def convert(value):
+        events.append(("convert", value))
+        return value
+
+    _forbid_gml_delegation(monkeypatch)
+    actual = fnx.parse_gml(lines(), destringizer=convert)
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+    assert events == ["input", "end", ("convert", "a")]

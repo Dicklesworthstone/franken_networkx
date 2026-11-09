@@ -151,6 +151,12 @@ graph objects without a NetworkX graph intermediary. Existing payload
 admission and native policy/recovery routes select when the complete decoder
 is needed, while public reader methods retain configurable decoding hooks.
 
+The owned GML token/stack decoder separates lexical parsing from graph
+construction in the existing readwrite module. Strict full-grammar reads
+construct FrankenNetworkX graphs directly, without a NetworkX intermediary
+or a parse/write/reparse admission roundtrip. Explicit native modes and
+hardened recovery retain their established policy boundary.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

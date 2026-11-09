@@ -454,12 +454,12 @@ def _write_gml_native_plain_path_ok(path):
     return suffix not in {".gz", ".bz2"}
 
 
-def _read_gml_via_nx(path, *, label="label", destringizer=None):
-    """Private helper (br-rgmlnx): parse GML via nx so typed scalar
-    attributes, ``label``, and ``destringizer`` match upstream semantics.
-    """
-    import networkx as nx
+def _read_gml_owned(path, *, label="label", destringizer=None):
+    """Read the complete ASCII GML value model into native graph storage."""
+    import franken_networkx as fnx
 
+    # Retain the existing eager read and text-stream extension for caller-
+    # owned handles. Paths retain line-wise decoding and compressed opening.
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, str):
@@ -467,21 +467,285 @@ def _read_gml_via_nx(path, *, label="label", destringizer=None):
         else:
             path = _BytesIO(bytes(data))
 
-    nx_graph = nx.read_gml(path, label=label, destringizer=destringizer, backend="networkx")
-    return _from_nx_graph(nx_graph)
+    def read(stream):
+        def lines():
+            for line in stream:
+                try:
+                    line = line.decode("ascii")
+                except UnicodeDecodeError as exc:
+                    raise fnx.NetworkXError("input is not ASCII-encoded") from exc
+                yield line[:-1] if line.endswith("\n") else line
+
+        return parse_gml_lines(lines(), label, destringizer)
+
+    return fnx._open_path_and_call(path, "rb", read)
 
 
-def _parse_gml_via_nx(text, *, label="label", destringizer=None):
-    """Private helper (br-r37-c1-pibwm): parse GML text via nx so
-    non-default ``label`` / ``destringizer`` modes match upstream
-    semantics.  Keeping the networkx reference out of the public
-    ``parse_gml`` body keeps it classified PY_WRAPPER rather than
-    NX_DELEGATED (mirrors ``_read_gml_via_nx`` for ``read_gml``).
+class _GMLDecoder:
+    """Ordered token decoding with an explicit stack for nested mappings.
+
+    Lexical conversion precedes graph construction. Frames retain repeated
+    keys without recursive parser calls or an intermediate NetworkX graph.
     """
-    import networkx as nx
 
-    nx_graph = nx.parse_gml(text, label=label, destringizer=destringizer, backend="networkx")
-    return _from_nx_graph(nx_graph)
+    _token_pattern = _re.compile(
+        r"(?P<key>[A-Za-z][0-9A-Za-z_]*\b)"
+        r"|(?P<real>[+-]?(?:[0-9]*\.[0-9]+|[0-9]+\.[0-9]*|INF)"
+        r"(?:[Ee][+-]?[0-9]+)?)"
+        r"|(?P<int>[+-]?[0-9]+)"
+        r'|(?P<string>".*?")'
+        r"|(?P<open>\[)|(?P<close>\])|(?P<space>\#.*$|\s+)"
+    )
+    _entity_pattern = _re.compile(r"&(?:[0-9A-Za-z]+|#(?:[0-9]+|x[0-9A-Fa-f]+));")
+
+    def __init__(self, lines, destringizer):
+        import franken_networkx as fnx
+
+        self.error = fnx.NetworkXError
+        self.destringizer = destringizer
+        self.tokens = self._tokenize(lines)
+        self.current = next(self.tokens)
+
+    def _tokenize(self, lines):
+        pending = []
+        line_number = 0
+        for line_number, line in enumerate(lines, 1):
+            # The multiline-string extension joins stripped continuation
+            # lines with spaces and reports the closing line's position.
+            if pending:
+                pending.append(line.strip())
+                if line[-1] != '"':
+                    continue
+                line = " ".join(pending)
+                pending = []
+            elif line.count('"') == 1:
+                stripped = line.strip()
+                if stripped[0] != '"' and stripped[-1] != '"':
+                    pending.append(line.rstrip())
+                    continue
+
+            position = 0
+            while position < len(line):
+                match = self._token_pattern.match(line, position)
+                if match is None:
+                    raise self.error(
+                        f"cannot tokenize {line[position:]} at ({line_number}, {position + 1})"
+                    )
+                kind = match.lastgroup
+                value = match.group()
+                if kind == "real":
+                    value = float(value)
+                elif kind == "int":
+                    value = int(value)
+                if kind != "space":
+                    yield kind, value, line_number, position + 1
+                position = match.end()
+        yield None, None, line_number + 1, 1
+
+    def _unexpected(self, expected):
+        _kind, value, line, column = self.current
+        found = "EOF" if value is None else repr(value)
+        raise self.error(f"expected {expected}, found {found} at ({line}, {column})")
+
+    def _decode_string(self, value):
+        from html.entities import name2codepoint
+
+        def replace_entity(match):
+            entity = match.group()
+            if entity.startswith("&#x"):
+                codepoint = int(entity[3:-1], 16)
+            elif entity.startswith("&#"):
+                codepoint = int(entity[2:-1])
+            else:
+                codepoint = name2codepoint.get(entity[1:-1])
+                if codepoint is None:
+                    return entity
+            try:
+                return chr(codepoint)
+            except (ValueError, OverflowError):
+                return entity
+
+        value = self._entity_pattern.sub(replace_entity, value)
+        if self.destringizer:
+            try:
+                value = self.destringizer(value)
+            except ValueError:
+                pass
+        return value
+
+    @staticmethod
+    def _finish_values(groups):
+        values = {}
+        for key, entries in groups.items():
+            if len(entries) == 1:
+                values[key] = entries[0]
+            elif entries[0] == "_networkx_list_start":
+                values[key] = entries[1:]
+            else:
+                values[key] = entries
+        return values
+
+    def document(self):
+        # Each frame owns its repeated-key lists and the key that receives
+        # the completed mapping in its parent. Complete values before reading
+        # the next token so user conversions retain their error boundary.
+        frames = [({}, None)]
+        while frames:
+            groups, parent_key = frames[-1]
+            if self.current[0] != "key":
+                value = self._finish_values(groups)
+                if len(frames) == 1:
+                    if self.current[0] is not None:
+                        self._unexpected("EOF")
+                    return value
+                if self.current[0] != "close":
+                    self._unexpected("']'")
+                frames.pop()
+                self.current = next(self.tokens)
+                frames[-1][0].setdefault(parent_key, []).append(value)
+                continue
+
+            key = self.current[1]
+            self.current = next(self.tokens)
+            kind, value, _line, _column = self.current
+            if kind == "open":
+                frames.append(({}, key))
+                self.current = next(self.tokens)
+                continue
+            if kind in ("int", "real"):
+                self.current = next(self.tokens)
+            elif kind == "string":
+                value = self._decode_string(value[1:-1])
+                if value == "()":
+                    value = ()
+                if value == "[]":
+                    value = []
+                self.current = next(self.tokens)
+            elif key in ("id", "label", "source", "target"):
+                # These four fields also admit bare string-convertible tokens.
+                # Both conversion and lookahead belong to this error boundary.
+                try:
+                    value = self._decode_string(str(value))
+                    self.current = next(self.tokens)
+                except Exception:
+                    self._unexpected(
+                        "an int, float, string, '[' or string convertible ASCII value for node id or label"
+                    )
+            elif value in {"NAN", "INF"}:
+                value = float(value)
+                self.current = next(self.tokens)
+            else:
+                self._unexpected("an int, float, string or '['")
+            groups.setdefault(key, []).append(value)
+
+
+def parse_gml_lines(lines, label, destringizer):
+    """Decode complete GML values and construct a native graph in node order."""
+    import franken_networkx as fnx
+
+    document = _GMLDecoder(lines, destringizer).document()
+    if "graph" not in document:
+        raise fnx.NetworkXError("input contains no graph")
+    data = document["graph"]
+    if isinstance(data, list):
+        raise fnx.NetworkXError("input contains more than one graph")
+
+    directed = data.pop("directed", False)
+    multigraph = data.pop("multigraph", False)
+    graph_type = (fnx.MultiDiGraph if directed else fnx.MultiGraph) if multigraph else (
+        fnx.DiGraph if directed else fnx.Graph
+    )
+    graph = graph_type()
+    graph.graph.update((key, value) for key, value in data.items() if key not in ("node", "edge"))
+    node_parameters = frozenset(("self", "node_for_adding"))
+    edge_parameters = frozenset(
+        ("self", "u_for_edge", "v_for_edge") if graph.is_multigraph()
+        else ("self", "u_of_edge", "v_of_edge")
+    )
+    node_method = "DiGraph.add_node" if graph.is_directed() else "Graph.add_node"
+    edge_method = graph_type.__name__ + ".add_edge"
+
+    def records(category):
+        value = data.get(category, [])
+        return value if isinstance(value, list) else (value,)
+
+    def required(attributes, category, index, key):
+        try:
+            return attributes.pop(key)
+        except KeyError as exc:
+            raise fnx.NetworkXError(f"{category} #{index} has no {key!r} attribute") from exc
+
+    def validate_arguments(attributes, parameters, method):
+        # GML passes attributes as keywords. Preserve Python method binding
+        # errors, including ``self`` which native methods accept as an attr.
+        if not parameters.isdisjoint(attributes):
+            for key in attributes:
+                if key in parameters:
+                    raise TypeError(f"{method}() got multiple values for argument {key!r}")
+
+    labels = {}
+    seen_labels = set()
+    rename = label is not None and label != "id"
+    for index, attributes in enumerate(records("node")):
+        node = required(attributes, "node", index, "id")
+        if node in graph:
+            raise fnx.NetworkXError(f"node id {node!r} is duplicated")
+        if rename:
+            name = required(attributes, "node", index, label)
+            if name in seen_labels:
+                raise fnx.NetworkXError(f"node label {name!r} is duplicated")
+            seen_labels.add(name)
+            labels[node] = name
+        validate_arguments(attributes, node_parameters, node_method)
+        graph.add_node(node, **attributes)
+
+    for index, attributes in enumerate(records("edge")):
+        source = required(attributes, "edge", index, "source")
+        target = required(attributes, "edge", index, "target")
+        if source not in graph:
+            raise fnx.NetworkXError(f"edge #{index} has undefined source {source!r}")
+        if target not in graph:
+            raise fnx.NetworkXError(f"edge #{index} has undefined target {target!r}")
+        if multigraph:
+            key = attributes.pop("key", None)
+            if key is not None and graph.has_edge(source, target, key):
+                arrow = "->" if directed else "--"
+                raise fnx.NetworkXError(
+                    f"edge #{index} ({source!r}{arrow}{target!r}, {key!r}) is duplicated\n"
+                    'Hint: If multigraph add "multigraph 1" to file header.'
+                )
+            validate_arguments(attributes, edge_parameters, edge_method)
+            graph.add_edge(source, target, key, **attributes)
+        else:
+            if graph.has_edge(source, target):
+                arrow = "->" if directed else "--"
+                raise fnx.NetworkXError(f"edge #{index} ({source!r}{arrow}{target!r}) is duplicated")
+            validate_arguments(attributes, edge_parameters, edge_method)
+            graph.add_edge(source, target, **attributes)
+
+    if not rename:
+        return graph
+
+    # GML labels are unique, so copied relabeling needs no collision machinery.
+    # Always rebuild, including equal-valued labels such as int IDs and float
+    # labels: an identity shortcut loses their displayed types. Node-major
+    # edge iteration also preserves the copied relabel's adjacency ordering.
+    relabeled = graph_type()
+    relabeled.graph.update(graph.graph)
+    relabeled.add_nodes_from([
+        (labels[node], dict(attributes)) for node, attributes in graph.nodes(data=True)
+    ])
+    if graph.is_multigraph():
+        relabeled.add_edges_from([
+            (labels[source], labels[target], key, dict(attributes))
+            for source, target, key, attributes in graph.edges(keys=True, data=True)
+        ])
+    else:
+        relabeled.add_edges_from([
+            (labels[source], labels[target], dict(attributes))
+            for source, target, attributes in graph.edges(data=True)
+        ])
+    return relabeled
 
 
 def _strip_comment(line, comments):
@@ -1053,48 +1317,29 @@ def parse_edgelist(
 
 
 def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backend_kwargs):
-    """Parse GML text or lines into a FrankenNetworkX graph.
-
-    The native reader handles canonical, losslessly representable simple
-    graphs. The complete decoder retains lists, multigraph keys, string
-    escapes and other values that the native projection cannot represent.
-    Non-default labels and destringizers also use that decoder.
-    """
+    """Parse complete GML values while retaining native hardened recovery."""
     import franken_networkx as fnx
     from franken_networkx import _fnx
 
-    # br-r37-c1-a4yvc: parse_gml previously accepted arbitrary
-    # ``backend=`` / ``**backend_kwargs`` values silently. nx validates
-    # them — unknown backends raise ImportError, unknown free kwargs
-    # raise TypeError. Run the shared dispatch-keyword guard so both
-    # paths (Rust reader and nx fallback) reject the same invalid
-    # arguments nx rejects.
     fnx._validate_backend_dispatch_keywords("parse_gml", backend, backend_kwargs)
-
-    if label != "label" or destringizer is not None:
-        # br-r37-c1-pibwm: route the non-default label/destringizer
-        # fallback through the ``_parse_gml_via_nx`` helper so this
-        # public export carries no direct networkx reference and is
-        # classified PY_WRAPPER (parity with ``read_gml``).
-        text = "\n".join(
-            line.decode("utf-8") if isinstance(line, bytes) else str(line)
-            for line in _normalize_lines(lines)
-        )
-        if not text.strip():
-            raise fnx.NetworkXError("input contains no graph")
-        return _parse_gml_via_nx(text, label=label, destringizer=destringizer)
-
+    # Preserve the established text/byte-line convenience and eager input
+    # consumption. Token conversion starts after the caller's iterator ends.
     text = "\n".join(
         line.decode("utf-8") if isinstance(line, bytes) else str(line)
         for line in _normalize_lines(lines)
     )
     if not text.strip():
         raise fnx.NetworkXError("input contains no graph")
-    # br-readgml-strict: the Rust reader runs in strict mode at the Python
-    # boundary so structural errors (duplicate node id, unbalanced brackets,
-    # stray ']' tokens) surface as a fail-closed I/O error. nx surfaces
-    # those as NetworkXError, so re-raise the concrete subset here for
-    # drop-in parity.
+    if (
+        label != "label"
+        or destringizer is not None
+        or fnx.get_compatibility_mode() != "hardened"
+    ):
+        return parse_gml_lines(text.splitlines(), label, destringizer)
+
+    # Hardened input still passes through native validation and bounded
+    # recovery. A clean document is decoded fully without serializing it
+    # again; a repaired document retains the native result and audit ledger.
     try:
         graph = _fnx.read_gml(_StringIO(text))
     except OSError as exc:
@@ -1102,36 +1347,10 @@ def parse_gml(lines, label="label", destringizer=None, *, backend=None, **backen
         prefix = "readwrite `read_gml` failed closed: "
         if message.startswith(prefix):
             message = message[len(prefix):]
-        # br-r37-c1-gml-msg: nx's parse_gml uses a uniform error
-        # template ``f"{category} #{i} has no {attr!r} attribute"``
-        # (e.g. ``node #0 has no 'label' attribute``).  The Rust
-        # reader emits ``gml node {id} missing label`` and a few
-        # other ad-hoc variants — same NetworkXError class but
-        # different message text, so drop-in callers using
-        # ``pytest.raises(NetworkXError, match=r"has no 'label'
-        # attribute")`` failed.  Translate the most common
-        # variants to nx's wording so the actionable substring
-        # ``has no '<attr>' attribute`` is preserved.  The
-        # numeric index falls back to the node ``id`` (instead
-        # of the list-position) since the Rust message doesn't
-        # carry the position — close enough for pattern matching.
-        message = _translate_gml_error_to_nx(message)
-        raise fnx.NetworkXError(message) from exc
-
-    # Keep explicitly recorded hardened repairs: the complete decoder rejects
-    # the malformed input that the native policy has already recovered.
-    if graph.mode == "hardened" and any(
-        record["action"] == "full_validate" for record in graph.decision_records()
-    ):
+        raise fnx.NetworkXError(_translate_gml_error_to_nx(message)) from exc
+    if any(record["action"] == "full_validate" for record in graph.decision_records()):
         return graph
-
-    # A successful native parse alone does not prove fidelity. Repeated keys
-    # can collapse into scalars, multiedges into one edge, and numeric tokens
-    # into strings. Reuse the existing writer as a conservative admission
-    # proof instead of maintaining a second, incomplete GML grammar here.
-    if "\n".join(generate_gml(graph)) == text:
-        return graph
-    converted = _parse_gml_via_nx(text, label=label, destringizer=destringizer)
+    converted = parse_gml_lines(text.splitlines(), label, destringizer)
     _fnx.copy_readwrite_policy(graph, converted)
     return converted
 

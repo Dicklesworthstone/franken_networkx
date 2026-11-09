@@ -1581,3 +1581,28 @@ errors, callback order, public reader method hooks and visualization defaults.
 File ownership, compression, relabeling, native simple-input admission and
 explicit strict/hardened validation remain the responsibility of the existing
 readwrite boundary. Repaired native results retain their policy ledger.
+
+## 54. Complete GML Decoding
+
+Strict GML decoding parses the complete ordered key/value document before
+constructing its graph. Keys are ASCII identifiers; values include arbitrary
+width signed integers, decimal/exponent floats, infinities, NaN, quoted XML
+character entities, nested mappings and repeated-key lists. The
+`_networkx_list_start` marker preserves singleton lists. Destringizers run on
+decoded strings in lexical encounter order; only `ValueError` is swallowed,
+and falsey callable objects retain the existing conditional-call behavior.
+
+Nodes are constructed before edges even when edge declarations occur first.
+ID, label, endpoint, duplicate edge and multigraph-key validation preserve
+their exact ordering and errors. Renaming to labels happens after edge
+validation and preserves each label's type even when it compares equal to
+the original ID. Truthiness selects direction and multigraph flags. A
+restricted native parse cannot reject valid full-grammar input before the
+complete decoder sees it, including wide IDs and edges declared before nodes.
+
+File reads retain ASCII decoding, compressed paths and caller stream
+ownership; parser inputs retain established text, bytes and line-iterator
+normalization. Ordinary strict reads use one complete decode. Explicit
+native read modes and hardened parsing preserve native validation, bounded
+recovery and decision records; clean complete reconstructions retain that
+policy metadata where applicable.

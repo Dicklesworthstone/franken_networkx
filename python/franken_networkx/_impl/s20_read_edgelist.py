@@ -439,18 +439,14 @@ def read_gml(
 ):
     """Read a graph in GML format.
 
-    Delegates to NetworkX's parser (br-rgmlnx) so typed scalar
-    attributes, ``label``, and ``destringizer`` preserve upstream
-    semantics. The raw Rust parser remains available as ``_fnx.read_gml``.
+    Decode the complete GML value model directly into native graph storage.
+    Explicit strict/hardened modes retain native validation and recovery.
     """
     mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         return _rust_read_gml(path, label=label, destringizer=destringizer, mode=mode)
-    # No native fast path for the default call: the Rust parser drops
-    # repeated-key lists, backslashes and +INF/NAN typing, and ignores the
-    # multigraph flag (see test_read_gml_default_roundtrips_like_networkx).
-    return _read_gml_via_nx(path, label=label, destringizer=destringizer)
+    return _read_gml_owned(path, label=label, destringizer=destringizer)
 
 
 def read_json_graph(path, *, mode=None):
