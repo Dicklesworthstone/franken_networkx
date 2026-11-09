@@ -1433,3 +1433,39 @@ these established extensions from direct oracle comparisons.
 compressed roundtrips, foreign graph protocols, subclass/instance mutation
 hooks, source/converter event ordering, invalid later lines, encoding
 failures, nonseekable streams, handle lifetime, and bounded outstanding input.
+
+## 49. Configurable GraphML Decoding
+
+GraphML's complete decoder owns XML interpretation and constructs the selected
+FrankenNetworkX graph directly. The native simple-document route remains an
+independently admitted fast path. The complete decoder handles defaults,
+parallel edges, lexical edge IDs, configurable node/edge-key conversions, and
+yFiles data without creating a NetworkX graph or calling its GraphML reader.
+
+Convert every declared node and each edge endpoint in read order; do not memoize
+user conversion callbacks. Process a graph's direct nodes before its direct
+edges, then graph data. Node conversion may merge lexical IDs and create
+parallel edges. Detect parallelism before a converted edge key merges an
+existing keyed edge. Preserve original edge-ID strings as `id` attributes when
+returning a simple graph. Only `ValueError` from edge-key conversion retains the
+lexical ID; other exceptions propagate. Defaults populate `node_default` and
+`edge_default` metadata without being copied onto every node and edge.
+
+`GraphMLReader` exposes its key/type/data decoding methods and produces graphs
+lazily: callbacks for the next graph wait until the iterator resumes. Its
+multigraph and edge-ID state persists across graphs and repeated calls. The
+public `parse_graphml` and `read_graphml` functions consume the complete reader
+before returning its first graph, so an invalid later graph still raises.
+
+String and file readers retain distinct missing-namespace recovery protocols.
+Only literal `<graphml>` receives the standard namespace. A file reader seeks
+the original source to zero and performs its recovery read there; caller-owned
+streams stay open. Text/byte mismatches, unavailable seeking, nonzero starting
+offsets, literal byte paths, XML encodings, and malformed XML retain their
+observable errors. Strict full decoding retains NetworkX's format behavior;
+explicit native validation and hardened recovery continue to own policy
+decisions and audit records, including existing unsupported-recovery errors.
+
+`tests/python/test_graphml_reader_surface.py` and the GraphML cases in
+`tests/python/test_gml_graphml_attribute_roundtrip.py` cover these contracts,
+including planted failures if the full decoder delegates to NetworkX.

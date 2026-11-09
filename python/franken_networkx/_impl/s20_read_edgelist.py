@@ -315,14 +315,14 @@ def _graphml_from_mode_payload(
         # needs the complete key/multigraph/type contract; the simple native
         # report alone cannot preserve parallel edges or lexical edge IDs.
         if parse_string:
-            from .readwrite import _parse_graphml_via_nx
+            from .readwrite import _parse_graphml_owned
 
-            converted = _parse_graphml_via_nx(
+            converted = _parse_graphml_owned(
                 payload, node_type=node_type,
                 edge_key_type=edge_key_type, force_multigraph=force_multigraph,
             )
         else:
-            converted = _read_graphml_via_nx(
+            converted = _read_graphml_owned(
                 stream_type(payload), node_type=node_type,
                 edge_key_type=edge_key_type, force_multigraph=force_multigraph,
             )
@@ -388,7 +388,7 @@ def read_graphml(
         )
     # Use the same parser for str/Path inputs and caller-owned streams.
     # Its guards retain the full decoder for parallel edges and merging labels.
-    # The parser's fallback calls NetworkX directly, so this cannot recurse.
+    # The owned decoder constructs graphs directly, so this cannot recurse.
     # Literal bytes/custom paths retain the original reader: its namespace
     # recovery tries to seek the original source, which is observable on errors.
     from pathlib import Path
@@ -409,7 +409,7 @@ def read_graphml(
         # recovery seeks the original stream to zero, which can expose a prefix
         # before its initial position or raise on a nonseekable/sized-only stream.
         return _open_path_and_call(path, "rb", read)
-    return _read_graphml_via_nx(
+    return _read_graphml_owned(
         path,
         node_type=node_type,
         edge_key_type=edge_key_type,

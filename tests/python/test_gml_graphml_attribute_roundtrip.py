@@ -487,6 +487,188 @@ def test_parse_graphml_hardened_conversion_keeps_recovery_ledger(parser):
                 parser(payload, node_type=int, force_multigraph=True)
 
 
+def _forbid_graphml_delegation(monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("GraphML decoding delegated to NetworkX")
+
+    monkeypatch.setattr(nx, "parse_graphml", forbidden)
+    monkeypatch.setattr(nx, "read_graphml", forbidden)
+    monkeypatch.setattr(nx.readwrite, "GraphMLReader", forbidden)
+    monkeypatch.setattr(nx.readwrite.graphml, "GraphMLReader", forbidden)
+
+
+@pytest.mark.parametrize("entry", ["parse-text", "parse-bytes", "read-text", "read-bytes"])
+@pytest.mark.parametrize("document", ["wrong-namespace", "no-graphs"])
+def test_owned_graphml_namespace_errors_retain_input_type(
+    entry, document, monkeypatch
+):
+    payload = (
+        '<graphml xmlns="urn:not-graphml"><graph><node id="a"/></graph></graphml>'
+        if document == "wrong-namespace" else
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns"/>'
+    )
+
+    def invoke(module):
+        value = payload if entry.endswith("text") else payload.encode()
+        if entry.startswith("read"):
+            stream = io.StringIO(value) if isinstance(value, str) else io.BytesIO(value)
+            try:
+                return module.read_graphml(stream)
+            finally:
+                assert not stream.closed
+        return module.parse_graphml(value)
+
+    with pytest.raises(Exception) as expected:
+        invoke(nx)
+    _forbid_graphml_delegation(monkeypatch)
+    error_type = getattr(fnx, type(expected.value).__name__, type(expected.value))
+    with pytest.raises(error_type) as actual:
+        invoke(fnx)
+    assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize("entry", ["parse", "read"])
+@pytest.mark.parametrize("converter", ["node_type", "edge_key_type"])
+@pytest.mark.parametrize("error_type", [ValueError, TypeError, RuntimeError])
+def test_owned_graphml_only_edge_key_valueerror_is_recoverable(
+    entry, converter, error_type, monkeypatch
+):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<graph edgedefault="directed"><node id="a"/><node id="b"/>'
+        '<edge source="a" target="b" id="007"/></graph></graphml>'
+    )
+
+    def invoke(module, events):
+        def convert(value):
+            events.append(value)
+            raise error_type("custom GraphML conversion failed")
+
+        options = {converter: convert, "force_multigraph": True}
+        if entry == "read":
+            return module.read_graphml(io.BytesIO(payload.encode()), **options)
+        return module.parse_graphml(payload, **options)
+
+    expected_events, actual_events = [], []
+    if converter == "edge_key_type" and error_type is ValueError:
+        expected = invoke(nx, expected_events)
+        _forbid_graphml_delegation(monkeypatch)
+        actual = invoke(fnx, actual_events)
+        _assert_graphml_matches(actual, expected)
+        assert list(actual.edges(keys=True)) == [("a", "b", "007")]
+    else:
+        with pytest.raises(error_type) as expected_error:
+            invoke(nx, expected_events)
+        _forbid_graphml_delegation(monkeypatch)
+        with pytest.raises(error_type) as actual_error:
+            invoke(fnx, actual_events)
+        assert str(actual_error.value) == str(expected_error.value)
+    assert actual_events == expected_events
+
+
+_OWNED_YFILES_DOCUMENTS = {
+    "geometry-and-labels": """
+        <key id="n" for="node" yfiles.type="nodegraphics"/>
+        <key id="e" for="edge" yfiles.type="edgegraphics"/>
+        <graph edgedefault="directed">
+          <node id="a"><data key="n"><y:ShapeNode>
+            <y:Geometry x="12.5" y="34" width="25" height="40"/>
+            <y:Shape type="ellipse"/><y:NodeLabel>first</y:NodeLabel>
+            <y:NodeLabel>ignored second label</y:NodeLabel>
+          </y:ShapeNode></data></node>
+          <node id="b"><data key="n"><y:GenericNode configuration="process">
+            <y:Geometry x="9"/><y:NodeLabel/>
+          </y:GenericNode></data></node>
+          <edge source="a" target="b"><data key="e"><y:PolyLineEdge>
+            <y:EdgeLabel>A &amp; B</y:EdgeLabel>
+          </y:PolyLineEdge></data></edge>
+        </graph>""",
+    "fixed-element-precedence": """
+        <key id="n" for="node" yfiles.type="nodegraphics"/>
+        <key id="e" for="edge" yfiles.type="edgegraphics"/>
+        <graph edgedefault="directed">
+          <node id="a"><data key="n">
+            <y:ImageNode><y:Geometry x="image-x" y="image-y"/>
+              <y:Shape type="image"/><y:NodeLabel>image</y:NodeLabel></y:ImageNode>
+            <y:ShapeNode><y:Geometry x="shape-x" y="shape-y"/>
+              <y:Shape type="shape"/><y:NodeLabel>shape</y:NodeLabel></y:ShapeNode>
+            <y:GenericNode configuration="generic"><y:NodeLabel>generic</y:NodeLabel></y:GenericNode>
+          </data></node>
+          <edge source="a" target="b"><data key="e">
+            <y:ArcEdge><y:EdgeLabel>arc</y:EdgeLabel></y:ArcEdge>
+            <y:QuadCurveEdge><y:EdgeLabel>quad</y:EdgeLabel></y:QuadCurveEdge>
+            <y:PolyLineEdge><y:EdgeLabel>polyline</y:EdgeLabel></y:PolyLineEdge>
+          </data></edge>
+        </graph>""",
+    "nested-group": """
+        <key id="g" for="graph" attr.name="label" attr.type="string"/>
+        <graph edgedefault="directed">
+          <node id="group" yfiles.foldertype="group">
+            <graph edgedefault="undirected"><data key="g">nested</data>
+              <node id="inside"/><edge source="inside" target="implicit"/>
+            </graph>
+          </node>
+          <node id="ordinary"><graph edgedefault="directed"><node id="ignored"/></graph></node>
+          <edge source="group" target="ordinary"/>
+          <data key="g">outer</data>
+        </graph>""",
+}
+
+
+@pytest.mark.parametrize("entry", ["parse", "read", "reader"])
+@pytest.mark.parametrize("body", _OWNED_YFILES_DOCUMENTS.values(), ids=_OWNED_YFILES_DOCUMENTS)
+def test_owned_graphml_yfiles_metadata_and_groups(body, entry, monkeypatch):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns" '
+        'xmlns:y="http://www.yworks.com/xml/graphml">' + body + '</graphml>'
+    )
+    expected = nx.parse_graphml(payload)
+    _forbid_graphml_delegation(monkeypatch)
+    if entry == "read":
+        actual = fnx.read_graphml(io.BytesIO(payload.encode()))
+    elif entry == "reader":
+        actual = next(fnx.readwrite.GraphMLReader()(string=payload))
+    else:
+        actual = fnx.parse_graphml(payload)
+    _assert_graphml_matches(actual, expected)
+    for node in expected:
+        assert list(actual.nodes[node].items()) == list(expected.nodes[node].items())
+
+
+_OWNED_GRAPHML_ERRORS = {
+    "unknown-data-key": '<graph><node id="a"><data key="missing">x</data></node></graph>',
+    "unsupported-attribute-type": '<key id="x" attr.name="value" attr.type="complex"/><graph/>',
+    "missing-key-name": '<key id="x" attr.type="int"/><graph/>',
+    "empty-integer-default": '<key id="x" for="node" attr.name="v" attr.type="int"><default/></key><graph/>',
+    "invalid-boolean": (
+        '<key id="x" for="node" attr.name="v" attr.type="boolean"/>'
+        '<graph><node id="a"><data key="x"> true </data></node></graph>'
+    ),
+    "mixed-directions": '<graph edgedefault="undirected"><edge source="a" target="b" directed="true"/></graph>',
+    "hyperedge": '<graph><node id="a"/><hyperedge><endpoint node="a"/></hyperedge></graph>',
+    "group-without-graph": '<graph><node id="a" yfiles.foldertype="group"/></graph>',
+}
+
+
+@pytest.mark.parametrize("entry", ["parse", "read"])
+@pytest.mark.parametrize("body", _OWNED_GRAPHML_ERRORS.values(), ids=_OWNED_GRAPHML_ERRORS)
+def test_owned_graphml_format_errors_match_networkx(body, entry, monkeypatch):
+    payload = '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">' + body + '</graphml>'
+
+    def invoke(module):
+        if entry == "read":
+            return module.read_graphml(io.BytesIO(payload.encode()))
+        return module.parse_graphml(payload)
+
+    with pytest.raises(Exception) as expected:
+        invoke(nx)
+    _forbid_graphml_delegation(monkeypatch)
+    error_type = getattr(fnx, type(expected.value).__name__, type(expected.value))
+    with pytest.raises(error_type) as actual:
+        invoke(fnx)
+    assert str(actual.value) == str(expected.value)
+
+
 def _attributed_graph(seed, p=0.4):
     rng = random.Random(seed)
     n = rng.randint(4, 7)

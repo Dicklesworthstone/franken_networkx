@@ -363,29 +363,40 @@ def _write_graphml_via_nx(
     )
 
 
-def _read_graphml_via_nx(
+def _read_graphml_owned(
     path,
     *,
     node_type=str,
     edge_key_type=int,
     force_multigraph=False,
 ):
-    """Private helper (br-grphml): parse GraphML via nx so ``node_type``
-    / ``edge_key_type`` / ``force_multigraph`` kwargs are honoured.
-    """
-    import networkx as nx
+    """Decode file XML while retaining its original stream recovery protocol."""
+    import franken_networkx as fnx
 
-    nx_graph = nx.read_graphml(
-        path,
-        node_type=node_type,
-        edge_key_type=edge_key_type,
-        force_multigraph=force_multigraph,
-        backend="networkx",
-    )
-    return _from_nx_graph(nx_graph)
+    reader = GraphMLReader(node_type, edge_key_type, force_multigraph)
+
+    def read(source):
+        # Decode every graph before returning the first. Errors and conversion
+        # callbacks in later graphs remain part of the public read operation.
+        graphs = list(reader(path=source))
+        if not graphs:
+            # Recovery is deliberately performed on the caller's original
+            # source, not a fabricated seekable copy. Offset, text-only and
+            # nonseekable streams retain their observable failure behavior.
+            source.seek(0)
+            payload = source.read().replace(
+                b"<graphml>",
+                b'<graphml xmlns="http://graphml.graphdrawing.org/xmlns">',
+            )
+            graphs = list(reader(string=payload))
+        if not graphs:
+            raise fnx.NetworkXError("file not successfully read as graphml")
+        return graphs[0]
+
+    return fnx._open_path_and_call(path, "rb", read)
 
 
-def _parse_graphml_via_nx(
+def _parse_graphml_owned(
     graphml_string,
     *,
     node_type=str,
@@ -393,16 +404,19 @@ def _parse_graphml_via_nx(
     force_multigraph=False,
 ):
     """Keep string parsing distinct from GraphML file-byte decoding."""
-    import networkx as nx
+    import franken_networkx as fnx
 
-    nx_graph = nx.parse_graphml(
-        graphml_string,
-        node_type=node_type,
-        edge_key_type=edge_key_type,
-        force_multigraph=force_multigraph,
-        backend="networkx",
-    )
-    return _from_nx_graph(nx_graph)
+    reader = GraphMLReader(node_type, edge_key_type, force_multigraph)
+    graphs = list(reader(string=graphml_string))
+    if not graphs:
+        payload = graphml_string.replace(
+            "<graphml>",
+            '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">',
+        )
+        graphs = list(reader(string=payload))
+    if not graphs:
+        raise fnx.NetworkXError("file not successfully read as graphml")
+    return graphs[0]
 
 
 def _write_gml_via_nx(G, path, *, stringizer=None):
@@ -1202,8 +1216,9 @@ def parse_graphml(
 class GraphMLReader:
     """Read a GraphML document producing FrankenNetworkX graph objects.
 
-    Wraps ``networkx.readwrite.graphml.GraphMLReader`` and converts the
-    returned graphs to fnx graph types for drop-in compatibility.
+    Decode XML directly into the graph's public mutation interface. A reader
+    retains its edge identifiers and multigraph decision across yielded
+    graphs, while node and edge converters run on the original XML values.
 
     Parameters
     ----------
@@ -1242,42 +1257,214 @@ class GraphMLReader:
         edge_key_type=int,
         force_multigraph=False,
     ):
-        from networkx.readwrite.graphml import GraphMLReader as _NxReader
-
-        self._nx_reader = _NxReader(
-            node_type=node_type,
-            edge_key_type=edge_key_type,
-            force_multigraph=force_multigraph,
-        )
+        self.construct_types()
+        self.node_type = node_type
+        self.edge_key_type = edge_key_type
+        self.multigraph = force_multigraph
+        self.edge_ids = {}
 
     def construct_types(self):
         """Rebuild GraphML's Python/XML type mappings."""
-        return self._nx_reader.construct_types()
+        self.xml_type = {}
+        try:
+            import numpy as np
+        except ImportError:
+            pass
+        else:
+            for scalar in (np.float64, np.float32, np.float16):
+                self.xml_type[scalar] = "float"
+            for scalar in (
+                np.int_, np.int8, np.int16, np.int32, np.int64,
+                np.uint8, np.uint16, np.uint32, np.uint64, np.intc, np.intp,
+            ):
+                self.xml_type[scalar] = "int"
+        self.xml_type.update({int: "long", str: "string", float: "double", bool: "boolean"})
+        self.python_type = {
+            "float": float,
+            "int": int,
+            "integer": int,
+            "yfiles": str,
+            "string": str,
+            "long": int,
+            "double": float,
+            "boolean": bool,
+        }
 
     def get_xml_type(self, key):
         """Return GraphML's XML spelling for a Python attribute type."""
-        return self._nx_reader.get_xml_type(key)
+        try:
+            return self.xml_type[key]
+        except KeyError as exc:
+            raise TypeError(
+                f"GraphML does not support type {key} as data values."
+            ) from exc
 
     def find_graphml_keys(self, graph_element):
         """Extract GraphML key declarations and defaults from XML."""
-        return self._nx_reader.find_graphml_keys(graph_element)
+        import franken_networkx as fnx
+
+        prefix = f"{{{self.NS_GRAPHML}}}"
+        keys = {}
+        defaults = {}
+        for declaration in graph_element.findall(prefix + "key"):
+            key_id = declaration.get("id")
+            name = declaration.get("attr.name")
+            type_name = declaration.get("attr.type")
+            extension_name = declaration.get("yfiles.type")
+            if extension_name is not None:
+                name, type_name = extension_name, "yfiles"
+            if type_name is None:
+                _warnings.warn(f"No key type for id {key_id}. Using string")
+                type_name = "string"
+            if name is None:
+                raise fnx.NetworkXError(f"Unknown key for id {key_id}.")
+            converter = self.python_type[type_name]
+            keys[key_id] = {
+                "name": name,
+                "type": converter,
+                "for": declaration.get("for"),
+            }
+            default = declaration.find(prefix + "default")
+            if default is not None:
+                value = default.text
+                defaults[key_id] = (
+                    self.convert_bool[value.lower()] if converter is bool
+                    else converter(value)
+                )
+        return keys, defaults
 
     def decode_data_elements(self, graphml_keys, obj_xml):
         """Decode GraphML ``data`` XML elements into Python attributes."""
-        return self._nx_reader.decode_data_elements(graphml_keys, obj_xml)
+        import franken_networkx as fnx
+
+        attributes = {}
+        for element in obj_xml.findall(f"{{{self.NS_GRAPHML}}}data"):
+            key_id = element.get("key")
+            try:
+                key = graphml_keys[key_id]
+                name, converter = key["name"], key["type"]
+            except KeyError as exc:
+                raise fnx.NetworkXError(f"Bad GraphML data: no key {key_id}") from exc
+            if len(element):
+                self._decode_yfiles(element, attributes)
+            elif element.text is None:
+                attributes[name] = ""
+            elif converter is bool:
+                attributes[name] = self.convert_bool[element.text.lower()]
+            else:
+                attributes[name] = converter(element.text)
+        return attributes
+
+    def _decode_yfiles(self, element, attributes):
+        """Merge the supported drawing metadata in its documented precedence."""
+        prefix = f"{{{self.NS_Y}}}"
+        node_kinds = ("GenericNode", "ShapeNode", "SVGNode", "ImageNode")
+        for kind in node_kinds:
+            node = element.find(prefix + kind)
+            if node is None:
+                continue
+            if kind == "GenericNode":
+                attributes["shape_type"] = node.get("configuration")
+            geometry = node.find(prefix + "Geometry")
+            if geometry is not None:
+                attributes["x"] = geometry.get("x")
+                attributes["y"] = geometry.get("y")
+            shape = node.find(prefix + "Shape")
+            if shape is not None:
+                attributes["shape_type"] = shape.get("type")
+        # Geometry can be refined by later node kinds; labels instead choose
+        # the first supported kind, independently of XML sibling order.
+        for kind in node_kinds:
+            label = element.find(f"{prefix}{kind}/{prefix}NodeLabel")
+            if label is not None:
+                attributes["label"] = label.text
+                break
+        for kind in (
+            "PolyLineEdge", "SplineEdge", "QuadCurveEdge", "BezierEdge", "ArcEdge",
+        ):
+            label = element.find(f"{prefix}{kind}/{prefix}EdgeLabel")
+            if label is not None:
+                attributes["label"] = label.text
+                break
 
     def add_node(self, G, node_xml, graphml_keys, defaults):
         """Add one GraphML node to ``G`` using the reader's configured types."""
-        return self._nx_reader.add_node(G, node_xml, graphml_keys, defaults)
+        prefix = f"{{{self.NS_GRAPHML}}}"
+        if node_xml.find(prefix + "port") is not None:
+            _warnings.warn("GraphML port tag not supported.")
+        node = self.node_type(node_xml.get("id"))
+        attributes = self.decode_data_elements(graphml_keys, node_xml)
+        G.add_node(node, **attributes)
+        if node_xml.get("yfiles.foldertype") == "group":
+            self.make_graph(node_xml.find(prefix + "graph"), graphml_keys, defaults, G)
 
     def add_edge(self, G, edge_element, graphml_keys):
         """Add one GraphML edge to ``G`` using the reader's configured types."""
-        return self._nx_reader.add_edge(G, edge_element, graphml_keys)
+        import franken_networkx as fnx
+
+        if edge_element.find(f"{{{self.NS_GRAPHML}}}port") is not None:
+            _warnings.warn("GraphML port tag not supported.")
+        direction = edge_element.get("directed")
+        if G.is_directed():
+            if direction == "false":
+                raise fnx.NetworkXError("directed=false edge found in directed graph.")
+        elif direction == "true":
+            raise fnx.NetworkXError("directed=true edge found in undirected graph.")
+
+        source = self.node_type(edge_element.get("source"))
+        target = self.node_type(edge_element.get("target"))
+        attributes = self.decode_data_elements(graphml_keys, edge_element)
+        edge_id = edge_element.get("id")
+        if edge_id:
+            # Keep the lexical id separately: simple graphs expose it as an
+            # attribute, even if edge_key_type successfully converts the key.
+            self.edge_ids[source, target] = edge_id
+            try:
+                edge_id = self.edge_key_type(edge_id)
+            except ValueError:
+                pass
+        else:
+            edge_id = attributes.get("key")
+        if G.has_edge(source, target):
+            self.multigraph = True
+        # The four-tuple protocol preserves a supplied graph's mutation hooks
+        # and keeps an edge attribute named "key" distinct from its identity.
+        G.add_edges_from([(source, target, edge_id, attributes)])
 
     def make_graph(self, graph_xml, graphml_keys, defaults, G=None):
         """Build a FrankenNetworkX graph from one GraphML ``graph`` element."""
-        graph = self._nx_reader.make_graph(graph_xml, graphml_keys, defaults, G)
-        return graph if G is not None else _from_nx_graph(graph)
+        import franken_networkx as fnx
+
+        directed = graph_xml.get("edgedefault") == "directed"
+        if G is None:
+            G = fnx.MultiDiGraph() if directed else fnx.MultiGraph()
+        G.graph["node_default"] = {}
+        G.graph["edge_default"] = {}
+        for key_id, value in defaults.items():
+            key = graphml_keys[key_id]
+            scope = key["for"]
+            if scope in ("node", "edge"):
+                G.graph[scope + "_default"][key["name"]] = key["type"](value)
+
+        prefix = f"{{{self.NS_GRAPHML}}}"
+        if graph_xml.find(prefix + "hyperedge") is not None:
+            raise fnx.NetworkXError("GraphML reader doesn't support hyperedges")
+        # GraphML allows edges interspersed with nodes. Build all declared
+        # nodes first, so endpoint creation and converter ordering agree with
+        # the reader contract, including nested group graphs.
+        for node in graph_xml.findall(prefix + "node"):
+            self.add_node(G, node, graphml_keys, defaults)
+        for edge in graph_xml.findall(prefix + "edge"):
+            self.add_edge(G, edge, graphml_keys)
+        G.graph.update(self.decode_data_elements(graphml_keys, graph_xml))
+        if self.multigraph:
+            return G
+
+        graph = fnx.DiGraph(G) if G.is_directed() else fnx.Graph(G)
+        for (source, target), edge_id in self.edge_ids.items():
+            if graph.has_edge(source, target):
+                graph[source][target]["id"] = edge_id
+        return graph
 
     def __call__(self, path=None, string=None):
         """Read a GraphML document from path or string.
@@ -1295,8 +1482,17 @@ class GraphMLReader:
             If no parallel edges are found a Graph or DiGraph is returned.
             Otherwise a MultiGraph or MultiDiGraph is returned.
         """
-        for nx_graph in self._nx_reader(path=path, string=string):
-            yield _from_nx_graph(nx_graph)
+        from xml.etree.ElementTree import ElementTree, fromstring
+
+        if path is not None:
+            self.xml = ElementTree(file=path).getroot()
+        elif string is not None:
+            self.xml = fromstring(string)
+        else:
+            raise ValueError("Must specify either 'path' or 'string' as kwarg")
+        keys, defaults = self.find_graphml_keys(self.xml)
+        for graph in self.xml.findall(f"{{{self.NS_GRAPHML}}}graph"):
+            yield self.make_graph(graph, keys, defaults)
 
 
 def read_adjlist(
@@ -1393,7 +1589,7 @@ def read_graphml(
         # only the ambient mode is set, including XML encodings and wide ints.
         # An explicit mode request uses the native validation/recovery policy.
         fnx._validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
-        return _read_graphml_via_nx(
+        return _read_graphml_owned(
             path, node_type=node_type,
             edge_key_type=edge_key_type, force_multigraph=force_multigraph,
         )

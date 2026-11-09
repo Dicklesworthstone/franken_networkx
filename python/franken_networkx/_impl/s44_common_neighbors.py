@@ -1015,13 +1015,13 @@ def _parse_graphml_payload(
             parse_string=parse_string,
         )
     if parse_string:
-        from .readwrite import _parse_graphml_via_nx
+        from .readwrite import _parse_graphml_owned
 
-        return _parse_graphml_via_nx(
+        return _parse_graphml_owned(
             payload, node_type=node_type,
             edge_key_type=edge_key_type, force_multigraph=force_multigraph,
         )
-    return _read_graphml_via_nx(
+    return _read_graphml_owned(
         stream_type(payload) if file_source is None else _GraphMLBufferedInput(payload, file_source),
         node_type=node_type,
         edge_key_type=edge_key_type,

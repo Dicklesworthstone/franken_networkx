@@ -1378,7 +1378,7 @@ from franken_networkx.readwrite import (
     _read_adjlist_via_nx as _read_adjlist_via_nx,
     _write_adjlist_via_nx as _write_adjlist_via_nx,
     _write_graphml_via_nx as _write_graphml_via_nx,
-    _read_graphml_via_nx as _read_graphml_via_nx,
+    _read_graphml_owned as _read_graphml_owned,
     _write_gml_via_nx as _write_gml_via_nx,
     _read_gml_via_nx as _read_gml_via_nx,
 )

@@ -115,6 +115,13 @@ finishing a level does not eagerly compute the next one. Degree and size
 retain their shared exact numeric routes, including the native live-mirror
 refresh that rejects unsupported scalar types before using stored floats.
 
+The complete GraphML decoder lives in `readwrite.GraphMLReader`. It interprets
+ElementTree records directly into FrankenNetworkX graph storage, including
+multiedges, defaults, type callbacks, and yFiles data. String/file wrappers own
+their distinct namespace recovery and stream lifetimes. Native simple-document
+admission and the hardened validation/recovery ledger remain separate routes;
+the complete decoder no longer rebuilds a NetworkX graph.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.
