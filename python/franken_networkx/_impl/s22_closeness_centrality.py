@@ -193,7 +193,9 @@ def edge_betweenness_centrality(
     # anything else, and draws from it only to sample k sources; with k=None
     # it must not route the call (br-r37-c1-quim8, as betweenness_centrality).
     rng = _create_py_random_state(seed)
-    G = _coerce_arg_to_fnx_graph(G)
+    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    if not live_rows:
+        G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "edge_betweenness_centrality", backend, backend_kwargs
     )
@@ -208,7 +210,11 @@ def edge_betweenness_centrality(
     # the values off networkx's). A callable or out-of-contract weight and a
     # multigraph - networkx keys it by (u, v, key) with a value per parallel
     # edge (br-gauntlet-ebc-multi) - use the owned Python Brandes path.
-    native = not G.is_multigraph() and (weight is None or isinstance(weight, str))
+    native = (
+        not live_rows
+        and not G.is_multigraph()
+        and (weight is None or isinstance(weight, str))
+    )
     if native and weight is not None:
         native = not _should_delegate_dijkstra_to_networkx(G, weight)
         if native:

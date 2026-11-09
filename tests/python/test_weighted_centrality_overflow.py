@@ -402,3 +402,185 @@ def test_weighted_consumers_callbacks_observe_live_input(
         assert actual == expected
         assert actual_calls == expected_calls
         assert native_calls[native_helper] == before
+
+
+FULL_BRANDES_CASES = (
+    pytest.param("betweenness_centrality", {}, id="node"),
+    pytest.param(
+        "betweenness_centrality",
+        {"k": 2, "endpoints": True, "normalized": False},
+        id="sampled-node-endpoints",
+    ),
+    pytest.param("edge_betweenness_centrality", {}, id="edge"),
+    pytest.param(
+        "edge_betweenness_centrality", {"k": 2, "normalized": False},
+        id="sampled-edge",
+    ),
+)
+
+
+def _full_brandes_graph(module, graph_class, filtered):
+    graph = getattr(module, graph_class)()
+    graph.add_nodes_from(range(6))
+    graph.add_weighted_edges_from([
+        (0, 1, 1), (0, 2, 2), (1, 3, 8), (2, 3, 2),
+        (3, 4, 1), (1, 4, 10),
+    ])
+    if graph.is_multigraph():
+        graph.add_edge(1, 3, key="equal", weight=8)
+    view = module.subgraph_view(graph, filter_node=lambda node: node != 5) if filtered else graph
+    return graph, view
+
+
+def _full_brandes_weight(graph, owner, mutation):
+    calls = []
+    mutated = False
+    read_weight = _callback_weight(graph)
+
+    def weight(u, v, data):
+        nonlocal mutated
+        if not mutated and (u, v) == (0, 1):
+            mutated = True
+            if mutation == "later-weight":
+                attrs = graph[1][3].values() if graph.is_multigraph() else [graph[1][3]]
+                for attr in attrs:
+                    attr["weight"] = 0.5
+            elif mutation == "later-edge":
+                if graph.is_multigraph():
+                    for key in list(owner[1][4]):
+                        owner.remove_edge(1, 4, key)
+                else:
+                    owner.remove_edge(1, 4)
+        if graph.is_multigraph():
+            identical = all(attrs is graph[u][v][key] for key, attrs in data.items())
+            attrs = data.values()
+        else:
+            identical = data is graph[u][v]
+            attrs = [data]
+        if mutation == "callback-dict":
+            for attr in attrs:
+                attr["callback_visits"] = attr.get("callback_visits", 0) + 1
+        value = read_weight(u, v, data)
+        calls.append((u, v, value, identical))
+        return value
+
+    return weight, calls
+
+
+def _full_brandes_edges(graph):
+    if graph.is_multigraph():
+        return list(graph.edges(keys=True, data=True))
+    return list(graph.edges(data=True))
+
+
+def _full_brandes_outcome(function, graph, **options):
+    try:
+        return ("return", list(function(graph, **options).items()))
+    except Exception as exc:
+        return ("raise", type(exc).__name__, exc.args)
+
+
+def _forbid_full_brandes_materialization(monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Live Brandes must traverse the original graph in its owned engine")
+
+    for name in (
+        "_coerce_arg_to_fnx_graph", "_raw_betweenness_centrality",
+        "_betweenness_centrality_sampled_rust", "_raw_edge_betweenness_centrality",
+    ):
+        monkeypatch.setattr(fnx, name, forbidden)
+    monkeypatch.setattr(nx.algorithms.centrality.betweenness, "betweenness_centrality", forbidden)
+    monkeypatch.setattr(nx.algorithms.centrality.betweenness, "edge_betweenness_centrality", forbidden)
+
+
+@pytest.mark.parametrize("algorithm,options", FULL_BRANDES_CASES)
+@pytest.mark.parametrize("input_module", [fnx, nx], ids=["fnx-input", "networkx-input"])
+@pytest.mark.parametrize("filtered", [False, True], ids=["graph", "filtered-view"])
+@pytest.mark.parametrize("mutation", ["later-weight", "later-edge", "callback-dict"])
+def test_full_brandes_callbacks_keep_original_rows(
+    monkeypatch, graph_class, algorithm, options, input_module, filtered, mutation
+):
+    import random
+
+    reference_owner, reference = _full_brandes_graph(nx, graph_class, filtered)
+    owner, graph = _full_brandes_graph(input_module, graph_class, filtered)
+    expected_weight, expected_calls = _full_brandes_weight(reference, reference_owner, mutation)
+    actual_weight, actual_calls = _full_brandes_weight(graph, owner, mutation)
+    expected_rng, actual_rng = random.Random(17), random.Random(17)
+    expected = _full_brandes_outcome(
+        getattr(nx, algorithm), reference,
+        weight=expected_weight, seed=expected_rng, backend="networkx", **options
+    )
+    if mutation != "later-edge":
+        assert expected[0] == "return"
+    _forbid_full_brandes_materialization(monkeypatch)
+    actual = _full_brandes_outcome(
+        getattr(fnx, algorithm), graph,
+        weight=actual_weight, seed=actual_rng, **options
+    )
+    assert actual == expected
+    assert actual_calls == expected_calls
+    assert all(identical for _, _, _, identical in actual_calls)
+    assert _full_brandes_edges(graph) == _full_brandes_edges(reference)
+    assert actual_rng.getstate() == expected_rng.getstate()
+
+
+@pytest.mark.parametrize("algorithm,options", FULL_BRANDES_CASES)
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_full_brandes_private_adjacency_is_authoritative(
+    monkeypatch, graph_class, algorithm, options, weight
+):
+    graphs = []
+    for module in (nx, fnx):
+        graph = getattr(module, graph_class)()
+        graph.add_nodes_from(range(5))
+        graph.add_edge(0, 4, weight=1)
+        rows = {node: {} for node in graph}
+        for u, v, value in ((0, 1, 1), (1, 2, 1), (0, 2, 5), (2, 3, 1)):
+            attrs = {"weight": value}
+            if graph.is_multigraph():
+                attrs = {"key": attrs}
+            rows[u][v] = attrs
+            if not graph.is_directed():
+                rows[v][u] = attrs
+        graph._adj = rows
+        if graph.is_directed():
+            graph._succ = rows
+            pred = {node: {} for node in graph}
+            for u, neighbors in rows.items():
+                for v, attrs in neighbors.items():
+                    pred[v][u] = attrs
+            graph._pred = pred
+        graphs.append(graph)
+    expected = getattr(nx, algorithm)(
+        graphs[0], weight=weight, seed=17, backend="networkx", **options
+    )
+    _forbid_full_brandes_materialization(monkeypatch)
+    actual = getattr(fnx, algorithm)(graphs[1], weight=weight, seed=17, **options)
+    assert list(actual.items()) == list(expected.items())
+
+
+@pytest.mark.parametrize("algorithm,options", FULL_BRANDES_CASES)
+@pytest.mark.parametrize("input_module", [fnx, nx], ids=["fnx-input", "networkx-input"])
+@pytest.mark.parametrize("graph_class", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("filtered", [False, True], ids=["view", "filtered-view"])
+def test_full_brandes_undirected_view_preserves_asymmetric_weights(
+    monkeypatch, graph_class, algorithm, options, input_module, filtered
+):
+    graphs = []
+    for module in (nx, input_module):
+        graph = getattr(module, graph_class)()
+        graph.add_weighted_edges_from([
+            (0, 1, 9), (1, 0, 1), (1, 2, 1),
+            (2, 1, 9), (0, 2, 3), (2, 0, 3), (2, 3, 1),
+        ])
+        view = graph.to_undirected(as_view=True)
+        if filtered:
+            view = module.subgraph_view(view, filter_node=lambda node: node != 3)
+        graphs.append(view)
+    expected = getattr(nx, algorithm)(
+        graphs[0], weight="weight", seed=17, backend="networkx", **options
+    )
+    _forbid_full_brandes_materialization(monkeypatch)
+    actual = getattr(fnx, algorithm)(graphs[1], weight="weight", seed=17, **options)
+    assert list(actual.items()) == list(expected.items())

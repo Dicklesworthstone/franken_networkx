@@ -128,6 +128,12 @@ reuse one auxiliary/residual pair. Connectivity-specific cut extraction owns
 the residual mutation/replay protocol, while standalone minimum-cut extraction
 keeps its non-mutating contract. Existing ordinary native routes remain intact.
 
+Node and edge betweenness wrappers share the shortest-path live-row
+admission predicate before graph conversion. Existing owned Brandes engines
+handle callback-sensitive traversals, private adjacency and asymmetric
+undirected views while preserving caller mappings, arithmetic and RNG state.
+Ordinary native routes remain separate.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

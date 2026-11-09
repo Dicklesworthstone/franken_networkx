@@ -1500,3 +1500,21 @@ to the caller without retroactively changing that captured cut graph.
 graph families and four flow solvers, exact cutoff domains, shared state,
 callback mutations, invalid residuals, and the custom-hook cut lifecycle, with
 NetworkX connectivity delegation and whole-graph conversion disabled.
+
+## 51. Live Weighted Betweenness Queries
+
+Callable weights in node and edge betweenness receive the original graph's
+live edge attribute mapping, including the keyed mapping of a multigraph.
+Mutations of weights or topology observed by later traversal steps affect
+that same calculation. Foreign graphs, subclasses and views retain their
+public graph protocol; an undirected view of a directed graph can expose
+different attribute mappings for opposite endpoint lookups. These inputs use
+the existing owned Brandes traversal without a coercion snapshot. Ordinary
+concrete graphs retain their separately admitted native routes.
+
+Source sampling retains the caller's random-state advancement. Structural
+mutations preserve the oracle's error boundary too: a multigraph edge removed
+during traversal can make the final keyed contribution split fail. The
+regression matrix compares returned scores or exception type/arguments,
+callback traces, edge dictionary identity, resulting graph attributes,
+private adjacency, filtered views and sampled RNG state.

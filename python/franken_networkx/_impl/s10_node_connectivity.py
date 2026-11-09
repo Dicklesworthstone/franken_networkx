@@ -1050,6 +1050,15 @@ def betweenness_centrality(
     # the seed is 25.9x (br-r37-c1-quim8).
     rng = _create_py_random_state(seed)
     _validate_backend_dispatch_keywords("betweenness_centrality", backend, backend_kwargs)
+    # Weight callbacks can mutate later rows through the caller's graph. A
+    # conversion would disconnect those writes from Brandes, and collapsing
+    # an undirected view of directed edges loses its per-endpoint weights.
+    # The owned engine also preserves explicitly assigned private adjacency.
+    if _weighted_query_uses_live_python_rows(G, weight):
+        return _betweenness_centrality_inproc(
+            G, k=k, normalized=normalized, weight=weight,
+            endpoints=endpoints, seed=rng,
+        )
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # NetworkX 3.4 applies one uniform sampled scale and still samples at
