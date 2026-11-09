@@ -973,6 +973,13 @@ def _fnx_to_nx(fg):
         G = nx.DiGraph()
     else:
         G = nx.Graph()
+    # Assigned _node/_adj/_succ/_pred mappings own the public graph, even
+    # when its concrete class still has native bulk methods. Those methods
+    # read the old Rust storage and can silently relabel nodes or drop edges.
+    native_storage = (
+        type(fg) in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
+        and not fnx._has_networkx_private_storage(fg)
+    )
     node_view = getattr(fg, "nodes", None)
     if node_view is not None:
         G.add_nodes_from((node, dict(node_view[node])) for node in fg)
@@ -1008,8 +1015,11 @@ def _fnx_to_nx(fg):
                 ):
                     nx_rows[x] = {o: row[o] for o in src}
 
-        pred_bulk = getattr(fg, "_native_predecessor_keys_bulk", None)
-        if not fg.is_directed():
+        pred_bulk = (
+            getattr(fg, "_native_predecessor_keys_bulk", None)
+            if native_storage else None
+        )
+        if not fg.is_directed() and native_storage:
             _align_inline(G._adj, {n: list(nbrs) for n, nbrs in fg.adjacency()})
             G.graph.update(dict(fg.graph))
             return G
@@ -1018,9 +1028,8 @@ def _fnx_to_nx(fg):
             _align_inline(G._pred, {n: preds for n, preds in pred_bulk()})
             G.graph.update(dict(fg.graph))
             return G
-        # Defensive fallback (native pred reader unavailable): fall through to the
-        # generic ``_align_rows`` block, which restores succ/pred from fg.adj /
-        # fg.pred via the (slower) per-node AtlasView walk. Edges already emitted.
+        # Private storage and views, or an unavailable native pred reader,
+        # keep their logical rows through the generic alignment below.
     else:
         # Use 3-tuple attrs form so attr names that collide with nx's
         # positional ``u_of_edge`` / ``v_of_edge`` parameters don't
@@ -1035,16 +1044,13 @@ def _fnx_to_nx(fg):
         # in one native crossing (reads the fresh edge_py_attrs) instead of two
         # per-edge AtlasView passes (attrs_by_pair + the topo queues build).
         #
-        # Gate on the EXACT concrete type: the native helper reads the underlying
-        # Rust ``inner`` adjacency, which bypasses node/edge filtering on a
-        # SubgraphView (``type(view) is not Graph`` though it reports as one).
-        # Views and any subclass fall to the AtlasView Python path, which honours
-        # the filtered ``fg._adj``. (See reference_subgraph_view_coerce.)
+        # The native helper reads Rust ``inner`` adjacency. Views, subclasses,
+        # and assigned private storage must use their public rows instead.
         bulk = (
             _native_fnx_to_nx_adjacency(fg)
             if (
                 _native_fnx_to_nx_adjacency is not None
-                and type(fg) in (fnx.Graph, fnx.DiGraph)
+                and native_storage
             )
             else None
         )
@@ -1150,6 +1156,17 @@ def _fnx_to_nx(fg):
                 a is not b for a, b in zip(row, src)
             ):
                 nx_rows[x] = {o: row[o] for o in src}
+        if not native_storage:
+            # Assigning only _node can reorder node iteration without
+            # reordering _adj/_succ/_pred. Edge iteration follows those
+            # outer adjacency rows, independently of the node dictionary.
+            order = list(fg_rows)
+            if len(nx_rows) != len(order) or any(
+                actual is not source for actual, source in zip(nx_rows, order)
+            ):
+                ordered_rows = [(node, nx_rows[node]) for node in order]
+                nx_rows.clear()
+                nx_rows.update(ordered_rows)
 
     if fg.is_directed():
         succ_source_rows = None
