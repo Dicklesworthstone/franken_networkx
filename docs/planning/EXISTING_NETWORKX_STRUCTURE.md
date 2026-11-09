@@ -1100,6 +1100,11 @@ They share this pre-conversion source boundary for live demand, capacity,
 heap, component-size and numeric providers, including warm-cache calls.
 Their temporary source cache entries are removed before execution so later
 unrelated kernels still receive ordinary native conversions.
+`min_cost_flow`, `min_cost_flow_cost` and `network_simplex` use this same
+original-input boundary and the shared owned simplex solve. Their directed
+simple/multigraph inputs retain keyed flows, selected attribute names, exact
+numeric domains and infeasibility/unbounded errors under explicit and
+automatic backend selection, without re-entering the upstream dispatcher.
 
 The backend retains a weak reference to each conversion's original input.
 Traversal, topological, all-pairs shortest-path, and simple-path iterators

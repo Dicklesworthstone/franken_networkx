@@ -621,6 +621,118 @@ def test_backend_flow_hierarchy_preserves_graph_protocols(cls_name, shape, cache
     assert run("franken_networkx") == run("networkx")
 
 
+@pytest.mark.parametrize("algorithm", ["min_cost_flow", "min_cost_flow_cost", "network_simplex"])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("domain", ["integer", "wide_integer", "fraction", "decimal"])
+def test_backend_minimum_cost_flow_preserves_numeric_domains(
+    algorithm, cls_name, cached, domain, monkeypatch
+):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    amount, cost = {
+        "integer": (3, 2),
+        "wide_integer": (10**40, 2**80 + 1),
+        "fraction": (Fraction(3, 2), Fraction(2, 3)),
+        "decimal": (Decimal("1.5"), Decimal("0.75")),
+    }[domain]
+    graph = getattr(nx, cls_name)()
+    graph.add_node(("source", 0), balance=-amount)
+    graph.add_node("sink", balance=amount)
+    graph.add_edge(("source", 0), "middle", units=amount, cost=cost)
+    graph.add_edge("middle", "sink", units=amount, cost=cost)
+    graph.add_edge(("source", 0), "sink", units=amount, cost=4 * cost)
+    if graph.is_multigraph():
+        graph.add_edge(("source", 0), "middle", key=("other", 1), units=amount, cost=5 * cost)
+    kwargs = {"demand": "balance", "capacity": "units", "weight": "cost"}
+    expected = getattr(nx, algorithm)(graph, **kwargs, backend="networkx")
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    actual = getattr(nx, algorithm)(graph, **kwargs, backend="franken_networkx")
+    assert actual == expected
+    if algorithm == "min_cost_flow_cost":
+        assert type(actual) is type(expected)
+    elif algorithm == "network_simplex":
+        assert type(actual[0]) is type(expected[0])
+
+
+@pytest.mark.parametrize("algorithm", ["min_cost_flow", "min_cost_flow_cost", "network_simplex"])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("provider", ["demand", "capacity"])
+def test_backend_minimum_cost_flow_preserves_live_providers(
+    algorithm, cls_name, cached, provider, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_node("s", demand=-2)
+        graph.add_node("t", demand=2)
+        graph.add_edge("s", "t", capacity=2, weight=1)
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+        trace = []
+        edge = graph["s"]["t"][0] if graph.is_multigraph() else graph["s"]["t"]
+
+        class Provider(dict):
+            def get(self, key, default=None):
+                trace.append(key)
+                if key == provider:
+                    edge["weight"] = 7
+                return super().get(key, default)
+
+        if provider == "demand":
+            graph._node["s"] = Provider(demand=-2)
+        else:
+            edge = Provider(capacity=2, weight=1)
+            if graph.is_multigraph():
+                graph._adj["s"]["t"][0] = edge
+                graph._pred["t"]["s"][0] = edge
+            else:
+                graph._adj["s"]["t"] = edge
+                graph._pred["t"]["s"] = edge
+        answer = getattr(nx, algorithm)(graph, backend=backend)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return answer, trace, dict(edge)
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("algorithm", ["min_cost_flow", "min_cost_flow_cost", "network_simplex"])
+@pytest.mark.parametrize("case", ["unbalanced", "infeasible", "unbounded"])
+def test_backend_minimum_cost_flow_preserves_solver_errors(algorithm, case):
+    graph = nx.DiGraph()
+    if case == "unbounded":
+        graph.add_edge(0, 0, weight=-1)
+    else:
+        graph.add_node(0, demand=-2)
+        graph.add_node(1, demand=1 if case == "unbalanced" else 2)
+        graph.add_edge(0, 1, capacity=1)
+    outcomes = []
+    for backend in ("networkx", "franken_networkx"):
+        try:
+            getattr(nx, algorithm)(graph, backend=backend)
+        except nx.NetworkXException as exc:
+            outcomes.append((type(exc), exc.args))
+    assert len(outcomes) == 2
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("algorithm", ["min_cost_flow", "min_cost_flow_cost", "network_simplex"])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_backend_minimum_cost_flow_automatic_selection(algorithm, cls_name, monkeypatch):
+    graph = getattr(nx, cls_name)()
+    graph.add_node("s", demand=-2)
+    graph.add_node("t", demand=2)
+    graph.add_edge("s", "t", capacity=2, weight=3)
+    expected = getattr(nx, algorithm)(graph, backend="networkx")
+    monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    assert getattr(nx, algorithm)(graph) == expected
+
+
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize(

@@ -138,6 +138,9 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "katz_centrality",
         "capacity_scaling",
         "flow_hierarchy",
+        "min_cost_flow",
+        "min_cost_flow_cost",
+        "network_simplex",
         "dijkstra_path",
         "dijkstra_path_length",
         "bellman_ford_path",
@@ -157,7 +160,9 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
 )
 _LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "distance", "heuristic", "key")
 _SPECTRAL_INPUT_ALGORITHMS = frozenset({"eigenvector_centrality", "katz_centrality"})
-_FLOW_INPUT_ALGORITHMS = frozenset({"capacity_scaling", "flow_hierarchy"})
+_FLOW_INPUT_ALGORITHMS = frozenset(
+    {"capacity_scaling", "flow_hierarchy", "min_cost_flow", "min_cost_flow_cost", "network_simplex"}
+)
 _PROVIDER_INPUT_ALGORITHMS = _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
 
@@ -375,6 +380,9 @@ _SUPPORTED_ALGORITHMS = {
     "maximum_flow_value": fnx.maximum_flow_value,
     "capacity_scaling": fnx.capacity_scaling,
     "flow_hierarchy": fnx.flow_hierarchy,
+    "min_cost_flow": fnx.min_cost_flow,
+    "min_cost_flow_cost": fnx.min_cost_flow_cost,
+    "network_simplex": fnx.network_simplex,
     "minimum_cut": fnx.minimum_cut,
     "minimum_cut_value": fnx.minimum_cut_value,
     # Distance / measures
