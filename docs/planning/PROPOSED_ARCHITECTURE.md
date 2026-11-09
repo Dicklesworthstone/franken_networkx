@@ -140,6 +140,17 @@ no residual is supplied. Custom node-connectivity orchestration follows the
 same public-protocol path as edge connectivity, while native paths keep
 their existing graph admission. No persistent adjacency cache is introduced.
 
+Backend graph conversion uses native bulk snapshots only for ordinary
+concrete storage. Private mappings and views use public rows, with node,
+successor and predecessor ordering restored independently before returning
+the converted graph.
+
+The complete GEXF decoder lives in `readwrite.GEXFReader`, sharing version and
+scalar type declarations with the owned GEXF writer. It constructs native
+graph objects without a NetworkX graph intermediary. Existing payload
+admission and native policy/recovery routes select when the complete decoder
+is needed, while public reader methods retain configurable decoding hooks.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

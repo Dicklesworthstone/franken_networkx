@@ -1536,8 +1536,48 @@ Global queries share their auxiliary and residual objects across local
 computations. Directed all-pairs queries also use this owned protocol path.
 Ordinary native routes keep their existing input admission.
 
+Conversion from FrankenNetworkX to NetworkX reads assigned logical node,
+adjacency, successor and predecessor mappings rather than stale native
+storage. Node iteration and outer adjacency iteration can have different
+orders and equal-valued keys with distinct Python identities; both survive
+conversion, along with live attributes and directed predecessor order.
+This applies to all four graph classes and to callbacks
+that enter NetworkX through backend dispatch. Ordinary native storage retains
+its bulk conversion routes.
+
 The regression cases prohibit unnecessary input topology/attribute exports,
 compare live capacity-provider reads and endpoint validation, and retain
 residual and edge-dictionary identity across all five solvers. Removing
 conversion avoids rebuilding the input when a reusable residual is supplied;
 it is not evidence of a measured speedup.
+
+## 53. Complete GEXF Decoding
+
+The complete GEXF decoder constructs FrankenNetworkX graphs directly from
+ElementTree records. The reader first tries its selected namespace, then
+the supported version namespaces in declaration order, and reads the first
+matching direct graph. Version selection and detected multigraph state
+persist across calls on a reader. Graph names and start/end metadata remain
+strings; only literal dynamic mode selects dynamic metadata. Date time
+formats use strings. Attribute definitions and defaults have independent
+node/edge scopes, with the historical static double `weight` edge definition.
+Defaults remain metadata rather than being copied onto every graph object.
+
+Node attributes, parents, version-specific intervals, visualization and times
+are decoded before node conversion. Nested nodes are inserted before their
+parent, retaining inherited parent IDs. Conversion runs for each declared
+node and edge endpoint, without callback memoization. Edges validate mixed
+direction before endpoint conversion, decode dynamic attributes and times,
+then preserve lexical IDs, optional typed `networkx_key`, weights and labels.
+Parallelism is detected before keyed insertion can collapse an existing edge.
+Mutual edges add the reverse arc. A reader that has observed parallelism
+continues returning multigraphs on later calls.
+
+Dynamic values retain ordered `(value, start, end)` lists, including repeated
+titles and their observable errors. Version 1.1 slices retain textual bounds;
+later spells and start/end values use the declared time converter. The
+decoder preserves boolean and numeric conversion failures, missing attribute
+errors, callback order, public reader method hooks and visualization defaults.
+File ownership, compression, relabeling, native simple-input admission and
+explicit strict/hardened validation remain the responsibility of the existing
+readwrite boundary. Repaired native results retain their policy ledger.

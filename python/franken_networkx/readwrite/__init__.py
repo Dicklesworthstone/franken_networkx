@@ -2981,7 +2981,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         and mode is None
         and fnx.get_compatibility_mode() != "hardened"
     ):
-        return _read_gexf_via_nx(
+        return _read_gexf_owned(
             raw, node_type=node_type, relabel=relabel, version=version
         )
 
@@ -2990,7 +2990,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         record["action"] == "full_validate" for record in graph.decision_records()
     )
     if needs_decoder and not recovered:
-        converted = _read_gexf_via_nx(
+        converted = _read_gexf_owned(
             raw, node_type=node_type, relabel=relabel, version=version
         )
         _fnx.copy_readwrite_policy(graph, converted)
@@ -3060,17 +3060,12 @@ def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
     )
 
 
-def _read_gexf_via_nx(
+def _read_gexf_owned(
     raw_bytes, *, node_type=None, relabel=False, version="1.2draft"
 ):
     """Decode the complete GEXF data model, including IDs before edge creation."""
-    from networkx.readwrite.gexf import read_gexf as _upstream_read_gexf
-
-    nx_graph = _upstream_read_gexf(
-        _BytesIO(raw_bytes), node_type=node_type, relabel=relabel,
-        version=version, backend="networkx",
-    )
-    return _from_nx_graph(nx_graph)
+    graph = GEXFReader(node_type=node_type, version=version)(_BytesIO(raw_bytes))
+    return relabel_gexf_graph(graph) if relabel else graph
 
 
 def _gexf_writes_directly(G):
@@ -3589,6 +3584,280 @@ class _InProcessGEXFWriter:
         else:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = i
+
+
+class GEXFReader:
+    """Decode static, dynamic and hierarchical GEXF into native graph storage.
+
+    The reader owns XML interpretation while sharing format declarations with
+    the writer. Public decoding hooks and reader state are reusable across
+    documents. Validation/recovery policy belongs to :func:`read_gexf`.
+    """
+
+    versions = _InProcessGEXFWriter.versions
+    construct_types = _InProcessGEXFWriter.construct_types
+    set_version = _InProcessGEXFWriter.set_version
+    convert_bool = {
+        "true": True, "false": False, "True": True, "False": False,
+        "0": False, 0: False, "1": True, 1: True,
+    }
+
+    def __init__(self, node_type=None, version="1.2draft"):
+        self.construct_types()
+        self.node_type = node_type
+        self.simple_graph = True
+        self.set_version(version)
+
+    def __call__(self, stream):
+        from xml.etree.ElementTree import ElementTree
+        import franken_networkx as fnx
+
+        self.xml = ElementTree(file=stream)
+        graph = self.xml.find(f"{{{self.NS_GEXF}}}graph")
+        if graph is not None:
+            return self.make_graph(graph)
+        for version in self.versions:
+            self.set_version(version)
+            graph = self.xml.find(f"{{{self.NS_GEXF}}}graph")
+            if graph is not None:
+                return self.make_graph(graph)
+        raise fnx.NetworkXError("No <graph> element in GEXF file.")
+
+    def _convert_attribute(self, kind, value):
+        if kind == "boolean":
+            return self.convert_bool[value]
+        return self.python_type[kind](value)
+
+    def find_gexf_attributes(self, attributes_element):
+        definitions, defaults = {}, {}
+        mode = attributes_element.get("mode")
+        for element in attributes_element.findall(f"{{{self.NS_GEXF}}}attribute"):
+            title, kind = element.get("title"), element.get("type")
+            definitions[element.get("id")] = {
+                "title": title, "type": kind, "mode": mode,
+            }
+            default = element.find(f"{{{self.NS_GEXF}}}default")
+            if default is not None:
+                defaults[title] = self._convert_attribute(kind, default.text)
+        return definitions, defaults
+
+    def decode_attr_elements(self, gexf_keys, obj_xml):
+        import franken_networkx as fnx
+
+        data = {}
+        values = obj_xml.find(f"{{{self.NS_GEXF}}}attvalues")
+        if values is None:
+            return data
+        for element in values.findall(f"{{{self.NS_GEXF}}}attvalue"):
+            key = element.get("for")
+            try:
+                title = gexf_keys[key]["title"]
+            except KeyError as exc:
+                raise fnx.NetworkXError(f"No attribute defined for={key}.") from exc
+            value = self._convert_attribute(gexf_keys[key]["type"], element.get("value"))
+            # A custom scalar converter can replace the declaration itself.
+            # Keep the captured title, then inspect its live mode afterward.
+            if gexf_keys[key]["mode"] == "dynamic":
+                timeformat = self.timeformat
+                start = self.python_type[timeformat](element.get("start"))
+                end = self.python_type[timeformat](element.get("end"))
+                if title not in data:
+                    data[title] = []
+                data[title].append((value, start, end))
+            else:
+                data[title] = value
+        return data
+
+    def add_start_end(self, data, xml):
+        timeformat = self.timeformat
+        for name in ("start", "end"):
+            value = xml.get(name)
+            if value is not None:
+                data[name] = self.python_type[timeformat](value)
+        return data
+
+    def add_parents(self, data, node_xml):
+        parents = node_xml.find(f"{{{self.NS_GEXF}}}parents")
+        if parents is not None:
+            data["parents"] = [
+                element.get("for")
+                for element in parents.findall(f"{{{self.NS_GEXF}}}parent")
+            ]
+        return data
+
+    def add_slices(self, data, node_or_edge_xml):
+        intervals = node_or_edge_xml.find(f"{{{self.NS_GEXF}}}slices")
+        if intervals is not None:
+            data["slices"] = [
+                (element.get("start"), element.get("end"))
+                for element in intervals.findall(f"{{{self.NS_GEXF}}}slice")
+            ]
+        return data
+
+    def add_spells(self, data, node_or_edge_xml):
+        intervals = node_or_edge_xml.find(f"{{{self.NS_GEXF}}}spells")
+        if intervals is not None:
+            data["spells"] = []
+            timeformat = self.timeformat
+            for element in intervals.findall(f"{{{self.NS_GEXF}}}spell"):
+                start = self.python_type[timeformat](element.get("start"))
+                end = self.python_type[timeformat](element.get("end"))
+                data["spells"].append((start, end))
+        return data
+
+    def add_viz(self, data, node_xml):
+        viz = {}
+        color = node_xml.find(f"{{{self.NS_VIZ}}}color")
+        if color is not None:
+            viz["color"] = {name: int(color.get(name)) for name in ("r", "g", "b")}
+            if self.VERSION != "1.1":
+                viz["color"]["a"] = float(color.get("a", 1))
+        for name in ("size", "thickness"):
+            element = node_xml.find(f"{{{self.NS_VIZ}}}{name}")
+            if element is not None:
+                viz[name] = float(element.get("value"))
+        shape = node_xml.find(f"{{{self.NS_VIZ}}}shape")
+        if shape is not None:
+            value = shape.get("shape")
+            viz["shape"] = shape.get("uri") if value == "image" else value
+        position = node_xml.find(f"{{{self.NS_VIZ}}}position")
+        if position is not None:
+            viz["position"] = {
+                name: float(position.get(name, 0)) for name in ("x", "y", "z")
+            }
+        if viz:
+            data["viz"] = viz
+        return data
+
+    def add_node(self, G, node_xml, node_attr, node_pid=None):
+        data = self.decode_attr_elements(node_attr, node_xml)
+        data = self.add_parents(data, node_xml)
+        if self.VERSION == "1.1":
+            data = self.add_slices(data, node_xml)
+        else:
+            data = self.add_spells(data, node_xml)
+        data = self.add_viz(data, node_xml)
+        data = self.add_start_end(data, node_xml)
+
+        node = node_xml.get("id")
+        if self.node_type is not None:
+            node = self.node_type(node)
+        data["label"] = node_xml.get("label")
+        parent = node_xml.get("pid", node_pid)
+        if parent is not None:
+            data["pid"] = parent
+
+        # A parent's conversion happens first, but its insertion follows all
+        # descendants. Subclass hooks observe both boundaries independently.
+        children = node_xml.find(f"{{{self.NS_GEXF}}}nodes")
+        if children is not None:
+            for child in children.findall(f"{{{self.NS_GEXF}}}node"):
+                self.add_node(G, child, node_attr, node_pid=node)
+        G.add_node(node, **data)
+
+    def add_edge(self, G, edge_element, edge_attr):
+        import franken_networkx as fnx
+
+        direction = edge_element.get("type")
+        if G.is_directed() and direction == "undirected":
+            raise fnx.NetworkXError("Undirected edge found in directed graph.")
+        if not G.is_directed() and direction == "directed":
+            raise fnx.NetworkXError("Directed edge found in undirected graph.")
+        source, target = edge_element.get("source"), edge_element.get("target")
+        if self.node_type is not None:
+            source = self.node_type(source)
+            target = self.node_type(target)
+        data = self.decode_attr_elements(edge_attr, edge_element)
+        data = self.add_start_end(data, edge_element)
+        if self.VERSION == "1.1":
+            data = self.add_slices(data, edge_element)
+        else:
+            data = self.add_spells(data, edge_element)
+
+        edge_id = edge_element.get("id")
+        if edge_id is not None:
+            data["id"] = edge_id
+        key = data.pop("networkx_key", None)
+        if key is None:
+            key = edge_id
+        weight = edge_element.get("weight")
+        if weight is not None:
+            data["weight"] = float(weight)
+        label = edge_element.get("label")
+        if label is not None:
+            data["label"] = label
+
+        # Detect parallelism before a key collision can update an existing
+        # edge. Node conversion may make distinct XML IDs equal here.
+        if G.has_edge(source, target):
+            self.simple_graph = False
+        if "key" not in data:
+            # The native kwargs collector accepts non-string keys and a
+            # literal self attribute. Preserve Python's keyword validation
+            # and the first positional-name collision in insertion order.
+            # An explicit key= collision takes precedence over both.
+            if any(not isinstance(name, str) for name in data):
+                raise TypeError("keywords must be strings")
+            if "self" in data:
+                collision = next(
+                    name for name in data
+                    if name in ("self", "u_for_edge", "v_for_edge")
+                )
+                if collision == "self":
+                    raise TypeError(
+                        f"{type(G).__name__}.add_edge() got multiple values "
+                        "for argument 'self'"
+                    )
+        G.add_edge(source, target, key=key, **data)
+        if direction == "mutual":
+            G.add_edge(target, source, key=key, **data)
+
+    def make_graph(self, graph_xml):
+        import franken_networkx as fnx
+
+        directed = graph_xml.get("defaultedgetype") == "directed"
+        graph = fnx.MultiDiGraph() if directed else fnx.MultiGraph()
+        name = graph_xml.get("name", "")
+        if name != "":
+            graph.graph["name"] = name
+        for field in ("start", "end"):
+            value = graph_xml.get(field)
+            if value is not None:
+                graph.graph[field] = value
+        graph.graph["mode"] = (
+            "dynamic" if graph_xml.get("mode") == "dynamic" else "static"
+        )
+        self.timeformat = graph_xml.get("timeformat")
+        if self.timeformat == "date":
+            self.timeformat = "string"
+
+        definitions = {"node": {}, "edge": {}}
+        defaults = {"node": {}, "edge": {}}
+        for group in graph_xml.findall(f"{{{self.NS_GEXF}}}attributes"):
+            kind = group.get("class")
+            if kind not in definitions:
+                # Preserve the reader's existing bare-reraise error contract.
+                raise
+            group_definitions, group_defaults = self.find_gexf_attributes(group)
+            definitions[kind].update(group_definitions)
+            defaults[kind].update(group_defaults)
+            graph.graph[f"{kind}_default"] = defaults[kind]
+        definitions["edge"]["weight"] = {
+            "type": "double", "mode": "static", "title": "weight",
+        }
+        graph.graph["edge_default"] = defaults["edge"]
+
+        nodes = graph_xml.find(f"{{{self.NS_GEXF}}}nodes")
+        if nodes is not None:
+            for element in nodes.findall(f"{{{self.NS_GEXF}}}node"):
+                self.add_node(graph, element, definitions["node"])
+        edges = graph_xml.find(f"{{{self.NS_GEXF}}}edges")
+        if edges is not None:
+            for element in edges.findall(f"{{{self.NS_GEXF}}}edge"):
+                self.add_edge(graph, element, definitions["edge"])
+        if self.simple_graph:
+            return fnx.DiGraph(graph) if graph.is_directed() else fnx.Graph(graph)
+        return graph
 
 
 def _write_gexf_in_process(G, path, *, encoding, prettyprint, version):
