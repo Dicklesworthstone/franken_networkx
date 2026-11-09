@@ -1606,3 +1606,62 @@ normalization. Ordinary strict reads use one complete decode. Explicit
 native read modes and hardened parsing preserve native validation, bounded
 recovery and decision records; clean complete reconstructions retain that
 policy metadata where applicable.
+
+## 55. Single Minimum-Cost Flow Solve Boundary
+
+`min_cost_flow`, `min_cost_flow_cost` and `network_simplex` share one ordered
+input extraction and one simplex result. Node demands are read before edge
+records. Foreign graphs, subclasses and assigned logical storage retain
+their public providers through extraction; ordinary native storage can use
+the existing bulk reader when selected demands, capacities and weights are
+ordinary scalar values in plain attribute dictionaries. Numeric validation
+callbacks can change later self-loop scans and must retain live public
+storage. A demand provider can change later edge input, and a solved cost
+must not be reconstructed from a later graph snapshot.
+
+A non-self-loop edge with zero capacity appears as zero flow but does not
+participate in weight validation, optimization arithmetic or the result's
+numeric type. Self-loops retain their separate validation and cost rules.
+Active-edge validation preserves infinite-demand/weight, demand-balance,
+negative-capacity and infeasibility ordering. The solver's exact cost and
+ordered keyed flow dictionary are the authoritative public outputs.
+
+## 56. Weighted Label Propagation State
+
+Candidate community labels retain first-neighbor encounter order. A label
+is recorded once even if its accumulated weight is zero or contributions
+cancel before a later positive contribution. Numeric zero is not an unseen
+marker. Weighted accumulation begins at floating-point zero, retaining the
+reference arithmetic and failures for non-interoperable scalar domains.
+
+Random choices, shuffle order and random-state advancement are part of the
+partition contract. Ordinary indexed adjacency remains eligible for the
+sparse accumulator path. Custom graph, numeric or random providers that can
+observe or mutate later work retain the owned live traversal, including
+class-level overrides of random methods.
+
+Edge-data selectors follow the same node-bunch orientation and neighbor
+order for string and non-string attribute keys. Literal `True` and `False`
+retain their distinct view-shape meanings. A live edge-row iterator projects
+each selected value when that edge is yielded, so arithmetic on one weight
+can update a later weight in the same row before it is read.
+
+## 57. Live Weighted Distance and Spanning Inputs
+
+Weighted eccentricity preserves authoritative public rows for named as well
+as callable weights. An undirected view can expose distinct reciprocal costs
+from its directed parent; materializing one undirected edge loses those
+costs. Diameter, radius, center and periphery inherit the same per-source
+distance semantics. Supplied distance mappings retain their read and error
+order without unnecessary input conversion. Backend dispatch recovers the
+original source when weighted-query admission requires live rows, including
+when an earlier call populated the conversion cache.
+
+Spanning-edge queries validate direction, algorithm selection and Boruvka's
+multigraph restriction when called. Foreign graphs, subclasses, private
+storage and views are consumed by the owned Kruskal, Prim and Boruvka engines
+when their iterators advance, without a conversion snapshot. Changes before
+first advancement are visible, yielded attribute dictionaries remain the
+caller's dictionaries, and later Prim/Boruvka reads observe subsequent
+mutations. Kruskal reads and sorts its edge records before its first yield.
+Ordinary concrete native storage retains its existing selector routes.

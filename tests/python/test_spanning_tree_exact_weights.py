@@ -276,3 +276,183 @@ def test_fallback_weight_validation_matches_networkx(algorithm, value, ignore_na
             select(nx)
         with pytest.raises(error):
             select(fnx)
+
+
+_LIVE_SPANNING_CASES = [
+    ("Graph", "kruskal"), ("Graph", "prim"), ("Graph", "boruvka"),
+    ("MultiGraph", "kruskal"), ("MultiGraph", "prim"),
+]
+
+
+def _live_spanning_input(library, graph_type, kind):
+    cls = getattr(library, graph_type)
+    if kind == "subclass":
+        cls = type("PublicSpanningGraph", (cls,), {})
+    owner = cls()
+    owner.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 4)])
+    if kind == "assigned":
+        replacement = getattr(nx, graph_type)()
+        replacement.add_nodes_from(owner)
+        replacement.add_weighted_edges_from([(0, 1, 4), (1, 2, 3), (0, 2, 2)])
+        owner._adj = replacement._adj
+    graph = library.subgraph_view(owner) if kind == "view" else owner
+    return graph, owner
+
+
+def _spanning_attributes(graph, edge):
+    u, v = edge[:2]
+    return graph[u][v][edge[2]] if graph.is_multigraph() else graph[u][v]
+
+
+@pytest.mark.parametrize("graph_type,algorithm", _LIVE_SPANNING_CASES)
+@pytest.mark.parametrize("kind", ["foreign", "subclass", "view", "assigned"])
+@pytest.mark.parametrize("minimum", [True, False])
+def test_spanning_iterators_read_caller_graph_at_first_advancement(
+    monkeypatch, graph_type, algorithm, kind, minimum
+):
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_edges"
+    actual_library = nx if kind == "foreign" else fnx
+    actual, actual_owner = _live_spanning_input(actual_library, graph_type, kind)
+    expected, expected_owner = _live_spanning_input(nx, graph_type, kind)
+
+    def no_conversion(*args, **kwargs):
+        pytest.fail("Spanning iterators must retain their caller's logical rows")
+
+    monkeypatch.setattr(fnx, "_coerce_arg_to_fnx_graph", no_conversion)
+    iterator = getattr(fnx, name)(actual, algorithm=algorithm)
+    reference = getattr(nx, name)(expected, algorithm=algorithm, backend="networkx")
+    for owner in (actual_owner, expected_owner):
+        edge = (0, 2, 0) if owner.is_multigraph() else (0, 2)
+        owner.edges[edge]["weight"] = -3 if minimum else 0
+        owner.add_edge(2, 3, weight=-5 if minimum else 9)
+
+    rows, expected_rows = list(iterator), list(reference)
+    assert rows == expected_rows
+    assert len(rows) == 3
+    for edge in rows:
+        assert edge[-1] is _spanning_attributes(actual, edge)
+    rows[0][-1]["selected"] = True
+    assert _spanning_attributes(actual, rows[0])["selected"] is True
+
+
+@pytest.mark.parametrize("graph_type,algorithm", _LIVE_SPANNING_CASES)
+@pytest.mark.parametrize("kind", ["foreign", "subclass", "view", "assigned"])
+@pytest.mark.parametrize("minimum", [True, False])
+def test_spanning_iterators_keep_live_attributes_between_yields(
+    graph_type, algorithm, kind, minimum
+):
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_edges"
+    outcomes = []
+    for library, implementation in ((nx, nx), (nx if kind == "foreign" else fnx, fnx)):
+        graph, owner = _live_spanning_input(library, graph_type, kind)
+        owner.add_edge(2, 3, weight=3)
+        owner.add_edge(3, 4, weight=4)
+        owner.add_edge(1, 4, weight=8)
+        options = {"backend": "networkx"} if implementation is nx else {}
+        iterator = getattr(implementation, name)(graph, algorithm=algorithm, **options)
+        first = next(iterator)
+        assert first[-1] is _spanning_attributes(graph, first)
+        rows = [(first[:-1], dict(first[-1]))]
+        # Prim reads new frontiers after each yield. Kruskal keeps sorted
+        # records but still yields the original, subsequently changed attrs.
+        changed = (3, 4, 0) if owner.is_multigraph() else (3, 4)
+        owner.edges[changed].update(weight=-10 if minimum else 20, changed=True)
+        for edge in iterator:
+            assert edge[-1] is _spanning_attributes(graph, edge)
+            rows.append((edge[:-1], dict(edge[-1])))
+        outcomes.append(rows)
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", ["minimum_spanning_edges", "maximum_spanning_edges"])
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("keys,data", [(True, True), (True, False), (False, True), (False, False)])
+def test_spanning_public_rows_keep_requested_output_shape(name, graph_type, keys, data):
+    graph, _ = _live_spanning_input(nx, graph_type, "foreign")
+    expected = list(getattr(nx, name)(
+        graph, algorithm="prim", keys=keys, data=data, backend="networkx"
+    ))
+    actual = list(getattr(fnx, name)(graph, algorithm="prim", keys=keys, data=data))
+    assert actual == expected
+    if data:
+        for edge in actual:
+            attrs = graph[edge[0]][edge[1]]
+            if graph.is_multigraph():
+                attrs = attrs[edge[2] if keys else 0]
+            assert edge[-1] is attrs
+
+
+@pytest.mark.parametrize("name", ["minimum_spanning_edges", "maximum_spanning_edges"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["missing", [], "boruvka", "borůvka"])
+def test_spanning_validation_errors_happen_at_call(name, graph_type, algorithm):
+    outcomes = []
+    for library in (nx, fnx):
+        graph = getattr(library, graph_type)()
+        if graph_type == "Graph" and algorithm in ("boruvka", "borůvka"):
+            iterator = getattr(library, name)(graph, algorithm=algorithm)
+            outcomes.append(("empty", list(iterator)))
+            continue
+        with pytest.raises(Exception) as error:
+            getattr(library, name)(graph, algorithm=algorithm)
+        outcomes.append((type(error.value).__name__, error.value.args))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", ["minimum_spanning_edges", "maximum_spanning_edges"])
+def test_kruskal_uses_only_its_public_edge_protocol(name):
+    class GuardedGraph(nx.Graph):
+        ready = False
+
+        @property
+        def edges(self):
+            assert self.ready, "edge reads must wait for iteration"
+            return super().edges
+
+        def __len__(self):
+            raise AssertionError("Kruskal does not need the graph's node count")
+
+    outcomes = []
+    for library in (nx, fnx):
+        graph = GuardedGraph()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 2)])
+        iterator = getattr(library, name)(graph)
+        graph.ready = True
+        outcomes.append(list(iterator))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", ["minimum_spanning_edges", "maximum_spanning_edges"])
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_spanning_backend_dispatch_retains_source_until_advancement(name, algorithm, warm_cache):
+    graph, owner = _live_spanning_input(nx, "Graph", "view")
+    expected_graph, expected_owner = _live_spanning_input(nx, "Graph", "view")
+    if warm_cache:
+        list(nx.minimum_spanning_edges(graph, backend="franken_networkx"))
+    actual = getattr(nx, name)(graph, algorithm=algorithm, backend="franken_networkx")
+    expected = getattr(nx, name)(expected_graph, algorithm=algorithm, backend="networkx")
+    for current in (owner, expected_owner):
+        current[0][2]["weight"] = -3
+        current.add_edge(2, 3, weight=7)
+    rows = list(actual)
+    assert rows == list(expected)
+    for edge in rows:
+        assert edge[-1] is graph[edge[0]][edge[1]]
+
+
+@pytest.mark.parametrize("name", ["minimum_spanning_edges", "maximum_spanning_edges"])
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+def test_spanning_storage_admission_occurs_when_iteration_starts(name, algorithm):
+    graph, _ = _live_spanning_input(fnx, "Graph", "native")
+    reference, _ = _live_spanning_input(nx, "Graph", "native")
+    actual = getattr(fnx, name)(graph, algorithm=algorithm)
+    expected = getattr(nx, name)(reference, algorithm=algorithm, backend="networkx")
+    for current in (graph, reference):
+        replacement = nx.Graph()
+        replacement.add_nodes_from(current)
+        replacement.add_weighted_edges_from([(0, 1, 9), (0, 2, 1)])
+        current._adj = replacement._adj
+    rows = list(actual)
+    assert rows == list(expected)
+    assert all(edge[-1] is graph[edge[0]][edge[1]] for edge in rows)

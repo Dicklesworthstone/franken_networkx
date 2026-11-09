@@ -157,6 +157,26 @@ construct FrankenNetworkX graphs directly, without a NetworkX intermediary
 or a parse/write/reparse admission roundtrip. Explicit native modes and
 hardened recovery retain their established policy boundary.
 
+Minimum-cost flow wrappers share the owned simplex solve boundary and
+consume its cost/flow result directly. The extraction adapter separates
+ordinary native bulk storage from live public graph providers; wrappers do
+not duplicate validation, repair numeric types or rescore a solved flow.
+Bulk admission checks the selected scalar domains without invoking custom
+numeric methods, keeping later self-loop reads live for observable protocols.
+
+Weighted asynchronous label propagation separates encountered-label state
+from numeric accumulation in its sparse indexed loop. Snapshot admission is
+shared with fast label propagation and excludes observable custom graph,
+weight and random protocols, which use the existing owned live traversal.
+The shared edge-data view preserves node-bunch orientation for every
+attribute selector and projects values lazily within live adjacency rows.
+
+Weighted distance wrappers and backend source recovery share the existing
+live-row admission predicate. Spanning-edge wrappers keep caller inputs until
+advancement and select their existing owned engines for public protocols;
+native selector admission is checked against concrete storage at that point.
+No new graph cache or duplicate shortest-path/spanning algorithm is added.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

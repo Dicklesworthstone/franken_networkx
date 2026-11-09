@@ -753,3 +753,206 @@ def test_distance_bounds_never_cache_partial_eccentricities(name, class_name):
     if snapshot is not None:
         assert dict(snapshot[3]) == expected
     assert fnx.eccentricity(actual) == expected
+
+
+_WEIGHTED_DISTANCE_MEASURES = ["eccentricity", "diameter", "radius", "center", "periphery"]
+
+
+def _asymmetric_distance_view(module, class_name, view, numeric):
+    graph = getattr(module, class_name)()
+    weight = ("cost", 1) if numeric == "decimal" else "cost"
+    convert = {
+        "integer": int,
+        "fraction": lambda value: Fraction(value, 3),
+        "decimal": lambda value: Decimal(value) / 4,
+        "wide-integer": lambda value: 2**60 * value + 1,
+    }[numeric]
+    graph.add_nodes_from([0, 1, 2])
+    for u, v, value in [(0, 1, 1), (1, 0, 10), (1, 2, 1), (2, 1, 10)]:
+        attributes = {weight: convert(value)}
+        if graph.is_multigraph():
+            graph.add_edges_from([(u, v, "route", attributes),
+                                  (u, v, "parallel", {weight: convert(value + 20)})])
+        else:
+            graph.add_edges_from([(u, v, attributes)])
+    if view == "reverse":
+        graph = graph.reverse(copy=False)
+    result = graph.to_undirected(as_view=True)
+    if view == "filtered":
+        result = module.subgraph_view(result, filter_node=lambda node: node in {0, 1, 2})
+        result = result.copy(as_view=True)
+    return result, weight
+
+
+def _distance_value_and_types(value):
+    if isinstance(value, dict):
+        return [(node, type(distance), distance) for node, distance in value.items()]
+    return type(value), value
+
+
+@pytest.mark.parametrize("name", _WEIGHTED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("class_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("view", ["direct", "reverse", "filtered"])
+@pytest.mark.parametrize("numeric", ["integer", "fraction", "decimal", "wide-integer"])
+def test_distance_measures_preserve_asymmetric_named_weight_rows(
+    name, input_module, class_name, view, numeric
+):
+    reference, weight = _asymmetric_distance_view(nx, class_name, view, numeric)
+    graph, _ = _asymmetric_distance_view(input_module, class_name, view, numeric)
+    expected = getattr(nx, name)(reference, weight=weight, backend="networkx")
+    actual = getattr(fnx, name)(graph, weight=weight)
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("name", ["diameter", "radius", "center", "periphery"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("class_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("view", ["direct", "reverse", "filtered"])
+@pytest.mark.parametrize("numeric", ["integer", "decimal"])
+def test_distance_bounds_preserve_asymmetric_named_weight_rows(
+    name, input_module, class_name, view, numeric
+):
+    reference, weight = _asymmetric_distance_view(nx, class_name, view, numeric)
+    graph, _ = _asymmetric_distance_view(input_module, class_name, view, numeric)
+    expected = getattr(nx, name)(reference, weight=weight, usebounds=True, backend="networkx")
+    actual = getattr(fnx, name)(graph, weight=weight, usebounds=True)
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("class_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("selection", [0, [2, 0, 2]], ids=["scalar", "repeated-subset"])
+def test_eccentricity_selected_sources_keep_asymmetric_rows(input_module, class_name, selection):
+    graph, weight = _asymmetric_distance_view(input_module, class_name, "filtered", "fraction")
+    reference, _ = _asymmetric_distance_view(nx, class_name, "filtered", "fraction")
+    expected = nx.eccentricity(reference, v=selection, weight=weight, backend="networkx")
+    actual = fnx.eccentricity(graph, v=selection, weight=weight)
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("name", _WEIGHTED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("namespace", ["distance_measures", "algorithms"])
+def test_distance_namespaces_keep_asymmetric_rows(name, namespace):
+    graph, weight = _asymmetric_distance_view(nx, "DiGraph", "direct", "integer")
+    expected = getattr(nx, name)(graph, weight=weight, backend="networkx")
+    actual = getattr(getattr(fnx, namespace), name)(graph, weight=weight)
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("name", _WEIGHTED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("class_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("numeric", ["integer", "decimal"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm-conversion"])
+def test_distance_backend_recovers_asymmetric_source(name, class_name, numeric, warm):
+    graph, weight = _asymmetric_distance_view(nx, class_name, "filtered", numeric)
+    expected = getattr(nx, name)(graph, weight=weight, backend="networkx")
+    if warm:
+        # Prime the same attribute conversion through an eager algorithm.
+        nx.average_shortest_path_length(graph, weight=weight, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    actual = getattr(nx, name)(graph, weight=weight, backend="franken_networkx")
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("name", _WEIGHTED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_distance_measures_named_weight_reads_private_attribute_providers(name, class_name):
+    outcomes = []
+    for api in (nx, fnx):
+        rows, _ = _live_distance_graph(nx, class_name, "graph")
+        calls = []
+
+        class WeightAttributes(dict):
+            def get(self, key, default=None):
+                if key == "weight":
+                    calls.append(dict.__getitem__(self, key))
+                    target = rows[1][2]
+                    if rows.is_multigraph():
+                        target = target["route"]
+                    target["weight"] = 1
+                return super().get(key, default)
+
+        edges = list(rows.edges(keys=True, data=True) if rows.is_multigraph() else rows.edges(data=True))
+        for edge in edges:
+            u, v = edge[:2]
+            attributes = WeightAttributes(edge[-1])
+            if rows.is_multigraph():
+                rows._adj[u][v][edge[2]] = attributes
+                if rows.is_directed():
+                    rows._pred[v][u][edge[2]] = attributes
+                else:
+                    rows._adj[v][u][edge[2]] = attributes
+            else:
+                rows._adj[u][v] = attributes
+                if rows.is_directed():
+                    rows._pred[v][u] = attributes
+                else:
+                    rows._adj[v][u] = attributes
+        graph = getattr(api, class_name)()
+        graph.add_nodes_from(rows)
+        graph.add_edge(0, 2, weight=99)
+        graph._adj = rows._adj
+        if graph.is_directed():
+            graph._pred = rows._pred
+        value = getattr(api, name)(graph, weight="weight")
+        outcomes.append((_distance_value_and_types(value), calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("entrypoint", ["top-level", "namespace", "backend-cold", "backend-warm"])
+@pytest.mark.parametrize("selection", [None, [0, 1, 2], 0], ids=["all", "bunch", "scalar"])
+@pytest.mark.parametrize("mutation", ["remove-node", "change-distance"])
+def test_eccentricity_consumes_supplied_distances_with_live_nbunch(entrypoint, selection, mutation):
+    outcomes = []
+    for reference in (True, False):
+        graph = nx.path_graph(3)
+        calls = []
+
+        class Distances(dict):
+            def __getitem__(self, node):
+                calls.append(node)
+                if node == 0:
+                    if mutation == "remove-node":
+                        graph.remove_node(2)
+                    else:
+                        dict.__getitem__(self, 1)[2] = 17
+                return super().__getitem__(node)
+
+        distances = Distances({0: {0: 0, 1: 1, 2: 2},
+                               1: {0: 1, 1: 0, 2: 1},
+                               2: {0: 2, 1: 1, 2: 0}})
+        if not reference and entrypoint == "backend-warm":
+            nx.degree_centrality(graph, backend="franken_networkx")
+            assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+        api = nx.eccentricity if reference else fnx.eccentricity
+        options = {"backend": "networkx"} if reference else {}
+        if not reference and entrypoint == "namespace":
+            api = fnx.distance_measures.eccentricity
+        elif not reference and entrypoint.startswith("backend-"):
+            api, options = nx.eccentricity, {"backend": "franken_networkx"}
+        try:
+            value = api(graph, v=selection, sp=distances, **options)
+        except Exception as exc:
+            result = ("error", type(exc).__name__, exc.args)
+        else:
+            result = ("return", _distance_value_and_types(value))
+        outcomes.append((result, calls, list(graph)))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _WEIGHTED_DISTANCE_MEASURES)
+@pytest.mark.parametrize("weight", [[], {"cost": 1}], ids=["unhashable-list", "unhashable-dict"])
+@pytest.mark.parametrize("entrypoint", ["direct", "backend"])
+def test_distance_live_rows_preserve_invalid_weight_errors(name, weight, entrypoint):
+    outcomes = []
+    for reference in (True, False):
+        graph, _ = _asymmetric_distance_view(nx, "DiGraph", "direct", "integer")
+        api = getattr(nx, name) if reference or entrypoint == "backend" else getattr(fnx, name)
+        options = {"backend": "networkx"} if reference else (
+            {"backend": "franken_networkx"} if entrypoint == "backend" else {}
+        )
+        with pytest.raises(TypeError) as caught:
+            api(graph, weight=weight, **options)
+        outcomes.append(caught.value.args)
+    assert outcomes[0] == outcomes[1]

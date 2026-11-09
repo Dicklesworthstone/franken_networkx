@@ -106,6 +106,8 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "all_pairs_bellman_ford_path_length",
         "all_simple_paths",
         "shortest_simple_paths",
+        "minimum_spanning_edges",
+        "maximum_spanning_edges",
     }
 ) | _COMPONENT_ITERATORS
 
@@ -1382,16 +1384,30 @@ class BackendInterface:
                         )
                         if source is not None:
                             bound = callback_signature.bind(*args, **kwargs)
+                            bound.apply_defaults()
                             has_callbacks = any(
                                 callable(bound.arguments.get(parameter))
                                 for parameter in _LIVE_CALLBACK_PARAMETERS
+                            )
+                            uses_live_weight = (
+                                "weight" in bound.arguments
+                                and fnx._weighted_query_uses_live_python_rows(
+                                    source, bound.arguments["weight"]
+                                )
+                            )
+                            reads_supplied_distances = (
+                                name == "eccentricity"
+                                and bound.arguments.get("sp") is not None
                             )
                             reads_lazily = live_input or (
                                 name in {"shortest_path", "shortest_path_length"}
                                 and bound.arguments.get("source") is None
                                 and bound.arguments.get("target") is None
                             )
-                            if reads_lazily or has_callbacks:
+                            if (
+                                reads_lazily or has_callbacks or uses_live_weight
+                                or reads_supplied_distances
+                            ):
                                 if args:
                                     args = (source, *args[1:])
                                 else:

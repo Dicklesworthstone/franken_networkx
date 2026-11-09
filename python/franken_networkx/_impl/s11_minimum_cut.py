@@ -198,7 +198,7 @@ def _extrema_bounding_inproc(G, compute="diameter", weight=None):
     candidates. Alternating low-lower and high-upper pivots avoids a full
     all-sources sweep when the requested extreme is established sooner.
     """
-    if not callable(weight):
+    if weight is None or not _weighted_query_uses_live_python_rows(G, weight):
         G = _coerce_arg_to_fnx_graph(G)
 
     start_key = None
@@ -493,10 +493,14 @@ def periphery(G, e=None, usebounds=False, weight=None):
 
 def eccentricity(G, v=None, sp=None, weight=None):
     """Returns the eccentricity of nodes in G."""
-    # Supplied distances and weight callbacks operate on the original graph.
-    # Copying a NetworkX input or a view hides callback mutations from later
-    # relaxations and changes the edge dictionaries passed to the callback.
-    if sp is None and not callable(weight):
+    # Weighted queries retain the same authoritative rows as Dijkstra. In
+    # particular, an undirected view of a directed graph can have different
+    # costs at opposite endpoints; materializing it loses those costs even
+    # when the weight is an ordinary attribute name. Supplied distances also
+    # keep the caller's graph. The unweighted native/cache route is unchanged.
+    if sp is None and (
+        weight is None or not _weighted_query_uses_live_python_rows(G, weight)
+    ):
         G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0 and _networkx_release() >= (3, 7):
         # This check precedes nbunch/sp validation in the actual 3.7 oracle.
@@ -506,7 +510,14 @@ def eccentricity(G, v=None, sp=None, weight=None):
     if len(G) == 0 and v is None:
         return {}
 
-    if v is None:
+    if sp is not None:
+        # A supplied distance provider may mutate G as each source is read.
+        # Keep nbunch lazy so the caller's iterator and its mutation errors
+        # remain observable, and capture the order before consuming it.
+        order = G.order()
+        nodes = G.nbunch_iter(v)
+        single_node = False
+    elif v is None:
         nodes = list(G)
         single_node = False
     else:
@@ -547,7 +558,8 @@ def eccentricity(G, v=None, sp=None, weight=None):
             _store_distance_measures_snapshot(G, result, start_key)
             return result
 
-    order = G.order()
+    if sp is None:
+        order = G.order()
     eccentricities = {}
     # br-r37-c1-eccallpairs (cc): for the all-nodes case compute every distance in ONE
     # all-pairs call (all_pairs_dijkstra / all_pairs_shortest_path_length both WIN ~2.7x)
@@ -598,6 +610,8 @@ def eccentricity(G, v=None, sp=None, weight=None):
 
         eccentricities[node] = max(lengths.values())
 
+    if sp is not None:
+        single_node = v in G
     if single_node:
         return eccentricities[v]
     return eccentricities
@@ -897,9 +911,6 @@ def _kruskal_spanning_edges_inproc(
     included_edges.extend(sorted_open_edges)
     sorted_edges = included_edges
 
-    edges_needed = len(G) - 1
-    edges_added = 0
-
     if G.is_multigraph():
         for wt, u, v, k, d in sorted_edges:
             if subtrees[u] != subtrees[v]:
@@ -914,9 +925,6 @@ def _kruskal_spanning_edges_inproc(
                     else:
                         yield u, v
                 subtrees.union(u, v)
-                edges_added += 1
-                if edges_added == edges_needed:
-                    return
     else:
         for wt, u, v, d in sorted_edges:
             if subtrees[u] != subtrees[v]:
@@ -925,9 +933,6 @@ def _kruskal_spanning_edges_inproc(
                 else:
                     yield u, v
                 subtrees.union(u, v)
-                edges_added += 1
-                if edges_added == edges_needed:
-                    return
 
 
 def _prim_spanning_edges_inproc(
@@ -1119,14 +1124,20 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     return type for callers that introspect generator-ness (e.g.
     Cython interop, ``inspect.isgenerator``).
     """
-    # br-r37-c1-gr1ct: materialize SubgraphView first (view family).
-    G = _coerce_arg_to_fnx_graph(G)
+    # Preserve the caller until the returned iterator advances. Converting
+    # here freezes foreign graphs/views and disconnects yielded edge data.
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     _check_spanning_edge_algorithm(algorithm)
+    if algorithm in ("boruvka", "borůvka") and G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
     def _gen():
+        # Recheck storage at first advancement: callers can assign private
+        # rows after creating the iterator. Native selectors must never read
+        # a view's parent or bypass a subclass's public graph protocol.
+        native_storage = type(G) is Graph and not _has_networkx_private_storage(G)
         # br-r37-c1-mstcsr: the native kruskal kernel now reproduces nx's exact
         # MST — edge set, yield order AND (u, v) orientation — via node-index
         # edge orientation + a weight-only stable sort (the old kernel
@@ -1140,8 +1151,8 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         # stand-in - as the default 1; networkx raises TypeError on the first
         # and computes exactly on the second, as the in-process paths below do.
         native_weights = (
-            isinstance(weight, str)
-            and not G.is_multigraph()
+            native_storage
+            and isinstance(weight, str)
             and algorithm in ("kruskal", "prim")
         )
         if native_weights:
@@ -1174,9 +1185,9 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         # AND nx's per-component edge_boundary backend-dispatch tax. Returns
         # None to fall through to nx for NaN/non-numeric weights.
         if (
-            algorithm == "boruvka"
+            native_storage
+            and algorithm == "boruvka"
             and isinstance(weight, str)
-            and not G.is_multigraph()
         ):
             _edges = _boruvka_spanning_edges_inproc(G, weight, True, ignore_nan)
             if _edges is not None:
@@ -1232,14 +1243,18 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     Rust fast path's ``list_iterator`` is normalised to a true
     generator matching nx's contract.
     """
-    G = _coerce_arg_to_fnx_graph(G)
+    # As in minimum_spanning_edges, keep the original graph and its rows
+    # alive across creation and advancement of the result iterator.
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     _check_spanning_edge_algorithm(algorithm)
+    if algorithm in ("boruvka", "borůvka") and G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
 
     def _gen():
+        native_storage = type(G) is Graph and not _has_networkx_private_storage(G)
         # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
         # br-r37-c1-msemaxweighted (cc): maximum kruskal used to gate the native
         # kernel on ``not _mst_has_weight_edge_attr`` (unweighted only) -> WEIGHTED
@@ -1252,8 +1267,8 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         # br-r37-c1-6eaq6: weights the native kernels cannot read take the
         # in-process paths (see minimum_spanning_edges).
         native_weights = (
-            isinstance(weight, str)
-            and not G.is_multigraph()
+            native_storage
+            and isinstance(weight, str)
             and algorithm in ("kruskal", "prim")
         )
         if native_weights:
@@ -1278,9 +1293,9 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
                 return
         # br-r37-c1-jl0xr: in-process Borůvka (maximum -> minimum=False).
         if (
-            algorithm == "boruvka"
+            native_storage
+            and algorithm == "boruvka"
             and isinstance(weight, str)
-            and not G.is_multigraph()
         ):
             _edges = _boruvka_spanning_edges_inproc(G, weight, False, ignore_nan)
             if _edges is not None:
