@@ -66,3 +66,37 @@ def test_closeness_vitality_rejects_backend_kwargs_like_networkx_dispatch():
 
     with pytest.raises(TypeError):
         module.closeness_vitality(graph, unsupported=True)
+
+
+def _vitality_callback_result(module, owner, graph_type, node, before):
+    graph = getattr(owner, graph_type)()
+    graph.add_weighted_edges_from(
+        [(0, 1, 10), (1, 2, 10), (2, 0, 50), (0, 3, 20), (3, 1, 20)],
+        weight="distance",
+    )
+    trace = []
+
+    def weight(source, target, data):
+        later = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+        later["distance"] = 1
+        rows = list(data.values()) if graph.is_multigraph() else [data]
+        for row in rows:
+            row["calls"] = row.get("calls", 0) + 1
+        trace.append((source, target, tuple(row["distance"] for row in rows)))
+        return min(row["distance"] for row in rows)
+
+    result = module.closeness_vitality(graph, node=node, weight=weight, wiener_index=before)
+    if isinstance(result, dict):
+        result = list(result.items())
+    attrs = [(u, v, dict(data)) for u, v, data in graph.edges(data=True)]
+    return result, trace, attrs
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("node", [None, 3])
+@pytest.mark.parametrize("before", [None, 100])
+def test_weighted_vitality_live_node_removal_rows(graph_type, owner, node, before):
+    expected = _vitality_callback_result(nx, nx, graph_type, node, before)
+    actual = _vitality_callback_result(fnx, owner, graph_type, node, before)
+    assert actual == expected

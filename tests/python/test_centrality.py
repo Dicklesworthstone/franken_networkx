@@ -1,5 +1,8 @@
 """Conformance tests: centrality algorithms — fnx vs nx oracle."""
 
+from decimal import Decimal
+from fractions import Fraction
+
 import pytest
 from conftest import assert_dicts_close
 
@@ -298,3 +301,145 @@ def test_eigenvector_start_normalizes_before_float_conversion(fnx, nx, graph_typ
         assert list(actual) == list(expected) == list(start)
         assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
     assert list(start.items()) == original_items
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("weight", [None, "", 0, ("centrality", "weight")])
+def test_iterative_centrality_weight_selectors(fnx, nx, graph_type, algorithm, weight):
+    graphs = [getattr(module, graph_type)() for module in (fnx, nx)]
+    for graph in graphs:
+        for u, v, value in [(0, 1, 1.0), (1, 2, 4.0), (2, 0, 2.0)]:
+            graph.add_edge(u, v)
+            graph[u][v][weight] = value
+    kwargs = {"weight": weight, "max_iter": 1000}
+    expected = getattr(nx, algorithm)(graphs[1], **kwargs)
+    actual = getattr(fnx, algorithm)(graphs[0], **kwargs)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    if weight is None and algorithm == "katz_centrality":
+        # The native default must also honor the literal None key.
+        assert fnx.katz_centrality(graphs[0]) == pytest.approx(
+            nx.katz_centrality(graphs[1]), rel=1e-12, abs=1e-12
+        )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("number", [Decimal, Fraction])
+def test_katz_retains_exact_python_arithmetic(fnx, nx, graph_type, number):
+    graphs = [getattr(module, graph_type)() for module in (fnx, nx)]
+    for graph in graphs:
+        for u, v in [(0, 1), (1, 2), (2, 0)]:
+            graph.add_edge(u, v)
+            graph[u][v]["weight"] = number("0.5")
+    kwargs = {
+        "alpha": number("0.1"),
+        "beta": {0: number(1), 1: number(2), 2: number(3)},
+        "normalized": False,
+        "weight": "weight",
+    }
+    expected = nx.katz_centrality(graphs[1], **kwargs)
+    actual = fnx.katz_centrality(graphs[0], **kwargs)
+    assert actual == expected
+    assert all(type(score) is number for score in actual.values())
+
+
+def test_katz_can_return_integral_scores(fnx, nx):
+    kwargs = {"alpha": 0, "beta": {0: 2, 1: 3}, "normalized": False}
+    expected = nx.katz_centrality(nx.path_graph(2), **kwargs)
+    actual = fnx.katz_centrality(fnx.path_graph(2), **kwargs)
+    assert actual == expected
+    assert all(type(score) is int for score in actual.values())
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_eigenvector_preserves_unsupported_decimal_arithmetic(fnx, nx, graph_type):
+    graphs = [getattr(module, graph_type)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_edge(0, 1)
+        graph[0][1]["weight"] = Decimal("0.5")
+    with pytest.raises(TypeError) as expected:
+        nx.eigenvector_centrality(graphs[1], weight="weight")
+    with pytest.raises(TypeError) as actual:
+        fnx.eigenvector_centrality(graphs[0], weight="weight")
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+def test_spectral_admission_does_not_call_numeric_conversion(fnx, nx, algorithm):
+    class Weight(float):
+        def __float__(self):
+            raise AssertionError("power iteration must use this value's arithmetic")
+
+    graphs = [module.DiGraph([(0, 1), (1, 2), (2, 0)]) for module in (fnx, nx)]
+    for graph in graphs:
+        for u, v in graph.edges():
+            graph[u][v]["weight"] = Weight(0.5)
+    kwargs = {"weight": "weight", "max_iter": 1000}
+    expected = getattr(nx, algorithm)(graphs[1], **kwargs)
+    actual = getattr(fnx, algorithm)(graphs[0], **kwargs)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("tol", [100.0, 1e-6])
+def test_eigenvector_signed_cancellation_preserves_convergence(fnx, nx, tol):
+    graphs = [module.DiGraph() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(range(3))
+        graph.add_weighted_edges_from([(0, 2, 1e16), (1, 2, -1e16)])
+    kwargs = {
+        "nstart": {0: 1.0, 1: 1.0, 2: 1.0},
+        "weight": "weight",
+        "max_iter": 1000,
+        "tol": tol,
+    }
+    if tol == 1e-6:
+        with pytest.raises(nx.PowerIterationFailedConvergence):
+            nx.eigenvector_centrality(graphs[1], **kwargs)
+        with pytest.raises(fnx.PowerIterationFailedConvergence):
+            fnx.eigenvector_centrality(graphs[0], **kwargs)
+    else:
+        assert fnx.eigenvector_centrality(graphs[0], **kwargs) == (
+            nx.eigenvector_centrality(graphs[1], **kwargs)
+        )
+
+
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("provider", ["native", "networkx", "filtered", "reverse", "private"])
+def test_iterative_centrality_vectors_mutate_the_live_graph(fnx, nx, algorithm, provider):
+    def run(module):
+        root = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        graph = root
+        if provider == "networkx":
+            root = graph = nx.DiGraph(root.edges())
+        elif provider == "filtered":
+            graph = module.subgraph_view(root, filter_node=lambda node: True)
+        elif provider == "reverse":
+            graph = root.reverse(copy=False)
+        elif provider == "private":
+            root = nx.DiGraph(root.edges())
+            graph._adj = root._adj
+            graph._succ = root._succ
+            graph._pred = root._pred
+
+        class Start(dict):
+            def values(self):
+                root.add_edge(0, 2)
+                return super().values()
+
+        class Beta(dict):
+            def __iter__(self):
+                root.add_edge(0, 2)
+                return super().__iter__()
+
+        kwargs = {"max_iter": 1000, "tol": 1e-10}
+        if algorithm == "eigenvector_centrality":
+            kwargs["nstart"] = Start({0: 1.0, 1: 1.0, 2: 1.0})
+        else:
+            kwargs["beta"] = Beta({0: 1.0, 1: 2.0, 2: 3.0})
+        scores = getattr(module, algorithm)(graph, **kwargs)
+        return scores, list(graph.edges())
+
+    expected, expected_edges = run(nx)
+    actual, actual_edges = run(fnx)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_edges == expected_edges

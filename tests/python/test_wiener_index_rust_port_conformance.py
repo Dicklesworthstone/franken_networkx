@@ -384,3 +384,83 @@ def test_undirected_value_is_one_half_of_ordered_pair_sum():
                 continue
             total_ordered += d[v]
     assert _close(2 * w, total_ordered)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [float("inf"), None])
+def test_weighted_wiener_infinite_and_hidden_edge_distances(graph_type, weight):
+    graphs = []
+    for module in (nx, fnx):
+        graph = getattr(module, graph_type)()
+        graph.add_edge(0, 1, distance=weight)
+        if graph.is_directed():
+            graph.add_edge(1, 0, distance=1)
+        graphs.append(graph)
+    expected = nx.wiener_index(graphs[0], weight="distance")
+    actual = fnx.wiener_index(graphs[1], weight="distance")
+    assert actual == expected
+    assert type(actual) is type(expected)
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_weighted_wiener_negative_edge_without_dijkstra_contradiction(graph_type):
+    graphs = []
+    for module in (nx, fnx):
+        graph = getattr(module, graph_type)()
+        graph.add_edge(0, 1, distance=-1)
+        graph.add_edge(1, 0, distance=2)
+        graphs.append(graph)
+    expected = nx.wiener_index(graphs[0], weight="distance")
+    assert expected == 1
+    assert fnx.wiener_index(graphs[1], weight="distance") == expected
+
+
+def _wiener_callback_result(module, owner, graph_type, filtered):
+    graph = getattr(owner, graph_type)()
+    graph.add_weighted_edges_from(
+        [(0, 1, 10), (1, 2, 10), (2, 0, 50), (0, 3, 20), (3, 1, 20)],
+        weight="distance",
+    )
+    work = graph.subgraph(list(graph)) if filtered else graph
+    trace = []
+
+    def weight(source, target, data):
+        later = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+        later["distance"] = 1
+        rows = list(data.values()) if graph.is_multigraph() else [data]
+        for row in rows:
+            row["calls"] = row.get("calls", 0) + 1
+        trace.append((source, target, tuple(row["distance"] for row in rows)))
+        return min(row["distance"] for row in rows)
+
+    result = module.wiener_index(work, weight=weight)
+    attrs = [(u, v, dict(data)) for u, v, data in graph.edges(data=True)]
+    return result, trace, attrs
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_weighted_wiener_live_callback_rows(graph_type, owner, filtered):
+    expected = _wiener_callback_result(nx, nx, graph_type, filtered)
+    assert _wiener_callback_result(fnx, owner, graph_type, filtered) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("filtered", [False, True])
+@pytest.mark.parametrize("name", ["wiener_index", "closeness_vitality"])
+def test_weighted_distance_sum_asymmetric_view_rows(graph_type, owner, filtered, name):
+    graphs = []
+    for module in (nx, owner):
+        parent = getattr(module, graph_type)()
+        parent.add_weighted_edges_from(
+            [(0, 1, 1), (1, 0, 7), (1, 2, 2), (2, 1, 9), (2, 0, 4), (0, 2, 11)],
+            weight="distance",
+        )
+        view = parent.to_undirected(as_view=True)
+        graphs.append(view.subgraph(list(view)) if filtered else view)
+    options = {"node": 0} if name == "closeness_vitality" else {}
+    expected = getattr(nx, name)(graphs[0], weight="distance", **options)
+    actual = getattr(fnx, name)(graphs[1], weight="distance", **options)
+    assert actual == expected

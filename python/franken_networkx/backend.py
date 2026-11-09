@@ -130,6 +130,12 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "center",
         "periphery",
         "barycenter",
+        "closeness_centrality",
+        "harmonic_centrality",
+        "wiener_index",
+        "closeness_vitality",
+        "eigenvector_centrality",
+        "katz_centrality",
         "dijkstra_path",
         "dijkstra_path_length",
         "bellman_ford_path",
@@ -147,7 +153,56 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "astar_path_length",
     }
 )
-_LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "heuristic", "key")
+_LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "distance", "heuristic", "key")
+_SPECTRAL_INPUT_ALGORITHMS = frozenset({"eigenvector_centrality", "katz_centrality"})
+_SPECTRAL_CALL_INPUTS = ContextVar("franken_networkx_spectral_inputs", default=None)
+
+
+def _spectral_dispatch_uses_live_providers(name, graph, arguments):
+    """Recover input providers that can affect an iterative ranking query.
+
+    Ordinary NetworkX dictionaries and numeric vectors can reuse a cached
+    native conversion. Custom vector, graph or numeric protocols must act on
+    the original graph, even if another algorithm populated that cache first.
+    Inspect types before reading a provider so admission has no side effects.
+    """
+    import networkx as nx
+
+    if type(graph) not in (nx.Graph, nx.DiGraph) or "_graph" in vars(graph):
+        return True
+    if type(graph._node) is not dict or type(graph._adj) is not dict:
+        return True
+    for parameter in ("max_iter", "tol", "alpha", "normalized"):
+        if parameter in arguments and type(arguments[parameter]) not in (int, float, bool):
+            return True
+    for parameter in ("nstart", "beta"):
+        value = arguments.get(parameter)
+        if value is None or type(value) in (int, float, bool):
+            continue
+        if type(value) is not dict or any(
+            type(item) not in (int, float, bool) for item in value.values()
+        ):
+            return True
+    weight = arguments.get("weight")
+    if weight is not None and type(weight) is not str:
+        return True
+    reads_weights = name == "katz_centrality" or bool(weight)
+    for row in graph._adj.values():
+        if type(row) is not dict:
+            return True
+        if reads_weights:
+            for attrs in row.values():
+                if type(attrs) is not dict:
+                    return True
+                if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+                    return True
+                # NetworkX's weight=None conversion hint drops edge attrs,
+                # but iterative Katz still looks up the literal None key.
+                if weight is None and None in attrs:
+                    return True
+                if type(attrs.get(weight, 1)) not in (int, float, bool):
+                    return True
+    return False
 
 # These APIs have two independently observable graph inputs. A converted
 # graph can also be supplied explicitly as the auxiliary, so its weak source
@@ -406,6 +461,7 @@ _SUPPORTED_ALGORITHMS = {
     "reciprocity": fnx.reciprocity,
     # Wiener index
     "wiener_index": fnx.wiener_index,
+    "closeness_vitality": fnx.closeness_vitality,
     # Graph metrics
     "average_degree_connectivity": fnx.average_degree_connectivity,
     "rich_club_coefficient": fnx.rich_club_coefficient,
@@ -1234,7 +1290,12 @@ class BackendInterface:
         wrapper removes this temporary cache entry before invoking the owned
         traversal, so unrelated algorithms still receive native conversions.
         """
-        if name in _COMPONENT_ITERATORS:
+        pending_spectral = _SPECTRAL_CALL_INPUTS.get()
+        if name in _COMPONENT_ITERATORS or (
+            pending_spectral is not None
+            and pending_spectral[0] == name
+            and pending_spectral[1]() is G
+        ):
             return G
         converted = _nx_to_fnx_for_dispatch(
             G,
@@ -1294,6 +1355,13 @@ class BackendInterface:
             _DISJOINT_CALL_INPUTS.set((name, inputs))
         elif name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
             _refresh_dispatch_source(bound.arguments.get("G"))
+            if name in _SPECTRAL_INPUT_ALGORITHMS:
+                bound.apply_defaults()
+                graph = bound.arguments.get("G")
+                if _spectral_dispatch_uses_live_providers(name, graph, bound.arguments):
+                    _SPECTRAL_CALL_INPUTS.set((name, weakref.ref(graph)))
+                else:
+                    _SPECTRAL_CALL_INPUTS.set(None)
         return True
 
     @staticmethod
@@ -1362,9 +1430,13 @@ class BackendInterface:
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
-                    if name in _COMPONENT_ITERATORS:
+                    if name in _COMPONENT_ITERATORS or name in _SPECTRAL_INPUT_ALGORITHMS:
                         graph = args[0] if args else kwargs.get("G")
                         _discard_component_passthrough(graph)
+                    if name in _SPECTRAL_INPUT_ALGORITHMS:
+                        pending_spectral = _SPECTRAL_CALL_INPUTS.get()
+                        if pending_spectral is not None and pending_spectral[0] == name:
+                            _SPECTRAL_CALL_INPUTS.set(None)
                     if disjoint_inputs is not None:
                         # hasattr probes may look up and discard wrappers.
                         # Capture before conversion, but consume only on call.
@@ -1384,6 +1456,10 @@ class BackendInterface:
                         source = (
                             source_ref() if isinstance(source_ref, weakref.ReferenceType) else None
                         )
+                        if name in _SPECTRAL_INPUT_ALGORITHMS and not isinstance(
+                            graph, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
+                        ):
+                            source = graph
                         if source is not None:
                             bound = callback_signature.bind(*args, **kwargs)
                             bound.apply_defaults()
@@ -1391,12 +1467,20 @@ class BackendInterface:
                                 callable(bound.arguments.get(parameter))
                                 for parameter in _LIVE_CALLBACK_PARAMETERS
                             )
-                            uses_live_weight = (
-                                "weight" in bound.arguments
+                            uses_live_weight = any(
+                                parameter in bound.arguments
                                 and fnx._weighted_query_uses_live_python_rows(
-                                    source, bound.arguments["weight"]
+                                    source, bound.arguments[parameter]
+                                )
+                                for parameter in ("weight", "distance")
+                            )
+                            uses_live_spectral = (
+                                name in _SPECTRAL_INPUT_ALGORITHMS
+                                and _spectral_dispatch_uses_live_providers(
+                                    name, source, bound.arguments
                                 )
                             )
+                            has_callbacks = has_callbacks or uses_live_spectral
                             reads_supplied_distances = (
                                 name == "eccentricity"
                                 and bound.arguments.get("sp") is not None

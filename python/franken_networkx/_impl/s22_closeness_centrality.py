@@ -29,8 +29,11 @@ def closeness_centrality(
         float if u is specified.
     """
     _validate_backend_dispatch_keywords("closeness_centrality", backend, backend_kwargs)
-    # br-r37-c1-y77dc: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    # Preserve the same weighted rows as Dijkstra before conversion can copy
+    # callback attributes or collapse an asymmetric undirected view. Directed
+    # closeness still applies its public reverse(copy=True) boundary below.
+    if distance is None or not _weighted_query_uses_live_python_rows(G, distance):
+        G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-clsingle: a single-node request (u=...) on the standard
     # unweighted, wf_improved, undirected path previously delegated to networkx,
@@ -62,14 +65,19 @@ def closeness_centrality(
         return closeness
 
     if u is not None and distance is not None:
-        if G.is_directed() and G.is_multigraph() and isinstance(distance, str):
+        if (
+            G.is_directed()
+            and G.is_multigraph()
+            and isinstance(distance, str)
+            and not _weighted_query_uses_live_python_rows(G, distance)
+        ):
             _simple, _delegate = _multigraph_collapse_min_weight(G, distance)
             H = G.reverse() if _delegate else _simple.reverse()
         else:
             H = G.reverse() if G.is_directed() else G
         sp = single_source_dijkstra_path_length(H, u, weight=distance)
         totsp = sum(sp.values())
-        len_G = len(G)
+        len_G = len(H)
         closeness = 0.0
         if totsp > 0.0 and len_G > 1:
             closeness = (len(sp) - 1.0) / totsp
@@ -504,15 +512,52 @@ def katz_centrality(
         Dictionary of nodes with Katz centrality as value.
     """
     _validate_backend_dispatch_keywords("katz_centrality", backend, backend_kwargs)
-    # br-r37-c1-y77dc: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-tqimg: nx is decorated with
     # @not_implemented_for('multigraph'); fnx silently accepted MG.
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    # Delegate to NetworkX when non-default parameters are used
+    # Decide before copying the graph or coercing numbers: beta/start mapping
+    # methods and arithmetic can mutate the same rows this iteration reads.
+    # The sparse solver is reserved for complete plain nonnegative vectors.
+    can_snapshot = (
+        type(max_iter) in (int, bool)
+        and max_iter > 0
+        and type(normalized) is bool
+        and _spectral_centrality_plain_value(alpha)
+        and _spectral_centrality_plain_value(tol)
+        # Integer alpha with a beta mapping can keep the entire iteration
+        # integral. A scalar beta is explicitly converted to float by Katz.
+        and (type(alpha) is float or type(beta) is not dict)
+        and (
+            _spectral_centrality_plain_value(beta)
+            or (
+                type(beta) is dict
+                and all(_spectral_centrality_plain_value(v) for v in beta.values())
+            )
+        )
+        and _spectral_centrality_can_snapshot(G, nstart, weight)
+    )
+    if can_snapshot and weight is None:
+        # Unlike eigenvector iteration, Katz always reads data.get(weight, 1).
+        # A literal None attribute is a real weight, including with every
+        # public parameter left at its default. The native unweighted kernel
+        # and sparse exporter can only represent the absent-key case.
+        has_none_key = (
+            _native_has_none_edge_attr_key(G)
+            if _native_has_none_edge_attr_key is not None else None
+        )
+        if has_none_key is None:
+            has_none_key = _graph_has_edge_attribute(G, None)
+        can_snapshot = not has_none_key
+    if not can_snapshot:
+        return _katz_centrality_inproc(
+            G, alpha=alpha, beta=beta, max_iter=max_iter, tol=tol,
+            nstart=nstart, normalized=normalized, weight=weight,
+        )
+
+    G = _coerce_arg_to_fnx_graph(G)
     if (
         alpha != 0.1
         or beta != 1.0
@@ -522,41 +567,19 @@ def katz_centrality(
         or not normalized
         or weight is not None
     ):
-        # br-r37-c1-katzscipy (cc): scipy matvec mirror of nx's Katz power iteration
-        # (x <- alpha * A^T x + beta) for the non-default case, replacing the fnx->nx
-        # delegation (which paid the full conversion + nx's pure-Python loop: 0.66-0.85x).
-        # Gated to simple Graph/DiGraph, str/None weight, complete plain-dict/None
-        # nstart, and scalar/dict beta. Do not fill missing start nodes with zero:
-        # the start mapping defines the iteration domain, even on disconnected
-        # graphs where a smaller mapping is valid and returns a smaller result.
-        if (
-            not G.is_multigraph()
-            and isinstance(G, (Graph, DiGraph))
-            and (weight is None or isinstance(weight, str))
-            and (
-                nstart is None
-                or (
-                    type(nstart) is dict
-                    and len(nstart) == len(G)
-                    and all(node in G for node in nstart)
-                )
+        try:
+            return _katz_centrality_scipy(
+                G, alpha, beta, max_iter, tol, nstart, normalized, weight
             )
-            and isinstance(beta, (int, float, dict))
-            and isinstance(normalized, bool)
+        except PowerIterationFailedConvergence:
+            raise
+        except (
+            ImportError, ValueError, ZeroDivisionError,
+            FloatingPointError, NetworkXError,
         ):
-            try:
-                return _katz_centrality_scipy(
-                    G, alpha, beta, max_iter, tol, nstart, normalized, weight
-                )
-            except PowerIterationFailedConvergence:
-                raise
-            except (
-                ImportError, ValueError, ZeroDivisionError,
-                FloatingPointError, NetworkXError,
-            ):
-                # Custom parameters must remain usable without the optional
-                # NumPy/SciPy acceleration dependencies.
-                pass
+            # The optional accelerator must not become a requirement for
+            # the public power-iteration API or replace Python errors.
+            pass
         return _katz_centrality_inproc(
             G,
             alpha=alpha,

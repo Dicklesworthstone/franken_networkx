@@ -236,6 +236,7 @@ def closeness_vitality(
         and weight is None
         and wiener_index is None
         and type(G) is Graph
+        and not _has_networkx_private_storage(G)
         and G.number_of_nodes() >= 2
         and is_connected(G)
     ):
@@ -247,7 +248,9 @@ def closeness_vitality(
         else globals()["wiener_index"](G, weight=weight)
     )
     if node is not None:
-        after_graph = G.subgraph(set(G) - {node}).copy()
+        # Each removal is a live view. A copy would collapse asymmetric rows
+        # and disconnect callback writes from the caller and later removals.
+        after_graph = G.subgraph(set(G) - {node})
         after = globals()["wiener_index"](after_graph, weight=weight)
         return wi - after
     return {

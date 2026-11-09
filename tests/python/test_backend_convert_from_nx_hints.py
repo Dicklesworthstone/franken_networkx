@@ -345,6 +345,167 @@ def _warm_live_input_cache(graph, monkeypatch):
 
 
 @pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "algorithm", ["closeness_centrality", "harmonic_centrality", "wiener_index", "closeness_vitality"]
+)
+def test_backend_weighted_analytics_keep_asymmetric_view_rows(algorithm, cached, monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from(
+        [(0, 1, 1), (1, 0, 7), (1, 2, 2), (2, 1, 9), (2, 0, 4), (0, 2, 11)]
+    )
+    view = graph.to_undirected(as_view=True).subgraph([0, 1, 2])
+    parameter = "distance" if algorithm.endswith("centrality") else "weight"
+    kwargs = {parameter: "weight"}
+    expected = getattr(nx, algorithm)(view, **kwargs, backend="networkx")
+    if cached:
+        _warm_live_input_cache(view, monkeypatch)
+    actual = getattr(nx, algorithm)(view, **kwargs, backend="franken_networkx")
+    assert actual == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "algorithm", ["closeness_centrality", "harmonic_centrality", "wiener_index", "closeness_vitality"]
+)
+def test_backend_weighted_analytics_preserve_callback_trace(algorithm, cls_name, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_weighted_edges_from(
+            [(0, 1, 1), (1, 2, 10), (2, 0, 7), (1, 0, 2), (2, 1, 3), (0, 2, 8)]
+        )
+        trace = []
+
+        def weight(u, v, data):
+            selected = data[0] if graph.is_multigraph() else data
+            original = graph._adj[u][v]
+            original = original[0] if graph.is_multigraph() else original
+            trace.append((u, v, selected is original))
+            if (u, v) == (0, 1):
+                changed = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+                changed["weight"] = 1
+            return min(attrs["weight"] for attrs in data.values()) if graph.is_multigraph() else selected["weight"]
+
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        parameter = "distance" if algorithm.endswith("centrality") else "weight"
+        answer = getattr(nx, algorithm)(graph, **{parameter: weight}, backend=backend)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return answer, trace, list(graph.edges(data=True))
+
+    expected, expected_trace, expected_edges = run("networkx")
+    actual, actual_trace, actual_edges = run("franken_networkx")
+    assert actual == pytest.approx(expected)
+    assert actual_trace == expected_trace
+    assert actual_edges == expected_edges
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+def test_backend_spectral_vectors_mutate_the_original_graph(algorithm, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = nx.DiGraph([(0, 1), (1, 2), (2, 0)])
+
+        class Start(dict):
+            def values(self):
+                graph.add_edge(0, 2)
+                return super().values()
+
+        class Beta(dict):
+            def __iter__(self):
+                graph.add_edge(0, 2)
+                return super().__iter__()
+
+        kwargs = {"max_iter": 1000, "tol": 1e-10}
+        if algorithm == "eigenvector_centrality":
+            kwargs["nstart"] = Start({0: 1.0, 1: 1.0, 2: 1.0})
+        else:
+            kwargs["beta"] = Beta({0: 1.0, 1: 2.0, 2: 3.0})
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        answer = getattr(nx, algorithm)(graph, **kwargs, backend=backend)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return answer, list(graph.edges())
+
+    expected, expected_edges = run("networkx")
+    actual, actual_edges = run("franken_networkx")
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_edges == expected_edges
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_katz_retains_literal_none_weights(cached, monkeypatch):
+    graph = nx.Graph([(0, 1), (1, 2), (2, 0)])
+    for (u, v), weight in zip(graph.edges(), [1, 4, 2]):
+        graph[u][v][None] = weight
+    expected = nx.katz_centrality(graph, normalized=False, backend="networkx")
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    assert nx.katz_centrality(
+        graph, normalized=False, backend="franken_networkx"
+    ) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("provider", ["number", "attribute_key"])
+def test_backend_spectral_admission_preserves_numeric_and_key_protocols(
+    algorithm, provider, cached, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = nx.DiGraph([(0, 1), (1, 2), (2, 0)])
+        trace = []
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+
+        class Weight:
+            def __float__(self):
+                trace.append("float")
+                return 1.0
+
+            def __rmul__(self, other):
+                trace.append("multiply")
+                return other
+
+        class Key:
+            def __hash__(self):
+                return hash("weight")
+
+            def __eq__(self, other):
+                trace.append("equal")
+                return False
+
+        for _, _, attrs in graph.edges(data=True):
+            if provider == "number":
+                attrs["weight"] = Weight()
+            else:
+                attrs[Key()] = 1
+        trace.clear()
+        answer = getattr(nx, algorithm)(
+            graph, weight="weight", max_iter=1000, backend=backend
+        )
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return answer, trace
+
+    expected, expected_trace = run("networkx")
+    actual, actual_trace = run("franken_networkx")
+    assert actual == pytest.approx(expected)
+    assert actual_trace == expected_trace
+    assert "float" not in actual_trace
+
+
+@pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize(
     "algorithm",

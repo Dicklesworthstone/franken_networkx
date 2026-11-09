@@ -230,3 +230,120 @@ def test_weighted_closeness_retains_only_one_distance_row(graph_type):
         native_peak,
         oracle_peak,
     )
+
+
+def _live_distance_centrality_result(module, owner, graph_type, name, options, view):
+    graph = getattr(owner, graph_type)()
+    graph.add_weighted_edges_from(
+        [(0, 1, 10), (1, 2, 10), (2, 0, 50), (0, 3, 20), (3, 1, 20)],
+        weight="distance",
+    )
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, key="alternate", distance=15)
+    work = graph
+    if view == "filtered":
+        work = graph.subgraph(list(graph))
+    elif view == "reverse":
+        if not graph.is_directed():
+            pytest.skip("reverse requires a directed graph")
+        work = graph.reverse(copy=False)
+    trace = []
+
+    def distance(source, target, data):
+        later = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+        later["distance"] = 1
+        rows = list(data.values()) if graph.is_multigraph() else [data]
+        for row in rows:
+            row["calls"] = row.get("calls", 0) + 1
+        values = tuple(row["distance"] for row in rows)
+        trace.append((source, target, values))
+        return min(values)
+
+    result = getattr(module, name)(work, distance=distance, **options)
+    if isinstance(result, dict):
+        result = list(result.items())
+    if graph.is_multigraph():
+        attrs = [(u, v, k, dict(d)) for u, v, k, d in graph.edges(keys=True, data=True)]
+    else:
+        attrs = [(u, v, dict(d)) for u, v, d in graph.edges(data=True)]
+    return result, trace, attrs
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("view", ["plain", "filtered", "reverse"])
+@pytest.mark.parametrize(
+    "name,options",
+    [
+        ("closeness_centrality", {}),
+        ("closeness_centrality", {"u": 2}),
+        ("harmonic_centrality", {}),
+        ("harmonic_centrality", {"nbunch": [2]}),
+        ("harmonic_centrality", {"sources": [0, 2]}),
+    ],
+)
+def test_weighted_centrality_live_callback_rows(graph_type, owner, view, name, options):
+    expected = _live_distance_centrality_result(nx, nx, graph_type, name, options, view)
+    actual = _live_distance_centrality_result(fnx, owner, graph_type, name, options, view)
+    # Score, callback order and caller-visible writes are independent contracts.
+    # Directed closeness retains NetworkX's reverse(copy=True) boundary; harmonic
+    # transposition and the explicit input views retain shared edge dictionaries.
+    assert actual == expected
+
+
+def _asymmetric_distance_view(owner, graph_type, view):
+    graph = getattr(owner, graph_type)()
+    graph.add_weighted_edges_from(
+        [(0, 1, 1), (1, 0, 7), (1, 2, 2), (2, 1, 9), (2, 0, 4), (0, 2, 11)],
+        weight="distance",
+    )
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, key="alternate", distance=12)
+        graph.add_edge(1, 0, key="alternate", distance=15)
+    if view == "reverse":
+        graph = graph.reverse(copy=False)
+    work = graph.to_undirected(as_view=True)
+    return work.subgraph(list(work)) if view == "filtered" else work
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("view", ["plain", "filtered", "reverse"])
+@pytest.mark.parametrize(
+    "name,options",
+    [
+        ("closeness_centrality", {}),
+        ("closeness_centrality", {"u": 2}),
+        ("harmonic_centrality", {}),
+        ("harmonic_centrality", {"nbunch": [2]}),
+    ],
+)
+def test_weighted_centrality_asymmetric_view_rows(graph_type, owner, view, name, options):
+    reference = _asymmetric_distance_view(nx, graph_type, view)
+    graph = _asymmetric_distance_view(owner, graph_type, view)
+    expected = getattr(nx, name)(reference, distance="distance", **options)
+    actual = getattr(fnx, name)(graph, distance="distance", **options)
+    if isinstance(expected, dict):
+        assert list(actual.items()) == list(expected.items())
+    else:
+        assert actual == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("wf_improved", [False, True])
+def test_weighted_closeness_directed_copy_order(graph_type, owner, wf_improved):
+    results = []
+    for algorithm, graph_module in ((nx.closeness_centrality, nx), (fnx.closeness_centrality, owner)):
+        graph = getattr(graph_module, graph_type)()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0)])
+
+        def distance(source, target, data):
+            graph.add_node("added")
+            return 1
+
+        results.append(algorithm(graph, u=0, distance=distance, wf_improved=wf_improved))
+        assert len(graph) == 4
+    # The callback changes the original graph while the search and its
+    # normalization retain the three-node reversed copy.
+    assert results == [2 / 3, 2 / 3]

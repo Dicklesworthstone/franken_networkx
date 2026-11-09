@@ -528,6 +528,47 @@ def average_neighbor_degree(
     return avg
 
 
+def _spectral_centrality_plain_value(value):
+    """Admit finite, nonnegative scalars without invoking numeric protocols."""
+    if not _sp_weight_type_survives_the_f64_kernel(value):
+        return False
+    if type(value) is int:
+        return 0 <= value <= 2**53
+    return value >= 0 and _math.isfinite(value)
+
+
+def _spectral_centrality_can_snapshot(G, nstart, weight):
+    """Whether sparse iteration can freeze these rows and initial values.
+
+    Custom mappings and numbers can change the graph during iteration. Read
+    those through the owned Python solver, before any graph conversion. Signed
+    values also retain that solver's per-edge accumulation order: a sparse
+    reduction can erase cancellation and report a spurious convergence.
+    """
+    if type(G) not in (Graph, DiGraph) or _has_networkx_private_storage(G):
+        return False
+    if nstart is not None and (
+        type(nstart) is not dict
+        or len(nstart) != len(G)
+        or not all(node in G for node in nstart)
+        or not all(_spectral_centrality_plain_value(v) for v in nstart.values())
+    ):
+        return False
+    if weight is None:
+        return True
+    if type(weight) is not str:
+        return False
+    plain_attrs = _plain_read_attr_dict_types()
+    for _, _, attrs in G.edges(data=True):
+        if type(attrs) not in plain_attrs:
+            return False
+        if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+            return False
+        if not _spectral_centrality_plain_value(attrs.get(weight, 1)):
+            return False
+    return True
+
+
 def _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight):
     """scipy.sparse matvec mirror of ``networkx.eigenvector_centrality`` for the
     weight / nstart cases (br-r37-c1-eigscipy, cc).
@@ -633,15 +674,6 @@ def eigenvector_centrality(
     """
     _validate_backend_dispatch_keywords("eigenvector_centrality", backend, backend_kwargs)
 
-    # br-r37-c1-pyo3prefix: see ``pagerank`` for the rationale.  The
-    # br-r37-c1-y77dc: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    # Rust binding declares ``max_iter`` as unsigned int and prefixes
-    # the TypeError with ``argument 'max_iter':``; nx raises the bare
-    # ``'float' object cannot be interpreted as an integer`` from
-    # ``range(max_iter)``.  Pre-validate to strip the PyO3 prefix.
-    max_iter = _coerce_index_arg(max_iter, "max_iter")
-
     # br-r37-c1-tqimg: nx is decorated with @not_implemented_for('multigraph');
     # fnx silently accepted MultiGraph and raised
     # PowerIterationFailedConvergence on MultiDiGraph. Match nx's contract.
@@ -656,51 +688,15 @@ def eigenvector_centrality(
             "cannot compute centrality for the null graph"
         )
 
-    # br-r37-c1-eigvec-maxiter: nx raises
-    # PowerIterationFailedConvergence on max_iter <= 0 (the loop
-    # exits immediately without converging). The Rust binding
-    # declared max_iter as unsigned int and raised OverflowError on
-    # negatives. Match nx's domain-specific failure mode by
-    # delegating to the converging path with max_iter clamped to 0,
-    # which produces the same PowerIterationFailedConvergence.
-    if isinstance(max_iter, int) and max_iter <= 0:
-        raise PowerIterationFailedConvergence(max(max_iter, 0))
-
-    # br-eignstart: the Rust _raw_eigenvector_centrality raised
-    # ``TypeError('franken_networkx currently only supports
-    # nstart=None and weight=None...')`` when either kwarg was
-    # supplied. nx accepts both — weight for weighted adjacency and
-    # nstart for custom power-iteration start vector. Delegate to
-    # nx whenever either non-default is supplied; keep the Rust
-    # fast path for the common default case.
-    if nstart is not None or weight is not None:
-        # br-r37-c1-eigscipy (cc): scipy matvec mirror of nx's power iteration for the
-        # weight / nstart cases — delegating paid the full fnx->nx conversion (weighted
-        # 0.86x, nstart 0.67x). Gated to simple Graph/DiGraph with str weight + dict
-        # nstart; other inputs retain their Python iteration semantics. Incomplete
-        # starts define a smaller domain (or raise when an edge leaves it), while
-        # extra nodes must remain visible to the iteration's graph lookup.
-        if (
-            not G.is_multigraph()
-            and isinstance(G, (Graph, DiGraph))
-            and (weight is None or isinstance(weight, str))
-            and (
-                nstart is None
-                or (
-                    type(nstart) is dict
-                    and len(nstart) == len(G)
-                    and all(node in G for node in nstart)
-                )
-            )
-        ):
-            try:
-                return _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight)
-            except PowerIterationFailedConvergence:
-                raise
-            except (ImportError, ValueError, ZeroDivisionError, FloatingPointError):
-                # NumPy/SciPy accelerate this path but are not required by
-                # the eigenvector power-iteration API.
-                pass
+    # Eigenvector iteration treats falsy selectors as unit weights. In
+    # particular an empty string must not select an actual empty-string key.
+    sparse_weight = None if type(weight) is str and not weight else weight
+    if not (
+        type(max_iter) in (int, bool)
+        and max_iter > 0
+        and _spectral_centrality_plain_value(tol)
+        and _spectral_centrality_can_snapshot(G, nstart, sparse_weight)
+    ):
         return _eigenvector_centrality_inproc(
             G,
             max_iter=max_iter,
@@ -708,12 +704,27 @@ def eigenvector_centrality(
             nstart=nstart,
             weight=weight,
         )
+
+    G = _coerce_arg_to_fnx_graph(G)
+    if nstart is not None or sparse_weight is not None:
+        try:
+            return _eigenvector_centrality_scipy(
+                G, max_iter, tol, nstart, sparse_weight
+            )
+        except PowerIterationFailedConvergence:
+            raise
+        except (ImportError, ValueError, ZeroDivisionError, FloatingPointError):
+            # NumPy/SciPy accelerate ordinary numeric inputs but remain
+            # optional for this power-iteration API.
+            return _eigenvector_centrality_inproc(
+                G, max_iter=max_iter, tol=tol, nstart=nstart, weight=weight
+            )
     return _raw_eigenvector_centrality(
         G,
         max_iter=max_iter,
         tol=tol,
         nstart=nstart,
-        weight=weight,
+        weight=sparse_weight,
     )
 
 
@@ -745,12 +756,12 @@ def harmonic_centrality(
         Dictionary of nodes with harmonic centrality as value.
     """
     _validate_backend_dispatch_keywords("harmonic_centrality", backend, backend_kwargs)
-    # Keep assigned adjacency live while consuming nbunch/sources. The generic
-    # coercer materializes private roots (and their views), which both erases
-    # the private-row guard below and snapshots topology before lazy selections
-    # can change it. The shortest-path helpers already read those rows directly.
-    # Ordinary native graphs and NetworkX inputs retain their existing routes.
-    if not _point_query_uses_private_rows(G):
+    # Keep assigned adjacency live while consuming nbunch/sources. Weighted
+    # callbacks and asymmetric undirected views also retain Dijkstra's original
+    # rows; coercion would disconnect writes or discard reciprocal costs.
+    if not _point_query_uses_private_rows(G) and (
+        distance is None or not _weighted_query_uses_live_python_rows(G, distance)
+    ):
         G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-19lrl: harmonic_centrality(G, nbunch=[few]) previously delegated
@@ -847,7 +858,7 @@ def harmonic_centrality(
             transposed = True
             nb, sources_set = sources_set, nb
             if g_work.is_directed():
-                g_work = reverse(g_work, copy=False)
+                g_work = g_work.reverse(copy=False)
         for v in sources_set:
             # Reach the helper before the generic router materializes the
             # reverse view. Its guarded predecessor BFS keeps discovery order.

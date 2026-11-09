@@ -155,24 +155,20 @@ _fnx_public_reciprocity = reciprocity
 def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     """Returns the Wiener index of the given graph.
 
-    Delegates the simple unweighted case to the Rust implementation
-    (``franken_networkx._fnx.wiener_index``). Weighted inputs use the
-    NetworkX parity bridge so callable weights, negative-weight errors,
-    and multigraph parallel-edge semantics follow NetworkX exactly.
+    The simple unweighted case uses the native implementation. Weighted
+    inputs share the public shortest-path kernels, including their live
+    callback rows, exact arithmetic and parallel-edge selection.
     """
     _validate_backend_dispatch_keywords("wiener_index", backend, backend_kwargs)
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    if weight is None or not _weighted_query_uses_live_python_rows(G, weight):
+        G = _coerce_arg_to_fnx_graph(G)
 
     # br-wienerport: route the unweighted simple-graph case (the most
     # common one) through the native Rust port, which dispatches on
     # directedness.
-    # For weighted graphs we stay in Python: ``g[u][v]["weight"] = ...``
-    # mutations don't propagate to the Rust adjacency storage, so the
-    # Rust dijkstra would silently use the original (often default-1)
-    # weight. Multigraphs also stay in Python because the Rust binding
-    # sees only the simple-graph collapse and would lose the
-    # min-weight-across-parallel-edges semantics nx implements.
+    # Weighted inputs use the typed single-source shortest-path routes rather
+    # than the Wiener binding's separate weight handling. Multigraphs retain
+    # minimum parallel-edge distances.
     if weight is None and not G.is_multigraph():
         # Empty graphs: nx raises NetworkXPointlessConcept via is_connected.
         # Trigger that contract BEFORE falling into the Rust path so the
@@ -198,33 +194,13 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             return int(value)
         return value
 
-    # Callable weight support evaluates shortest_path_length in-process
-    # directly matching NetworkX semantics without cross-package delegation.
-    if callable(weight):
-        connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
-        if not connected:
-            return float("inf")
-        spl = shortest_path_length(G, weight=weight)
-        total = sum(_itertools.chain.from_iterable(nbrs.values() for node, nbrs in spl))
-        return total if G.is_directed() else total / 2
-
-    # Weighted simple graphs and multigraphs stay on the in-process
-    # Python BFS/Dijkstra path below (NOT a fallback to nx — the
-    # without_fallback parity test asserts this for string weights).
     connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
     if not connected:
         return float("inf")
 
-    # br-r37-c1-lli0b: the per-source Dijkstra/BFS previously called
-    # ``G.neighbors`` + ``G.get_edge_data`` INSIDE the hot loop, paying O(V*E)
-    # AdjacencyView wrapper round-trips that made weighted wiener_index ~5.5x
-    # SLOWER than nx. Snapshot the (Python-visible, so weight-mutation-fresh)
-    # adjacency ONCE into a plain dict, then run the IDENTICAL BFS/Dijkstra over
-    # it — same per-source order, same neighbour order, same float-sum order, so
-    # the result is byte-exact with both the old path and nx, at O(E) build cost.
-    # Multigraph parallel-edge min-weight and the negative-weight ValueError are
-    # preserved.
     if weight is None:
+        # Unweighted multigraph distances need only the topology; keep their
+        # existing neighbor snapshot and integer-hop accumulation.
         neighbor_keys = {node: list(G.neighbors(node)) for node in G}
 
         def _single_source_unweighted_lengths(source):
@@ -244,62 +220,14 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             sum(_single_source_unweighted_lengths(node).values()) for node in G
         )
     else:
-        if G.is_multigraph():
-            weighted_adj = {}
-            for node in G:
-                row = {}
-                for neighbor in G.neighbors(node):
-                    edge_data = G.get_edge_data(node, neighbor)
-                    row[neighbor] = min(
-                        attrs.get(weight, 1) for attrs in edge_data.values()
-                    )
-                weighted_adj[node] = row
-        else:
-            # br-r37-c1-wieneradjbug (cc): G.adjacency()'s per-edge attrs read the Rust
-            # STORE, which is STALE for graphs built via add_edges_from(dict attrs)
-            # (weights live only in the mirror until synced) -> weighted wiener silently
-            # used default-1 weights (e.g. add_edges_from((u,v,{'weight':w})) then
-            # wiener_index gave unit-weight results). edges(data=True) reads the MIRROR
-            # (always fresh), so source the WEIGHTS from a bulk edges(data) map while
-            # keeping adjacency()'s neighbor STRUCTURE/ORDER (so the per-source Dijkstra
-            # discovery order + float-sum order stay byte-identical to nx). All O(E).
-            _directed = G.is_directed()
-            _edge_w = {}
-            for _u, _v, _d in G.edges(data=True):
-                _w = _d.get(weight, 1)
-                _edge_w[(_u, _v)] = _w
-                if not _directed:
-                    _edge_w[(_v, _u)] = _w
-            weighted_adj = {
-                node: {nbr: _edge_w.get((node, nbr), 1) for nbr in nbrs}
-                for node, nbrs in G.adjacency()
-            }
-
-        counter = _count()
-
-        def _single_source_weighted_lengths(source):
-            # An int 0, as networkx's Dijkstra seeds it: int weights then sum to
-            # an int, which a directed graph returns un-divided (a 0.0 seed made
-            # karate's 6456 come back as 6456.0; br-r37-c1-agwol).
-            distances = {source: 0}
-            queue = [(0, next(counter), source)]
-            while queue:
-                distance, _, node = _heappop(queue)
-                if distance > distances[node]:
-                    continue
-                for neighbor, edge_weight in weighted_adj[node].items():
-                    if isinstance(edge_weight, (int, float)) and edge_weight < 0:
-                        raise ValueError(
-                            "wiener_index does not support graphs with negative weights"
-                        )
-                    candidate = distance + edge_weight
-                    if candidate < distances.get(neighbor, float("inf")):
-                        distances[neighbor] = candidate
-                        _heappush(queue, (candidate, next(counter), neighbor))
-            return distances
-
+        # Reuse Dijkstra's discovery/finalization, hidden-edge and contradiction
+        # rules. Flatten the completed rows into one sum: summing row totals
+        # first changes floating arithmetic and custom numeric protocols.
         total = sum(
-            sum(_single_source_weighted_lengths(node).values()) for node in G
+            _itertools.chain.from_iterable(
+                distances.values()
+                for _, distances in shortest_path_length(G, weight=weight)
+            )
         )
 
     return total if G.is_directed() else total / 2
