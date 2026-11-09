@@ -12,6 +12,8 @@ networkx's detector in-process.
 """
 
 import random
+from decimal import Decimal
+from fractions import Fraction
 
 import networkx as nx
 import pytest
@@ -114,3 +116,173 @@ def test_weights_written_after_construction_are_seen():
         G[u][v]["weight"] = w
         H[u][v]["weight"] = w
     assert fnx.find_negative_cycle(G, "a") == nx.find_negative_cycle(H, "a")
+
+
+def _live_weight_witness(graph_module, cls_name, algorithm):
+    graph = getattr(graph_module, cls_name)()
+    graph.add_weighted_edges_from(
+        [(0, 1, 10), (0, 2, 1), (1, 4, 1), (2, 3, 1), (3, 1, 1), (4, 1, 1)]
+    )
+    trace = []
+
+    def weight(u, v, data):
+        trace.append((u, v))
+        attrs = data[0] if graph.is_multigraph() else data
+        original = graph._adj[u][v]
+        original = original[0] if graph.is_multigraph() else original
+        assert attrs is original
+        if (u, v) == (1, 4) and trace.count((u, v)) == 2:
+            attrs["weight"] = -20
+        return attrs["weight"]
+
+    cycle = algorithm(graph, 0, weight=weight)
+    changed = graph[1][4][0] if graph.is_multigraph() else graph[1][4]
+    return cycle, trace, changed["weight"]
+
+
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["foreign", "native"])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_revisited_rows_observe_new_weights(graph_module, cls_name):
+    expected = _live_weight_witness(nx, cls_name, nx.find_negative_cycle)
+    assert expected[0] == [1, 4, 1]
+    assert expected[2] == -20
+    assert _live_weight_witness(graph_module, cls_name, fnx.find_negative_cycle) == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_backend_witness_keeps_live_weights(cls_name, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def dispatched(graph, source, weight):
+        if cached:
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        answer = nx.find_negative_cycle(
+            graph, source, weight=weight, backend="franken_networkx"
+        )
+        assert not graph.__networkx_cache__.get("backends")
+        return answer
+
+    assert _live_weight_witness(nx, cls_name, dispatched) == _live_weight_witness(
+        nx, cls_name, nx.find_negative_cycle
+    )
+
+
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["foreign", "native"])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_detection_stops_before_unused_outgoing_weight(graph_module, cls_name):
+    graph = getattr(graph_module, cls_name)()
+    graph.add_edge(0, 1, weight=-1)
+    if graph.is_directed():
+        graph.add_edge(1, 0, weight=-1)
+    graph.add_edge(1, 2, weight=2)
+    trace = []
+
+    def weight(u, v, data):
+        trace.append((u, v))
+        if (u, v) == (1, 2):
+            raise AssertionError("the cycle was already detected")
+        return min(d["weight"] for d in data.values()) if graph.is_multigraph() else data["weight"]
+
+    assert fnx.find_negative_cycle(graph, 0, weight=weight) == [0, 1, 0]
+    assert trace == [(0, 1), (1, 0)]
+
+
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["foreign", "native"])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("view", ["undirected", "filtered", "reverse"])
+def test_witness_preserves_view_rows(graph_module, cls_name, view):
+    def build(module):
+        graph = getattr(module, cls_name)()
+        graph.add_weighted_edges_from(
+            [(0, 1, 1), (1, 0, 10), (1, 2, 1), (2, 1, 10), (2, 0, -5), (0, 2, 10)]
+        )
+        if view == "reverse":
+            return graph.reverse(copy=False)
+        graph = graph.to_undirected(as_view=True)
+        return graph.subgraph([0, 1, 2]) if view == "filtered" else graph
+
+    expected = nx.find_negative_cycle(build(nx), 0)
+    assert fnx.find_negative_cycle(build(graph_module), 0) == expected
+
+
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["foreign", "native"])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_callback_topology_updates_reach_later_rows(graph_module, cls_name):
+    def run(module, algorithm):
+        graph = getattr(module, cls_name)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 1)])
+        trace = []
+
+        def weight(u, v, data):
+            trace.append((u, v))
+            if (u, v) == (0, 1):
+                graph.add_edge(2, 1, weight=-3)
+            return min(d["weight"] for d in data.values()) if graph.is_multigraph() else data["weight"]
+
+        return algorithm(graph, 0, weight=weight), trace, list(graph.edges())
+
+    assert run(graph_module, fnx.find_negative_cycle) == run(nx, nx.find_negative_cycle)
+
+
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["foreign", "native"])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("numeric", [Decimal, Fraction])
+def test_exact_numeric_witnesses(graph_module, cls_name, numeric):
+    edges = [(0, 1, numeric("0.1")), (1, 2, numeric("0.2")), (2, 0, numeric("-0.4"))]
+    graph = getattr(graph_module, cls_name)()
+    graph.add_weighted_edges_from(edges)
+    expected = getattr(nx, cls_name)()
+    expected.add_weighted_edges_from(edges)
+    assert fnx.find_negative_cycle(graph, 0) == nx.find_negative_cycle(expected, 0)
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_private_adjacency_is_authoritative_for_witness(cls_name):
+    expected = getattr(nx, cls_name)()
+    expected.add_weighted_edges_from([(0, 1, 1), (1, 2, -3), (2, 0, 1)])
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("stale", "native", weight=1)
+    graph._node = expected._node
+    graph._adj = expected._adj
+    if expected.is_directed():
+        graph._succ = expected._succ
+        graph._pred = expected._pred
+    assert fnx.find_negative_cycle(graph, 0) == nx.find_negative_cycle(expected, 0)
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "cold", "warm"])
+def test_negative_cycle_predicate_keeps_foreign_attribute_identity(cls_name, entrypoint, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    def run(algorithm):
+        graph = getattr(nx, cls_name)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 0, 1)])
+        trace = []
+
+        def weight(u, v, data):
+            trace.append((u, v))
+            attrs = data[0] if graph.is_multigraph() else data
+            if u >= 0:
+                original = graph._adj[u][v]
+                assert attrs is (original[0] if graph.is_multigraph() else original)
+            if (u, v) == (0, 1):
+                changed = graph[1][0][0] if graph.is_multigraph() else graph[1][0]
+                changed["weight"] = -3
+            return attrs.get("weight", 1)
+
+        result = algorithm(graph, weight=weight)
+        return result, trace, list(graph.edges(data=True))
+
+    def dispatched(graph, weight):
+        if entrypoint == "direct":
+            return fnx.negative_edge_cycle(graph, weight=weight)
+        if entrypoint == "warm":
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        result = nx.negative_edge_cycle(graph, weight=weight, backend="franken_networkx")
+        assert not graph.__networkx_cache__.get("backends")
+        return result
+
+    assert run(dispatched) == run(nx.negative_edge_cycle)

@@ -134,6 +134,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "dijkstra_path_length",
         "bellman_ford_path",
         "bellman_ford_path_length",
+        "find_negative_cycle",
+        "negative_edge_cycle",
         "single_source_dijkstra",
         "single_source_dijkstra_path",
         "single_source_dijkstra_path_length",

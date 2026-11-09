@@ -1200,7 +1200,6 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
 
 def negative_edge_cycle(G, weight="weight", heuristic=True):
     """Return ``True`` if ``G`` contains a negative-weight cycle."""
-    G = _coerce_arg_to_fnx_graph(G)
     # The native search uses the default early-cycle heuristic. Disabling it is
     # observable when float distances overflow before the queue-count backstop,
     # so that request must use the matching in-process relaxation loop. The

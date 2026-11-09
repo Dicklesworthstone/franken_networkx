@@ -2063,15 +2063,10 @@ def girth(G):
 def find_negative_cycle(G, source, weight="weight"):
     """Return a negative cycle reachable from ``source`` using Bellman-Ford.
 
-    Every graph runs networkx's own detector and cycle walk in-process, so
-    the returned cycle is the one networkx returns. The former native
-    undirected path found a valid negative cycle but a different one in 189
-    of 400 random graphs, and panicked on a lone negative edge (nro4w.7).
-
-    br-r37-c1-39gx2 / br-r37-c1-gxu9x: hash-validate and membership-check
-    ``source`` up front for nx's TypeError / ``NodeNotFound`` contracts.
+    Relaxations use the caller's current adjacency and weight dictionaries.
+    The shared owned detector preserves the reference predecessor ordering,
+    including when weight callbacks mutate edges between visits.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     _HASH_PROBE.get(source)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
@@ -2079,78 +2074,15 @@ def find_negative_cycle(G, source, weight="weight"):
 
 
 def _find_negative_cycle_inprocess(G, source, weight):
-    """nx ``find_negative_cycle`` in-process: the heuristic SPFA Bellman-Ford detector
-    (``_inner_bellman_ford``) followed by nx's exact cycle-reconstruction walk.
-    Returns the byte-identical cycle list."""
-    from collections import deque as _deque
-
-    if callable(weight):
-        wt = weight
-    elif G.is_multigraph():
-        wt = lambda u, v, d: min(attr.get(weight, 1) for attr in d.values())
-    else:
-        wt = lambda u, v, d: d.get(weight, 1)
-
-    # Weighted successors are read lazily, per node, the first time the search
-    # reaches it: networkx's detector usually stops long before visiting the
-    # whole graph, so an up-front O(V + E) weight table cost ~50x nx.
-    succ_cache = {}
-
-    def succ_of(u):
-        weighted = succ_cache.get(u)
-        if weighted is None:
-            weighted = succ_cache[u] = {v: wt(u, v, d) for v, d in G[u].items()}
-        return weighted
-
-    n = len(G)
-    inf = float("inf")
-    dist = {source: 0}
+    """Reconstruct a cycle from the shared live Bellman-Ford detector."""
+    wt = _weight_function(G, weight)
     pred = {source: []}
-
-    # nx's _inner_bellman_ford, heuristic=True (the find_negative_cycle default).
-    nonexistent_edge = (None, None)
-    pred_edge = {source: None}
-    recent_update = {source: nonexistent_edge}
-    count = {}
-    q = _deque([source])
-    in_q = {source}
-    found = None
-    while q:
-        u = q.popleft()
-        in_q.remove(u)
-        if all(pred_u not in in_q for pred_u in pred[u]):
-            dist_u = dist[u]
-            for v, w in succ_of(u).items():
-                dist_v = dist_u + w
-                if dist_v < dist.get(v, inf):
-                    if v in recent_update[u]:
-                        pred[v].append(u)
-                        found = v
-                        break
-                    if v in pred_edge and pred_edge[v] == u:
-                        recent_update[v] = recent_update[u]
-                    else:
-                        recent_update[v] = (u, v)
-                    if v not in in_q:
-                        q.append(v)
-                        in_q.add(v)
-                        count_v = count.get(v, 0) + 1
-                        if count_v == n:
-                            found = v
-                            break
-                        count[v] = count_v
-                    dist[v] = dist_v
-                    pred[v] = [u]
-                    pred_edge[v] = u
-                elif dist.get(v) is not None and dist_v == dist.get(v):
-                    pred[v].append(u)
-        if found is not None:
-            break
+    found = _inner_bellman_ford_inproc(G, [source], wt, pred)
 
     if found is None:
         raise NetworkXError("No negative cycles detected.")
 
-    # nx's cycle reconstruction from the predecessor lists.
+    # Walk the predecessor witness in its recorded order.
     v = found
     neg_cycle = []
     stack = [(v, list(pred[v]))]
@@ -2170,7 +2102,7 @@ def _find_negative_cycle_inprocess(G, source, weight):
             stack.pop()
             if neg_cycle:
                 neg_cycle.pop()
-            elif v in succ_of(v) and succ_of(v)[v] < 0:
+            elif v in G[v] and wt(v, v, G[v][v]) < 0:
                 return [v, v]
             else:
                 raise NetworkXError("Negative cycle is detected but not found")
