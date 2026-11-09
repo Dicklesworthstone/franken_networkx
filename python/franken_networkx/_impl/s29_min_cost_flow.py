@@ -36,88 +36,27 @@ def min_cost_flow(
         If no feasible flow exists.
     """
     _validate_backend_dispatch_keywords("min_cost_flow", backend, backend_kwargs)
-    # br-r37-c1-3qt4m: nx's @not_implemented_for('undirected')
-    # decorator raises NetworkXNotImplemented, not NetworkXError.
-    # min_cost_flow_cost and capacity_scaling both call this so the
-    # fix propagates to the whole family.
+    return _min_cost_flow_result(G, demand, capacity, weight)[1]
+
+
+def _min_cost_flow_result(G, demand, capacity, weight):
+    """Extract, validate and solve one problem in the caller's numeric domain.
+
+    The solver owns both the objective and the flow assignment. Revalidating
+    or rescoring the input here would read attribute providers again and
+    include disabled non-self-loop edges that never enter the optimization.
+    """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-
-    nodes = list(G.nodes())
-    n = len(nodes)
-    if n == 0:
-        # br-r37-c1-mcfempty: nx's network_simplex raises
-        # NetworkXError("graph has no nodes") on empty input via the
-        # validation block in _validate_network_simplex_inputs; fnx's
-        # SSP path silently returned {}.  Match nx's contract.  The
-        # downstream min_cost_flow_cost / max_flow_min_cost both
-        # route here so the empty-graph contract propagates.
-        raise NetworkXError("graph has no nodes")
-
-    # br-r37-c1-mcf-negcap: the SSP solver below silently treats
-    # negative capacities as 0, masking nx's NetworkXUnfeasible
-    # contract.  network_simplex (sibling) already validates via
-    # _validate_network_simplex_inputs and matches nx exactly; the
-    # SSP path was the gap, which propagated through min_cost_flow_
-    # cost and max_flow_min_cost (both route here).
-    # br-r37-c1-8foqi: read edge attrs via the native bulk reader (same
-    # node-major order as ``G.edges(data=True)`` so the first-offending-edge
-    # message is unchanged) instead of the per-edge AdjacencyView view.
-    _new_edges = (
-        getattr(G, "_native_edges_with_data", None)
-        if type(G) is DiGraph and not _has_networkx_private_storage(G)
-        else None
-    )
-    _edge_iter = _new_edges() if _new_edges is not None else G.edges(data=True)
-    for u, v, edge_attrs in _edge_iter:
-        if isinstance(edge_attrs, dict):
-            edge_capacity = edge_attrs.get(capacity, float("inf"))
-            if edge_capacity < 0:
-                raise NetworkXUnfeasible(
-                    f"edge {(u, v)!r} has negative capacity"
-                )
-
-    # Preserve the input arithmetic during validation. Converting demands to
-    # floats can make an exactly balanced integer or rational network appear
-    # infeasible, and overflows for integers beyond the float range.
-    # Read attributes in bulk while keeping the original node order.
-    node_demand = {}
-    for node, attrs in G.nodes(data=True):
-        if isinstance(attrs, dict):
-            node_demand[node] = attrs.get(demand, 0)
-        else:
-            node_demand[node] = 0
-
-    # br-r37-c1-74xas: nx raises NetworkXError("node X has infinite
-    # demand") at this stage (not NetworkXUnfeasible). Detect inf
-    # demand explicitly so the exception type + message match nx.
-    for node, d in node_demand.items():
-        if abs(d) == float("inf"):
-            raise NetworkXError(f"node {node!r} has infinite demand")
-
-    # Check feasibility: sum of demands must be zero
-    # br-r37-c1-74xas: nx's exact wording is "total node demand is not
-    # zero" — match it (still NetworkXUnfeasible).
-    total_demand = sum(node_demand.values())
-    if total_demand != 0:
-        raise NetworkXUnfeasible("total node demand is not zero")
-
-    # Extract once, preserving keys for parallel arcs. Both graph types now
-    # share the owned solver and its integer-overflow admission guard. The
-    # solver handles feasible negative-cost circulations as well as supplies
-    # and demands, and detects unbounded infinite-capacity negative cycles.
     from ._network_simplex_native import (
         _FastG as _FastNSG,
         network_simplex as _native_network_simplex,
     )
 
-    _fastg = _FastNSG(G)
-    _cost, flow = _native_network_simplex(
-        _fastg, demand=demand, capacity=capacity, weight=weight
+    return _native_network_simplex(
+        _FastNSG(G, demand=demand, capacity=capacity, weight=weight),
+        demand=demand, capacity=capacity, weight=weight,
     )
-    if _mcf_inputs_all_integral(G, demand, capacity, weight, _fastg=_fastg):
-        flow = _coerce_flow_dict_to_int(flow)
-    return flow
 
 
 def min_cost_flow_cost(
@@ -135,9 +74,7 @@ def min_cost_flow_cost(
     float
     """
     _validate_backend_dispatch_keywords("min_cost_flow_cost", backend, backend_kwargs)
-    flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
-    # nx's min_cost_flow_cost is network_simplex(G)[0] (br-r37-c1-6soms).
-    return _network_simplex_cost(G, flow, weight)
+    return _min_cost_flow_result(G, demand, capacity, weight)[0]
 
 
 def max_flow_min_cost(
@@ -219,38 +156,6 @@ def capacity_scaling(
     return _capacity_scaling(G, demand, capacity, weight, heap)
 
 
-def _validate_network_simplex_inputs(G, demand, capacity, weight):
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
-
-    if len(G) == 0:
-        raise NetworkXError("graph has no nodes")
-
-    node_demands = []
-    for node in G:
-        node_attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
-        if not isinstance(node_attrs, dict):
-            continue
-        node_demand = node_attrs.get(demand, 0)
-        if abs(node_demand) == float("inf"):
-            raise NetworkXError(f"node {node!r} has infinite demand")
-        node_demands.append(node_demand)
-
-    for u, v, edge_attrs in G.edges(data=True):
-        if not isinstance(edge_attrs, dict):
-            continue
-        edge_weight = edge_attrs.get(weight, 0)
-        if abs(edge_weight) == float("inf"):
-            raise NetworkXError(f"edge {(u, v)!r} has infinite weight")
-
-        edge_capacity = edge_attrs.get(capacity, float("inf"))
-        if edge_capacity < 0:
-            raise NetworkXUnfeasible(f"edge {(u, v)!r} has negative capacity")
-
-    if sum(node_demands) != 0:
-        raise NetworkXUnfeasible("total node demand is not zero")
-
-
 def network_simplex(
     G, demand="demand", capacity="capacity", weight="weight", *, backend=None, **backend_kwargs
 ):
@@ -268,28 +173,7 @@ def network_simplex(
     (cost, flowDict) : tuple
     """
     _validate_backend_dispatch_keywords("network_simplex", backend, backend_kwargs)
-    _validate_network_simplex_inputs(G, demand, capacity, weight)
-    flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
-    return (_network_simplex_cost(G, flow, weight), flow)
-
-
-def _network_simplex_cost(G, flow, weight):
-    """networkx's network_simplex cost (br-r37-c1-6soms): sum(w * x) over the
-    non-selfloop edges, from the int 0, then w * x for each negative-weight
-    selfloop (saturated); a non-negative selfloop carries no flow and adds
-    nothing. cost_of_flow scores every edge, and 0 * 1.5 is 0.0."""
-    if G.is_multigraph():
-        rows = [
-            (u, v, flow[u][v][key] if isinstance(flow[u][v], dict) else flow[u][v], data)
-            for u, v, key, data in G.edges(keys=True, data=True)
-        ]
-    else:
-        rows = [(u, v, flow[u][v], data) for u, v, data in G.edges(data=True)]
-    cost = sum(data.get(weight, 0) * x for u, v, x, data in rows if u != v)
-    for u, v, x, data in rows:
-        if u == v and data.get(weight, 0) < 0:
-            cost += data.get(weight, 0) * x
-    return cost
+    return _min_cost_flow_result(G, demand, capacity, weight)
 
 
 def flow_hierarchy(G, weight=None):

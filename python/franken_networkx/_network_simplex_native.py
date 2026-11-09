@@ -77,56 +77,102 @@ def _ns_arrays_all_int(node_demands, edge_capacities, edge_weights):
 
 
 class _FastG:
-    """Read-only snapshot of a directed graph for network_simplex.
+    """Graph access for network simplex without changing extraction order.
 
-    Caches the whole node list + node attrs + edge list once via fnx's native
-    bulk readers (``nodes(data=True)`` / ``_native_edges_with_data``), so the
-    ported algorithm's repeated ``list(G)`` / ``G.nodes[u]`` / ``G.edges(data=True)``
-    / selfloop scans are plain Python list/dict lookups instead of per-element
-    AdjacencyView round-trips.
+    Ordinary native storage keeps bulk node/edge snapshots. Foreign graphs,
+    subclasses and private storage retain their public protocols: demand
+    providers run before edge extraction, and later scans see live topology.
     """
 
-    __slots__ = ("_nodes", "_nattr", "_edges", "_selfloops", "_is_multi")
+    __slots__ = ("_source", "_nodes", "_nattr", "_edges", "_selfloops", "_is_multi")
 
-    def __init__(self, G):
+    def __init__(self, G, *, demand="demand", capacity="capacity", weight="weight"):
+        from . import DiGraph, MultiDiGraph, _has_networkx_private_storage
+
+        self._source = G
+        if (
+            any(type(name) is not str for name in (demand, capacity, weight))
+            or type(G) not in (DiGraph, MultiDiGraph)
+            or _has_networkx_private_storage(G)
+            or G.node_attr_dict_factory is not dict
+            or G.edge_attr_dict_factory is not dict
+        ):
+            return
         nd = list(G.nodes(data=True))
-        self._nodes = [n for n, _ in nd]
-        self._nattr = {n: d for n, d in nd}
-        self._is_multi = G.is_multigraph()
-        if self._is_multi:
+        scalar_types = (int, float, bool)
+        if any(
+            type(attrs) is not dict or type(attrs.get(demand, 0)) not in scalar_types
+            for _, attrs in nd
+        ):
+            return
+        is_multi = G.is_multigraph()
+        if is_multi:
             # Each parallel arc is a separate simplex variable. Preserve its
             # original key and iteration position through the array solver so
             # reconstruction cannot merge capacities, costs, or flow values.
-            self._edges = list(G.edges(data=True, keys=True))
+            edges = list(G.edges(data=True, keys=True))
         else:
-            from . import DiGraph, _has_networkx_private_storage
-
-            _new = (
-                getattr(G, "_native_edges_with_data", None)
-                if type(G) is DiGraph and not _has_networkx_private_storage(G)
-                else None
-            )
-            self._edges = list(_new()) if _new is not None else list(G.edges(data=True))
+            _new = getattr(G, "_native_edges_with_data", None)
+            edges = list(_new()) if _new is not None else list(G.edges(data=True))
+        # Numeric protocols can mutate topology during validation or pivots.
+        # Inspect only builtin dictionaries and the selected scalar fields;
+        # unrelated payload values do not affect bulk-storage admission.
+        inf = float("inf")
+        if any(
+            type(edge[-1]) is not dict
+            or type(edge[-1].get(capacity, inf)) not in scalar_types
+            or type(edge[-1].get(weight, 0)) not in scalar_types
+            for edge in edges
+        ):
+            return
+        self._source = None
+        self._nodes = [n for n, _ in nd]
+        self._nattr = {n: d for n, d in nd}
+        self._is_multi = is_multi
+        self._edges = edges
         self._selfloops = [e for e in self._edges if e[0] == e[1]]
 
     def __iter__(self):
-        return iter(self._nodes)
+        return iter(self._nodes if self._source is None else self._source)
 
     def __len__(self):
-        return len(self._nodes)
+        return len(self._nodes if self._source is None else self._source)
 
     def is_multigraph(self):
-        return self._is_multi
+        return self._is_multi if self._source is None else self._source.is_multigraph()
 
     @property
     def nodes(self):
-        return self._nattr
+        return self._nattr if self._source is None else self._source.nodes
 
     def edges(self, data=False, keys=False):
-        return self._edges
+        if self._source is None:
+            return self._edges
+        if keys:
+            return self._source.edges(data=data, keys=True)
+        return self._source.edges(data=data)
 
     def selfloop_edges(self, data=False, keys=False):
-        return self._selfloops
+        if self._source is None:
+            return self._selfloops
+
+        graph = self._source
+        if graph.is_multigraph():
+            if keys:
+                return (
+                    (node, node, key, attrs)
+                    for node, row in graph.adj.items() if node in row
+                    for key, attrs in row[node].items()
+                )
+            return (
+                (node, node, attrs)
+                for node, row in graph.adj.items() if node in row
+                for attrs in row[node].values()
+            )
+        return (
+            (node, node, row[node])
+            for node, row in graph.adj.items() if node in row
+        )
 
 
 class _DataEssentialsAndFunctions:

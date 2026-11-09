@@ -456,3 +456,222 @@ def test_max_flow_min_cost_preserves_exact_flow_demand(cls, amount):
         _exact_demand_graph(fnx, cls, demands, edges), "s", "t"
     )
     assert actual == expected
+
+
+def _cost_flow_typed_result(value):
+    if isinstance(value, dict):
+        return tuple((key, _cost_flow_typed_result(item)) for key, item in value.items())
+    if isinstance(value, tuple):
+        return tuple(_cost_flow_typed_result(item) for item in value)
+    return type(value), value
+
+
+def _cost_flow_outcome(function, graph, **options):
+    try:
+        return "return", _cost_flow_typed_result(function(graph, **options))
+    except Exception as exc:
+        return "raise", type(exc), exc.args
+
+
+def _cost_flow_input(source, input_kind):
+    if input_kind == "networkx":
+        return source
+    if input_kind == "networkx_view":
+        return nx.subgraph_view(source)
+    graph_class = getattr(fnx, type(source).__name__)
+    graph = graph_class()
+    if input_kind == "native":
+        graph.add_nodes_from(source.nodes(data=True))
+        graph.add_edges_from(
+            source.edges(keys=True, data=True) if source.is_multigraph()
+            else source.edges(data=True)
+        )
+    else:
+        graph.add_edge("stale", "storage", capacity=7, weight=99)
+        graph._node = source._node
+        graph._adj = source._adj
+        graph._pred = source._pred
+    return graph
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "networkx", "assigned", "networkx_view"])
+@pytest.mark.parametrize("disabled_weight", [None, "closed", float("inf"), -float("inf"), 1.5])
+def test_zero_capacity_edges_do_not_change_simplex_objective(
+    api, cls, input_kind, disabled_weight, monkeypatch,
+):
+    source = getattr(nx, cls)()
+    source.add_node("source", balance=-1)
+    source.add_node("sink", balance=1)
+    source.add_edge("source", "sink", limit=1, price=2)
+    source.add_edge("source", "disabled", limit=0, price=disabled_weight)
+    if source.is_multigraph():
+        source.add_edge("source", "sink", key=("closed", 1), limit=0, price=disabled_weight)
+    options = {"demand": "balance", "capacity": "limit", "weight": "price"}
+    expected = _cost_flow_outcome(getattr(nx, api), source, **options)
+    actual_input = _cost_flow_input(source, input_kind)
+    monkeypatch.setattr(nx, "network_simplex", _forbid_upstream_min_cost_solver)
+    monkeypatch.setattr(
+        nx.algorithms.flow.networksimplex, "network_simplex", _forbid_upstream_min_cost_solver,
+    )
+    assert _cost_flow_outcome(getattr(fnx, api), actual_input, **options) == expected
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["networkx", "assigned", "networkx_view"])
+def test_cost_flow_reads_demand_once_before_observing_edges(api, cls, input_kind):
+    def build():
+        graph = getattr(nx, cls)()
+        graph.add_node("source", balance=-1)
+        graph.add_node("sink", balance=1)
+        events = []
+
+        class Demand(dict):
+            def get(self, key, default=None):
+                if key == "balance":
+                    events.append(key)
+                    if len(events) != 1:
+                        raise AssertionError("demand provider was read more than once")
+                    graph.add_edge("source", "sink", limit=1, price=7)
+                return super().get(key, default)
+
+        graph._node["source"] = Demand(graph._node["source"])
+        return graph, events
+
+    options = {"demand": "balance", "capacity": "limit", "weight": "price"}
+    source, expected_events = build()
+    expected = _cost_flow_outcome(getattr(nx, api), source, **options)
+    actual_source, actual_events = build()
+    graph = _cost_flow_input(actual_source, input_kind)
+    assert _cost_flow_outcome(getattr(fnx, api), graph, **options) == expected
+    assert actual_events == expected_events == ["balance"]
+    assert list(graph.edges(data=True)) == list(actual_source.edges(data=True))
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["networkx", "assigned", "networkx_view"])
+def test_cost_flow_keeps_objective_from_the_solved_attribute_values(api, cls, input_kind):
+    def build():
+        graph = getattr(nx, cls)()
+        graph.add_node("source", demand=-1)
+        graph.add_node("sink", demand=1)
+        graph.add_edge("source", "sink", capacity=1, weight=2)
+        events = []
+
+        class Price(dict):
+            def get(self, key, default=None):
+                value = super().get(key, default)
+                if key == "weight":
+                    events.append(value)
+                    self["weight"] = 37
+                return value
+
+        if graph.is_multigraph():
+            data = Price(graph["source"]["sink"][0])
+            graph._succ["source"]["sink"][0] = data
+        else:
+            data = Price(graph["source"]["sink"])
+            graph._succ["source"]["sink"] = data
+            graph._pred["sink"]["source"] = data
+        return graph, events, data
+
+    source, expected_events, expected_data = build()
+    expected = _cost_flow_outcome(getattr(nx, api), source)
+    actual_source, actual_events, actual_data = build()
+    actual = _cost_flow_outcome(getattr(fnx, api), _cost_flow_input(actual_source, input_kind))
+    assert actual == expected
+    assert actual_events == expected_events == [2]
+    assert actual_data == expected_data
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("field", ["demand", "capacity", "weight"])
+@pytest.mark.parametrize("renamed", [False, True])
+def test_cost_flow_observes_topology_changes_from_numeric_protocols(api, cls, field, renamed):
+    options = (
+        {"demand": "balance", "capacity": "limit", "weight": "price"}
+        if renamed else {name: name for name in ("demand", "capacity", "weight")}
+    )
+
+    def run(library):
+        graph = getattr(library, cls)()
+        events = []
+
+        def add_loop(operation):
+            events.append(operation)
+            graph.add_edge(
+                "source", "source", **{options["capacity"]: -1, options["weight"]: 0},
+            )
+
+        class Scalar(int):
+            def __abs__(self):
+                add_loop("abs")
+                return abs(int(self))
+
+            def __lt__(self, other):
+                add_loop("lt")
+                return int(self) < other
+
+        values = {"demand": -1, "capacity": 1, "weight": 2}
+        values[field] = Scalar(values[field])
+        graph.add_node("source", **{options["demand"]: values["demand"]})
+        graph.add_node("sink", **{options["demand"]: 1})
+        graph.add_edge(
+            "source", "sink",
+            **{options["capacity"]: values["capacity"], options["weight"]: values["weight"]},
+        )
+        return _cost_flow_outcome(getattr(library, api), graph, **options), events
+
+    expected, expected_events = run(nx)
+    actual, actual_events = run(fnx)
+    assert expected[0] == "raise" and expected[1] is nx.NetworkXUnfeasible
+    assert actual == expected
+    assert actual_events == expected_events == ["lt" if field == "capacity" else "abs"]
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "assigned"])
+@pytest.mark.parametrize(
+    "case", ["infinite_demand", "infinite_weight", "unbalanced", "negative_key", "zero_loop"],
+)
+def test_cost_flow_shares_simplex_validation_order_and_keyed_errors(api, cls, input_kind, case):
+    source = getattr(nx, cls)()
+    source.add_node("source", demand=float("inf") if case == "infinite_demand" else 0)
+    source.add_node("sink", demand=1 if case == "unbalanced" else 0)
+    edge_weight = float("inf") if case == "infinite_weight" else 1
+    if case == "zero_loop":
+        source.add_edge("source", "source", capacity=0, weight=float("inf"))
+    elif source.is_multigraph():
+        source.add_edge("source", "sink", key=("invalid", 3), capacity=-1, weight=edge_weight)
+    else:
+        source.add_edge("source", "sink", capacity=-1, weight=edge_weight)
+    expected = _cost_flow_outcome(getattr(nx, api), source)
+    actual = _cost_flow_outcome(getattr(fnx, api), _cost_flow_input(source, input_kind))
+    assert actual == expected
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+def test_cost_flow_solves_safe_integer_problem_once(api, cls, monkeypatch):
+    simplex = import_module("franken_networkx._network_simplex_native")
+    original = simplex._native_ns_int
+    calls = []
+
+    def recorded(*args):
+        calls.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(simplex, "_native_ns_int", recorded)
+    graph = getattr(fnx, cls)()
+    graph.add_node("source", demand=-3)
+    graph.add_node("sink", demand=3)
+    graph.add_edge("source", "sink", capacity=4, weight=2)
+    result = getattr(fnx, api)(graph)
+    assert len(calls) == 1
+    if api == "min_cost_flow_cost":
+        assert result == 6 and type(result) is int
