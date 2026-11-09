@@ -814,27 +814,12 @@ class _FilteredGraphView:
         return count
 
     def size(self, weight=None):
-        # br-r37-c1-fgv-size: the canonical Graph.size inherited from
-        # the second base class delegates to the Rust raw size which
-        # reads the parent's full Rust state without honoring the
-        # view's filters.  Result: ``view.size(weight="w")`` summed
-        # the parent's full edge weight (including filtered-out
-        # edges) instead of the visible subset.  Override to walk
-        # the filtered edges() iterator so the contract matches nx's
-        # ``sum(d for _, d in view.degree(weight=w)) / 2``.
+        # Degree accumulation preserves each filtered row's order and the
+        # numeric domain. Summing edges once changes float cancellation, and
+        # float(total) discards Decimal/Fraction arithmetic and error behavior.
         if weight is None:
             return self.number_of_edges()
-        if self.is_multigraph():
-            total = sum(
-                attrs.get(weight, 1)
-                for _, _, _, attrs in self.edges(keys=True, data=True)
-            )
-        else:
-            total = sum(
-                attrs.get(weight, 1)
-                for _, _, attrs in self.edges(data=True)
-            )
-        return float(total)
+        return sum(degree for _, degree in self.degree(weight=weight)) / 2
 
     def _copy_type(self):
         if self.is_directed():

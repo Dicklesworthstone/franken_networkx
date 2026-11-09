@@ -205,3 +205,104 @@ def test_capacity_scaling_detects_negative_cycle_before_a_whole_component_overfl
     expected = _outcome(nx.capacity_scaling, build(nx))
     assert expected[0] is nx.NetworkXUnbounded
     assert _outcome(fnx.capacity_scaling, build(fnx)) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize("mutation", ["capacity-updates-cost", "cost-updates-capacity"])
+def test_capacity_scaling_reads_live_capacity_before_cost(graph_type, input_module, mutation):
+    def run(function, module):
+        active = False
+        reads = []
+
+        class Attributes(dict):
+            capacity_reads = 0
+
+            def get(self, name, default=None):
+                if active:
+                    reads.append(name)
+                    if name == "capacity":
+                        self.capacity_reads += 1
+                        if mutation == "capacity-updates-cost" and self.capacity_reads == 2:
+                            self["weight"] = 7
+                    elif name == "weight" and mutation == "cost-updates-capacity":
+                        self["capacity"] = 1
+                return super().get(name, default)
+
+        graph = getattr(module, graph_type)()
+        graph.add_node("s", demand=-2)
+        graph.add_node("t", demand=2)
+        graph.add_edge("s", "t", capacity=3, weight=1)
+        attrs = Attributes(capacity=3, weight=1)
+        edge = {0: attrs} if graph.is_multigraph() else attrs
+        successors = {"s": {"t": edge}, "t": {}}
+        graph._adj = graph._succ = successors
+        graph._pred = {"s": {}, "t": {"s": edge}}
+        active = True
+        return function(graph), reads
+
+    expected = run(nx.capacity_scaling, nx)
+    assert expected[0][0] == (14 if mutation == "capacity-updates-cost" else 2)
+    assert run(fnx.capacity_scaling, input_module) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize("demand_read", [1, 2])
+def test_capacity_scaling_demand_reads_preserve_live_node_iteration(
+    graph_type, input_module, demand_read
+):
+    def run(function, module):
+        active = False
+
+        class Attributes(dict):
+            reads = 0
+
+            def get(self, name, default=None):
+                value = super().get(name, default)
+                if active and name == "demand" and value < 0:
+                    self.reads += 1
+                    if self.reads == demand_read:
+                        graph.add_node("new")
+                return value
+
+        graph = getattr(module, graph_type)()
+        graph.add_node("s", demand=-1)
+        graph.add_node("t", demand=1)
+        graph.add_edge("s", "t", capacity=2, weight=3)
+        graph._node = {"s": Attributes(demand=-1), "t": Attributes(demand=1)}
+        active = True
+        with pytest.raises(RuntimeError, match="dictionary changed size during iteration"):
+            function(graph)
+        assert "new" in graph
+
+    run(nx.capacity_scaling, nx)
+    run(fnx.capacity_scaling, input_module)
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize("finite", [True, False], ids=["finite", "infinite"])
+def test_capacity_scaling_selfloops_use_authoritative_adjacency(
+    graph_type, input_module, finite
+):
+    def build(module):
+        class Graph(getattr(module, graph_type)):
+            def __getitem__(self, node):
+                return {
+                    neighbor: attrs
+                    for neighbor, attrs in super().__getitem__(node).items()
+                    if neighbor != node
+                }
+
+        graph = Graph()
+        graph.add_edge("s", "s", weight=-3, **({"capacity": 2} if finite else {}))
+        graph.add_edge("s", "t", capacity=1)
+        return graph
+
+    expected = _outcome(nx.capacity_scaling, build(nx))
+    if finite:
+        assert expected[1] == -6
+    else:
+        assert expected[0] is nx.NetworkXUnbounded
+    assert _outcome(fnx.capacity_scaling, build(input_module)) == expected

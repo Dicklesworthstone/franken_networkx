@@ -19,8 +19,7 @@ _UNBOUNDED = (
 
 def _selfloop_data(graph):
     multi = graph.is_multigraph()
-    for node in graph:
-        row = graph[node]
+    for node, row in graph._adj.items():
         if node in row:
             if multi:
                 yield from row[node].values()
@@ -37,11 +36,14 @@ class _Residual:
     def __init__(self, graph, demand, capacity, weight):
         if not graph.is_directed():
             raise NetworkXNotImplemented("not implemented for undirected type")
-        self.nodes = list(graph)
-        self.index = {node: index for index, node in enumerate(self.nodes)}
-        if sum(graph.nodes[node].get(demand, 0) for node in self.nodes) != 0:
+        if sum(graph.nodes[node].get(demand, 0) for node in graph) != 0:
             raise NetworkXUnfeasible("Sum of the demands should be 0.")
-        self.excess = [-graph.nodes[node].get(demand, 0) for node in self.nodes]
+        # Demand providers run on two live node traversals. Snapshotting the
+        # labels first hides mutations and changes the iteration error boundary.
+        node_excess = [(node, -graph.nodes[node].get(demand, 0)) for node in graph]
+        self.nodes = [node for node, _ in node_excess]
+        self.index = {node: index for index, node in enumerate(self.nodes)}
+        self.excess = [excess for _, excess in node_excess]
         self.potential = [0] * len(self.nodes)
         self.adj = [{} for _ in self.nodes]
         self.capacity, self.weight, self.flow, self.key = [], [], [], []
@@ -71,8 +73,10 @@ class _Residual:
             arc = len(self.flow)
             self.adj[source].setdefault(target, []).append(arc)
             self.adj[target].setdefault(source, []).append(arc + 1)
+            # Capacity reads/comparisons may update the live cost provider.
+            bound = min(data.get(capacity, self.infinity), self.infinity)
             value = data.get(weight, 0)
-            self.capacity.extend((min(data.get(capacity, self.infinity), self.infinity), 0))
+            self.capacity.extend((bound, 0))
             self.weight.extend((value, -value))
             self.flow.extend((0, 0))
             self.key.extend((key, key))

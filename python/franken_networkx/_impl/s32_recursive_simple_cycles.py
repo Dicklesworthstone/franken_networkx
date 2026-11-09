@@ -1094,12 +1094,7 @@ class _ReverseDirectedViewBase:
     def size(self, weight=None):
         if weight is None:
             return self.number_of_edges()
-
-        if self._graph.is_multigraph():
-            return float(
-                sum(attrs.get(weight, 1) for _, _, _, attrs in self.edges(keys=True, data=True))
-            )
-        return float(sum(attrs.get(weight, 1) for _, _, attrs in self.edges(data=True)))
+        return sum(degree for _, degree in self.degree(weight=weight)) / 2
 
     def has_node(self, node):
         return node in self._graph

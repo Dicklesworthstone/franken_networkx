@@ -218,6 +218,97 @@ def test_flow_hierarchy_weighted_scc_fold_does_not_bridge_to_networkx(monkeypatc
     assert fnx.flow_hierarchy(fg, weight="weight") == pytest.approx(expected)
 
 
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_flow_hierarchy_counts_parallel_cyclic_and_acyclic_arcs(input_module, weight):
+    def build(module):
+        graph = module.MultiDiGraph()
+        graph.add_edge("a", "b")
+        graph.add_edge("b", "a")
+        for key in range(10):
+            graph.add_edge("b", "c", key=("out", key))
+        return graph
+
+    expected = nx.flow_hierarchy(build(nx), weight=weight)
+    assert expected == 1 - 2 / 12
+    assert fnx.flow_hierarchy(build(input_module), weight=weight) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "networkx", "view"])
+def test_flow_hierarchy_preserves_component_degree_cancellation(graph_type, input_kind):
+    def build(module):
+        graph = getattr(module, graph_type)()
+        for u, v, value in [(0, 1, 1e16), (1, 0, 1), (1, 2, 1), (2, 1, -1e16)]:
+            graph.add_edge(u, v, weight=value)
+        return graph
+
+    graph = build(nx if input_kind == "networkx" else fnx)
+    if input_kind == "view":
+        graph = graph.subgraph(list(graph))
+    expected = nx.flow_hierarchy(build(nx), weight="weight")
+    assert expected == 0.0
+    assert fnx.flow_hierarchy(graph, weight="weight") == expected
+
+
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_flow_hierarchy_respects_instance_size_provider(input_module, weight):
+    def build(module):
+        graph = module.DiGraph([(0, 1), (1, 0), (1, 2)])
+        graph.size = lambda weight=None: 10
+        return graph
+
+    expected = nx.flow_hierarchy(build(nx), weight=weight)
+    assert expected == 0.8
+    assert fnx.flow_hierarchy(build(input_module), weight=weight) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "native"])
+def test_flow_hierarchy_reads_live_component_sizes_before_total(graph_type, input_module):
+    def run(function, module):
+        events = []
+
+        class Component:
+            def __init__(self, nodes, view):
+                self.nodes = frozenset(nodes)
+                self.view = view
+
+            def size(self, weight=None):
+                events.append(("component size", self.nodes, weight))
+                value = sum(degree for _, degree in self.view.degree(weight=weight)) / 2
+                if self.nodes == frozenset(("c", "d")):
+                    attrs = graph["a"]["b"]
+                    if graph.is_multigraph():
+                        attrs = attrs[0]
+                    attrs["weight"] = 13
+                return value
+
+        class Graph(getattr(module, graph_type)):
+            def size(self, weight=None):
+                events.append(("total size", weight))
+                return super().size(weight)
+
+            def subgraph(self, nodes):
+                nodes = frozenset(nodes)
+                events.append(("subgraph", nodes))
+                return Component(nodes, super().subgraph(nodes))
+
+        graph = Graph()
+        for u, v, value in [
+            ("a", "b", 2), ("b", "a", 3), ("b", "c", 5),
+            ("c", "d", 7), ("d", "c", 11),
+        ]:
+            graph.add_edge(u, v, weight=value)
+        result = function(graph, weight="weight")
+        return result, events
+
+    expected = run(nx.flow_hierarchy, nx)
+    assert expected[0] == 1 - 34 / 39
+    assert run(fnx.flow_hierarchy, input_module) == expected
+
+
 # ---------------------------------------------------------------------------
 # reciprocity / overall_reciprocity
 # ---------------------------------------------------------------------------

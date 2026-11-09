@@ -565,6 +565,23 @@ evaluations regardless of unrelated isolated vertices. This is a relaxation
 work bound, not a claim that every setup operation is independent of graph
 size.
 
+### 22.7 Negative-cycle witnesses over live weighted rows
+
+`find_negative_cycle` uses the shared Bellman-Ford relaxation engine and
+reconstructs the reference predecessor witness. Each relaxation evaluates
+its current edge cost; revisiting a row must call its weight provider again.
+Caching a weighted row can miss a cycle introduced by a later callback.
+Early detection stops before reading unused outgoing edges, preserving
+callback side effects and errors at the detection boundary.
+
+Source validation precedes any graph conversion or weight read. Foreign
+graphs, directed/undirected views and private logical rows stay authoritative
+throughout relaxation, including the original multigraph key mappings.
+Exact Python numerics retain their arithmetic and returned witness order.
+The existing owned self-loop divergence remains: reconstruction evaluates
+the actual self-loop dictionary instead of reproducing the reference's
+erroneous argument order in its fallback self-loop check.
+
 ## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:
@@ -658,6 +675,11 @@ assignment, heap callbacks, or validation contract.
   float-weighted edges do not convert an integer cost to float.
 - Empty residuals retain the upstream early-return behavior; otherwise
   any remaining imbalance raises `No flow satisfying all demands.`.
+- Residual extraction retains live attribute-provider read order. In
+  particular, capacity is read before the selected cost is captured for an
+  arc; a capacity provider can update that cost for the same calculation.
+  Repeated reads, custom numeric operations and their failures are observable
+  and must not be reordered by indexed storage construction.
 
 The owned implementation uses paired arc arrays and ordered neighbor groups
 in `_capacity_scaling.py`; its public wrapper validates backend keywords.
@@ -800,6 +822,27 @@ Connected one- and two-node graphs retain SciPy's small-matrix error behavior.
 `tests/python/test_eigenvector_numpy_directed_parity.py` covers signed
 undirected and directed inputs, eigenpair residuals, solver sign orientation,
 large integer weights, nonconvergence, and validation order.
+
+Iterative eigenvector and Katz centrality retain their distinct weight-key
+rules. Eigenvector iteration treats a falsy selector as unweighted, while
+Katz iteration looks up the supplied key, including literal `None`. Their
+Python arithmetic is observable: unnormalized Katz scores can remain
+`Decimal` or `Fraction`, and unsupported mixed numeric operations raise at
+the same iteration boundary as the reference solver. Sparse conversion must
+not silently replace those values or errors with floating-point results.
+
+Iteration reads the caller's graph and vector providers in reference order.
+Custom initial-vector or beta mappings can mutate adjacency before later
+reads; those updates apply to the same calculation. Foreign graphs, views,
+private logical storage and observable mapping/numeric protocols therefore
+use the existing owned iterations. Ordinary concrete storage with admitted
+numeric values retains native or sparse acceleration.
+
+Sparse iterations require arithmetic compatible with their reordered
+matrix reductions. Signed weights or vectors can expose catastrophic
+cancellation in the reference per-edge update order, so they retain owned
+iteration instead of being silently reassociated. Admission inspects plain
+values without calling user numeric conversion methods.
 
 
 ## 29. Lazy Shortest-Simple-Path Input Lifetime
@@ -1035,6 +1078,28 @@ a native graph; a topological call must not insert the NetworkX source itself
 into that cache. Ordinary eager kernels continue to reuse those conversions.
 This also means a first live call still pays for a native conversion when
 NetworkX requests one; the conversion can serve later eager kernels.
+
+Weighted centrality wrappers recognize both `weight` and `distance` argument
+names when recovering live source rows. Wiener index and closeness vitality
+use the same boundary. Iterative eigenvector and Katz queries recover graph,
+vector and numeric providers whose operations can mutate the original input;
+ordinary plain numeric queries retain reusable native conversions. Literal
+`None` edge keys in iterative Katz require original attributes even though
+the dispatcher's `weight=None` hint normally omits edge attributes.
+Provider-driven calls clear stale conversions before and after execution.
+Spectral providers requiring original inputs are also identified before a
+cold conversion: numeric conversion must not call an edge object's custom
+`__float__` before its reference arithmetic. Such calls temporarily pass the
+source through the dispatcher, remove that pass-through cache entry on
+invocation, and preserve ordinary cached native graphs for other queries.
+Admission does not look up selected weights through observable custom
+attribute keys; their equality/hash protocols belong to the owned iteration.
+
+Capacity scaling and flow hierarchy are registered owned backend operations.
+They share this pre-conversion source boundary for live demand, capacity,
+heap, component-size and numeric providers, including warm-cache calls.
+Their temporary source cache entries are removed before execution so later
+unrelated kernels still receive ordinary native conversions.
 
 The backend retains a weak reference to each conversion's original input.
 Traversal, topological, all-pairs shortest-path, and simple-path iterators
@@ -1657,6 +1722,24 @@ order without unnecessary input conversion. Backend dispatch recovers the
 original source when weighted-query admission requires live rows, including
 when an earlier call populated the conversion cache.
 
+Weighted closeness, harmonic centrality and Wiener index obey the same
+live-row contract. Directed closeness retains its reference reverse-copy
+boundary, while harmonic centrality uses a live reverse view. Closeness
+vitality computes each removed-node result through the original graph's
+subgraph view; copying that view can collapse reciprocal edge costs or
+detach a callback's attributes. Distance callbacks receive the dictionaries
+selected by these public graph protocols, and subsequent queries observe
+their mutations. Shared shortest-path primitives retain the existing
+validation, unreachable-node and exact-arithmetic behavior.
+
+Wiener index consumes the shared weighted shortest-path rows and sums their
+reachable distances in source/target iteration order. First discovery at
+positive infinity remains a reachable distance, `None` costs hide an edge,
+and negative edges follow Dijkstra's actual contradiction boundary rather
+than an unconditional sign rejection. Weighted directed graphs can have
+valid results containing negative distances when no such contradiction is
+encountered.
+
 Spanning-edge queries validate direction, algorithm selection and Boruvka's
 multigraph restriction when called. Foreign graphs, subclasses, private
 storage and views are consumed by the owned Kruskal, Prim and Boruvka engines
@@ -1696,3 +1779,26 @@ custom edge-attribute read can change a later adjacency row, which must be
 read after that callback runs. Ordinary dictionary-backed inputs retain bulk
 insertion, while custom mapping protocols preserve public read, mutation
 and partial-construction error order through the shared decoder.
+
+## 59. Flow Hierarchy Arithmetic and Graph Providers
+
+Flow hierarchy divides the weighted sizes of strongly connected component
+subgraphs by the caller's graph size. Graph size follows degree accumulation
+order, and component sizes follow each induced subgraph's degree order.
+Replacing those operations with one edge-weight fold changes cancellation
+and can turn a fully cyclic graph's score from zero into one. Numeric values,
+custom size providers and graph views retain the reference operation order
+and error boundary. Acceleration requires inputs for which the aggregate
+transformation preserves those observable operations.
+
+Unweighted multigraph hierarchy counts every parallel arc in both the
+whole graph and each strongly connected component. Replacing keyed arcs
+with a simple directed graph changes the proportion of cyclic edges and
+is not an admissible native projection.
+
+Filtered and reverse graph views share the public graph-size primitive:
+sum weighted node degrees in their iteration order, then divide by two.
+Ordinary unweighted edge counts remain integers. Weighted division preserves
+the Python numeric result type, including `Decimal` and `Fraction`, without
+an intermediate float cast. Both in- and out-degree contributions of a
+directed view participate in their public degree order.

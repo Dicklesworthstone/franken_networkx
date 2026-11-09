@@ -506,6 +506,122 @@ def test_backend_spectral_admission_preserves_numeric_and_key_protocols(
 
 
 @pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("heap_kind", ["default", "observed", "pairing"])
+def test_backend_capacity_scaling_preserves_heap_and_flow(cls_name, heap_kind, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_node(("source", 0), demand=-3)
+        graph.add_node("sink", demand=3)
+        graph.add_edge(("source", 0), "middle", capacity=3, weight=1)
+        graph.add_edge("middle", "sink", capacity=3, weight=2)
+        events = []
+
+        class ObservedHeap(nx.utils.BinaryHeap):
+            def __init__(self):
+                events.append(("new",))
+                data = graph[("source", 0)]["middle"]
+                (data[0] if graph.is_multigraph() else data)["weight"] = 7
+                super().__init__()
+
+            def insert(self, key, value, allow_increase=False):
+                events.append(("insert", key, value))
+                return super().insert(key, value, allow_increase)
+
+            def pop(self):
+                result = super().pop()
+                events.append(("pop", *result))
+                return result
+
+        kwargs = {}
+        if heap_kind != "default":
+            kwargs["heap"] = ObservedHeap if heap_kind == "observed" else nx.utils.PairingHeap
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        answer = nx.capacity_scaling(graph, **kwargs, backend=backend)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return answer, events, list(graph.edges(data=True))
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_backend_capacity_scaling_reads_live_cost_after_capacity(cls_name, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_node("s", demand=-2)
+        graph.add_node("t", demand=2)
+        graph.add_edge("s", "t", capacity=2, weight=1)
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+        trace = []
+
+        class Edge(dict):
+            def get(self, key, default=None):
+                trace.append(key)
+                if key == "capacity" and trace.count("capacity") == 2:
+                    self["weight"] = 7
+                return super().get(key, default)
+
+        attrs = Edge(capacity=2, weight=1)
+        if graph.is_multigraph():
+            graph._adj["s"]["t"][0] = attrs
+            graph._pred["t"]["s"][0] = attrs
+        else:
+            graph._adj["s"]["t"] = attrs
+            graph._pred["t"]["s"] = attrs
+        answer = nx.capacity_scaling(graph, backend=backend)
+        return answer, trace, dict(attrs)
+
+    expected = run("networkx")
+    assert expected[0][0] == 14
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("shape", ["parallel", "cancellation", "reverse", "custom_size"])
+def test_backend_flow_hierarchy_preserves_graph_protocols(cls_name, shape, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        trace = []
+        weight = None
+        if shape in ("cancellation", "reverse"):
+            graph.add_weighted_edges_from([(0, 1, 1e16), (1, 0, 1), (1, 2, 1), (2, 1, -1e16)])
+            weight = "weight"
+            if shape == "reverse":
+                graph = graph.reverse(copy=False).subgraph([0, 1, 2])
+        else:
+            graph.add_edges_from([(0, 1), (1, 0)] + [(1, 2)] * 10)
+        if shape == "custom_size":
+            original_size = graph.size
+
+            def size(weight=None):
+                trace.append(weight)
+                return original_size(weight=weight) / 2
+
+            graph.size = size
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            trace.clear()
+        answer = nx.flow_hierarchy(graph, weight=weight, backend=backend)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return answer, trace
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize(
     "algorithm",

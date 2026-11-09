@@ -191,8 +191,7 @@ def flow_hierarchy(G, weight=None):
     float
         Value in [0, 1]. 1 means no edges are in cycles (DAG).
     """
-    G = _coerce_arg_to_fnx_graph(G)
-    if G.number_of_edges() == 0:
+    if is_empty(G):
         raise NetworkXError("flow_hierarchy not applicable to empty graphs")
     if not G.is_directed():
         # br-r37-c1-4elbw: nx raises NetworkXError with the exact text
@@ -200,31 +199,64 @@ def flow_hierarchy(G, weight=None):
         # raised "flow_hierarchy requires a DiGraph", which broke
         # drop-in code matching nx's wording.
         raise NetworkXError("G must be a digraph in flow_hierarchy")
-    if weight is not None:
-        return _flow_hierarchy_weighted_scc_fold(G, weight)
-    return _fnx.flow_hierarchy_rust(G)
+    if weight is None and type(G) is DiGraph and _flow_hierarchy_native_input(G):
+        return _fnx.flow_hierarchy_rust(G)
+    return _flow_hierarchy_weighted_scc_fold(G, weight)
+
+
+def _flow_hierarchy_native_input(G):
+    """Admit graph storage whose size and subgraph protocols are ordinary."""
+    return (
+        type(G) in (DiGraph, MultiDiGraph)
+        and not _has_networkx_private_storage(G)
+        and not any(
+            name in G.__dict__
+            for name in ("size", "subgraph", "number_of_edges", "is_directed", "is_multigraph")
+        )
+    )
 
 
 def _flow_hierarchy_weighted_scc_fold(G, weight):
-    # br-flowhier (cc): nx computes the cyclic weight as
-    # ``sum(G.subgraph(c).size(weight) for c in strongly_connected_components(G))``,
-    # i.e. the total weight of edges whose endpoints lie in the SAME SCC. fnx's
-    # ``subgraph(view).size(weight)`` runs the filtered-view degree machinery, and
-    # building one such view PER SCC made flow_hierarchy(weighted) ~22x slower than nx
-    # (subgraph-in-loop bomb, br-r37-c1-wfoee family). Replace it with a single O(V+E)
-    # pass: tag each node with its SCC id once, then sum the weights of intra-SCC edges
-    # directly. Same value as the per-SCC subgraph sizes (a self-loop sits in its node's
-    # own SCC, counted once, matching subgraph.size); float summation order differs by
-    # ~ULP, well within the round(.,9)/approx parity the conformance suite asserts.
-    total_weight = G.size(weight=weight)
-    scc_id = {}
-    for index, component in enumerate(strongly_connected_components(G)):
-        for node in component:
-            scc_id[node] = index
-    cyclic_weight = sum(
-        w for u, v, w in G.edges(data=weight, default=1) if scc_id[u] == scc_id[v]
-    )
-    return 1 - cyclic_weight / total_weight
+    # A direct edge sum is equivalent to component degree sums only in an
+    # exact numeric domain. Float cancellation can change a fully cyclic
+    # graph's score from zero to one, and arbitrary providers can mutate later
+    # components. Keep the O(V+E) fold for ordinary bounded integer weights.
+    edges = None
+    if _flow_hierarchy_native_input(G):
+        if weight is None:
+            # Iterating multiedges counts every parallel arc independently.
+            edges = [(u, v, 1) for u, v in G.edges()]
+        elif type(weight) is str:
+            plain_attrs = _plain_read_attr_dict_types()
+            edges = []
+            magnitude = 0
+            for u, v, attrs in G.edges(data=True):
+                if type(attrs) not in plain_attrs:
+                    edges = None
+                    break
+                value = attrs.get(weight, 1)
+                if type(value) not in (int, bool):
+                    edges = None
+                    break
+                magnitude += abs(value)
+                # Each weighted component size is divided by two. Keep its
+                # degree totals and every float component sum exactly integral.
+                if magnitude > 1 << 52:
+                    edges = None
+                    break
+                edges.append((u, v, value))
+    if edges is not None:
+        scc_id = {}
+        for index, component in enumerate(strongly_connected_components(G)):
+            for node in component:
+                scc_id[node] = index
+        cyclic_weight = sum(w for u, v, w in edges if scc_id[u] == scc_id[v])
+    else:
+        cyclic_weight = sum(
+            G.subgraph(component).size(weight)
+            for component in strongly_connected_components(G)
+        )
+    return 1 - cyclic_weight / G.size(weight)
 
 
 # ---------------------------------------------------------------------------

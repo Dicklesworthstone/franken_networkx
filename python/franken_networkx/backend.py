@@ -136,6 +136,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "closeness_vitality",
         "eigenvector_centrality",
         "katz_centrality",
+        "capacity_scaling",
+        "flow_hierarchy",
         "dijkstra_path",
         "dijkstra_path_length",
         "bellman_ford_path",
@@ -155,7 +157,9 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
 )
 _LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "distance", "heuristic", "key")
 _SPECTRAL_INPUT_ALGORITHMS = frozenset({"eigenvector_centrality", "katz_centrality"})
-_SPECTRAL_CALL_INPUTS = ContextVar("franken_networkx_spectral_inputs", default=None)
+_FLOW_INPUT_ALGORITHMS = frozenset({"capacity_scaling", "flow_hierarchy"})
+_PROVIDER_INPUT_ALGORITHMS = _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS
+_PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
 
 
 def _spectral_dispatch_uses_live_providers(name, graph, arguments):
@@ -369,6 +373,8 @@ _SUPPORTED_ALGORITHMS = {
     # Flow
     "maximum_flow": fnx.maximum_flow,
     "maximum_flow_value": fnx.maximum_flow_value,
+    "capacity_scaling": fnx.capacity_scaling,
+    "flow_hierarchy": fnx.flow_hierarchy,
     "minimum_cut": fnx.minimum_cut,
     "minimum_cut_value": fnx.minimum_cut_value,
     # Distance / measures
@@ -1290,11 +1296,11 @@ class BackendInterface:
         wrapper removes this temporary cache entry before invoking the owned
         traversal, so unrelated algorithms still receive native conversions.
         """
-        pending_spectral = _SPECTRAL_CALL_INPUTS.get()
+        pending_provider = _PROVIDER_CALL_INPUTS.get()
         if name in _COMPONENT_ITERATORS or (
-            pending_spectral is not None
-            and pending_spectral[0] == name
-            and pending_spectral[1]() is G
+            pending_provider is not None
+            and pending_provider[0] == name
+            and pending_provider[1]() is G
         ):
             return G
         converted = _nx_to_fnx_for_dispatch(
@@ -1355,13 +1361,15 @@ class BackendInterface:
             _DISJOINT_CALL_INPUTS.set((name, inputs))
         elif name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
             _refresh_dispatch_source(bound.arguments.get("G"))
-            if name in _SPECTRAL_INPUT_ALGORITHMS:
+            if name in _PROVIDER_INPUT_ALGORITHMS:
                 bound.apply_defaults()
                 graph = bound.arguments.get("G")
-                if _spectral_dispatch_uses_live_providers(name, graph, bound.arguments):
-                    _SPECTRAL_CALL_INPUTS.set((name, weakref.ref(graph)))
+                if name in _FLOW_INPUT_ALGORITHMS or _spectral_dispatch_uses_live_providers(
+                    name, graph, bound.arguments
+                ):
+                    _PROVIDER_CALL_INPUTS.set((name, weakref.ref(graph)))
                 else:
-                    _SPECTRAL_CALL_INPUTS.set(None)
+                    _PROVIDER_CALL_INPUTS.set(None)
         return True
 
     @staticmethod
@@ -1430,13 +1438,13 @@ class BackendInterface:
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
-                    if name in _COMPONENT_ITERATORS or name in _SPECTRAL_INPUT_ALGORITHMS:
+                    if name in _COMPONENT_ITERATORS or name in _PROVIDER_INPUT_ALGORITHMS:
                         graph = args[0] if args else kwargs.get("G")
                         _discard_component_passthrough(graph)
-                    if name in _SPECTRAL_INPUT_ALGORITHMS:
-                        pending_spectral = _SPECTRAL_CALL_INPUTS.get()
-                        if pending_spectral is not None and pending_spectral[0] == name:
-                            _SPECTRAL_CALL_INPUTS.set(None)
+                    if name in _PROVIDER_INPUT_ALGORITHMS:
+                        pending_provider = _PROVIDER_CALL_INPUTS.get()
+                        if pending_provider is not None and pending_provider[0] == name:
+                            _PROVIDER_CALL_INPUTS.set(None)
                     if disjoint_inputs is not None:
                         # hasattr probes may look up and discard wrappers.
                         # Capture before conversion, but consume only on call.
@@ -1456,7 +1464,7 @@ class BackendInterface:
                         source = (
                             source_ref() if isinstance(source_ref, weakref.ReferenceType) else None
                         )
-                        if name in _SPECTRAL_INPUT_ALGORITHMS and not isinstance(
+                        if name in _PROVIDER_INPUT_ALGORITHMS and not isinstance(
                             graph, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
                         ):
                             source = graph
@@ -1474,13 +1482,13 @@ class BackendInterface:
                                 )
                                 for parameter in ("weight", "distance")
                             )
-                            uses_live_spectral = (
+                            uses_live_provider = name in _FLOW_INPUT_ALGORITHMS or (
                                 name in _SPECTRAL_INPUT_ALGORITHMS
                                 and _spectral_dispatch_uses_live_providers(
                                     name, source, bound.arguments
                                 )
                             )
-                            has_callbacks = has_callbacks or uses_live_spectral
+                            has_callbacks = has_callbacks or uses_live_provider
                             reads_supplied_distances = (
                                 name == "eccentricity"
                                 and bound.arguments.get("sp") is not None

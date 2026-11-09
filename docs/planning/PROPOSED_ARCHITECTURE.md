@@ -177,6 +177,29 @@ advancement and select their existing owned engines for public protocols;
 native selector admission is checked against concrete storage at that point.
 No new graph cache or duplicate shortest-path/spanning algorithm is added.
 
+Negative-cycle witnesses reuse the same live Bellman-Ford relaxation engine
+as weighted path queries. Only predecessor reconstruction remains specific
+to the witness API; no cached weighted-row copy or second detector is kept.
+
+Closeness, harmonic centrality, Wiener index and closeness vitality share
+that weighted-query admission before graph coercion. Their owned distance
+consumers retain the reference copy or view boundaries, including directed
+closeness's reverse copy and vitality's removed-node subgraph views.
+
+Iterative spectral wrappers admit native and sparse arithmetic before
+coercion and retain their existing owned iterations for observable graph,
+vector and numeric providers. Eigenvector and Katz keep their distinct
+weight-selector semantics rather than sharing a lossy matrix interpretation.
+
+Flow hierarchy retains graph-size and induced-component-size operations
+when an edge-only aggregate would change floating arithmetic or custom
+provider behavior. Its component traversal remains the existing owned SCC
+implementation.
+Filtered and reverse views implement weighted size through their public
+degree traversal, preserving accumulation order and exact numeric domains.
+Backend dispatch exposes both capacity scaling and flow hierarchy through
+the same pre-conversion provider boundary used by iterative ranking calls.
+
 Graph-source constructors admit native absorb only for authoritative native
 storage. The public-protocol route uses the existing owned adjacency decoder
 for every source/target graph-kind combination, then applies shallow graph

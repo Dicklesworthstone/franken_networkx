@@ -26,6 +26,8 @@ could pass against a broken kernel and no one would know.
 
 from __future__ import annotations
 
+from decimal import Decimal
+from fractions import Fraction
 import random
 
 import networkx as nx
@@ -142,3 +144,61 @@ def test_a_weightless_edge_contributes_int_one(class_name):
         graph.add_edge("a", "c")
         graph.add_edge("d", "e")
     assert repr(got.size(weight="weight")) == repr(want.size(weight="weight"))
+
+
+VIEW_CASES = [
+    (class_name, view_kind)
+    for class_name in CLASSES
+    for view_kind in ("subgraph", "edge_subgraph", "filtered")
+] + [
+    (class_name, view_kind)
+    for class_name in ("DiGraph", "MultiDiGraph")
+    for view_kind in ("reverse", "reverse-subgraph")
+]
+
+
+def _weighted_size_view(module, class_name, view_kind, values):
+    graph = getattr(module, class_name)()
+    for (u, v), value in zip([(0, 1), (1, 0), (1, 2), (2, 1), (2, 2)], values):
+        graph.add_edge(u, v, weight=value)
+    graph.add_node("isolate")
+    if view_kind == "subgraph":
+        return graph.subgraph([0, 1, 2])
+    if view_kind == "edge_subgraph":
+        edges = list(graph.edges(keys=True)) if graph.is_multigraph() else list(graph.edges())
+        return graph.edge_subgraph(edges)
+    if view_kind == "filtered":
+        return module.subgraph_view(graph, filter_node=lambda node: node != "isolate")
+    reverse = graph.reverse(copy=False)
+    return reverse if view_kind == "reverse" else reverse.subgraph([0, 1, 2])
+
+
+@pytest.mark.parametrize("class_name,view_kind", VIEW_CASES)
+@pytest.mark.parametrize(
+    "values",
+    [
+        [1e16, 1, 1, -1e16, 3],
+        [Fraction(1, 3), Fraction(2, 3), Fraction(1, 7), Fraction(2, 7), Fraction(1, 5)],
+        [Decimal("0.1"), Decimal("0.2"), Decimal("0.3"), Decimal("0.4"), Decimal("0.5")],
+    ],
+    ids=["cancellation", "fraction", "decimal"],
+)
+def test_weighted_view_size_preserves_degree_arithmetic_and_numeric_type(class_name, view_kind, values):
+    got = _weighted_size_view(fnx, class_name, view_kind, values).size(weight="weight")
+    want = _weighted_size_view(nx, class_name, view_kind, values).size(weight="weight")
+    assert type(got) is type(want)
+    assert got == want
+
+
+@pytest.mark.parametrize("class_name,view_kind", VIEW_CASES)
+def test_weighted_view_size_keeps_arithmetic_error_boundary(class_name, view_kind):
+    values = [10**400, 1.5, 3, -10**400, 2]
+
+    def outcome(module):
+        try:
+            value = _weighted_size_view(module, class_name, view_kind, values).size(weight="weight")
+            return type(value), repr(value)
+        except Exception as exc:
+            return type(exc), exc.args
+
+    assert outcome(fnx) == outcome(nx)
