@@ -228,3 +228,168 @@ def test_extended_precision_sparse_import_and_roundtrip(cls, format, literal, co
         nx.to_scipy_sparse_array(original, format="csr"),
         fnx.to_scipy_sparse_array(graph, format="csr"),
     )
+
+
+def _edge_protocol_graph(cls, weight, trace):
+    """Make subscription and the later self-loop get observably different."""
+    graph = getattr(nx, cls)()
+    graph.add_nodes_from(["source", "target", "isolate"])
+
+    class Correction(float):
+        def __new__(cls, value, edge):
+            result = super().__new__(cls, value)
+            result.edge = edge
+            return result
+
+        def __neg__(self):
+            trace.append(("neg", self.edge))
+            return float.__neg__(self)
+
+    class EdgeData(dict):
+        def __init__(self, edge, value):
+            super().__init__({weight: value})
+            self.edge = edge
+
+        def __contains__(self, key):
+            trace.append(("contains", self.edge, key))
+            return dict.__contains__(self, key)
+
+        def __getitem__(self, key):
+            trace.append(("getitem", self.edge, key))
+            return dict.__getitem__(self, key)
+
+        def get(self, key, default=None):
+            trace.append(("get", self.edge, key))
+            return Correction(dict.get(self, key, default) + 0.25, self.edge)
+
+    edges = [
+        ("source", "target", 4.0),
+        ("source", "source", 2.0),
+        ("target", "target", 3.0),
+    ]
+    if graph.is_multigraph():
+        edges.extend([("source", "source", 1.25), ("target", "target", 0.75)])
+    for edge_id, (u, v, value) in enumerate(edges):
+        if graph.is_multigraph():
+            key = graph.add_edge(u, v)
+            attrs = EdgeData(edge_id, value)
+            graph._adj[u][v][key] = attrs
+            if graph.is_directed():
+                graph._pred[v][u][key] = attrs
+            else:
+                graph._adj[v][u][key] = attrs
+        else:
+            graph.add_edge(u, v)
+            attrs = EdgeData(edge_id, value)
+            graph._adj[u][v] = attrs
+            if graph.is_directed():
+                graph._pred[v][u] = attrs
+            else:
+                graph._adj[v][u] = attrs
+    return graph
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("weight", ["weight", None, ("cost", 0)])
+@pytest.mark.parametrize("format", ["csr", "coo"])
+def test_sparse_export_preserves_edge_and_selfloop_read_protocol(cls, weight, format):
+    expected_trace, actual_trace = [], []
+    original = _edge_protocol_graph(cls, weight, expected_trace)
+    graph = _edge_protocol_graph(cls, weight, actual_trace)
+    expected = nx.to_scipy_sparse_array(original, weight=weight, format=format)
+    if format == "coo":
+        actual = fnx.to_scipy_sparse_array(graph, weight=weight, format=format)
+    else:
+        # PageRank uses this owned exporter directly so live providers are not
+        # consumed by unrelated graph conversion or native-route probing.
+        actual = fnx._sparse_array_from_edge_values(
+            graph, {node: i for i, node in enumerate(graph)}, None, weight, format
+        )
+    _assert_sparse_equal(expected, actual)
+    assert actual_trace == expected_trace
+    assert any(event[0] == "getitem" for event in actual_trace)
+    if graph.is_directed():
+        assert not any(event[0] in ("get", "neg") for event in actual_trace)
+    else:
+        gets = [i for i, event in enumerate(actual_trace) if event[0] == "get"]
+        negations = [i for i, event in enumerate(actual_trace) if event[0] == "neg"]
+        assert len(gets) == len(negations) == (4 if graph.is_multigraph() else 2)
+        assert max(gets) < min(negations)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("weight", ["weight", None, ("cost", 0)])
+def test_sparse_export_preserves_foreign_edge_provider_arguments(cls, weight):
+    def build(trace):
+        graph = getattr(nx, cls)()
+        graph.add_edge("source", "target")
+        if graph.is_multigraph():
+            graph["source"]["target"][0][weight] = 7
+        else:
+            graph["source"]["target"][weight] = 7
+        edge_view = graph.edges
+
+        def edges(nbunch=None, data=False, *, default=None):
+            trace.append((nbunch, data, default))
+            return edge_view(nbunch=nbunch, data=data, default=default)
+
+        graph.edges = edges
+        return graph
+
+    expected_trace, actual_trace = [], []
+    original, graph = build(expected_trace), build(actual_trace)
+    _assert_sparse_equal(
+        nx.to_scipy_sparse_array(original, weight=weight, format="coo"),
+        fnx.to_scipy_sparse_array(graph, weight=weight, format="coo"),
+    )
+    assert actual_trace == expected_trace == [(None, weight, 1)]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("weight", [True, False, np.bool_(True), np.bool_(False)])
+@pytest.mark.parametrize("has_edges", [False, True])
+def test_sparse_logical_views_preserve_boolean_selector_identity(cls, weight, has_edges):
+    original, graph = _graphs(cls, [7] if has_edges else [], weight=True, self_loop=True)
+    for item in (original, graph):
+        if has_edges:
+            attrs = item["source"]["source"]
+            if item.is_multigraph():
+                attrs = attrs[0]
+            attrs[False] = 11
+    original = original.subgraph(list(original))
+    graph = graph.subgraph(list(graph))
+    try:
+        expected = nx.to_scipy_sparse_array(
+            original, dtype=float, weight=weight, format="coo"
+        )
+    except (TypeError, ValueError) as expected_error:
+        with pytest.raises(type(expected_error)) as actual_error:
+            fnx._sparse_array_from_edge_values(
+                graph, {node: i for i, node in enumerate(graph)}, float, weight, "coo"
+            )
+        assert str(actual_error.value) == str(expected_error)
+    else:
+        _assert_sparse_equal(
+            expected,
+            fnx._sparse_array_from_edge_values(
+                graph, {node: i for i, node in enumerate(graph)}, float, weight, "coo"
+            ),
+        )
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("weight", ["weight", None, ("cost", 0)])
+def test_pagerank_preserves_sparse_selfloop_read_protocol(cls, weight, monkeypatch):
+    expected_trace, actual_trace = [], []
+    original = _edge_protocol_graph(cls, weight, expected_trace)
+    graph = _edge_protocol_graph(cls, weight, actual_trace)
+    expected = nx.pagerank(original, weight=weight)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("live PageRank must use its owned solver on the original graph")
+
+    monkeypatch.setattr(fnx, "_coerce_arg_to_fnx_graph", forbidden)
+    monkeypatch.setattr(nx, "pagerank", forbidden)
+    actual = fnx.pagerank(graph, weight=weight)
+    assert actual == expected
+    assert actual_trace == expected_trace

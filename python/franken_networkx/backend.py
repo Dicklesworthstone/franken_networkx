@@ -333,6 +333,12 @@ def _pagerank_dispatch_uses_live_providers(graph, arguments):
         or type(graph._adj) is not dict
     ):
         return True
+    if type(graph.graph) is not dict or any(
+        type(attrs) is not dict for attrs in graph._node.values()
+    ):
+        # Matrix construction does not read graph or node metadata. Preserve
+        # custom mappings here so conversion cannot copy or invoke them.
+        return True
     if "edges" in storage:
         edge_view_type = {
             nx.Graph: nx.classes.reportviews.EdgeView,

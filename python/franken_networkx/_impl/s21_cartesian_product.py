@@ -1506,6 +1506,7 @@ def _pagerank_uses_python_graph(G, weight, max_iter, alpha, tol):
     if (
         type(G) not in _CONCRETE_FNX_GRAPH_TYPES
         or _has_networkx_private_storage(G)
+        or G.edge_attr_dict_factory is not dict
         or _pagerank_has_assigned_edge_provider(G)
         or type(max_iter) not in (int, bool)
         or type(alpha) not in (int, float, bool)

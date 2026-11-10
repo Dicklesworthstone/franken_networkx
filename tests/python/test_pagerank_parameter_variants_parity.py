@@ -728,6 +728,210 @@ def test_generic_pagerank_reads_held_edge_mutations_through_views(
         _assert_matrix_rank_exact(fnx.pagerank(fg, **kwargs), oracle)
 
 
+def _rank_admission_graph(graph_class, library=nx):
+    graph = getattr(library, graph_class)()
+    graph.add_nodes_from(range(5))
+    graph.add_weighted_edges_from([(0, 1, 2), (0, 2, 1), (2, 1, 3), (1, 3, 1), (3, 0, 4)])
+    return graph
+
+
+def _rank_provider_attrs(graph):
+    return graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+
+
+def _rank_provider_call(monkeypatch, graph, entrypoint):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if entrypoint == "warm":
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("PageRank must admit providers before graph conversion")
+
+    monkeypatch.setattr(fnx_backend, "_nx_to_fnx_for_dispatch", forbidden)
+    if entrypoint != "native":
+        monkeypatch.setattr(fnx, "_coerce_arg_to_fnx_graph", forbidden)
+    if entrypoint in ("direct", "native"):
+        return lambda **kwargs: fnx.pagerank(graph, **kwargs)
+    return lambda **kwargs: nx.pagerank(graph, backend="franken_networkx", **kwargs)
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "native", "cold", "warm"])
+def test_pagerank_iteration_provider_runs_after_matrix_and_vectors(
+    monkeypatch, graph_class, entrypoint
+):
+    reference = _rank_admission_graph(graph_class)
+    graph = _rank_admission_graph(graph_class, fnx if entrypoint == "native" else nx)
+
+    def providers(owner):
+        events = []
+
+        class Start:
+            def get(self, node, default):
+                events.append(("nstart", node, _rank_provider_attrs(owner)["weight"]))
+                return node + 1
+
+        class Iterations:
+            def __index__(self):
+                events.append(("max_iter", _rank_provider_attrs(owner)["weight"]))
+                _rank_provider_attrs(owner)["weight"] = 19
+                return 250
+
+        return {"nstart": Start(), "max_iter": Iterations(), "tol": 1.0e-10}, events
+
+    expected_kwargs, expected_events = providers(reference)
+    kwargs, events = providers(graph)
+    expected = nx.pagerank(reference, backend="networkx", **expected_kwargs)
+    actual = _rank_provider_call(monkeypatch, graph, entrypoint)(**kwargs)
+    _assert_matrix_rank_exact(actual, expected)
+    assert events == expected_events
+    assert _rank_provider_attrs(graph)["weight"] == 19
+    if entrypoint in ("cold", "warm"):
+        assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "cold", "warm"])
+@pytest.mark.parametrize("parameter", ["personalization", "nstart", "dangling"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_pagerank_vector_providers_invalidate_conversion_on_return_and_error(
+    monkeypatch, graph_class, entrypoint, parameter, fails
+):
+    reference = _rank_admission_graph(graph_class)
+    graph = _rank_admission_graph(graph_class)
+
+    def provider(owner):
+        events = []
+
+        class Vector(dict):
+            def get(self, node, default):
+                events.append((node, _rank_provider_attrs(owner)["weight"]))
+                _rank_provider_attrs(owner)["weight"] = 23
+                if fails and node == 2:
+                    raise ValueError("rank provider failed")
+                return node + 1
+
+        return Vector(), events
+
+    expected_vector, expected_events = provider(reference)
+    vector, events = provider(graph)
+    expected = _matrix_outcome(nx, reference, {parameter: expected_vector, "backend": "networkx"})
+    call = _rank_provider_call(monkeypatch, graph, entrypoint)
+    try:
+        actual = ("return", call(**{parameter: vector}))
+    except Exception as exc:
+        actual = ("raise", type(exc).__name__, str(exc))
+    assert actual == expected
+    assert events == expected_events
+    assert _rank_provider_attrs(graph)["weight"] == 23
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "native", "cold", "warm"])
+def test_pagerank_literal_none_weights_survive_dispatch_and_held_mutations(
+    monkeypatch, graph_class, entrypoint
+):
+    reference = _rank_admission_graph(graph_class)
+    graph = _rank_admission_graph(graph_class, fnx if entrypoint == "native" else nx)
+    held = _rank_provider_attrs(graph)
+    held[None] = 13
+    call = _rank_provider_call(monkeypatch, graph, entrypoint)
+    for value in (13, 2, 29):
+        held[None] = _rank_provider_attrs(reference)[None] = value
+        expected = nx.pagerank(reference, weight=None, backend="networkx")
+        _assert_matrix_rank_exact(call(weight=None), expected)
+    if entrypoint in ("cold", "warm"):
+        assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "native", "cold", "warm"])
+@pytest.mark.parametrize("failure", ["empty", "zero_personalization", "bad_edge"])
+def test_pagerank_preserves_validation_before_iteration_limit(
+    monkeypatch, graph_class, entrypoint, failure
+):
+    reference = _rank_admission_graph(graph_class)
+    graph = _rank_admission_graph(graph_class, fnx if entrypoint == "native" else nx)
+    kwargs = {"max_iter": 1.5}
+    if failure == "empty":
+        graph.clear()
+        reference.clear()
+    elif failure == "zero_personalization":
+        kwargs["personalization"] = {}
+    else:
+        _rank_provider_attrs(graph)["weight"] = "not a number"
+        _rank_provider_attrs(reference)["weight"] = "not a number"
+    expected = _matrix_outcome(nx, reference, dict(kwargs, backend="networkx"))
+    call = _rank_provider_call(monkeypatch, graph, entrypoint)
+    try:
+        actual = ("return", call(**kwargs))
+    except Exception as exc:
+        actual = ("raise", type(exc).__name__, str(exc))
+    assert actual == expected
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "cold", "warm"])
+def test_pagerank_preserves_custom_edge_data_reads(monkeypatch, graph_class, entrypoint):
+    def build():
+        graph = _rank_admission_graph(graph_class)
+        events = []
+
+        class EdgeData(dict):
+            def get(self, key, default=None):
+                events.append((key, default))
+                return super().get(key, default) + 7
+
+        attrs = EdgeData(_rank_provider_attrs(graph))
+        if graph.is_multigraph():
+            graph._adj[0][1][0] = attrs
+        else:
+            graph._adj[0][1] = attrs
+        reverse = graph._pred if graph.is_directed() else graph._adj
+        if graph.is_multigraph():
+            reverse[1][0][0] = attrs
+        else:
+            reverse[1][0] = attrs
+        return graph, events
+
+    reference, expected_events = build()
+    graph, events = build()
+    expected = nx.pagerank(reference, backend="networkx")
+    call = _rank_provider_call(monkeypatch, graph, entrypoint)
+    _assert_matrix_rank_exact(call(), expected)
+    assert events == expected_events
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "cold", "warm"])
+@pytest.mark.parametrize("location", ["graph", "node"])
+def test_pagerank_does_not_copy_unrelated_metadata(
+    monkeypatch, graph_class, entrypoint, location
+):
+    reference = _rank_admission_graph(graph_class)
+    graph = _rank_admission_graph(graph_class)
+    # Prime the cache while metadata is ordinary; its later replacement must
+    # select the original graph without inspecting or copying those values.
+    call = _rank_provider_call(monkeypatch, graph, entrypoint)
+
+    class Metadata(dict):
+        def items(self):
+            raise AssertionError("PageRank does not read unrelated metadata")
+
+    for owner in (reference, graph):
+        if location == "graph":
+            owner.graph = Metadata(note="unused by the matrix")
+        else:
+            owner._node[0] = Metadata(note="unused by the matrix")
+
+    expected = nx.pagerank(reference, backend="networkx")
+    _assert_matrix_rank_exact(call(), expected)
+    if entrypoint in ("cold", "warm"):
+        assert not graph.__networkx_cache__.get("backends")
+
+
 @pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("provenance", ["native", "networkx", "subgraph"])
 @pytest.mark.parametrize("personalized", [False, True])

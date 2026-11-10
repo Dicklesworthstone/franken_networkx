@@ -698,14 +698,34 @@ def _sparse_multigraph_sums_are_exact(G, weight):
 
 def _sparse_array_from_edge_values(G, index, dtype, weight, format):
     """Let SciPy infer/cast each original value before reducing duplicates."""
+    import networkx as nx
     import scipy.sparse
 
     rows, cols, values, loops = [], [], [], []
     directed = G.is_directed()
-    if weight is None:
-        # The simple native edge view reserves data=None for unit values.
-        # Read the live dictionaries to preserve an actual None attribute key.
-        edges = ((u, v, attrs.get(None, 1)) for u, v, attrs in G.edges(data=True))
+    native_storage = (
+        type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+        and not _has_networkx_private_storage(G)
+        and G.edge_attr_dict_factory is dict
+    )
+    if (
+        not isinstance(G, nx.Graph)
+        and (weight is None or not native_storage)
+        and weight is not True
+        and weight is not False
+    ):
+        # Resolve selectors against the actual dictionaries on logical views
+        # and custom storage. Their edge-data adapters may only project string
+        # keys. NetworkX's edge view uses containment and subscription here,
+        # rather than get(), whose behavior can differ on custom mappings.
+        # Literal None keys need this path even on concrete native graphs.
+        # True/False retain the public edge view's tuple-shape semantics.
+        # Foreign graph providers already implement selector projection and
+        # must observe the original data/default arguments instead.
+        edges = (
+            (u, v, attrs[weight] if weight in attrs else 1)
+            for u, v, attrs in G.edges(data=True)
+        )
     else:
         edges = G.edges(data=weight, default=1)
     for u, v, value in edges:
@@ -722,6 +742,37 @@ def _sparse_array_from_edge_values(G, index, dtype, weight, format):
         rows.extend(cols)
         cols.extend(rows[:edge_count])
         values.extend(values)
+        if not native_storage:
+            # NetworkX reads self-loop data again after the main edge pass.
+            # This pass uses get(), unlike the edge view's membership and
+            # subscription protocol. Capture all corrections before applying
+            # unary minus, since either read or arithmetic can have effects.
+            if G.is_multigraph():
+                loop_data = (
+                    (node, node, attrs)
+                    for node, neighbors in G._adj.items()
+                    if node in neighbors
+                    for attrs in neighbors[node].values()
+                )
+            else:
+                loop_data = (
+                    (node, node, neighbors[node])
+                    for node, neighbors in G._adj.items()
+                    if node in neighbors
+                )
+            if weight is True:
+                correction_edges = loop_data
+            elif weight is False:
+                correction_edges = ((u, v) for u, v, _ in loop_data)
+            else:
+                correction_edges = (
+                    (u, v, attrs.get(weight, 1)) for u, v, attrs in loop_data
+                )
+            loops = [
+                (index[u], value)
+                for u, v, value in correction_edges
+                if u in index and v in index
+            ]
         # Keep the correction entries themselves: their dtype, overflow,
         # non-finite behavior, and public COO representation are observable.
         for row, value in loops:
