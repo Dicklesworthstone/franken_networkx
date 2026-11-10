@@ -155,3 +155,205 @@ def test_structuralholes_with_parallel_edges_match_networkx(cls, weight):
                 expected = nx.local_constraint(graph_nx, u, v, weight=weight)
                 actual = fnx.local_constraint(graph_fnx, u, v, weight=weight)
                 assert _same(actual, expected), ("local_constraint", u, v)
+
+
+def _structural_graph(module, cls, weight="cost", value_type=int):
+    graph = getattr(module, cls)()
+    graph.add_nodes_from(range(7))
+    graph.add_edges_from(
+        (u, v, {weight: value_type(value)})
+        for u, v, value in [
+            (0, 0, 2), (0, 1, 3), (1, 0, 5), (0, 2, 7),
+            (1, 2, 2), (2, 3, 1), (3, 1, 4), (4, 4, 6),
+        ]
+    )
+    return graph
+
+
+def _observable_result(call):
+    """Retain result order, numeric types and public error wording."""
+    import math
+
+    try:
+        answer = call()
+    except Exception as error:
+        return ("error", type(error).__name__, str(error))
+    items = answer.items() if isinstance(answer, dict) else [(None, answer)]
+    return [
+        (node, type(value), "nan" if isinstance(value, float) and math.isnan(value) else value)
+        for node, value in items
+    ]
+
+
+def _forbid_networkx_fallback(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("structural-hole analysis must use the owned implementation")
+
+    monkeypatch.setattr(fnx, "_call_networkx_submodule_for_parity", fail)
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, "cost", 0, ("cost",)])
+@pytest.mark.parametrize("container", [list, tuple, iter])
+@pytest.mark.parametrize("name", ["constraint", "effective_size"])
+def test_owned_structural_holes_match_scalar_contract(cls, weight, container, name, monkeypatch):
+    ng = _structural_graph(nx, cls, weight)
+    fg = _structural_graph(fnx, cls, weight)
+    requested = [3, 0, 4, 6, 1, 3]
+    expected = _observable_result(
+        lambda: getattr(nx, name)(ng, nodes=container(requested), weight=weight)
+    )
+    _forbid_networkx_fallback(monkeypatch)
+    actual = _observable_result(
+        lambda: getattr(fnx, name)(fg, nodes=container(requested), weight=weight)
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, "cost"])
+@pytest.mark.parametrize("name", ["constraint", "effective_size"])
+@pytest.mark.parametrize("missing", ["numpy", "scipy"])
+def test_owned_structural_holes_without_optional_dependencies(
+    cls, weight, name, missing, monkeypatch
+):
+    import builtins
+
+    fg = _structural_graph(fnx, cls, weight)
+    ng = _structural_graph(nx, cls, weight)
+    original_import = builtins.__import__
+
+    def unavailable(module, *args, **kwargs):
+        if module == missing or module.startswith(missing + "."):
+            raise ImportError("optional dependency unavailable")
+        return original_import(module, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", unavailable)
+    expected = _observable_result(lambda: getattr(nx, name)(ng, weight=weight))
+    _forbid_networkx_fallback(monkeypatch)
+    assert _observable_result(lambda: getattr(fnx, name)(fg, weight=weight)) == expected
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("name", ["constraint", "effective_size"])
+@pytest.mark.parametrize("requested", [[], ["missing"], [[]]])
+def test_empty_and_invalid_structural_hole_subsets(cls, name, requested):
+    fg, ng = getattr(fnx, cls)(), getattr(nx, cls)()
+    assert _observable_result(
+        lambda: getattr(fnx, name)(fg, nodes=requested)
+    ) == _observable_result(lambda: getattr(nx, name)(ng, nodes=requested))
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("kind", ["fraction", "decimal", "huge_integer"])
+@pytest.mark.parametrize("name", PUBLIC_FUNCTIONS)
+def test_structural_holes_preserve_exact_numeric_domains(cls, kind, name, monkeypatch):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    value_type = {
+        "fraction": lambda value: Fraction(value, 7),
+        "decimal": Decimal,
+        "huge_integer": lambda value: value * 10**400,
+    }[kind]
+    fg = _structural_graph(fnx, cls, value_type=value_type)
+    ng = _structural_graph(nx, cls, value_type=value_type)
+    args = (0, 1) if name == "local_constraint" else ()
+    kwargs = {"weight": "cost"}
+    if name != "local_constraint":
+        kwargs["nodes"] = [3, 0, 1, 4, 6]
+    expected = _observable_result(lambda: getattr(nx, name)(ng, *args, **kwargs))
+    _forbid_networkx_fallback(monkeypatch)
+    assert _observable_result(lambda: getattr(fnx, name)(fg, *args, **kwargs)) == expected
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("name", ["constraint", "effective_size"])
+@pytest.mark.parametrize("backend", [False, True])
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_structural_holes_consume_live_subset_iterators(cls, name, backend, warm_cache):
+    def run(module, dispatched):
+        graph = _structural_graph(module, cls)
+        if dispatched and warm_cache:
+            nx.shortest_path_length(graph, 0, 3, backend="franken_networkx")
+
+        def nodes():
+            yield 0
+            graph.add_edge(0, 5, cost=11)
+            yield 1
+            graph.remove_edge(1, 2)
+            yield 0
+            yield 3
+
+        options = {"backend": "franken_networkx"} if dispatched else {}
+        return _observable_result(
+            lambda: getattr(module, name)(graph, nodes=nodes(), weight="cost", **options)
+        )
+
+    expected = run(nx, False)
+    assert run(nx if backend else fnx, backend) == expected
+
+
+@pytest.mark.parametrize("name", PUBLIC_FUNCTIONS)
+@pytest.mark.parametrize("backend", [False, True])
+def test_structural_holes_keep_numeric_callbacks_live(name, backend):
+    def run(module, dispatched):
+        graph = module.DiGraph()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 0, 3), (0, 2, 4), (2, 1, 5)])
+        events = []
+
+        class MutatingWeight(float):
+            def __add__(self, other):
+                events.append(("add", float(other)))
+                if len(events) == 1:
+                    graph[0][2]["weight"] = 13
+                return float(self) + other
+
+            def __radd__(self, other):
+                events.append(("radd", float(other)))
+                if len(events) == 1:
+                    graph[0][2]["weight"] = 13
+                return other + float(self)
+
+        graph[0][1]["weight"] = MutatingWeight(2)
+        args = (0, 1) if name == "local_constraint" else ()
+        kwargs = {"weight": "weight"}
+        if name != "local_constraint":
+            kwargs["nodes"] = [0, 1]
+        if dispatched:
+            kwargs["backend"] = "franken_networkx"
+        result = _observable_result(lambda: getattr(module, name)(graph, *args, **kwargs))
+        return result, events, graph[0][2]["weight"]
+
+    expected = run(nx, False)
+    assert expected[1], "the fixture must exercise observable numeric operations"
+    assert run(nx if backend else fnx, backend) == expected
+
+
+@pytest.mark.parametrize("backend", [False, True])
+def test_effective_size_preserves_caller_ego_graph_providers(backend):
+    def run(dispatched):
+        events = []
+
+        class GraphWithSize(nx.Graph):
+            def subgraph(self, nodes):
+                events.append(("subgraph", tuple(nodes)))
+                return super().subgraph(nodes)
+
+            def size(self, weight=None):
+                events.append(("size", tuple(self)))
+                return 2 * super().size(weight=weight)
+
+        graph = GraphWithSize([(0, 1), (1, 2), (2, 0), (2, 3)])
+        if dispatched is None:
+            answer = nx.effective_size(graph, nodes=[0, 2])
+        elif dispatched:
+            answer = nx.effective_size(graph, nodes=[0, 2], backend="franken_networkx")
+        else:
+            answer = fnx.effective_size(graph, nodes=[0, 2])
+        return answer, events
+
+    expected = run(None)
+    assert expected[0][0] == 0, "the subclass size must affect the ego formula"
+    assert run(backend) == expected

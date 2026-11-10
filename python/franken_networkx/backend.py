@@ -133,6 +133,9 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "barycenter",
         "closeness_centrality",
         "harmonic_centrality",
+        "constraint",
+        "local_constraint",
+        "effective_size",
         "wiener_index",
         "closeness_vitality",
         "eigenvector_centrality",
@@ -177,8 +180,12 @@ _FLOW_INPUT_ALGORITHMS = frozenset(
 _CONNECTIVITY_INPUT_ALGORITHMS = frozenset(
     {"node_connectivity", "edge_connectivity", "minimum_node_cut", "minimum_edge_cut"}
 )
+_STRUCTURAL_HOLES_INPUT_ALGORITHMS = frozenset(
+    {"constraint", "local_constraint", "effective_size"}
+)
 _PROVIDER_INPUT_ALGORITHMS = (
     _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
+    | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
     | {"johnson"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -190,6 +197,11 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         return True
     if name == "johnson":
         return _johnson_dispatch_uses_live_providers(graph, arguments.get("weight"))
+    if name in _STRUCTURAL_HOLES_INPUT_ALGORITHMS:
+        # A requested-node iterator or edge-data provider can change later
+        # ego networks. The owned scalar and sparse routes select their own
+        # read boundary; dispatch must not replace it with a cached graph.
+        return True
     if name in _CONNECTIVITY_INPUT_ALGORITHMS:
         # A solver can read or mutate the original graph while the algorithm
         # constructs its auxiliary or selects later source/target pairs.
@@ -421,6 +433,9 @@ _SUPPORTED_ALGORITHMS = {
     "degree_centrality": fnx.degree_centrality,
     "closeness_centrality": fnx.closeness_centrality,
     "harmonic_centrality": fnx.harmonic_centrality,
+    "constraint": fnx.constraint,
+    "local_constraint": fnx.local_constraint,
+    "effective_size": fnx.effective_size,
     "katz_centrality": fnx.katz_centrality,
     "betweenness_centrality": fnx.betweenness_centrality,
     "edge_betweenness_centrality": fnx.edge_betweenness_centrality,

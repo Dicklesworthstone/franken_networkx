@@ -1224,7 +1224,6 @@ def _structural_holes_constraint_matrix(G, weight):
     over the native ``adjacency_matrix`` (byte-identical sparse to nx's)."""
     import numpy as _np
 
-    G = _coerce_arg_to_fnx_graph(G)
     P = adjacency_matrix(G, weight=weight).astype(float)
     mutual_weights = P + P.T
     sum_mutual_weights = mutual_weights.sum(axis=1)
@@ -1243,7 +1242,6 @@ def _structural_holes_effective_size_matrix(G, weight):
     over the native ``adjacency_matrix``."""
     import numpy as _np
 
-    G = _coerce_arg_to_fnx_graph(G)
     P = adjacency_matrix(G, weight=weight).astype(float)
     mutual_weights1 = P + P.T
     mutual_weights2 = mutual_weights1.copy()
@@ -1260,112 +1258,90 @@ def _structural_holes_effective_size_matrix(G, weight):
     return dict(zip(G, effective_size.tolist()))
 
 
+def _structural_holes_has_scipy():
+    """Select the optional matrix semantics without requiring SciPy to run."""
+    try:
+        import numpy
+        import scipy
+    except Exception:
+        # A broken optional binary installation can also raise OSError.
+        return False
+    return True
+
+
+def _structural_holes_has_unit_weights(G, weight):
+    """Recognize ordinary native unit-weight reads without a topology walk."""
+    if (
+        weight is not None
+        or type(G) not in (Graph, DiGraph)
+        or _has_networkx_private_storage(G)
+    ):
+        return False
+    # Scalar mutual weights read data.get(None, 1), even when weight=None.
+    # The native mirror probe avoids materializing every edge dict.
+    has_none_key = (
+        _native_has_none_edge_attr_key(G)
+        if _native_has_none_edge_attr_key is not None else None
+    )
+    return (
+        not _graph_has_edge_attribute(G, None)
+        if has_none_key is None else not has_none_key
+    )
+
+
+def _structural_holes_can_use_native(G, nodes, weight):
+    """Admit the unweighted kernels only when a topology snapshot is exact."""
+    return (
+        _structural_holes_has_unit_weights(G, weight)
+        and (nodes is None or type(nodes) in (list, tuple, range))
+        and (nodes is None or all(type(node) in (int, str) for node in nodes))
+        and number_of_selfloops(G) == 0
+    )
+
+
+def _constraint_inproc(G, nodes, weight):
+    """Accumulate local constraints on the caller's current public rows."""
+    result = {}
+    for node in G if nodes is None else nodes:
+        if len(G[node]) == 0:
+            result[node] = float("nan")
+        else:
+            result[node] = sum(
+                _local_constraint_inproc(G, node, neighbor, weight)
+                for neighbor in set(all_neighbors(G, node))
+            )
+    return result
+
+
 def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     """Return Burt's constraint for nodes in *G*."""
     _validate_backend_dispatch_keywords("constraint", backend, backend_kwargs)
-    # br-r37-c1-shdir: the Rust constraint_rust kernel is undirected-only; on
-    # DiGraphs it ignored edge direction and returned uniform values, whereas
-    # nx uses the directed mutual-weight convention (neighbors = successors |
-    # predecessors, mutual_weight = w(u->v) + w(v->u)). Delegate directed
-    # graphs to nx, like the weighted path already does.
-    # br-r37-c1-1boe3: the Rust kernel also effectively ignores self-loops,
-    # but nx's matrix path folds a self-loop into the mutual-weight row-sum /
-    # row-max normalization (while still excluding the node from its own
-    # neighbor sum), so the two diverge whenever a non-isolated node carries a
-    # self-loop. Delegate self-loop graphs to nx rather than re-deriving nx's
-    # subtle matrix semantics in Rust.
-    # br-r37-c1-14vcl: a multigraph too - constraint_rust reads it as a simple
-    # graph, while networkx's matrix path sums parallel edges and its loop path
-    # counts each edge once (see _mutual_weight).
-    if (
-        weight is not None
-        or G.is_directed()
-        or G.is_multigraph()
-        or number_of_selfloops(G) > 0
-    ):
-        # br-r37-c1-qurfc: nx's constraint(nodes=None) uses a deterministic
-        # MATRIX path (P + P.T row-normalized), not the set-order summation —
-        # so it is byte-reproducible in-process over the native adjacency_matrix
-        # (proven 0/320 exact across weighted/directed/self-loop), dropping the
-        # per-call fnx->nx conversion (~4x). The set-order ULP wall only affects
-        # the nodes!=None set path, which stays delegated.
-        if nodes is None:
-            return _structural_holes_constraint_matrix(G, weight)
-        # br-r37-c1-qbj9u (constraint): networkx serves this function TWO ways and they
-        # DISAGREE on directed graphs - `nodes is None and has_scipy` takes a sparse-matrix
-        # path (P + P.T, row-normalised), anything else takes the set-order summation over
-        # local_constraint. Measured, they differ on 19 of 40 random digraphs, specifically in
-        # NaN PLACEMENT rather than values: a node with predecessors but NO successors gets a
-        # number from the matrix path and NaN from the loop. (The sibling effective_size
-        # differs in the VALUES themselves; do not carry that across.) So the branch above must
-        # keep the matrix answer, and only THIS branch may use a kernel reproducing the LOOP.
-        #
-        # constraint_rust is undirected-only and does NOT reproduce the directed loop (548
-        # mismatches in 807 node values), which is why this delegated wholesale at 0.964x
-        # and 2.59e9 Ir/call. constraint_directed_rust does: validated against
-        # nx.constraint(G, nodes=list(G)) over 150 random digraphs, 0 divergences.
-        if (
-            weight is None
-            and G.is_directed()
-            and not G.is_multigraph()
-            and number_of_selfloops(G) == 0
-        ):
-            try:
-                from franken_networkx._fnx import (
-                    constraint_directed_rust as _rust_constraint_directed,
-                )
-            except ImportError:
-                _rust_constraint_directed = None
-            if _rust_constraint_directed is not None:
-                requested_directed = list(nodes)
-                for node in requested_directed:
-                    if node not in G:
-                        raise KeyError(node)
-                raw_directed = _rust_constraint_directed(G)
-                directed_constraint = {}
-                for node in requested_directed:
-                    # networkx marks a node NaN when `len(G[v]) == 0`, and G[v] on a
-                    # DiGraph is SUCCESSORS ONLY - a node with predecessors but no
-                    # successors is NaN. The kernel applies the same rule; this mirrors
-                    # the sibling native paths, which also post-pass in Python.
-                    directed_constraint[node] = raw_directed[node]
-                return directed_constraint
-        return _call_networkx_submodule_for_parity(
-            "algorithms.structuralholes", "constraint", G,
-            nodes=nodes, weight=weight,
-        )
+    if nodes is None and _structural_holes_has_scipy():
+        return _structural_holes_constraint_matrix(G, weight)
+    if not _structural_holes_can_use_native(G, nodes, weight):
+        return _constraint_inproc(G, nodes, weight)
 
-    from franken_networkx._fnx import constraint_rust as _rust_constraint
+    requested = list(G) if nodes is None else nodes
+    if not requested:
+        return {}
+    for node in requested:
+        if node not in G:
+            raise KeyError(node)
+    if G.is_directed():
+        from franken_networkx._fnx import constraint_directed_rust
 
-    if len(G) == 0:
-        raise NetworkXError("Graph has no nodes or edges")
-
-    if nodes is None:
-        # br-r37-c1-vbjbk: when nodes is None and SciPy is available, NetworkX
-        # always executes its sparse matrix path (even for unweighted simple
-        # undirected graphs), whose CSR minor-axis reduction differs by 1 ULP
-        # from the per-node scalar formulas in constraint_rust.
-        try:
-            import scipy as _scipy
-        except ImportError:
-            pass
-        else:
-            return _structural_holes_constraint_matrix(G, weight)
-        requested_nodes = list(G)
+        raw = constraint_directed_rust(G)
+        # This kernel already marks successor-free nodes as NaN. Keep the
+        # result extraction free of Python adjacency-dictionary handouts.
+        return {node: raw[node] for node in requested}
     else:
-        requested_nodes = list(nodes)
-        for node in requested_nodes:
-            if node not in G:
-                raise KeyError(node)
+        from franken_networkx._fnx import constraint_rust
 
-    result = _rust_constraint(G)
-    constrained = {}
-    for node in requested_nodes:
-        if all(neighbor == node for neighbor in G[node]):
-            constrained[node] = float("nan")
-        else:
-            constrained[node] = result[node]
-    return constrained
+        raw = constraint_rust(G)
+    return {
+        node: float("nan") if len(G[node]) == 0 else raw[node]
+        for node in requested
+    }
 
 
 def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
@@ -1386,121 +1362,56 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
         ``{node: effective_size}``
     """
     _validate_backend_dispatch_keywords("effective_size", backend, backend_kwargs)
-    # br-r37-c1-qbj9u: simple unweighted DiGraphs now use a native kernel with
-    # NetworkX's directed mutual-neighbor semantics (successors ∪ predecessors,
-    # mutual weight I(u->v)+I(v->u)), removing the matrix/delegation path for
-    # the realistic directed common case. Weighted, multigraph, and self-loop
-    # graphs keep the existing matrix/parity route below.
-    has_selfloops = number_of_selfloops(G) > 0
-    # br-r37-c1-qbj9u REVERTED (cc, verify phase): the native
-    # effective_size_directed_rust kernel diverged from networkx by ~0.2/node on
-    # simple DiGraphs (e.g. fnx 2.6 vs nx 2.8) — caught by
-    # test_effective_size_directed_conformance_guard.py (the scaffold filed with the
-    # lever). Route directed graphs back through the nx-correct matrix/parity
-    # fallback below until the kernel matches nx. CrimsonRiver flagged to fix the
-    # kernel; the guard will validate re-enabling it.
+    if nodes is None and _structural_holes_has_scipy():
+        return _structural_holes_effective_size_matrix(G, weight)
+    if not _structural_holes_can_use_native(G, nodes, weight):
+        return _effective_size_inproc(G, nodes, weight)
 
-    # br-r37-c1-shdir: see constraint — the Rust effective_size_rust kernel was
-    # undirected-only and mishandled DiGraphs. Non-simple directed cases still
-    # use the matrix/delegated parity path.
-    # br-r37-c1-1boe3: the Rust kernel also ignores self-loops, but nx folds a
-    # self-loop into the mutual-weight normalization, so delegate self-loop
-    # graphs to nx (same reasoning as constraint).
-    # br-r37-c1-14vcl: a multigraph too, as in constraint.
-    if weight is not None or G.is_directed() or G.is_multigraph() or has_selfloops:
-        # br-r37-c1-qurfc: nx's effective_size(nodes=None) uses a deterministic
-        # MATRIX path, byte-reproducible in-process over the native
-        # adjacency_matrix (proven 0/320 exact), dropping the fnx->nx conversion.
-        # nodes!=None (set-order path) stays delegated.
-        if nodes is None:
-            # NetworkX only takes its sparse matrix path when SciPy imports
-            # successfully.  The Python package does not require SciPy, so
-            # keep its no-SciPy loop fallback instead of unconditionally
-            # calling our SciPy-backed adjacency_matrix implementation.
-            try:
-                import scipy as _scipy
-            except ImportError:
-                return _call_networkx_submodule_for_parity(
-                    "algorithms.structuralholes", "effective_size", G,
-                    nodes=nodes, weight=weight,
-                )
-            return _structural_holes_effective_size_matrix(G, weight)
-        # br-r37-c1-qbj9u: networkx serves this function TWO ways and they DISAGREE on
-        # directed graphs. nodes=None takes a scipy MATRIX path; nodes=<iterable> takes
-        # the redundancy LOOP in structuralholes.py. Measured, the two differ on 50 of 60
-        # random digraphs (31 of them nan-vs-value) and on 0 of 60 undirected. So the
-        # kernel that is correct here is NOT the one that is correct above, and the branch
-        # above must keep the matrix path.
-        #
-        # The revert note further up is right that effective_size_directed_rust does not
-        # reproduce nx's DEFAULT answer - but it reproduces nx's LOOP exactly, which is
-        # what nx itself runs once `nodes` is given: 0 mismatches over 1494 node values
-        # once the successors-only nan rule below is applied, and 0 divergences over 1500
-        # (graph, subset) cases for this branch as a whole, including string node keys,
-        # empty and reordered subsets, and the missing-node KeyError.
-        #
-        # Worth having because the delegated path is pathologically slow: networkx's loop
-        # costs ~207 ms per call on a 200-node digraph where its own matrix path costs
-        # 1.6 ms marginal, so asking for a SUBSET of nodes is ~130x dearer than asking for
-        # all of them. fnx was paying that plus a conversion tax (0.964x vs networkx).
-        if (
-            weight is None
-            and G.is_directed()
-            and not G.is_multigraph()
-            and not has_selfloops
-        ):
-            from franken_networkx._fnx import (
-                effective_size_directed_rust as _rust_eff_size_directed,
-            )
+    requested = list(G) if nodes is None else nodes
+    if not requested:
+        return {}
+    for node in requested:
+        if node not in G:
+            raise KeyError(node)
+    if G.is_directed():
+        from franken_networkx._fnx import effective_size_directed_rust
 
-            requested_directed = list(nodes)
-            for node in requested_directed:
-                if node not in G:
-                    raise KeyError(node)
-            raw_directed = _rust_eff_size_directed(G)
-            directed_effective = {}
-            for node in requested_directed:
-                # nx's isolated-node rule is `all(u == v for u in G[v])`, and G[v] on a
-                # DiGraph is SUCCESSORS ONLY - so a node with predecessors but no
-                # successors is nan. The kernel's own rule tests successors UNION
-                # predecessors, which is what made it look wrong; applied here instead,
-                # exactly as the undirected native path below already does.
-                if all(neighbor == node for neighbor in G[node]):
-                    directed_effective[node] = float("nan")
-                else:
-                    directed_effective[node] = raw_directed[node]
-            return directed_effective
-        return _call_networkx_submodule_for_parity(
-            "algorithms.structuralholes", "effective_size", G,
-            nodes=nodes, weight=weight,
-        )
-
-    if len(G) == 0:
-        raise NetworkXError("Graph has no nodes or edges")
-
-    if nodes is None:
-        # br-r37-c1-vbjbk: match NetworkX's default SciPy matrix path bit-for-bit
-        # when nodes is None and SciPy is available.
-        try:
-            import scipy as _scipy
-        except ImportError:
-            pass
-        else:
-            return _structural_holes_effective_size_matrix(G, weight)
-        requested_nodes = list(G.nodes())
+        raw = effective_size_directed_rust(G)
     else:
-        requested_nodes = list(nodes)
-        for node in requested_nodes:
-            if node not in G:
-                raise KeyError(node)
+        from franken_networkx._fnx import effective_size_rust
 
-    from franken_networkx._fnx import effective_size_rust as _rust_eff_size
+        raw = effective_size_rust(G)
+    return {
+        node: float("nan") if all(nbr == node for nbr in G[node]) else raw[node]
+        for node in requested
+    }
 
-    result = _rust_eff_size(G)
-    effective = {}
-    for node in requested_nodes:
+
+def _effective_size_inproc(G, nodes, weight):
+    """Evaluate redundancy without graph conversion or numeric coercion."""
+    result = {}
+    unweighted_undirected = not G.is_directed() and weight is None
+    for node in G if nodes is None else nodes:
         if all(neighbor == node for neighbor in G[node]):
-            effective[node] = float("nan")
+            result[node] = float("nan")
+        elif unweighted_undirected:
+            # Borgatti's formula counts parallel ties and self-loops in the
+            # induced ego graph; a simple projection changes this answer.
+            # Keep the caller's subgraph/copy/size providers. A concrete ego
+            # reconstruction can silently erase those graph-class methods.
+            neighborhood = single_source_shortest_path_length(
+                G.to_undirected(), node, cutoff=1
+            )
+            ego = G.subgraph(neighborhood).copy()
+            ego.remove_node(node)
+            result[node] = len(ego) - (2 * ego.size()) / len(ego)
         else:
-            effective[node] = result[node]
-    return effective
+            result[node] = sum(
+                1 - sum(
+                    _normalized_mutual_weight(G, node, alter, weight)
+                    * _normalized_mutual_weight(G, neighbor, alter, weight, norm=max)
+                    for alter in set(all_neighbors(G, node))
+                )
+                for neighbor in set(all_neighbors(G, node))
+            )
+    return result

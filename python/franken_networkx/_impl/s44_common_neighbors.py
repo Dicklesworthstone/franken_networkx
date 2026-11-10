@@ -205,9 +205,26 @@ def _normalized_mutual_weight(G, u, v, weight=None, norm=sum):
     return 0 if scale == 0 else _mutual_weight(G, u, v, weight) / scale
 
 
+def _local_constraint_inproc(G, u, v, weight):
+    """Keep each normalization live for observable graph/numeric providers."""
+    direct = _normalized_mutual_weight(G, u, v, weight)
+    indirect = sum(
+        _normalized_mutual_weight(G, u, neighbor, weight)
+        * _normalized_mutual_weight(G, neighbor, v, weight)
+        for neighbor in set(all_neighbors(G, u))
+    )
+    return (direct + indirect) ** 2
+
+
 def local_constraint(G, u, v, weight=None, *, backend=None, **backend_kwargs):
     """Burt's local constraint for edge ``(u, v)``."""
     _validate_backend_dispatch_keywords("local_constraint", backend, backend_kwargs)
+    if (
+        type(u) not in (int, str)
+        or type(v) not in (int, str)
+        or not _structural_holes_has_unit_weights(G, weight)
+    ):
+        return _local_constraint_inproc(G, u, v, weight)
     graph_kind = "digraph" if G.is_directed() else "graph"
     if u not in G:
         raise NetworkXError(f"The node {u} is not in the {graph_kind}.")
