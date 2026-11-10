@@ -78,6 +78,14 @@ _COMPONENT_ITERATORS = frozenset(
         "articulation_points",
     }
 )
+_COMMUNITY_ITERATOR_ALGORITHMS = frozenset(
+    {
+        "asyn_lpa_communities",
+        "fast_label_propagation_communities",
+        "girvan_newman",
+        "k_clique_communities",
+    }
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -110,7 +118,7 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "minimum_spanning_edges",
         "maximum_spanning_edges",
     }
-) | _COMPONENT_ITERATORS
+) | _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS
 
 # User callbacks must receive the original attribute dictionaries and observe
 # their own mutations. The ordinary string-weight/eager calls keep using the
@@ -197,6 +205,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
     | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
     | _FLOW_SOLVER_INPUT_ALGORITHMS
+    | _COMMUNITY_ITERATOR_ALGORITHMS
     | {"johnson", "quotient_graph"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -210,6 +219,11 @@ def _primary_graph_parameter(name):
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
     if name in _FLOW_INPUT_ALGORITHMS:
+        return True
+    if name in _COMMUNITY_ITERATOR_ALGORITHMS:
+        # Random sources, clique iterables and edge-selection callbacks can
+        # mutate inputs when iteration advances. Keep those reads on the
+        # caller and invalidate conversions around every resume and close.
         return True
     if name in _FLOW_SOLVER_INPUT_ALGORITHMS:
         # Explicit solvers own validation and residual reuse. Their writes
@@ -743,18 +757,15 @@ _SUPPORTED_ALGORITHMS = {
     # so ``fnx.community.modularity`` stays AttributeError (matching nx's namespace
     # — nx exposes modularity only at nx.community.modularity).
     "modularity": fnx._modularity_backend_impl,
-    # br-r37-c1-cy2me: These three community algorithms previously
-    # registered to top-level fnx functions that have since been
-    # hidden (br-r37-c1-02sx1 / br-r37-c1-uwm5v). Routing through
-    # fnx.community.X here causes recursion (the nx dispatcher
-    # ping-pongs between nx → fnx → nx) because the submodule entry
-    # resolves to the same nx function via __getattr__ fallback.
-    # ``label_propagation_communities`` has a native fnx-side
-    # conversion+dispatch wrapper in community.py — but registering
-    # it in the dispatch table would still recurse on nx-side calls
-    # that don't go through that wrapper. Drop the entries entirely
-    # and let the nx dispatcher fall through to its pure-Python
-    # implementation.
+    # These exports now have owned implementations in community.py. Lazy
+    # algorithms retain the caller's graph until their first advancement.
+    "label_propagation_communities": fnx.community.label_propagation_communities,
+    "asyn_lpa_communities": fnx.community.asyn_lpa_communities,
+    "fast_label_propagation_communities": fnx.community.fast_label_propagation_communities,
+    "girvan_newman": fnx.community.girvan_newman,
+    "k_clique_communities": fnx.community.k_clique_communities,
+    "kernighan_lin_bisection": fnx.community.kernighan_lin_bisection,
+    "asyn_fluidc": fnx.community.asyn_fluidc,
     # Attribute setters / getters. br-r37-c1-l2j31: nx flags
     # ``set_*_attributes`` as mutation-preserving so the dispatcher
     # refuses to auto-convert fnx graphs to nx (the mutation would

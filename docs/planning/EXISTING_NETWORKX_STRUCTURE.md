@@ -1881,3 +1881,20 @@ leave a stale capacity graph for subsequent native calls. An explicitly
 supplied native graph remains an independent input even if it originated
 from an earlier conversion. Default-solver calls without extra arguments
 retain the ordinary native conversion path.
+
+## 64. Community Detection Through Backend Dispatch
+
+The owned semi-synchronous, asynchronous and fast label-propagation APIs,
+Girvan-Newman, clique percolation, Kernighan-Lin bisection and asynchronous
+fluid communities are available through NetworkX backend dispatch.
+
+Asynchronous and fast label propagation, Girvan-Newman and clique
+percolation keep their original graph until iteration starts. Source edits
+after iterator construction, live views, random-source hooks, clique
+providers and working-graph copy hooks retain their direct-call behavior.
+Seed validation remains at the public call boundary where specified.
+
+Conversion caches are invalidated around lazy provider execution, including
+advancement, close and failure. A later native query must observe attribute
+writes made by random or graph callbacks. Eager community algorithms keep
+their eager computation boundary and ordinary native conversion route.

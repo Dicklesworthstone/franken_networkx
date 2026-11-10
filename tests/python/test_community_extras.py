@@ -1158,3 +1158,281 @@ def test_louvain_communities_accepts_backend_kwarg_like_networkx():
     # Unknown free kwargs still rejected (validator passes through TypeError).
     with pytest.raises(TypeError):
         fnx.community.louvain_communities(graph, some_garbage=True)
+
+
+_COMMUNITY_BACKEND_OPTIONS = {
+    "label_propagation_communities": {},
+    "asyn_lpa_communities": {"weight": "cost", "seed": 7},
+    "fast_label_propagation_communities": {"weight": "cost", "seed": 7},
+    "girvan_newman": {},
+    "k_clique_communities": {"k": 3},
+    "kernighan_lin_bisection": {"weight": "cost", "seed": 7},
+    "asyn_fluidc": {"k": 2, "seed": 7},
+}
+
+
+def _community_backend_graph(module, class_name):
+    graph = getattr(module, class_name)()
+    graph.add_nodes_from(["d", "a", "e", "b", "f", "c"])
+    edges = [
+        ("a", "b", 3), ("a", "c", 2), ("b", "c", 4), ("c", "d", 1),
+        ("d", "e", 6), ("d", "f", 5), ("e", "f", 7),
+    ]
+    graph.add_weighted_edges_from(edges, weight="cost")
+    if graph.is_directed():
+        graph.add_weighted_edges_from([(v, u, w) for u, v, w in edges], weight="cost")
+    if graph.is_multigraph():
+        graph.add_edge("a", "b", cost=2)
+    return graph
+
+
+@pytest.mark.parametrize("name", _COMMUNITY_BACKEND_OPTIONS)
+@pytest.mark.parametrize("class_name", _COMMUNITY_GRAPH_CLASSES)
+@pytest.mark.parametrize("native_input", [False, True])
+def test_community_backend_family_matches_networkx(name, class_name, native_input):
+    from franken_networkx.backend import BackendInterface
+
+    actual_graph = _community_backend_graph(fnx if native_input else nx, class_name)
+    expected_graph = _community_backend_graph(nx, class_name)
+    options = _COMMUNITY_BACKEND_OPTIONS[name]
+    assert BackendInterface.can_run(name, (actual_graph,), options) is True
+    expected = _label_propagation_outcome(
+        lambda: getattr(nx.community, name)(expected_graph, backend="networkx", **options)
+    )
+    actual = _label_propagation_outcome(
+        lambda: getattr(nx.community, name)(
+            actual_graph, backend="franken_networkx", **options
+        )
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS)
+@pytest.mark.parametrize("class_name", _COMMUNITY_GRAPH_CLASSES)
+@pytest.mark.parametrize("prewarmed", [False, True])
+@pytest.mark.parametrize("view", [False, True])
+def test_community_backend_defers_graph_reads_until_resume(name, class_name, prewarmed, view):
+    edges = [("a", "b", {}), ("b", "c", {}), ("c", "d", {})]
+    input_kind = "networkx_view" if view else "networkx"
+    parent, graph, nx_parent, nx_graph = _community_live_inputs(class_name, input_kind, edges)
+    if prewarmed:
+        nx.shortest_path_length(graph, "a", "d", backend="franken_networkx")
+    options = {} if name == "girvan_newman" else {"seed": 0}
+    reference = getattr(nx.community, name)
+    before = list(reference(nx_graph, backend="networkx", **options))
+    actual = reference(graph, backend="franken_networkx", **options)
+    expected = reference(nx_graph, backend="networkx", **options)
+    for owner in (parent, nx_parent):
+        owner.add_edge("d", "late")
+        if owner.is_directed():
+            owner.add_edge("late", "d")
+    wanted = list(expected)
+    assert wanted != before
+    assert list(actual) == wanted
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("class_name", _COMMUNITY_GRAPH_CLASSES)
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_community_backend_reads_live_weights_at_resume(name, class_name, prewarmed):
+    edges = [
+        ("a", "b", {"cost": 5}), ("a", "c", {"cost": 5}), ("b", "c", {"cost": 5}),
+        ("c", "d", {"cost": 1}), ("d", "e", {"cost": 5}),
+        ("d", "f", {"cost": 5}), ("e", "f", {"cost": 5}),
+    ]
+    parent, graph, nx_parent, nx_graph = _community_live_inputs(class_name, "networkx", edges)
+    if prewarmed:
+        nx.shortest_path_length(graph, "a", "f", weight="cost", backend="franken_networkx")
+    reference = getattr(nx.community, name)
+    options = {"seed": 0, "weight": "cost"}
+    before = list(reference(nx_graph, backend="networkx", **options))
+    actual = reference(graph, backend="franken_networkx", **options)
+    expected = reference(nx_graph, backend="networkx", **options)
+    for owner in (parent, nx_parent):
+        endpoints = [("c", "d"), ("d", "c")] if owner.is_directed() else [("c", "d")]
+        for u, v in endpoints:
+            attrs = owner[u][v][0] if owner.is_multigraph() else owner[u][v]
+            attrs["cost"] = 100
+    wanted = list(expected)
+    assert wanted != before
+    assert list(actual) == wanted
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_community_backend_preserves_random_callbacks_and_invalidates_cache(name, prewarmed):
+    import random
+
+    def run(dispatched):
+        graph = nx.Graph()
+        graph.add_weighted_edges_from([("a", "b", 1), ("b", "c", 1), ("c", "d", 1)], weight="cost")
+        calls = []
+
+        class UpdatingRandom(random.Random):
+            def shuffle(self, values):
+                calls.append((type(values).__name__, tuple(values)))
+                graph["c"]["d"]["cost"] = 11
+                super().shuffle(values)
+
+        if dispatched and prewarmed:
+            assert nx.shortest_path_length(
+                graph, "a", "d", weight="cost", backend="franken_networkx"
+            ) == 3
+        rng = UpdatingRandom(7)
+        selected_backend = "franken_networkx" if dispatched else "networkx"
+        result = getattr(nx.community, name)(graph, weight="cost", seed=rng, backend=selected_backend)
+        assert calls == []
+        communities = list(result)
+        distance = nx.shortest_path_length(
+            graph, "a", "d", weight="cost", backend=selected_backend
+        )
+        return communities, calls, rng.getstate(), distance
+
+    expected = run(False)
+    assert expected[1][0][1] == ("a", "b", "c", "d")
+    assert expected[3] == 13
+    assert run(True) == expected
+
+
+@pytest.mark.parametrize("name", _LAZY_COMMUNITY_ALGORITHMS[:2])
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_community_backend_validates_seed_before_deferred_weight_reads(name, prewarmed):
+    graph = nx.path_graph(4)
+    graph[0][1]["cost"] = "heavy"
+    if prewarmed:
+        nx.shortest_path_length(graph, 0, 3, backend="franken_networkx")
+    reference = getattr(nx.community, name)
+    options = {"weight": "cost", "seed": "invalid"}
+    with pytest.raises(ValueError) as expected:
+        reference(graph, backend="networkx", **options)
+    with pytest.raises(ValueError) as actual:
+        reference(graph, backend="franken_networkx", **options)
+    assert str(actual.value) == str(expected.value)
+    options["seed"] = 7
+    mine = reference(graph, backend="franken_networkx", **options)
+    theirs = reference(graph, backend="networkx", **options)
+    with pytest.raises(TypeError) as expected:
+        next(theirs)
+    with pytest.raises(TypeError) as actual:
+        next(mine)
+    assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_community_backend_girvan_newman_keeps_copy_and_callback_providers(prewarmed):
+    def run(dispatched):
+        copies = []
+        callbacks = []
+
+        class ObservingGraph(nx.Graph):
+            def copy(self, as_view=False):
+                result = super().copy(as_view=as_view)
+                copies.append(result)
+                return result
+
+            def to_undirected(self, as_view=False):
+                result = super().to_undirected(as_view=as_view)
+                copies.append(result)
+                return result
+
+        graph = ObservingGraph([("a", "b"), ("b", "c"), ("c", "d")])
+        if dispatched and prewarmed:
+            nx.shortest_path_length(graph, "a", "d", backend="franken_networkx")
+
+        def choose_edge(working):
+            assert working is copies[-1]
+            assert working is not graph
+            callbacks.append(list(working.edges()))
+            return next(iter(working.edges()))
+
+        result = nx.community.girvan_newman(
+            graph, most_valuable_edge=choose_edge,
+            backend="franken_networkx" if dispatched else "networkx",
+        )
+        assert copies == callbacks == []
+        graph.add_edge("d", "late")
+        partitions = list(result)
+        assert len(copies) == 2
+        return partitions, callbacks, list(graph.edges())
+
+    assert run(True) == run(False)
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_community_backend_empty_clique_iterator_keeps_mutations_live(prewarmed):
+    def run(dispatched):
+        graph = nx.Graph()
+        graph.add_weighted_edges_from([("a", "b", 1), ("b", "c", 1)], weight="cost")
+        calls = []
+        selected_backend = "franken_networkx" if dispatched else "networkx"
+        if dispatched and prewarmed:
+            assert nx.shortest_path_length(
+                graph, "a", "c", weight="cost", backend=selected_backend
+            ) == 2
+
+        def cliques():
+            calls.append("resumed")
+            graph["a"]["b"]["cost"] = 9
+            yield ["a", "b"]
+
+        iterator = nx.community.k_clique_communities(
+            graph, 3, cliques(), backend=selected_backend
+        )
+        assert calls == []
+        result = list(iterator)
+        distance = nx.shortest_path_length(
+            graph, "a", "c", weight="cost", backend=selected_backend
+        )
+        return result, calls, distance
+
+    expected = run(False)
+    assert expected == ([], ["resumed"], 10)
+    assert run(True) == expected
+
+
+@pytest.mark.parametrize("name", [
+    "label_propagation_communities", "kernighan_lin_bisection", "asyn_fluidc",
+])
+def test_community_backend_eager_partition_is_fixed_before_return(name):
+    actual_graph = _community_backend_graph(nx, "Graph")
+    expected_graph = _community_backend_graph(nx, "Graph")
+    options = _COMMUNITY_BACKEND_OPTIONS[name]
+    actual = getattr(nx.community, name)(actual_graph, backend="franken_networkx", **options)
+    expected = getattr(nx.community, name)(expected_graph, backend="networkx", **options)
+    actual_graph.clear()
+    expected_graph.clear()
+    wanted = list(expected)
+    assert wanted
+    assert list(actual) == wanted
+
+
+@pytest.mark.parametrize("name", _COMMUNITY_BACKEND_OPTIONS)
+def test_community_backend_automatic_priority_runs_owned_algorithm(name):
+    import sys
+
+    options = dict(_COMMUNITY_BACKEND_OPTIONS[name])
+    if name == "k_clique_communities":
+        options["cliques"] = []
+    actual_graph = _community_backend_graph(nx, "Graph")
+    expected_graph = _community_backend_graph(nx, "Graph")
+    expected = _label_propagation_outcome(
+        lambda: getattr(nx.community, name)(expected_graph, backend="networkx", **options)
+    )
+    owned = getattr(fnx.community, name)
+    calls = []
+    previous_profile = sys.getprofile()
+
+    def profile(frame, event, arg):
+        if event == "call" and frame.f_code is owned.__code__:
+            calls.append(frame.f_code.co_name)
+
+    try:
+        with nx.config(backend_priority=["franken_networkx"], fallback_to_nx=False):
+            sys.setprofile(profile)
+            actual = _label_propagation_outcome(
+                lambda: getattr(nx.community, name)(actual_graph, **options)
+            )
+    finally:
+        sys.setprofile(previous_profile)
+    assert actual == expected
+    assert calls, "automatic priority must execute the owned community implementation"
