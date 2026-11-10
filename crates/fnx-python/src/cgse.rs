@@ -305,6 +305,13 @@ pub fn collect_witnesses(
     ))
 }
 
+/// Whether CGSE witness collection is armed on the current thread. Exposed so the
+/// Python public API can route to the eager instrumented kernel under collection.
+#[pyfunction]
+pub fn witness_collection_enabled() -> bool {
+    fnx_cgse::witness_collection_enabled()
+}
+
 pub fn register_module(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "cgse")?;
     m.add_class::<PyTieBreakPolicy>()?;
@@ -313,6 +320,7 @@ pub fn register_module(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(policy_registry, &m)?)?;
     m.add_function(wrap_pyfunction!(reference_algorithms, &m)?)?;
     m.add_function(wrap_pyfunction!(collect_witnesses, &m)?)?;
+    m.add_function(wrap_pyfunction!(witness_collection_enabled, &m)?)?;
     parent.add_submodule(&m)?;
     Ok(())
 }

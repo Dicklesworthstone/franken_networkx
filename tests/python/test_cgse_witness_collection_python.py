@@ -1574,3 +1574,22 @@ def test_all_12_v1_policy_registry_reference_algorithms_emit_public_witnesses():
         for w in witnesses:
             assert w.verify_complexity_bound()["within_bounds"], (algo_name, w)
 
+
+
+# ---------------------------------------------------------------------------
+# br-cgse-expose: cgse.witness_collection_enabled() reflects thread-local arming.
+# Fails before the exposure (AttributeError); passes after.
+# ---------------------------------------------------------------------------
+def test_cgse_witness_collection_enabled_reflects_arming():
+    from franken_networkx._fnx import cgse
+
+    assert cgse.witness_collection_enabled() is False
+    seen = {}
+
+    def _probe():
+        seen["armed"] = cgse.witness_collection_enabled()
+        return None
+
+    cgse.collect_witnesses(_probe)
+    assert seen.get("armed") is True
+    assert cgse.witness_collection_enabled() is False
