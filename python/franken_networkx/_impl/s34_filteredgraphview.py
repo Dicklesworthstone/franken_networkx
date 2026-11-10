@@ -355,6 +355,7 @@ class _FilteredGraphView:
             and data is not None
             and not keys
             and type(self._graph) in (Graph, DiGraph)
+            and not _has_networkx_private_storage(self._graph)
             # br-r37-c1-ktsxn: a NODE-SET filter_node keeps the node-set chain
             # path further down, which is faster still. Without this guard the
             # relaxed gate above captured `G.subgraph()` and
@@ -529,6 +530,8 @@ class _FilteredGraphView:
             and not isinstance(data, str)
             and data is not None
             and type(parent) in (Graph, DiGraph)
+            # Native row access would bypass a caller's assigned adjacency.
+            and not _has_networkx_private_storage(parent)
         ):
             fast = []
             if self.is_directed():

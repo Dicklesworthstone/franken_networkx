@@ -228,6 +228,14 @@ Backend routing preserves those inputs before conversion; ordinary primitive
 inputs retain the existing native kernel. No upstream solver or intermediate
 NetworkX graph is required for the fallback.
 
+Floyd-Warshall's dictionary APIs retain the original graph and share a static,
+callback-free dictionary-read admission predicate with weighted analytics.
+Only ordinary exact scalar domains enter the existing vectorized distance
+route. PageRank similarly separates native matrix admission from its owned
+public-protocol matrix builder and shared power iteration. Backend provider
+selection precedes speculative weighted-route probing, and filtered views
+fall back to public rows when their parent has assigned logical storage.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

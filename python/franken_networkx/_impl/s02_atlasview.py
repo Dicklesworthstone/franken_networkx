@@ -617,6 +617,41 @@ def _plain_read_attr_dict_types():
     )
 
 
+def _attr_dict_has_plain_reads(attrs):
+    """Admit builtin dictionary reads, including owned per-graph subclasses.
+
+    Bulk edge mirrors inherit the write-watched dictionary without overriding
+    its reads. Static MRO inspection admits those mirrors while rejecting a
+    caller's read overrides without invoking descriptors during the check.
+    """
+    cls = type(attrs)
+    if cls is dict:
+        return True
+    if type(cls) is not type:
+        return False
+    mro = type.__getattribute__(cls, "__mro__")
+    if not any(base is dict for base in mro):
+        return False
+    methods = (
+        "__getattribute__", "get", "items", "keys", "__iter__",
+        "__getitem__", "__contains__",
+    )
+    namespaces = [type.__getattribute__(base, "__dict__") for base in mro]
+    # Instance attributes can shadow methods even when the class inherits
+    # every builtin read. Owned mirrors are slot-only; decline other objects
+    # without evaluating a possibly user-defined __dict__ descriptor.
+    if any("__dict__" in namespace for namespace in namespaces):
+        return False
+    for name in methods:
+        expected = type.__getattribute__(dict, name)
+        for namespace in namespaces:
+            if name in namespace:
+                if namespace[name] is not expected:
+                    return False
+                break
+    return True
+
+
 def _graph_is_filtered(graph, _depth=0):
     """True when nx would be serving this graph through a FilterAtlas.
 

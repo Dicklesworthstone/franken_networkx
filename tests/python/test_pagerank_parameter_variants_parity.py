@@ -726,3 +726,290 @@ def test_generic_pagerank_reads_held_edge_mutations_through_views(
     for value, oracle in zip((0.125, 9.5, 2.25), expected):
         held[0][weight] = value
         _assert_matrix_rank_exact(fnx.pagerank(fg, **kwargs), oracle)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("provenance", ["native", "networkx", "subgraph"])
+@pytest.mark.parametrize("personalized", [False, True])
+def test_pagerank_literal_none_weights_remain_live(graph_name, provenance, personalized):
+    graphs = []
+    held = []
+    for module in (fnx if provenance != "networkx" else nx, nx):
+        graph = getattr(module, graph_name)([(0, 1), (0, 2), (1, 2), (2, 3), (3, 0)])
+        graph.add_node("isolated")
+        data = graph[0][1]
+        held.append(data[0] if graph.is_multigraph() else data)
+        graphs.append(graph.subgraph(list(graph)) if provenance == "subgraph" else graph)
+    options = {"personalization": {0: 2, 2: 1}} if personalized else {}
+    options.update(max_iter=500, tol=1e-10)
+    for value in (9, 0.125, 3):
+        for attrs in held:
+            attrs[None] = value
+        expected = nx.pagerank(graphs[1], weight=None, **options)
+        assert expected != nx.pagerank(graphs[1], weight="absent", **options)
+        _assert_matrix_rank_exact(fnx.pagerank(graphs[0], weight=None, **options), expected)
+        # Optimizing an absent string selector to unit weights must not then
+        # read the separate None key, including after a cached unit query.
+        _assert_matrix_rank_exact(
+            fnx.pagerank(graphs[0], weight="absent", **options),
+            nx.pagerank(graphs[1], weight="absent", **options),
+        )
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_pagerank_keeps_none_key_despite_conversion_hints(graph_name, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = getattr(nx, graph_name)([(0, 1), (0, 2), (1, 2), (2, 3), (3, 0)])
+    data = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+    data[None] = 7
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    options = dict(weight=None, personalization={0: 2, 2: 1}, max_iter=500, tol=1e-10)
+    expected = nx.pagerank(graph, backend="networkx", **options)
+    actual = nx.pagerank(graph, backend="franken_networkx", **options)
+    _assert_matrix_rank_exact(actual, expected)
+    assert not graph.__networkx_cache__.get("backends")
+
+
+def _rank_provider_graph(module, graph_name, trace, fail=False):
+    """Give both implementations real private rows and an observable edge."""
+    source = getattr(nx, graph_name)()
+    source.add_weighted_edges_from([(0, 1, 1), (0, 2, 1), (1, 2, 8),
+                                    (1, 3, 2), (2, 0, 2), (3, 0, 1)])
+    source.add_node(4)
+    graph = getattr(module, graph_name)(source)
+    graph._adj = source._adj
+    if graph.is_directed():
+        graph._succ = source._succ
+        graph._pred = source._pred
+    multi = graph.is_multigraph()
+    changed = graph._adj[1][2][0] if multi else graph._adj[1][2]
+
+    class ReadAttrs(dict):
+        def __contains__(self, key):
+            trace.append(("contains", key))
+            return super().__contains__(key)
+
+        def __getitem__(self, key):
+            trace.append(("read", key))
+            changed["weight"] = 1
+            if fail:
+                raise LookupError("edge provider failed after its write")
+            return super().__getitem__(key)
+
+    attrs = ReadAttrs(graph._adj[0][1][0] if multi else graph._adj[0][1])
+    if multi:
+        graph._adj[0][1][0] = attrs
+    else:
+        graph._adj[0][1] = attrs
+        if graph.is_directed():
+            graph._pred[1][0] = attrs
+        else:
+            graph._adj[1][0] = attrs
+    return graph, changed
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("provenance", ["private", "networkx", "subgraph"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_pagerank_reads_original_edge_providers(graph_name, provenance, fail):
+    runs = []
+    for library in (nx, fnx):
+        trace = []
+        graph_module = nx if provenance == "networkx" else library
+        graph, changed = _rank_provider_graph(graph_module, graph_name, trace, fail)
+        if provenance == "subgraph":
+            graph = graph.subgraph(list(graph))
+        outcome = _matrix_outcome(library, graph, dict(max_iter=500, tol=1e-10))
+        runs.append((outcome, trace, dict(changed)))
+    assert runs[1] == runs[0]
+    assert runs[0][1], "the source edge read must be observable"
+    assert runs[0][2]["weight"] == 1
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("fail", [False, True])
+def test_backend_pagerank_preserves_edge_providers_and_clears_cache(
+    graph_name, cached, fail, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    runs = []
+    for backend in ("networkx", "franken_networkx"):
+        trace = []
+        graph, changed = _rank_provider_graph(nx, graph_name, trace, fail)
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        trace.clear()
+        outcome = _matrix_outcome(nx, graph, dict(backend=backend, max_iter=500, tol=1e-10))
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        runs.append((outcome, trace, dict(changed)))
+    assert runs[1] == runs[0]
+
+
+@pytest.mark.parametrize("parameter", ["personalization", "nstart", "dangling", "max_iter"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("fail", [False, True])
+def test_backend_pagerank_vector_and_iteration_providers_keep_snapshot_order(
+    parameter, cached, fail, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    runs = []
+    for backend in ("networkx", "franken_networkx"):
+        graph = nx.DiGraph([(0, 1), (0, 2), (1, 2), (2, 0)])
+        trace = []
+        edge = graph[0][1]
+
+        class Provider:
+            def get(self, node, default=0):
+                trace.append(("get", node))
+                edge["weight"] = 9
+                if fail:
+                    raise LookupError("vector provider failed after its write")
+                return node + 1
+
+            def __index__(self):
+                trace.append(("index",))
+                edge["weight"] = 9
+                if fail:
+                    raise LookupError("iteration provider failed after its write")
+                return 500
+
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        options = dict(backend=backend, max_iter=500, tol=1e-10)
+        options[parameter] = Provider()
+        outcome = _matrix_outcome(nx, graph, options)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        following = nx.pagerank(graph, backend=backend, max_iter=500, tol=1e-10)
+        runs.append((outcome, trace, dict(edge), following))
+    assert runs[1] == runs[0]
+    assert runs[0][1], "provider execution is required for this fixture"
+
+
+@pytest.mark.parametrize("max_iter", [1.5, "invalid", None])
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_pagerank_empty_graph_returns_before_iteration_validation(graph_name, max_iter):
+    expected = nx.pagerank(getattr(nx, graph_name)(), max_iter=max_iter)
+    assert fnx.pagerank(getattr(fnx, graph_name)(), max_iter=max_iter) == expected == {}
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("route", ["direct", "backend", "cached-backend"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_pagerank_rereads_selfloops_after_the_edge_snapshot(graph_name, route, fail, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    runs = []
+    for oracle in (True, False):
+        graph = getattr(nx, graph_name)([(0, 0), (0, 1), (1, 2), (2, 0)])
+        trace = []
+        multi = graph.is_multigraph()
+        changed = graph[1][2][0] if multi else graph[1][2]
+        if not oracle and route == "cached-backend":
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+        class LoopAttrs(dict):
+            def __getitem__(self, key):
+                trace.append(("edge", key))
+                return super().__getitem__(key)
+
+            def get(self, key, default=None):
+                trace.append(("loop", key))
+                changed["weight"] = 9
+                if fail:
+                    raise LookupError("self-loop provider failed after its write")
+                return super().get(key, default) + 1
+
+        attrs = LoopAttrs(weight=3)
+        if multi:
+            graph._adj[0][0][0] = attrs
+        else:
+            graph._adj[0][0] = attrs
+        options = dict(max_iter=500, tol=1e-10)
+        library = nx if oracle or route != "direct" else fnx
+        if not oracle and route != "direct":
+            options["backend"] = "franken_networkx"
+        outcome = _matrix_outcome(library, graph, options)
+        if not oracle and route != "direct":
+            assert not graph.__networkx_cache__.get("backends")
+        runs.append((outcome, trace, dict(changed)))
+    assert runs[1] == runs[0]
+    assert runs[0][1] == [("edge", "weight"), ("loop", "weight")]
+    assert runs[0][2]["weight"] == 9
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["direct", "backend", "cached-backend"])
+@pytest.mark.parametrize("provider", ["edges", "is_directed", "nbunch_iter"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_pagerank_keeps_assigned_graph_provider_order(
+    graph_name, route, provider, fail, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    runs = []
+    for oracle in (True, False):
+        graph = getattr(nx, graph_name)([(0, 1), (0, 2), (1, 2), (2, 0)])
+        trace = []
+        edge = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+        original = getattr(graph, provider)
+        if not oracle and route == "cached-backend":
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+        def read_provider(*args, **kwargs):
+            trace.append((provider, args, tuple(kwargs.items())))
+            edge["weight"] = 9
+            if fail:
+                raise LookupError("graph provider failed after its write")
+            return original(*args, **kwargs)
+
+        setattr(graph, provider, read_provider)
+        options = dict(max_iter=500, tol=1e-10)
+        library = nx if oracle or route != "direct" else fnx
+        if not oracle and route != "direct":
+            options["backend"] = "franken_networkx"
+        outcome = _matrix_outcome(library, graph, options)
+        if not oracle and route != "direct":
+            assert not graph.__networkx_cache__.get("backends")
+        runs.append((outcome, trace, dict(edge)))
+    assert runs[1] == runs[0]
+    assert len(runs[0][1]) == 1
+    assert runs[0][2]["weight"] == 9
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("warm_matrix", [False, True])
+@pytest.mark.parametrize("fail", [False, True])
+def test_native_pagerank_keeps_assigned_edge_provider(graph_name, warm_matrix, fail):
+    runs = []
+    for library in (nx, fnx):
+        graph = getattr(library, graph_name)([(0, 1), (0, 2), (1, 2), (2, 0)])
+        edge = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+        trace = []
+        options = dict(max_iter=500, tol=1e-10)
+        if warm_matrix:
+            library.pagerank(graph, **options)
+        original = graph.edges
+
+        def read_edges(*args, **kwargs):
+            trace.append((args, tuple(kwargs.items())))
+            edge["weight"] = 9
+            if fail:
+                raise LookupError("native edge provider failed after its write")
+            return original(*args, **kwargs)
+
+        graph.edges = read_edges
+        outcome = _matrix_outcome(library, graph, options)
+        graph.edges = original
+        following = library.pagerank(graph, **options)
+        runs.append((outcome, trace, dict(edge), following))
+    assert runs[1] == runs[0]
+    assert runs[0][1] == [((), (("data", "weight"), ("default", 1)))]
+    assert runs[0][2]["weight"] == 9

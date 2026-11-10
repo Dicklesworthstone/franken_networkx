@@ -158,6 +158,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "katz_centrality",
         "betweenness_centrality",
         "edge_betweenness_centrality",
+        "pagerank",
         "maximum_flow",
         "maximum_flow_value",
         "minimum_cut",
@@ -178,6 +179,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "gomory_hu_tree",
         "dijkstra_path",
         "dijkstra_path_length",
+        "floyd_warshall",
+        "floyd_warshall_predecessor_and_distance",
         "bellman_ford_path",
         "bellman_ford_path_length",
         "johnson",
@@ -231,7 +234,10 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _DIJKSTRA_INPUT_ALGORITHMS
     | _BETWEENNESS_INPUT_ALGORITHMS
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
-    | {"johnson", "quotient_graph", "greedy_modularity_communities"}
+    | {
+        "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
+        "floyd_warshall", "floyd_warshall_predecessor_and_distance",
+    }
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
 
@@ -287,6 +293,12 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # The owned merge iterator reads live weight and resolution providers;
         # conversion would detach those reads from the caller's graph.
         return True
+    if name == "pagerank":
+        return _pagerank_dispatch_uses_live_providers(graph, arguments)
+    if name in {"floyd_warshall", "floyd_warshall_predecessor_and_distance"}:
+        # Owned dictionary and matrix routes already admit the original
+        # graph. Conversion can discard edge readers and their live writes.
+        return True
     if name in _STRUCTURAL_HOLES_INPUT_ALGORITHMS:
         # A requested-node iterator or edge-data provider can change later
         # ego networks. The owned scalar and sparse routes select their own
@@ -302,6 +314,76 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     return name in _SPECTRAL_INPUT_ALGORITHMS and _spectral_dispatch_uses_live_providers(
         name, graph, arguments
     )
+
+
+def _pagerank_dispatch_uses_live_providers(graph, arguments):
+    """Inspect plain inputs without consuming PageRank's edge/vector providers."""
+    import networkx as nx
+
+    if type(graph) not in (nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph):
+        return True
+    storage = vars(graph)
+    if (
+        "_graph" in storage
+        or any(name in storage for name in (
+            "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+            "nbunch_iter", "subgraph",
+        ))
+        or type(graph._node) is not dict
+        or type(graph._adj) is not dict
+    ):
+        return True
+    if "edges" in storage:
+        edge_view_type = {
+            nx.Graph: nx.classes.reportviews.EdgeView,
+            nx.DiGraph: nx.classes.reportviews.OutEdgeView,
+            nx.MultiGraph: nx.classes.reportviews.MultiEdgeView,
+            nx.MultiDiGraph: nx.classes.reportviews.OutMultiEdgeView,
+        }[type(graph)]
+        view = storage["edges"]
+        if type(view) is not edge_view_type or view._graph is not graph:
+            return True
+    if "nodes" in storage:
+        view = storage["nodes"]
+        if type(view) is not nx.classes.reportviews.NodeView or view._nodes is not graph._node:
+            return True
+    weight = arguments.get("weight", "weight")
+    if weight is not None and type(weight) is not str:
+        return True
+    if type(arguments.get("max_iter", 100)) not in (int, bool):
+        return True
+    for parameter in ("alpha", "tol"):
+        if type(arguments[parameter]) not in (int, float, bool):
+            return True
+    plain_keys = (str, int, float, bool, type(None))
+    if any(type(node) not in plain_keys for node in graph._node):
+        return True
+    for parameter in ("personalization", "nstart", "dangling"):
+        vector = arguments.get(parameter)
+        if vector is None:
+            continue
+        if type(vector) is not dict or any(
+            type(node) not in plain_keys or type(value) not in (int, float, bool)
+            for node, value in vector.items()
+        ):
+            return True
+    multi = graph.is_multigraph()
+    for row in graph._adj.values():
+        if type(row) is not dict:
+            return True
+        for data in row.values():
+            if type(data) is not dict:
+                return True
+            for attrs in data.values() if multi else (data,):
+                if type(attrs) is not dict or any(type(key) not in plain_keys for key in attrs):
+                    return True
+                # A None conversion hint drops all edge attributes. The
+                # sparse algorithm nevertheless reads a real None key.
+                if weight is None and None in attrs:
+                    return True
+                if type(attrs.get(weight, 1)) not in (int, float, bool):
+                    return True
+    return False
 
 
 def _johnson_dispatch_uses_live_providers(graph, weight):
@@ -1660,15 +1742,19 @@ class BackendInterface:
                                 callable(bound.arguments.get(parameter))
                                 for parameter in _LIVE_CALLBACK_PARAMETERS
                             )
-                            uses_live_weight = any(
+                            uses_live_provider = _provider_dispatch_uses_original_graph(
+                                name, source, bound.arguments
+                            )
+                            # Once the owned algorithm retains its provider,
+                            # an extra weighted-route probe is unnecessary.
+                            # It may call is_directed before the algorithm's
+                            # edge snapshot and move a user's live mutation.
+                            uses_live_weight = not (has_callbacks or uses_live_provider) and any(
                                 parameter in bound.arguments
                                 and fnx._weighted_query_uses_live_python_rows(
                                     source, bound.arguments[parameter]
                                 )
                                 for parameter in ("weight", "distance")
-                            )
-                            uses_live_provider = _provider_dispatch_uses_original_graph(
-                                name, source, bound.arguments
                             )
                             has_callbacks = has_callbacks or uses_live_provider
                             reads_supplied_distances = (

@@ -679,15 +679,10 @@ def floyd_warshall(G, weight="weight"):
     # Floyd-Warshall instead (min-plus over the adjacency matrix), then format
     # the dict-of-dicts in nx's EXACT defaultdict insertion order. ~34x FASTER
     # than nx, byte-exact (values, int/float type, and inner+outer key order).
-    # Multigraph (to_numpy_array sums parallel edges, nx FW takes their min),
-    # callable / non-string weight, and graphs mixing int and float weights
-    # (nx's per-pair value type would then be path-dependent) still delegate.
-    G = _coerce_arg_to_fnx_graph(G)
-    if (
-        _should_delegate_floyd_warshall_to_networkx(weight)
-        or G.is_multigraph()
-        or _fw_weight_kind(G, weight) == "mixed"
-    ):
+    # Mixed numeric domains and caller-owned graph/attribute protocols use the
+    # dictionary solver. Both implementations already consume public graph
+    # interfaces, so copying to native storage would only erase those protocols.
+    if _fw_weight_kind(G, weight) == "mixed":
         return _floyd_warshall_predecessor_and_distance_inproc(G, weight=weight)[1]
     return _floyd_warshall_numpy(G, weight)
 
@@ -708,20 +703,91 @@ def _fw_weight_kind(G, weight):
     """
     import math as _math
 
+    if type(weight) is not str:
+        return "mixed"
+    if type(G) in (Graph, DiGraph):
+        if _has_networkx_private_storage(G):
+            return "mixed"
+        storage = G.__dict__
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS, ())
+        for name, view_type in (
+            ("edges", _fnx.EdgeView if type(G) is Graph else _DiGraphEdgeView),
+            ("nodes", _fnx.NodeView if type(G) is Graph else _fnx.DiNodeView),
+        ):
+            if name in storage and (
+                name not in cached or type(storage[name]) is not view_type
+            ):
+                return "mixed"
+    else:
+        import networkx as _nx_fw
+        from networkx.classes.reportviews import (
+            EdgeView as _NxEdgeView,
+            NodeView as _NxNodeView,
+            OutEdgeView as _NxOutEdgeView,
+        )
+
+        # Graph subclasses and views can expose live traversal providers. The
+        # classifier must not consume them before the dictionary solver does.
+        if type(G) not in (_nx_fw.Graph, _nx_fw.DiGraph):
+            return "mixed"
+        storage = G.__dict__
+        if "edges" in storage:
+            edge_view = storage["edges"]
+            edge_view_type = _NxEdgeView if type(G) is _nx_fw.Graph else _NxOutEdgeView
+            if (
+                type(edge_view) is not edge_view_type
+                or edge_view._graph is not G
+                or edge_view._adjdict is not G._adj
+            ):
+                return "mixed"
+        if "nodes" in storage and (
+            type(storage["nodes"]) is not _NxNodeView
+            or storage["nodes"]._nodes is not G._node
+        ):
+            return "mixed"
+        if (
+            "_graph" in storage
+            or type(G._node) is not dict
+            or type(G._adj) is not dict
+            or any(type(row) is not dict for row in G._adj.values())
+        ):
+            return "mixed"
+    if any(
+        name in storage
+        for name in (
+            "is_directed", "is_multigraph", "number_of_edges",
+            "number_of_nodes", "size", "nbunch_iter",
+        )
+    ):
+        return "mixed"
+
     saw_int = False
     saw_float = False
     int_total = 0
+    plain_attr_types = {dict}
     for _u, _v, edge_data in G.edges(data=True):
+        attr_type = type(edge_data)
+        if type(attr_type) is not type:
+            return "mixed"
+        if attr_type not in plain_attr_types:
+            if not _attr_dict_has_plain_reads(edge_data):
+                return "mixed"
+            # Eligible dictionaries have no instance read overrides. Inspect
+            # each owned mirror class once per query, never once per edge.
+            plain_attr_types.add(attr_type)
+        if any(type(key) not in (str, int, float, bool, type(None)) for key in edge_data):
+            return "mixed"
         if weight in edge_data:
             value = edge_data[weight]
-            if isinstance(value, bool):
-                return "mixed"
-            if isinstance(value, int):
+            # Subclasses can change addition, ordering, or float conversion.
+            # Floyd-Warshall must preserve those protocols (and their errors)
+            # rather than silently replacing them with matrix arithmetic.
+            if type(value) is int:
                 saw_int = True
                 int_total += abs(value)
                 if int_total > 2**53:
                     return "mixed"
-            elif isinstance(value, float):
+            elif type(value) is float:
                 # Matrix minimum propagates NaNs where dictionary comparisons
                 # leave unrelated distances unchanged. Preserve that contract.
                 if not _math.isfinite(value):
@@ -811,7 +877,6 @@ def floyd_warshall_predecessor_and_distance(G, weight="weight"):
     suitable for ``reconstruct_path``, distances mirrors ``floyd_warshall``.
     Mirrors ``networkx.floyd_warshall_predecessor_and_distance``.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     return _floyd_warshall_predecessor_and_distance_inproc(G, weight=weight)
 
 

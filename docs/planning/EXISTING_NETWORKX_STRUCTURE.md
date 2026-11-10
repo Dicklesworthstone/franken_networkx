@@ -1961,3 +1961,45 @@ by speculative native admission or graph conversion. Direct and backend calls,
 including calls with cached conversions, retain the original providers and
 invalidate conversions after those providers run. Ordinary primitive graphs
 continue to use the existing native merge kernel.
+
+## 68. Floyd-Warshall Numeric and Provider Domains
+
+The dictionary distance and predecessor APIs consume the original graph.
+Custom graph views, attribute readers and numeric subclasses retain their
+Python traversal, comparison and addition behavior, including scalar result
+types and arithmetic exceptions. Converting an `int` or `float` subclass to
+a matrix scalar is not admissible merely because `isinstance` succeeds.
+
+The existing vectorized distance route remains available for ordinary simple
+graphs with exact builtin scalar weights, its existing integer magnitude
+bound and ordinary cached views. Admission must not invoke custom descriptors
+or consume instance-level edge, node or direction providers. Owned slot-only
+edge mirrors with builtin reads remain eligible; dictionary classes allowing
+instance read-method shadows use the owned dictionary route. Eligibility is
+rechecked on each query, with read-class inspection shared within that query.
+
+Backend calls retain the same original-graph boundary, including after an
+earlier call cached a native conversion. Matrix negative-cycle and nonfinite
+fallback behavior remains governed by the ordered dictionary solver.
+
+## 69. PageRank Matrix and Provider Boundaries
+
+PageRank captures its sparse matrix from the caller's visible graph before
+consuming `nstart`, `personalization`, `dangling` and the iteration-count
+protocol. The generic route validates the node bunch, reads edge values,
+consults directedness and separately rereads undirected self-loop values for
+their correction. Observable reads and failures retain this order; an empty
+graph returns its empty result before iteration-count validation.
+
+Sparse weight selection honors a literal `None` attribute key when present,
+as well as other hashable selectors. Native unit-weight producers remain
+available when that key is absent, including parallel-edge inputs. Views
+read their visible attribute dictionaries, and assigned parent adjacency
+must not be bypassed by a filtered view's native-row optimization.
+
+Native ordinary matrix/cache routes remain available. Custom graph, edge,
+vector and scalar providers select the owned matrix and power-iteration path.
+Backend dispatch recognizes that provider route before additional weighted
+admission probes, so an early direction callback cannot mutate the graph
+before its intended edge snapshot. Both successful and failing provider calls
+invalidate conversion caches before subsequent ordinary queries.

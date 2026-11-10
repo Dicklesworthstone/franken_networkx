@@ -148,12 +148,16 @@ def test_floyd_warshall_dictionary_numeric_contract(kind, mode, namespace, edges
 
 
 @pytest.mark.parametrize("scalar", [int, float])
-def test_floyd_warshall_finite_negative_dag_keeps_matrix_route(monkeypatch, scalar):
-    graphs = [module.DiGraph() for module in (fnx, nx)]
+@pytest.mark.parametrize("graph_module", [fnx, nx])
+def test_floyd_warshall_finite_negative_dag_keeps_matrix_route(monkeypatch, scalar, graph_module):
+    graphs = [module.DiGraph() for module in (graph_module, nx)]
     for graph in graphs:
         graph.add_nodes_from(range(4))
         for source, target, value in [(0, 1, -2), (1, 2, 3), (0, 2, 4)]:
             graph.add_edge(source, target, cost=scalar(value))
+        # Ordinary cached views must remain eligible for acceleration.
+        list(graph.nodes)
+        list(graph.edges)
     namespace = fnx.floyd_warshall.__globals__
     matrix_solver = namespace["_floyd_warshall_numpy"]
     calls = []
@@ -173,3 +177,219 @@ def test_floyd_warshall_finite_negative_dag_keeps_matrix_route(monkeypatch, scal
     expected = nx.floyd_warshall(graphs[1], weight="cost")
     assert calls == [graphs[0]]
     assert _floyd_distance_state(actual) == _floyd_distance_state(expected)
+
+
+@pytest.mark.parametrize("base", [int, float])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+def test_floyd_warshall_preserves_numeric_subclass_arithmetic(base, kind, namespace):
+    class OffsetWeight(base):
+        def __add__(self, other):
+            return base(self) + other + 100
+
+        def __radd__(self, other):
+            return other + base(self) + 100
+
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_edge("source", "middle", cost=OffsetWeight(2))
+        graph.add_edge("middle", "target", cost=OffsetWeight(2))
+        graph.add_edge("source", "target", cost=base(5))
+
+    expected = nx.floyd_warshall(graphs[1], weight="cost")
+    actual = namespace.floyd_warshall(graphs[0], weight="cost")
+    # Float coercion would choose the two-edge route (4), while the caller's
+    # addition makes the direct edge (5) shorter. Direct distances also retain
+    # their original scalar subclass, not only their numeric equality.
+    assert expected["source"]["target"] == 5
+    assert _floyd_distance_state(actual) == _floyd_distance_state(expected)
+
+
+@pytest.mark.parametrize("base", [int, float])
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+def test_floyd_warshall_preserves_numeric_subclass_errors(base, namespace):
+    class InvalidWeight(base):
+        def __add__(self, other):
+            raise ArithmeticError("custom edge-weight addition")
+
+        def __radd__(self, other):
+            raise ArithmeticError("custom edge-weight addition")
+
+    for module, algorithms in ((nx, nx), (fnx, namespace)):
+        graph = module.DiGraph()
+        graph.add_edge(0, 1, cost=InvalidWeight(2))
+        with pytest.raises(ArithmeticError, match="custom edge-weight addition"):
+            algorithms.floyd_warshall(graph, weight="cost")
+
+
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["floyd_warshall", "floyd_warshall_predecessor_and_distance"])
+def test_floyd_warshall_uses_original_public_weight_provider(namespace, kind, algorithm):
+    outcomes = []
+    for algorithms in (nx, namespace):
+        reads = []
+
+        class WeightData(dict):
+            def get(self, key, default=None):
+                reads.append((key, default))
+                return super().get(key, default) + 10
+
+        class PublicGraph(getattr(nx, kind)):
+            edge_attr_dict_factory = WeightData
+
+            @property
+            def nodes(self):
+                raise AssertionError("Floyd-Warshall exported input node attributes")
+
+        graph = PublicGraph()
+        graph.add_edge(0, 1, cost=2)
+        graph.add_edge(1, 2, cost=3)
+        result = getattr(algorithms, algorithm)(graph, weight="cost")
+        if algorithm == "floyd_warshall_predecessor_and_distance":
+            predecessors, distances = result
+        else:
+            predecessors, distances = None, result
+        outcomes.append((predecessors, _floyd_distance_state(distances), reads))
+        assert distances[0][2] == 25
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+@pytest.mark.parametrize("algorithm", ["floyd_warshall", "floyd_warshall_predecessor_and_distance"])
+def test_floyd_warshall_admission_does_not_call_weight_read_descriptors(namespace, algorithm):
+    outcomes = []
+    for algorithms in (nx, namespace):
+        reads = []
+
+        class WeightGetter:
+            def __get__(self, instance, owner):
+                if instance is None:
+                    raise AssertionError("admission invoked a user descriptor")
+
+                def read(key, default=None):
+                    reads.append((key, default))
+                    return dict.get(instance, key, default) + 10
+
+                return read
+
+        class WeightData(dict):
+            __slots__ = ()
+            get = WeightGetter()
+
+        graph = nx.DiGraph()
+        graph.add_edge(0, 1, cost=2)
+        graph.add_edge(1, 2, cost=3)
+        for source, target in graph.edges:
+            attrs = WeightData(graph._succ[source][target])
+            graph._succ[source][target] = attrs
+            graph._pred[target][source] = attrs
+        result = getattr(algorithms, algorithm)(graph, weight="cost")
+        distances = result[1] if algorithm == "floyd_warshall_predecessor_and_distance" else result
+        outcomes.append((_floyd_distance_state(distances), reads))
+        assert distances[0][2] == 25
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+@pytest.mark.parametrize("inherited", [False, True])
+@pytest.mark.parametrize("algorithm", ["floyd_warshall", "floyd_warshall_predecessor_and_distance"])
+def test_floyd_warshall_retains_instance_weight_read_overrides(namespace, inherited, algorithm):
+    class WeightData(dict):
+        pass
+
+    class SlottedChild(WeightData):
+        __slots__ = ()
+
+    attr_class = SlottedChild if inherited else WeightData
+    outcomes = []
+    for algorithms in (nx, namespace):
+        reads = []
+        graph = nx.DiGraph()
+        graph.add_edge(0, 1, cost=2)
+        graph.add_edge(1, 2, cost=3)
+        for source, target in graph.edges:
+            attrs = attr_class(graph._succ[source][target])
+
+            def read(key, default=None, data=attrs):
+                reads.append((key, default))
+                return dict.get(data, key, default) + 10
+
+            attrs.get = read
+            graph._succ[source][target] = attrs
+            graph._pred[target][source] = attrs
+        result = getattr(algorithms, algorithm)(graph, weight="cost")
+        distances = result[1] if algorithm == "floyd_warshall_predecessor_and_distance" else result
+        outcomes.append((_floyd_distance_state(distances), reads))
+        assert distances[0][2] == 25
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("shadow", ["edges", "nodes", "is_directed"])
+@pytest.mark.parametrize("algorithm", ["floyd_warshall", "floyd_warshall_predecessor_and_distance"])
+def test_floyd_warshall_keeps_exact_graph_instance_providers(namespace, kind, shadow, algorithm):
+    outcomes = []
+    for algorithms in (nx, namespace):
+        graph = getattr(nx, kind)()
+        graph.add_edge(0, 1, cost=2)
+        graph.add_edge(1, 2, cost=3)
+        reads = []
+        if shadow == "edges":
+            original_edges = graph.edges
+
+            def edges(*args, **kwargs):
+                reads.append(("edges", args, kwargs))
+                if len(reads) > 1:
+                    raise AssertionError("the edge provider was consumed more than once")
+                return original_edges(*args, **kwargs)
+
+            graph.edges = edges
+        elif shadow == "is_directed":
+            original_is_directed = graph.is_directed
+
+            def is_directed():
+                reads.append("is_directed")
+                return original_is_directed()
+
+            graph.is_directed = is_directed
+        else:
+            # The dictionary API iterates the graph, never its node view.
+            graph.nodes = object()
+        result = getattr(algorithms, algorithm)(graph, weight="cost")
+        distances = result[1] if algorithm == "floyd_warshall_predecessor_and_distance" else result
+        outcomes.append((_floyd_distance_state(distances), reads))
+        assert distances[0][2] == 5
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["floyd_warshall", "floyd_warshall_predecessor_and_distance"])
+def test_floyd_warshall_backend_retains_public_weight_provider(cached, kind, algorithm, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    outcomes = []
+    for backend in ("networkx", "franken_networkx"):
+        reads = []
+
+        class WeightData(dict):
+            def get(self, key, default=None):
+                reads.append((key, default))
+                return super().get(key, default) + 10
+
+        class PublicGraph(getattr(nx, kind)):
+            edge_attr_dict_factory = WeightData
+
+        graph = PublicGraph()
+        graph.add_edge(0, 1, cost=2)
+        graph.add_edge(1, 2, cost=3)
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        reads.clear()
+        result = getattr(nx, algorithm)(graph, weight="cost", backend=backend)
+        distances = result[1] if algorithm == "floyd_warshall_predecessor_and_distance" else result
+        outcomes.append((_floyd_distance_state(distances), reads))
+        assert distances[0][2] == 25
+    assert outcomes[0] == outcomes[1]

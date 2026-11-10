@@ -1141,16 +1141,29 @@ def _pagerank_scipy_matrix(G, weight):
         elif (
             type(G) in (MultiGraph, MultiDiGraph)
             and not _has_networkx_private_storage(G)
-            and isinstance(weight, str)
-            and _native_adjacency_arrays_multigraph_live_checked is not None
+            and (
+                (weight is None and _native_adjacency_arrays_multigraph is not None)
+                or (
+                    isinstance(weight, str)
+                    and _native_adjacency_arrays_multigraph_live_checked is not None
+                )
+            )
         ):
             # Read escaped edge dictionaries on every call. The store-only
             # sparse exporter can outlive a second write to a held MultiGraph
             # dictionary, even after the wrapper's attribute sync.
             native_csr_normalized = False
-            live_arrays = _native_adjacency_arrays_multigraph_live_checked(
-                G, nodelist, weight, 1.0
-            )
+            if weight is None:
+                # The public route has already excluded literal None keys.
+                # Unit weights depend only on live topology, so they retain
+                # the native producer without scanning numeric attributes.
+                live_arrays = _native_adjacency_arrays_multigraph(
+                    G, nodelist, None, 1.0
+                )
+            else:
+                live_arrays = _native_adjacency_arrays_multigraph_live_checked(
+                    G, nodelist, weight, 1.0
+                )
             if live_arrays is not None:
                 rows, cols, data = live_arrays
                 if not G.is_directed():
@@ -1376,6 +1389,29 @@ def pagerank_many(
         return list(executor.map(_solve, queries))
 
 
+def _pagerank_has_assigned_edge_provider(G):
+    """Distinguish native descriptor caches from caller-supplied edge readers."""
+    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES:
+        return False
+    storage = G.__dict__
+    if "edges" not in storage:
+        return False
+    expected = {
+        Graph: _fnx.EdgeView,
+        DiGraph: _DiGraphEdgeView,
+        MultiGraph: _MultiGraphEdgeView,
+        MultiDiGraph: _MultiDiGraphEdgeView,
+    }[type(G)]
+    view = storage["edges"]
+    if (
+        "edges" not in storage.get(_DESCRIPTOR_CACHED_VIEWS, ())
+        or type(view) is not expected
+        or view is not storage.get("_fnx_view_edges")
+    ):
+        return True
+    return type(G) is not Graph and view._graph is not G
+
+
 def _pagerank_inproc(
     G,
     alpha=0.85,
@@ -1389,17 +1425,73 @@ def _pagerank_inproc(
     """PageRank for graph values outside the native exporter's numeric domain."""
     if len(G) == 0:
         return {}
+    import networkx as nx
     import numpy as np
     import scipy.sparse as sp
 
     nodelist = list(G)
-    # Keep original values until SciPy casts them: summing parallel edges in
-    # Python first or replacing nonfinite values changes the resulting matrix.
-    # The owned exporter also preserves undirected self-loop corrections and
-    # arbitrary hashable attribute keys, including callable keys.
-    A = _sparse_array_from_edge_values(
-        G, {node: i for i, node in enumerate(nodelist)}, float, weight, "csr"
-    )
+    # The generic sparse conversion is observable: validate the node bunch,
+    # consume every edge, then consult direction and reread self-loop values.
+    # A loop's attribute provider may return a different value on the second
+    # read, so its correction cannot be captured during the first edge pass.
+    if len(G) == 0:
+        raise NetworkXError("Graph has no nodes or edges")
+    nlen = len(nodelist)
+    if nlen == 0:
+        raise NetworkXError("nodelist has no nodes")
+    nodeset = set(G.nbunch_iter(nodelist))
+    if nlen != len(nodeset):
+        for node in nodelist:
+            if node not in G:
+                raise NetworkXError(f"Node {node} in nodelist is not in G")
+        raise NetworkXError("nodelist contains duplicates.")
+    if nlen < len(G):
+        G = G.subgraph(nodelist)
+    index = dict(zip(nodelist, range(nlen)))
+    if (
+        not isinstance(G, nx.Graph)
+        and not _pagerank_has_assigned_edge_provider(G)
+        and weight is not True and weight is not False
+    ):
+        # Owned edge views have narrower selector handling than NetworkX's:
+        # some reserve None for unit values or treat arbitrary keys as flags.
+        # Project from live dictionaries with the same contains/item protocol,
+        # leaving NetworkX edge providers' original call arguments intact.
+        edges = (
+            (u, v, attrs[weight] if weight in attrs else 1)
+            for u, v, attrs in G.edges(data=True)
+        )
+    else:
+        edges = G.edges(data=weight, default=1)
+    coefficients = zip(*((index[u], index[v], value) for u, v, value in edges))
+    try:
+        rows, cols, values = coefficients
+    except ValueError:
+        rows, cols, values = [], [], []
+    if G.is_directed():
+        A = sp.coo_array((values, (rows, cols)), shape=(nlen, nlen), dtype=float)
+    else:
+        data = values + values
+        row = rows + cols
+        col = cols + rows
+        if G.is_multigraph():
+            loops = [
+                (index[node], attrs if weight is True else attrs.get(weight, 1))
+                for node, nbrs in G._adj.items() if node in nbrs
+                for attrs in nbrs[node].values()
+            ]
+        else:
+            loops = [
+                (index[node], nbrs[node] if weight is True else nbrs[node].get(weight, 1))
+                for node, nbrs in G._adj.items() if node in nbrs
+            ]
+        if loops:
+            diagonal, correction = zip(*((node, -value) for node, value in loops))
+            data += correction
+            row += diagonal
+            col += diagonal
+        A = sp.coo_array((data, (row, col)), shape=(nlen, nlen), dtype=float)
+    A = A.tocsr()
     row_sums = np.asarray(A.sum(axis=1)).flatten()
     row_sums[row_sums != 0] = 1.0 / row_sums[row_sums != 0]
     A = sp.dia_array((row_sums, 0), shape=A.shape).tocsr() @ A
@@ -1407,6 +1499,52 @@ def _pagerank_inproc(
         nodelist, A, np.where(row_sums == 0)[0], alpha,
         personalization, max_iter, tol, nstart, dangling,
     )
+
+
+def _pagerank_uses_python_graph(G, weight, max_iter, alpha, tol):
+    """Keep observable graph and numeric protocols outside native snapshots."""
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or _pagerank_has_assigned_edge_provider(G)
+        or type(max_iter) not in (int, bool)
+        or type(alpha) not in (int, float, bool)
+        or type(tol) not in (int, float, bool)
+        or (weight is not None and type(weight) is not str)
+    ):
+        return True
+    if any(name in G.__dict__ for name in (
+        "is_directed", "is_multigraph", "nbunch_iter", "subgraph",
+    )):
+        return True
+    if weight is None:
+        # The sparse PageRank contract reads a literal None attribute key.
+        # Inspect only escaped simple-graph mirrors when the native probe is
+        # available; an ordinary unweighted graph keeps its direct CSR route.
+        has_none = (
+            _native_has_none_edge_attr_key(G)
+            if _native_has_none_edge_attr_key is not None else None
+        )
+        if has_none is None:
+            has_none = _graph_has_edge_attribute(G, None)
+        return has_none
+    token = (
+        _native_dijkstra_weight_cache_token(G)
+        if _native_dijkstra_weight_cache_token is not None else None
+    )
+    if token is None or token[2]:
+        # A dirty mirror may contain a custom scalar or key. Synchronizing it
+        # first can invoke __float__/__str__ while a native graph is borrowed,
+        # before the public sparse exporter would read that value. Ordinary
+        # clean matrices skip this Python scan and retain their cached route.
+        for _, _, attrs in G.edges(data=True):
+            if not _attr_dict_has_plain_reads(attrs):
+                return True
+            if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+                return True
+            if type(dict.get(attrs, weight, 1)) not in (int, float, bool):
+                return True
+    return False
 
 
 def pagerank(
@@ -1424,6 +1562,16 @@ def pagerank(
 ):
     """Return the PageRank of the nodes in graph ``G``."""
     _validate_backend_dispatch_keywords("pagerank", backend, backend_kwargs)
+    if _pagerank_uses_python_graph(G, weight, max_iter, alpha, tol):
+        # Copying views, assigned rows, or NetworkX graphs strips custom edge
+        # readers and disconnects their writes from later rows. The owned
+        # exporter reads the original graph once, then captures vectors and
+        # finally consumes max_iter, matching the public iteration boundary.
+        return _pagerank_inproc(
+            G, alpha=alpha, personalization=personalization,
+            max_iter=max_iter, tol=tol, nstart=nstart,
+            weight=weight, dangling=dangling,
+        )
     # br-r37-c1-y77dc: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
 
