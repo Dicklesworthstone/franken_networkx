@@ -152,6 +152,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "dijkstra_path_length",
         "bellman_ford_path",
         "bellman_ford_path_length",
+        "johnson",
         "find_negative_cycle",
         "negative_edge_cycle",
         "single_source_dijkstra",
@@ -178,6 +179,7 @@ _CONNECTIVITY_INPUT_ALGORITHMS = frozenset(
 )
 _PROVIDER_INPUT_ALGORITHMS = (
     _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
+    | {"johnson"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
 
@@ -186,6 +188,8 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
     if name in _FLOW_INPUT_ALGORITHMS:
         return True
+    if name == "johnson":
+        return _johnson_dispatch_uses_live_providers(graph, arguments.get("weight"))
     if name in _CONNECTIVITY_INPUT_ALGORITHMS:
         # A solver can read or mutate the original graph while the algorithm
         # constructs its auxiliary or selects later source/target pairs.
@@ -196,6 +200,37 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     return name in _SPECTRAL_INPUT_ALGORITHMS and _spectral_dispatch_uses_live_providers(
         name, graph, arguments
     )
+
+
+def _johnson_dispatch_uses_live_providers(graph, weight):
+    """Keep Johnson callbacks and exact numeric protocols on the source graph."""
+    from math import isfinite
+    import networkx as nx
+
+    if type(weight) is not str:
+        return True
+    if type(graph) not in (nx.Graph, nx.DiGraph) or "_graph" in vars(graph):
+        return True
+    if type(graph._node) is not dict or type(graph._adj) is not dict:
+        return True
+    if any(type(node) not in (str, int, float, bool) for node in graph._node):
+        return True
+    for row in graph._adj.values():
+        if type(row) is not dict:
+            return True
+        for attrs in row.values():
+            if type(attrs) is not dict:
+                return True
+            if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+                return True
+            # Empty strings are literal selectors too. Inspect only plain
+            # dictionaries so deciding whether to convert invokes no providers.
+            value = attrs.get(weight, 1)
+            if type(value) not in (int, float, bool):
+                return True
+            if type(value) is float and not isfinite(value):
+                return True
+    return False
 
 
 def _spectral_dispatch_uses_live_providers(name, graph, arguments):
@@ -368,6 +403,7 @@ _SUPPORTED_ALGORITHMS = {
     "average_shortest_path_length": fnx.average_shortest_path_length,
     "dijkstra_path": fnx.dijkstra_path,
     "bellman_ford_path": fnx.bellman_ford_path,
+    "johnson": fnx.johnson,
     # Connectivity
     "is_connected": fnx.is_connected,
     "connected_components": fnx.connected_components,

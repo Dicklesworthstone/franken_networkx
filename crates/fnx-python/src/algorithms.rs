@@ -4863,22 +4863,28 @@ fn fold_store_only_dijkstra_weights<'a>(
                 flags.0 |= *value < 0.0;
                 flags.1 |= !value.is_finite();
             }
-            Some(CgseValue::Bool(_)) => {
+            None | Some(CgseValue::Bool(_)) => {
+                // An absent selector is the integer weight 1, not zero.
+                // Omitting it from the envelope admits path sums just beyond
+                // 2**53, including Johnson's reweighted integer paths.
                 *int_magnitude_total = int_magnitude_total.saturating_add(1);
             }
             Some(CgseValue::String(_) | CgseValue::Map(_)) => flags.2 = true,
-            None => {}
         }
     }
 }
 
-/// One live Python edge weight into the scan's `(negative, non-finite or
-/// inexact, non-numeric)` flags and its running int magnitude.
+/// One live Python edge weight (or its default 1) into the scan's `(negative,
+/// non-finite or inexact, non-numeric)` flags and running integer magnitude.
 fn fold_py_dijkstra_weight(
-    val: &Bound<'_, PyAny>,
+    val: Option<&Bound<'_, PyAny>>,
     flags: &mut (bool, bool, bool),
     int_magnitude_total: &mut u128,
 ) {
+    let Some(val) = val else {
+        *int_magnitude_total = int_magnitude_total.saturating_add(1);
+        return;
+    };
     if let Ok(f) = val.extract::<f64>() {
         flags.0 |= f < 0.0;
         flags.1 |= !f.is_finite();
@@ -4972,9 +4978,11 @@ fn check_expanded_weight_rows(
                         continue;
                     };
                     if let Some(dict) = pg.edge_py_attrs.get(&PyGraph::edge_key(u_name, v_name)) {
-                        if let Some(val) = dict.bind(py).get_item(weight_attr)? {
-                            fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
-                        }
+                        fold_py_dijkstra_weight(
+                            dict.bind(py).get_item(weight_attr)?.as_ref(),
+                            &mut flags,
+                            &mut int_magnitude_total,
+                        );
                     } else {
                         fold_store_only_dijkstra_weights(
                             graph.edge_attrs_by_indices(u, v),
@@ -5008,9 +5016,11 @@ fn check_expanded_weight_rows(
                     .edge_py_attrs
                     .get(&PyDiGraph::edge_key(source_name, target_name))
                 {
-                    if let Some(val) = dict.bind(py).get_item(weight_attr)? {
-                        fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
-                    }
+                    fold_py_dijkstra_weight(
+                        dict.bind(py).get_item(weight_attr)?.as_ref(),
+                        &mut flags,
+                        &mut int_magnitude_total,
+                    );
                 } else {
                     fold_store_only_dijkstra_weights(
                         graph.edge_attrs_by_indices(source, target),
@@ -5055,9 +5065,11 @@ pub fn check_dijkstra_edge_weights_fast(
             // br-r37-c1-04z53.9172: running upper bound on any path sum.
             let mut int_magnitude_total: u128 = 0;
             for dict in pg.edge_py_attrs.values() {
-                if let Some(val) = dict.bind(py).get_item(weight_attr)? {
-                    fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
-                }
+                fold_py_dijkstra_weight(
+                    dict.bind(py).get_item(weight_attr)?.as_ref(),
+                    &mut flags,
+                    &mut int_magnitude_total,
+                );
                 if flags.0 && flags.1 && flags.2 {
                     break;
                 }
@@ -5083,9 +5095,11 @@ pub fn check_dijkstra_edge_weights_fast(
             let mut flags = (false, false, false);
             let mut int_magnitude_total: u128 = 0;
             for dict in dg.edge_py_attrs.values() {
-                if let Some(val) = dict.bind(py).get_item(weight_attr)? {
-                    fold_py_dijkstra_weight(&val, &mut flags, &mut int_magnitude_total);
-                }
+                fold_py_dijkstra_weight(
+                    dict.bind(py).get_item(weight_attr)?.as_ref(),
+                    &mut flags,
+                    &mut int_magnitude_total,
+                );
                 if flags.0 && flags.1 && flags.2 {
                     break;
                 }
@@ -5148,6 +5162,8 @@ pub fn check_dijkstra_edge_weights_fast(
                         let (inexact, magnitude) = py_weight_exactness(&val);
                         has_nonnumeric |= inexact;
                         int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
+                    } else {
+                        int_magnitude_total = int_magnitude_total.saturating_add(1);
                     }
                     if has_negative && has_positive_infinity && has_nonnumeric {
                         break;
@@ -5276,6 +5292,8 @@ pub fn check_dijkstra_edge_weights_fast(
                     let (inexact, magnitude) = py_weight_exactness(&val);
                     has_nonnumeric |= inexact;
                     int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
+                } else {
+                    int_magnitude_total = int_magnitude_total.saturating_add(1);
                 }
                 if has_negative && has_positive_infinity && has_nonnumeric {
                     break;
@@ -31452,6 +31470,98 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    fn implicit_unit_weight_graph<'py>(
+        py: Python<'py>,
+        graph_type: &Bound<'py, pyo3::types::PyType>,
+        first_weight: i64,
+        mirrored: bool,
+    ) -> Bound<'py, PyAny> {
+        let graph = graph_type.call0().expect("graph should initialize");
+        let attrs = PyDict::new(py);
+        attrs
+            .set_item("cost", first_weight)
+            .expect("weight should set");
+        let edges = PyList::empty(py);
+        edges
+            .append(("a", "b", attrs))
+            .expect("weighted edge should append");
+        edges
+            .append(("b", "c"))
+            .expect("implicit unit edge should append");
+        graph
+            .call_method1("add_edges_from", (edges,))
+            .expect("path edges should add");
+        if mirrored {
+            for (source, target) in [("a", "b"), ("b", "c")] {
+                graph
+                    .call_method1("get_edge_data", (source, target))
+                    .expect("live edge attributes should materialize");
+            }
+        }
+        graph
+    }
+
+    #[test]
+    fn dijkstra_integer_domain_includes_implicit_units_in_every_graph_class() {
+        ensure_python();
+        Python::attach(|py| {
+            for graph_type in [
+                py.get_type::<PyGraph>(),
+                py.get_type::<PyDiGraph>(),
+                py.get_type::<PyMultiGraph>(),
+                py.get_type::<PyMultiDiGraph>(),
+            ] {
+                for mirrored in [false, true] {
+                    for first_weight in [(1_i64 << 53) - 1, 1_i64 << 53] {
+                        let graph =
+                            implicit_unit_weight_graph(py, &graph_type, first_weight, mirrored);
+                        let (negative, inexact, nonnumeric) =
+                            check_dijkstra_edge_weights_fast(py, &graph, "cost", false, false)
+                                .expect("weight scan should succeed")
+                                .expect("concrete graph should have a weight scan");
+                        assert!(!negative);
+                        // 2**53 - 1 + default 1 is exact; 2**53 + 1 is not.
+                        assert_eq!(inexact || nonnumeric, first_weight == 1_i64 << 53);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn dijkstra_integer_domain_includes_implicit_units_on_expanded_rows() {
+        ensure_python();
+        Python::attach(|py| {
+            for graph_type in [py.get_type::<PyGraph>(), py.get_type::<PyDiGraph>()] {
+                for mirrored in [false, true] {
+                    for first_weight in [(1_i64 << 53) - 1, 1_i64 << 53] {
+                        let graph =
+                            implicit_unit_weight_graph(py, &graph_type, first_weight, mirrored);
+                        let graph_ref = extract_graph(&graph).expect("graph should extract");
+                        // The middle row sees each path edge once, including
+                        // incoming edges in a directed graph's admission scan.
+                        let result = check_expanded_weight_rows(
+                            py,
+                            &graph_ref,
+                            Some(vec![1]),
+                            "cost",
+                            false,
+                        );
+                        if first_weight == 1_i64 << 53 {
+                            assert!(
+                                result
+                                    .expect_err("inexact search must request exact routing")
+                                    .is_instance_of::<WeightRowsUnverified>(py)
+                            );
+                        } else {
+                            result.expect("exact boundary must remain admitted");
+                        }
+                    }
+                }
+            }
+        });
     }
 
     #[test]

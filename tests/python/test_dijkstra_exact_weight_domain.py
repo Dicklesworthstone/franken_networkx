@@ -99,6 +99,107 @@ def test_many_small_ints_summing_past_the_envelope_match_networkx(nx_cls, fnx_cl
     assert got == want, f"expected exact {want}, got {got} (delta {got - want})"
 
 
+def _implicit_unit_pair(nx_cls, fnx_cls, weight, storage, first_weight=2**53):
+    """Build a wide integer followed by two implicit unit-weight edges."""
+    graphs = nx_cls(), fnx_cls()
+    for graph in graphs:
+        graph.add_edges_from([
+            ("s", "a", {weight: first_weight}),
+            ("a", "b", {}),
+            ("b", "t", {}),
+        ])
+        if storage == "mirrored":
+            # Exercise escaped Python attribute dictionaries as well as lazy
+            # native-only attributes. Missing keys mean integer 1 in both.
+            list(graph.edges(data=True))
+        elif storage == "mixed":
+            if graph.is_multigraph():
+                graph.get_edge_data("a", "b", 0)
+            else:
+                graph.get_edge_data("a", "b")
+    return graphs
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+@pytest.mark.parametrize("storage", ["lazy", "mirrored", "mixed"])
+@pytest.mark.parametrize("weight", ["weight", "cost"])
+def test_implicit_unit_edges_count_in_exact_integer_domain(nx_cls, fnx_cls, storage, weight):
+    """Default units must not disappear after an exactly representable 2**53.
+
+    The old scan summed only explicit integer attributes, admitted this graph
+    to f64 kernels, and returned 2**53 instead of 2**53 + 2. The same shared
+    admission decision protects Dijkstra, Bellman-Ford and their consumers.
+    """
+    gnx, gfx = _implicit_unit_pair(nx_cls, fnx_cls, weight, storage)
+    assert nx.dijkstra_path_length(gnx, "s", "t", weight=weight) == 2**53 + 2
+    # Exercise both an initially cold query and queries after the whole-graph
+    # scan is cached; row-checked searches have a separate validation path.
+    for warmed in (False, True):
+        if warmed:
+            assert fnx._should_delegate_dijkstra_to_networkx(gfx, weight) is True
+        for name, args, kwargs in (
+            ("dijkstra_path_length", ("s", "t"), {}),
+            ("single_source_dijkstra_path_length", ("s",), {}),
+            ("single_source_dijkstra", ("s",), {"target": "t"}),
+            ("multi_source_dijkstra", (["s"],), {"target": "t"}),
+            ("multi_source_dijkstra_path_length", (["s"],), {}),
+            ("dijkstra_predecessor_and_distance", ("s",), {}),
+            ("bellman_ford_path_length", ("s", "t"), {}),
+            ("single_source_bellman_ford_path_length", ("s",), {}),
+            ("bellman_ford_predecessor_and_distance", ("s",), {}),
+            ("shortest_path_length", ("s", "t"), {}),
+        ):
+            expected = getattr(nx, name)(gnx, *args, weight=weight, **kwargs)
+            actual = getattr(fnx, name)(gfx, *args, weight=weight, **kwargs)
+            _assert_dijkstra_observables(actual, expected)
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_deleting_zero_weight_invalidates_exact_integer_admission(nx_cls, fnx_cls):
+    gnx, gfx = _pair(nx_cls, fnx_cls, 2**53, 0)
+    assert fnx._should_delegate_dijkstra_to_networkx(gfx, "weight") is False
+    assert fnx.single_source_dijkstra_path_length(gfx, "a")["c"] == 2**53
+    for graph in (gnx, gfx):
+        attrs = (
+            graph.get_edge_data("b", "c", 0)
+            if graph.is_multigraph()
+            else graph.get_edge_data("b", "c")
+        )
+        del attrs["weight"]
+    expected = nx.single_source_dijkstra_path_length(gnx, "a")
+    assert expected["c"] == 2**53 + 1
+    for _ in range(2):
+        _assert_dijkstra_observables(
+            fnx.single_source_dijkstra_path_length(gfx, "a"), expected
+        )
+        assert fnx._should_delegate_dijkstra_to_networkx(gfx, "weight") is True
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_implicit_units_preserve_native_exact_boundary(nx_cls, fnx_cls):
+    for first_weight in (3, 2**53 - 2):
+        gnx, gfx = _implicit_unit_pair(nx_cls, fnx_cls, "cost", "lazy", first_weight)
+        assert fnx._should_delegate_dijkstra_to_networkx(gfx, "cost") is False
+        assert fnx.dijkstra_path_length(gfx, "s", "t", weight="cost") == (
+            nx.dijkstra_path_length(gnx, "s", "t", weight="cost")
+        )
+
+
+@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
+def test_backend_implicit_unit_distances_remain_exact(nx_cls, fnx_cls):
+    gnx, _ = _implicit_unit_pair(nx_cls, fnx_cls, "cost", "lazy")
+    for name, args in (
+        ("single_source_dijkstra_path_length", ("s",)),
+        ("single_source_bellman_ford_path_length", ("s",)),
+        ("shortest_path_length", ("s", "t")),
+    ):
+        function = getattr(nx, name)
+        expected = function(gnx, *args, weight="cost", backend="networkx")
+        for _ in range(2):
+            actual = function(gnx, *args, weight="cost", backend="franken_networkx")
+            _assert_dijkstra_observables(actual, expected)
+
+
 # --------------------------------------------------------------------------
 # Non-regression: rows verified correct BEFORE the fix. The classifier's
 # existing negative / non-finite / non-numeric rules are sound and must survive.
