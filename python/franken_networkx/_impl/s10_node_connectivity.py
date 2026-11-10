@@ -1045,6 +1045,79 @@ def _networkx_release():
     return _CACHED_NX_RELEASE
 
 
+_BETWEENNESS_RANDOM_CLASS = _random.Random
+_BETWEENNESS_RANDOM_PROTOCOL = {
+    name: getattr(_BETWEENNESS_RANDOM_CLASS, name)
+    for name in ("sample", "_randbelow", "getrandbits", "random", "__getattribute__")
+}
+
+
+def _betweenness_uses_live_python_rows(G, weight, seed=None, k=None):
+    """Keep Brandes providers on the caller's graph before taking a snapshot.
+
+    Sampling and scalar/mapping hooks can change edges that later sources
+    traverse. The standalone wrappers and backend admission share this check
+    so a cached conversion cannot silently hide those changes.
+    """
+    if _weighted_query_uses_live_python_rows(G, weight):
+        return True
+    if weight is not None and type(weight) is not str:
+        return True
+    if k is not None:
+        if type(k) not in (int, bool):
+            return True
+        if seed is None or seed is _random:
+            seed = _random._inst
+        if type(seed) is not int and (
+            type(seed) is not _BETWEENNESS_RANDOM_CLASS
+            or any(name in vars(seed) for name in _BETWEENNESS_RANDOM_PROTOCOL)
+        ):
+            return True
+        if _random.Random is not _BETWEENNESS_RANDOM_CLASS or any(
+            getattr(_BETWEENNESS_RANDOM_CLASS, name) is not method
+            for name, method in _BETWEENNESS_RANDOM_PROTOCOL.items()
+        ):
+            return True
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
+        # Native scalar admission already checks exact arithmetic below. A
+        # custom attribute factory still needs its public read protocol.
+        return G.edge_attr_dict_factory is not dict
+
+    import networkx as nx
+
+    if type(G) not in (nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph):
+        return True
+    if "_graph" in vars(G) or type(G._node) is not dict or type(G._adj) is not dict:
+        return True
+    if type(G.graph) is not dict or any(type(attrs) is not dict for attrs in G._node.values()):
+        return True
+    multigraph = G.is_multigraph()
+    for row in G._adj.values():
+        if type(row) is not dict:
+            return True
+        for edge_data in row.values():
+            if type(edge_data) is not dict:
+                return True
+            attributes = edge_data.values() if multigraph else (edge_data,)
+            for attrs in attributes:
+                if type(attrs) is not dict:
+                    return True
+                if weight is not None:
+                    # Inspect only builtin dictionaries. Calling a provider's
+                    # get method to decide whether to convert would itself
+                    # move its read ahead of the Brandes traversal.
+                    if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+                        return True
+                    value = attrs.get(weight, 1)
+                    if type(value) not in (int, float, bool):
+                        return True
+                    if type(value) is float and not _math.isfinite(value):
+                        return True
+                    if type(value) is int and abs(value) > 2**53:
+                        return True
+    return False
+
+
 def betweenness_centrality(
     G,
     k=None,
@@ -1069,7 +1142,7 @@ def betweenness_centrality(
     # conversion would disconnect those writes from Brandes, and collapsing
     # an undirected view of directed edges loses its per-endpoint weights.
     # The owned engine also preserves explicitly assigned private adjacency.
-    if _weighted_query_uses_live_python_rows(G, weight):
+    if _betweenness_uses_live_python_rows(G, weight, rng, k):
         return _betweenness_centrality_inproc(
             G, k=k, normalized=normalized, weight=weight,
             endpoints=endpoints, seed=rng,

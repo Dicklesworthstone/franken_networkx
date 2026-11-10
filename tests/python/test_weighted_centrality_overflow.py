@@ -8,6 +8,7 @@ Compare with the live oracle, including its non-textbook undirected results.
 
 from decimal import Decimal
 from fractions import Fraction
+import random
 
 import networkx as nx
 import pytest
@@ -584,3 +585,209 @@ def test_full_brandes_undirected_view_preserves_asymmetric_weights(
     _forbid_full_brandes_materialization(monkeypatch)
     actual = getattr(fnx, algorithm)(graphs[1], weight="weight", seed=17, **options)
     assert list(actual.items()) == list(expected.items())
+
+
+def _warm_brandes_backend_cache(graph):
+    nx.relabel_nodes(graph, {}, backend="franken_networkx")
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("algorithm", ["betweenness_centrality", "edge_betweenness_centrality"])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("mutation", ["later-weight", "callback-dict"])
+def test_backend_brandes_callbacks_keep_original_rows(
+    monkeypatch, algorithm, graph_class, cached, mutation
+):
+    import franken_networkx.backend as fnx_backend
+
+    reference_owner, reference = _full_brandes_graph(nx, graph_class, False)
+    owner, graph = _full_brandes_graph(nx, graph_class, False)
+    expected_weight, expected_calls = _full_brandes_weight(reference, reference_owner, mutation)
+    actual_weight, actual_calls = _full_brandes_weight(graph, owner, mutation)
+    expected = _full_brandes_outcome(
+        getattr(nx, algorithm), reference, weight=expected_weight, backend="networkx"
+    )
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        _warm_brandes_backend_cache(graph)
+    _forbid_full_brandes_materialization(monkeypatch)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("backend admission must precede graph conversion")
+
+    monkeypatch.setattr(fnx_backend, "_nx_to_fnx_for_dispatch", forbidden)
+    actual = _full_brandes_outcome(
+        getattr(nx, algorithm), graph, weight=actual_weight, backend="franken_networkx"
+    )
+    assert actual == expected
+    assert actual_calls == expected_calls
+    assert all(identical for _, _, _, identical in actual_calls)
+    assert _full_brandes_edges(graph) == _full_brandes_edges(reference)
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("algorithm", ["betweenness_centrality", "edge_betweenness_centrality"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_brandes_mapping_reads_stay_at_traversal_boundary(
+    monkeypatch, algorithm, graph_class, cached
+):
+    graphs = [_full_brandes_graph(nx, graph_class, False)[1] for _ in range(2)]
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        _warm_brandes_backend_cache(graphs[1])
+    traces = []
+    for graph in graphs:
+        calls = []
+        traces.append(calls)
+
+        class ReadingAttributes(dict):
+            def get(self, key, default=None, *, _graph=graph, _calls=calls):
+                _calls.append((key, self is _graph[0][1]))
+                _graph[1][3]["weight"] = 0.25
+                return super().get(key, default)
+
+        attrs = ReadingAttributes(graph[0][1])
+        graph._adj[0][1] = attrs
+        if graph.is_directed():
+            graph._pred[1][0] = attrs
+        else:
+            graph._adj[1][0] = attrs
+    expected = getattr(nx, algorithm)(graphs[0], weight="weight", backend="networkx")
+    _forbid_full_brandes_materialization(monkeypatch)
+    actual = getattr(nx, algorithm)(graphs[1], weight="weight", backend="franken_networkx")
+    assert list(actual.items()) == list(expected.items())
+    assert traces[1] == traces[0]
+    assert traces[1] and all(identical for _, identical in traces[1])
+    assert _full_brandes_edges(graphs[1]) == _full_brandes_edges(graphs[0])
+    assert not graphs[1].__networkx_cache__.get("backends")
+
+
+class _GraphMutatingBrandesRandom(random.Random):
+    def __init__(self, graph):
+        super().__init__(17)
+        self.graph = graph
+        self.calls = []
+
+    def sample(self, population, k):
+        self.calls.append((list(population), k))
+        attrs = self.graph[1][3].values() if self.graph.is_multigraph() else [self.graph[1][3]]
+        for data in attrs:
+            data["weight"] = 0.25
+        return super().sample(population, k)
+
+
+@pytest.mark.parametrize("algorithm", ["betweenness_centrality", "edge_betweenness_centrality"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["fnx", "networkx-input", "backend", "cached-backend"])
+def test_brandes_sampling_mutations_reach_later_searches(
+    monkeypatch, algorithm, graph_class, route
+):
+    _, reference = _full_brandes_graph(nx, graph_class, False)
+    _, graph = _full_brandes_graph(fnx if route == "fnx" else nx, graph_class, False)
+    expected_rng = _GraphMutatingBrandesRandom(reference)
+    actual_rng = _GraphMutatingBrandesRandom(graph)
+    expected = _full_brandes_outcome(
+        getattr(nx, algorithm), reference, k=2, weight="weight",
+        seed=expected_rng, backend="networkx",
+    )
+    assert expected[0] == "return"
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if route == "cached-backend":
+        _warm_brandes_backend_cache(graph)
+    _forbid_full_brandes_materialization(monkeypatch)
+    options = {"k": 2, "weight": "weight", "seed": actual_rng}
+    if "backend" in route:
+        options["backend"] = "franken_networkx"
+    actual = _full_brandes_outcome(
+        getattr(nx if "backend" in route else fnx, algorithm), graph, **options
+    )
+    assert actual == expected
+    assert actual_rng.calls == expected_rng.calls
+    assert actual_rng.getstate() == expected_rng.getstate()
+    assert _full_brandes_edges(graph) == _full_brandes_edges(reference)
+
+
+@pytest.mark.parametrize("algorithm", ["betweenness_centrality", "edge_betweenness_centrality"])
+@pytest.mark.parametrize("selector,value", [
+    ("weight", Fraction(1, 10)),
+    ("weight", Decimal("0.1")),
+    (("distance", 0), 1),
+    ("", 1),
+    (0, 1),
+])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_brandes_preserves_literal_selectors_and_exact_weights(
+    monkeypatch, algorithm, selector, value, graph_class, cached
+):
+    graphs = []
+    for _ in range(2):
+        graph = getattr(nx, graph_class)()
+        graph.add_nodes_from(range(5))
+        for u, v, factor in ((0, 1, 1), (1, 2, 2), (0, 2, 3), (2, 3, 1)):
+            key = graph.add_edge(u, v)
+            attrs = graph[u][v][key] if graph.is_multigraph() else graph[u][v]
+            attrs[selector] = value * factor
+        graphs.append(graph)
+    reference, graph = graphs
+    expected = getattr(nx, algorithm)(reference, weight=selector, backend="networkx")
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        _warm_brandes_backend_cache(graph)
+    actual = getattr(nx, algorithm)(graph, weight=selector, backend="franken_networkx")
+    assert list(actual.items()) == list(expected.items())
+
+
+@pytest.mark.parametrize("algorithm", ["betweenness_centrality", "edge_betweenness_centrality"])
+@pytest.mark.parametrize("failure_at", ["weight", "sample"])
+def test_backend_brandes_provider_errors_discard_mutated_conversions(
+    monkeypatch, algorithm, failure_at
+):
+    _, graph = _full_brandes_graph(nx, "Graph", False)
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    _warm_brandes_backend_cache(graph)
+    failure = ValueError("Brandes provider stopped")
+
+    def fail():
+        graph[1][3]["weight"] = 0.125
+        # A nested dispatch can install a conversion while the provider runs.
+        _warm_brandes_backend_cache(graph)
+        raise failure
+
+    def weight(u, v, data):
+        assert data is graph[u][v]
+        fail()
+
+    class FailingRandom(random.Random):
+        def sample(self, population, k):
+            fail()
+
+    options = {"weight": weight}
+    if failure_at == "sample":
+        options = {"weight": "weight", "k": 2, "seed": FailingRandom(17)}
+    with pytest.raises(ValueError) as caught:
+        getattr(nx, algorithm)(graph, backend="franken_networkx", **options)
+    assert caught.value is failure
+    assert graph[1][3]["weight"] == 0.125
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("algorithm,native_helper", [
+    ("betweenness_centrality", "_raw_betweenness_centrality"),
+    ("edge_betweenness_centrality", "_raw_edge_betweenness_centrality"),
+])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_backend_brandes_ordinary_graphs_keep_native_route(
+    monkeypatch, native_calls, algorithm, native_helper, weight
+):
+    _, graph = _full_brandes_graph(nx, "Graph", False)
+    expected = getattr(nx, algorithm)(graph, weight=weight, seed=17, backend="networkx")
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    _warm_brandes_backend_cache(graph)
+    before = native_calls[native_helper]
+    actual = getattr(nx, algorithm)(graph, weight=weight, seed=17, backend="franken_networkx")
+    assert list(actual.items()) == list(expected.items())
+    assert native_calls[native_helper] == before + 1
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]

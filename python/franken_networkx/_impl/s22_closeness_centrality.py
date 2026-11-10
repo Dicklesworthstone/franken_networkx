@@ -201,7 +201,7 @@ def edge_betweenness_centrality(
     # anything else, and draws from it only to sample k sources; with k=None
     # it must not route the call (br-r37-c1-quim8, as betweenness_centrality).
     rng = _create_py_random_state(seed)
-    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    live_rows = _betweenness_uses_live_python_rows(G, weight, rng, k)
     if not live_rows:
         G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(

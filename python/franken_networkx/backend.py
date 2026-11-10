@@ -86,6 +86,9 @@ _COMMUNITY_ITERATOR_ALGORITHMS = frozenset(
         "k_clique_communities",
     }
 )
+_BETWEENNESS_INPUT_ALGORITHMS = frozenset(
+    {"betweenness_centrality", "edge_betweenness_centrality"}
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -149,6 +152,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "closeness_vitality",
         "eigenvector_centrality",
         "katz_centrality",
+        "betweenness_centrality",
+        "edge_betweenness_centrality",
         "maximum_flow",
         "maximum_flow_value",
         "minimum_cut",
@@ -217,6 +222,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _FLOW_SOLVER_INPUT_ALGORITHMS
     | _COMMUNITY_ITERATOR_ALGORITHMS
     | _DIJKSTRA_INPUT_ALGORITHMS
+    | _BETWEENNESS_INPUT_ALGORITHMS
     | {"johnson", "quotient_graph"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -229,6 +235,10 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _BETWEENNESS_INPUT_ALGORITHMS:
+        return fnx._betweenness_uses_live_python_rows(
+            graph, arguments.get("weight"), arguments.get("seed"), arguments.get("k")
+        )
     if name in _FLOW_INPUT_ALGORITHMS:
         return True
     if name in _COMMUNITY_ITERATOR_ALGORITHMS:
