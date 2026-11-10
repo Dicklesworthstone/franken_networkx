@@ -519,6 +519,240 @@ def _as_exact_float(value):
     return None
 
 
+class _ModularityHeapEntry:
+    """A merge priority whose tie-break uses the caller's node objects."""
+
+    __slots__ = ("priority", "edge")
+
+    def __init__(self, priority, edge):
+        self.priority = priority
+        self.edge = edge
+
+    def __lt__(self, other):
+        if self.priority == other.priority:
+            try:
+                return self.edge < other.edge
+            except TypeError as exc:
+                raise TypeError(
+                    "Consider using a tuple, with a priority value that can be compared."
+                ) from exc
+        return self.priority < other.priority
+
+
+class _ModularityQueue:
+    """An indexed heap with one live entry per adjacent community pair.
+
+    Lazy stale entries change comparisons for NaN priorities and custom node
+    labels. Replacing entries in place keeps those inputs on the same sparse
+    merge schedule as ordinary numbers, with bounded queue storage.
+    """
+
+    def __init__(self, entries=()):
+        from heapq import heapify
+
+        self.heap = list(entries)
+        heapify(self.heap)
+        self.positions = {item.edge: i for i, item in enumerate(self.heap)}
+
+    def __len__(self):
+        return len(self.heap)
+
+    def _rise(self, position, floor=0):
+        item = self.heap[position]
+        while position > floor:
+            parent = (position - 1) // 2
+            if not item < self.heap[parent]:
+                break
+            self.heap[position] = self.heap[parent]
+            self.positions[self.heap[position].edge] = position
+            position = parent
+        self.heap[position] = item
+        self.positions[item.edge] = position
+
+    def _repair(self, position):
+        item = self.heap[position]
+        child = 2 * position + 1
+        while child < len(self.heap):
+            right = child + 1
+            if right < len(self.heap) and not self.heap[child] < self.heap[right]:
+                child = right
+            self.heap[position] = self.heap[child]
+            self.positions[self.heap[position].edge] = position
+            position = child
+            child = 2 * position + 1
+        self.heap[position] = item
+        self._rise(position)
+
+    def push(self, item):
+        if item.edge in self.positions:
+            return
+        self.heap.append(item)
+        self._rise(len(self.heap) - 1)
+
+    def pop(self):
+        item = self.heap[0]
+        self.remove(item.edge)
+        return item
+
+    def remove(self, edge):
+        position = self.positions.pop(edge)
+        last = self.heap.pop()
+        if position < len(self.heap):
+            self.heap[position] = last
+            self._repair(position)
+
+    def replace(self, edge, item):
+        position = self.positions.pop(edge)
+        self.heap[position] = item
+        self._repair(position)
+
+
+def _greedy_modularity_communities_owned(G, weight, resolution, cutoff, best_n):
+    """Sparse CNM merges in the caller's Python numeric and node domains.
+
+    The state is a symmetric gain table, a heap for each row, and a heap of
+    row minima. A merge absorbs its first community into its second, updates
+    only adjacent gains, and retains the original frozenset construction
+    order. No graph conversion or upstream algorithm is required.
+    """
+    if not G.size():
+        return [{node} for node in G]
+    if cutoff < 1 or cutoff > G.number_of_nodes():
+        raise ValueError(f"cutoff must be between 1 and {len(G)}. Got {cutoff}.")
+    if best_n is not None:
+        if best_n < 1 or best_n > G.number_of_nodes():
+            raise ValueError(f"best_n must be between 1 and {len(G)}. Got {best_n}.")
+        if best_n < cutoff:
+            raise ValueError(f"Must have best_n >= cutoff. Got {best_n} < {cutoff}")
+        if best_n == 1:
+            return [set(G)]
+    else:
+        best_n = G.number_of_nodes()
+
+    directed = G.is_directed()
+    # Start the solver through the graph's public node-count protocol before
+    # weighted reads, including on a graph subclass with observable providers.
+    G.number_of_nodes()
+    reciprocal = 1 / G.size(weight)
+    if directed:
+        def directional_degrees(name):
+            view = getattr(G, name)(weight=weight)
+            if type(G) is _fnx.DiGraph and weight is not None and not isinstance(weight, str):
+                # Full native degree iteration accepts only string selectors;
+                # indexed reads retain arbitrary dictionary-key semantics.
+                for node in G:
+                    yield node, view[node]
+            else:
+                yield from view
+
+        outgoing = {
+            node: degree * reciprocal for node, degree in directional_degrees("out_degree")
+        }
+        incoming = {
+            node: degree * reciprocal for node, degree in directional_degrees("in_degree")
+        }
+    else:
+        outgoing = incoming = {
+            node: degree * reciprocal * 0.5 for node, degree in G.degree(weight=weight)
+        }
+
+    from collections import defaultdict
+
+    gains = defaultdict(lambda: defaultdict(float))
+    for left, right, value in G.edges(data=weight, default=1):
+        if left != right:
+            gains[left][right] += value
+            gains[right][left] += value
+    for left, row in gains.items():
+        for right, value in row.items():
+            row[right] = reciprocal * value - resolution * (
+                outgoing[left] * incoming[right] + incoming[left] * outgoing[right]
+            )
+
+    rows = {
+        node: _ModularityQueue(
+            _ModularityHeapEntry(-gain, (node, neighbor))
+            for neighbor, gain in gains[node].items()
+        )
+        for node in G
+    }
+    frontier = _ModularityQueue(rows[node].heap[0] for node in G if rows[node])
+    communities = {node: frozenset([node]) for node in G}
+
+    def remove_pair(row_node, neighbor):
+        row = rows[row_node]
+        old = row.heap[0]
+        row.remove((row_node, neighbor))
+        if old.edge == (row_node, neighbor):
+            frontier.remove(old.edge)
+            if row:
+                frontier.push(row.heap[0])
+
+    def set_pair(row_node, neighbor, gain, existed):
+        row = rows[row_node]
+        previous = row.heap[0] if row else None
+        entry = _ModularityHeapEntry(-gain, (row_node, neighbor))
+        if existed:
+            row.replace(entry.edge, entry)
+        else:
+            row.push(entry)
+        current = row.heap[0]
+        if previous is None:
+            frontier.push(current)
+        elif previous.edge != current.edge or previous.priority != current.priority:
+            frontier.replace(previous.edge, current)
+
+    while len(communities) > cutoff:
+        if len(frontier) <= 1:
+            result = sorted(communities.values(), key=len, reverse=True)
+            while len(result) > best_n:
+                first, second, *remaining = result
+                result = [first ^ second, *remaining]
+            return result
+        selected = frontier.pop()
+        left, right = selected.edge
+        if -selected.priority < 0 and len(communities) <= best_n:
+            break
+
+        rows[left].pop()
+        if rows[left]:
+            frontier.push(rows[left].heap[0])
+        remove_pair(right, left)
+        communities[right] = frozenset(communities[left] | communities[right])
+        del communities[left]
+
+        left_neighbors = set(gains[left])
+        right_neighbors = set(gains[right])
+        for neighbor in (left_neighbors | right_neighbors) - {left, right}:
+            if neighbor in left_neighbors and neighbor in right_neighbors:
+                value = gains[right][neighbor] + gains[left][neighbor]
+            elif neighbor in right_neighbors:
+                value = gains[right][neighbor] - resolution * (
+                    outgoing[left] * incoming[neighbor] + outgoing[neighbor] * incoming[left]
+                )
+            else:
+                value = gains[left][neighbor] - resolution * (
+                    outgoing[right] * incoming[neighbor] + outgoing[neighbor] * incoming[right]
+                )
+            gains[right][neighbor] = gains[neighbor][right] = value
+            set_pair(right, neighbor, value, neighbor in right_neighbors)
+            set_pair(neighbor, right, value, neighbor in right_neighbors)
+
+        for neighbor in list(gains[left]):
+            del gains[neighbor][left]
+            if neighbor != right:
+                remove_pair(neighbor, left)
+                remove_pair(left, neighbor)
+        del gains[left]
+        outgoing[right] += outgoing[left]
+        outgoing[left] = 0
+        if directed:
+            incoming[right] += incoming[left]
+            incoming[left] = 0
+
+    return sorted(communities.values(), key=len, reverse=True)
+
+
 def _greedy_modularity_communities_native(G, weight, resolution, cutoff, best_n):
     """networkx's greedy_modularity_communities, the merge loop native.
 
@@ -614,6 +848,35 @@ def _greedy_modularity_communities_native(G, weight, resolution, cutoff, best_n)
     return sorted(communities, key=len, reverse=True)
 
 
+def _cnm_plain_networkx_storage(G):
+    """Inspect dictionaries without executing customized weight providers."""
+    storage = G.__dict__
+    if type(storage.get("_node")) is not dict:
+        return False
+    if any(type(node) not in (int, str) for node in storage["_node"]):
+        return False
+    roots = [storage.get("_adj")]
+    if "_pred" in storage:
+        roots.append(storage["_pred"])
+    multi = G.is_multigraph()
+    for root in roots:
+        if type(root) is not dict:
+            return False
+        for row in root.values():
+            if type(row) is not dict:
+                return False
+            for data in row.values():
+                if type(data) is not dict:
+                    return False
+                for attrs in data.values() if multi else (data,):
+                    if type(attrs) is not dict or any(
+                        type(key) not in (str, int, float, bool, bytes, type(None))
+                        for key in attrs
+                    ):
+                        return False
+    return True
+
+
 def greedy_modularity_communities(
     G,
     weight=None,
@@ -626,29 +889,46 @@ def greedy_modularity_communities(
 ):
     """Find communities using Clauset-Newman-Moore greedy modularity.
 
-    br-r37-c1-z4rnj retired the old native CNM route: its tie-breaks and stale
-    heap entries picked different equal-gain merges than networkx (valid
-    partitions, different answers). The native route is now networkx's own
-    loop step for step (``_greedy_modularity_communities_native``); graphs it
-    cannot repeat exactly run networkx's code, pinned to ``backend="networkx"``
-    so drop-in mode cannot route the call back here.
+    Ordinary primitive labels and numeric weights use the native merge
+    kernel. The owned sparse merge engine handles other labels, numeric
+    protocols, and graph views without converting or delegating the graph.
     """
     _fnx._validate_backend_dispatch_keywords(
         "greedy_modularity_communities", backend, backend_kwargs
     )
-    result = _greedy_modularity_communities_native(G, weight, resolution, cutoff, best_n)
-    if result is not None:
-        return result
-    graph = _fnx._networkx_graph_for_parity(G) if isinstance(
-        G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
-    ) else G
-    return _nx_community.greedy_modularity_communities(
-        graph,
-        weight=weight,
-        resolution=resolution,
-        cutoff=cutoff,
-        best_n=best_n,
-        backend="networkx",
+    import networkx as nx
+
+    # Native admission inspects parameters and edge values. Graph subclasses
+    # and assigned storage can make those inspections observable; run their
+    # protocols once, directly through the owned engine.
+    if (
+        type(G) in (
+            _fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph,
+            nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph,
+        )
+        and not _fnx._has_networkx_private_storage(G)
+        and "_graph" not in G.__dict__
+        and not any(
+            name in G.__dict__
+            for name in ("size", "number_of_nodes", "is_directed", "is_multigraph")
+        )
+        and G.edge_attr_dict_factory is dict
+        and (weight is None or type(weight) is str)
+        and _as_exact_float(resolution) is not None
+        and _as_exact_float(cutoff) is not None
+        and (best_n is None or _as_exact_float(best_n) is not None)
+        and (
+            type(G) in (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
+            or _cnm_plain_networkx_storage(G)
+        )
+    ):
+        result = _greedy_modularity_communities_native(
+            G, weight, resolution, cutoff, best_n
+        )
+        if result is not None:
+            return result
+    return _greedy_modularity_communities_owned(
+        G, weight, resolution, cutoff, best_n
     )
 
 

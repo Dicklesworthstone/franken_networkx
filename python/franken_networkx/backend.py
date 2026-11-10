@@ -137,6 +137,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "all_shortest_paths",
         "average_shortest_path_length",
         "quotient_graph",
+        "greedy_modularity_communities",
         "eccentricity",
         "diameter",
         "radius",
@@ -223,7 +224,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _COMMUNITY_ITERATOR_ALGORITHMS
     | _DIJKSTRA_INPUT_ALGORITHMS
     | _BETWEENNESS_INPUT_ALGORITHMS
-    | {"johnson", "quotient_graph"}
+    | {"johnson", "quotient_graph", "greedy_modularity_communities"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
 
@@ -270,6 +271,10 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     if name == "quotient_graph":
         # Block attributes contain live induced views of the original graph.
         # Node and edge providers can also mutate later block computations.
+        return True
+    if name == "greedy_modularity_communities":
+        # The owned merge iterator reads live weight and resolution providers;
+        # conversion would detach those reads from the caller's graph.
         return True
     if name in _STRUCTURAL_HOLES_INPUT_ALGORITHMS:
         # A requested-node iterator or edge-data provider can change later

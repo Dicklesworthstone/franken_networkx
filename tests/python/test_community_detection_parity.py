@@ -275,10 +275,14 @@ def test_greedy_modularity_communities_runs_no_networkx_loop():
     assert _cnm_networkx_frames(
         lambda: fnx.community.greedy_modularity_communities(graph, weight=weight)
     ) == []
-    # The census does see networkx's loop where it runs: a fallback shape.
+    # Tuple labels use the owned engine; native rejection must not re-enter
+    # NetworkX's algorithm or its priority queue implementation.
     tuples = _tuple_label_graph(fnx)
-    assert "_greedy_modularity_communities_generator" in _cnm_networkx_frames(
+    assert _cnm_networkx_frames(
         lambda: fnx.community.greedy_modularity_communities(tuples)
+    ) == []
+    assert "_greedy_modularity_communities_generator" in _cnm_networkx_frames(
+        lambda: ncom.greedy_modularity_communities(_tuple_label_graph(nx))
     )
 
 
@@ -288,3 +292,297 @@ def test_greedy_modularity_communities_backend_dispatch_matches_networkx(build):
     expected = ncom.greedy_modularity_communities(graph)
     result = ncom.greedy_modularity_communities(graph, backend="franken_networkx")
     assert [list(c) for c in result] == [list(c) for c in expected]
+
+
+class _CnmOrderedNode:
+    """Comparable labels with collisions, outside the primitive native domain."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def __hash__(self):
+        return 0
+
+    def __eq__(self, other):
+        return isinstance(other, _CnmOrderedNode) and self.value == other.value
+
+    def __lt__(self, other):
+        return self.value < other.value
+
+    def __repr__(self):
+        return f"CnmNode({self.value})"
+
+
+def _cnm_owned_graph(lib, kind, seed, labels, weights):
+    from fractions import Fraction
+
+    rng = random.Random(seed)
+    names = rng.sample(range(11), 11)
+    if labels == "tuple":
+        names = [(value * 1024, value % 3) for value in names]
+    elif labels == "bytes":
+        names = [f"n{value}".encode() for value in names]
+    else:
+        names = [_CnmOrderedNode(value) for value in names]
+    graph = getattr(lib, kind)()
+    graph.add_nodes_from(names)
+    for index in range(24):
+        source, target = rng.choices(names, k=2)
+        if weights == "fraction":
+            value = Fraction(index % 7 + 1, 3)
+        elif weights == "large_int":
+            value = 2**60 + index
+        else:
+            value = rng.choice([1, 2, 0.1, 0.5])
+        graph.add_edge(source, target, cost=value)
+    return graph
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("labels", ["tuple", "bytes", "objects"])
+@pytest.mark.parametrize("weights", ["mixed", "fraction", "large_int"])
+@pytest.mark.parametrize("seed", range(4))
+def test_cnm_owned_merge_schedule_matches_networkx(kind, labels, weights, seed):
+    from fractions import Fraction
+
+    fg = _cnm_owned_graph(fnx, kind, seed, labels, weights)
+    ng = _cnm_owned_graph(nx, kind, seed, labels, weights)
+    for kwargs in (
+        {},
+        {"resolution": Fraction(2, 3)},
+        {"cutoff": 3},
+        {"best_n": 2},
+    ):
+        expected = _cnm_outcome(ncom, ng, weight="cost", **kwargs)
+        assert _cnm_outcome(fnx.community, fg, weight="cost", **kwargs) == expected
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mode", ["view", "assigned"])
+def test_cnm_owned_engine_reads_view_and_assigned_rows(kind, mode):
+    graphs = []
+    for lib in (fnx, nx):
+        graph = _cnm_owned_graph(lib, kind, 17, "tuple", "mixed")
+        if mode == "view":
+            graph = graph.subgraph(list(graph)[2:])
+        else:
+            replacement = graph.copy()
+            graph.clear_edges()
+            graph._adj = replacement._adj
+            if graph.is_directed():
+                graph._succ = replacement._succ
+                graph._pred = replacement._pred
+        graphs.append(graph)
+    expected = _cnm_outcome(ncom, graphs[1], weight="cost")
+    assert expected[0] == "ok"
+    assert _cnm_outcome(fnx.community, graphs[0], weight="cost") == expected
+    assert _cnm_networkx_frames(
+        lambda: fnx.community.greedy_modularity_communities(graphs[0], weight="cost")
+    ) == []
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_cnm_owned_unordered_priorities_match_networkx(kind, value):
+    graphs = [_cnm_owned_graph(lib, kind, 5, "tuple", "mixed") for lib in (fnx, nx)]
+    for graph in graphs:
+        graph.add_edge(list(graph)[0], list(graph)[1], cost=value)
+    for kwargs in ({}, {"cutoff": 3}, {"best_n": 2}):
+        assert _cnm_outcome(fnx.community, graphs[0], weight="cost", **kwargs) == (
+            _cnm_outcome(ncom, graphs[1], weight="cost", **kwargs)
+        )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"cutoff": 2.25},
+        {"best_n": 2.25},
+        {"cutoff": float("nan")},
+        {"resolution": float("nan")},
+        {"resolution": float("inf")},
+        {"cutoff": 0},
+        {"best_n": 0},
+        {"cutoff": 4, "best_n": 3},
+    ],
+)
+def test_cnm_owned_boundary_parameters_match_networkx(kwargs):
+    fg, ng = (_cnm_owned_graph(lib, "Graph", 3, "tuple", "mixed") for lib in (fnx, nx))
+    assert _cnm_outcome(fnx.community, fg, **kwargs) == _cnm_outcome(ncom, ng, **kwargs)
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [b"cost", ("cost", 1), 2, None])
+def test_cnm_owned_nonstring_weight_selectors_match_networkx(kind, weight):
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, kind)()
+        graph.add_edges_from(
+            [((0,), (1,), {weight: 2}), ((1,), (2,), {weight: 1}), ((2,), (0,), {weight: 3})]
+        )
+        graphs.append(graph)
+    expected = _cnm_outcome(ncom, graphs[1], weight=weight)
+    assert expected[0] == "ok"
+    assert _cnm_outcome(fnx.community, graphs[0], weight=weight) == expected
+
+
+@pytest.mark.parametrize("node_count", [0, 1, 5])
+def test_cnm_owned_edgeless_graph_short_circuits_parameter_validation(node_count):
+    fg, ng = fnx.Graph(), nx.Graph()
+    for graph in (fg, ng):
+        graph.add_nodes_from((node,) for node in range(node_count))
+    expected = _cnm_outcome(ncom, ng, cutoff=0, best_n=-1)
+    assert expected[0] == "ok"
+    assert _cnm_outcome(fnx.community, fg, cutoff=0, best_n=-1) == expected
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("best_n", [None, 1, 2, 3])
+def test_cnm_owned_exhausted_frontier_merges_largest_disconnected_groups(kind, best_n):
+    graphs = []
+    for lib in (fnx, nx):
+        graph = getattr(lib, kind)()
+        graph.add_nodes_from((node * 1024,) for node in range(9))
+        graph.add_edges_from(
+            [((0,), (1024,)), ((1024,), (2048,)), ((4096,), (5120,)), ((8192,), (8192,))]
+        )
+        graphs.append(graph)
+    assert _cnm_outcome(fnx.community, graphs[0], best_n=best_n) == _cnm_outcome(
+        ncom, graphs[1], best_n=best_n
+    )
+
+
+def test_cnm_owned_graph_protocols_are_read_once_without_conversion():
+    class ObservedGraph(nx.Graph):
+        def size(self, weight=None):
+            self.events.append(("size", weight))
+            return super().size(weight)
+
+        def number_of_nodes(self):
+            self.events.append("number_of_nodes")
+            return super().number_of_nodes()
+
+        def is_directed(self):
+            self.events.append("is_directed")
+            return super().is_directed()
+
+        def __iter__(self):
+            self.events.append("iter")
+            return super().__iter__()
+
+    outcomes = []
+    for community in (fnx.community, ncom):
+        graph = ObservedGraph()
+        graph.add_edges_from([((0,), (1,), {"cost": 2}), ((1,), (2,), {"cost": 1})])
+        graph.events = []
+        result = _cnm_outcome(community, graph, weight="cost")
+        outcomes.append((result, graph.events))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "backend", "cached_backend"])
+def test_cnm_filtered_providers_keep_their_read_order(kind, entrypoint, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(use_fnx):
+        root = getattr(nx, kind)()
+        root.add_weighted_edges_from([(0, 1, 2), (1, 2, 1), (2, 0, 3), (2, 3, 1)])
+        events = []
+
+        def node_filter(node):
+            events.append(("node", node))
+            return node != 3
+
+        def edge_filter(*edge):
+            events.append(("edge", edge))
+            return True
+
+        graph = nx.subgraph_view(root, filter_node=node_filter, filter_edge=edge_filter)
+        if use_fnx and entrypoint == "cached_backend":
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        # A direct attribute write does not clear NetworkX's conversion cache.
+        # The next call must read the changed original edge even in that state.
+        attrs = root[0][1][0] if root.is_multigraph() else root[0][1]
+        attrs["weight"] = 7
+        events.clear()
+        if use_fnx and entrypoint == "direct":
+            result = fnx.community.greedy_modularity_communities(graph, weight="weight")
+        else:
+            result = ncom.greedy_modularity_communities(
+                graph, weight="weight", backend="franken_networkx" if use_fnx else "networkx"
+            )
+        if use_fnx and entrypoint != "direct":
+            assert not graph.__networkx_cache__.get("backends")
+        return [list(part) for part in result], events
+
+    assert run(True) == run(False)
+
+
+def test_cnm_instance_method_provider_is_not_probed_twice():
+    outcomes = []
+    for community in (fnx.community, ncom):
+        graph = nx.path_graph(4)
+        events = []
+        size = graph.size
+
+        def observed_size(weight=None):
+            events.append(weight)
+            return size(weight)
+
+        graph.size = observed_size
+        outcomes.append((_cnm_outcome(community, graph, weight="weight"), events))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "backend", "cached_backend"])
+def test_cnm_custom_edge_dictionaries_keep_their_read_order(kind, entrypoint, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(use_fnx):
+        graph = getattr(nx, kind)()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 1), (2, 0, 3), (2, 3, 1)])
+        if use_fnx and entrypoint == "cached_backend":
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        events = []
+
+        class EdgeData(dict):
+            def get(self, key, default=None):
+                events.append(("get", key))
+                return super().get(key, default)
+
+            def __contains__(self, key):
+                events.append(("contains", key))
+                return super().__contains__(key)
+
+            def __getitem__(self, key):
+                events.append(("item", key))
+                return super().__getitem__(key)
+
+        if graph.is_multigraph():
+            attrs = EdgeData(graph._adj[0][1][0])
+            graph._adj[0][1][0] = attrs
+            if graph.is_directed():
+                graph._pred[1][0][0] = attrs
+        else:
+            attrs = EdgeData(graph._adj[0][1])
+            graph._adj[0][1] = attrs
+            if graph.is_directed():
+                graph._pred[1][0] = attrs
+            else:
+                graph._adj[1][0] = attrs
+        attrs["weight"] = 7
+        if use_fnx and entrypoint == "direct":
+            result = fnx.community.greedy_modularity_communities(graph, weight="weight")
+        else:
+            result = ncom.greedy_modularity_communities(
+                graph, weight="weight", backend="franken_networkx" if use_fnx else "networkx"
+            )
+        if use_fnx and entrypoint != "direct":
+            assert not graph.__networkx_cache__.get("backends")
+        return [list(part) for part in result], events
+
+    assert run(True) == run(False)

@@ -221,6 +221,13 @@ owned Kruskal selector; ordinary simple graphs retain native selection.
 Each yielded graph owns clean attributes without partition bookkeeping,
 and consuming a prefix selects only the necessary frontier candidates.
 
+Greedy modularity's complete fallback lives beside its native adapter in
+`community.py`. It owns sparse gain tables, indexed row heaps and the merge
+frontier, with original graph/numeric protocols at its input boundary.
+Backend routing preserves those inputs before conversion; ordinary primitive
+inputs retain the existing native kernel. No upstream solver or intermediate
+NetworkX graph is required for the fallback.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

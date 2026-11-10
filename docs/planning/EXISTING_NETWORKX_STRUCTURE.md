@@ -1938,3 +1938,26 @@ selector remains available for eligible simple graphs. Equal-cost ties may
 be emitted in arbitrary order, as documented by NetworkX. Empty, singleton
 and disconnected inputs retain the reference initial-forest behavior, and
 the NaN rejection/ignore policy applies to every parallel edge.
+
+## 67. Owned Greedy Modularity Communities
+
+Greedy modularity retains the native merge kernel for its admitted primitive
+domain. Other labels, numeric values, edge selectors and graph providers use
+an owned sparse CNM solver over the original graph. Its degree products,
+parallel-edge gains, self-loop accounting and merge priorities preserve
+Python arithmetic and caller-defined node comparisons. Indexed row heaps
+retain one live entry per adjacent community pair, including for nonfinite
+priorities; stale duplicate heap entries must not alter comparisons.
+
+The solver absorbs the first selected community into the second and retains
+the reference frozenset construction and final size-sort order. `cutoff` and
+`best_n` preserve their validation and stopping boundaries; after adjacent
+merge candidates are exhausted, required remaining merges consume the largest
+communities in reference order. Directed non-string selectors use indexed
+directional degree reads rather than a native iterator restricted to strings.
+
+Views, custom edge dictionaries and graph-instance providers are not consumed
+by speculative native admission or graph conversion. Direct and backend calls,
+including calls with cached conversions, retain the original providers and
+invalidate conversions after those providers run. Ordinary primitive graphs
+continue to use the existing native merge kernel.
