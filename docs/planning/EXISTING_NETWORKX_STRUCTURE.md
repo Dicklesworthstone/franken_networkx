@@ -1920,3 +1920,21 @@ Exact reusable collections of ordinary labels remain eligible for native
 searches. Length-only queries retain their distance-only engine. Conversion
 caches are invalidated after observable source or weight providers run,
 including failures, so later ordinary native queries see their writes.
+
+## 66. Incremental Multigraph Spanning Trees
+
+`SpanningTreeIterator` snapshots the input graph at construction and enumerates
+spanning trees in nondecreasing or nonincreasing cost. Parallel edges are
+distinct alternatives identified by `(u, v, key)`. Each emitted tree retains
+its selected keys, graph/node/edge attributes and the native graph family;
+partition bookkeeping must not escape in returned attributes or modify the
+caller's graph. Self-loops never participate in a spanning tree.
+
+Enumeration maintains a frontier of disjoint included/excluded/open edge
+partitions. Requesting a prefix selects only the partitions needed for that
+prefix; it must not enumerate the full tree space first. The existing owned
+Kruskal selector handles multigraph constraints and the existing native
+selector remains available for eligible simple graphs. Equal-cost ties may
+be emitted in arbitrary order, as documented by NetworkX. Empty, singleton
+and disconnected inputs retain the reference initial-forest behavior, and
+the NaN rejection/ignore policy applies to every parallel edge.

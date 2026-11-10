@@ -816,11 +816,12 @@ class SpanningTreeIterator:
 
     Keeps a frontier of edge partitions and selects each candidate with the
     spanning-tree selector, using its native kernel for supported weights.
+    Parallel edges are partitioned by key and yield native MultiGraph trees.
     Consuming a prefix does not enumerate the remaining trees.
 
     Parameters
     ----------
-    G : Graph
+    G : Graph or MultiGraph
         Undirected graph.
     weight : str, default "weight"
         Edge attribute used as weight.
@@ -855,20 +856,6 @@ class SpanningTreeIterator:
 
         if self.G.is_directed():
             raise NetworkXNotImplemented("not implemented for directed type")
-        if self.G.is_multigraph():
-            # br-r37-c1-ho3db: nx supports MultiGraph in
-            # SpanningTreeIterator; the Rust kernel is simple-only.
-            # Delegate to nx so MultiGraph callers keep working.
-            import networkx as _nx_local
-            self._iterator = iter(
-                _nx_local.SpanningTreeIterator(
-                    _networkx_graph_for_parity(self.G),
-                    weight=self.weight,
-                    minimum=self.minimum,
-                    ignore_nan=self.ignore_nan,
-                )
-            )
-            return self
         self._iterator = None
         self.partition_queue = []
         self._partition_serial = 0
@@ -876,8 +863,14 @@ class SpanningTreeIterator:
         return self
 
     def _select_partition(self, constraints):
-        for u, v, attrs in self.G.edges(data=True):
-            attrs[self.partition_key] = constraints.get((u, v), EdgePartition.OPEN)
+        # A pair of endpoints cannot identify a parallel edge. Preserve its
+        # key through both the frontier and the owned Kruskal selector.
+        edges = (
+            self.G.edges(keys=True, data=True)
+            if self.G.is_multigraph() else self.G.edges(data=True)
+        )
+        for *edge, attrs in edges:
+            attrs[self.partition_key] = constraints.get(tuple(edge), EdgePartition.OPEN)
         tree = partition_spanning_tree(
             self.G,
             minimum=self.minimum,

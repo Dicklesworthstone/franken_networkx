@@ -215,6 +215,12 @@ Flow extraction and graph conversion share admission for plain attribute
 reads, including owned write-watched dictionaries whose read methods remain
 builtin. Caller overrides select the public route on the next operation.
 
+The incremental spanning-tree frontier serves both Graph and MultiGraph.
+Parallel-edge partitions retain the full `(u, v, key)` identity and use the
+owned Kruskal selector; ordinary simple graphs retain native selection.
+Each yielded graph owns clean attributes without partition bookkeeping,
+and consuming a prefix selects only the necessary frontier candidates.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

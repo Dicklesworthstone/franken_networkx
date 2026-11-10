@@ -1,7 +1,8 @@
-"""Streaming tree enumeration and multigraph delegation contracts.
+"""Streaming tree enumeration and multigraph routing contracts.
 
-Simple graphs use native tree selection with an incremental partition
-frontier. Multigraphs retain the reference scheduler's keyed-edge semantics.
+Undirected graphs use owned tree selection with an incremental partition
+frontier, including keyed parallel edges. Directed multigraphs retain the
+reference arborescence scheduler.
 """
 
 from __future__ import annotations
@@ -212,3 +213,125 @@ def test_spanning_iterator_degenerate_graphs_match_reference(edges):
     assert [_tree_edges(tree) for tree in actual] == [
         _tree_edges(tree) for tree in expected
     ]
+
+
+def _keyed_tree_edges(graph):
+    return frozenset((frozenset((u, v)), key) for u, v, key in graph.edges(keys=True))
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("weight_kind", ["int", "fraction", "large_int"])
+def test_multigraph_spanning_trees_preserve_keys_costs_and_native_outputs(
+    monkeypatch, minimum, weight_kind
+):
+    from fractions import Fraction
+
+    reference = nx.MultiGraph(description="parallel alternatives")
+    reference.add_node("s", role="source")
+    reference.add_node(("via", 1), role="intermediate")
+    reference.add_node(42, role="target")
+    edges = [
+        ("s", ("via", 1), "fast", 1),
+        ("s", ("via", 1), ("slow", 2), 3),
+        (("via", 1), 42, "last", 2),
+        ("s", 42, 17, 4),
+        ("s", "s", "loop", -10),
+    ]
+    for u, v, key, value in edges:
+        cost = (
+            Fraction(value, 3) if weight_kind == "fraction"
+            else 2**60 + value if weight_kind == "large_int"
+            else value
+        )
+        reference.add_edge(u, v, key=key, cost=cost, payload={"key": key})
+    graph = fnx.MultiGraph(reference)
+    expected = list(nx.SpanningTreeIterator(reference, weight="cost", minimum=minimum))
+
+    def delegation_forbidden(*args, **kwargs):
+        raise AssertionError("multigraph spanning trees must use the owned frontier")
+
+    monkeypatch.setattr(nx, "SpanningTreeIterator", delegation_forbidden)
+    monkeypatch.setattr(fnx, "_networkx_graph_for_parity", delegation_forbidden)
+    actual = list(fnx.SpanningTreeIterator(graph, weight="cost", minimum=minimum))
+    actual_edges = [_keyed_tree_edges(tree) for tree in actual]
+    assert len(actual) == len(expected) == len(set(actual_edges)) == 5
+    assert set(actual_edges) == {_keyed_tree_edges(tree) for tree in expected}
+    # Equal-weight tie order is unspecified. Exact integer costs must still
+    # order the alternatives even when float Graph.size() would round them.
+    costs = [sum(data["cost"] for *_, data in tree.edges(data=True)) for tree in actual]
+    assert costs == sorted(costs, reverse=not minimum)
+    assert sorted(costs) == sorted(
+        sum(data["cost"] for *_, data in tree.edges(data=True)) for tree in expected
+    )
+    for tree in actual:
+        assert type(tree) is fnx.MultiGraph
+        assert fnx.is_tree(tree)
+        assert tree.graph == reference.graph
+        assert dict(tree.nodes(data=True)) == dict(reference.nodes(data=True))
+        for u, v, key, attrs in tree.edges(keys=True, data=True):
+            assert attrs == reference.edges[u, v, key]
+            assert type(attrs["cost"]) is type(reference.edges[u, v, key]["cost"])
+    assert all(
+        "SpanningTreeIterators super secret partition attribute name" not in attrs
+        for *_, attrs in graph.edges(data=True)
+    )
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+def test_multigraph_spanning_tree_prefix_keeps_a_bounded_frontier(monkeypatch, minimum):
+    n = 7
+    graph = fnx.MultiGraph()
+    for u in range(n):
+        for v in range(u + 1, n):
+            graph.add_edge(u, v, key="first", weight=1)
+            graph.add_edge(u, v, key="second", weight=2)
+    select = fnx.partition_spanning_tree
+    calls = 0
+
+    def counted_selection(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        assert calls <= 1 + 3 * (n - 1)
+        return select(*args, **kwargs)
+
+    def delegation_forbidden(*args, **kwargs):
+        raise AssertionError("a multigraph prefix must use the owned partition frontier")
+
+    monkeypatch.setattr(fnx, "partition_spanning_tree", counted_selection)
+    monkeypatch.setattr(nx, "SpanningTreeIterator", delegation_forbidden)
+    iterator = iter(fnx.SpanningTreeIterator(graph, minimum=minimum))
+    trees = list(islice(iterator, 3))
+    assert len({_keyed_tree_edges(tree) for tree in trees}) == 3
+    assert all(type(tree) is fnx.MultiGraph and fnx.is_tree(tree) for tree in trees)
+    assert 1 <= calls <= 1 + 3 * (n - 1)
+    assert len(iterator.partition_queue) <= 1 + 3 * (n - 1)
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("shape", ["empty", "singleton", "disconnected", "nan"])
+def test_multigraph_spanning_iterator_boundary_parity(shape, minimum):
+    reference = nx.MultiGraph()
+    if shape == "singleton":
+        reference.add_node("alone")
+        reference.add_edge("alone", "alone", key="loop", weight=-1)
+    elif shape == "disconnected":
+        reference.add_nodes_from(range(4))
+        reference.add_edge(0, 1, key="a", weight=1)
+        reference.add_edge(2, 3, key="b", weight=2)
+    elif shape == "nan":
+        reference.add_edge(0, 1, key="valid", weight=1)
+        reference.add_edge(0, 1, key="invalid", weight=float("nan"))
+        with pytest.raises(ValueError, match="NaN"):
+            iter(fnx.SpanningTreeIterator(fnx.MultiGraph(reference), minimum=minimum))
+    expected = list(nx.SpanningTreeIterator(reference, minimum=minimum, ignore_nan=True))
+    actual = list(fnx.SpanningTreeIterator(
+        fnx.MultiGraph(reference), minimum=minimum, ignore_nan=True
+    ))
+    assert [list(tree) for tree in actual] == [list(tree) for tree in expected]
+    assert [_keyed_tree_edges(tree) for tree in actual] == [
+        _keyed_tree_edges(tree) for tree in expected
+    ]
+    assert all(type(tree) is fnx.MultiGraph for tree in actual)
