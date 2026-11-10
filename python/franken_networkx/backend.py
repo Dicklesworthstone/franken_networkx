@@ -178,6 +178,10 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "single_source_bellman_ford_path",
         "single_source_bellman_ford_path_length",
         "multi_source_dijkstra",
+        "multi_source_dijkstra_path",
+        "multi_source_dijkstra_path_length",
+        "dijkstra_predecessor_and_distance",
+        "bidirectional_dijkstra",
         "astar_path",
         "astar_path_length",
     }
@@ -189,6 +193,12 @@ _SPECTRAL_INPUT_ALGORITHMS = frozenset({"eigenvector_centrality", "katz_centrali
 _FLOW_SOLVER_INPUT_ALGORITHMS = frozenset(
     {"maximum_flow", "maximum_flow_value", "minimum_cut", "minimum_cut_value"}
 )
+_MULTI_SOURCE_DIJKSTRA_ALGORITHMS = frozenset(
+    {"multi_source_dijkstra", "multi_source_dijkstra_path", "multi_source_dijkstra_path_length"}
+)
+_DIJKSTRA_INPUT_ALGORITHMS = _MULTI_SOURCE_DIJKSTRA_ALGORITHMS | {
+    "dijkstra_predecessor_and_distance", "bidirectional_dijkstra"
+}
 _FLOW_INPUT_ALGORITHMS = frozenset(
     {
         "capacity_scaling", "cost_of_flow", "flow_hierarchy", "max_flow_min_cost",
@@ -206,6 +216,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
     | _FLOW_SOLVER_INPUT_ALGORITHMS
     | _COMMUNITY_ITERATOR_ALGORITHMS
+    | _DIJKSTRA_INPUT_ALGORITHMS
     | {"johnson", "quotient_graph"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -225,6 +236,20 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # mutate inputs when iteration advances. Keep those reads on the
         # caller and invalidate conversions around every resume and close.
         return True
+    if name in _DIJKSTRA_INPUT_ALGORITHMS:
+        if (
+            name in _MULTI_SOURCE_DIJKSTRA_ALGORITHMS
+            and fnx._dijkstra_sources_use_live_graph(arguments["sources"])
+        ):
+            # Inspect only the source collection's admissible types here.
+            # Truth testing or materializing a user iterable can mutate G.
+            return True
+        weight = arguments.get("weight", "weight")
+        return (
+            type(weight) is not str
+            or not fnx._dijkstra_cutoff_uses_native_comparisons(arguments.get("cutoff"))
+            or fnx._weighted_query_uses_live_python_rows(graph, weight)
+        )
     if name in _FLOW_SOLVER_INPUT_ALGORITHMS:
         # Explicit solvers own validation and residual reuse. Their writes
         # must reach the caller, including when conversion is already cached.
@@ -848,6 +873,10 @@ _SUPPORTED_ALGORITHMS = {
     "dominance_frontiers": fnx.dominance_frontiers,
     # Additional shortest path algorithms
     "dijkstra_path_length": fnx.dijkstra_path_length,
+    "dijkstra_predecessor_and_distance": fnx.dijkstra_predecessor_and_distance,
+    "bidirectional_dijkstra": fnx.bidirectional_dijkstra,
+    "multi_source_dijkstra_path": fnx.multi_source_dijkstra_path,
+    "multi_source_dijkstra_path_length": fnx.multi_source_dijkstra_path_length,
     "bellman_ford_path_length": fnx.bellman_ford_path_length,
     "single_source_dijkstra": fnx.single_source_dijkstra,
     "single_source_dijkstra_path": fnx.single_source_dijkstra_path,

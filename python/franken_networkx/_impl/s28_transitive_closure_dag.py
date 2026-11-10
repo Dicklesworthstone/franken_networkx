@@ -219,12 +219,31 @@ def _multidigraph_dijkstra_has_bound(G, cutoff, target=None):
     )
 
 
+def _dijkstra_sources_use_live_graph(sources):
+    """Keep source iteration and node protocols on the caller's graph.
+
+    A source iterable can add a source or change later edges while the public
+    validation loop consumes it. Converting the graph first disconnects those
+    writes; consuming the iterable to decide a route changes its lifetime.
+    Only ordinary reusable collections of plain labels can be inspected here.
+    """
+    if type(sources) is range:
+        return False
+    if type(sources) not in (list, tuple, set, frozenset, dict):
+        return True
+    return any(type(source) not in (str, int, float, bool) for source in sources)
+
+
 def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight"):
     """Return shortest path lengths and paths from any source in *sources*."""
-    if not sources:
+    live_sources = _dijkstra_sources_use_live_graph(sources)
+    # The owned engine performs its own emptiness check. A user collection's
+    # truth protocol must run once, at the same boundary as its validation.
+    if not live_sources and not sources:
         raise ValueError("sources must not be empty")
     if (
-        not _dijkstra_cutoff_uses_native_comparisons(cutoff)
+        live_sources
+        or not _dijkstra_cutoff_uses_native_comparisons(cutoff)
         or _weighted_query_uses_live_python_rows(G, weight)
         or _multidigraph_dijkstra_has_bound(G, cutoff, target)
     ):
@@ -312,7 +331,8 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     if not sources:
         raise ValueError("sources must not be empty")
     if (
-        not _dijkstra_cutoff_uses_native_comparisons(cutoff)
+        _dijkstra_sources_use_live_graph(sources)
+        or not _dijkstra_cutoff_uses_native_comparisons(cutoff)
         or _weighted_query_uses_live_python_rows(G, weight)
         or _multidigraph_dijkstra_has_bound(G, cutoff)
     ):

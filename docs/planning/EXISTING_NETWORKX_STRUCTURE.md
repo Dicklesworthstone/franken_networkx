@@ -1898,3 +1898,25 @@ Conversion caches are invalidated around lazy provider execution, including
 advancement, close and failure. A later native query must observe attribute
 writes made by random or graph callbacks. Eager community algorithms keep
 their eager computation boundary and ordinary native conversion route.
+
+## 65. Weighted Query Dispatch and Live Source Collections
+
+Backend dispatch includes all three multi-source Dijkstra variants,
+`dijkstra_predecessor_and_distance` and `bidirectional_dijkstra`. Callable
+weights retain the original edge or parallel-edge dictionaries, may hide
+edges by returning `None`, and may update edges read by subsequent steps.
+Literal nonstring selectors and cutoffs with Python numeric protocols retain
+the owned search's public operation order and numeric types.
+
+Multi-source variants retain the caller's graph when sources is a user
+iterable or contains labels with Python protocols. Admission does not
+consume that iterable or invoke its truth protocol. Source truth testing,
+validation, membership, path-root initialization and traversal seeding follow
+the reference consumption steps, including exhausted one-shot iterators.
+Changes made while supplying sources affect subsequent validation and
+traversal, on direct calls and cold or cached backend calls alike.
+
+Exact reusable collections of ordinary labels remain eligible for native
+searches. Length-only queries retain their distance-only engine. Conversion
+caches are invalidated after observable source or weight providers run,
+including failures, so later ordinary native queries see their writes.
