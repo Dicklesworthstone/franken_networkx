@@ -1865,3 +1865,19 @@ Unweighted effective size preserves the caller's induced ego graph and its
 `subgraph`, `copy` and `size` providers. Empty explicit subsets return an
 empty mapping. Backend dispatch preserves these same source and mutation
 boundaries on both cold calls and calls with a cached native conversion.
+
+## 63. Backend Flow Solvers and Residual Ownership
+
+Backend-dispatched `maximum_flow`, `maximum_flow_value`, `minimum_cut` and
+`minimum_cut_value` preserve the original `flowG` when a solver or solver
+arguments are supplied. Positional and keyword graph arguments have the
+same identity and mutation contract. A cached native conversion must not
+substitute its graph for the caller's graph or copy a supplied residual.
+
+Solver mutations remain visible to flow-dictionary construction, cut
+partition extraction and later queries. Conversion caches are cleared
+around callbacks, including failure, so direct attribute writes cannot
+leave a stale capacity graph for subsequent native calls. An explicitly
+supplied native graph remains an independent input even if it originated
+from an earlier conversion. Default-solver calls without extra arguments
+retain the ordinary native conversion path.

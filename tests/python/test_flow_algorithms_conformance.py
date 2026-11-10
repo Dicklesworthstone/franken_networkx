@@ -772,6 +772,130 @@ def test_custom_flow_solver_owns_input_validation(name, kind):
         assert calls[0] is graph
 
 
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("prewarm", [False, True])
+@pytest.mark.parametrize("keyword_arguments", [False, True])
+@pytest.mark.parametrize("kind", ["networkx", "subgraph"])
+def test_backend_custom_flow_preserves_graph_residual_and_mutations(
+    name, prewarm, keyword_arguments, kind
+):
+    def run(backend_name):
+        graph = _custom_flow_input(nx, kind)
+        if prewarm and backend_name == "franken_networkx":
+            assert nx.maximum_flow_value(
+                graph, "s", "t", capacity="budget", backend=backend_name
+            ) == 2
+        residual = nx_flow.build_residual_network(graph, "budget", backend="networkx")
+        held_attrs = {(u, v): attrs for u, v, attrs in residual.edges(data=True)}
+        marker = object()
+        calls = []
+
+        def solver(received, source, target, *, capacity, value_only, residual, marker):
+            calls.append((received, source, target, capacity, value_only, residual, marker))
+            # The second invocation reuses the residual left by the first.
+            # Reading through received also catches a detached backend copy.
+            graph["a"]["t"]["budget"] = 5 - len(calls)
+            residual["a"]["t"]["capacity"] = received["a"]["t"][capacity]
+            received.graph["solver_marker"] = marker
+            return nx_flow.edmonds_karp(
+                received, source, target, capacity=capacity,
+                value_only=value_only, residual=residual, backend="networkx",
+            )
+
+        results = []
+        for expected_capacity in (4, 3):
+            options = {
+                "residual": residual, "marker": marker, "backend": backend_name,
+            }
+            if keyword_arguments:
+                result = getattr(nx, name)(
+                    flowG=graph, _s="s", _t="t", capacity="budget",
+                    flow_func=solver, **options,
+                )
+            else:
+                result = getattr(nx, name)(graph, "s", "t", "budget", solver, **options)
+            value = result[0] if isinstance(result, tuple) else result
+            assert value == expected_capacity
+            received, source, target, capacity, value_only, supplied, token = calls[-1]
+            assert received is graph
+            assert supplied is residual
+            assert token is marker
+            assert (source, target, capacity) == ("s", "t", "budget")
+            assert value_only is (name != "maximum_flow")
+            assert graph.graph["solver_marker"] is marker
+            assert graph["a"]["t"]["budget"] == expected_capacity
+            if backend_name == "franken_networkx":
+                assert all(residual[u][v] is attrs for (u, v), attrs in held_attrs.items())
+                # Direct attribute writes do not clear NetworkX's conversion
+                # cache. A later native query must still see the callback's write.
+                assert nx.maximum_flow_value(
+                    graph, "s", "t", capacity="budget", backend=backend_name
+                ) == expected_capacity
+            results.append(result)
+        assert len(calls) == 2
+        return results
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("keyword_arguments", [False, True])
+def test_backend_custom_flow_keeps_explicit_native_graph(name, keyword_arguments):
+    original = _custom_flow_input(nx, "networkx")
+    graph = fnx_backend.BackendInterface.convert_from_nx(
+        original, edge_attrs={"budget": 1}, name=name,
+    )
+    graph["a"]["t"]["budget"] = 4
+    calls = []
+
+    def solver(received, source, target, *, capacity, value_only):
+        calls.append(received)
+        assert received is graph
+        received.graph["solver_visited"] = True
+        return nx_flow.edmonds_karp(
+            received, source, target, capacity=capacity,
+            value_only=value_only, backend="networkx",
+        )
+
+    if keyword_arguments:
+        result = getattr(nx, name)(
+            flowG=graph, _s="s", _t="t", capacity="budget",
+            flow_func=solver, backend="franken_networkx",
+        )
+    else:
+        result = getattr(nx, name)(
+            graph, "s", "t", "budget", solver, backend="franken_networkx"
+        )
+    value = result[0] if isinstance(result, tuple) else result
+    assert value == 4
+    assert calls == [graph]
+    assert graph.graph["solver_visited"] is True
+    assert original["a"]["t"]["budget"] == 2
+    assert "solver_visited" not in original.graph
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+def test_backend_custom_flow_clears_cache_after_solver_exception(name):
+    graph = _custom_flow_input(nx, "networkx")
+    assert nx.maximum_flow_value(
+        graph, "s", "t", capacity="budget", backend="franken_networkx"
+    ) == 2
+
+    def solver(received, source, target, **kwargs):
+        assert received is graph
+        received["a"]["t"]["budget"] = 4
+        raise LookupError("solver stopped after updating capacity")
+
+    with pytest.raises(LookupError, match="solver stopped after updating capacity"):
+        getattr(nx, name)(
+            graph, "s", "t", capacity="budget", flow_func=solver,
+            backend="franken_networkx",
+        )
+    assert nx.maximum_flow_value(
+        graph, "s", "t", capacity="budget", backend="franken_networkx"
+    ) == 4
+
+
 class _ResidualOnlyInput(nx.DiGraph):
     """An input whose topology is unnecessary once its residual is supplied."""
 

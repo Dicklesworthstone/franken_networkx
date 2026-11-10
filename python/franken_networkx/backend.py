@@ -141,6 +141,10 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "closeness_vitality",
         "eigenvector_centrality",
         "katz_centrality",
+        "maximum_flow",
+        "maximum_flow_value",
+        "minimum_cut",
+        "minimum_cut_value",
         "capacity_scaling",
         "cost_of_flow",
         "flow_hierarchy",
@@ -170,8 +174,13 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "astar_path_length",
     }
 )
-_LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "distance", "heuristic", "key")
+_LIVE_CALLBACK_PARAMETERS = (
+    "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
+)
 _SPECTRAL_INPUT_ALGORITHMS = frozenset({"eigenvector_centrality", "katz_centrality"})
+_FLOW_SOLVER_INPUT_ALGORITHMS = frozenset(
+    {"maximum_flow", "maximum_flow_value", "minimum_cut", "minimum_cut_value"}
+)
 _FLOW_INPUT_ALGORITHMS = frozenset(
     {
         "capacity_scaling", "cost_of_flow", "flow_hierarchy", "max_flow_min_cost",
@@ -187,15 +196,26 @@ _STRUCTURAL_HOLES_INPUT_ALGORITHMS = frozenset(
 _PROVIDER_INPUT_ALGORITHMS = (
     _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
     | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
+    | _FLOW_SOLVER_INPUT_ALGORITHMS
     | {"johnson", "quotient_graph"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
+
+
+def _primary_graph_parameter(name):
+    """Use the public graph parameter when binding or restoring an input."""
+    return "flowG" if name in _FLOW_SOLVER_INPUT_ALGORITHMS else "G"
 
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
     if name in _FLOW_INPUT_ALGORITHMS:
         return True
+    if name in _FLOW_SOLVER_INPUT_ALGORITHMS:
+        # Explicit solvers own validation and residual reuse. Their writes
+        # must reach the caller, including when conversion is already cached.
+        # Extra solver kwargs also select the public in-process route.
+        return arguments.get("flow_func") is not None or bool(arguments.get("kwargs"))
     if name == "johnson":
         return _johnson_dispatch_uses_live_providers(graph, arguments.get("weight"))
     if name == "quotient_graph":
@@ -1456,10 +1476,11 @@ class BackendInterface:
                 return False
             _DISJOINT_CALL_INPUTS.set((name, inputs))
         elif name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
-            _refresh_dispatch_source(bound.arguments.get("G"))
+            graph_parameter = _primary_graph_parameter(name)
+            _refresh_dispatch_source(bound.arguments.get(graph_parameter))
             if name in _PROVIDER_INPUT_ALGORITHMS:
                 bound.apply_defaults()
-                graph = bound.arguments.get("G")
+                graph = bound.arguments.get(graph_parameter)
                 if _provider_dispatch_uses_original_graph(name, graph, bound.arguments):
                     _PROVIDER_CALL_INPUTS.set((name, weakref.ref(graph)))
                 else:
@@ -1485,7 +1506,7 @@ class BackendInterface:
         can_run = BackendInterface.can_run(name, args, kwargs)
         if can_run is not True or name not in _CONVERT_AFTER_USES:
             return can_run
-        graph = args[0] if args else kwargs.get("G")
+        graph = args[0] if args else kwargs.get(_primary_graph_parameter(name))
         if not hasattr(graph, "__networkx_cache__"):
             return True
         import networkx as nx
@@ -1517,6 +1538,7 @@ class BackendInterface:
             import functools
 
             fn = _SUPPORTED_ALGORITHMS[name]
+            graph_parameter = _primary_graph_parameter(name)
             live_input = name in _LIVE_INPUT_ALGORITHMS
             callback_signature = (
                 inspect.signature(fn)
@@ -1533,7 +1555,7 @@ class BackendInterface:
             def wrapper(*args, **kwargs):
                 try:
                     if live_input or name in _PROVIDER_INPUT_ALGORITHMS:
-                        graph = args[0] if args else kwargs.get("G")
+                        graph = args[0] if args else kwargs.get(graph_parameter)
                         _discard_component_passthrough(graph)
                     if name in _PROVIDER_INPUT_ALGORITHMS:
                         pending_provider = _PROVIDER_CALL_INPUTS.get()
@@ -1553,7 +1575,7 @@ class BackendInterface:
                     has_callbacks = False
                     reads_lazily = live_input
                     if callback_signature is not None:
-                        graph = args[0] if args else kwargs.get("G")
+                        graph = args[0] if args else kwargs.get(graph_parameter)
                         source_ref = getattr(graph, "__dict__", {}).get("_fnx_networkx_source")
                         source = (
                             source_ref() if isinstance(source_ref, weakref.ReferenceType) else None
@@ -1596,7 +1618,7 @@ class BackendInterface:
                                 if args:
                                     args = (source, *args[1:])
                                 else:
-                                    kwargs = {**kwargs, "G": source}
+                                    kwargs = {**kwargs, graph_parameter: source}
                     if not has_callbacks:
                         return fn(*args, **kwargs)
                     _clear_callback_conversions(source)
