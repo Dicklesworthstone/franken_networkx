@@ -246,3 +246,155 @@ def test_quotient_graph_matches_networkx_node_and_edge_order(cls, partition, opt
     assert _qg_summary(fnx, cls, parallel, partition, options) == _qg_summary(
         nx, cls, parallel, partition, options
     )
+
+
+@needs_nx
+@pytest.mark.parametrize("library", [fnx, nx], ids=["native", "networkx"])
+@pytest.mark.parametrize("view", ["graph", "subgraph", "reverse"])
+def test_quotient_block_views_retain_the_original_source(library, view):
+    graph = library.DiGraph() if view == "reverse" else library.Graph()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    source = graph
+    if view == "subgraph":
+        source = graph.subgraph([0, 1, 2, 3])
+    elif view == "reverse":
+        source = graph.reverse(copy=False)
+    result = fnx.quotient_graph(source, [{0, 1}, {2, 3}])
+    block_data = result.nodes[frozenset({0, 1})]
+
+    graph.add_edge(0, 0, marker="later")
+    graph.nodes[1]["state"] = "changed"
+
+    assert block_data["graph"].has_edge(0, 0)
+    assert block_data["graph"][0][0]["marker"] == "later"
+    assert block_data["graph"].nodes[1]["state"] == "changed"
+    assert block_data["nedges"] == 1
+    assert block_data["nnodes"] == 2
+    assert block_data["density"] == (0.5 if graph.is_directed() else 1.0)
+
+
+@needs_nx
+@pytest.mark.parametrize("weight", [None, 0, "", False])
+@pytest.mark.parametrize("library", [fnx, nx], ids=["native", "networkx"])
+def test_quotient_default_weights_use_falsy_attribute_keys(library, weight):
+    graph = library.Graph()
+    graph.add_edges_from([(0, 2, {weight: 7}), (1, 3, {weight: 11}), (0, 3)])
+    result = fnx.quotient_graph(graph, [{0, 1}, {2, 3}], weight=weight)
+    assert result[frozenset({0, 1})][frozenset({2, 3})]["weight"] == 19
+
+
+@needs_nx
+@pytest.mark.parametrize("library", [fnx, nx], ids=["native", "networkx"])
+@pytest.mark.parametrize("values", [
+    [1e16, 1.0, -1e16],
+    [2**80, 1, -(2**80)],
+    [1e308, -1e308, 3.0],
+])
+def test_quotient_aggregation_preserves_python_sum(library, values):
+    edges = [(i, i + 3, {"weight": value}) for i, value in enumerate(values)]
+    graph = library.Graph()
+    graph.add_edges_from(edges)
+    reference = nx.Graph()
+    reference.add_edges_from(edges)
+    partition = [{0, 1, 2}, {3, 4, 5}]
+
+    result = fnx.quotient_graph(graph, partition)
+    expected = nx.quotient_graph(reference, partition)
+
+    assert list(result.edges(data=True)) == list(expected.edges(data=True))
+    edge = (frozenset(partition[0]), frozenset(partition[1]))
+    assert type(result.edges[edge]["weight"]) is type(expected.edges[edge]["weight"])
+
+
+@needs_nx
+@pytest.mark.parametrize("library", [fnx, nx], ids=["native", "networkx"])
+def test_quotient_custom_node_data_accepts_nonstring_keys(library):
+    graph = library.path_graph(4)
+    payload = []
+    result = fnx.quotient_graph(
+        graph, [{0, 1}, {2, 3}], node_data=lambda block: {0: len(block), None: payload}
+    )
+    for _, attrs in result.nodes(data=True):
+        assert attrs[0] == 2
+        assert attrs[None] is payload
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_quotient_node_callback_mutations_reach_later_edges(cls):
+    def run(library, operation):
+        graph = getattr(library, cls)()
+        graph.add_nodes_from(range(4))
+        calls = []
+
+        def node_data(block):
+            calls.append(block)
+            if 2 in block:
+                graph.add_edge(0, 2, weight=7)
+            return {"size": len(block)}
+
+        result = operation(graph, [{0, 1}, {2, 3}], node_data=node_data)
+        kwargs = {"keys": True} if result.is_multigraph() else {}
+        return calls, list(result.nodes(data=True)), list(result.edges(data=True, **kwargs))
+
+    assert run(nx, fnx.quotient_graph) == run(nx, nx.quotient_graph)
+    assert run(fnx, fnx.quotient_graph) == run(nx, nx.quotient_graph)
+
+
+@needs_nx
+@pytest.mark.parametrize("prewarm", [False, True])
+def test_quotient_backend_keeps_live_block_views(prewarm):
+    import franken_networkx.backend as backend
+
+    graph = nx.path_graph(4)
+    if prewarm:
+        nx.shortest_path(graph, 0, 3, backend="franken_networkx")
+    assert backend.BackendInterface.can_run(
+        "quotient_graph", (graph, [{0, 1}, {2, 3}]), {}
+    )
+    result = nx.quotient_graph(
+        graph, [{0, 1}, {2, 3}], backend="franken_networkx"
+    )
+    graph.add_edge(0, 0)
+    assert result.nodes[frozenset({0, 1})]["graph"].has_edge(0, 0)
+
+
+@needs_nx
+def test_quotient_metadata_uses_the_subgraph_public_protocol():
+    def run(library, operation):
+        calls = []
+
+        class SubgraphStats:
+            def __len__(self):
+                calls.append("len")
+                return 2
+
+            def number_of_nodes(self):
+                calls.append("number_of_nodes")
+                return 4
+
+            def number_of_edges(self):
+                calls.append("number_of_edges")
+                return 3
+
+            def is_directed(self):
+                calls.append("is_directed")
+                return True
+
+        class SourceGraph(library.Graph):
+            def subgraph(self, nodes):
+                return SubgraphStats()
+
+        graph = SourceGraph()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        result = operation(graph, [{0, 1}, {2, 3}])
+        metadata = [
+            (attrs["nnodes"], attrs["nedges"], attrs["density"])
+            for _, attrs in result.nodes(data=True)
+        ]
+        return metadata, calls
+
+    expected = run(nx, nx.quotient_graph)
+    assert expected[0] == [(2, 3, 0.25), (2, 3, 0.25)]
+    assert run(nx, fnx.quotient_graph) == expected
+    assert run(fnx, fnx.quotient_graph) == expected

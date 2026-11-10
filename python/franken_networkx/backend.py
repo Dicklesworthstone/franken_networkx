@@ -125,6 +125,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "shortest_path_length",
         "all_shortest_paths",
         "average_shortest_path_length",
+        "quotient_graph",
         "eccentricity",
         "diameter",
         "radius",
@@ -186,7 +187,7 @@ _STRUCTURAL_HOLES_INPUT_ALGORITHMS = frozenset(
 _PROVIDER_INPUT_ALGORITHMS = (
     _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
     | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
-    | {"johnson"}
+    | {"johnson", "quotient_graph"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
 
@@ -197,6 +198,10 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         return True
     if name == "johnson":
         return _johnson_dispatch_uses_live_providers(graph, arguments.get("weight"))
+    if name == "quotient_graph":
+        # Block attributes contain live induced views of the original graph.
+        # Node and edge providers can also mutate later block computations.
+        return True
     if name in _STRUCTURAL_HOLES_INPUT_ALGORITHMS:
         # A requested-node iterator or edge-data provider can change later
         # ego networks. The owned scalar and sparse routes select their own
@@ -416,6 +421,8 @@ _SUPPORTED_ALGORITHMS = {
     "dijkstra_path": fnx.dijkstra_path,
     "bellman_ford_path": fnx.bellman_ford_path,
     "johnson": fnx.johnson,
+    # Graph transformations
+    "quotient_graph": fnx.quotient_graph,
     # Connectivity
     "is_connected": fnx.is_connected,
     "connected_components": fnx.connected_components,

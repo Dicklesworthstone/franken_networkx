@@ -1807,3 +1807,61 @@ Ordinary unweighted edge counts remain integers. Weighted division preserves
 the Python numeric result type, including `Decimal` and `Fraction`, without
 an intermediate float cast. Both in- and out-degree contributions of a
 directed view participate in their public degree order.
+
+## 60. Quotient Graph Aggregation and Source Views
+
+Quotient graph construction reads the caller's graph. Each default block's
+`graph` attribute is an induced view of that source, including when the source
+is a NetworkX graph, a filtered view or a reverse view. Later source mutations
+remain visible through these block views; `nnodes`, `nedges` and `density`
+remain the values captured during construction.
+
+The default edge aggregator looks up the supplied weight key literally,
+including `None`, zero and the empty string, and uses one only when that key
+is absent. Exact integer totals may be bucketed for ordinary native storage.
+Floating, exact noninteger and custom numeric values retain the ordered
+Python `sum` operation over the block pair's public edge traversal. Scalar
+preaggregation must not change cancellation, overflow or callback behavior.
+
+Custom node and edge providers run during result construction, without an
+earlier whole-graph attribute read. Node-data mappings may have arbitrary
+hashable keys; they are mappings rather than keyword arguments. Backend
+dispatch preserves the original source because the result contains live
+views and callbacks may mutate edges consumed later in construction.
+
+Block metadata follows the subgraph's public methods: `nnodes` uses `len`,
+`nedges` uses `number_of_edges`, and density uses that subgraph's node count,
+edge count and direction. A custom subgraph provider must not inherit the
+parent graph's direction or substitute its node-count method for `len`.
+
+## 61. Implicit Unit Weights and Exact Shortest Paths
+
+Every missing selected edge weight contributes its integer default, one, to
+the native exact-arithmetic admission bound. This applies to native-only
+attributes, materialized Python dictionaries, global scans and expanded-row
+checks across all four graph classes. Explicit integer magnitudes alone do
+not bound a path that also contains default unit weights.
+
+Removing an explicit zero weight invalidates cached admission. Dijkstra,
+Bellman-Ford and Johnson retain exact distances and optimal paths across the
+`2**53` boundary by selecting the owned Python arithmetic route when needed.
+Ordinary integer values inside the bound remain eligible for native kernels.
+Johnson backend dispatch preserves source dictionaries for callable weights
+and custom graph or numeric providers, including after a cached conversion.
+
+## 62. Owned Structural-Hole Centrality
+
+`constraint`, `local_constraint` and `effective_size` use owned scalar
+calculations for weighted, directed, multigraph and observable-provider
+inputs. All-node queries retain the distinct sparse matrix behavior when
+NumPy and SciPy are available; missing optional dependencies select the
+scalar calculation. Eligible ordinary unweighted graphs retain their native
+kernels without pre-materializing every requested adjacency row.
+
+Scalar node selections are consumed as supplied, including duplicate nodes
+and mutations between iterator yields. Arithmetic reads the caller's live
+edge dictionaries without coercing exact numeric values to floating point.
+Unweighted effective size preserves the caller's induced ego graph and its
+`subgraph`, `copy` and `size` providers. Empty explicit subsets return an
+empty mapping. Backend dispatch preserves these same source and mutation
+boundaries on both cold calls and calls with a cached native conversion.

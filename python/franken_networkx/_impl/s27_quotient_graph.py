@@ -37,9 +37,9 @@ def quotient_graph(
     -------
     Graph or DiGraph
 
-    br-r37-c1-cfcls: coerce to fnx for consistent return type.
+    The result uses native graph storage by default. Its block subgraphs
+    remain views of the caller's graph, including foreign graphs and views.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     # Normalize partition (br-r37-c1-ljkp0: as networkx does).
     if callable(partition):
         # nx's equivalence_classes: each node joins the first block whose first
@@ -97,23 +97,34 @@ def quotient_graph(
         # Route through canonical-class resolver (cycle-225 family).
         H = _concrete_class_for(G)()
 
-    block_index = {}
-    block_nnodes = []
-    for idx, block in enumerate(partition):
-        block_nnodes.append(len(block))
-        for node in block:
-            block_index[node] = idx
-
-    can_bucket_default_undirected_edges = (
-        default_edge_relation
+    # Snapshot counts only when reads cannot invoke caller graph protocols.
+    # A node-data callback can mutate edges before later block pairs are read.
+    # It must not trigger an earlier, unused attribute traversal.
+    can_count_edges = (
+        node_data is None
         and edge_data is None
+        and default_edge_relation
         and create_using is None
+        and type(G) in _CONCRETE_FNX_GRAPH_TYPES
+        and not _has_networkx_private_storage(G)
+        and not any(name in vars(G) for name in ("nodes", "edges", "adj", "subgraph"))
+        and all(type(node) in (str, int, float, bool) for node in G)
+    )
+    can_bucket_default_undirected_edges = (
+        can_count_edges
         and not G.is_directed()
         and not G.is_multigraph()
+        and type(weight) in (str, int, float, bool, type(None))
     )
+    block_index = {}
+    if can_count_edges:
+        for idx, block in enumerate(partition):
+            for node in block:
+                block_index[node] = idx
     block_nedges = [0] * len(partition)
     default_pair_totals = {} if can_bucket_default_undirected_edges else None
     default_pair_weights_supported = True
+    plain_attrs = _plain_read_attr_dict_types() if can_bucket_default_undirected_edges else ()
 
     def _record_partition_edge(u, v, data):
         nonlocal default_pair_weights_supported
@@ -130,16 +141,24 @@ def quotient_graph(
         if u_idx > v_idx:
             u_idx, v_idx = v_idx, u_idx
         key = (u_idx, v_idx)
-        value = data.get(weight, 1) if weight else 1
-        if not isinstance(value, (int, float)):
+        if type(data) not in plain_attrs or any(
+            type(attr) not in (str, int, float, bool, type(None)) for attr in data
+        ):
+            default_pair_weights_supported = False
+            return
+        value = data.get(weight, 1)
+        # Integer addition is exact and order independent. Repeated float
+        # addition is not Python's sum, and custom numerics must be evaluated
+        # only by the public pair traversal below.
+        if type(value) not in (int, bool):
             default_pair_weights_supported = False
             return
         default_pair_totals[key] = default_pair_totals.get(key, 0) + value
 
-    if G.is_multigraph():
+    if can_count_edges and G.is_multigraph():
         for u, v, _key, data in G.edges(keys=True, data=True):
             _record_partition_edge(u, v, data)
-    else:
+    elif can_count_edges:
         for u, v, data in G.edges(data=True):
             _record_partition_edge(u, v, data)
 
@@ -158,19 +177,25 @@ def quotient_graph(
     # contract so drop-in callers see the same node-attr shape.
     def _default_node_data(block, block_idx):
         sub = G.subgraph(block)
-        nnodes = block_nnodes[block_idx]
-        nedges = block_nedges[block_idx]
+        if can_count_edges:
+            nnodes = len(block)
+            nedges = block_nedges[block_idx]
+            block_density = _density_from_counts(nnodes, nedges)
+        else:
+            nnodes = len(sub)
+            nedges = sub.number_of_edges()
+            block_density = density(sub)
         return {
             "graph": sub,
             "nnodes": nnodes,
             "nedges": nedges,
-            "density": _density_from_counts(nnodes, nedges),
+            "density": block_density,
         }
 
     for block_idx, block in enumerate(partition):
         node_label = block
         if node_data is not None:
-            H.add_node(node_label, **node_data(block))
+            H.add_nodes_from([(node_label, node_data(block))])
         else:
             attrs = _default_node_data(block, block_idx)
             H.add_node(node_label)
