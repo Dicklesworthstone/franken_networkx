@@ -846,6 +846,15 @@ def _traversal_missing_source_error(G, source):
     return NetworkXError(f"The node {source} is not in the {graph_kind}.")
 
 
+from franken_networkx._fnx import (
+    cgse as _cgse_mod,
+    bfs_edges as _eager_bfs_edges,
+    dfs_edges as _eager_dfs_edges,
+)
+
+_cgse_armed = _cgse_mod.witness_collection_enabled
+
+
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Yield BFS edges incrementally from the caller's live graph.
 
@@ -875,6 +884,11 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
         # native integer conversion, never the caller's explicit depth by the
         # graph's original size.
         depth_limit = min(depth_limit, _sys.maxsize)
+    if _cgse_armed():
+        # Collection mode computes eagerly through the instrumented kernel (which
+        # emits a CGSE witness); the unarmed streaming path below is unchanged.
+        yield from _eager_bfs_edges(G, source, reverse=reverse, depth_limit=depth_limit)
+        return
     for edge in _bfs_edges_iter_native(G, source, reverse=reverse, depth_limit=depth_limit):
         yield edge
 
@@ -998,6 +1012,10 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
         return
     if depth_limit is not None:
         depth_limit = min(depth_limit, _sys.maxsize)
+    if _cgse_armed():
+        # Collection mode computes eagerly through the instrumented kernel.
+        yield from _eager_dfs_edges(G, source, depth_limit=depth_limit)
+        return
     for edge in _dfs_traversal_iter_native(
         G, source=source, depth_limit=depth_limit, order="edges"
     ):

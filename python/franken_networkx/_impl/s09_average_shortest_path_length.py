@@ -1469,6 +1469,15 @@ def _connected_component_sets(G, weak=False):
         yield component
 
 
+from franken_networkx._fnx import connected_components as _eager_connected_components
+
+
+def _armed_cc(G):
+    # Deferred: the eager instrumented kernel runs at FIRST ADVANCE, on the
+    # then-current graph, matching the unarmed generator's laziness contract.
+    yield from _eager_connected_components(G)
+
+
 def connected_components(G, *, backend=None, **backend_kwargs):
     """Generate connected components.
 
@@ -1484,6 +1493,10 @@ def connected_components(G, *, backend=None, **backend_kwargs):
     )
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    if _cgse_armed():
+        # Collection mode runs the instrumented kernel; _armed_cc defers it to
+        # first advance so laziness and generator type match the unarmed path.
+        return _armed_cc(G)
     # Keep the caller's graph until first advance. A native list or a view
     # materialized here would hide mutations and compute unrequested parts.
     return _connected_component_sets(G)

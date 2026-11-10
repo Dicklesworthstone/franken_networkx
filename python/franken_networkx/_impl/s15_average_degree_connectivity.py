@@ -812,10 +812,27 @@ def _strong_component_sets(G):
                 low[node] = min(low[node], discovery[neighbor])
 
 
+from franken_networkx._fnx import (
+    cgse as _cgse_mod,
+    strongly_connected_components as _eager_strongly_connected_components,
+)
+
+_cgse_armed = _cgse_mod.witness_collection_enabled
+
+
+def _armed_scc(G):
+    # Deferred eager instrumented kernel (see _armed_cc in s09).
+    yield from _eager_strongly_connected_components(G)
+
+
 def strongly_connected_components(G):
     """Yield strongly connected node sets as ordered DFS completes them."""
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    if _cgse_armed():
+        # Collection mode runs the instrumented kernel; _armed_scc defers it to
+        # first advance so laziness and generator type match the unarmed path.
+        return _armed_scc(G)
     return _strong_component_sets(G)
 
 
