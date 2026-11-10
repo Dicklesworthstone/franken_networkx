@@ -175,3 +175,103 @@ def test_all_pairs_all_shortest_paths_observes_mutation_between_sources(cls, met
         remaining = [(source, list(targets.items())) for source, targets in paths]
         results.append((first, remaining))
     assert results[1] == results[0]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["single_source_all_shortest_paths", "all_pairs_all_shortest_paths"])
+@pytest.mark.parametrize("method", ["unweighted", "dijkstra", "bellman-ford"])
+def test_all_shortest_path_iterators_dispatch_with_exact_order(cls, algorithm, method):
+    from fractions import Fraction
+
+    graph = getattr(nx, cls)()
+    graph.add_nodes_from(["source", ("right", 1), "left", "target", "isolated"])
+    graph.add_edges_from([
+        ("source", ("right", 1)), (("right", 1), "target"),
+        ("source", "left"), ("left", "target"),
+    ], cost=Fraction(1, 3))
+    if graph.is_multigraph():
+        graph.add_edge("source", "left", key="expensive", cost=Fraction(7, 3))
+    args = (graph, "source") if algorithm.startswith("single_source") else (graph,)
+    kwargs = {} if method == "unweighted" else {"weight": "cost", "method": method}
+    expected = list(getattr(nx, algorithm)(*args, **kwargs, backend="networkx"))
+    actual = list(getattr(nx, algorithm)(*args, **kwargs, backend="franken_networkx"))
+    if algorithm.startswith("all_pairs"):
+        expected = [(source, list(targets.items())) for source, targets in expected]
+        actual = [(source, list(targets.items())) for source, targets in actual]
+    assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["all_pairs_dijkstra", "single_source_all_shortest_paths", "all_pairs_all_shortest_paths"]
+)
+def test_backend_shortest_path_iterators_do_not_read_graph_at_construction(algorithm):
+    events = []
+
+    class ObservedGraph(nx.DiGraph):
+        def __iter__(self):
+            events.append("nodes")
+            return super().__iter__()
+
+    class ObservedRow(dict):
+        def items(self):
+            events.append("edges")
+            return super().items()
+
+    graph = ObservedGraph()
+    graph.add_weighted_edges_from([("source", "target", 2)])
+    graph._succ["source"] = ObservedRow(graph._succ["source"])
+    args = (graph, "source") if algorithm.startswith("single_source") else (graph,)
+    kwargs = {"weight": lambda u, v, data: data["weight"]}
+    events.clear()
+    iterator = getattr(nx, algorithm)(*args, **kwargs, backend="franken_networkx")
+    assert events == []
+    graph["source"]["target"]["weight"] = 4
+    actual = list(iterator)
+    assert events
+    expected = list(getattr(nx, algorithm)(*args, **kwargs, backend="networkx"))
+    assert actual == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("algorithm", ["all_pairs_dijkstra", "all_pairs_all_shortest_paths"])
+def test_backend_path_iterators_use_live_rows_between_sources(algorithm, cached, monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_nodes_from(["isolated", "source", "middle", "target"])
+    graph.add_weighted_edges_from([("source", "middle", 1), ("middle", "target", 5)])
+    if cached:
+        monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    calls = []
+
+    def weight(u, v, data):
+        assert data is graph._adj[u][v]
+        calls.append((u, v))
+        return data["weight"]
+
+    iterator = getattr(nx, algorithm)(graph, weight=weight, backend="franken_networkx")
+    assert calls == []
+    assert next(iterator)[0] == "isolated"
+    assert calls == []
+    # Bypass graph mutators, which would otherwise clear the conversion cache.
+    graph["middle"]["target"]["weight"] = 2
+    expected = dict(getattr(nx, algorithm)(graph, weight=weight, backend="networkx"))["source"]
+    calls.clear()
+    assert next(iterator) == ("source", expected)
+    assert calls == [("source", "middle"), ("middle", "target")]
+    assert not graph.__networkx_cache__.get("backends")
+    iterator.close()
+
+
+@pytest.mark.parametrize("method", ["dijkstra", "bellman-ford", "unknown"])
+def test_dispatched_all_shortest_paths_retains_deferred_errors(method):
+    outcomes = []
+    for backend in ("networkx", "franken_networkx"):
+        graph = nx.DiGraph()
+        iterator = nx.single_source_all_shortest_paths(
+            graph, "missing", weight="weight", method=method, backend=backend
+        )
+        with pytest.raises(Exception) as caught:
+            next(iterator)
+        outcomes.append((type(caught.value), caught.value.args))
+    assert outcomes[0] == outcomes[1]

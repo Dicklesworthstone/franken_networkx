@@ -141,3 +141,81 @@ def test_all_pairs_dijkstra_distance_types_match_networkx(cls, bunch):
         f_dist, f_paths = f[source]
         assert _typed(f_dist) == _typed(n_dist), (source, f_dist, n_dist)
         assert f_paths == n_paths
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("domain", ["integer", "wide_integer", "fraction", "decimal"])
+def test_backend_all_pairs_dijkstra_preserves_numeric_domain_and_cutoff(cls, domain):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    unit = {
+        "integer": 2,
+        "wide_integer": 2**80 + 1,
+        "fraction": Fraction(1, 3),
+        "decimal": Decimal("0.1"),
+    }[domain]
+    graph = getattr(nx, cls)()
+    graph.add_nodes_from(["source", "far", "near", "isolated"])
+    graph.add_edge("source", "far", cost=4 * unit)
+    graph.add_edge("source", "near", cost=unit)
+    graph.add_edge("near", "far", cost=unit)
+    if graph.is_multigraph():
+        graph.add_edge("source", "near", key="parallel", cost=3 * unit)
+    kwargs = {"weight": "cost", "cutoff": 2 * unit}
+    actual = list(nx.all_pairs_dijkstra(graph, **kwargs, backend="franken_networkx"))
+    expected = list(nx.all_pairs_dijkstra(graph, **kwargs, backend="networkx"))
+    assert [source for source, _ in actual] == [source for source, _ in expected]
+    for (source, (distances, paths)), (_, (wanted_distances, wanted_paths)) in zip(actual, expected):
+        assert list(distances.items()) == list(wanted_distances.items()), source
+        assert list(paths.items()) == list(wanted_paths.items()), source
+        assert _typed(distances) == _typed(wanted_distances), source
+
+
+def test_backend_all_pairs_dijkstra_supports_automatic_dispatch(monkeypatch):
+    import franken_networkx.backend as backend_module
+
+    graph = nx.path_graph(4)
+    expected = list(nx.all_pairs_dijkstra(graph, backend="networkx"))
+    calls = []
+    implementation = backend_module._SUPPORTED_ALGORITHMS["all_pairs_dijkstra"]
+
+    def observed(G, cutoff=None, weight="weight"):
+        calls.append(G)
+        return implementation(G, cutoff=cutoff, weight=weight)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "all_pairs_dijkstra", observed)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    assert list(nx.all_pairs_dijkstra(graph)) == expected
+    assert calls == [graph]
+
+
+@pytest.mark.parametrize("exit_kind", ["yield", "close", "error"])
+def test_backend_all_pairs_dijkstra_invalidates_reentrant_callback_caches(exit_kind, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 9)])
+
+    def weight(u, v, data):
+        assert data is graph._adj[u][v]
+        if (u, v) == (0, 1):
+            # A nested backend call may cache the old graph during the callback.
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+            graph[1][2]["weight"] = 2
+            if exit_kind == "error":
+                raise RuntimeError("weight callback stopped")
+        return data["weight"]
+
+    iterator = nx.all_pairs_dijkstra(graph, weight=weight, backend="franken_networkx")
+    if exit_kind == "error":
+        with pytest.raises(RuntimeError, match="weight callback stopped"):
+            next(iterator)
+    else:
+        assert next(iterator)[1][0] == {0: 0, 1: 1, 2: 3}
+        if exit_kind == "close":
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            graph[1][2]["weight"] = 4
+            iterator.close()
+    assert not graph.__networkx_cache__.get("backends")
+    iterator.close()

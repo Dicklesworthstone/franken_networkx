@@ -67,9 +67,7 @@ _CONVERT_AFTER_USES = {
 }
 _RENT_KEY = "franken_networkx: conversion rent"
 
-# These owned iterators never need native materialization. A cold dispatch
-# can pass the source through, provided the temporary conversion-cache entry
-# is removed before invoking the algorithm.
+# Component iterators are part of the owned live-input surface below.
 _COMPONENT_ITERATORS = frozenset(
     {
         "connected_components",
@@ -100,12 +98,15 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "edge_dfs",
         "all_pairs_shortest_path",
         "all_pairs_shortest_path_length",
+        "all_pairs_dijkstra",
         "all_pairs_dijkstra_path",
         "all_pairs_dijkstra_path_length",
         "all_pairs_bellman_ford_path",
         "all_pairs_bellman_ford_path_length",
         "all_simple_paths",
         "shortest_simple_paths",
+        "single_source_all_shortest_paths",
+        "all_pairs_all_shortest_paths",
         "minimum_spanning_edges",
         "maximum_spanning_edges",
     }
@@ -280,7 +281,7 @@ def _clear_callback_conversions(graph):
 
 
 def _discard_component_passthrough(graph):
-    """Do not let a cheap component dispatch cache a foreign graph as native."""
+    """Do not let a live-input dispatch cache a foreign graph as native."""
     cache = getattr(graph, "__networkx_cache__", None)
     if cache is None:
         return
@@ -767,10 +768,13 @@ _SUPPORTED_ALGORITHMS = {
     "single_source_bellman_ford_path_length": fnx.single_source_bellman_ford_path_length,
     "single_target_shortest_path": fnx.single_target_shortest_path,
     "single_target_shortest_path_length": fnx.single_target_shortest_path_length,
+    "all_pairs_dijkstra": fnx.all_pairs_dijkstra,
     "all_pairs_dijkstra_path": fnx.all_pairs_dijkstra_path,
     "all_pairs_dijkstra_path_length": fnx.all_pairs_dijkstra_path_length,
     "all_pairs_bellman_ford_path": fnx.all_pairs_bellman_ford_path,
     "all_pairs_bellman_ford_path_length": fnx.all_pairs_bellman_ford_path_length,
+    "single_source_all_shortest_paths": fnx.single_source_all_shortest_paths,
+    "all_pairs_all_shortest_paths": fnx.all_pairs_all_shortest_paths,
     "floyd_warshall": fnx.floyd_warshall,
     "floyd_warshall_predecessor_and_distance": fnx.floyd_warshall_predecessor_and_distance,
     "bidirectional_shortest_path": fnx.bidirectional_shortest_path,
@@ -1333,12 +1337,12 @@ class BackendInterface:
         cached by another algorithm. A strong reference would create a cycle
         through the source's conversion cache and retain both graphs.
 
-        Component iterators pass through without traversing the source. Their
+        Live-input iterators pass through without traversing the source. Their
         wrapper removes this temporary cache entry before invoking the owned
         traversal, so unrelated algorithms still receive native conversions.
         """
         pending_provider = _PROVIDER_CALL_INPUTS.get()
-        if name in _COMPONENT_ITERATORS or (
+        if name in _LIVE_INPUT_ALGORITHMS or (
             pending_provider is not None
             and pending_provider[0] == name
             and pending_provider[1]() is G
@@ -1470,7 +1474,7 @@ class BackendInterface:
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
-                    if name in _COMPONENT_ITERATORS or name in _PROVIDER_INPUT_ALGORITHMS:
+                    if live_input or name in _PROVIDER_INPUT_ALGORITHMS:
                         graph = args[0] if args else kwargs.get("G")
                         _discard_component_passthrough(graph)
                     if name in _PROVIDER_INPUT_ALGORITHMS:
@@ -1496,7 +1500,7 @@ class BackendInterface:
                         source = (
                             source_ref() if isinstance(source_ref, weakref.ReferenceType) else None
                         )
-                        if name in _PROVIDER_INPUT_ALGORITHMS and not isinstance(
+                        if (live_input or name in _PROVIDER_INPUT_ALGORITHMS) and not isinstance(
                             graph, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
                         ):
                             source = graph
