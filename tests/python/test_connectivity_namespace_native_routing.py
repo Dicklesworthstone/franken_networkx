@@ -16,7 +16,7 @@ import inspect
 import math
 import sys
 from fractions import Fraction
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 
 import franken_networkx as fnx
@@ -433,3 +433,169 @@ def test_local_node_connectivity_uses_original_public_graph(directed):
     )
     actual = fnx.node_connectivity(graph, 0, 2, flow_func=fnx.flow.edmonds_karp)
     assert actual == expected == 2
+
+
+_CONNECTIVITY_BACKEND_APIS = (
+    "node_connectivity", "edge_connectivity", "minimum_node_cut", "minimum_edge_cut",
+)
+
+
+def _warm_connectivity_backend_cache(graph):
+    nx.relabel_nodes(graph, {}, backend="franken_networkx")
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("name", _CONNECTIVITY_BACKEND_APIS)
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_connectivity_backend_runs_owned_solver_on_original_input(
+    monkeypatch, name, graph_type, local, cached
+):
+    from franken_networkx import backend as fnx_backend
+
+    graph = _connectivity_pair(graph_type)[1]
+    reference = _connectivity_pair(graph_type)[1]
+    options = {"s": 0, "t": 4096} if local else {}
+    expected = getattr(nx, name)(
+        reference, flow_func=nx.algorithms.flow.edmonds_karp,
+        backend="networkx", **options,
+    )
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        _warm_connectivity_backend_cache(graph)
+
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS[name]
+    inputs, callbacks = [], []
+
+    @wraps(implementation)
+    def record_input(G, *args, **kwargs):
+        inputs.append(G)
+        return implementation(G, *args, **kwargs)
+
+    def solver(auxiliary, source, target, **kwargs):
+        callbacks.append((source, target))
+        return fnx.flow.edmonds_karp(auxiliary, source, target, **kwargs)
+
+    converter = fnx_backend._nx_to_fnx_for_dispatch
+
+    def reject_input_snapshot(G, *args, **kwargs):
+        assert G is not graph, "custom-solver dispatch copied its original input"
+        return converter(G, *args, **kwargs)
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, name, record_input)
+    monkeypatch.setattr(fnx_backend, "_nx_to_fnx_for_dispatch", reject_input_snapshot)
+    actual = getattr(nx, name)(
+        graph, flow_func=solver, backend="franken_networkx", **options
+    )
+    assert actual == expected
+    assert type(actual) is type(expected)
+    assert len(inputs) == 1 and inputs[0] is graph
+    assert callbacks
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("name", _CONNECTIVITY_BACKEND_APIS)
+@pytest.mark.parametrize("positional", [False, True])
+def test_connectivity_backend_priority_honors_falsey_solver(monkeypatch, name, positional):
+    from franken_networkx import backend as fnx_backend
+
+    graph = nx.Graph([(0, 1), (1, 2), (0, 3), (3, 2)])
+    expected = getattr(nx, name)(
+        graph, 0, 2, flow_func=nx.algorithms.flow.edmonds_karp, backend="networkx"
+    )
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS[name]
+    inputs, callbacks = [], []
+
+    @wraps(implementation)
+    def record_input(G, *args, **kwargs):
+        inputs.append(G)
+        return implementation(G, *args, **kwargs)
+
+    class Solver:
+        def __bool__(self):
+            return False
+
+        def __call__(self, auxiliary, source, target, **kwargs):
+            callbacks.append((source, target))
+            return fnx.flow.edmonds_karp(auxiliary, source, target, **kwargs)
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, name, record_input)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    if positional:
+        actual = getattr(nx, name)(graph, 0, 2, Solver())
+    else:
+        actual = getattr(nx, name)(graph, 0, 2, flow_func=Solver())
+    assert actual == expected
+    assert len(inputs) == 1 and inputs[0] is graph
+    assert callbacks
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_connectivity_backend_cutoff_keeps_public_degree_provider(monkeypatch, cached):
+    from franken_networkx import backend as fnx_backend
+
+    class PublicGraph(nx.Graph):
+        @property
+        def degree(self):
+            # A complete graph returns its degree bound without a flow call.
+            # Native materialization would silently replace this provider.
+            return lambda: [(node, Fraction(7, 2)) for node in self]
+
+    graph = PublicGraph([(0, 1), (1, 2), (0, 2)])
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        _warm_connectivity_backend_cache(graph)
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS["edge_connectivity"]
+    inputs = []
+
+    @wraps(implementation)
+    def record_input(G, *args, **kwargs):
+        inputs.append(G)
+        return implementation(G, *args, **kwargs)
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, "edge_connectivity", record_input)
+    expected = nx.edge_connectivity(graph, cutoff=4, backend="networkx")
+    actual = nx.edge_connectivity(graph, cutoff=4, backend="franken_networkx")
+    assert actual == expected == Fraction(7, 2)
+    assert type(actual) is Fraction
+    assert len(inputs) == 1 and inputs[0] is graph
+
+
+@pytest.mark.parametrize("name", _CONNECTIVITY_BACKEND_APIS)
+@pytest.mark.parametrize("fails", [False, True])
+def test_connectivity_backend_clears_reentrant_callback_conversions(monkeypatch, name, fails):
+    graph = nx.Graph([(0, 1), (1, 2), (0, 3), (3, 2)])
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    _warm_connectivity_backend_cache(graph)
+    failure = RuntimeError("solver stopped after changing graph attributes")
+    callbacks = []
+
+    def solver(auxiliary, source, target, **kwargs):
+        graph.graph["callback"] = True
+        _warm_connectivity_backend_cache(graph)
+        graph.graph["after_conversion"] = True
+        callbacks.append((source, target))
+        if fails:
+            raise failure
+        return fnx.flow.edmonds_karp(auxiliary, source, target, **kwargs)
+
+    if fails:
+        with pytest.raises(RuntimeError) as error:
+            getattr(nx, name)(graph, 0, 2, flow_func=solver, backend="franken_networkx")
+        assert error.value is failure
+    else:
+        getattr(nx, name)(graph, 0, 2, flow_func=solver, backend="franken_networkx")
+    assert callbacks
+    assert graph.graph["after_conversion"] is True
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("local", [False, True])
+def test_minimum_edge_cut_backend_supports_default_solver(graph_type, local):
+    graph = _connectivity_pair(graph_type)[1]
+    options = {"s": 0, "t": 4096} if local else {}
+    assert nx.minimum_edge_cut(graph, backend="franken_networkx", **options) == (
+        nx.minimum_edge_cut(graph, backend="networkx", **options)
+    )

@@ -720,3 +720,178 @@ def test_cost_flow_respects_patched_owned_attribute_read_protocols(api, cls, mon
     assert _cost_flow_outcome(getattr(fnx, api), graph) == expected
     assert events == [2]
     assert attrs["weight"] == 37
+
+
+def _warm_cost_flow_dispatch_cache(graph, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "amount,cost",
+    [(3, 2), (10**40, 2**80 + 1), (Fraction(3, 2), Fraction(2, 3)),
+     (Decimal("1.5"), Decimal("0.75"))],
+)
+def test_backend_max_flow_min_cost_preserves_exact_domains(cls, cached, amount, cost, monkeypatch):
+    graph = getattr(nx, cls)()
+    graph.add_edge(("source", 0), "middle", units=amount, price=cost)
+    graph.add_edge("middle", "sink", units=amount, price=cost)
+    graph.add_edge(("source", 0), "sink", units=amount, price=4 * cost)
+    expected = nx.max_flow_min_cost(
+        graph, ("source", 0), "sink", capacity="units", weight="price", backend="networkx"
+    )
+    _warm_cost_flow_dispatch_cache(graph, cached, monkeypatch)
+    actual = nx.max_flow_min_cost(
+        graph, ("source", 0), "sink", capacity="units", weight="price",
+        backend="franken_networkx",
+    )
+    assert _cost_flow_typed_result(actual) == _cost_flow_typed_result(expected)
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("view", [False, True])
+@pytest.mark.parametrize("route", ["standalone", "cold_backend", "cached_backend"])
+def test_max_flow_min_cost_reads_capacity_before_copying_costs(cls, view, route, monkeypatch):
+    def run(library, backend=None):
+        graph = getattr(nx, cls)()
+        graph.add_edge("s", "t", capacity=2, weight=1)
+        if view:
+            graph = nx.subgraph_view(graph)
+        if backend == "franken_networkx":
+            _warm_cost_flow_dispatch_cache(graph, route == "cached_backend", monkeypatch)
+        trace = []
+
+        class Capacity(dict):
+            def get(self, key, default=None):
+                trace.append(key)
+                if key == "capacity":
+                    self["weight"] = 7
+                return super().get(key, default)
+
+        attrs = Capacity(capacity=2, weight=1)
+        owner = graph._graph if view else graph
+        owner._adj["s"]["t"] = attrs
+        if graph.is_directed():
+            owner._pred["t"]["s"] = attrs
+        else:
+            owner._adj["t"]["s"] = attrs
+        kwargs = {} if backend is None else {"backend": backend}
+        result = library.max_flow_min_cost(graph, "s", "t", **kwargs)
+        return result, trace, dict(attrs)
+
+    expected = run(nx, "networkx")
+    library, backend = (fnx, None) if route == "standalone" else (nx, "franken_networkx")
+    actual = run(library, backend)
+    assert actual == expected
+    assert actual[2]["weight"] == 7
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("unit", [3, 10**100, Fraction(2, 3), Decimal("0.75")])
+def test_backend_cost_of_flow_preserves_scalar_contract(cls, cached, unit, monkeypatch):
+    graph = getattr(nx, cls)()
+    graph.add_edge("s", "t", cost=unit)
+    graph.add_edge("s", "s", cost=2 * unit)
+    graph.add_edge("s", "empty")
+    if graph.is_multigraph():
+        graph.add_edge("s", "t", cost=3 * unit)
+    flow = {"s": {"t": unit, "s": unit, "empty": 9}, "unused": {"edge": 100}}
+    expected = nx.cost_of_flow(graph, flow, weight="cost", backend="networkx")
+    _warm_cost_flow_dispatch_cache(graph, cached, monkeypatch)
+    actual = nx.cost_of_flow(graph, flow, weight="cost", backend="franken_networkx")
+    assert type(actual) is type(expected)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("provider", ["flow", "weight"])
+def test_backend_cost_of_flow_reads_live_providers_in_order(provider, cached, monkeypatch):
+    def run(backend):
+        graph = nx.DiGraph()
+        graph.add_edge("s", "t", weight=2)
+        if backend == "franken_networkx":
+            _warm_cost_flow_dispatch_cache(graph, cached, monkeypatch)
+        trace = []
+
+        class Weights(dict):
+            def get(self, key, default=None):
+                trace.append(("weight", key))
+                return super().get(key, default)
+
+        class Flow(dict):
+            def __getitem__(self, key):
+                trace.append(("flow", key))
+                graph["s"]["t"]["weight"] = 7
+                return super().__getitem__(key)
+
+        if provider == "weight":
+            attrs = Weights(weight=7)
+            graph._adj["s"]["t"] = attrs
+            graph._pred["t"]["s"] = attrs
+            flow = {"s": {"t": 3}}
+        else:
+            flow = Flow({"s": {"t": 3}})
+        actual = nx.cost_of_flow(graph, flow, backend=backend)
+        return actual, trace
+
+    expected = run("networkx")
+    assert expected[0] == 21
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
+def test_backend_cost_of_flow_keeps_networkx_keyed_flow_error(cls):
+    graph = getattr(nx, cls)()
+    graph.add_edge("s", "t", key="parallel", weight=3)
+    flow = {"s": {"t": {"parallel": 2}}}
+    expected = _cost_flow_outcome(nx.cost_of_flow, graph, flowDict=flow, backend="networkx")
+    actual = _cost_flow_outcome(nx.cost_of_flow, graph, flowDict=flow, backend="franken_networkx")
+    assert actual == expected
+    assert expected[0:2] == ("raise", TypeError)
+    # Standalone fnx's documented keyed-flow extension remains available.
+    assert fnx.cost_of_flow(getattr(fnx, cls)(graph), flow) == 6
+
+
+@pytest.mark.parametrize("case", ["missing_source", "same_node", "unbounded", "multigraph"])
+def test_backend_max_flow_min_cost_keeps_solver_errors(case):
+    graph = nx.MultiDiGraph() if case == "multigraph" else nx.DiGraph()
+    graph.add_edge("s", "t", weight=1)
+    if case != "unbounded":
+        if graph.is_multigraph():
+            graph["s"]["t"][0]["capacity"] = 2
+        else:
+            graph["s"]["t"]["capacity"] = 2
+    options = {"s": "missing" if case == "missing_source" else "s",
+               "t": "s" if case == "same_node" else "t"}
+    expected = _cost_flow_outcome(nx.max_flow_min_cost, graph, **options, backend="networkx")
+    actual = _cost_flow_outcome(nx.max_flow_min_cost, graph, **options, backend="franken_networkx")
+    assert actual == expected
+    assert expected[0] == "raise"
+
+
+@pytest.mark.parametrize("algorithm", ["max_flow_min_cost", "cost_of_flow"])
+def test_cost_flow_backend_automatic_selection_uses_owned_implementation(algorithm, monkeypatch):
+    from functools import wraps
+    from franken_networkx.backend import _SUPPORTED_ALGORITHMS
+
+    graph = nx.DiGraph()
+    graph.add_edge("s", "t", capacity=3, weight=2)
+    args = ("s", "t") if algorithm == "max_flow_min_cost" else ({"s": {"t": 3}},)
+    expected = getattr(nx, algorithm)(graph, *args, backend="networkx")
+    original = _SUPPORTED_ALGORITHMS[algorithm]
+    seen = []
+
+    @wraps(original)
+    def observed(*args, **kwargs):
+        seen.append(args[0])
+        return original(*args, **kwargs)
+
+    monkeypatch.setitem(_SUPPORTED_ALGORITHMS, algorithm, observed)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    assert getattr(nx, algorithm)(graph, *args) == expected
+    assert seen == [graph]

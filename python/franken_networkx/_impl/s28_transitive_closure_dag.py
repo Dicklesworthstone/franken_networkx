@@ -1348,4 +1348,16 @@ def cost_of_flow(G, flowDict, weight="weight"):
                 weight, 0
             )
         return total
+    return _cost_of_flow_backend_impl(G, flowDict, weight)
+
+
+def _cost_of_flow_backend_impl(G, flowDict, weight="weight"):
+    """Evaluate NetworkX's scalar-flow contract on the caller's graph.
+
+    The standalone fnx API also accepts keyed multigraph flow dictionaries.
+    Backend dispatch preserves NetworkX's contract instead: every graph edge
+    multiplies ``flowDict[u][v]`` by its own weight, including parallel edges.
+    Read both providers during the fold so their arithmetic and side effects
+    remain observable in the same order.
+    """
     return sum(flowDict[u][v] * d.get(weight, 0) for u, v, d in G.edges(data=True))

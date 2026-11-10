@@ -137,10 +137,16 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "eigenvector_centrality",
         "katz_centrality",
         "capacity_scaling",
+        "cost_of_flow",
         "flow_hierarchy",
+        "max_flow_min_cost",
         "min_cost_flow",
         "min_cost_flow_cost",
         "network_simplex",
+        "node_connectivity",
+        "edge_connectivity",
+        "minimum_node_cut",
+        "minimum_edge_cut",
         "dijkstra_path",
         "dijkstra_path_length",
         "bellman_ford_path",
@@ -161,10 +167,34 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
 _LIVE_CALLBACK_PARAMETERS = ("sort_neighbors", "weight", "distance", "heuristic", "key")
 _SPECTRAL_INPUT_ALGORITHMS = frozenset({"eigenvector_centrality", "katz_centrality"})
 _FLOW_INPUT_ALGORITHMS = frozenset(
-    {"capacity_scaling", "flow_hierarchy", "min_cost_flow", "min_cost_flow_cost", "network_simplex"}
+    {
+        "capacity_scaling", "cost_of_flow", "flow_hierarchy", "max_flow_min_cost",
+        "min_cost_flow", "min_cost_flow_cost", "network_simplex",
+    }
 )
-_PROVIDER_INPUT_ALGORITHMS = _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS
+_CONNECTIVITY_INPUT_ALGORITHMS = frozenset(
+    {"node_connectivity", "edge_connectivity", "minimum_node_cut", "minimum_edge_cut"}
+)
+_PROVIDER_INPUT_ALGORITHMS = (
+    _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
+)
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
+
+
+def _provider_dispatch_uses_original_graph(name, graph, arguments):
+    """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _FLOW_INPUT_ALGORITHMS:
+        return True
+    if name in _CONNECTIVITY_INPUT_ALGORITHMS:
+        # A solver can read or mutate the original graph while the algorithm
+        # constructs its auxiliary or selects later source/target pairs.
+        # Cutoff numeric protocols have the same observable boundary.
+        return arguments.get("flow_func") is not None or (
+            name == "edge_connectivity" and arguments.get("cutoff") is not None
+        )
+    return name in _SPECTRAL_INPUT_ALGORITHMS and _spectral_dispatch_uses_live_providers(
+        name, graph, arguments
+    )
 
 
 def _spectral_dispatch_uses_live_providers(name, graph, arguments):
@@ -344,6 +374,7 @@ _SUPPORTED_ALGORITHMS = {
     "node_connectivity": fnx.node_connectivity,
     "minimum_node_cut": fnx.minimum_node_cut,
     "edge_connectivity": fnx.edge_connectivity,
+    "minimum_edge_cut": fnx.minimum_edge_cut,
     "edge_disjoint_paths": fnx.edge_disjoint_paths,
     "node_disjoint_paths": fnx.node_disjoint_paths,
     "articulation_points": fnx.articulation_points,
@@ -379,7 +410,9 @@ _SUPPORTED_ALGORITHMS = {
     "maximum_flow": fnx.maximum_flow,
     "maximum_flow_value": fnx.maximum_flow_value,
     "capacity_scaling": fnx.capacity_scaling,
+    "cost_of_flow": fnx._cost_of_flow_backend_impl,
     "flow_hierarchy": fnx.flow_hierarchy,
+    "max_flow_min_cost": fnx.max_flow_min_cost,
     "min_cost_flow": fnx.min_cost_flow,
     "min_cost_flow_cost": fnx.min_cost_flow_cost,
     "network_simplex": fnx.network_simplex,
@@ -1349,13 +1382,6 @@ class BackendInterface:
             return False
         if name == "average_shortest_path_length" and kwargs.get("method") is not None:
             return False
-        # Reject custom flow-function callables — fnx's native
-        # connectivity/flow implementations don't honour them, so the nx
-        # dispatcher needs to fall back to the upstream pure-Python path.
-        if name in {"node_connectivity", "edge_connectivity", "minimum_node_cut", "minimum_edge_cut"}:
-            bound.apply_defaults()
-            if bound.arguments.get("flow_func") is not None:
-                return False
         if name in _DISJOINT_ALGORITHMS:
             try:
                 inputs = tuple(
@@ -1372,9 +1398,7 @@ class BackendInterface:
             if name in _PROVIDER_INPUT_ALGORITHMS:
                 bound.apply_defaults()
                 graph = bound.arguments.get("G")
-                if name in _FLOW_INPUT_ALGORITHMS or _spectral_dispatch_uses_live_providers(
-                    name, graph, bound.arguments
-                ):
+                if _provider_dispatch_uses_original_graph(name, graph, bound.arguments):
                     _PROVIDER_CALL_INPUTS.set((name, weakref.ref(graph)))
                 else:
                     _PROVIDER_CALL_INPUTS.set(None)
@@ -1490,11 +1514,8 @@ class BackendInterface:
                                 )
                                 for parameter in ("weight", "distance")
                             )
-                            uses_live_provider = name in _FLOW_INPUT_ALGORITHMS or (
-                                name in _SPECTRAL_INPUT_ALGORITHMS
-                                and _spectral_dispatch_uses_live_providers(
-                                    name, source, bound.arguments
-                                )
+                            uses_live_provider = _provider_dispatch_uses_original_graph(
+                                name, source, bound.arguments
                             )
                             has_callbacks = has_callbacks or uses_live_provider
                             reads_supplied_distances = (

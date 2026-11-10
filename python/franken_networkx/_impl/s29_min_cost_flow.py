@@ -109,7 +109,14 @@ def max_flow_min_cost(
     min_cost_flow undirected and raising NetworkXNotImplemented.
     """
     _validate_backend_dispatch_keywords("max_flow_min_cost", backend, backend_kwargs)
-    max_val = maximum_flow_value(G, s, t, capacity=capacity)
+    if type(G) in (Graph, DiGraph) and not _has_networkx_private_storage(G):
+        max_val = maximum_flow_value(G, s, t, capacity=capacity)
+    else:
+        # A graph view, subclass or NetworkX input can expose live capacity
+        # providers. The maximum-flow phase must read them before constructing
+        # the demand graph: provider side effects can change the costs used by
+        # the subsequent minimum-cost phase. Coercion would snapshot them away.
+        max_val = _maximum_flow_value_inproc(G, s, t, capacity=capacity)
     H = DiGraph(G)
     H.add_node(s, demand=-max_val)
     H.add_node(t, demand=max_val)
