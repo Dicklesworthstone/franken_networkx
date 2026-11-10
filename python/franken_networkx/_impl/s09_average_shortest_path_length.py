@@ -485,6 +485,11 @@ def average_shortest_path_length(G, weight=None, method=None):
     return _raw_average_shortest_path_length(G, weight=weight, method=method)
 
 
+from franken_networkx._fnx import cgse as _cgse_mod
+
+_cgse_armed = _cgse_mod.witness_collection_enabled
+
+
 def dijkstra_path(G, source, target, weight="weight"):
     """Return the shortest weighted path from ``source`` to ``target`` in ``G``.
 
@@ -496,6 +501,24 @@ def dijkstra_path(G, source, target, weight="weight"):
     # MultiDiGraph point query also avoids preparing every parallel edge before
     # a target that may be only a few rows away. Keep NetworkX's source-wide
     # None-target sentinel in the same owned helper.
+    # br-cgse-dijkstra-mdg: under witness collection, route the UNWEIGHTED MultiDiGraph
+    # point query through the instrumented native kernel (which emits a Dijkstra witness)
+    # rather than the pure-Python multi-source helper. Transparent: the two break
+    # equal-length ties identically (320 seeded MDGs / 17446 queries). Cheap checks
+    # precede the PyO3 arming hop so unarmed non-MDG calls pay nothing; live private
+    # rows / directed-view rows stay on the authoritative Python path (the native
+    # kernel reads stale native storage), exactly as the unarmed routing below.
+    if (
+        weight is None
+        and target is not None
+        and type(G) is MultiDiGraph
+        and _cgse_armed()
+        and not _weighted_query_uses_live_python_rows(G, weight)
+        and source in G
+    ):
+        _native_mdg = _fnx.dijkstra_path_to_target(G, source, target, None)
+        if _native_mdg is not None:
+            return _native_mdg[2]
     if (
         _weighted_query_uses_live_python_rows(G, weight)
         or type(G) is MultiDiGraph
