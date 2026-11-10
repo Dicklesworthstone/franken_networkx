@@ -13695,6 +13695,15 @@ fn dfs_forest_undirected(
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut preorder: Vec<String> = Vec::new();
+    // br-cgse-dfs-forest: whole-graph (source=None) DFS must emit a Dfs witness,
+    // mirroring the single-source fnx_algorithms::dfs_edges kernel: record
+    // (node, parent) per discovered tree edge; roots are not recorded. No-op
+    // when collection is unarmed (WitnessRun::new builds no sink).
+    let mut witness = WitnessRun::new(
+        fnx_cgse::ReferenceAlgorithm::Dfs,
+        graph.node_count(),
+        graph.edge_count(),
+    );
 
     for &start in nodes {
         if visited.contains(start) {
@@ -13723,6 +13732,7 @@ fn dfs_forest_undirected(
             visited.insert(node);
             preorder.push(node.to_owned());
             if let Some(p) = parent {
+                witness.record(node, p);
                 edges.push((p.to_owned(), node.to_owned()));
             }
             if depth < max_depth
@@ -13749,6 +13759,13 @@ fn dfs_forest_directed(
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut preorder: Vec<String> = Vec::new();
+    // br-cgse-dfs-forest: see dfs_forest_undirected. Record (node, parent) per
+    // discovered tree edge over successors; roots unrecorded; no-op when unarmed.
+    let mut witness = WitnessRun::new(
+        fnx_cgse::ReferenceAlgorithm::Dfs,
+        digraph.node_count(),
+        digraph.edge_count(),
+    );
 
     for &start in nodes {
         if visited.contains(start) {
@@ -13773,6 +13790,7 @@ fn dfs_forest_directed(
             visited.insert(node);
             preorder.push(node.to_owned());
             if let Some(p) = parent {
+                witness.record(node, p);
                 edges.push((p.to_owned(), node.to_owned()));
             }
             if depth < max_depth

@@ -1593,3 +1593,63 @@ def test_cgse_witness_collection_enabled_reflects_arming():
     cgse.collect_witnesses(_probe)
     assert seen.get("armed") is True
     assert cgse.witness_collection_enabled() is False
+
+
+# ---------------------------------------------------------------------------
+# br-cgse-dfs-forest: whole-graph dfs_edges (source=None) emits a Dfs witness,
+# byte-identical to the single-source instrumented kernel. Exercises the eager
+# `_fnx.dfs_edges` directly (the public fn is routed to it by the (A) guard).
+# Fails before the forest-emit fix (0 witnesses); passes after.
+# ---------------------------------------------------------------------------
+def test_public_whole_graph_dfs_edges_source_none_emits_forest_witness():
+    import franken_networkx as _fnx_pkg
+    from franken_networkx import _fnx
+    from franken_networkx._fnx import cgse
+
+    def _fields(w):
+        return (w.n, w.m, w.observed_count, w.dominant_term, repr(w.policy),
+                w.decision_path_hash)
+
+    def _wit(fn):
+        res, ws = cgse.collect_witnesses(fn)
+        assert len(ws) == 1, "expected exactly 1 witness, got %d" % len(ws)
+        return res, ws[0]
+
+    # (i) connected undirected: forest(None) == single-source(first), ALL fields + hash
+    G = _fnx_pkg.Graph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 3), (1, 3), (0, 2)])
+    first = next(iter(G.nodes()))
+    e_none, w_none = _wit(lambda: list(_fnx.dfs_edges(G, None)))
+    e_root, w_root = _wit(lambda: list(_fnx.dfs_edges(G, first)))
+    assert e_none == e_root
+    assert _fields(w_none) == _fields(w_root)
+
+    # (i) connected directed (all reachable from 0): forest(None) == single-source(0)
+    D = _fnx_pkg.DiGraph()
+    D.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 2), (3, 1)])
+    e_dn, w_dn = _wit(lambda: list(_fnx.dfs_edges(D, None)))
+    e_d0, w_d0 = _wit(lambda: list(_fnx.dfs_edges(D, 0)))
+    assert e_dn == e_d0
+    assert _fields(w_dn) == _fields(w_d0)
+
+    # (ii) disconnected: observed_count == sum per-root, n/m == whole graph
+    H = _fnx_pkg.Graph()
+    H.add_edges_from([(0, 1), (1, 2), (10, 11), (11, 12), (10, 12)])
+    H.add_node(20)
+    e_h, w_h = _wit(lambda: list(_fnx.dfs_edges(H, None)))
+    assert w_h.n == H.number_of_nodes()
+    assert w_h.m == H.number_of_edges()
+    comps = list(_fnx_pkg.connected_components(H))
+    seen, roots = set(), []
+    for nd in H.nodes():
+        if nd in seen:
+            continue
+        roots.append(nd)
+        seen |= next(c for c in comps if nd in c)
+    agg_obs, agg_edges = 0, []
+    for r in roots:
+        er, wr = _wit(lambda r=r: list(_fnx.dfs_edges(H, r)))
+        agg_obs += wr.observed_count
+        agg_edges += er
+    assert w_h.observed_count == agg_obs
+    assert e_h == agg_edges
