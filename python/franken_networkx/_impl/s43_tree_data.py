@@ -322,14 +322,23 @@ def _gomory_hu_prepare_fallback(G, capacity, flow_func):
 def _gomory_hu_cut_fallback(
     python_graph, source, target, capacity, flow_func, residual
 ):
-    return _minimum_cut_inproc(
-        python_graph,
-        source,
-        target,
-        capacity=capacity,
-        flow_func=flow_func,
-        residual=residual,
+    cut_residual = _flow_residual_inproc(
+        python_graph, source, target, capacity, flow_func,
+        {"residual": residual}, True, True,
     )
+    # Each cut reuses the residual exposed to the next solver invocation.
+    # Removing saturated arcs for the sink-side walk and restoring them also
+    # defines the next call's edge order and attribute-dictionary identities.
+    saturated = [
+        (u, v, attrs)
+        for u, v, attrs in cut_residual.edges(data=True)
+        if attrs["flow"] == attrs["capacity"]
+    ]
+    cut_residual.remove_edges_from(saturated)
+    sink_side = set(single_target_shortest_path_length(cut_residual, target))
+    source_side = set(python_graph) - sink_side
+    cut_residual.add_edges_from(saturated)
+    return cut_residual.graph["flow_value"], (source_side, sink_side)
 
 
 def gomory_hu_tree(
@@ -356,48 +365,21 @@ def gomory_hu_tree(
     if len(G) == 0:
         raise NetworkXError("Empty Graph does not have a Gomory-Hu tree representation")
 
-    # br-r37-c1-4bkzp: a 1-node graph has no pairs of distinct nodes to
-    # cut, so the Gomory-Hu tree is trivially empty (the single node,
-    # no edges) regardless of any selfloop's capacity.  Short-circuit
-    # *before* the infinite-capacity check so a selfloop without a
-    # ``capacity`` attribute does not falsely trigger NetworkXUnbounded
-    # (nx returns an empty tree on this same shape).
-    if len(G) == 1:
-        tree = Graph()
-        tree.add_nodes_from(G.nodes(data=True))
-        return tree
-
-    # br-r37-c1-ght-disc / br-r37-c1-smmml: nx raises
-    # NetworkXUnbounded("Infinite capacity path, flow unbounded
-    # above.") whenever some non-selfloop edge carries no capacity
-    # (default missing / +inf). fnx's tree-construction loop called
-    # the Rust min-cut binding directly, which didn't propagate the
-    # unbounded error — producing a meaningless tree.
-    #
-    # Earlier this gate also short-circuited on ``not is_connected(G)``,
-    # which over-fired on graphs where nx returns a valid tree:
-    # isolated nodes (no edges → trivially zero-cut tree), a
-    # disconnected graph with explicit capacities (cross-component
-    # cuts are 0), and graphs whose only edges are selfloops
-    # (selfloops do not contribute to any inter-node cut).
-    # ``_minimum_cut_raw`` correctly returns 0 with a valid partition
-    # for cross-component / selfloop-only pairs, so the loop builds
-    # the right tree on its own — the connectivity short-circuit was
-    # unnecessary and produced false-positive unbounded errors.  The
-    # inf-capacity check excludes selfloops for the same reason.
-    if any(
-        attrs.get(capacity, float("inf")) in (None, float("inf"), float("nan"))
-        for u, v, attrs in G.edges(data=True) if u != v
-    ):
-        raise NetworkXUnbounded(
-            "Infinite capacity path, flow unbounded above."
-        )
+    # Capture the cut schedule before residual construction reads capacity
+    # providers. Those providers may add nodes, which remain in the returned
+    # graph but do not retroactively create cuts missing from this residual.
+    tree = {}
+    labels = {}
+    iter_nodes = iter(G)
+    root = next(iter_nodes)
+    for node in iter_nodes:
+        tree[node] = root
 
     native = (
         flow_func is None
         and type(G) is Graph
         and not _has_networkx_private_storage(G)
-        and isinstance(capacity, str)
+        and type(capacity) is str
     )
     if native:
         capacity_total = 0
@@ -417,16 +399,14 @@ def gomory_hu_tree(
     if native:
         _sync_rust_edge_attrs(G, edge_only=True)
     else:
+        # Residual construction and the selected solver own capacity reads
+        # and validation. An eager infinity scan adds observable provider
+        # calls and rejects inputs a custom solver deliberately handles.
+        # Missing/infinite capacities still raise in the default solver;
+        # singleton graphs simply perform no pairwise cuts.
         python_graph, flow_func, residual = _gomory_hu_prepare_fallback(
             G, capacity, flow_func
         )
-
-    tree = {}
-    labels = {}
-    iter_nodes = iter(G)
-    root = next(iter_nodes)
-    for node in iter_nodes:
-        tree[node] = root
 
     for source in tree:
         target = tree[source]

@@ -89,6 +89,9 @@ _COMMUNITY_ITERATOR_ALGORITHMS = frozenset(
 _BETWEENNESS_INPUT_ALGORITHMS = frozenset(
     {"betweenness_centrality", "edge_betweenness_centrality"}
 )
+_CONNECTIVITY_BATCH_INPUT_ALGORITHMS = frozenset(
+    {"all_pairs_node_connectivity", "average_node_connectivity", "gomory_hu_tree"}
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -170,6 +173,9 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "edge_connectivity",
         "minimum_node_cut",
         "minimum_edge_cut",
+        "all_pairs_node_connectivity",
+        "average_node_connectivity",
+        "gomory_hu_tree",
         "dijkstra_path",
         "dijkstra_path_length",
         "bellman_ford_path",
@@ -224,6 +230,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _COMMUNITY_ITERATOR_ALGORITHMS
     | _DIJKSTRA_INPUT_ALGORITHMS
     | _BETWEENNESS_INPUT_ALGORITHMS
+    | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
     | {"johnson", "quotient_graph", "greedy_modularity_communities"}
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -240,6 +247,10 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         return fnx._betweenness_uses_live_python_rows(
             graph, arguments.get("weight"), arguments.get("seed"), arguments.get("k")
         )
+    if name in _CONNECTIVITY_BATCH_INPUT_ALGORITHMS:
+        # Node iterables and capacity/flow providers can change later pairs
+        # or cuts. The owned algorithms choose their native route themselves.
+        return True
     if name in _FLOW_INPUT_ALGORITHMS:
         return True
     if name in _COMMUNITY_ITERATOR_ALGORITHMS:
@@ -505,6 +516,9 @@ _SUPPORTED_ALGORITHMS = {
     "minimum_node_cut": fnx.minimum_node_cut,
     "edge_connectivity": fnx.edge_connectivity,
     "minimum_edge_cut": fnx.minimum_edge_cut,
+    "all_pairs_node_connectivity": fnx.all_pairs_node_connectivity,
+    "average_node_connectivity": fnx.average_node_connectivity,
+    "gomory_hu_tree": fnx.gomory_hu_tree,
     "edge_disjoint_paths": fnx.edge_disjoint_paths,
     "node_disjoint_paths": fnx.node_disjoint_paths,
     "articulation_points": fnx.articulation_points,

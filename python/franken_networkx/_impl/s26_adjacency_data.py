@@ -1023,22 +1023,27 @@ def generalized_degree(G, nodes=None):
     return generalized_degrees
 
 
-def _all_pairs_node_connectivity_inproc(G, nbunch=None, flow_func=None):
+def _node_connectivity_pair_values(G, nodes=None, flow_func=None):
+    """Compute a batch with one auxiliary and one caller-visible residual.
+
+    Capture the pair iterator once before invoking a solver. A solver can
+    mutate the original graph while the batch is running; that must not add
+    new pairs to a later reduction or rebuild the auxiliary between calls.
+    """
     from franken_networkx.connectivity import (
         build_auxiliary_node_connectivity,
         local_node_connectivity,
     )
     from franken_networkx.flow import build_residual_network, edmonds_karp
 
-    nodes = list(G) if nbunch is None else set(nbunch)
-    result = {node: {} for node in nodes}
     auxiliary = build_auxiliary_node_connectivity(G)
     residual = build_residual_network(auxiliary, "capacity")
     solver = edmonds_karp if flow_func is None else flow_func
-    directed = G.is_directed()
+    if nodes is None:
+        nodes = G
     pairs = (
         _itertools.permutations(nodes, 2)
-        if directed
+        if G.is_directed()
         else _itertools.combinations(nodes, 2)
     )
     for source, target in pairs:
@@ -1050,6 +1055,14 @@ def _all_pairs_node_connectivity_inproc(G, nbunch=None, flow_func=None):
             auxiliary=auxiliary,
             residual=residual,
         )
+        yield source, target, value
+
+
+def _all_pairs_node_connectivity_inproc(G, nbunch=None, flow_func=None):
+    nodes = list(G) if nbunch is None else set(nbunch)
+    result = {node: {} for node in nodes}
+    directed = G.is_directed()
+    for source, target, value in _node_connectivity_pair_values(G, nodes, flow_func):
         result[source][target] = value
         if not directed:
             result[target][source] = value
@@ -1074,15 +1087,20 @@ def all_pairs_node_connectivity(
     # need ordered pairs over the node-split digraph, while a caller's solver
     # must compute every pair. Reuse one auxiliary and residual graph for both
     # cases so the callback sees the same graph objects throughout the batch.
-    if G.is_directed() or flow_func is not None:
+    if (
+        G.is_directed()
+        or flow_func is not None
+        or type(G) not in (Graph, MultiGraph)
+        or _has_networkx_private_storage(G)
+    ):
         return _all_pairs_node_connectivity_inproc(
             G,
             nbunch=nbunch,
             flow_func=flow_func,
         )
-    # Only the native path needs a concrete graph. The owned pairwise path
-    # above must preserve a caller's live node and edge providers.
-    G = _coerce_arg_to_fnx_graph(G)
+    # The native path already owns a concrete graph. Converting before
+    # consuming nbunch would freeze the input ahead of a caller's iterable
+    # and lose mutations made while that iterable selects the node set.
     # NetworkX normalizes an explicit nbunch to a set, including its iteration
     # order. Materialize it once: consuming a generator again below previously
     # made the full/near-full and multigraph routes return an empty result.

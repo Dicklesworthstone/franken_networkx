@@ -649,6 +649,21 @@ def average_node_connectivity(G, flow_func=None, *, backend=None, **backend_kwar
     _validate_backend_dispatch_keywords(
         "average_node_connectivity", backend, backend_kwargs
     )
+    _validate_flow_func_selector(flow_func)
+    if (
+        flow_func is not None
+        or G.is_directed()
+        or type(G) not in (Graph, MultiGraph)
+        or _has_networkx_private_storage(G)
+    ):
+        # Reduce the same captured pair stream the solver actually computed.
+        # Materializing an all-pairs dictionary and then iterating G again
+        # loses this boundary if a callback adds or removes original nodes.
+        total = count = 0
+        for _, _, value in _node_connectivity_pair_values(G, flow_func=flow_func):
+            total += value
+            count += 1
+        return total / count if count else 0
     # br-r37-c1-qz40o: the standalone Rust BFS local_node_connectivity is a
     # heuristic that misvalues some pairs. But the bulk
     # ``all_pairs_node_connectivity`` (native undirected, byte-correct vs nx;
@@ -657,8 +672,6 @@ def average_node_connectivity(G, flow_func=None, *, backend=None, **backend_kwar
     # mean of those per-pair values over combinations (undirected) /
     # permutations (directed), so average over that result instead of
     # re-delegating the whole O(n^2)-flow computation to nx (br-anc-allpairs).
-    if flow_func is None:
-        G = _coerce_arg_to_fnx_graph(G)
     apnc = all_pairs_node_connectivity(G, flow_func=flow_func)
     iter_func = _itertools.permutations if G.is_directed() else _itertools.combinations
     num = den = 0

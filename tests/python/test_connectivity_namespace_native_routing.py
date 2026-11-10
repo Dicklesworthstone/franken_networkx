@@ -599,3 +599,301 @@ def test_minimum_edge_cut_backend_supports_default_solver(graph_type, local):
     assert nx.minimum_edge_cut(graph, backend="franken_networkx", **options) == (
         nx.minimum_edge_cut(graph, backend="networkx", **options)
     )
+
+
+_CONNECTIVITY_BATCH_BACKEND_APIS = (
+    "all_pairs_node_connectivity", "average_node_connectivity", "gomory_hu_tree",
+)
+
+
+def _batch_connectivity_answer(name, result):
+    if name == "gomory_hu_tree":
+        return list(result.nodes(data=True)), list(result.edges(data=True))
+    return result
+
+
+@pytest.mark.parametrize("name", _CONNECTIVITY_BATCH_BACKEND_APIS)
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("positional", [False, True])
+@pytest.mark.parametrize("automatic", [False, True])
+def test_batch_connectivity_backend_preserves_solver_inputs(
+    monkeypatch, name, cached, positional, automatic
+):
+    from franken_networkx import backend as fnx_backend
+
+    graph = _connectivity_pair("Graph")[1]
+    expected = getattr(nx, name)(
+        graph, flow_func=nx.algorithms.flow.edmonds_karp, backend="networkx"
+    )
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        _warm_connectivity_backend_cache(graph)
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS[name]
+    inputs, callbacks, auxiliary_ids, residual_ids = [], [], set(), set()
+
+    @wraps(implementation)
+    def record_input(G, *args, **kwargs):
+        inputs.append(G)
+        return implementation(G, *args, **kwargs)
+
+    class Solver:
+        def __bool__(self):
+            return False
+
+        def __call__(self, auxiliary, source, target, **kwargs):
+            if name == "gomory_hu_tree":
+                assert auxiliary is graph
+            auxiliary_ids.add(id(auxiliary))
+            residual_ids.add(id(kwargs["residual"]))
+            callbacks.append((source, target))
+            return fnx.flow.edmonds_karp(auxiliary, source, target, **kwargs)
+
+    converter = fnx_backend._nx_to_fnx_for_dispatch
+
+    def reject_input_snapshot(G, *args, **kwargs):
+        assert G is not graph, "batch connectivity copied its original input"
+        return converter(G, *args, **kwargs)
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, name, record_input)
+    monkeypatch.setattr(fnx_backend, "_nx_to_fnx_for_dispatch", reject_input_snapshot)
+    if automatic:
+        monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+        # NetworkX routes every graph-returning API through the generators
+        # priority, including Gomory-Hu tree construction.
+        monkeypatch.setattr(nx.config.backend_priority, "generators", ["franken_networkx"])
+    options = {} if automatic else {"backend": "franken_networkx"}
+    if positional:
+        prefix = {"all_pairs_node_connectivity": (None,), "gomory_hu_tree": ("capacity",)}
+        actual = getattr(nx, name)(graph, *prefix.get(name, ()), Solver(), **options)
+    else:
+        actual = getattr(nx, name)(graph, flow_func=Solver(), **options)
+    assert _batch_connectivity_answer(name, actual) == _batch_connectivity_answer(name, expected)
+    assert len(inputs) == 1 and inputs[0] is graph
+    assert callbacks and len(auxiliary_ids) == len(residual_ids) == 1
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("name", ["all_pairs_node_connectivity", "average_node_connectivity"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_batch_connectivity_backend_default_solver_matches_networkx(monkeypatch, name, graph_type, cached):
+    graph = _connectivity_pair(graph_type)[1]
+    expected = getattr(nx, name)(graph, backend="networkx")
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        _warm_connectivity_backend_cache(graph)
+    assert getattr(nx, name)(graph, backend="franken_networkx") == expected
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_all_pairs_connectivity_consumes_node_selection_before_graph_reads(monkeypatch, dispatch, cached):
+    outcomes = []
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    for reference in (True, False):
+        graph = nx.path_graph(4)
+        if not reference and cached:
+            _warm_connectivity_backend_cache(graph)
+
+        def selected_nodes():
+            graph.add_edge(0, 3)
+            yield from (0, 2)
+
+        if reference:
+            result = nx.all_pairs_node_connectivity(graph, selected_nodes(), backend="networkx")
+        elif dispatch:
+            result = nx.all_pairs_node_connectivity(graph, selected_nodes(), backend="franken_networkx")
+        else:
+            result = fnx.all_pairs_node_connectivity(graph, selected_nodes())
+        outcomes.append(result)
+    assert outcomes[0] == outcomes[1] == {0: {2: 2}, 2: {0: 2}}
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("mutation", ["add", "remove"])
+def test_average_connectivity_reduces_the_pairs_before_solver_mutations(dispatch, directed, mutation):
+    outcomes = []
+    for reference in (True, False):
+        graph = nx.cycle_graph(4, create_using=nx.DiGraph if directed else nx.Graph)
+        if directed:
+            graph.add_edges_from([(v, u) for u, v in list(graph.edges)])
+        calls = []
+
+        def solver(auxiliary, source, target, **kwargs):
+            if not calls:
+                if mutation == "add":
+                    graph.add_node("added by solver")
+                else:
+                    graph.remove_node(3)
+            calls.append((source, target))
+            implementation = nx.algorithms.flow.edmonds_karp if reference else fnx.flow.edmonds_karp
+            return implementation(auxiliary, source, target, **kwargs)
+
+        if reference:
+            result = nx.average_node_connectivity(graph, solver, backend="networkx")
+        elif dispatch:
+            result = nx.average_node_connectivity(graph, solver, backend="franken_networkx")
+        else:
+            result = fnx.average_node_connectivity(graph, solver)
+        outcomes.append((result, calls, list(graph)))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == 2.0
+
+
+@pytest.mark.parametrize("name", ["all_pairs_node_connectivity", "average_node_connectivity"])
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_default_batch_connectivity_keeps_public_graph_providers(name, dispatch):
+    class PublicGraph(nx.Graph):
+        @property
+        def nodes(self):
+            raise AssertionError("batch connectivity exported unrelated node attributes")
+
+    graph = PublicGraph([(0, 1), (1, 2), (2, 0)])
+    expected = getattr(nx, name)(graph, backend="networkx")
+    if dispatch:
+        actual = getattr(nx, name)(graph, backend="franken_networkx")
+    else:
+        actual = getattr(fnx, name)(graph)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_gomory_hu_custom_solver_owns_infinite_capacity_handling(dispatch):
+    outcomes = []
+    for reference in (True, False):
+        graph = nx.path_graph(3)
+        calls, residual_ids = [], set()
+
+        def solver(original, source, target, **kwargs):
+            assert original is graph
+            calls.append((source, target))
+            residual = kwargs["residual"]
+            residual_ids.add(id(residual))
+            for _, _, attrs in residual.edges(data=True):
+                attrs["flow"] = attrs["capacity"] = 0
+            residual.graph["flow_value"] = Fraction(17, 3)
+            return residual
+
+        if reference:
+            tree = nx.gomory_hu_tree(graph, flow_func=solver, backend="networkx")
+        elif dispatch:
+            tree = nx.gomory_hu_tree(graph, flow_func=solver, backend="franken_networkx")
+        else:
+            tree = fnx.gomory_hu_tree(graph, flow_func=solver)
+        assert len(residual_ids) == 1
+        outcomes.append((list(tree.edges(data=True)), calls))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_gomory_hu_singleton_does_not_copy_graph_or_node_attributes(dispatch):
+    graph = nx.Graph(marker="input metadata")
+    graph.add_node("only node", color="red")
+    graph.add_edge("only node", "only node")
+    expected = nx.gomory_hu_tree(graph, backend="networkx")
+    actual = (
+        nx.gomory_hu_tree(graph, backend="franken_networkx")
+        if dispatch else fnx.gomory_hu_tree(graph)
+    )
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    assert actual.graph == expected.graph == {}
+    assert list(actual.edges) == []
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_gomory_hu_solver_observes_each_residual_cut_transition(dispatch):
+    outcomes = []
+    for reference in (True, False):
+        graph = _connectivity_pair("Graph")[1]
+        calls, previous = [], {}
+
+        def solver(original, source, target, **kwargs):
+            assert original is graph
+            residual = kwargs["residual"]
+            rows = list(residual.edges(data=True))
+            calls.append((
+                source, target,
+                [(u, v, previous.get((u, v)) is attrs) for u, v, attrs in rows],
+            ))
+            previous.clear()
+            previous.update(((u, v), attrs) for u, v, attrs in rows)
+            implementation = nx.algorithms.flow.edmonds_karp if reference else fnx.flow.edmonds_karp
+            return implementation(original, source, target, **kwargs)
+
+        if reference:
+            tree = nx.gomory_hu_tree(graph, flow_func=solver, backend="networkx")
+        elif dispatch:
+            tree = nx.gomory_hu_tree(graph, flow_func=solver, backend="franken_networkx")
+        else:
+            tree = fnx.gomory_hu_tree(graph, flow_func=solver)
+        outcomes.append((list(tree.edges(data=True)), calls))
+    assert outcomes[0] == outcomes[1]
+    assert len(outcomes[0][1]) == len(graph) - 1
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_gomory_hu_capacity_reads_do_not_extend_the_cut_schedule(monkeypatch, dispatch, cached):
+    outcomes = []
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    for reference in (True, False):
+        graph = nx.Graph([(0, 1, {"capacity": 2})])
+        if not reference and cached:
+            _warm_connectivity_backend_cache(graph)
+        reads, calls = [], []
+
+        class Capacity(dict):
+            def get(self, key, default=None):
+                reads.append(key)
+                if len(reads) == 2:
+                    # The residual already captured its node set and edge
+                    # list. This new node must not become an extra cut.
+                    graph.add_node("added by capacity")
+                return super().get(key, default)
+
+        attrs = Capacity(capacity=2)
+        graph._adj[0][1] = graph._adj[1][0] = attrs
+
+        def solver(original, source, target, **kwargs):
+            assert original is graph
+            calls.append((source, target))
+            implementation = nx.algorithms.flow.edmonds_karp if reference else fnx.flow.edmonds_karp
+            return implementation(original, source, target, **kwargs)
+
+        if reference:
+            tree = nx.gomory_hu_tree(graph, flow_func=solver, backend="networkx")
+        elif dispatch:
+            tree = nx.gomory_hu_tree(graph, flow_func=solver, backend="franken_networkx")
+        else:
+            tree = fnx.gomory_hu_tree(graph, flow_func=solver)
+        outcomes.append((list(tree), list(tree.edges(data=True)), calls, reads))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == [0, 1, "added by capacity"]
+    assert outcomes[0][2] == [(1, 0)]
+
+
+@pytest.mark.parametrize("name", _CONNECTIVITY_BATCH_BACKEND_APIS)
+@pytest.mark.parametrize("fails", [False, True])
+def test_batch_connectivity_clears_reentrant_solver_conversions(monkeypatch, name, fails):
+    graph = _connectivity_pair("Graph")[1]
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    failure = RuntimeError("batch solver stopped")
+    calls = []
+
+    def solver(auxiliary, source, target, **kwargs):
+        _warm_connectivity_backend_cache(graph)
+        graph.graph["after_conversion"] = True
+        calls.append((source, target))
+        if fails:
+            raise failure
+        return fnx.flow.edmonds_karp(auxiliary, source, target, **kwargs)
+
+    if fails:
+        with pytest.raises(RuntimeError) as error:
+            getattr(nx, name)(graph, flow_func=solver, backend="franken_networkx")
+        assert error.value is failure
+    else:
+        getattr(nx, name)(graph, flow_func=solver, backend="franken_networkx")
+    assert calls and graph.graph["after_conversion"] is True
+    assert not graph.__networkx_cache__.get("backends")
