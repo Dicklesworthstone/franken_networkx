@@ -26,7 +26,7 @@ use fnx_runtime::{
 use quick_xml::encoding::Decoder;
 use quick_xml::events::attributes::Attribute;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesRef, BytesStart, BytesText, Event};
-use quick_xml::{Reader, Writer};
+use quick_xml::{Reader, Writer, XmlVersion};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
@@ -5320,7 +5320,7 @@ fn parse_xml_attr<'a>(
 }
 
 fn xml_attr_value(attr: &Attribute<'_>, decoder: Decoder) -> Result<String, ReadWriteError> {
-    attr.decode_and_unescape_value(decoder)
+    attr.decoded_and_normalized_value(XmlVersion::Implicit1_0, decoder)
         .map(|value| value.into_owned())
         .map_err(|err| ReadWriteError::FailClosed {
             operation: "read_gexf",
@@ -7314,6 +7314,36 @@ mod tests {
             .node_attrs("n0")
             .expect("node attrs should exist");
         assert!(!node_attrs.contains_key("label"));
+    }
+
+    #[test]
+    fn gexf_read_applies_xml_attribute_value_normalization() {
+        // XML 1.0 attribute-value normalization: a literal tab, LF or CR LF in an
+        // attribute value is read as one space, while a character reference such as
+        // &#10; is kept. networkx gets the same value from xml.etree.ElementTree.
+        let label = "x\ny\tz\r\nw &#10;q";
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="n0" label="{label}"/>
+    </nodes>
+    <edges/>
+  </graph>
+</gexf>"#
+        );
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gexf(&xml).expect("gexf read should succeed");
+        let node_attrs = parsed
+            .graph
+            .node_attrs("n0")
+            .expect("node attrs should exist");
+        assert_eq!(
+            node_attrs.get("label"),
+            Some(&CgseValue::String("x y z w \nq".to_owned()))
+        );
     }
 
     #[test]
