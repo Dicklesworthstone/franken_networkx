@@ -524,10 +524,16 @@ virtual-source search, including its floating-point arithmetic:
   temporary source edges in traversal order. Missing required attributes
   raise their normal exceptions. Multigraph self-loop callbacks receive
   the individual `{key: attrs}` mapping, not a bare attribute dictionary.
-- The in-process implementation reuses the shared Bellman-Ford relaxation
-  kernel through private adjacency containers. It preserves the caller's
-  nodes and edges, including on exceptions, and keeps existing edge
-  attribute dictionaries live.
+- The in-process implementation inserts the temporary source into the caller's
+  graph and reuses the shared Bellman-Ford kernel over its live adjacency.
+  Callbacks can inspect that source and add or remove graph structure during
+  the search; subsequent relaxation must observe those edits. A detached
+  adjacency snapshot can silently miss a newly introduced negative cycle.
+- Cleanup removes only the temporary source after success or a search error,
+  retaining caller mutations and existing attribute dictionary identities.
+  Source insertion and graph-size protocols remain observable. Frozen graphs
+  and views reject source insertion with the reference exception, and custom
+  heuristic truth protocols are evaluated at the relaxation boundary.
 
 The overflow/heuristic and callback behavior was characterized with extracted
 Python source against NetworkX 3.6.1. Tiny-edge/self-loop behavior additionally

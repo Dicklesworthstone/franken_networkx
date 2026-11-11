@@ -1205,9 +1205,14 @@ def negative_edge_cycle(G, weight="weight", heuristic=True):
     # so that request must use the matching in-process relaxation loop. The
     # weight gate also keeps values f64 cannot add like Python on that route.
     if (
-        heuristic
+        heuristic is True
         and type(G) in (Graph, DiGraph)
-        and isinstance(weight, str)
+        # ubs:ignore[py.comparison.type-equality,py.type-equality] Subclasses can override lookup protocols.
+        and type(weight) is str
+        and not any(
+            name in vars(G)
+            for name in ("size", "number_of_edges", "add_edges_from", "remove_node")
+        )
         and G.number_of_edges()
         and not _has_networkx_private_storage(G)
         and not _should_delegate_bellman_ford_path_to_networkx(G, weight)
@@ -1217,56 +1222,48 @@ def negative_edge_cycle(G, weight="weight", heuristic=True):
 
 
 def _negative_edge_cycle_inprocess(G, weight, heuristic=True):
-    if G.number_of_edges() == 0:
+    if G.size() == 0:
         return False
 
-    if callable(weight):
-        wt = weight
-    elif G.is_multigraph():
-        wt = lambda u, v, d: min(attr.get(weight, 1) for attr in d.values())
-    else:
-        wt = lambda u, v, d: d.get(weight, 1)
+    # The temporary source is observable to callbacks and graph mutation
+    # hooks. A private adjacency snapshot hid topology changes made by a
+    # weight callback and could report False after that callback created a
+    # negative cycle. Attach the source to the caller's actual graph, so the
+    # owned relaxation engine reads the same live rows as ordinary searches.
+    source = -1
+    while source in G:
+        source -= 1
+    edges = [(source, node) for node in G]
+    G.add_edges_from(edges)
 
-    # Bellman-Ford checks each self-loop before relaxation. A multigraph
-    # callback receives the one-edge keydict, rather than the bare attrs.
-    for u in G:
-        if G.has_edge(u, u):
-            if G.is_multigraph():
-                if any(wt(u, u, {key: attr}) < 0 for key, attr in G[u][u].items()):
+    try:
+        if source not in G:
+            raise NodeNotFound(f"Node {source} is not found in the graph")
+        wt = _weight_function(G, weight)
+        multigraph = G.is_multigraph()
+        # Self-loop validation follows source insertion. Multigraph callbacks
+        # receive one keyed edge at a time here, then complete keydicts during
+        # relaxation. Read the live adjacency instead of materializing it.
+        for node, row in G.adj.items():
+            if node not in row:
+                continue
+            if multigraph:
+                if any(
+                    wt(node, node, {key: attrs}) < 0
+                    for key, attrs in row[node].items()
+                ):
                     return True
-            elif wt(u, u, G[u][u]) < 0:
+            elif wt(node, node, row[node]) < 0:
                 return True
-
-    # Retain edge data until relaxation: callable weights must see both the
-    # original edges and the temporary source edges, in traversal order. The
-    # adjacency containers are private to this search, while existing edge
-    # attribute dictionaries remain live.
-    g_succ = {u: dict(G[u]) for u in G}
-    nodes = list(g_succ)
-    newnode = -1
-    while newnode in g_succ:
-        newnode -= 1
-    source_edges = {v: {0: {}} if G.is_multigraph() else {} for v in nodes}
-    g_succ[newnode] = source_edges
-    if not G.is_directed():
-        for v, data in source_edges.items():
-            g_succ[v][newnode] = data
-
-    # The shared relaxation kernel only needs membership, length and _adj.
-    # Supply its temporary source without inserting a node into the caller's
-    # graph or duplicating Bellman-Ford's heuristic and queue semantics.
-    class _VirtualSourceGraph(dict):
-        @property
-        def _adj(self):
-            return self
-
-    return _inner_bellman_ford_inproc(
-        _VirtualSourceGraph(g_succ),
-        [newnode],
-        wt,
-        {newnode: []},
-        heuristic=heuristic,
-    ) is not None
+        return _inner_bellman_ford_inproc(
+            G, [source], wt, {source: []}, heuristic=heuristic
+        ) is not None
+    except NetworkXUnbounded:
+        return True
+    finally:
+        # Preserve callback edits to real nodes and edges; only our temporary
+        # source is removed, including when validation or a callback raises.
+        G.remove_node(source)
 
 
 def _dijkstra_cutoff_uses_native_comparisons(cutoff):

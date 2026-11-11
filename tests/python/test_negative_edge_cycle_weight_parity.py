@@ -328,3 +328,161 @@ def test_virtual_source_rounding_distinguishes_tiny_negative_selfloops(cls, self
     want = nx.negative_edge_cycle(twins[1])
     assert want is selfloop
     assert fnx.negative_edge_cycle(twins[0]) is want
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("heuristic", [True, False])
+@pytest.mark.parametrize("entrypoint", ["native", "foreign", "backend", "warm-backend"])
+def test_negative_cycle_callback_observes_live_topology(
+    cls, heuristic, entrypoint, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(module, algorithm, warm=False):
+        graph = getattr(module, cls)()
+        graph.add_nodes_from([-1, -2, ("isolated", 7)])
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 1)])
+        if warm:
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        trace = []
+        changed = False
+
+        def weight(u, v, data):
+            nonlocal changed
+            trace.append((u, v, -3 in graph))
+            if u == -3 and not changed:
+                # This creates a new adjacency entry, not just a changed
+                # weight in an already snapshotted edge dictionary.
+                graph.add_edge(2, 0, weight=-4)
+                changed = True
+            if graph.is_multigraph():
+                return min(attrs.get("weight", 1) for attrs in data.values())
+            return data.get("weight", 1)
+
+        result = algorithm(graph, weight=weight, heuristic=heuristic)
+        assert changed
+        assert -3 not in graph
+        assert -1 in graph and -2 in graph and ("isolated", 7) in graph
+        assert graph.has_edge(2, 0), "cleanup discarded the callback's edit"
+        return result, trace, list(graph), list(graph.edges(data=True))
+
+    expected = run(nx, nx.negative_edge_cycle)
+    assert expected[0] is True
+    assert all(source_visible for _, _, source_visible in expected[1])
+    if entrypoint in {"backend", "warm-backend"}:
+        def algorithm(graph, **kwargs):
+            return nx.negative_edge_cycle(
+                graph, backend="franken_networkx", **kwargs
+            )
+    else:
+        algorithm = fnx.negative_edge_cycle
+    module = fnx if entrypoint == "native" else nx
+    assert run(module, algorithm, warm=entrypoint == "warm-backend") == expected
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("heuristic", [True, False])
+@pytest.mark.parametrize("kind", ["frozen", "view"])
+@pytest.mark.parametrize("has_edges", [False, True])
+def test_negative_cycle_respects_read_only_graphs(cls, heuristic, kind, has_edges):
+    for module in (fnx, nx):
+        graph = getattr(module, cls)()
+        graph.add_nodes_from([0, 1])
+        if has_edges:
+            graph.add_edge(0, 1, weight=-2)
+        graph = module.freeze(graph) if kind == "frozen" else graph.subgraph([0, 1])
+        if has_edges:
+            with pytest.raises(nx.NetworkXError, match="Frozen graph can't be modified"):
+                module.negative_edge_cycle(graph, heuristic=heuristic)
+        else:
+            assert module.negative_edge_cycle(graph, heuristic=heuristic) is False
+        assert list(graph) == [0, 1]
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("phase", ["selfloop", "source", "relaxation"])
+@pytest.mark.parametrize("error", [ValueError, nx.NetworkXUnbounded])
+def test_negative_cycle_cleans_up_source_after_callback_errors(cls, phase, error):
+    def run(module):
+        graph = getattr(module, cls)()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 2)])
+        if phase == "selfloop":
+            graph.add_edge(0, 0, weight=1)
+        before = list(graph), list(graph.edges(data=True))
+        trace = []
+
+        def weight(u, v, data):
+            trace.append((u, v, -1 in graph))
+            fail = (
+                (phase == "selfloop" and u == v)
+                or (phase == "source" and u == -1)
+                or (phase == "relaxation" and u >= 0)
+            )
+            if fail:
+                raise error("weight callback failed")
+            if graph.is_multigraph():
+                return min(attrs.get("weight", 1) for attrs in data.values())
+            return data.get("weight", 1)
+
+        try:
+            outcome = ("result", module.negative_edge_cycle(graph, weight=weight))
+        except ValueError as exc:
+            outcome = (type(exc).__name__, str(exc))
+        assert (list(graph), list(graph.edges(data=True))) == before
+        assert -1 not in graph
+        return outcome, trace
+
+    assert run(fnx) == run(nx)
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph"])
+def test_negative_cycle_preserves_instance_graph_protocol_overrides(cls):
+    for module in (fnx, nx):
+        graph = getattr(module, cls)([(0, 1, {"weight": -2})])
+        # The initial size check wins even over a forbidden insertion.
+        graph.size = lambda: 0
+        graph.add_edges_from = lambda edges: pytest.fail("unexpected insertion")
+        assert module.negative_edge_cycle(graph) is False
+
+        del graph.size
+        seen = []
+        original_add = getattr(module, cls).add_edges_from
+        original_remove = getattr(module, cls).remove_node
+
+        def add(edges):
+            seen.append(("add", list(edges)))
+            return original_add(graph, seen[-1][1])
+
+        def remove(node):
+            seen.append(("remove", node))
+            return original_remove(graph, node)
+
+        graph.add_edges_from = add
+        graph.remove_node = remove
+        module.negative_edge_cycle(graph)
+        assert seen == [("add", [(-1, 0), (-1, 1)]), ("remove", -1)]
+
+
+@needs_nx
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_negative_cycle_evaluates_heuristic_after_source_insertion(cls):
+    traces = []
+    for module in (fnx, nx):
+        graph = getattr(module, cls)([(0, 1)])
+        seen = []
+
+        class Heuristic:
+            def __bool__(self):
+                seen.append(-1 in graph)
+                return True
+
+        assert module.negative_edge_cycle(graph, heuristic=Heuristic()) is False
+        assert -1 not in graph
+        traces.append(seen)
+    assert traces[0] == traces[1]
+    assert traces[0] and all(traces[0])
