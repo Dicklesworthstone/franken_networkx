@@ -663,19 +663,57 @@ def cd_index(G, node, time_delta, *, time="time", weight=None):
     return round(sum(bi / wt for bi, wt in zip(b, weights)) / n, 2)
 
 
+def _goldberg_radzik_can_snapshot(G, weight):
+    """Inspect native edge values without running their numeric/read hooks."""
+    if (
+        type(G) not in (Graph, DiGraph)
+        or _has_networkx_private_storage(G)
+        or G.edge_attr_dict_factory is not dict
+        or type(weight) is not str
+        or any(name in G.__dict__ for name in ("is_directed", "is_multigraph", "adjacency"))
+    ):
+        return False
+    if any(type(node) not in (str, int, float, bool) for node in G):
+        return False
+    # This reader returns the live dictionaries without synchronizing weights
+    # or coercing their values. The f64 admission scan is unsuitable here:
+    # even a rejected number can run __float__ before the search reaches it.
+    edges = _fnx.to_edgelist_simple(G)
+    if edges is None:
+        return False
+    plain_types = {dict}
+    for _, _, attrs in edges:
+        attr_type = type(attrs)
+        if type(attr_type) is not type:
+            return False
+        if attr_type not in plain_types:
+            if not _attr_dict_has_plain_reads(attrs):
+                return False
+            plain_types.add(attr_type)
+        if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+            return False
+        if type(dict.get(attrs, weight, 1)) not in (int, float, bool):
+            return False
+    return True
+
+
 def goldberg_radzik(G, source, weight="weight"):
     """Compute shortest-path predecessors and distances via Goldberg-Radzik.
 
     Returns (pred, dist) where pred[v] is the predecessor of v on the
     shortest path from source, and dist[v] is the distance.
-    Uses Bellman-Ford internally (same correctness guarantees for negative weights).
+    Preserves live edge reads while scanning and relaxing the caller's graph.
     """
     # br-r37-c1-tnzt9: nx validates the source up front with the exact wording
     # ``Node {source} is not found in the graph`` (before weight handling); the
     # internal bellman-ford call otherwise surfaces ``Source x not in G``.
     if source not in G:
         raise NodeNotFound(f"Node {source} is not found in the graph")
-    if callable(weight) or G.is_multigraph():
+    if not _goldberg_radzik_can_snapshot(G, weight):
+        # Resolving every weight up front freezes observable mapping/numeric
+        # providers and reads unreachable rows. The live engine must revisit
+        # those dictionaries as the scan and relaxation phases encounter them.
+        # Ordinary native scalars keep the existing bulk snapshot route.
         return _goldberg_radzik_inproc(G, source, weight=weight)
     return _goldberg_radzik_simple_inprocess(G, source, weight)
 

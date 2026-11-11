@@ -1,4 +1,4 @@
-"""Parity for ``goldberg_radzik`` missing-source error wording.
+"""Goldberg-Radzik live reads and negative-weight predecessor dispatch.
 
 networkx validates the source at the top of ``goldberg_radzik`` with
 ``NodeNotFound("Node {source} is not found in the graph")``. fnx
@@ -40,3 +40,180 @@ def test_goldberg_radzik_valid_query_unaffected():
     fg = fnx.DiGraph([(0, 1), (1, 2)])
     ng = nx.DiGraph([(0, 1), (1, 2)])
     assert fnx.goldberg_radzik(fg, 0) == nx.goldberg_radzik(ng, 0)
+
+
+def _install_edge_data(graph, u, v, data):
+    graph._adj[u][v] = data
+    if graph.is_directed():
+        graph._pred[v][u] = data
+    else:
+        graph._adj[v][u] = data
+
+
+def _observed_weight_graph(class_name, *, private=False, view=False):
+    graph = getattr(nx, class_name)()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 10)])
+    events = []
+
+    class ReweightedData(dict):
+        def get(self, key, default=None):
+            value = super().get(key, default)
+            if key == "weight":
+                events.append(value)
+                self["weight"] = 1
+            return value
+
+    _install_edge_data(graph, 1, 2, ReweightedData(graph[1][2]))
+    if private:
+        native = getattr(fnx, class_name)()
+        native._node = graph._node
+        native._adj = graph._adj
+        if graph.is_directed():
+            native._pred = graph._pred
+        graph = native
+    if view:
+        graph = graph.subgraph([0, 1, 2])
+    return graph, events
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("kind", ["networkx", "private", "networkx_view", "private_view"])
+def test_goldberg_radzik_revisits_live_weight_dictionaries(class_name, kind):
+    graph, events = _observed_weight_graph(
+        class_name, private=kind.startswith("private"), view=kind.endswith("view")
+    )
+    reference, expected_events = _observed_weight_graph(class_name, view=kind.endswith("view"))
+    expected = nx.goldberg_radzik(reference, 0)
+    assert expected[1][2] == 2
+    assert fnx.goldberg_radzik(graph, 0) == expected
+    assert events == expected_events
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+def test_goldberg_radzik_does_not_read_unreachable_edge_providers(class_name):
+    class Unreadable(dict):
+        def get(self, key, default=None):
+            raise AssertionError("unreachable edge weight was read")
+
+    for algorithm in (nx.goldberg_radzik, fnx.goldberg_radzik):
+        graph = getattr(nx, class_name)()
+        graph.add_weighted_edges_from([(0, 1, 2), (8, 9, 3)])
+        _install_edge_data(graph, 8, 9, Unreadable(weight=3))
+        assert algorithm(graph, 0) == ({0: None, 1: 0}, {0: 0, 1: 2})
+
+
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["networkx", "native"])
+def test_goldberg_radzik_numeric_provider_changes_later_weight(graph_module):
+    def run(module, algorithm):
+        graph = module.DiGraph()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 10)])
+
+        class ReweightOnAdd(int):
+            def __radd__(self, other):
+                graph[1][2]["weight"] = 1
+                return other + int(self)
+
+        graph[0][1]["weight"] = ReweightOnAdd(1)
+        return algorithm(graph, 0)
+
+    expected = run(nx, nx.goldberg_radzik)
+    assert expected[1][2] == 2
+    assert run(graph_module, fnx.goldberg_radzik) == expected
+
+
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["networkx", "native"])
+def test_goldberg_radzik_admission_never_coerces_an_unreachable_number(graph_module):
+    class NoFloat(int):
+        def __float__(self):
+            raise AssertionError("numeric admission coerced an unreachable weight")
+
+    graph = graph_module.DiGraph()
+    graph.add_weighted_edges_from([(0, 1, 2), (8, 9, 3)])
+    graph[8][9]["weight"] = NoFloat(3)
+    assert fnx.goldberg_radzik(graph, 0) == ({0: None, 1: 0}, {0: 0, 1: 2})
+
+
+@pytest.mark.parametrize("algorithm", ["bellman_ford_predecessor_and_distance", "goldberg_radzik"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_negative_weight_predecessors_are_available_through_backend(
+    algorithm, class_name, cached, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = getattr(nx, class_name)()
+    graph.add_weighted_edges_from(
+        [(0, 1, 4), (1, 2, -2 if graph.is_directed() else 2), (0, 2, 10)]
+    )
+    graph.add_node("unreachable")
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, weight=7)
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    options = {"target": 1, "heuristic": True} if algorithm.startswith("bellman") else {}
+    expected = getattr(nx, algorithm)(graph, 0, **options, backend="networkx")
+    result = getattr(nx, algorithm)(graph, 0, **options, backend="franken_networkx")
+    assert [list(part.items()) for part in result] == [list(part.items()) for part in expected]
+    assert set(result[1]) == {0, 1, 2}
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+def test_backend_goldberg_radzik_retains_live_attribute_reads(class_name, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph, events = _observed_weight_graph(class_name)
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    reference, expected_events = _observed_weight_graph(class_name)
+    expected = nx.goldberg_radzik(reference, 0, backend="networkx")
+    assert nx.goldberg_radzik(graph, 0, backend="franken_networkx") == expected
+    assert events == expected_events
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("algorithm", ["bellman_ford_predecessor_and_distance", "goldberg_radzik"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("failure", [False, True])
+def test_predecessor_backend_callbacks_keep_identity_and_invalidate_caches(
+    algorithm, cached, failure, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = nx.DiGraph()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 10)])
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+        events = []
+
+        def weight(u, v, data):
+            assert data is graph._adj[u][v]
+            events.append((u, v))
+            if (u, v) == (0, 1):
+                graph[1][2]["weight"] = 2
+                if failure:
+                    raise ValueError("weight supplier failed")
+            return data["weight"]
+
+        try:
+            result = getattr(nx, algorithm)(graph, 0, weight=weight, backend=backend)
+        except ValueError as error:
+            result = type(error).__name__, error.args
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return result, events, graph[1][2]["weight"]
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("algorithm", ["bellman_ford_predecessor_and_distance", "goldberg_radzik"])
+@pytest.mark.parametrize("source", [0, "missing"])
+def test_predecessor_backend_preserves_negative_cycle_and_source_errors(algorithm, source):
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, -3), (2, 0, 1)])
+    with pytest.raises(Exception) as expected:
+        getattr(nx, algorithm)(graph, source, backend="networkx")
+    with pytest.raises(type(expected.value)) as result:
+        getattr(nx, algorithm)(graph, source, backend="franken_networkx")
+    assert result.value.args == expected.value.args

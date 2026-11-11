@@ -910,3 +910,124 @@ def test_harmonic_private_rows_follow_lazy_selection_mutation(
     assert actual[3] > before[3], "the added edge must affect the computed score"
     if not transposed:
         assert actual["isolated"] == 0 and type(actual["isolated"]) is int
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("provenance", ["networkx", "networkx-view", "native-view", "shallow-copy"])
+@pytest.mark.parametrize("selection", ["nbunch", "sources"])
+@pytest.mark.parametrize("transposed", [False, True], ids=["forward", "transposed"])
+@pytest.mark.parametrize("distance", [None, "distance"], ids=["unweighted", "weighted"])
+def test_harmonic_selection_precedes_graph_snapshot(
+    graph_type, provenance, selection, transposed, distance
+):
+    """Selectors must finish on the caller's graph before native conversion."""
+    import copy
+
+    targets = [3] if transposed else [2, 3, "isolated"]
+    sources = [0, 1, 2, 3] if transposed else [0]
+    results, traces = [], []
+    for oracle in (False, True):
+        graph_lib = nx if oracle or provenance.startswith("networkx") else fnx
+        root = getattr(graph_lib, graph_type)()
+        root.add_weighted_edges_from([(0, 1, 2), (1, 2, 3), (2, 3, 4)], weight="distance")
+        root.add_node("isolated")
+        if provenance.endswith("view"):
+            graph = root.subgraph(list(root))
+        elif provenance == "shallow-copy":
+            graph = copy.copy(root)
+            root = graph
+        else:
+            graph = root
+        trace = []
+
+        def changing_selection():
+            trace.append("start")
+            root.add_edge(0, 3, distance=1)
+            yield from targets if selection == "nbunch" else sources
+            trace.append("stop")
+
+        options = {"nbunch": targets, "sources": sources, "distance": distance}
+        options[selection] = changing_selection()
+        implementation = nx.harmonic_centrality if oracle else fnx.harmonic_centrality
+        results.append(implementation(graph, **options))
+        traces.append(trace)
+    actual, expected = results
+    assert _centrality_items_exact(actual) == _centrality_items_exact(expected)
+    assert traces == [["start", "stop"], ["start", "stop"]]
+    if not transposed:
+        assert actual[3] == 1.0, "the shortcut must be traversed"
+        assert actual["isolated"] == 0 and type(actual["isolated"]) is int
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_harmonic_networkx_lazy_nbunch_with_default_sources(graph_type):
+    """The target-only shortcut must also wait for its selector's edits."""
+    results = []
+    for implementation in (fnx.harmonic_centrality, nx.harmonic_centrality):
+        graph = getattr(nx, graph_type)([(0, 1), (1, 2)])
+
+        def targets():
+            graph.add_edge(0, 2)
+            yield 2
+
+        results.append(implementation(graph, nbunch=targets()))
+    assert results == [{2: 2.0}, {2: 2.0}]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mutation", ["grow", "remove-target", "remove-source"])
+def test_harmonic_networkx_source_selection_retains_initial_targets(graph_type, mutation):
+    """Changing sources must neither recapture targets nor hide removed roots."""
+    outcomes = []
+    for implementation in (fnx.harmonic_centrality, nx.harmonic_centrality):
+        graph = getattr(nx, graph_type)([(0, 1), (1, 2)])
+
+        def sources():
+            if mutation == "grow":
+                graph.add_edge(3, 2)
+                yield 3
+            elif mutation == "remove-target":
+                graph.remove_node(2)
+                yield 0
+            else:
+                yield 0
+                graph.remove_node(0)
+
+        try:
+            outcome = implementation(graph, sources=sources())
+        except (fnx.NodeNotFound, nx.NodeNotFound) as error:
+            outcomes.append(("error", error.args))
+        else:
+            outcomes.append(("scores", _centrality_items_exact(outcome)))
+            assert set(outcome) == {0, 1, 2}
+            if mutation == "remove-target":
+                assert outcome[2] == 0 and type(outcome[2]) is int
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == ("error" if mutation == "remove-source" else "scores")
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("warm_cache", [False, True], ids=["cold", "cached"])
+@pytest.mark.parametrize("selection", ["nbunch", "sources"])
+@pytest.mark.parametrize("distance", [None, "distance"], ids=["unweighted", "weighted"])
+def test_harmonic_backend_selection_uses_original_graph(
+    graph_type, warm_cache, selection, distance
+):
+    """An existing backend conversion cannot replace the selector's owner."""
+    results = []
+    for backend in ("franken_networkx", "networkx"):
+        graph = getattr(nx, graph_type)()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3)], weight="distance")
+        if warm_cache and backend == "franken_networkx":
+            nx.shortest_path_length(graph, source=0, backend=backend)
+            assert graph.__networkx_cache__.get("backends", {}).get(backend)
+
+        def changing_selection():
+            graph.add_edge(0, 2, distance=1)
+            yield from [2] if selection == "nbunch" else [0, 1]
+
+        options = {"nbunch": [2], "sources": [0, 1], "distance": distance}
+        options[selection] = changing_selection()
+        results.append(nx.harmonic_centrality(graph, backend=backend, **options))
+    actual, expected = results
+    assert _centrality_items_exact(actual) == _centrality_items_exact(expected)

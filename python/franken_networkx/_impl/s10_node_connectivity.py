@@ -756,10 +756,18 @@ def harmonic_centrality(
         Dictionary of nodes with harmonic centrality as value.
     """
     _validate_backend_dispatch_keywords("harmonic_centrality", backend, backend_kwargs)
+    # Selection iterables can change the caller's graph before the first
+    # search. Native owned graphs already observe those changes, but copying
+    # a NetworkX graph, view, or shared shallow copy here would freeze its old
+    # topology. Capture both selectors before taking that snapshot below.
+    select_before_coercion = (nbunch is not None or sources is not None) and (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _shared_unsplit_owner(G) is not None
+    )
     # Keep assigned adjacency live while consuming nbunch/sources. Weighted
     # callbacks and asymmetric undirected views also retain Dijkstra's original
     # rows; coercion would disconnect writes or discard reciprocal costs.
-    if not _point_query_uses_private_rows(G) and (
+    if not select_before_coercion and not _point_query_uses_private_rows(G) and (
         distance is None or not _weighted_query_uses_live_python_rows(G, distance)
     ):
         G = _coerce_arg_to_fnx_graph(G)
@@ -775,7 +783,8 @@ def harmonic_centrality(
     # the running float sum is BYTE-IDENTICAL to nx (not merely tolerance). The
     # result dict is keyed by ``set(G.nbunch_iter(nbunch))`` exactly as nx does.
     if (
-        nbunch is not None
+        not select_before_coercion
+        and nbunch is not None
         and distance is None
         and sources is None
         and not G.is_directed()
@@ -800,7 +809,8 @@ def harmonic_centrality(
     # distance-to-v in that same order, so the running sum is BYTE-IDENTICAL to nx
     # (verified 492/492). Only when the transpose fires (len(nbunch) < |V|).
     if (
-        nbunch is not None
+        not select_before_coercion
+        and nbunch is not None
         and distance is None
         and sources is None
         and G.is_directed()
@@ -826,6 +836,12 @@ def harmonic_centrality(
         nb = set(G.nbunch_iter(nbunch) if nbunch is not None else G.nodes)
         sources_set = set(G.nbunch_iter(sources) if sources is not None else G.nodes)
         centrality = {u: 0 for u in nb}
+        if select_before_coercion and not _point_query_uses_private_rows(G) and (
+            distance is None or not _weighted_query_uses_live_python_rows(G, distance)
+        ):
+            # Recheck storage after selection: its callbacks can install
+            # private adjacency or detach a shallow copy from its owner.
+            G = _coerce_arg_to_fnx_graph(G)
         if (
             distance is None
             and len(nb) >= len(sources_set)

@@ -184,6 +184,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "floyd_warshall_predecessor_and_distance",
         "bellman_ford_path",
         "bellman_ford_path_length",
+        "bellman_ford_predecessor_and_distance",
+        "goldberg_radzik",
         "johnson",
         "find_negative_cycle",
         "negative_edge_cycle",
@@ -239,6 +241,8 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
         "floyd_warshall", "floyd_warshall_predecessor_and_distance",
+        "bellman_ford_predecessor_and_distance", "goldberg_radzik",
+        "harmonic_centrality",
     }
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -251,6 +255,15 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in {"bellman_ford_predecessor_and_distance", "goldberg_radzik"}:
+        # Their owned relaxations read live edge dictionaries, and Bellman-Ford
+        # evaluates the heuristic protocol during relaxation. Preserve those
+        # inputs before conversion, including when another query cached one.
+        return True
+    if name == "harmonic_centrality":
+        # Resolving node selectors can mutate the graph. Inspect presence only;
+        # the algorithm owns their truth, membership, and iteration protocols.
+        return arguments.get("nbunch") is not None or arguments.get("sources") is not None
     if name in _BETWEENNESS_INPUT_ALGORITHMS:
         return fnx._betweenness_uses_live_python_rows(
             graph, arguments.get("weight"), arguments.get("seed"), arguments.get("k")
@@ -1105,6 +1118,8 @@ _SUPPORTED_ALGORITHMS = {
     "multi_source_dijkstra_path": fnx.multi_source_dijkstra_path,
     "multi_source_dijkstra_path_length": fnx.multi_source_dijkstra_path_length,
     "bellman_ford_path_length": fnx.bellman_ford_path_length,
+    "bellman_ford_predecessor_and_distance": fnx.bellman_ford_predecessor_and_distance,
+    "goldberg_radzik": fnx.goldberg_radzik,
     "single_source_dijkstra": fnx.single_source_dijkstra,
     "single_source_dijkstra_path": fnx.single_source_dijkstra_path,
     "single_source_dijkstra_path_length": fnx.single_source_dijkstra_path_length,

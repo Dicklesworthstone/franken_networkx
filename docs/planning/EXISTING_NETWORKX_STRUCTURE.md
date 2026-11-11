@@ -2073,3 +2073,44 @@ new iteration before exhaustion resets the frontier; advancing before starting
 or after exhausted state has been released retains the established state
 errors. MultiDiGraph continues to use its existing reference scheduler; this
 change does not redefine the reference's parallel-edge partition semantics.
+
+## 73. Streaming Dictionary-of-Lists Imports
+
+`from_dict_of_lists` completes each edge insertion before advancing a lazy
+neighbor iterator or an observable mapping provider. Provider failures and
+invalid neighbors leave the already imported prefix intact. An overridden
+`add_edges_from` receives one live edge generator and retains control over
+its consumption. The ordinary simple-graph path continues to bypass an
+overridden `add_edge`, matching the public bulk-insertion contract.
+
+Plain built-in mappings and neighbor containers retain native bulk insertion
+when their node keys, graph storage and attribute factories permit it. This
+admission does not consume custom iterators or subclasses speculatively.
+
+## 74. Harmonic Centrality Selector Boundaries
+
+Harmonic centrality resolves target nodes before source nodes on the caller's
+original graph when selections can expose live providers. Lazy selectors may
+change topology or node membership before distance queries begin. The result
+retains its selected target keys, default sources observe the correct graph
+state, and an admitted source removed by a later selector retains its source
+error. A transposed distance traversal must preserve the same boundaries.
+
+Backend calls with explicit target or source selections preserve the original
+graph even after a previous call populated the conversion cache. Ordinary
+owned graphs retain their admitted native centrality routes.
+
+## 75. Negative-Weight Predecessor Queries
+
+`bellman_ford_predecessor_and_distance` and `goldberg_radzik` are available
+through explicit backend dispatch. Original graphs, live weight callbacks,
+target and heuristic arguments, predecessor maps and source/negative-cycle
+errors retain their public behavior. Successful and failing provider calls
+invalidate previously cached conversions.
+
+Goldberg-Radzik uses its existing owned live relaxation engine for observable
+graph, attribute and numeric providers. Repeated edge reads remain live, and
+unreachable rows are not evaluated by speculative numeric admission. The
+existing snapshot engine remains available for concrete simple graphs with
+ordinary storage, plain attribute reads and exact built-in scalar weights.
+Admission inspects scalar types without coercing custom numbers.

@@ -250,6 +250,14 @@ applies incoming-edge constraints before each selection and strips partition
 markers from results. No exhaustive tree enumeration or replacement Edmonds
 solver is introduced; the existing multigraph scheduler boundary remains.
 
+Dictionary-of-lists conversion shares the public bulk-insertion boundary:
+ordinary built-in inputs may batch, while observable providers complete each
+edge before advancing. Harmonic centrality resolves lazy selections before
+graph conversion. Negative-weight predecessor queries reuse their existing
+owned Bellman-Ford and Goldberg-Radzik engines, with snapshot admission based
+on storage and exact scalar types. Backend routing preserves original inputs
+and invalidates conversions after observable provider execution.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.
