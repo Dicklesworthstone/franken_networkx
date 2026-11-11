@@ -849,7 +849,7 @@ def test_distance_backend_recovers_asymmetric_source(name, class_name, numeric, 
     expected = getattr(nx, name)(graph, weight=weight, backend="networkx")
     if warm:
         # Prime the same attribute conversion through an eager algorithm.
-        nx.average_shortest_path_length(graph, weight=weight, backend="franken_networkx")
+        nx.dijkstra_path_length(graph, 0, 2, weight=weight, backend="franken_networkx")
         assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
     actual = getattr(nx, name)(graph, weight=weight, backend="franken_networkx")
     assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
