@@ -2155,3 +2155,23 @@ includes requests where an earlier group already completed natively. Normalized
 and unnormalized results retain the reference arithmetic and group semantics.
 Ordinary graphs with representable counts retain their native route regardless
 of node count; graph size alone is not an overflow criterion.
+
+## 78. Live Attribute Protocols During Graph Conversion
+
+Copy-producing `to_directed` and `to_undirected` operations for all four graph
+families execute user deepcopy protocols outside a native source borrow.
+Copy graph metadata before node dictionaries, then traverse live private
+adjacency. Earlier callbacks can change later attributes, rows and reciprocal
+membership. Resizing an active node iterator retains its iterator error, and
+copy exceptions propagate unchanged after any completed source writes.
+
+Each attribute dictionary has an independent deepcopy memo. Preserve aliases
+within that dictionary, arbitrary mapping keys, and key and value copy
+protocols. Filtered, conversion and reverse views copy their visible logical
+node attributes. Public node, edge and graph-kind overrides do not replace the
+logical private stores or the family's default conversion class.
+
+Ordinary builtin data retains eligible native conversion routes. Concrete
+results retain source compatibility mode and fresh decision history; copy
+callbacks observe the ambient compatibility mode. The `as_view=True` sharing
+and freezing contract remains unchanged.

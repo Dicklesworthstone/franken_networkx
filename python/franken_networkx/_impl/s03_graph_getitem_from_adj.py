@@ -290,11 +290,11 @@ _fnx._set_multigraph_getitem_fallbacks(
 
 
 def _to_directed_class(self):
-    return MultiDiGraph if self.is_multigraph() else DiGraph
+    return MultiDiGraph if isinstance(self, (MultiGraph, MultiDiGraph)) else DiGraph
 
 
 def _to_undirected_class(self):
-    return MultiGraph if self.is_multigraph() else Graph
+    return MultiGraph if isinstance(self, (MultiGraph, MultiDiGraph)) else Graph
 
 
 def _multigraph_new_edge_key(self, u, v):

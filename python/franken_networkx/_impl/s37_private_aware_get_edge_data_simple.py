@@ -1322,27 +1322,160 @@ def _subgraph_with_view(subgraph_impl):
     return subgraph
 
 
+_CONVERSION_EDGE_ATTR_DEEPCOPY = _EdgeAttrDict.__deepcopy__
+_CONVERSION_NATIVE_NODE_KEYS = {
+    cls: cls._native_node_keys for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+}
+
+
+def _conversion_node_items(graph):
+    """Read the logical node store without consulting public view overrides."""
+    nodes = graph._node
+    if type(nodes) is _PrivateNodeFacade:
+        owner = nodes._graph
+        # Builtin graph views have an empty native base. Their logical node
+        # store belongs to the parent, with a node filter when applicable.
+        if isinstance(owner, _FilteredGraphView):
+            view = NodeView(owner)
+        elif isinstance(owner, (_ReverseDirectedViewBase, _ConversionGraphViewBase)):
+            return _conversion_node_items(owner._graph)
+        else:
+            descriptor = _private_native_method(owner, _RAW_NODE_VIEWS_BY_CLASS)
+            view = descriptor.__get__(owner, type(owner))
+        # Native items() caches node/attribute pairs. Iterate its live key
+        # mirror instead, so a copy hook changing node count raises at the
+        # next iteration step just as it does for a Python node dictionary.
+        return ((node, view[node]) for node in view)
+    return nodes.items()
+
+
+def _conversion_native_deepcopy_safe(graph, *, multigraph=False):
+    """Admit native copying only when it cannot invoke user copy protocols.
+
+    Native conversion holds a source borrow while copying attributes. A callback
+    must instead run in the Python construction order, where source writes are
+    visible to later rows. Exact builtin containers can be checked without
+    invoking their contents. Dict keys need the same check as values: the native
+    scalar-value shortcut does not copy keys.
+    """
+    if _GRAPH_ATTR_OVERRIDE in graph.__dict__:
+        return False
+    atomic_types = (type(None), bool, int, float, complex, str, bytes)
+
+    def atomic(value):
+        kind = type(value)
+        return any(kind is cls for cls in atomic_types)
+
+    def safe_attrs(attrs):
+        pending = [attrs]
+        seen = set()
+        while pending:
+            value = pending.pop()
+            if atomic(value):
+                continue
+            kind = type(value)
+            if kind is dict or (
+                _attr_dict_has_plain_reads(value)
+                and isinstance(value, _EdgeAttrDict)
+                and getattr(kind, "__deepcopy__", None)
+                is _CONVERSION_EDGE_ATTR_DEEPCOPY
+            ):
+                if id(value) in seen:
+                    continue
+                seen.add(id(value))
+                for key, item in dict.items(value):
+                    if not atomic(key):
+                        return False
+                    pending.append(item)
+            elif any(kind is cls for cls in (list, tuple, set, frozenset)):
+                if id(value) in seen:
+                    continue
+                seen.add(id(value))
+                pending.extend(value)
+            else:
+                return False
+        return True
+
+    if not safe_attrs(graph.graph):
+        return False
+    native_keys = _CONVERSION_NATIVE_NODE_KEYS[type(graph)]
+    if not all(atomic(node) for node in native_keys(graph)):
+        return False
+    if (
+        not multigraph
+        and _native_graph_has_any_attrs is not None
+        and _native_graph_has_any_attrs(graph) is False
+    ):
+        return True
+    if not all(safe_attrs(attrs) for _, attrs in _conversion_node_items(graph)):
+        return False
+    # Private adjacency reads ignore shadowed public nodes/edges/is_multigraph.
+    # The wrapper already knows its graph family, so no predicate is called.
+    if multigraph:
+        return all(
+            atomic(key) and safe_attrs(attrs)
+            for neighbors in graph._adj.values()
+            for keyed_attrs in neighbors.values()
+            for key, attrs in keyed_attrs.items()
+        )
+    return all(
+        safe_attrs(attrs)
+        for neighbors in graph._adj.values()
+        for attrs in neighbors.values()
+    )
+
+
+def _graph_conversion_copy(graph, graph_class, *, multigraph=False, reciprocal=False):
+    """Deep-copy each attribute dictionary at its turn in a live storage walk."""
+    native_result = (
+        any(type(graph) is cls for cls in _CONCRETE_FNX_GRAPH_TYPES)
+        and any(graph_class is cls for cls in _CONCRETE_FNX_GRAPH_TYPES)
+    )
+    if native_result:
+        with compatibility_mode(graph.mode):
+            result = graph_class()
+    else:
+        result = graph_class()
+    result.graph.update(_deepcopy(graph.graph))
+    result.add_nodes_from(
+        (node, _deepcopy(attrs)) for node, attrs in _conversion_node_items(graph)
+    )
+    # Mapping data travels as a tuple field, never as keyword arguments: user
+    # keys may be nonstrings or collide with add_edge's parameter names.
+    if multigraph:
+        result.add_edges_from(
+            (source, target, key, _deepcopy(attrs))
+            for source, neighbors in graph._adj.items()
+            for target, keyed_attrs in neighbors.items()
+            for key, attrs in keyed_attrs.items()
+            if not reciprocal or (
+                target in graph._pred[source]
+                and key in graph._pred[source][target]
+            )
+        )
+    else:
+        result.add_edges_from(
+            (source, target, _deepcopy(attrs))
+            for source, neighbors in graph._adj.items()
+            for target, attrs in neighbors.items()
+            if not reciprocal or target in graph._pred[source]
+        )
+    if native_result:
+        result.drain_decision_records()
+    return result
+
+
 def _graph_to_directed_copy(self):
-    # br-r37-c1-todirnative: native Rust deep-copying Graph->DiGraph for exact
-    # Graph type (no nx private storage, default to_directed_class). Builds the
-    # DiGraph in Rust in nx's adjacency order, deep-copying attrs — ~4x faster
-    # than the per-arc Python add_edge loop below. Subclasses / nx-private
-    # storage / custom to_directed_class fall through to the generic rebuild.
     if (
         type(self) is Graph
         and not _has_networkx_private_storage(self)
         and self.to_directed_class() is DiGraph
+        and _conversion_native_deepcopy_safe(self)
     ):
         native = getattr(self, "_native_to_directed_deepcopy", None)
         if native is not None:
             return native()
-    result = self.to_directed_class()()
-    result.graph.update(_deepcopy(self.graph))
-    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
-    for source in self:
-        for target, attrs in self[source].items():
-            result.add_edge(source, target, **_deepcopy(attrs))
-    return result
+    return _graph_conversion_copy(self, self.to_directed_class())
 
 
 def _multigraph_to_directed_copy(self):
@@ -1350,33 +1483,16 @@ def _multigraph_to_directed_copy(self):
         type(self) is MultiGraph
         and not _has_networkx_private_storage(self)
         and self.to_directed_class() is MultiDiGraph
+        and _conversion_native_deepcopy_safe(self, multigraph=True)
     ):
         native = getattr(self, "_native_to_directed_deepcopy", None)
         if native is not None:
             return native()
-
-    result = self.to_directed_class()()
-    result.graph.update(_deepcopy(self.graph))
-    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
-    result.add_edges_from(
-        (source, target, key, _deepcopy(attrs))
-        for source in self
-        for target, keyed_attrs in self.adj[source].items()
-        for key, attrs in keyed_attrs.items()
-    )
-    return result
+    return _graph_conversion_copy(self, self.to_directed_class(), multigraph=True)
 
 
 def _digraph_to_directed_copy(self):
-    result = self.to_directed_class()()
-    result.graph.update(_deepcopy(self.graph))
-    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
-    result.add_edges_from(
-        (source, target, _deepcopy(attrs))
-        for source in self
-        for target, attrs in self.adj[source].items()
-    )
-    return result
+    return _graph_conversion_copy(self, self.to_directed_class())
 
 
 def _multidigraph_to_directed_copy(self):
@@ -1384,21 +1500,12 @@ def _multidigraph_to_directed_copy(self):
         type(self) is MultiDiGraph
         and not _has_networkx_private_storage(self)
         and self.to_directed_class() is MultiDiGraph
+        and _conversion_native_deepcopy_safe(self, multigraph=True)
     ):
         native = getattr(self, "_native_to_directed_deepcopy", None)
         if native is not None:
             return native()
-
-    result = self.to_directed_class()()
-    result.graph.update(_deepcopy(self.graph))
-    result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
-    result.add_edges_from(
-        (source, target, key, _deepcopy(attrs))
-        for source in self
-        for target, keyed_attrs in self.adj[source].items()
-        for key, attrs in keyed_attrs.items()
-    )
-    return result
+    return _graph_conversion_copy(self, self.to_directed_class(), multigraph=True)
 
 
 def _wraps_without_signature_poisoning(impl, wrapper):
@@ -1458,7 +1565,7 @@ def _multidigraph_to_directed_with_view(to_directed_impl):
 
 
 
-def _to_undirected_with_view(to_undirected_impl):
+def _to_undirected_with_view(to_undirected_impl, *, multigraph=False):
     def to_undirected(self, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
@@ -1466,125 +1573,37 @@ def _to_undirected_with_view(to_undirected_impl):
             type(self) is MultiGraph
             and not _has_networkx_private_storage(self)
             and self.to_undirected_class() is MultiGraph
+            and _conversion_native_deepcopy_safe(self, multigraph=True)
         ):
             native = getattr(self, "_native_to_undirected_deepcopy", None)
             if native is not None:
                 return native()
-
-        result = self.to_undirected_class()()
-        result.graph.update(_deepcopy(self.graph))
-        result.add_nodes_from(
-            (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+        return _graph_conversion_copy(
+            self, self.to_undirected_class(), multigraph=multigraph
         )
-        if self.is_multigraph():
-            result.add_edges_from(
-                (u, v, key, _deepcopy(attrs))
-                for u, v, key, attrs in self.edges(keys=True, data=True)
-            )
-        else:
-            result.add_edges_from(
-                (u, v, _deepcopy(attrs)) for u, v, attrs in self.edges(data=True)
-            )
-        return result
 
     return _wraps_without_signature_poisoning(to_undirected_impl, to_undirected)
 
 
-def _directed_to_undirected_with_view(to_undirected_impl):
+def _directed_to_undirected_with_view(to_undirected_impl, *, multigraph=False):
     def to_undirected(self, reciprocal=False, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
-        if reciprocal is not True:
-            if self.is_multigraph():
-                if (
-                    type(self) is MultiDiGraph
-                    and not _has_networkx_private_storage(self)
-                    and self.to_undirected_class() is MultiGraph
-                ):
-                    native = getattr(self, "_native_to_undirected_deepcopy", None)
-                    if native is not None:
-                        return native()
-
-                # Iterate in original-direction order so the undirected
-                # edge orientation matches upstream nx, which preserves
-                # (u, v) as added (the rust to_undirected_impl
-                # canonicalises endpoints and diverges from nx on
-                # MultiDiGraph where an edge was added one-way).
-                result = self.to_undirected_class()()
-                result.graph.update(_deepcopy(self.graph))
-                result.add_nodes_from(
-                    (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
-                )
-                result.add_edges_from(
-                    (u, v, key, _deepcopy(attrs))
-                    for u in self
-                    for v, keyed_attrs in self.adj[u].items()
-                    for key, attrs in keyed_attrs.items()
-                )
-                return result
-
-            # br-r37-c1-l5ve7: native bulk path for the exact-type case —
-            # the Python add_edges_from walk paid ~1.1M interpreter calls
-            # on a 12k-edge graph.
-            if (
-                type(self) is DiGraph
-                and not _has_networkx_private_storage(self)
-                and self.to_undirected_class() is Graph
-            ):
-                native = getattr(self, "_native_to_undirected_deepcopy", None)
-                if native is not None:
-                    return native()
-
-            result = self.to_undirected_class()()
-            result.graph.update(_deepcopy(self.graph))
-            result.add_nodes_from(
-                (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
-            )
-            result.add_edges_from(
-                (u, v, _deepcopy(attrs))
-                for u in self
-                for v, attrs in self.adj[u].items()
-            )
-            return result
-
-        # br-r37-c1-fiitj: the exact classes take the native deep copy with the
-        # reciprocal filter, as reciprocal=False already does; the Python
-        # rebuild below ran 0.56-0.59x networkx.
         if (
             (type(self) is DiGraph and self.to_undirected_class() is Graph)
             or (type(self) is MultiDiGraph and self.to_undirected_class() is MultiGraph)
-        ) and not _has_networkx_private_storage(self):
+        ) and (
+            not _has_networkx_private_storage(self)
+            and _conversion_native_deepcopy_safe(self, multigraph=multigraph)
+        ):
             native = getattr(self, "_native_to_undirected_deepcopy", None)
             if native is not None:
-                return native(reciprocal=True)
-
-        result = self.to_undirected_class()()
-        result.graph.update(_deepcopy(self.graph))
-        result.add_nodes_from((node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True))
-        # br-cc-recip: the reciprocal filter iterated ``self.adj[u]`` /
-        # ``self.pred[u]`` (the pure-Python keydict views) O(|E|) times -> 0.03x
-        # (DiGraph, 68ms) / 0.08x (MultiDiGraph). Read the edges via the FAST
-        # native ``edges()`` and test reciprocity as O(1) set membership on the
-        # directed ``(u, v, key)`` / ``(u, v)`` triples. ``edges()`` walks the
-        # adjacency node-major (same order as the old view loop), and
-        # ``(v, u, key) in edge_set`` is exactly ``key in self.pred[u][v]``, so
-        # the kept edges, their order, and the deepcopied attrs are byte-identical.
-        if self.is_multigraph():
-            _edges = list(self.edges(keys=True, data=True))
-            _edge_set = {(u, v, key) for u, v, key, _ in _edges}
-            result.add_edges_from(
-                (u, v, key, _deepcopy(attrs))
-                for u, v, key, attrs in _edges
-                if (v, u, key) in _edge_set
-            )
-        else:
-            _edges = list(self.edges(data=True))
-            _edge_set = {(u, v) for u, v, _ in _edges}
-            result.add_edges_from(
-                (u, v, _deepcopy(attrs))
-                for u, v, attrs in _edges
-                if (v, u) in _edge_set
-            )
-        return result
+                return native(reciprocal=reciprocal is True)
+        return _graph_conversion_copy(
+            self,
+            self.to_undirected_class(),
+            multigraph=multigraph,
+            reciprocal=reciprocal is True,
+        )
 
     return _wraps_without_signature_poisoning(to_undirected_impl, to_undirected)

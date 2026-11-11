@@ -43,9 +43,11 @@ MultiGraph.to_directed = _multigraph_to_directed_with_view(_MULTIGRAPH_TO_DIRECT
 MultiDiGraph.to_directed = _multidigraph_to_directed_with_view(_MULTIDIGRAPH_TO_DIRECTED)
 Graph.to_undirected = _to_undirected_with_view(_GRAPH_TO_UNDIRECTED)
 DiGraph.to_undirected = _directed_to_undirected_with_view(_DIGRAPH_TO_UNDIRECTED)
-MultiGraph.to_undirected = _to_undirected_with_view(_MULTIGRAPH_TO_UNDIRECTED)
+MultiGraph.to_undirected = _to_undirected_with_view(
+    _MULTIGRAPH_TO_UNDIRECTED, multigraph=True
+)
 MultiDiGraph.to_undirected = _directed_to_undirected_with_view(
-    _MULTIDIGRAPH_TO_UNDIRECTED
+    _MULTIDIGRAPH_TO_UNDIRECTED, multigraph=True
 )
 
 
@@ -75,7 +77,8 @@ def _digraph_to_directed_deepcopy_fastpath(wrapped):
             # installing private storage. Admit the native route only afterward.
             if (
                 not _has_networkx_private_storage(self)
-                and not _graph_has_any_attrs(self)
+                and _native_graph_has_any_attrs is not None
+                and _native_graph_has_any_attrs(self) is False
                 and type(result.graph) is dict
             ):
                 graph_attrs = result.graph
@@ -84,12 +87,13 @@ def _digraph_to_directed_deepcopy_fastpath(wrapped):
                 result.graph.update(graph_attrs)
             else:
                 result.add_nodes_from(
-                    (node, _deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+                    (node, _deepcopy(attrs))
+                    for node, attrs in _conversion_node_items(self)
                 )
                 result.add_edges_from(
                     (source, target, _deepcopy(attrs))
-                    for source in self
-                    for target, attrs in self.adj[source].items()
+                    for source, neighbors in self._adj.items()
+                    for target, attrs in neighbors.items()
                 )
             result.drain_decision_records()
             return result
@@ -118,6 +122,7 @@ def _graph_to_undirected_deepcopy_fastpath(wrapped):
             and type(self) is Graph
             and not _has_networkx_private_storage(self)
             and self.to_undirected_class() is Graph
+            and _conversion_native_deepcopy_safe(self)
         ):
             native = getattr(self, "_native_to_undirected_deepcopy", None)
             if native is not None:
