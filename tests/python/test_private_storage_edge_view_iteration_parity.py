@@ -73,3 +73,64 @@ def test_simple_graphs_are_unaffected(cls):
     assert list(got.edges) == list(want.edges)
     assert list(got.edges()) == list(want.edges())
     assert len(got.edges) == len(want.edges)
+
+
+def _provider_edge_graph(module, class_name, *, reject_lookup):
+    reference = getattr(nx, class_name)()
+    reference.add_edge("a", "b", weight=7)
+    reads = []
+
+    class AdjacencyProvider(dict):
+        def __getitem__(self, node):
+            reads.append(node)
+            if reject_lookup:
+                raise RuntimeError("adjacency row provider consumed")
+            return super().__getitem__(node)
+
+    graph = getattr(module, class_name)()
+    graph.add_nodes_from(["a", "b", "private"])
+    graph._adj = AdjacencyProvider(reference._adj)
+    return graph, reads
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_unrestricted_edges_use_items_without_row_lookups(class_name):
+    expected, expected_reads = _provider_edge_graph(nx, class_name, reject_lookup=True)
+    actual, actual_reads = _provider_edge_graph(fnx, class_name, reject_lookup=True)
+
+    assert list(actual.edges) == list(expected.edges)
+    assert list(actual.edges(data=True)) == list(expected.edges(data=True))
+    if expected.is_multigraph():
+        assert list(actual.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
+    assert actual_reads == expected_reads == []
+
+    # Supplying a nbunch intentionally selects rows through __getitem__;
+    # provider failures on that path must still propagate unchanged.
+    errors = []
+    for graph in (expected, actual):
+        with pytest.raises(RuntimeError) as error:
+            [edge for edge in graph.edges("a", data=True)]
+        errors.append(error.value.args)
+    assert errors == [("adjacency row provider consumed",)] * 2
+    assert actual_reads == expected_reads == ["a"]
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_explicit_edge_nbunch_keeps_row_reads_and_missing_row_errors(class_name):
+    expected, expected_reads = _provider_edge_graph(nx, class_name, reject_lookup=False)
+    actual, actual_reads = _provider_edge_graph(fnx, class_name, reject_lookup=False)
+
+    for nbunch in ("a", ["a"]):
+        assert [edge for edge in actual.edges(nbunch, data=True)] == [
+            edge for edge in expected.edges(nbunch, data=True)
+        ]
+    assert actual_reads == expected_reads == ["a", "a"]
+
+    errors = []
+    for graph in (expected, actual):
+        with pytest.raises(KeyError) as error:
+            [edge for edge in graph.edges("private", data=True)]
+        errors.append(error.value.args)
+        assert [edge for edge in graph.edges(["private"], data=True)] == []
+    assert errors == [("private",)] * 2
+    assert actual_reads == expected_reads == ["a", "a", "private"]

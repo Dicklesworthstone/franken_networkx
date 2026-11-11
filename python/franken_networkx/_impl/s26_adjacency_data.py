@@ -1280,8 +1280,14 @@ def _stoer_wagner_native_domain(G, weight, heap):
     if (
         type(G) is not Graph
         or _has_networkx_private_storage(G)
-        or not isinstance(weight, str)
+        or type(weight) is not str
         or heap is not _BINARY_HEAP_DEFAULT
+    ):
+        return False
+    storage = vars(G)
+    if any(
+        name in storage and storage[name] is not storage.get("_fnx_view_" + name)
+        for name in ("edges", "nodes", "adj")
     ):
         return False
     integer_total = 0
@@ -1291,6 +1297,13 @@ def _stoer_wagner_native_domain(G, weight, heap):
     for u, v, attrs in G.edges(data=True):
         if u == v:
             continue
+        # Admission must not consume a caller's weight provider. Even a
+        # builtin dict lookup can call a custom key's equality method, so
+        # inspect the dictionary and its keys before reading the weight.
+        if not _attr_dict_has_plain_reads(attrs) or any(
+            type(key) is not str for key in attrs
+        ):
+            return False
         value = attrs.get(weight, 1)
         if type(value) is int:
             if value < 0:
@@ -1436,29 +1449,25 @@ def stoer_wagner(
     # keeps working. The Rust path raises one generic message.
     if len(G) < 2:
         raise NetworkXError("graph has less than two nodes.")
-    if not is_connected(G):
+    # Connectivity must inspect the caller's rows. The generic convenience
+    # wrapper converts foreign graphs, which would consume unrelated node
+    # providers and copy attributes before the algorithm's weight snapshot.
+    connectivity_count = len(G)
+    if connectivity_count == 0:
+        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+    if len(next(_connected_component_sets(G))) != connectivity_count:
         raise NetworkXError("graph is not connected.")
-    # br-r37-c1-egxmz: nx rejects negative weights with
-    # NetworkXError('graph has a negative-weighted edge') before
-    # running the Stoer-Wagner contraction.  The Rust binding silently
-    # produced a meaningless result on negative inputs; mirror nx's
-    # precondition here so callers relying on the documented contract
-    # don't silently get wrong cuts.
-    if isinstance(weight, str):
-        for u, v, attrs in G.edges(data=True):
-            if u == v or not isinstance(attrs, dict):
-                continue
-            w = attrs.get(weight, 1)
-            if isinstance(w, _numbers.Number) and not isinstance(w, bool) and w < 0:
-                raise NetworkXError("graph has a negative-weighted edge.")
+    # Validate weights only after the owned contraction path has read its
+    # snapshot. An earlier scan would invoke custom mapping or numeric
+    # protocols twice and can change the cut (or raise the wrong exception).
+    # The native-domain check below rejects negative builtin weights, which
+    # then reach the fallback's NetworkX-shaped negative-weight error.
     # br-r37-c1-35oum: the kernel mirrors nx's phases exactly (per-phase
     # lazy-deletion heap with insertion-counter tie-breaks, copy-order
     # arbitrary_element, row-order contraction merges) and returns the
     # contraction sequence; the partition recovery below is nx's tail run
     # VERBATIM with real CPython sets — its list order is set-iteration
     # order, unreplicable in Rust but exact by construction here.
-    if heap is None:
-        heap = _BINARY_HEAP_DEFAULT
     from franken_networkx._fnx import stoer_wagner_phases as _rust_stoer_wagner_phases
 
     if not _stoer_wagner_native_domain(G, weight, heap):

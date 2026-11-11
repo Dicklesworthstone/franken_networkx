@@ -183,6 +183,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "maximum_flow_value",
         "minimum_cut",
         "minimum_cut_value",
+        "stoer_wagner",
         "capacity_scaling",
         "cost_of_flow",
         "flow_hierarchy",
@@ -264,6 +265,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "average_shortest_path_length",
         "average_degree_connectivity",
+        "stoer_wagner",
     }
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -276,6 +278,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "stoer_wagner":
+        # The algorithm snapshots weights once, then invokes the selected
+        # heap. Conversion beforehand can consume a weight provider or read
+        # stale cached attributes, changing both the cut and callback effects.
+        return True
     if name in _BIPARTITE_MATCHING_ALGORITHMS:
         return _bipartite_matching_dispatch_uses_live_providers(name, graph, arguments)
     if name == "average_degree_connectivity":
@@ -995,6 +1002,7 @@ _SUPPORTED_ALGORITHMS = {
     "network_simplex": fnx.network_simplex,
     "minimum_cut": fnx.minimum_cut,
     "minimum_cut_value": fnx.minimum_cut_value,
+    "stoer_wagner": fnx.stoer_wagner,
     # Distance / measures
     "density": fnx.density,
     "eccentricity": fnx.eccentricity,
@@ -2140,7 +2148,7 @@ class BackendInterface:
                         return _iterate_callback_result(result, source)
                     return result
                 except fnx.NetworkXNotImplemented as e:
-                    if name in _CORE_DECOMPOSITION_ALGORITHMS:
+                    if name in _CORE_DECOMPOSITION_ALGORITHMS or name == "stoer_wagner":
                         # Keep documented self-loop and graph-type errors intact.
                         raise
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError

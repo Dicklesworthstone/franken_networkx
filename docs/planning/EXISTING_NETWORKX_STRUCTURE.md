@@ -2297,3 +2297,37 @@ Hopcroft-Karp kernel. Native admission does not consume custom or one-shot
 selectors, flatten assigned adjacency or substitute canonical labels for
 boolean/float aliases or signed zero. Other inputs run the owned Python
 matching implementation over their live rows.
+
+## 84. Global Minimum Cut Backend Availability and Weight Reads
+
+`stoer_wagner` is available through explicit and automatic backend dispatch.
+The backend preserves the original graph so an earlier conversion cannot
+consume observable weight providers or substitute stale cached attributes.
+Unsupported directed and multigraph inputs retain `NetworkXNotImplemented`.
+Connectivity walks the caller's private adjacency without converting the
+graph or invoking an unrelated public node provider. Changes made by a row
+provider remain visible to the subsequent weight snapshot.
+
+The owned contraction implementation snapshots each visible non-loop edge
+weight once, then validates the copied weights and runs the selected heap.
+Custom attribute mappings are not read by a preliminary negative-weight scan
+or by native admission. Their read order, mutations and exceptions remain
+observable at the reference algorithm's snapshot boundary. A custom heap
+can mutate the caller's graph without changing the weights already copied
+for the cut computation.
+An explicit `heap=None` retains the reference construction error after graph
+and negative-weight validation; omitting the argument selects the default
+binary heap.
+
+Exact cut values, numeric types and the reference partition order are
+preserved, including arbitrary-size integers, Fraction and Decimal weights.
+Ordinary native Graph inputs with builtin attribute storage and supported
+numeric weights retain the native contraction route. Assigned adjacency,
+observable public providers and custom weight selectors use the owned Python
+implementation without speculative provider reads.
+
+For all four graph families, unrestricted edge iteration over assigned private
+adjacency consumes the mapping's items directly. Supplying a node selection
+retains explicit row lookups, provider exceptions, missing-scalar errors and
+missing-list filtering. This keeps the global-cut snapshot from re-reading
+adjacency providers already used to establish connectivity.

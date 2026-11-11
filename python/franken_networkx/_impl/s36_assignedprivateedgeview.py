@@ -54,22 +54,27 @@ class _AssignedPrivateEdgeView:
         return nodes
 
     def _rows(self, nbunch=None, data=False, keys=False):
-        nodes = self._nbunch(nbunch)
+        nodes = self._nbunch(nbunch) if nbunch is not None else None
         result = []
         graph = self._graph
         adj = _assigned_raw_adj(graph)
         # `is_multigraph()` was being called once per EDGE from inside both
         # branches below; it is a property of the graph, not of the edge.
         multi = graph.is_multigraph()
+        # NetworkX walks the mapping's items directly without an explicit
+        # nbunch. Re-subscripting each row can consume a live provider twice
+        # or raise from __getitem__ even though items() supplies valid rows.
+        # Explicit nbunch rows still require unguarded lookups: a scalar in
+        # the node store but absent from adjacency must retain its KeyError.
+        rows = (
+            adj.items()
+            if nbunch is None
+            else ((source, adj[source]) for source in nodes)
+        )
 
         if graph.is_directed():
-            for source in nodes:
-                # br-r37-c1-wzypa: NOT guarded. `_nbunch` now yields only sources
-                # that have an adjacency row — except for an explicit SCALAR
-                # nbunch, which nx returns unfiltered precisely so this lookup
-                # raises KeyError. Swallowing it here would turn nx's raise into
-                # an empty result.
-                for target, edge_data in adj[source].items():
+            for source, neighbors in rows:
+                for target, edge_data in neighbors.items():
                     if multi:
                         for key, attrs in edge_data.items():
                             if keys and data:
@@ -87,9 +92,8 @@ class _AssignedPrivateEdgeView:
             return result
 
         seen = set()
-        for source in nodes:
-            # br-r37-c1-wzypa: unguarded, for the reason in the directed branch.
-            for target, edge_data in adj[source].items():
+        for source, neighbors in rows:
+            for target, edge_data in neighbors.items():
                 if target in seen:
                     continue
                 if multi:
