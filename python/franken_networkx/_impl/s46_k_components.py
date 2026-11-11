@@ -1304,6 +1304,20 @@ def _graph_has_edge_attribute(G, name):
     return any(name in attrs for _, _, attrs in G.edges(data=True))
 
 
+def _dict_of_lists_plain_rows(data):
+    """Whether buffering adjacency rows cannot invoke caller protocols."""
+    if type(data) is not dict:
+        return False
+    for node, neighbors in data.items():
+        if not _multigraph_import_plain_key(node):
+            return False
+        if type(neighbors) not in (list, tuple, set, frozenset, dict, range):
+            return False
+        if not all(_multigraph_import_plain_key(neighbor) for neighbor in neighbors):
+            return False
+    return True
+
+
 def from_dict_of_lists(d, create_using=None):
     """Return a graph from a dictionary of lists.
 
@@ -1327,16 +1341,31 @@ def from_dict_of_lists(d, create_using=None):
                 if nb not in seen:
                     G.add_edge(node, nb)
             seen[node] = 1
-    elif type(G) is Graph or type(G) is DiGraph:
-        # br-r37-c1-dolsymdedup: an UNDIRECTED dict-of-lists lists every edge
-        # twice (u in d[v], v in d[u]); the reverse duplicate edges make
-        # add_edges_from bail from the fast existing-int-index batch to the
-        # per-edge path. Dedup the symmetric reverse (undirected only) so the
-        # whole edge set commits through the bulk existing-nodes batch — same
-        # result (re-adding an existing undirected edge is a no-op), ~3x faster.
-        # DiGraph keeps every edge (u->v != v->u); it just materializes the
-        # generator into the list the batch path requires.
-        if G.is_directed():
+    elif type(G) in (Graph, DiGraph):
+        add_edges = G.add_edges_from
+        if getattr(add_edges, "__func__", None) is not _SIMPLE_DICT_IMPORT_ADD_EDGES_FROM[type(G)]:
+            # Assigned storage and custom mutation hooks keep their own
+            # traversal and receive one public call with an unconsumed stream.
+            add_edges((node, nb) for node, neighbors in d.items() for nb in neighbors)
+            return G
+        if not (
+            not _has_networkx_private_storage(G)
+            and G.node_attr_dict_factory is dict
+            and G.edge_attr_dict_factory is dict
+            and _dict_of_lists_plain_rows(d)
+        ):
+            # Neighbor and row providers may inspect completed edges, change
+            # later rows, or fail after a valid prefix. The general native
+            # wrapper buffers some iterators, so finish each insertion before
+            # requesting the next neighbor from arbitrary Python providers.
+            for node, neighbors in d.items():
+                for nb in neighbors:
+                    add_edges([(node, nb)])
+            return G
+        # Plain inputs have no observable second insertion of a symmetric
+        # edge. Keep their deduplicated native batch; directed edges retain
+        # both orientations and their original order.
+        if type(G) is DiGraph:
             batch = [(node, nb) for node, neighbors in d.items() for nb in neighbors]
         else:
             seen = set()
@@ -1347,7 +1376,7 @@ def from_dict_of_lists(d, create_using=None):
                         continue
                     batch.append((node, nb))
                     seen.add((node, nb))
-        G.add_edges_from(batch)
+        add_edges(batch)
     else:
         G.add_edges_from((node, nb) for node, neighbors in d.items() for nb in neighbors)
     return G

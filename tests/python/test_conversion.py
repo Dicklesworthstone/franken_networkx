@@ -717,6 +717,143 @@ class TestDictOfLists:
         assert actual.number_of_edges() == expected.number_of_edges() == 5
         assert sorted(actual.edges(keys=True)) == sorted(expected.edges(keys=True))
 
+    @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+    @pytest.mark.parametrize("supplier", ["neighbors", "list_subclass", "rows"])
+    def test_import_suppliers_observe_completed_edges(self, graph_type, supplier):
+        def run(library):
+            graph = getattr(library, graph_type)()
+            observations = []
+
+            def unexpected_add_edge(*args, **kwargs):
+                raise AssertionError("add_edges_from must ignore the add_edge override")
+
+            graph.add_edge = unexpected_add_edge
+
+            def neighbors():
+                yield 1
+                observations.append(list(graph.edges()))
+                yield 2 if graph.has_edge(0, 1) else 99
+
+            if supplier == "rows":
+                class Adjacency(dict):
+                    def items(self):
+                        yield 0, [1]
+                        observations.append(list(graph.edges()))
+                        yield 1, [2 if graph.has_edge(0, 1) else 99]
+
+                adjacency = Adjacency({0: [], 1: []})
+            elif supplier == "list_subclass":
+                class Neighbors(list):
+                    def __iter__(self):
+                        return neighbors()
+
+                adjacency = {0: Neighbors()}
+            else:
+                adjacency = {0: neighbors()}
+
+            result = library.from_dict_of_lists(adjacency, create_using=graph)
+            assert result is graph
+            return _graph_signature(graph), observations
+
+        expected = run(nx)
+        assert expected[1] == [[(0, 1)]]
+        assert run(fnx) == expected
+
+    @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+    @pytest.mark.parametrize("failure", ["iterator", "invalid_neighbor"])
+    def test_import_failure_keeps_completed_prefix(self, graph_type, failure):
+        def run(library):
+            graph = getattr(library, graph_type)()
+            observations = []
+
+            def neighbors():
+                yield 1
+                observations.append(list(graph.edges()))
+                if failure == "iterator":
+                    raise OSError("neighbor source stopped")
+                yield []
+                raise AssertionError("read past the invalid neighbor")
+
+            with pytest.raises(Exception) as error:
+                library.from_dict_of_lists({0: neighbors()}, create_using=graph)
+            return (
+                type(error.value), str(error.value),
+                _graph_signature(graph), observations,
+            )
+
+        expected = run(nx)
+        assert expected[0] is (OSError if failure == "iterator" else TypeError)
+        assert expected[3] == [[(0, 1)]]
+        assert run(fnx) == expected
+
+    @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+    @pytest.mark.parametrize("customization", ["instance", "subclass"])
+    def test_import_calls_custom_edge_hook_once_with_live_stream(self, graph_type, customization):
+        def run(library):
+            base = getattr(library, graph_type)
+            calls = []
+            observations = []
+
+            if customization == "subclass":
+                class CustomGraph(base):
+                    def add_edges_from(self, edges, **attrs):
+                        calls.append(list(self.edges()))
+                        for edge in edges:
+                            base.add_edges_from(self, [edge], **attrs)
+
+                graph = CustomGraph()
+            else:
+                graph = base()
+                original = graph.add_edges_from
+
+                def add_edges(edges, **attrs):
+                    calls.append(list(graph.edges()))
+                    for edge in edges:
+                        original([edge], **attrs)
+
+                graph.add_edges_from = add_edges
+
+            graph.add_edge("stale", "edge")
+
+            def neighbors():
+                yield 1
+                observations.append(list(graph.edges()))
+                yield 2 if graph.has_edge(0, 1) else 99
+
+            result = library.from_dict_of_lists({0: neighbors()}, create_using=graph)
+            assert result is graph
+            return _graph_signature(graph), calls, observations
+
+        expected = run(nx)
+        assert expected[1:] == ([[]], [[(0, 1)]])
+        assert run(fnx) == expected
+
+    @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+    def test_plain_import_retains_native_batch(self, monkeypatch, graph_type):
+        graph = getattr(fnx, graph_type)()
+        native = graph._try_add_edges_from_batch
+        batches = []
+        accepted = []
+
+        def record_batch(edges):
+            batches.append(tuple(edges))
+            result = native(edges)
+            accepted.append(result)
+            return result
+
+        monkeypatch.setattr(graph, "_try_add_edges_from_batch", record_batch)
+        adjacency = {
+            node: [neighbor for neighbor in (node - 1, node + 1) if 0 <= neighbor < 20]
+            for node in range(20)
+        }
+        actual = fnx.from_dict_of_lists(adjacency, create_using=graph)
+        expected = nx.from_dict_of_lists(adjacency, create_using=getattr(nx, graph_type))
+
+        assert _graph_signature(actual) == _graph_signature(expected)
+        assert len(batches) == 1
+        assert len(batches[0]) == expected.number_of_edges()
+        assert accepted == [True]
+
 
 # ---------------------------------------------------------------------------
 # to/from_edgelist
