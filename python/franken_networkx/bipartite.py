@@ -72,6 +72,41 @@ def _matching_nx_view(B):
     return G
 
 
+def _matching_plain_partition(top_nodes):
+    """Whether reading a supplied partition cannot run a user protocol."""
+    if type(top_nodes) is range:
+        return True
+    return type(top_nodes) in (list, tuple, set, frozenset) and all(
+        type(node) in (str, int, float, bool) for node in top_nodes
+    )
+
+
+def _matching_same_node_representation(left, right):
+    """Primitive equality alone loses bool/float aliases and signed zero."""
+    return type(left) is type(right) and (
+        type(left) is not float or left.hex() == right.hex()
+    )
+
+
+def _matching_native_graph_nodes(G):
+    """Return plain native node order without flattening a graph provider."""
+    if type(G) is not _fnx.Graph or _fnx._has_networkx_private_storage(G):
+        return None
+    storage = vars(G)
+    if any(name in storage for name in (
+        "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+        "nbunch_iter", "neighbors", "adjacency", "__iter__", "__getitem__", "__len__",
+    )) or any(
+        name in storage and storage[name] is not storage.get(f"_fnx_view_{name}")
+        for name in ("nodes", "adj")
+    ):
+        return None
+    nodes = list(G)
+    if any(type(node) not in (str, int, float, bool) for node in nodes):
+        return None
+    return nodes
+
+
 def _native_hopcroft_karp(G, top_nodes):
     """br-r37-c1-bngez: byte-exact native Hopcroft-Karp for an fnx simple Graph.
 
@@ -85,14 +120,14 @@ def _native_hopcroft_karp(G, top_nodes):
     or ``top_nodes is None`` (that path needs nx's BFS 2-colouring, whose set
     order we don't reconstruct here).
     """
-    if isinstance(G, _nx.Graph) or top_nodes is None:
+    if top_nodes is None or not _matching_plain_partition(top_nodes):
         return None
-    if G.is_multigraph() or G.is_directed():
+    node_list = _matching_native_graph_nodes(G)
+    if node_list is None:
         return None
     native = getattr(_fnx._fnx, "bipartite_hopcroft_karp_matching", None)
     if native is None:
         return None
-    node_list = list(G)
     index = {node: i for i, node in enumerate(node_list)}
     try:
         left_set = set(top_nodes)
@@ -101,6 +136,21 @@ def _native_hopcroft_karp(G, top_nodes):
         left_idx = [index[x] for x in left_set]
         right_idx = [index[y] for y in (set(G) - left_set)]
     except (KeyError, TypeError):
+        return None
+    if any(
+        not _matching_same_node_representation(node_list[index[node]], node)
+        for node in left_set
+    ):
+        return None
+    # The indexed kernel assumes a valid left/right partition. A supplied
+    # partition is not validated by NetworkX's sets(); its matching walk raises
+    # KeyError upon seeing a neighbor outside the right set. Keep that behavior
+    # on the owned Python route instead of passing an invalid partition to Rust.
+    if any(
+        neighbor in left_set
+        or not _matching_same_node_representation(node_list[index[neighbor]], neighbor)
+        for node in left_set for neighbor in G[node]
+    ):
         return None
     return native(G, left_idx, right_idx)
 
@@ -119,7 +169,7 @@ def _derive_top_nodes(G, top_nodes):
     """
     if top_nodes is not None:
         return top_nodes
-    if isinstance(G, _nx.Graph):
+    if _matching_native_graph_nodes(G) is None:
         return None
     try:
         return sets(G)[0]

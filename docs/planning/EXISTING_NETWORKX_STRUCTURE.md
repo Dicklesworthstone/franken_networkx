@@ -2276,3 +2276,24 @@ subsequent graph-returning decomposition.
 The owned core family preserves documented `NetworkXNotImplemented` errors
 for unsupported graph types and self-loops through backend dispatch. Other
 algorithms retain their existing backend fallback policy.
+
+## 83. Bipartite Matching Backend Availability and Live Inputs
+
+The backend advertises `hopcroft_karp_matching`, `eppstein_matching`,
+`to_vertex_cover` and `minimum_weight_full_matching`. NetworkX's
+`maximum_matching` alias dispatches under `hopcroft_karp_matching`.
+Explicit and automatic backend selection use the same owned implementations.
+
+Partition iterables are consumed once at the algorithm's normal boundary.
+Their graph mutations, matching-map iteration and weight-provider reads remain
+attached to the original graph, including views and calls after a conversion
+cache was populated. Matching results preserve reference dictionary order,
+node representations and exception contracts for invalid or ambiguous
+partitions. Hopcroft-Karp reads adjacency without invoking unrelated public
+edge providers.
+
+Ordinary concrete graph storage with plain, valid partitions retains the native
+Hopcroft-Karp kernel. Native admission does not consume custom or one-shot
+selectors, flatten assigned adjacency or substitute canonical labels for
+boolean/float aliases or signed zero. Other inputs run the owned Python
+matching implementation over their live rows.

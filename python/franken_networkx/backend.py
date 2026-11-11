@@ -96,6 +96,12 @@ _CONNECTIVITY_BATCH_INPUT_ALGORITHMS = frozenset(
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
     {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
 )
+_BIPARTITE_MATCHING_ALGORITHMS = frozenset(
+    {
+        "hopcroft_karp_matching", "eppstein_matching", "to_vertex_cover",
+        "minimum_weight_full_matching",
+    }
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -216,7 +222,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "astar_path",
         "astar_path_length",
     }
-)
+) | _BIPARTITE_MATCHING_ALGORITHMS
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
 )
@@ -250,6 +256,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _DIJKSTRA_INPUT_ALGORITHMS
     | _BETWEENNESS_INPUT_ALGORITHMS
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
+    | _BIPARTITE_MATCHING_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -269,6 +276,8 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _BIPARTITE_MATCHING_ALGORITHMS:
+        return _bipartite_matching_dispatch_uses_live_providers(name, graph, arguments)
     if name == "average_degree_connectivity":
         return _degree_connectivity_dispatch_uses_live_providers(graph, arguments)
     if name in {"bellman_ford_predecessor_and_distance", "goldberg_radzik"}:
@@ -371,6 +380,82 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     return name in _SPECTRAL_INPUT_ALGORITHMS and _spectral_dispatch_uses_live_providers(
         name, graph, arguments
     )
+
+
+def _bipartite_matching_dispatch_uses_live_providers(name, graph, arguments):
+    """Keep partition and matching providers on the graph they can change.
+
+    The owned Eppstein, vertex-cover and assignment routines already read the
+    supplied graph directly. Hopcroft--Karp can convert plain storage for its
+    native kernel, but admission must not consume a partition iterable or
+    flatten an observable adjacency provider, even on a conversion-cache hit.
+    """
+    import networkx as nx
+
+    if name != "hopcroft_karp_matching" or type(graph) is not nx.Graph:
+        return True
+    top_nodes = arguments.get("top_nodes")
+    if top_nodes is not None and not fnx.bipartite._matching_plain_partition(top_nodes):
+        return True
+    storage = vars(graph)
+    if "_graph" in storage or any(
+        name in storage for name in (
+            "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+            "nbunch_iter", "neighbors", "adjacency", "get_edge_data",
+            "__iter__", "__getitem__", "__len__", "__contains__",
+        )
+    ):
+        return True
+    nodes = storage.get("_node")
+    adjacency = storage.get("_adj")
+    plain_keys = (str, int, float, bool)
+    if type(nodes) is not dict or type(adjacency) is not dict:
+        return True
+    if any(type(node) not in plain_keys for node in nodes):
+        return True
+    if any(type(node) not in plain_keys for node in adjacency):
+        return True
+    if nodes.keys() != adjacency.keys():
+        return True
+    representatives = {node: node for node in nodes}
+    same_label = fnx.bipartite._matching_same_node_representation
+    if any(not same_label(representatives[node], node) for node in adjacency):
+        return True
+    if top_nodes is not None and any(
+        node not in representatives or not same_label(representatives[node], node)
+        for node in top_nodes
+    ):
+        return True
+    for row in adjacency.values():
+        if type(row) is not dict or any(
+            type(neighbor) not in plain_keys or neighbor not in nodes or type(attrs) is not dict
+            for neighbor, attrs in row.items()
+        ):
+            return True
+        if any(not same_label(representatives[neighbor], neighbor) for neighbor in row):
+            return True
+    if any(
+        adjacency[neighbor].get(node) is not attrs
+        for node, row in adjacency.items() for neighbor, attrs in row.items()
+    ):
+        return True
+    if "adj" in storage:
+        view = storage["adj"]
+        if type(view) is not nx.classes.coreviews.AdjacencyView or view._atlas is not adjacency:
+            return True
+    if "nodes" in storage:
+        view = storage["nodes"]
+        if type(view) is not nx.classes.reportviews.NodeView or view._nodes is not nodes:
+            return True
+    if "edges" in storage:
+        view = storage["edges"]
+        if (
+            type(view) is not nx.classes.reportviews.EdgeView
+            or view._graph is not graph
+            or view._adjdict is not adjacency
+        ):
+            return True
+    return False
 
 
 def _coloring_dispatch_uses_live_providers(graph, arguments):
@@ -892,6 +977,12 @@ _SUPPORTED_ALGORITHMS = {
     "max_weight_matching": fnx.max_weight_matching,
     "min_weight_matching": fnx.min_weight_matching,
     "min_edge_cover": fnx.min_edge_cover,
+    # NetworkX's maximum_matching is an alias of hopcroft_karp_matching and
+    # dispatches under that canonical name.
+    "hopcroft_karp_matching": fnx.bipartite.hopcroft_karp_matching,
+    "eppstein_matching": fnx.bipartite.eppstein_matching,
+    "to_vertex_cover": fnx.bipartite.to_vertex_cover,
+    "minimum_weight_full_matching": fnx.bipartite.minimum_weight_full_matching,
     # Flow
     "maximum_flow": fnx.maximum_flow,
     "maximum_flow_value": fnx.maximum_flow_value,
