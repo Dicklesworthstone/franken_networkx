@@ -92,6 +92,10 @@ _BETWEENNESS_INPUT_ALGORITHMS = frozenset(
 _CONNECTIVITY_BATCH_INPUT_ALGORITHMS = frozenset(
     {"all_pairs_node_connectivity", "average_node_connectivity", "gomory_hu_tree"}
 )
+# Core decomposition graph restrictions are part of the algorithm contract.
+_CORE_DECOMPOSITION_ALGORITHMS = frozenset(
+    {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -917,6 +921,12 @@ _SUPPORTED_ALGORITHMS = {
     "bipartite_sets": fnx.bipartite.sets,
     "greedy_color": fnx.greedy_color,
     "core_number": fnx.core_number,
+    "k_core": fnx.k_core,
+    "k_shell": fnx.k_shell,
+    "k_crust": fnx.k_crust,
+    "k_corona": fnx.k_corona,
+    "k_truss": fnx.k_truss,
+    "onion_layers": fnx.onion_layers,
     "number_of_spanning_trees": fnx.number_of_spanning_trees,
     "partition_spanning_tree": fnx.partition_spanning_tree,
     "random_spanning_tree": fnx.random_spanning_tree,
@@ -2039,6 +2049,9 @@ class BackendInterface:
                         return _iterate_callback_result(result, source)
                     return result
                 except fnx.NetworkXNotImplemented as e:
+                    if name in _CORE_DECOMPOSITION_ALGORITHMS:
+                        # Keep documented self-loop and graph-type errors intact.
+                        raise
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError
                     # to correctly trigger its fallback sequence.
                     raise NotImplementedError(str(e)) from e

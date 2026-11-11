@@ -2254,3 +2254,19 @@ cached backend conversion. Views and observable graph, degree, neighbor,
 mapping, selector or numeric providers execute on the original graph, even
 when another backend call already populated the conversion cache. Admission
 does not invoke custom providers or numeric protocols.
+
+## 82. Core Decomposition Backend Availability
+
+Explicit backend dispatch advertises and executes `k_core`, `k_shell`,
+`k_crust`, `k_corona`, `k_truss` and `onion_layers`, alongside `core_number`.
+Runtime and package metadata derive these names from the same owned registry.
+
+Core subgraphs retain directed support, supplied core-number maps, thresholds
+and existing default/empty-graph behavior. Returned graphs own their structure
+and attribute dictionaries while preserving shallow attribute values. Prior
+structure-only conversions cannot discard the attributes requested by a
+subsequent graph-returning decomposition.
+
+The owned core family preserves documented `NetworkXNotImplemented` errors
+for unsupported graph types and self-loops through backend dispatch. Other
+algorithms retain their existing backend fallback policy.
