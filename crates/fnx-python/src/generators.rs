@@ -33,9 +33,9 @@ pub(crate) fn with_python_random<T>(
         return kernel(&mut PythonRandom::new(seed.extract::<u64>()?));
     }
     let state = seed.call_method0("getstate")?;
-    let state = state.downcast::<PyTuple>()?;
+    let state = state.cast::<PyTuple>()?;
     let internal = state.get_item(1)?;
-    let internal = internal.downcast::<PyTuple>()?;
+    let internal = internal.cast::<PyTuple>()?;
     if state.len() != 3 || internal.len() != PYTHON_RANDOM_STATE_WORDS + 1 {
         return Err(PyValueError::new_err(
             "seed must be an int or a random.Random (getstate() is not an MT19937 state)",
@@ -1222,7 +1222,7 @@ pub fn random_regular_graph_pyset_order(
 
     let mut edges = Vec::with_capacity(edge_set.len());
     for item in edge_set.iter() {
-        let tuple = item.downcast::<PyTuple>()?;
+        let tuple = item.cast::<PyTuple>()?;
         debug_assert_eq!(tuple.len(), 2);
         let u = tuple.get_item(0)?.extract::<usize>()?;
         let v = tuple.get_item(1)?.extract::<usize>()?;

@@ -2781,7 +2781,7 @@ fn extract_partition_edges(
     let mut edges = Vec::new();
     for item in value.try_iter()? {
         let item = item?;
-        let pair = item.downcast::<PyTuple>()?;
+        let pair = item.cast::<PyTuple>()?;
         if pair.len() != 2 {
             return Err(pyo3::exceptions::PyTypeError::new_err(
                 "init_partition edges must be 2-tuples",
@@ -2801,7 +2801,7 @@ fn extract_init_partition(
     let Some(init_partition) = init_partition else {
         return Ok((Vec::new(), Vec::new()));
     };
-    let tuple = init_partition.downcast::<PyTuple>()?;
+    let tuple = init_partition.cast::<PyTuple>()?;
     if tuple.len() != 2 {
         return Err(pyo3::exceptions::PyTypeError::new_err(
             "init_partition must be a 2-tuple of (included_edges, excluded_edges)",
@@ -6680,7 +6680,7 @@ fn child_path<'py>(
         .as_sequence()
         .concat(tail.as_sequence())?
         .into_any()
-        .downcast_into::<PyList>()?)
+        .cast_into::<PyList>()?)
 }
 
 fn emit_paths_dict_uniform_parent_index<'n>(
@@ -12612,7 +12612,7 @@ fn minimum_cycle_basis_python_chord_order(py: Python<'_>, graph: &PyGraph) -> Py
         }
 
         for item in chords.iter() {
-            let tuple = item.downcast::<PyTuple>()?;
+            let tuple = item.cast::<PyTuple>()?;
             let left = node_key_to_string(py, &tuple.get_item(0)?)?;
             let right = node_key_to_string(py, &tuple.get_item(1)?)?;
             if let Some(&edge_idx) = edge_key_to_idx.get(&PyGraph::edge_key(&left, &right)) {
@@ -19561,7 +19561,7 @@ fn tensor_product_edge_attrs_fast(
         };
         {
             let bound = structure_obj.bind(py);
-            let cell = bound.downcast::<PyDiGraph>().map_err(|_| {
+            let cell = bound.cast::<PyDiGraph>().map_err(|_| {
                 pyo3::exceptions::PyTypeError::new_err("tensor structure is not a DiGraph")
             })?;
             let mut structure = cell.borrow_mut();
@@ -19667,7 +19667,7 @@ fn tensor_product_edge_attrs_fast(
 
     {
         let bound = structure_obj.bind(py);
-        let cell = bound.downcast::<crate::PyGraph>().map_err(|_| {
+        let cell = bound.cast::<crate::PyGraph>().map_err(|_| {
             pyo3::exceptions::PyTypeError::new_err("tensor structure is not a Graph")
         })?;
         let mut structure = cell.borrow_mut();
@@ -19792,7 +19792,7 @@ fn strong_product_edge_attrs_fast(
         };
         {
             let bound = structure_obj.bind(py);
-            let cell = bound.downcast::<PyDiGraph>().map_err(|_| {
+            let cell = bound.cast::<PyDiGraph>().map_err(|_| {
                 pyo3::exceptions::PyTypeError::new_err("strong structure is not a DiGraph")
             })?;
             let mut structure = cell.borrow_mut();
@@ -19932,7 +19932,7 @@ fn strong_product_edge_attrs_fast(
 
     {
         let bound = structure_obj.bind(py);
-        let cell = bound.downcast::<crate::PyGraph>().map_err(|_| {
+        let cell = bound.cast::<crate::PyGraph>().map_err(|_| {
             pyo3::exceptions::PyTypeError::new_err("strong structure is not a Graph")
         })?;
         let mut structure = cell.borrow_mut();
@@ -20477,7 +20477,7 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         }
         let mut ledges = Vec::with_capacity(pairs.len());
         for pair in pairs.iter() {
-            let pair = pair.downcast::<PyTuple>()?;
+            let pair = pair.cast::<PyTuple>()?;
             let left = py_edge_ids
                 .get_item(pair.get_item(0)?)?
                 .ok_or_else(|| {
@@ -31679,7 +31679,7 @@ mod tests {
                     .expect("single-source paths should emit");
             let paths = result
                 .bind(py)
-                .downcast::<PyDict>()
+                .cast::<PyDict>()
                 .expect("result should be a dict");
 
             let rendered: Vec<(String, Vec<String>)> = paths
@@ -31708,7 +31708,7 @@ mod tests {
                 .get_item("32")
                 .expect("dict lookup should work")
                 .expect("tail path should exist")
-                .downcast_into::<PyList>()
+                .cast_into::<PyList>()
                 .expect("tail should be a list");
             tail.set_item(0, "changed")
                 .expect("tail mutation should work");

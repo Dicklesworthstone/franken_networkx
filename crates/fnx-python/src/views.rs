@@ -93,7 +93,7 @@ pub(crate) fn too_many_values_to_unpack(source: &Bound<'_, PyAny>, expected: usi
 pub(crate) fn unpack_two_endpoints<'py>(
     edge: &Bound<'py, PyAny>,
 ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
-    if let Ok(tuple) = edge.downcast_exact::<PyTuple>()
+    if let Ok(tuple) = edge.cast_exact::<PyTuple>()
         && tuple.len() == 2
     {
         return Ok((tuple.get_item(0)?, tuple.get_item(1)?));
@@ -128,7 +128,7 @@ pub(crate) fn unpack_two_endpoints<'py>(
 pub(crate) fn unpack_three_endpoints<'py>(
     edge: &Bound<'py, PyAny>,
 ) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>, Bound<'py, PyAny>)> {
-    if let Ok(tuple) = edge.downcast_exact::<PyTuple>()
+    if let Ok(tuple) = edge.cast_exact::<PyTuple>()
         && tuple.len() == 3
     {
         return Ok((tuple.get_item(0)?, tuple.get_item(1)?, tuple.get_item(2)?));
@@ -970,7 +970,7 @@ impl EdgeView {
     /// permissive path, the hashability probe, and the `e[:2]` slice all sit
     /// behind a branch a `(u, v)` tuple never takes.
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let Ok(tuple) = edge.downcast::<PyTuple>() else {
+        let Ok(tuple) = edge.cast::<PyTuple>() else {
             return self.contains_edge_spec(py, edge);
         };
         if tuple.len() < 2 {
@@ -1371,7 +1371,7 @@ impl EdgeView {
             }
             crate::require_hashable_node_key(&v_item)?;
             return match row.get_item(&v_item) {
-                Ok(attrs) => Ok(attrs.downcast_into::<PyDict>()?.unbind()),
+                Ok(attrs) => Ok(attrs.cast_into::<PyDict>()?.unbind()),
                 Err(err) if err.is_instance_of::<PyKeyError>(py) => {
                     Err(missing_edge_key_error(edge))
                 }
@@ -2253,7 +2253,7 @@ impl AtlasView {
     fn copy_row(py: Python<'_>, row: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
         let result = PyDict::new(py);
         for (key, value) in row.iter() {
-            let copied = value.downcast::<PyDict>()?.copy()?.unbind();
+            let copied = value.cast::<PyDict>()?.copy()?.unbind();
             result.set_item(key, copied)?;
         }
         Ok(result.unbind())
@@ -2287,7 +2287,7 @@ impl AtlasView {
         pred: bool,
     ) -> PyResult<Self> {
         let canonical = node_key_to_string(py, node)?;
-        if let Ok(digraph) = graph.downcast::<PyDiGraph>() {
+        if let Ok(digraph) = graph.cast::<PyDiGraph>() {
             if !digraph.borrow().inner.has_node(&canonical) {
                 return Err(crate::missing_key_error(node));
             }
@@ -2301,7 +2301,7 @@ impl AtlasView {
                 node_index: None,
             });
         }
-        let graph = graph.downcast::<PyGraph>()?;
+        let graph = graph.cast::<PyGraph>()?;
         if !graph.borrow().inner.has_node(&canonical) {
             return Err(crate::missing_key_error(node));
         }
@@ -2333,7 +2333,7 @@ impl AtlasView {
             let Some(attrs) = row.bind(py).get_item(v)? else {
                 return Err(PyKeyError::new_err((v.clone().unbind(),)));
             };
-            return Ok(attrs.downcast::<PyDict>()?.clone().unbind());
+            return Ok(attrs.cast::<PyDict>()?.clone().unbind());
         }
         if let RowGraph::Directed { graph, pred } = self.owner()? {
             let (graph, pred) = (graph.clone_ref(py), *pred);
@@ -2540,7 +2540,7 @@ impl AtlasView {
         }
         let py = slf.py();
         let mine = slf.borrow_mut().materialize(py)?;
-        if let Ok(other_view) = other.downcast::<Self>() {
+        if let Ok(other_view) = other.cast::<Self>() {
             let theirs = other_view.borrow_mut().materialize(py)?;
             return mine.bind(py).eq(theirs.bind(py));
         }

@@ -4086,7 +4086,7 @@ fn nx_edge_item<'py>(
     edge_attrs: Option<&Bound<'py, PyDict>>,
     preserve: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let data = data.downcast::<PyDict>()?;
+    let data = data.cast::<PyDict>()?;
     let attrs = if preserve {
         (!data.is_empty()).then(|| data.copy()).transpose()?
     } else if let Some(wanted) = edge_attrs {
@@ -4140,7 +4140,7 @@ pub fn nx_adjacency_edge_batch<'py>(
     };
     if directed {
         for (u, row) in adj.iter() {
-            for (v, data) in row.downcast::<PyDict>()?.iter() {
+            for (v, data) in row.cast::<PyDict>()?.iter() {
                 out.append(item(&u, &v, &data)?)?;
             }
         }
@@ -4157,7 +4157,7 @@ pub fn nx_adjacency_edge_batch<'py>(
         let row = adj
             .get_item(u)?
             .ok_or_else(|| PyRuntimeError::new_err("adjacency changed during conversion"))?;
-        let row = row.downcast::<PyDict>()?;
+        let row = row.cast::<PyDict>()?;
         let mut queue = VecDeque::with_capacity(row.len());
         for (v, data) in row.iter() {
             let vi = index

@@ -39,7 +39,7 @@ static FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES: AtomicBool = AtomicBool::new(false);
 static FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn exact_int_str_keyed_ctor_tuple(item: &Bound<'_, PyAny>) -> bool {
-    let Ok(tuple) = item.downcast::<PyTuple>() else {
+    let Ok(tuple) = item.cast::<PyTuple>() else {
         return false;
     };
     let exact_endpoint = |value: &Bound<'_, PyAny>| {
@@ -1972,7 +1972,7 @@ impl PyMultiDiGraph {
             }
         }
 
-        if let Ok(attr_name) = data.downcast::<PyString>() {
+        if let Ok(attr_name) = data.cast::<PyString>() {
             let attr_name = attr_name.to_str()?;
             match self
                 .inner
@@ -3282,7 +3282,7 @@ impl PyMultiDiGraph {
         // exact `str` and exact `int` keys through the lookaside's own maps
         // instead of a Python dict probe or a canonical String; anything else
         // keeps the dict probe.
-        if let Ok(text) = key.downcast_exact::<PyString>() {
+        if let Ok(text) = key.cast_exact::<PyString>() {
             return self.has_edge_node_index_cache.exact_str_position(
                 py,
                 self.nodes_seq,
@@ -3481,9 +3481,9 @@ impl PyMultiDiGraph {
         py: Python<'_>,
         data: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = data.downcast::<PyList>() {
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = data.cast::<PyList>() {
             list.iter().collect()
-        } else if let Ok(tuple) = data.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = data.cast::<PyTuple>() {
             tuple.iter().collect()
         } else {
             return Ok(false);
@@ -3498,7 +3498,7 @@ impl PyMultiDiGraph {
         let mut edge_keys: HashMap<(String, String, usize), PyObject> = HashMap::new();
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(false);
             };
             let tuple_len = tuple.len();
@@ -3574,7 +3574,7 @@ impl PyMultiDiGraph {
             let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
             let rust_attrs = if tuple_len == 4 {
                 let fourth = tuple.get_item(3)?;
-                let Ok(dict) = fourth.downcast::<PyDict>() else {
+                let Ok(dict) = fourth.cast::<PyDict>() else {
                     return Ok(false);
                 };
                 let py_attrs = match edge_attrs.entry(edge_key.clone()) {
@@ -3757,10 +3757,10 @@ impl PyMultiDiGraph {
 
         for item in items {
             let (node, src_dict): (Bound<'py, PyAny>, Option<Bound<'py, PyDict>>) =
-                if let Ok(tuple) = item.downcast::<PyTuple>() {
+                if let Ok(tuple) = item.cast::<PyTuple>() {
                     if tuple.len() == 2 {
                         let second = tuple.get_item(1)?;
-                        if let Ok(d) = second.downcast::<PyDict>() {
+                        if let Ok(d) = second.cast::<PyDict>() {
                             (tuple.get_item(0)?, Some(d.clone()))
                         } else {
                             (item.clone(), None)
@@ -3871,7 +3871,7 @@ impl PyMultiDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
@@ -3895,7 +3895,7 @@ impl PyMultiDiGraph {
             };
 
             let third = tuple.get_item(2)?;
-            let Ok(dict) = third.downcast::<PyDict>() else {
+            let Ok(dict) = third.cast::<PyDict>() else {
                 return Ok(None);
             };
             // The dict that reports its writes to this graph, built once
@@ -4002,12 +4002,12 @@ impl PyMultiDiGraph {
             return Ok(None);
         }
 
-        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let collected = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
             self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())?
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
@@ -4060,7 +4060,7 @@ impl PyMultiDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
@@ -4079,7 +4079,7 @@ impl PyMultiDiGraph {
             let v_text = v_string.to_str()?;
 
             let third = tuple.get_item(2)?;
-            let Ok(dict) = third.downcast::<PyDict>() else {
+            let Ok(dict) = third.cast::<PyDict>() else {
                 return Ok(None);
             };
             let Ok((attrs, mirror)) = self.edge_attr_writes.attr_map_with_mirror(py, dict) else {
@@ -4151,12 +4151,12 @@ impl PyMultiDiGraph {
             return Ok(None);
         }
 
-        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let collected = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
             self.collect_fresh_exact_string_attr_edge_batch(py, list.iter(), list.len())?
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
@@ -4201,7 +4201,7 @@ impl PyMultiDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 4 {
@@ -4234,7 +4234,7 @@ impl PyMultiDiGraph {
             };
 
             let fourth = tuple.get_item(3)?;
-            let Ok(dict) = fourth.downcast::<PyDict>() else {
+            let Ok(dict) = fourth.cast::<PyDict>() else {
                 return Ok(None);
             };
             // ebunch_batch_lossless only validates 3-tuples, so the 4-tuple's attr
@@ -4310,12 +4310,12 @@ impl PyMultiDiGraph {
             return Ok(None);
         }
 
-        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let collected = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
             self.collect_fresh_exact_int_keyed_attr_edge_batch(py, list.iter(), list.len())?
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
@@ -4358,12 +4358,12 @@ impl PyMultiDiGraph {
         {
             return Ok(None);
         }
-        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
             list.iter().collect()
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
@@ -4378,7 +4378,7 @@ impl PyMultiDiGraph {
         let mut seen_pair_key: rustc_hash::FxHashSet<(String, String, usize)> =
             rustc_hash::FxHashSet::default();
         for item in &items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 4 {
@@ -4413,7 +4413,7 @@ impl PyMultiDiGraph {
                 return Ok(None);
             };
             let fourth = tuple.get_item(3)?;
-            let Ok(dict) = fourth.downcast::<PyDict>() else {
+            let Ok(dict) = fourth.cast::<PyDict>() else {
                 return Ok(None);
             };
             if !crate::attr_dict_is_batch_lossless(dict) {
@@ -5417,7 +5417,7 @@ impl PyMultiDiGraph {
                                 ));
                             }
                         };
-                        if let Ok(tuple) = item.downcast::<PyTuple>() {
+                        if let Ok(tuple) = item.cast::<PyTuple>() {
                             let merged = PyDict::new(py);
                             match tuple.len() {
                                 2 => {
@@ -5432,7 +5432,7 @@ impl PyMultiDiGraph {
                                 }
                                 3 => {
                                     let third = tuple.get_item(2)?;
-                                    if let Ok(d) = third.downcast::<PyDict>() {
+                                    if let Ok(d) = third.cast::<PyDict>() {
                                         merged.update(d.as_mapping())?;
                                         g.add_edge(
                                             py,
@@ -5481,7 +5481,7 @@ impl PyMultiDiGraph {
                                 4 => {
                                     let edge_key = tuple.get_item(2)?;
                                     let fourth = tuple.get_item(3)?;
-                                    if let Ok(d) = fourth.downcast::<PyDict>() {
+                                    if let Ok(d) = fourth.cast::<PyDict>() {
                                         merged.update(d.as_mapping())?;
                                     } else {
                                         // br-r37-c1-baqyi: nx's ddd.update(dd)
@@ -5806,7 +5806,7 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(nodes_for_adding)?;
         for item in iter {
             let item = item?;
-            if let Ok(tuple) = item.downcast::<PyTuple>()
+            if let Ok(tuple) = item.cast::<PyTuple>()
                 && tuple.len() == 2
             {
                 let node = tuple.get_item(0)?;
@@ -5815,7 +5815,7 @@ impl PyMultiDiGraph {
                 if let Some(a) = attr {
                     merged.update(a.as_mapping())?;
                 }
-                if let Ok(d) = node_attrs.downcast::<PyDict>() {
+                if let Ok(d) = node_attrs.cast::<PyDict>() {
                     merged.update(d.as_mapping())?;
                 }
                 self.add_node(py, &node, Some(&merged))?;
@@ -5858,12 +5858,12 @@ impl PyMultiDiGraph {
         {
             return Ok(None);
         }
-        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(None);
             }
             list.iter().collect()
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(None);
             }
@@ -5887,7 +5887,7 @@ impl PyMultiDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in &items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 2 {
@@ -6032,7 +6032,7 @@ impl PyMultiDiGraph {
     ) -> PyResult<bool> {
         const NODE_BATCH_MIN: usize = 8;
         // br-r37-c1-ow0ie: new nodes only (see PyGraph), whatever the graph holds.
-        if let Ok(list) = nodes_to_add.downcast::<PyList>() {
+        if let Ok(list) = nodes_to_add.cast::<PyList>() {
             if list.len() < NODE_BATCH_MIN {
                 return Ok(false);
             }
@@ -6042,7 +6042,7 @@ impl PyMultiDiGraph {
                 self.add_attr_node_batch(py, nodes, new_nodes, node_bumps)?;
                 return Ok(true);
             }
-        } else if let Ok(tuple) = nodes_to_add.downcast::<PyTuple>()
+        } else if let Ok(tuple) = nodes_to_add.cast::<PyTuple>()
             && tuple.len() >= NODE_BATCH_MIN
             && let Some((nodes, new_nodes, node_bumps)) =
                 self.collect_attr_node_batch(py, tuple.iter(), tuple.len())?
@@ -6159,12 +6159,12 @@ impl PyMultiDiGraph {
         {
             return Ok(None);
         }
-        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
             list.iter().collect()
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(None);
             }
@@ -6200,7 +6200,7 @@ impl PyMultiDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in &items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             let tlen = tuple.len();
@@ -6214,7 +6214,7 @@ impl PyMultiDiGraph {
             }
             let rust_attrs: fnx_classes::AttrMap = if tlen == 3 {
                 let third = tuple.get_item(2)?;
-                let Ok(d) = third.downcast::<PyDict>() else {
+                let Ok(d) = third.cast::<PyDict>() else {
                     return Ok(None);
                 };
                 let Ok(attrs) = py_dict_to_attr_map(d) else {
@@ -6288,7 +6288,7 @@ impl PyMultiDiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<Option<Py<PyList>>> {
         const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
-        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+        let Ok(list) = ebunch_to_add.cast::<PyList>() else {
             return Ok(None);
         };
         if list.len() < STR_KEYED_EDGE_BATCH_MIN {
@@ -6296,14 +6296,14 @@ impl PyMultiDiGraph {
         }
         let mut keys: Vec<PyObject> = Vec::with_capacity(list.len());
         for item in list.iter() {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
                 return Ok(None);
             }
             let key = tuple.get_item(2)?;
-            let Ok(key_string) = key.downcast_exact::<PyString>() else {
+            let Ok(key_string) = key.cast_exact::<PyString>() else {
                 return Ok(None);
             };
             match key_string.to_str() {
@@ -6336,7 +6336,7 @@ impl PyMultiDiGraph {
         {
             return Ok(false);
         }
-        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+        let Ok(list) = ebunch_to_add.cast::<PyList>() else {
             return Ok(false);
         };
         let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
@@ -6357,7 +6357,7 @@ impl PyMultiDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in list.iter() {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(false);
             };
             if tuple.len() != 3 {
@@ -6459,7 +6459,7 @@ impl PyMultiDiGraph {
         {
             return Ok(false);
         }
-        let Ok(list) = ebunch_to_add.downcast::<PyList>() else {
+        let Ok(list) = ebunch_to_add.cast::<PyList>() else {
             return Ok(false);
         };
         let mut edges: Vec<(String, String, usize, fnx_classes::AttrMap)> =
@@ -6481,7 +6481,7 @@ impl PyMultiDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in list.iter() {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(false);
             };
             if tuple.len() != 4 {
@@ -6497,7 +6497,7 @@ impl PyMultiDiGraph {
             if k.hash().is_err() {
                 return Ok(false);
             }
-            let Ok(d) = data.downcast::<PyDict>() else {
+            let Ok(d) = data.cast::<PyDict>() else {
                 return Ok(false);
             };
             let Ok((rust_attrs, attrs_lossless)) = crate::py_dict_to_attr_map_with_lossless(d)
@@ -6979,7 +6979,7 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+            let tuple = item.cast::<PyTuple>().map_err(|_| {
                 PyTypeError::new_err(
                     "each edge must be a tuple (u, v), (u, v, data), or (u, v, key, data)",
                 )
@@ -7000,7 +7000,7 @@ impl PyMultiDiGraph {
                 }
                 3 => {
                     let third = tuple.get_item(2)?;
-                    if let Ok(d) = third.downcast::<PyDict>() {
+                    if let Ok(d) = third.cast::<PyDict>() {
                         merged.update(d.as_mapping())?;
                         self.add_edge(
                             py,
@@ -7045,7 +7045,7 @@ impl PyMultiDiGraph {
                 4 => {
                     let edge_key = tuple.get_item(2)?;
                     let fourth = tuple.get_item(3)?;
-                    if let Ok(d) = fourth.downcast::<PyDict>() {
+                    if let Ok(d) = fourth.cast::<PyDict>() {
                         merged.update(d.as_mapping())?;
                     } else {
                         // br-r37-c1-baqyi: nx's ddd.update(dd) runs BEFORE
@@ -8675,7 +8675,7 @@ impl PyMultiDiGraph {
         Python::attach(|py| self.refresh_edges_dirty(py)); // br-r37-c1-urjxk
         if !self.edges_dirty.load(Ordering::Relaxed)
             && !self.edge_py_attrs.is_empty()
-            && let Ok(attr_name) = data.downcast::<PyString>()
+            && let Ok(attr_name) = data.cast::<PyString>()
         {
             let attr_name = attr_name.to_str()?;
             // br-inedges-attrcache (bt): serve the frozen scalar snapshot when the
@@ -10484,7 +10484,7 @@ impl PyMultiDiGraph {
         for item in iter {
             let item = item?;
             let tuple = item
-                .downcast::<PyTuple>()
+                .cast::<PyTuple>()
                 .map_err(|_| PyTypeError::new_err("each edge must be a tuple"))?;
             let u = node_key_to_string(py, &tuple.get_item(0)?)?;
             let v = node_key_to_string(py, &tuple.get_item(1)?)?;
@@ -10799,7 +10799,7 @@ impl PyMultiDiGraph {
         for item in iter {
             let item = item?;
             let tuple = item
-                .downcast::<PyTuple>()
+                .cast::<PyTuple>()
                 .map_err(|_| PyTypeError::new_err("each edge must be a tuple"))?;
             let u = &tuple.get_item(0)?;
             let v = &tuple.get_item(1)?;
@@ -11117,17 +11117,17 @@ impl PyMultiDiGraph {
         self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {
-            self.graph_attrs = graph_attrs.downcast::<PyDict>()?.copy()?.unbind();
+            self.graph_attrs = graph_attrs.cast::<PyDict>()?.copy()?.unbind();
         }
 
         if let Some(nodes) = state.get_item("nodes")? {
             let iter = PyIterator::from_object(&nodes)?;
             for item in iter {
                 let item = item?;
-                let tuple = item.downcast::<PyTuple>()?;
+                let tuple = item.cast::<PyTuple>()?;
                 let node = tuple.get_item(0)?;
                 let attrs = tuple.get_item(1)?;
-                let attrs_dict = attrs.downcast::<PyDict>()?;
+                let attrs_dict = attrs.cast::<PyDict>()?;
                 self.add_node(py, &node, Some(attrs_dict))?;
             }
         }
@@ -11136,12 +11136,12 @@ impl PyMultiDiGraph {
             let iter = PyIterator::from_object(&edges)?;
             for item in iter {
                 let item = item?;
-                let tuple = item.downcast::<PyTuple>()?;
+                let tuple = item.cast::<PyTuple>()?;
                 let u = tuple.get_item(0)?;
                 let v = tuple.get_item(1)?;
                 let key = tuple.get_item(2)?;
                 let attrs = tuple.get_item(3)?;
-                let attrs_dict = attrs.downcast::<PyDict>()?;
+                let attrs_dict = attrs.cast::<PyDict>()?;
                 self.add_edge(py, &u, &v, Some(&key), Some(attrs_dict))?;
             }
         }
@@ -11519,7 +11519,7 @@ impl MultiDiGraphEdgeView {
     ) -> PyResult<Self> {
         let (graph_py, use_native_store) = match graph {
             Some(g) => {
-                if let Ok(mdg) = g.downcast::<PyMultiDiGraph>() {
+                if let Ok(mdg) = g.cast::<PyMultiDiGraph>() {
                     let use_native = g.is_exact_instance_of::<PyMultiDiGraph>()
                         && !mdg.borrow().instance_dict_gc.has_private_override();
                     (Some(mdg.clone().unbind()), use_native)
@@ -11660,7 +11660,7 @@ impl MultiDiGraphEdgeView {
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
         let tuple = edge
-            .downcast::<PyTuple>()
+            .cast::<PyTuple>()
             .map_err(|_| pyo3::exceptions::PyTypeError::new_err("edge must be a tuple"))?;
         let len = tuple.len();
         if len < 2 {
@@ -12572,7 +12572,7 @@ impl PyDiGraph {
         {
             return true;
         }
-        if let Ok(tuple) = key.downcast::<PyTuple>() {
+        if let Ok(tuple) = key.cast::<PyTuple>() {
             return tuple.iter().all(|item| {
                 item.is_instance_of::<PyString>()
                     || item.is_instance_of::<PyInt>()
@@ -12628,7 +12628,7 @@ impl PyDiGraph {
         let mut batch_first: HashMap<String, PyObject> = HashMap::new();
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 2 {
@@ -12729,7 +12729,7 @@ impl PyDiGraph {
         let mut edges: Vec<(usize, usize, AttrMap)> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 2 {
@@ -12783,12 +12783,12 @@ impl PyDiGraph {
         {
             return Ok(false);
         }
-        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let collected = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(false);
             }
             self.collect_fresh_exact_int_plain_edge_batch(list.iter(), list.len())?
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(false);
             }
@@ -12836,7 +12836,7 @@ impl PyDiGraph {
         let mut edges: Vec<(usize, usize)> = Vec::with_capacity(len);
         let mut node_bumps = 0_u64;
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 2 {
@@ -12901,12 +12901,12 @@ impl PyDiGraph {
         {
             return Ok(false);
         }
-        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let collected = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(false);
             }
             self.collect_existing_exact_int_plain_edge_batch(list.iter(), list.len())?
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(false);
             }
@@ -12953,7 +12953,7 @@ impl PyDiGraph {
         {
             return Ok(true);
         }
-        if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < PLAIN_EDGE_BATCH_MIN {
                 return Ok(false);
             }
@@ -12963,7 +12963,7 @@ impl PyDiGraph {
                 self.add_plain_edge_batch(py, edges, new_nodes, node_bumps, final_edge_bump);
                 return Ok(true);
             }
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>()
             && tuple.len() >= PLAIN_EDGE_BATCH_MIN
             && let Some((edges, new_nodes, node_bumps)) =
                 self.collect_plain_edge_batch(py, tuple.iter(), tuple.len())?
@@ -12991,9 +12991,9 @@ impl PyDiGraph {
         for canonical in self.succ_row_py.keys().chain(self.pred_row_py.keys()) {
             owners.add(self.py_node_key(py, canonical))?;
         }
-        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             list.iter().collect()
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             tuple.iter().collect()
         } else {
             return Ok(false);
@@ -13001,7 +13001,7 @@ impl PyDiGraph {
         let mut landing: Vec<(String, String)> = Vec::new();
         let mut noted: HashSet<(String, String)> = HashSet::new();
         for item in &items {
-            let Ok(pair) = item.downcast::<PyTuple>() else {
+            let Ok(pair) = item.cast::<PyTuple>() else {
                 return Ok(false);
             };
             if pair.len() != 2 {
@@ -13066,7 +13066,7 @@ impl PyDiGraph {
         let mut batch_first: HashMap<String, PyObject> = HashMap::new();
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             let tlen = tuple.len();
@@ -13082,7 +13082,7 @@ impl PyDiGraph {
 
             let (rust_attrs, src_dict) = if tlen == 3 {
                 let third = tuple.get_item(2)?;
-                let Ok(dict) = third.downcast::<PyDict>() else {
+                let Ok(dict) = third.cast::<PyDict>() else {
                     return Ok(None);
                 };
                 let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
@@ -13156,7 +13156,7 @@ impl PyDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
@@ -13184,7 +13184,7 @@ impl PyDiGraph {
             }
 
             let third = tuple.get_item(2)?;
-            let Ok(dict) = third.downcast::<PyDict>() else {
+            let Ok(dict) = third.cast::<PyDict>() else {
                 return Ok(None);
             };
             // No dict per edge: the batch is lossless and the store keeps key
@@ -13250,7 +13250,7 @@ impl PyDiGraph {
         let mut seen_edges: rustc_hash::FxHashSet<(i64, i64)> =
             rustc_hash::FxHashSet::with_capacity_and_hasher(limit, rustc_hash::FxBuildHasher);
         for item in items.into_iter().take(limit) {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
@@ -13319,7 +13319,7 @@ impl PyDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
@@ -13341,7 +13341,7 @@ impl PyDiGraph {
                 return Ok(None);
             };
             let third = tuple.get_item(2)?;
-            let Ok(dict) = third.downcast::<PyDict>() else {
+            let Ok(dict) = third.cast::<PyDict>() else {
                 return Ok(None);
             };
 
@@ -13469,7 +13469,7 @@ impl PyDiGraph {
         // collector is a strict superset (byte-identical output on a duplicate-free
         // batch) so it also correctly declines the non-duplicate None reasons.
         const DUPLICATE_PREFIX_SCAN_LIMIT: usize = 32;
-        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let collected = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
@@ -13488,7 +13488,7 @@ impl PyDiGraph {
                         .collect_fresh_exact_int_attr_edge_batch_merged(list.iter(), list.len())?,
                 }
             }
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
@@ -13556,7 +13556,7 @@ impl PyDiGraph {
         let mut node_bumps = 0_u64;
 
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
@@ -13575,7 +13575,7 @@ impl PyDiGraph {
             let v_text = v_string.to_str()?;
 
             let third = tuple.get_item(2)?;
-            let Ok(dict) = third.downcast::<PyDict>() else {
+            let Ok(dict) = third.cast::<PyDict>() else {
                 return Ok(None);
             };
             let Ok(attrs) = py_dict_to_attr_map(dict) else {
@@ -13643,12 +13643,12 @@ impl PyDiGraph {
             return Ok(false);
         }
 
-        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let collected = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
             self.collect_fresh_exact_string_attr_edge_batch(list.iter(), list.len())?
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
@@ -13718,7 +13718,7 @@ impl PyDiGraph {
         // br-r37-c1-batchattrorder (cc): dup directed edge -> decline (nx merges).
         let mut seen_edges: HashSet<(usize, usize)> = HashSet::with_capacity(len);
         for item in items {
-            let Ok(tuple) = item.downcast::<PyTuple>() else {
+            let Ok(tuple) = item.cast::<PyTuple>() else {
                 return Ok(None);
             };
             if tuple.len() != 3 {
@@ -13749,7 +13749,7 @@ impl PyDiGraph {
                 return Ok(None);
             }
             let third = tuple.get_item(2)?;
-            let Ok(dict) = third.downcast::<PyDict>() else {
+            let Ok(dict) = third.cast::<PyDict>() else {
                 return Ok(None);
             };
             // No dict: lossless batch, order-keeping store (br-r37-c1-6hyf1).
@@ -13786,12 +13786,12 @@ impl PyDiGraph {
         {
             return Ok(false);
         }
-        let edges = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        let edges = if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < INT_LABEL_ATTR_BATCH_MIN {
                 return Ok(false);
             }
             self.collect_existing_int_label_attr_edge_indices(list.iter(), list.len())?
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>() {
             if tuple.len() < INT_LABEL_ATTR_BATCH_MIN {
                 return Ok(false);
             }
@@ -13890,7 +13890,7 @@ impl PyDiGraph {
         if self.try_add_existing_int_label_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {
             return Ok(true);
         }
-        if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+        if let Ok(list) = ebunch_to_add.cast::<PyList>() {
             if list.len() < ATTR_EDGE_BATCH_MIN {
                 return Ok(false);
             }
@@ -13900,7 +13900,7 @@ impl PyDiGraph {
                 self.add_attr_edge_batch(py, edges, new_nodes, node_bumps, final_edge_bump)?;
                 return Ok(true);
             }
-        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>()
+        } else if let Ok(tuple) = ebunch_to_add.cast::<PyTuple>()
             && tuple.len() >= ATTR_EDGE_BATCH_MIN
             && let Some((edges, new_nodes, node_bumps)) =
                 self.collect_attr_edge_batch(py, tuple.iter(), tuple.len())?
@@ -13937,10 +13937,10 @@ impl PyDiGraph {
 
         for item in items {
             let (node, src_dict): (Bound<'py, PyAny>, Option<Bound<'py, PyDict>>) =
-                if let Ok(tuple) = item.downcast::<PyTuple>() {
+                if let Ok(tuple) = item.cast::<PyTuple>() {
                     if tuple.len() == 2 {
                         let second = tuple.get_item(1)?;
-                        if let Ok(d) = second.downcast::<PyDict>() {
+                        if let Ok(d) = second.cast::<PyDict>() {
                             (tuple.get_item(0)?, Some(d.clone()))
                         } else {
                             (item.clone(), None)
@@ -14133,7 +14133,7 @@ impl PyDiGraph {
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
         // sfq4w.3: see `PyGraph::cached_exact_string_node_index`.
-        if let Ok(text) = key.downcast_exact::<PyString>() {
+        if let Ok(text) = key.cast_exact::<PyString>() {
             return self.has_edge_node_index_cache.exact_str_position(
                 py,
                 self.nodes_seq,
@@ -14418,7 +14418,7 @@ impl PyDiGraph {
                 {
                     let slot = usize::from(!out);
                     for tuple in row {
-                        let tuple = tuple.bind(py).downcast::<PyTuple>()?;
+                        let tuple = tuple.bind(py).cast::<PyTuple>()?;
                         let mut items = [
                             tuple.get_item(0)?.unbind(),
                             tuple.get_item(1)?.unbind(),
@@ -14460,7 +14460,7 @@ impl PyDiGraph {
         default: &PyObject,
     ) -> PyResult<PyObject> {
         if self.edge_py_attrs.is_empty()
-            && let Ok(attr_name) = data.downcast::<PyString>()
+            && let Ok(attr_name) = data.cast::<PyString>()
         {
             let attr_name = attr_name.to_str()?;
             if let Some(value) = self
@@ -14485,7 +14485,7 @@ impl PyDiGraph {
                 .map_or_else(|| default.clone_ref(py), |value| value.unbind()));
         }
 
-        if let Ok(attr_name) = data.downcast::<PyString>() {
+        if let Ok(attr_name) = data.cast::<PyString>() {
             let attr_name = attr_name.to_str()?;
             if let Some(value) = self
                 .inner
@@ -14989,11 +14989,11 @@ impl PyDiGraph {
                 for item in iter {
                     let item = item?;
                     let mut batched = false;
-                    if let Ok(tuple) = item.downcast::<PyTuple>() {
+                    if let Ok(tuple) = item.cast::<PyTuple>() {
                         let tuple_len = tuple.len();
                         if tuple_len == 2 || tuple_len == 3 {
                             let dict3 = if tuple_len == 3 {
-                                tuple.get_item(2)?.downcast::<PyDict>().ok().cloned()
+                                tuple.get_item(2)?.cast::<PyDict>().ok().cloned()
                             } else {
                                 None
                             };
@@ -15066,7 +15066,7 @@ impl PyDiGraph {
                         continue;
                     }
                     flush_batch!();
-                    if let Ok(tuple) = item.downcast::<PyTuple>() {
+                    if let Ok(tuple) = item.cast::<PyTuple>() {
                         let merged = PyDict::new(py);
                         match tuple.len() {
                             2 => {
@@ -15078,7 +15078,7 @@ impl PyDiGraph {
                                 )?;
                             }
                             3 => {
-                                if let Ok(d) = tuple.get_item(2)?.downcast::<PyDict>() {
+                                if let Ok(d) = tuple.get_item(2)?.cast::<PyDict>() {
                                     merged.update(d.as_mapping())?;
                                     g.add_edge(
                                         py,
@@ -15417,7 +15417,7 @@ impl PyDiGraph {
         let iter = PyIterator::from_object(nodes_for_adding)?;
         for item in iter {
             let item = item?;
-            if let Ok(tuple) = item.downcast::<PyTuple>()
+            if let Ok(tuple) = item.cast::<PyTuple>()
                 && tuple.len() == 2
             {
                 let node = tuple.get_item(0)?;
@@ -15426,7 +15426,7 @@ impl PyDiGraph {
                 if let Some(a) = attr {
                     merged.update(a.as_mapping())?;
                 }
-                if let Ok(d) = node_attrs.downcast::<PyDict>() {
+                if let Ok(d) = node_attrs.cast::<PyDict>() {
                     merged.update(d.as_mapping())?;
                 }
                 self.add_node(py, &node, Some(&merged))?;
@@ -15695,7 +15695,7 @@ impl PyDiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+            let tuple = item.cast::<PyTuple>().map_err(|_| {
                 PyTypeError::new_err("each edge must be a tuple (u, v) or (u, v, attr_dict)")
             })?;
             let len = tuple.len();
@@ -15716,7 +15716,7 @@ impl PyDiGraph {
                 // a TypeError via dict.update's iteration (e.g.
                 // ``'float' object is not iterable``). Previously fnx
                 // silently dropped non-dict thirds.
-                if let Ok(dict_arg) = d.downcast::<PyDict>() {
+                if let Ok(dict_arg) = d.cast::<PyDict>() {
                     merged.update(dict_arg.as_mapping())?;
                 } else {
                     // br-r37-c1-baqyi: nx creates BOTH endpoint nodes
@@ -15765,7 +15765,7 @@ impl PyDiGraph {
     ) -> PyResult<bool> {
         const NODE_BATCH_MIN: usize = 8;
         // br-r37-c1-ow0ie: new nodes only (see PyGraph), whatever the graph holds.
-        if let Ok(list) = nodes_to_add.downcast::<PyList>() {
+        if let Ok(list) = nodes_to_add.cast::<PyList>() {
             if list.len() < NODE_BATCH_MIN {
                 return Ok(false);
             }
@@ -15775,7 +15775,7 @@ impl PyDiGraph {
                 self.add_attr_node_batch(py, nodes, new_nodes, node_bumps)?;
                 return Ok(true);
             }
-        } else if let Ok(tuple) = nodes_to_add.downcast::<PyTuple>()
+        } else if let Ok(tuple) = nodes_to_add.cast::<PyTuple>()
             && tuple.len() >= NODE_BATCH_MIN
             && let Some((nodes, new_nodes, node_bumps)) =
                 self.collect_attr_node_batch(py, tuple.iter(), tuple.len())?
@@ -15881,7 +15881,7 @@ impl PyDiGraph {
         for item in iter {
             let item = item?;
             let tuple = item
-                .downcast::<PyTuple>()
+                .cast::<PyTuple>()
                 .map_err(|_| PyTypeError::new_err("each element must be a (u, v) tuple"))?;
             if tuple.len() < 2 {
                 continue;
@@ -17333,7 +17333,7 @@ impl PyDiGraph {
         for item in iter {
             let item = item?;
             let tuple = item
-                .downcast::<PyTuple>()
+                .cast::<PyTuple>()
                 .map_err(|_| PyTypeError::new_err("each edge must be a (u, v) tuple"))?;
             let u = node_key_to_string(py, &tuple.get_item(0)?)?;
             let v = node_key_to_string(py, &tuple.get_item(1)?)?;
@@ -17812,7 +17812,7 @@ impl PyDiGraph {
         self.refresh_edges_dirty(py);
         if self.succ_py_keys.is_empty()
             && !self.edges_dirty.load(Ordering::Relaxed)
-            && let Ok(attr) = key.downcast::<PyString>()
+            && let Ok(attr) = key.cast::<PyString>()
         {
             let items = self.value_row_tuples(py, true, None, attr.to_str()?, key, &default)?;
             return Ok(items.into_pyobject(py)?.into_any().unbind());
@@ -18071,7 +18071,7 @@ impl PyDiGraph {
         // graph's predecessor rows (DiValueRows), which the nbunch in_edges
         // reads too - nx rebuilds the InEdgeDataView every call.
         if self.pred_py_keys.is_empty()
-            && let Ok(attr) = key.downcast::<PyString>()
+            && let Ok(attr) = key.cast::<PyString>()
         {
             let items = self.value_row_tuples(py, false, None, attr.to_str()?, key, &default)?;
             return Ok(items.into_pyobject(py)?.into_any().unbind());
@@ -19070,7 +19070,7 @@ impl PyDiGraph {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
-        if let Ok(attr) = data.downcast::<PyString>() {
+        if let Ok(attr) = data.cast::<PyString>() {
             let rows = self.nbunch_positions(py, nbunch)?;
             return Ok(Some(self.value_row_tuples(
                 py,
@@ -19221,7 +19221,7 @@ impl PyDiGraph {
         if !self.succ_py_keys.is_empty() {
             return Ok(None);
         }
-        if let Ok(attr) = data.downcast::<PyString>() {
+        if let Ok(attr) = data.cast::<PyString>() {
             let rows = self.nbunch_positions(py, nbunch)?;
             return Ok(Some(self.value_row_tuples(
                 py,
@@ -19909,17 +19909,17 @@ impl PyDiGraph {
         self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {
-            self.graph_attrs = graph_attrs.downcast::<PyDict>()?.copy()?.unbind();
+            self.graph_attrs = graph_attrs.cast::<PyDict>()?.copy()?.unbind();
         }
 
         if let Some(nodes) = state.get_item("nodes")? {
             let iter = PyIterator::from_object(&nodes)?;
             for item in iter {
                 let item = item?;
-                let tuple = item.downcast::<PyTuple>()?;
+                let tuple = item.cast::<PyTuple>()?;
                 let node = tuple.get_item(0)?;
                 let attrs = tuple.get_item(1)?;
-                let attrs_dict = attrs.downcast::<PyDict>()?;
+                let attrs_dict = attrs.cast::<PyDict>()?;
                 self.add_node(py, &node, Some(attrs_dict))?;
             }
         }
@@ -19928,11 +19928,11 @@ impl PyDiGraph {
             let iter = PyIterator::from_object(&edges)?;
             for item in iter {
                 let item = item?;
-                let tuple = item.downcast::<PyTuple>()?;
+                let tuple = item.cast::<PyTuple>()?;
                 let u = tuple.get_item(0)?;
                 let v = tuple.get_item(1)?;
                 let attrs = tuple.get_item(2)?;
-                let attrs_dict = attrs.downcast::<PyDict>()?;
+                let attrs_dict = attrs.cast::<PyDict>()?;
                 self.add_edge(py, &u, &v, Some(attrs_dict))?;
             }
         }
@@ -20444,7 +20444,7 @@ impl DiEdgeView {
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
         let tuple = edge
-            .downcast::<PyTuple>()
+            .cast::<PyTuple>()
             .map_err(|_| PyTypeError::new_err("edge must be a (u, v) tuple"))?;
         if tuple.len() < 2 {
             return Ok(false);
@@ -23328,7 +23328,7 @@ def fnx_keyed_attr_edges(mixed):
                 .__getstate__(py)
                 .expect("state export should succeed")
                 .into_bound(py)
-                .downcast_into::<PyDict>()
+                .cast_into::<PyDict>()
                 .expect("state should be a dict");
             let mode = state
                 .get_item("mode")
@@ -23479,7 +23479,7 @@ def fnx_keyed_attr_edges(mixed):
                 .__getstate__(py)
                 .expect("state export should succeed")
                 .into_bound(py)
-                .downcast_into::<PyDict>()
+                .cast_into::<PyDict>()
                 .expect("state should be a dict");
             let mode = state
                 .get_item("mode")
