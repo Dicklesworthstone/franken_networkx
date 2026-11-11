@@ -266,6 +266,19 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # minimum_spanning_arborescence). Surface the standard error.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    if (
+        _GRAPH_ATTR_OVERRIDE in vars(G)
+        and type(vars(G)[_GRAPH_ATTR_OVERRIDE]) is not dict
+    ):
+        # Read custom metadata before copying nodes or selecting spanning edges.
+        # A provider may change either while its mapping is consumed.
+        return _spanning_tree_from_edges(
+            G,
+            minimum_spanning_edges(
+                G, algorithm=algorithm, weight=weight,
+                keys=True, data=True, ignore_nan=ignore_nan,
+            ),
+        )
     # br-mstcallable: the Rust _raw_minimum_spanning_tree requires
     # ``weight`` to be a str; nx accepts a callable
     # ``weight(u, v, d) -> float``.  Route non-str weight values
@@ -324,6 +337,11 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     if isinstance(G, MultiGraph):
         result = _raw_multigraph_minimum_spanning_tree(G, weight=weight)
         if result is not None:
+            if _GRAPH_ATTR_OVERRIDE in vars(G):
+                # The native result copies stored metadata; JSON imports and
+                # shallow storage aliases expose a separate live dictionary.
+                result.graph.clear()
+                result.graph.update(G.graph)
             return result
         return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     result = _raw_minimum_spanning_tree(G, weight=weight)

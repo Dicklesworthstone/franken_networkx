@@ -208,49 +208,25 @@ def node_link_data(
     ``node_link_data(G, "from_", "to_")`` which nx rejects with
     ``TypeError: takes 1 positional argument but 3 were given``.
     """
-    internal_names = [source, target, name]
-    if G.is_multigraph():
-        internal_names.append(key)
-    if len(set(internal_names)) != len(internal_names):
+    multigraph = G.is_multigraph()
+    edge_key = key if multigraph else None
+    # Node IDs and edge endpoints live in different records. Their field
+    # names may coincide; only the three edge fields must remain distinct.
+    if len({source, target, edge_key}) != 3:
         raise NetworkXError("Attribute names are not unique.")
 
-    # br-r37-c1-9kpev native fast path REMOVED (cc, adjdataedgeattr): like
-    # adjacency_data, node_link_data_simple copied edge attrs from the Python
-    # edge MIRROR, which is empty for batch-built simple graphs (attrs live in
-    # the native CgseValue store) — so it silently DROPPED every edge attribute
-    # on graphs built with add_weighted_edges_from / add_edges_from, corrupting
-    # node-link JSON. The comprehension fallback below sources edges from
-    # G.edges(data=True), which reads the store correctly and stays byte-exact
-    # with nx for both directed and undirected inputs.
-    # cc-nldmaterialize: iterate the RAW materialized view lists, not the
-    # _FailFastEdgeIterator/_gen-guarded generators. `_materialize()` (present on
-    # every NodeDataView and the simple-Graph EdgeDataView) returns the exact same
-    # (node, attrs)/(u, v, attrs) tuples in the same order, but skips the per-element
-    # mutation-guard `__next__` dispatch (1.85x on the edge walk: 0.73->0.39ms at
-    # 3000 edges) — node_link_data never mutates G mid-build, so the guard is pure
-    # overhead. `hasattr` fallback keeps the guarded path for views without it
-    # (DiGraph/Multi edge views), which are already >= nx. Byte-identical.
-    _node_view = G.nodes(data=True)
-    _node_iter = (
-        _node_view._materialize()
-        if hasattr(_node_view, "_materialize")
-        else _node_view
-    )
+    # Consume the public graph/node/edge protocols in order. Attribute mappings
+    # and field-name objects can execute user code, so a private materialized
+    # snapshot can miss later changes or bypass a caller's iterator entirely.
     payload = {
         "directed": G.is_directed(),
-        "multigraph": G.is_multigraph(),
-        "graph": dict(G.graph),
-        nodes: [{**node_attrs, name: node} for node, node_attrs in _node_iter],
+        "multigraph": multigraph,
+        "graph": G.graph,
+        nodes: [{**G.nodes[node], name: node} for node in G],
     }
     edge_payloads = []
-    if G.is_multigraph():
-        _edge_view = G.edges(keys=True, data=True)
-        _edge_iter = (
-            _edge_view._materialize()
-            if hasattr(_edge_view, "_materialize")
-            else _edge_view
-        )
-        for u, v, edge_key, edge_attrs in _edge_iter:
+    if multigraph:
+        for u, v, edge_key, edge_attrs in G.edges(keys=True, data=True):
             edge_payloads.append(
                 {
                     **edge_attrs,
@@ -260,13 +236,7 @@ def node_link_data(
                 }
             )
     else:
-        _edge_view = G.edges(data=True)
-        _edge_iter = (
-            _edge_view._materialize()
-            if hasattr(_edge_view, "_materialize")
-            else _edge_view
-        )
-        for u, v, edge_attrs in _edge_iter:
+        for u, v, edge_attrs in G.edges(data=True):
             edge_payloads.append({**edge_attrs, source: u, target: v})
     payload[edges] = edge_payloads
     return payload
@@ -330,6 +300,19 @@ def adjacency_graph(
     return graph
 
 
+def _node_link_plain_records(records):
+    """Admit batching only when reading records cannot call input providers."""
+    if type(records) is not list:
+        return False
+    for record in records:
+        if type(record) is not dict:
+            return False
+        for field, value in record.items():
+            if type(field) is not str or type(value) not in (str, int, float, bool, type(None)):
+                return False
+    return True
+
+
 def node_link_graph(
     data,
     directed=False,
@@ -372,26 +355,40 @@ def node_link_graph(
     directed = data.get("directed", directed)
     graph = _json_graph_from_flags(directed=directed, multigraph=multigraph)
     key = None if not multigraph else key
-    graph.graph.update(dict(data.get("graph", {})))
+    # Node-link data deliberately shares its metadata object with the graph.
+    # General graph assignment preserves an existing dict in this package;
+    # use the same explicit alias mechanism as graph views instead.
+    vars(graph)[_GRAPH_ATTR_OVERRIDE] = data.get("graph", {})
 
-    # br-r37-c1-jbldr: batch node + (simple-graph) edge construction (same lever
-    # as adjacency_graph). Per-node add_node(**data) + per-edge add_edge(**data)
-    # each paid the PyO3-boundary cost once per element (~2.0x nx); add_nodes_from
-    # / add_edges_from commit them in one bulk insertion with the same order and
-    # the same attr-merge semantics, so output is byte-identical. The `next(counter)`
-    # default arg is evaluated per node exactly as before. Multigraph keeps the
-    # per-edge key-aware path.
+    # Retain bulk construction for ordinary scalar JSON records. User-defined
+    # keys, mapping/iterator protocols and attribute-name conversions must run
+    # interleaved with insertion: a hash or string conversion can alter the
+    # next input record. Buffering it first would silently retain stale data.
     counter = _count()
     node_batch = []
-    for node_payload in data[nodes]:
+    node_records = data[nodes]
+    batch_nodes = (
+        type(data) is dict and type(name) is str
+        and _node_link_plain_records(node_records)
+    )
+    for node_payload in node_records:
         node = _json_graph_to_tuple(node_payload.get(name, next(counter)))
         node_data = {str(k): v for k, v in node_payload.items() if k != name}
-        node_batch.append((node, node_data))
-    graph.add_nodes_from(node_batch)
+        if batch_nodes:
+            node_batch.append((node, node_data))
+        else:
+            graph.add_node(node, **node_data)
+    if batch_nodes:
+        graph.add_nodes_from(node_batch)
 
     if not multigraph:
         edge_batch = []
-        for edge_payload in data[edges]:
+        edge_records = data[edges]
+        batch_edges = (
+            type(data) is dict and type(source) is str and type(target) is str
+            and _node_link_plain_records(edge_records)
+        )
+        for edge_payload in edge_records:
             source_node = _json_graph_to_tuple(edge_payload[source])
             target_node = _json_graph_to_tuple(edge_payload[target])
             edge_data = {
@@ -399,8 +396,12 @@ def node_link_graph(
                 for k, v in edge_payload.items()
                 if k != source and k != target
             }
-            edge_batch.append((source_node, target_node, edge_data))
-        graph.add_edges_from(edge_batch)
+            if batch_edges:
+                edge_batch.append((source_node, target_node, edge_data))
+            else:
+                graph.add_edge(source_node, target_node, **edge_data)
+        if batch_edges:
+            graph.add_edges_from(edge_batch)
     else:
         for edge_payload in data[edges]:
             source_node = _json_graph_to_tuple(edge_payload[source])

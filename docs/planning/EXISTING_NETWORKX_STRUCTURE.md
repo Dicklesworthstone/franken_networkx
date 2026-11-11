@@ -2197,3 +2197,34 @@ the candidate edge while preserving exact Python arithmetic, hidden edges,
 arbitrary attribute keys including `None`, and callback dictionary identity,
 mutations and exceptions. Callback-driven backend iterators invalidate cached
 conversions around each advancement and close.
+
+## 80. Node-Link Round Trips and Metadata Aliases
+
+Node-link field uniqueness applies to the edge source, target and effective
+multigraph key. Node identifier fields have their own scope and may reuse an
+edge field name. The effective key is `None` for simple graphs, preserving
+the reference validation for `None` source or target selectors.
+
+Export reads the graph's public node and edge providers in their observable
+order. Both export and import retain the graph metadata object itself,
+including non-dictionary metadata. Node and edge attribute dictionaries are
+independent shallow copies, with nested values shared; decoding converts
+attribute names to strings and reconstructs tuple labels and keyed edges.
+
+Ordinary scalar JSON lists retain bulk insertion. Custom node labels, field
+keys, mappings or iterators are decoded and inserted incrementally so their
+callbacks can affect later records. The decoder does not consume those
+providers merely to select a fast path.
+
+Copies of graphs with logical metadata aliases own a fresh metadata dictionary
+and retain its shallow values. Native copies restore plain metadata aliases;
+custom metadata providers run before topology is copied. Subsequent JSON,
+GML and GraphML exports observe metadata changes made through the original
+node-link payload, including after a graph copy.
+
+All four graph constructors read the logical metadata when converting an
+imported graph, preserve shallow values and apply explicit constructor
+attributes afterward. Metadata providers run before the topology is copied.
+Minimum and maximum spanning trees retain that metadata; custom metadata
+providers are read before edge selection. Native GML admission rejects logical
+metadata aliases so plain integer-node graphs cannot silently lose metadata.

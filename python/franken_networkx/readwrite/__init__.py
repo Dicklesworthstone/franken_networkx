@@ -429,6 +429,8 @@ def _write_gml_via_nx(G, path, *, stringizer=None):
     if (
         stringizer is None
         and G.__class__ is fnx.Graph
+        # Native writers read the stored dictionary, not a live metadata alias.
+        and fnx._GRAPH_ATTR_OVERRIDE not in vars(G)
         and _write_gml_native_plain_path_ok(path)
         and (
             fnx._fnx.write_gml_nx_int_noattr(G, path)

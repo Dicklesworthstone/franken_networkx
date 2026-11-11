@@ -709,10 +709,15 @@ def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
     the bidirected view.
     """
     source_type = type(source)
+    # Native absorbs copy stored metadata, not aliases exposed by JSON imports
+    # and views. The public path reads those providers in constructor order.
     native_source = (
         source_type is Graph or source_type is DiGraph
         or source_type is MultiGraph or source_type is MultiDiGraph
-    ) and not _has_networkx_private_storage(source)
+    ) and (
+        _GRAPH_ATTR_OVERRIDE not in source.__dict__
+        and not _has_networkx_private_storage(source)
+    )
 
     # br-r37-c1-dgctor: DiGraph(Graph) fast path — native bidirected
     # shallow copy in one pass (adjacency-row edge order, matching nx's

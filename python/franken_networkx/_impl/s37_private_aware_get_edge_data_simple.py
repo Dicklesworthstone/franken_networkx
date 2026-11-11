@@ -1230,14 +1230,21 @@ def _copy_preserving_insertion_order(self, as_view=False):
     if type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph) and not (
         _captured_private_overrides(self)
     ):
-        target = vars(self).get(_SHARED_STORAGE_SOURCE, self)
-        native_copy = getattr(target, "_native_copy", None)
-        if native_copy is not None:
-            res = native_copy()
-            if target is not self:
-                res.graph.clear()
-                res.graph.update(self.graph)
-            return res
+        state = vars(self)
+        has_graph_override = _GRAPH_ATTR_OVERRIDE in state
+        if not has_graph_override or type(state[_GRAPH_ATTR_OVERRIDE]) is dict:
+            target = state.get(_SHARED_STORAGE_SOURCE, self)
+            native_copy = getattr(target, "_native_copy", None)
+            if native_copy is not None:
+                res = native_copy()
+                # Native storage cannot see a logical metadata alias (including
+                # node-link payload metadata). Restore the live shallow contents.
+                # Non-plain providers take the ordered generic path below so their
+                # callbacks run before nodes and edges are copied.
+                if target is not self or has_graph_override:
+                    res.graph.clear()
+                    res.graph.update(self.graph)
+                return res
 
     result = type(self)()
     # Shallow: result.graph is a new dict but its values are shared
