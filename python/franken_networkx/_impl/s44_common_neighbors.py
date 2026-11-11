@@ -667,10 +667,20 @@ def _goldberg_radzik_can_snapshot(G, weight):
     """Inspect native edge values without running their numeric/read hooks."""
     if (
         type(G) not in (Graph, DiGraph)
+        or type(weight) is not str
         or _has_networkx_private_storage(G)
         or G.edge_attr_dict_factory is not dict
-        or type(weight) is not str
-        or any(name in G.__dict__ for name in ("is_directed", "is_multigraph", "adjacency"))
+    ):
+        return False
+    storage = G.__dict__
+    if any(name in storage for name in (
+        "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+        "nbunch_iter", "adjacency", "neighbors", "__iter__", "__len__",
+    )):
+        return False
+    if any(
+        name in storage and storage[name] is not storage.get(f"_fnx_view_{name}")
+        for name in ("nodes", "edges", "adj", "succ", "pred")
     ):
         return False
     if any(type(node) not in (str, int, float, bool) for node in G):
@@ -720,8 +730,8 @@ def goldberg_radzik(G, source, weight="weight"):
 
 def _goldberg_radzik_inproc(G, source, weight="weight"):
     """Compute shortest path lengths and predecessors via Goldberg-Radzik in-process."""
-    if source not in G:
-        raise NodeNotFound(f"Node {source} is not found in the graph")
+    # The public boundary already validated source. Repeating membership here
+    # would invoke a caller's graph/key protocol twice before weight handling.
     weight_fn = _weight_function(G, weight)
     if G.is_multigraph():
         if any(

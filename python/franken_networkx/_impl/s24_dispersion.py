@@ -590,8 +590,7 @@ def bellman_ford_predecessor_and_distance(
 
 
 def _bellman_ford_predecessor_and_distance_inproc(G, source, target=None, weight="weight", heuristic=False):
-    if source not in G:
-        raise NodeNotFound(f"Node {source} is not found in the graph")
+    # Source membership is owned by the public wrapper, before weight reads.
     weight_fn = _weight_function(G, weight)
     if G.is_multigraph():
         if any(

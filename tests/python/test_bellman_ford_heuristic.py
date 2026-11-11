@@ -313,3 +313,117 @@ def test_custom_heuristic_truth_is_evaluated_at_relaxation(graph_type, mode, sha
         return result, events
 
     assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+@pytest.mark.parametrize("heuristic", [False, True])
+@pytest.mark.parametrize("target", [None, 1, []])
+@pytest.mark.parametrize("weight", ["cost", None])
+def test_backend_predecessor_maps_keep_exact_costs_and_full_targets(
+    graph_type, heuristic, target, weight
+):
+    graph = getattr(nx, graph_type)([(0, 1), (1, 2), (0, 2)])
+    for u, v, data in graph.edges(data=True):
+        data[weight] = Fraction(5 if (u, v) == (0, 2) else 1, 3)
+    options = {"target": target, "weight": weight, "heuristic": heuristic}
+    expected = nx.bellman_ford_predecessor_and_distance(
+        graph, 0, backend="networkx", **options
+    )
+    actual = nx.bellman_ford_predecessor_and_distance(
+        graph, 0, backend="franken_networkx", **options
+    )
+    assert _ordered_typed(actual) == _ordered_typed(expected)
+    assert actual[1][2] == Fraction(2, 3)
+
+
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+@pytest.mark.parametrize("heuristic", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("automatic", [False, True])
+def test_backend_predecessor_weight_callbacks_keep_original_rows(
+    graph_type, heuristic, cached, automatic, monkeypatch
+):
+    def run(backend):
+        graph = getattr(nx, graph_type)()
+        graph.add_weighted_edges_from([(0, 1, 10), (0, 2, 1), (2, 1, 1), (1, 3, 10)])
+        if cached and backend == "franken_networkx":
+            monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        events = []
+
+        def weight(u, v, attrs):
+            assert attrs is graph._adj[u][v]
+            events.append((u, v))
+            if (u, v) == (0, 2):
+                later = graph[1][3][0] if graph.is_multigraph() else graph[1][3]
+                later["weight"] = 0
+            if graph.is_multigraph():
+                return min(data["weight"] for data in attrs.values())
+            return attrs["weight"]
+
+        kwargs = {"backend": backend}
+        if automatic and backend == "franken_networkx":
+            monkeypatch.setattr(nx.config.backend_priority, "algos", [backend])
+            kwargs = {}
+        result = nx.bellman_ford_predecessor_and_distance(
+            graph, 0, 1, weight, heuristic, **kwargs
+        )
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return _ordered_typed(result), events
+
+    expected = run("networkx")
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("name", ["goldberg_radzik", "bellman_ford_predecessor_and_distance"])
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+@pytest.mark.parametrize("route", ["native", "foreign", "backend"])
+@pytest.mark.parametrize("source", [0, "missing"])
+def test_predecessor_public_source_validation_keeps_membership_reads(
+    name, graph_type, route, source
+):
+    def run(reference):
+        events = []
+        module = fnx if not reference and route == "native" else nx
+        base = getattr(module, graph_type)
+
+        class ObservedGraph(base):
+            def __contains__(self, node):
+                events.append(("contains", node))
+                return super().__contains__(node)
+
+        graph = ObservedGraph([(0, 1)])
+        if module is fnx:
+            # Use logical rows to isolate algorithm source validation from
+            # membership checks made by native adjacency view construction.
+            edge = {0: {}} if graph.is_multigraph() else {}
+            rows = {0: {1: edge}, 1: {}}
+            if graph.is_directed():
+                graph._succ = rows
+                graph._pred = {0: {}, 1: {0: edge}}
+            else:
+                rows[1][0] = edge
+            graph._adj = rows
+        events.clear()
+        if reference:
+            function, kwargs = getattr(nx, name), {"backend": "networkx"}
+        elif route == "backend":
+            function, kwargs = getattr(nx, name), {"backend": "franken_networkx"}
+        else:
+            function, kwargs = getattr(fnx, name), {}
+        try:
+            result = "return", _ordered_typed(function(graph, source, **kwargs))
+        except Exception as error:
+            result = "raise", type(error).__name__, str(error)
+        return result, events
+
+    expected, actual = run(True), run(False)
+    assert actual == expected
+    assert actual[1][0] == ("contains", source)
+    if source == "missing":
+        assert actual[0] == (
+            "raise", "NodeNotFound", "Node missing is not found in the graph"
+        )
+        assert actual[1] == [("contains", source)]

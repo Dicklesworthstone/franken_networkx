@@ -258,6 +258,11 @@ owned Bellman-Ford and Goldberg-Radzik engines, with snapshot admission based
 on storage and exact scalar types. Backend routing preserves original inputs
 and invalidates conversions after observable provider execution.
 
+Goldberg-Radzik and Bellman-Ford predecessor queries validate source membership
+only at their public boundary. Backend average-shortest-path calls reach their
+method-specific engines, preserving live providers and Python numeric domains
+where the selected method defines them.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.

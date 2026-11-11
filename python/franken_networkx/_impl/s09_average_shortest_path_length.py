@@ -380,19 +380,10 @@ def average_shortest_path_length(G, weight=None, method=None):
 
     Matches ``networkx.average_shortest_path_length`` signature.
     """
-    # br-r37-c1-10xrd: materialize SubgraphView so the Rust path sees
-    # the filtered nodes/edges (and correctly raises NetworkXError
-    # when the view is disconnected). Same view-coerce family as
-    # br-r37-c1-ajhcl / -c7xg2 / -2dbnk.
-    live_weight = (
-        weight is not None
-        and method in (None, "dijkstra", "bellman-ford")
-        and _weighted_query_uses_live_python_rows(G, weight)
-    )
-    if not live_weight:
-        G = _coerce_arg_to_fnx_graph(G)
+    if method is None:
+        method = "unweighted" if weight is None else "dijkstra"
     _SUPPORTED_METHODS = (
-        None, "unweighted", "dijkstra", "bellman-ford",
+        "unweighted", "dijkstra", "bellman-ford",
         "floyd-warshall", "floyd-warshall-numpy",
     )
     if method not in _SUPPORTED_METHODS:
@@ -401,34 +392,76 @@ def average_shortest_path_length(G, weight=None, method=None):
     # (no divisions happen on that code path); fnx's Rust-native path
     # returns 0.0 float. Match nx's exact type so isinstance(..., int)
     # checks downstream don't diverge.
-    n = G.number_of_nodes()
+    n = len(G)
+    if n == 0:
+        raise NetworkXPointlessConcept(
+            "the null graph has no paths, thus there is no average shortest path length"
+        )
     if n == 1:
         return 0
+    live_weight = method in ("dijkstra", "bellman-ford") and (
+        type(weight) is not str
+        or type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _weighted_query_uses_live_python_rows(G, weight)
+    )
+    # Dictionary Floyd-Warshall and live weight providers own their graph
+    # reads. Materialization would detach later reads and provider writes.
+    if not live_weight and method not in ("floyd-warshall", "floyd-warshall-numpy"):
+        G = _coerce_arg_to_fnx_graph(G)
+    live_rows = live_weight or method in ("floyd-warshall", "floyd-warshall-numpy")
+
+    def connected_live(strong):
+        # Keep the public connectivity boundary, including its fresh graph
+        # kind/count reads, while retaining the caller's live adjacency rows.
+        if G.is_directed() != strong:
+            kind = "undirected" if strong else "directed"
+            raise NetworkXNotImplemented(f"not implemented for {kind} type")
+        count = len(G)
+        if count == 0:
+            raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+        components = strongly_connected_components(G) if strong else connected_components(G)
+        size = len(next(components))
+        return size == (len(G) if strong else count)
+
+    if G.is_directed() and not (
+        connected_live(True) if live_rows else is_strongly_connected(G)
+    ):
+        raise NetworkXError("Graph is not strongly connected.")
+    if not G.is_directed() and not (
+        connected_live(False) if live_rows else is_connected(G)
+    ):
+        raise NetworkXError("Graph is not connected.")
     # In-process exact Floyd-Warshall variants
     if method in ("floyd-warshall", "floyd-warshall-numpy"):
-        if G.is_directed() and not is_strongly_connected(G):
-            raise NetworkXError("Graph is not strongly connected.")
-        if not G.is_directed() and not is_connected(G):
-            raise NetworkXError("Graph is not connected.")
         if method == "floyd-warshall":
             all_pairs = floyd_warshall(G, weight=weight)
             s = sum(sum(t.values()) for t in all_pairs.values())
         else:
             s = float(floyd_warshall_numpy(G, weight=weight).sum())
         return s / (n * (n - 1))
-    if live_weight or (
-        weight is not None
-        and method in (None, "dijkstra")
-        and _should_delegate_dijkstra_to_networkx(G, weight)
+    if live_weight:
+        # In an explicitly weighted method, None is an attribute key. Each
+        # source resolves its live weight function afresh, matching the public
+        # single-source engines without converting the supplied graph.
+        def path_length(source):
+            if method == "bellman-ford":
+                return _bellman_ford_inproc(G, [source], _weight_function(G, weight))
+            sources = {source}
+            if source not in G:
+                raise NodeNotFound(f"Node {source} not found in graph")
+            return _dijkstra_multisource_inproc(G, sources, _weight_function(G, weight))
+
+        s = sum(l for u in G for l in path_length(u).values())
+        return s / (n * (n - 1))
+    if (
+        method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight)
+    ) or (
+        method == "bellman-ford"
+        and (
+            _should_delegate_bellman_ford_to_networkx(weight, G)
+            or _sp_weights_need_networkx_for_type_parity(G, weight)
+        )
     ):
-        if n == 0:
-            raise NetworkXPointlessConcept(
-                "the null graph has no paths, thus there is no average shortest path length"
-            )
-        if G.is_directed() and not is_strongly_connected(G):
-            raise NetworkXError("Graph is not strongly connected.")
-        if not G.is_directed() and not is_connected(G):
-            raise NetworkXError("Graph is not connected.")
         path_length = (
             single_source_bellman_ford_path_length
             if method == "bellman-ford"
@@ -440,6 +473,10 @@ def average_shortest_path_length(G, weight=None, method=None):
             for l in path_length(G, u, weight=weight).values()
         )
         return s / (n * (n - 1))
+    if method == "unweighted":
+        # The selected method ignores the weight argument, even if that value
+        # cannot cross the native binding's optional-string boundary.
+        return _raw_average_shortest_path_length(G, weight=None, method=method)
     if isinstance(weight, str):
         # br-r37-c1-4tmgq: the native kernel reads the Rust attr store; push any
         # post-construction Python-side edge attribute writes down first. The

@@ -242,7 +242,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "greedy_color",
         "floyd_warshall", "floyd_warshall_predecessor_and_distance",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
-        "harmonic_centrality",
+        "harmonic_centrality", "average_shortest_path_length",
     }
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -316,6 +316,25 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # Owned dictionary and matrix routes already admit the original
         # graph. Conversion can discard edge readers and their live writes.
         return True
+    if name == "average_shortest_path_length":
+        # Floyd-Warshall already admits live edge readers. Explicit weighted
+        # methods also accept non-string attribute keys, including None.
+        method = arguments.get("method")
+        weight = arguments.get("weight")
+        return (
+            method in ("floyd-warshall", "floyd-warshall-numpy")
+            or (
+                method != "unweighted"
+                and (weight is not None or method in ("dijkstra", "bellman-ford"))
+                and (
+                    any(name in vars(graph) for name in (
+                        "is_directed", "is_multigraph", "__iter__", "__len__",
+                        "number_of_nodes", "number_of_edges", "neighbors", "adjacency",
+                    ))
+                    or _johnson_dispatch_uses_live_providers(graph, weight)
+                )
+            )
+        )
     if name in _STRUCTURAL_HOLES_INPUT_ALGORITHMS:
         # A requested-node iterator or edge-data provider can change later
         # ego networks. The owned scalar and sparse routes select their own
@@ -1743,8 +1762,6 @@ class BackendInterface:
         try:
             bound = inspect.signature(fn).bind(*args, **kwargs)
         except TypeError:
-            return False
-        if name == "average_shortest_path_length" and kwargs.get("method") is not None:
             return False
         if name in _DISJOINT_ALGORITHMS:
             try:

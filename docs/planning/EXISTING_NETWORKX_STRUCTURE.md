@@ -2114,3 +2114,21 @@ unreachable rows are not evaluated by speculative numeric admission. The
 existing snapshot engine remains available for concrete simple graphs with
 ordinary storage, plain attribute reads and exact built-in scalar weights.
 Admission inspects scalar types without coercing custom numbers.
+
+## 76. Weighted Query Validation and Average-Distance Dispatch
+
+Goldberg-Radzik and Bellman-Ford predecessor/distance queries validate source
+membership once at their public boundary, before weight reads. Their internal
+engines do not repeat that observable membership operation. Snapshot admission
+rejects graph-method and graph-view overrides without invoking those readers.
+
+Average shortest-path length accepts the same explicit method choices through
+backend dispatch as through direct calls. Method validation, graph-connectivity
+requirements, callable-weight behavior and exceptional cases belong to the
+owned public algorithm rather than a blanket backend method rejection.
+An explicitly selected weighted method treats `None` as an edge-attribute key;
+only default method selection interprets an absent weight as unweighted.
+The Dijkstra, Bellman-Ford and dictionary Floyd-Warshall routes retain Python
+numeric arithmetic through accumulation and the final division, including
+rational, decimal and large integer values. The NumPy matrix route retains
+the reference's numeric conversion behavior.
