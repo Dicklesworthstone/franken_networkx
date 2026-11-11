@@ -1004,6 +1004,10 @@ impl CustomKeyRef {
             // The registry and its snapshot each own one reference. A graph,
             // caller, or other live container must own another before this
             // non-weak-referenceable key can still identify a stored node.
+            #[expect(
+                deprecated,
+                reason = "pyo3 0.29 deprecates get_refcnt; snapshot_is_live keeps its documented > 2 check; revisit when pyo3 removes it"
+            )]
             Self::Strong(obj) => Ok(obj.get_refcnt(py) > 2),
         }
     }
@@ -3869,11 +3873,12 @@ impl DictOfDictsCache {
 
 /// Makes a ``#[pyclass(dict)]`` instance's Python dictionary visible to CPython GC.
 ///
-/// PyO3 does not traverse a pyclass instance dictionary automatically. Cached
-/// graph views retain their owner, so the instance dictionary must be reported
-/// as an outgoing edge or ``graph -> view -> graph`` cycles leak. ``dict`` is
-/// held once here and once by the Python object layout, hence traversal reports
-/// both strong references.
+/// Cached graph views retain their owner, so ``graph -> view -> graph`` cycles
+/// run through the instance dictionary. ``dict`` is held once here and once by
+/// the Python object layout. Since 0.29.1 PyO3 traverses the layout's
+/// reference itself (PyO3/pyo3#6206), so traversal reports only the reference
+/// held here. Reporting the layout's reference again overcounts the dictionary,
+/// and those cycles are then never collected.
 pub(crate) struct InstanceDictGc {
     dict: Option<Py<PyDict>>,
     dict_slot: Option<usize>,
@@ -3976,7 +3981,6 @@ impl InstanceDictGc {
     }
 
     pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.dict)?;
         visit.call(&self.dict)?;
         visit.call(&self.shared_source)?;
         visit.call(&self.shared_node_mapping)?;
