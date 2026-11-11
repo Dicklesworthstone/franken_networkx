@@ -2016,3 +2016,60 @@ native store still contains edges.
 Ordinary concrete graphs retain the native bulk exporter. Graphs with logical
 storage use their public edge view, preserving edge order, selected column
 names, nested attribute identity, and subsequent mutations of held rows.
+
+## 71. Owned Greedy Coloring and Strategy Protocols
+
+`greedy_color` returns an empty dictionary for an empty graph before resolving
+the strategy. Nonempty inputs resolve named strategies through the owned
+strategy registry and validate callable strategies with the reference hashing
+and error behavior. A custom strategy receives the original graph and the
+same mutable color dictionary that the ordinary driver returns. Generator
+strategies resume after each yielded node has been colored from its currently
+visible neighbors. Graph metadata, graph mutations, custom adjacency reads
+and callback failures remain observable at those boundaries.
+
+All named strategies use the existing owned ordering implementations.
+Directed ordinary coloring reads successors while degree-based strategies
+retain their total-degree ordering. Parallel edges contribute to degree
+ordering without becoming separate neighbor colors. Eligible ordinary native
+graphs may retain the existing native largest-first and connected-ordering
+routes only when those routes preserve the public strategy contract.
+
+Backend dispatch preserves the original graph for strategy execution, including
+after a prior call cached a native conversion. Successful and failing callbacks
+invalidate conversion caches so subsequent native queries see their mutations.
+Explicitly supplied native graphs remain independent of earlier source graphs.
+
+Color interchange snapshots graph nodes and undirected edge incidences after
+the strategy is called but before its iterator is advanced. Its strategy color
+dictionary remains separate from the engine's assignments. When a new color
+would otherwise be needed, candidate color pairs are tried in ascending order;
+the two-color components reached from lower-color neighbors may be swapped
+only when no higher-color neighbor is reached. The result retains the initial
+node order, with unvisited strategy nodes reported as `-1`. Directed and
+parallel edges participate as undirected incidences in this engine. Independent
+set and saturation strategies reject interchange before strategy execution.
+
+## 72. Incremental Directed Arborescence Scheduling
+
+`ArborescenceIterator` snapshots its input at construction. For simple directed
+graphs, iteration owns a priority frontier of included/excluded/open edge
+partitions and uses the existing minimum/maximum arborescence selectors. Each
+new partition excludes one open edge of the selected tree while including the
+preceding open edges, so requesting a prefix only explores the necessary
+frontier. Equal-cost ties have arbitrary order.
+
+An included incoming edge excludes every other incoming edge at that node
+before selection, including when a later Edmonds contraction would otherwise
+make the alternatives eligible. Initial included/excluded iterables are
+captured at construction, with exclusions taking precedence. The initial
+infeasible partition raises the reference exception; infeasible child
+partitions contribute no candidate. The existing selector's weight transforms
+and edge-attribute behavior remain in force. Partition markers are removed
+from returned native trees and never reach the caller's original graph.
+
+Empty and undirected graphs retain their iteration-time errors. Starting a
+new iteration before exhaustion resets the frontier; advancing before starting
+or after exhausted state has been released retains the established state
+errors. MultiDiGraph continues to use its existing reference scheduler; this
+change does not redefine the reference's parallel-edge partition semantics.

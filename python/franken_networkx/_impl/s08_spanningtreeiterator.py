@@ -980,13 +980,14 @@ class ArborescenceIterator:
 
     def __iter__(self):
         from franken_networkx._fnx import NetworkXPointlessConcept
-        import networkx as _nx_local
 
         if not self.G.is_directed():
             from franken_networkx._fnx import NetworkXNotImplemented
 
             raise NetworkXNotImplemented("not implemented for undirected type")
         if self.G.is_multigraph():
+            import networkx as _nx_local
+
             # br-r37-c1-ho3db: nx supports MultiDiGraph in
             # ArborescenceIterator; the Rust kernel is simple-only.
             # Delegate to nx so MultiDiGraph callers keep working.
@@ -1001,31 +1002,87 @@ class ArborescenceIterator:
             return self
         if self.G.number_of_nodes() == 0:
             raise NetworkXPointlessConcept("G has no nodes.")
-        scheduler = _nx_local.ArborescenceIterator(
-            self.G,
-            weight=self.weight,
-            minimum=self.minimum,
-            init_partition=self.init_partition,
-        )
-        # Reuse the scheduler without replacing any NetworkX globals. Its
-        # working graph and every selected arborescence remain FNX graphs.
-        scheduler.method = (
+        self._iterator = None
+        self.partition_queue = []
+        self.partition_key = "ArborescenceIterators super secret partition attribute name"
+        self.method = (
             minimum_spanning_arborescence if self.minimum
             else maximum_spanning_arborescence
         )
-        self._iterator = iter(scheduler)
+        constraints = {}
+        if self.init_partition is not None:
+            constraints.update(dict.fromkeys(self.init_partition[0], EdgePartition.INCLUDED))
+            constraints.update(dict.fromkeys(self.init_partition[1], EdgePartition.EXCLUDED))
+        # Validate the root now: an infeasible starting partition is an error,
+        # whereas infeasible children are simply absent from the frontier.
+        self._queue_partition(constraints, self._select_partition(constraints))
         return self
 
+    def _select_partition(self, constraints):
+        for u, v, attrs in self.G.edges(data=True):
+            attrs[self.partition_key] = constraints.get((u, v), EdgePartition.OPEN)
+        for node in self.G:
+            incoming = list(self.G.in_edges(node, data=True))
+            forced = [
+                attrs for _, _, attrs in incoming
+                if attrs[self.partition_key] == EdgePartition.INCLUDED
+            ]
+            if len(forced) == 1:
+                # An included incoming edge is the only admissible parent,
+                # even after Edmonds contracts the vertex into a cycle.
+                for _, _, attrs in incoming:
+                    if attrs[self.partition_key] != EdgePartition.INCLUDED:
+                        attrs[self.partition_key] = EdgePartition.EXCLUDED
+        cache = getattr(self.G, "__networkx_cache__", None)
+        if cache is not None:
+            cache.clear()
+        return self.method(
+            self.G, self.weight, partition=self.partition_key, preserve_attrs=True
+        )
+
+    def _queue_partition(self, constraints, tree):
+        cost = tree.size(weight=self.weight)
+        _heappush(
+            self.partition_queue,
+            self.Partition(cost if self.minimum else -cost, constraints.copy()),
+        )
+
     def __next__(self):
-        if not hasattr(self, "_iterator") or self._iterator is None:
+        if not hasattr(self, "_iterator"):
             raise AttributeError(
                 "'ArborescenceIterator' object has no attribute 'partition_queue'",
             )
         try:
-            return next(self._iterator)
+            if self._iterator is not None:
+                return next(self._iterator)
+            if not self.partition_queue:
+                raise StopIteration
+            constraints = _heappop(self.partition_queue).partition_dict
+            tree = self._select_partition(constraints)
+            prefix = constraints.copy()
+            for edge in tree.edges:
+                if edge in constraints:
+                    continue
+                alternative = prefix.copy()
+                alternative[edge] = EdgePartition.EXCLUDED
+                try:
+                    candidate = self._select_partition(alternative)
+                except NetworkXException:
+                    pass
+                else:
+                    self._queue_partition(alternative, candidate)
+                prefix[edge] = EdgePartition.INCLUDED
+            for _, _, attrs in tree.edges(data=True):
+                attrs.pop(self.partition_key, None)
+            cache = getattr(tree, "__networkx_cache__", None)
+            if cache is not None:
+                cache.clear()
+            return tree
         except StopIteration:
             del self.G
             del self._iterator
+            if hasattr(self, "partition_queue"):
+                del self.partition_queue
             raise StopIteration
 
 

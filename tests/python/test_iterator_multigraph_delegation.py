@@ -335,3 +335,132 @@ def test_multigraph_spanning_iterator_boundary_parity(shape, minimum):
         _keyed_tree_edges(tree) for tree in expected
     ]
     assert all(type(tree) is fnx.MultiGraph for tree in actual)
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("weight_kind", ["int", "fraction", "float"])
+def test_directed_arborescences_use_owned_frontier(monkeypatch, minimum, weight_kind):
+    from fractions import Fraction
+
+    reference = nx.complete_graph(4, create_using=nx.DiGraph)
+    reference.graph["title"] = "arborescences"
+    for node in reference:
+        reference.nodes[node]["label"] = f"node-{node}"
+    for index, (u, v, attrs) in enumerate(reference.edges(data=True)):
+        value = index % 7 - 2
+        attrs["cost"] = (
+            Fraction(value, 3) if weight_kind == "fraction"
+            else value / 4 if weight_kind == "float"
+            else value
+        )
+        attrs["payload"] = {"edge": (u, v)}
+    graph = fnx.DiGraph(reference)
+    original = [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)]
+    expected = list(nx.ArborescenceIterator(reference, weight="cost", minimum=minimum))
+
+    def scheduler_forbidden(*args, **kwargs):
+        raise AssertionError("simple directed enumeration must own its partition frontier")
+
+    monkeypatch.setattr(nx, "ArborescenceIterator", scheduler_forbidden)
+    monkeypatch.setattr(nx.algorithms.tree.branchings, "ArborescenceIterator", scheduler_forbidden)
+    actual = list(fnx.ArborescenceIterator(graph, weight="cost", minimum=minimum))
+    assert len(actual) == len(expected) == 64
+    edge_sets = [_tree_edges(tree) for tree in actual]
+    assert len(set(edge_sets)) == len(actual)
+    assert set(edge_sets) == {_tree_edges(tree) for tree in expected}
+    assert [tree.size(weight="cost") for tree in actual] == [
+        tree.size(weight="cost") for tree in expected
+    ]
+    by_edges = {_tree_edges(tree): tree for tree in expected}
+    for tree in actual:
+        oracle = by_edges[_tree_edges(tree)]
+        assert type(tree) is fnx.DiGraph
+        assert fnx.is_arborescence(tree)
+        assert dict(tree.graph) == oracle.graph
+        assert dict(tree.nodes(data=True)) == dict(oracle.nodes(data=True))
+        for u, v, attrs in tree.edges(data=True):
+            assert dict(attrs) == oracle.edges[u, v]
+            assert type(attrs["cost"]) is type(oracle.edges[u, v]["cost"])
+    assert [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)] == original
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+def test_directed_arborescence_included_parent_survives_cycle_contraction(monkeypatch, minimum):
+    reference = nx.DiGraph()
+    reference.add_weighted_edges_from([
+        (0, 1, 9), (1, 2, 8), (2, 0, 7),
+        (3, 0, 2), (3, 1, 3), (3, 2, 4), (2, 3, 1),
+    ])
+    initial = ([(0, 1)], [(3, 2)])
+    expected = list(nx.ArborescenceIterator(reference, minimum=minimum, init_partition=initial))
+    graph = fnx.DiGraph(reference)
+
+    def scheduler_forbidden(*args, **kwargs):
+        raise AssertionError("the incoming-edge constraint must be owned")
+
+    monkeypatch.setattr(nx, "ArborescenceIterator", scheduler_forbidden)
+    iterator = fnx.ArborescenceIterator(
+        graph, minimum=minimum,
+        init_partition=(iter(initial[0]), iter(initial[1])),
+    )
+    actual = list(iterator)
+    assert {_tree_edges(tree) for tree in actual} == {_tree_edges(tree) for tree in expected}
+    assert [tree.size(weight="weight") for tree in actual] == [
+        tree.size(weight="weight") for tree in expected
+    ]
+    assert all(tree.has_edge(0, 1) and not tree.has_edge(3, 2) for tree in actual)
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+def test_directed_arborescence_prefix_uses_bounded_owned_selection(monkeypatch, minimum):
+    graph = fnx.complete_graph(7, create_using=fnx.DiGraph)
+    name = "minimum_spanning_arborescence" if minimum else "maximum_spanning_arborescence"
+    select = getattr(fnx, name)
+    calls = 0
+
+    def bounded_selection(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        assert calls <= 1 + 3 * len(graph)
+        return select(*args, **kwargs)
+
+    def scheduler_forbidden(*args, **kwargs):
+        raise AssertionError("a prefix must not invoke an upstream or exhaustive scheduler")
+
+    monkeypatch.setattr(fnx, name, bounded_selection)
+    monkeypatch.setattr(nx, "ArborescenceIterator", scheduler_forbidden)
+    monkeypatch.setattr(fnx._fnx, "arborescence_iterator_rust", scheduler_forbidden)
+    iterator = iter(fnx.ArborescenceIterator(graph, minimum=minimum))
+    trees = list(islice(iterator, 3))
+    assert len({_tree_edges(tree) for tree in trees}) == 3
+    assert all(type(tree) is fnx.DiGraph and fnx.is_arborescence(tree) for tree in trees)
+    assert 1 <= calls <= 1 + 3 * len(graph)
+    assert len(iterator.partition_queue) <= 1 + 3 * (len(graph) - 1)
+
+
+@needs_nx
+@pytest.mark.parametrize("shape", ["empty", "singleton", "disconnected", "infeasible_partition"])
+def test_directed_arborescence_initial_state_matches_reference(shape):
+    reference = nx.DiGraph()
+    initial = None
+    if shape == "singleton":
+        reference.add_node("only")
+    elif shape == "disconnected":
+        reference.add_nodes_from(range(3))
+        reference.add_edge(0, 1)
+    elif shape == "infeasible_partition":
+        reference.add_edges_from([(0, 1), (1, 2)])
+        initial = ([], [(0, 1)])
+
+    def consume(factory, graph):
+        try:
+            return [list(tree.edges) for tree in factory(graph, init_partition=initial)]
+        except Exception as exc:
+            return type(exc).__name__, str(exc)
+
+    assert consume(fnx.ArborescenceIterator, fnx.DiGraph(reference)) == consume(
+        nx.ArborescenceIterator, reference
+    )

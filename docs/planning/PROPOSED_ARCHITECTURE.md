@@ -236,6 +236,20 @@ public-protocol matrix builder and shared power iteration. Backend provider
 selection precedes speculative weighted-route probing, and filtered views
 fall back to public rows when their parent has assigned logical storage.
 
+Greedy coloring shares its owned strategy registry in `coloring.py` with the
+public driver and child-module exports. Ordinary coloring consumes live
+adjacency on the original graph; its separate interchange engine owns a
+snapshot of undirected incidences and two-color component swaps. Backend
+dispatch preserves strategy providers before conversion and clears cached
+conversions after observable execution. Existing native coloring kernels remain
+available only for their admitted ordinary graph and strategy domains.
+
+The simple directed arborescence iterator owns its partition frontier beside
+the spanning-tree iterator. It reuses minimum/maximum arborescence selection,
+applies incoming-edge constraints before each selection and strips partition
+markers from results. No exhaustive tree enumeration or replacement Edmonds
+solver is introduced; the existing multigraph scheduler boundary remains.
+
 - `tests/python/` is the canonical source of truth for public,
   NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.
