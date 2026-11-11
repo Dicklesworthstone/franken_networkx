@@ -118,11 +118,19 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "all_pairs_bellman_ford_path",
         "all_pairs_bellman_ford_path_length",
         "all_simple_paths",
+        "all_simple_edge_paths",
         "shortest_simple_paths",
         "single_source_all_shortest_paths",
         "all_pairs_all_shortest_paths",
         "minimum_spanning_edges",
         "maximum_spanning_edges",
+        "find_cliques",
+        "enumerate_all_cliques",
+        "all_triangles",
+        "simple_cycles",
+        "antichains",
+        "bridges",
+        "local_bridges",
     }
 ) | _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS
 
@@ -840,6 +848,7 @@ _SUPPORTED_ALGORITHMS = {
     # Paths / cycles
     "all_shortest_paths": fnx.all_shortest_paths,
     "all_simple_paths": fnx.all_simple_paths,
+    "all_simple_edge_paths": fnx.all_simple_edge_paths,
     "cycle_basis": fnx.cycle_basis,
     # Operators
     "complement": fnx.complement,

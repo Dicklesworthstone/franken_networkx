@@ -2175,3 +2175,25 @@ Ordinary builtin data retains eligible native conversion routes. Concrete
 results retain source compatibility mode and fresh decision history; copy
 callbacks observe the ambient compatibility mode. The `as_view=True` sharing
 and freezing contract remains unchanged.
+
+## 79. Structural Iterator Dispatch and Bridge Spans
+
+Backend calls for `find_cliques`, `enumerate_all_cliques`, `all_triangles`,
+`simple_cycles`, `antichains`, `all_simple_edge_paths`, `bridges` and
+`local_bridges` retain the caller's original graph, including when an earlier
+algorithm populated the conversion cache. Each algorithm owns its existing
+snapshot point. Changes before first advancement remain visible, and failures
+inside iterator bodies retain their deferred timing. The owned edge-path
+iterator is available through explicit backend dispatch.
+
+Bridge classification starts at first advancement. Unrestricted simple graphs
+retain a live edge walk after classification; a root-restricted component or
+multigraph projection retains its established snapshot behavior. Parallel-edge
+checks continue to read the original multigraph as results are yielded.
+
+Local bridge spans are enabled only by literal `True`. Common-neighbor tests
+include endpoint self-loops. The shared weighted shortest-path engine hides
+the candidate edge while preserving exact Python arithmetic, hidden edges,
+arbitrary attribute keys including `None`, and callback dictionary identity,
+mutations and exceptions. Callback-driven backend iterators invalidate cached
+conversions around each advancement and close.

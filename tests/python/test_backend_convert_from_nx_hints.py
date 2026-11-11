@@ -936,6 +936,86 @@ def test_backend_traversal_keeps_input_live_before_first_yield(
 
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize(
+    "algorithm, directed, args, kwargs, added_edge",
+    [
+        ("find_cliques", False, (), {}, (2, 0)),
+        ("enumerate_all_cliques", False, (), {}, (2, 0)),
+        ("all_triangles", False, (), {}, (2, 0)),
+        ("bridges", False, (), {}, (2, 0)),
+        ("local_bridges", False, (), {"with_span": False}, (2, 0)),
+        ("local_bridges", False, (), {"with_span": True}, (2, 0)),
+        ("simple_cycles", True, (), {}, (2, 0)),
+        ("antichains", True, (), {}, (0, 2)),
+        ("all_simple_edge_paths", True, (0, 2), {}, (0, 2)),
+    ],
+)
+def test_backend_structural_iterators_read_input_at_first_advance(
+    algorithm, directed, args, kwargs, added_edge, cached, monkeypatch
+):
+    graph = nx.DiGraph() if directed else nx.Graph()
+    graph.add_nodes_from(range(3))
+    graph.add_edge(0, 1)
+    if algorithm != "antichains":
+        graph.add_edge(1, 2)
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    iterator = getattr(nx, algorithm)(graph, *args, backend="franken_networkx", **kwargs)
+    graph.add_edge(*added_edge)
+    assert list(iterator) == list(
+        getattr(nx, algorithm)(graph, *args, backend="networkx", **kwargs)
+    )
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "algorithm, kwargs, error_type",
+    [
+        ("find_cliques", {"nodes": [9]}, ValueError),
+        ("bridges", {"root": 9}, nx.NodeNotFound),
+        ("simple_cycles", {"length_bound": -1}, ValueError),
+        ("all_simple_edge_paths", {"source": 9, "target": 1}, nx.NodeNotFound),
+    ],
+)
+def test_backend_structural_iterator_errors_remain_deferred(
+    algorithm, kwargs, error_type, cached, monkeypatch
+):
+    graph = nx.Graph([(0, 1), (1, 2)])
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    actual = getattr(nx, algorithm)(graph, backend="franken_networkx", **kwargs)
+    expected = getattr(nx, algorithm)(graph, backend="networkx", **kwargs)
+    with pytest.raises(error_type) as wanted:
+        next(expected)
+    with pytest.raises(error_type) as observed:
+        next(actual)
+    assert str(observed.value) == str(wanted.value)
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_local_bridge_callback_clears_conversions_between_advances(cached, monkeypatch):
+    graph = nx.cycle_graph(4)
+    nx.set_edge_attributes(graph, 1, "weight")
+    convert_from_nx = BackendInterface.convert_from_nx
+    if cached:
+        convert_from_nx = _warm_live_input_cache(graph, monkeypatch)
+
+    def weight(u, v, data):
+        assert data is graph._adj[u][v]
+        if (u, v) == (0, 3):
+            graph[3][2]["weight"] = 7
+        return data["weight"]
+
+    iterator = nx.local_bridges(graph, weight=weight, backend="franken_networkx")
+    monkeypatch.setattr(BackendInterface, "convert_from_nx", staticmethod(convert_from_nx))
+    assert next(iterator) == (0, 1, 9)
+    assert nx.dijkstra_path_length(graph, 2, 3, backend="franken_networkx") == (
+        nx.dijkstra_path_length(graph, 2, 3, backend="networkx")
+    )
+    iterator.close()
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
     "algorithm",
     [
         "all_pairs_shortest_path", "all_pairs_shortest_path_length",

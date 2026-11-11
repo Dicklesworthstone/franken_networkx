@@ -449,84 +449,31 @@ def local_bridges(G, with_span=True, weight=None, *, backend=None, **backend_kwa
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    # br-r37-c1-tqcpg: the Rust fast-path (and the old discard-based
-    # intersection below) mishandle self-loops. nx tests
-    # ``set(G[u]) & set(G[v])`` WITHOUT removing the endpoints, so a
-    # self-loop on an endpoint makes it a shared neighbour and the edge is
-    # NOT a local bridge. For loop-free graphs the discard is a no-op, so
-    # both behaviours agree there; route self-loop graphs through the Python
-    # generator with the nx-exact intersection.
-    if not with_span and weight is None and number_of_selfloops(G) == 0:
-        from franken_networkx._fnx import local_bridges_rust
-
-        return iter(local_bridges_rust(G))
-
     def _generate():
+        # Only the literal True requests spans. Defer even that decision and
+        # the weight provider until iteration starts, keeping graph/view edits
+        # before and between yields visible on the caller's graph.
+        span_requested = with_span is True
+        weight_fn = _weight_function(G, weight) if span_requested else None
         for u, v in G.edges():
             # Match nx exactly: intersect full neighbour sets (no endpoint
             # discard) so a self-loop on u or v counts as a shared neighbour.
-            if set(G.neighbors(u)) & set(G.neighbors(v)):
+            if set(G[u]) & set(G[v]):
                 continue  # common neighbor exists — not a local bridge
-            if with_span:
-                # Compute shortest path from u to v not using edge (u,v).
-                # BFS/Dijkstra from u, but skip the direct u->v hop.
-                from collections import deque as _deque
+            if span_requested:
+                def without_bridge(a, b, attrs):
+                    if (a == u and b == v) or (a == v and b == u):
+                        return None
+                    return weight_fn(a, b, attrs)
 
-                if weight is None:
-                    # Unweighted BFS avoiding direct (u,v) edge.
-                    dist = {u: 0}
-                    queue = _deque([u])
-                    found = False
-                    while queue and not found:
-                        curr = queue.popleft()
-                        for nbr in G.neighbors(curr):
-                            # Skip the direct u<->v edge.
-                            if curr == u and nbr == v:
-                                continue
-                            if curr == v and nbr == u:
-                                continue
-                            if nbr not in dist:
-                                dist[nbr] = dist[curr] + 1
-                                if nbr == v:
-                                    found = True
-                                    break
-                                queue.append(nbr)
-                    span = dist.get(v, float("inf"))
-                else:
-                    # Weighted: Dijkstra avoiding direct (u,v) edge.
-                    import heapq
-                    from itertools import count as _count
-
-                    # br-r37-c1-64xcg: networkx's Dijkstra breaks distance
-                    # ties with a counter; (distance, node) compared the
-                    # nodes and raised TypeError on mixed int / str labels.
-                    push_order = _count()
-                    dist = {u: 0}
-                    heap = [(0, next(push_order), u)]
-                    while heap:
-                        d, _, curr = heapq.heappop(heap)
-                        if d > dist.get(curr, float("inf")):
-                            continue
-                        if curr == v:
-                            break
-                        for nbr in G.neighbors(curr):
-                            if curr == u and nbr == v:
-                                continue
-                            if curr == v and nbr == u:
-                                continue
-                            if callable(weight):
-                                w = weight(curr, nbr, G[curr][nbr])
-                            else:
-                                w = G[curr][nbr].get(weight, 1)
-                            if w is None:
-                                continue
-                            if w < 0:
-                                raise ValueError("Contradictory paths found, negative weights?")
-                            nd = d + w
-                            if nd < dist.get(nbr, float("inf")):
-                                dist[nbr] = nd
-                                heapq.heappush(heap, (nd, next(push_order), nbr))
-                    span = dist.get(v, float("inf"))
+                # The shared owned search retains exact Python numerics,
+                # hidden edges, callback writes, and contradiction errors.
+                # In this API None is a weight-attribute key, not a request
+                # to ignore an explicitly stored None-key edge weight.
+                try:
+                    span = shortest_path_length(G, u, v, weight=without_bridge)
+                except NetworkXNoPath:
+                    span = float("inf")
                 yield (u, v, span)
             else:
                 yield (u, v)

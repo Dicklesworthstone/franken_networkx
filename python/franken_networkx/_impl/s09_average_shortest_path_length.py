@@ -1490,41 +1490,29 @@ def bridges(G, root=None, *, backend=None, **backend_kwargs):
         Bridges in the graph.
     """
     _validate_backend_dispatch_keywords("bridges", backend, backend_kwargs)
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     def _gen():
+        # Chain membership is determined at first advancement. The following
+        # edge walk remains live for an unrestricted simple graph; copying G
+        # at invocation or returning a native edge list freezes that walk.
+        # Multigraphs deliberately use a simple snapshot, while the parallel
+        # edge check still reads the original graph at each yield.
+        if root is not None and root not in G:
+            raise NodeNotFound(f"Root node {root} is not in graph")
+        multigraph = G.is_multigraph()
+        H = Graph(G) if multigraph else G
+        chain_edges = set(_itertools.chain.from_iterable(chain_decomposition(H, root=root)))
         if root is not None:
-            if root not in G:
-                raise NodeNotFound(f"Root node {root} is not in graph")
-            multigraph = G.is_multigraph()
-            H = Graph(G) if multigraph else G
-            chains = chain_decomposition(H, root=root)
-            chain_edges = set(_itertools.chain.from_iterable(chains))
-            H_comp = H.subgraph(node_connected_component(H, root)).copy()
-            for u, v in H_comp.edges():
-                if (u, v) not in chain_edges and (v, u) not in chain_edges:
-                    if multigraph and len(G[u][v]) > 1:
-                        continue
-                    yield (u, v)
-            return
-        if G.is_multigraph():
-            # br-zzcm9: a parallel edge pair is never a bridge — removing
-            # one leaves the other connecting u and v, so connectivity is
-            # preserved. The Rust native bridges pass treats the simple
-            # projection, which misreports parallel pairs as bridges.
-            for u, v in _raw_bridges(G):
-                if len(G[u][v]) == 1:
-                    yield (u, v)
-            return
-        # br-r37-c1-rf7lr: the Rust binding now emits bridges in
-        # graph-edge-insertion order with original edge orientation,
-        # matching nx.bridges() (which iterates ``H.edges`` after a chain
-        # decomposition). br-r37-c1-h83lo is superseded.
-        yield from _raw_bridges(G)
+            H = H.subgraph(node_connected_component(H, root)).copy()
+        for u, v in H.edges():
+            if (u, v) in chain_edges or (v, u) in chain_edges:
+                continue
+            if multigraph and len(G[u][v]) > 1:
+                continue
+            yield (u, v)
 
     return _gen()
 
