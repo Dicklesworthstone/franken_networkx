@@ -29,6 +29,7 @@ immediately.
 from __future__ import annotations
 
 import itertools
+import random
 
 import pytest
 import networkx as nx
@@ -174,7 +175,166 @@ def test_greedy_color_with_interchange_matches_networkx(name, edges, nodes, stra
     fr = fnx.greedy_color(fg, strategy=strategy, interchange=True)
     nr = nx.greedy_color(ng, strategy=strategy, interchange=True)
     assert fr == nr, f"{name} {strategy} +interchange: dicts differ"
+    assert list(fr.items()) == list(nr.items())
     _assert_proper_coloring(fg, fr)
+
+
+def test_interchange_recolors_a_component_without_networkx_fallback(monkeypatch):
+    # This ordering needs three greedy colors on a path. Interchanging the
+    # component containing node 1 frees color 0 for the final node.
+    fg, ng = _pair([(0, 2), (1, 3), (2, 3)], [0, 1, 2, 3])
+    strategy = lambda graph, colors: [0, 1, 2, 3]
+    expected = nx.greedy_color(ng, strategy=strategy, interchange=True)
+    assert nx.greedy_color(ng, strategy=strategy)[3] == 2
+    assert expected == {0: 0, 1: 1, 2: 1, 3: 0}
+
+    def upstream_used(*args, **kwargs):
+        raise AssertionError("NetworkX coloring implementation was called")
+
+    monkeypatch.setattr(nx, "greedy_color", upstream_used)
+    monkeypatch.setattr(
+        nx.algorithms.coloring.greedy_coloring,
+        "_greedy_coloring_with_interchange",
+        upstream_used,
+    )
+    assert fnx.greedy_color(fg, strategy=strategy, interchange=True) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("partial", [False, True])
+def test_interchange_preserves_edge_incidence_and_initial_node_order(graph_type, partial):
+    nodes = ["isolated", 9, ("node", 2), "last", 0]
+    order = [0, 9, "last", ("node", 2), "isolated"]
+    if partial:
+        order = order[:3]
+    edges = [(9, "last"), (("node", 2), 0), ("last", 0), (0, 0)]
+    fg = getattr(fnx, graph_type)()
+    ng = getattr(nx, graph_type)()
+    for graph in (fg, ng):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+        if graph.is_multigraph():
+            graph.add_edges_from(edges)
+
+    strategy = lambda graph, colors: iter(order)
+    expected = nx.greedy_color(ng, strategy=strategy, interchange=True)
+    actual = fnx.greedy_color(fg, strategy=strategy, interchange=True)
+    assert list(actual.items()) == list(expected.items())
+    assert list(actual) == nodes
+    if partial:
+        assert actual["isolated"] == -1
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("seed", range(8))
+def test_interchange_permuted_graphs_match_exact_color_assignments(graph_type, seed):
+    rng = random.Random(seed)
+    nodes = [1024 * index for index in range(12)]
+    rng.shuffle(nodes)
+    edges = [
+        (u, v) for u in nodes for v in nodes
+        if rng.random() < 0.2
+    ]
+    fg = getattr(fnx, graph_type)()
+    ng = getattr(nx, graph_type)()
+    for graph in (fg, ng):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+    order = list(nodes)
+    rng.shuffle(order)
+
+    strategy = lambda graph, colors: iter(order)
+    expected = nx.greedy_color(ng, strategy=strategy, interchange=True)
+    actual = fnx.greedy_color(fg, strategy=strategy, interchange=True)
+    assert list(actual.items()) == list(expected.items())
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("native_input", [False, True])
+def test_interchange_custom_strategy_keeps_identity_metadata_and_snapshot_timing(
+    graph_type, native_input,
+):
+    def run(module, graph):
+        graph.graph["tag"] = "original"
+        graph.add_nodes_from([(0, {"rank": 2}), (1, {"rank": 1}), (2, {})])
+        events = []
+
+        def strategy(received, colors):
+            assert received is graph
+            events.append(("call", received.graph["tag"], received.nodes[0]["rank"]))
+            received.add_edge(0, 1)
+
+            def ordering():
+                # Eager edge insertion enters the interchange snapshot.
+                events.append(("first", dict(colors)))
+                yield 0
+                # Lazy edits happen after that snapshot and do not remove its
+                # coloring constraint or add a constraint for node 2.
+                received.remove_edge(0, 1)
+                received.add_edge(0, 2)
+                events.append(("second", dict(colors)))
+                yield 1
+                yield 2
+                events.append(("done", dict(colors)))
+
+            return ordering()
+
+        result = module.greedy_color(graph, strategy=strategy, interchange=True)
+        return list(result.items()), events, list(graph.edges())
+
+    expected = run(nx, getattr(nx, graph_type)())
+    cls = getattr(fnx if native_input else nx, graph_type)
+    actual = run(fnx, cls())
+    assert actual == expected
+    assert actual[0] == [(0, 0), (1, 1), (2, 0)]
+    assert all(event[1] == {} for event in actual[1][1:])
+
+
+def test_interchange_rejects_a_lazily_added_strategy_node():
+    def run(module, graph):
+        graph.add_node("original")
+
+        def strategy(received, colors):
+            yield "original"
+            received.add_node("added after snapshot")
+            yield "added after snapshot"
+
+        with pytest.raises(KeyError) as exc:
+            module.greedy_color(graph, strategy=strategy, interchange=True)
+        return exc.value.args
+
+    assert run(fnx, fnx.Graph()) == run(nx, nx.Graph())
+
+
+@pytest.mark.parametrize("strategy", ["connected_sequential_bfs", "connected_sequential_dfs"])
+@pytest.mark.parametrize("interchange", [False, True])
+def test_connected_coloring_keeps_custom_subgraph_neighbor_providers(strategy, interchange):
+    class RoutedSubgraphGraph(nx.Graph):
+        def subgraph(self, nodes):
+            self.events.append(("subgraph", tuple(nodes)))
+            view = super().subgraph(nodes)
+            original_neighbors = view.neighbors
+
+            def neighbors(node):
+                self.events.append(("neighbors", node))
+                return iter(reversed(tuple(original_neighbors(node))))
+
+            view.neighbors = neighbors
+            return view
+
+    def run(module):
+        graph = RoutedSubgraphGraph()
+        graph.add_nodes_from(range(8))
+        graph.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3), (2, 4), (3, 4), (5, 6)])
+        graph.events = []
+        result = module.greedy_color(graph, strategy=strategy, interchange=interchange)
+        return list(result.items()), graph.events
+
+    expected = run(nx)
+    actual = run(fnx)
+    assert actual == expected
+    assert any(event[0] == "subgraph" for event in actual[1])
+    assert any(event[0] == "neighbors" for event in actual[1])
 
 
 # ---------------------------------------------------------------------------

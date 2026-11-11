@@ -167,6 +167,73 @@ STRATEGIES = {
     "DSATUR": strategy_saturation_largest_first,
 }
 
+
+def _greedy_coloring_with_interchange(G, nodes):
+    """Color an ordered graph, freeing colors with two-color component swaps.
+
+    The ordering is already selected, but may be a lazy strategy iterator.
+    Capture the graph before advancing that iterator: interchange operates on
+    this topology even when a custom strategy subsequently mutates ``G``.
+    Every edge contributes an incidence at both endpoints, including directed
+    and parallel edges, matching the interchange contract rather than the
+    successor-only rule of ordinary greedy coloring.
+
+    The state here is an adjacency snapshot and one color per node. A search
+    computes the complete union of two-color components touching the proposed
+    color's neighbors. The union, and therefore the interchange choice, does
+    not depend on traversal order or linked per-color adjacency structures.
+    """
+    len(G)  # Preserve the post-strategy graph validation boundary.
+    colors = dict.fromkeys(G, -1)
+    adjacency = {node: [] for node in colors}
+    for u, v in G.edges():
+        adjacency[u].append(v)
+        adjacency[v].append(u)
+
+    highest_color = 0
+    for node in nodes:
+        row = adjacency[node]
+        occupied = {colors[neighbor] for neighbor in row}
+        color = next(c for c in _itertools.count() if c not in occupied)
+
+        if color > highest_color:
+            # Reuse a color only after ordinary greedy coloring would enlarge
+            # the palette. The first admissible pair in this order wins.
+            swapped = False
+            for lower in range(highest_color):
+                roots = [neighbor for neighbor in row if colors[neighbor] == lower]
+                for upper in range(lower + 1, highest_color + 1):
+                    component = set(roots)
+                    pending = list(roots)
+                    for current in pending:
+                        opposite = upper if colors[current] == lower else lower
+                        for neighbor in adjacency[current]:
+                            if colors[neighbor] == opposite and neighbor not in component:
+                                component.add(neighbor)
+                                pending.append(neighbor)
+
+                    if any(
+                        neighbor in component and colors[neighbor] == upper
+                        for neighbor in row
+                    ):
+                        continue
+
+                    for member in component:
+                        colors[member] = upper if colors[member] == lower else lower
+                    color = lower
+                    swapped = True
+                    break
+                if swapped:
+                    break
+
+        colors[node] = color
+        highest_color = max(highest_color, color)
+
+    # Initial insertion order is intentional, even if the strategy orders the
+    # nodes differently or leaves some nodes uncolored (represented by -1).
+    return colors
+
+
 _FNX_STRATEGY_OVERRIDES = {
     "strategy_largest_first": strategy_largest_first,
     "strategy_random_sequential": strategy_random_sequential,

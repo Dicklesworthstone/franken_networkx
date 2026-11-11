@@ -533,6 +533,25 @@ def _greedy_color_structural_nx(G, strategy, interchange):
         _raise_translated_networkx_exception(exc)
 
 
+def _greedy_color_native_graph(G):
+    """Admit plain native graph readers without calling user protocols."""
+    if type(G) not in (Graph, DiGraph) or _has_networkx_private_storage(G):
+        return False
+    storage = G.__dict__
+    if any(name in storage for name in (
+        "__getitem__", "__iter__", "__len__", "neighbors", "is_directed",
+        "is_multigraph", "nbunch_iter", "subgraph", "number_of_nodes",
+        "number_of_edges",
+    )):
+        return False
+    # The normal cached views are still the graph's own readers. An assigned
+    # provider has a different identity and must be used by the Python loop.
+    return all(
+        name not in storage or storage[name] is storage.get(f"_fnx_view_{name}")
+        for name in ("degree", "adj", "nodes", "edges", "succ", "pred")
+    )
+
+
 def greedy_color(
     G, strategy="largest_first", interchange=False, *, backend=None, **backend_kwargs
 ):
@@ -547,7 +566,8 @@ def greedy_color(
         'smallest_last', 'independent_set', 'connected_sequential_bfs',
         'connected_sequential_dfs', 'saturation_largest_first', or a function.
     interchange : bool, optional (default=False)
-        Use interchange optimization (only valid with 'saturation_largest_first').
+        Use color interchange. This is incompatible with 'independent_set'
+        and 'saturation_largest_first'.
 
     Returns
     -------
@@ -555,107 +575,84 @@ def greedy_color(
         Dictionary mapping nodes to colors (integers starting at 0).
     """
     _validate_backend_dispatch_keywords("greedy_color", backend, backend_kwargs)
-    # br-r37-c1-gr1ct: materialize SubgraphView so the Rust shortcut
-    # sees the filtered nodes/edges (view family).
-    G = _coerce_arg_to_fnx_graph(G)
-    if interchange or callable(strategy):
-        return _greedy_color_structural_nx(G, strategy, interchange)
-    # br-r37-c1-fki5h: the Rust greedy_color now mirrors nx's
-    # ``sorted(G, key=G.degree, reverse=True)`` tie-breaking (stable
-    # sort, insertion-order ties) for the default ``"largest_first"``
-    # strategy. Verified key-order + color-value parity vs nx on BA
-    # fixtures up to 100 nodes. Other strategies (smallest_last,
-    # random_sequential, DSATUR, connected_sequential_*) still
-    # diverge from nx tie-breaking and stay on the delegation path.
-    if strategy == "largest_first" and not G.is_multigraph():
-        # br-r37-c1-vevfq: DIRECTED graphs get their own kernel. networkx's directed
-        # colouring differs from the undirected one in exactly two places - it orders by
-        # `G.degree`, which is IN + OUT on a DiGraph, and reads neighbour colours from
-        # `G[u]`, which is SUCCESSORS ONLY - so the undirected kernel cannot serve them
-        # and they were paying an fnx->nx conversion instead (0.136x against networkx).
-        # Verified 0 divergences over 300 random digraphs, including permuted node
-        # insertion order, single-node and edgeless graphs.
-        try:
-            if G.is_directed():
-                return _raw_greedy_color_directed(G)
-            return _raw_greedy_color(G, "largest_first")
-        except Exception:
-            pass
-    # br-r37-c1-vevfq: other strategies still delegate (Rust ordering
-    # diverges from nx).
-    # br-r37-c1-gcstruct: greedy_color is structure-only (no node/edge attrs or
-    # weights affect the coloring), so run nx's strategy on a cheap STRUCTURAL
-    # nx.Graph (G's nodes in order + edges) instead of the faithful
-    # _networkx_graph_for_parity conversion (~half of the call). The node +
-    # adjacency iteration order is preserved, so the order-sensitive coloring
-    # (these strategies pop nodes from degree buckets in CPython set order) is
-    # byte-identical — verified struct==faithful for every str strategy.
-    # Multigraph keeps the faithful path (structural would drop parallel edges).
-    #
-    # br-r37-c1-vevfq (directed): DIRECTED graphs used to be excluded here too and paid
-    # the FAITHFUL conversion, measuring 0.136x against networkx - 19,304,753 against
-    # 2,624,760 Ir/call on a 250-node DiGraph. Direction survives an nx.DiGraph
-    # structural copy, and the result is byte-identical for these strategies: 1280 cases
-    # swept over 8 strategies x 40 seeds x permuted node insertion order x attributed
-    # graphs, comparing exceptions by type AND args, 0 divergences.
-    #
-    # This does NOT make the row a win. It is ~2.5x self and still lands near 0.22x,
-    # because even the structural copy costs more than networkx's entire call. Closing it
-    # needs a native directed kernel, which is what the undirected class has (8.7x).
-    if not G.is_multigraph():
-        # br-r37-c1-rqsur: the connected_sequential_{bfs,dfs} strategies
-        # traverse the graph's adjacency in iteration order, so the cheap
-        # structural conversion below (``add_edges_from(G.edges())`` rebuilds
-        # adj in node-major *edge* order, not G's per-node *adj-insertion*
-        # order) diverges from nx whenever G's node insertion order is a
-        # non-identity permutation of its labels. Route those through the
-        # faithful ``_fnx_to_nx`` conversion, which emits edges so the
-        # converted graph's per-node adj order matches G exactly
-        # (br-r37-c1-sgnab). Other str strategies (largest_first handled
-        # natively above; smallest_last / saturation / random_sequential /
-        # independent_set) depend only on degree/saturation buckets, not adj
-        # iteration order, so the structural shortcut stays byte-identical.
-        # The native traversal below uses connected_components, which is undirected-only;
-        # directed graphs fall through to the structural helper, where networkx raises
-        # NetworkXNotImplemented exactly as it does today (covered by the sweep above).
-        if not G.is_directed() and strategy in (
-            "connected_sequential",
-            "connected_sequential_bfs",
-            "connected_sequential_dfs",
-        ):
-            # br-cc-gc-connected: run the connected_sequential coloring NATIVELY
-            # instead of the faithful ``_fnx_to_nx`` conversion, which was the
-            # WHOLE 0.32x tax (~1.3ms convert + 0.66ms color vs nx's 0.66ms). The
-            # BFS/DFS traversal order from fnx's native ``connected_components`` +
-            # ``bfs_edges``/``dfs_edges`` matches nx EXACTLY (verified byte-exact
-            # across bfs/dfs x single/multi-component), and greedy colour
-            # assignment reads neighbour colours as an ORDER-INDEPENDENT set
-            # (native ``G.neighbors``), so the {node: colour} result is
-            # byte-identical. (interchange=True already delegated above.)
-            traversal_dfs = strategy == "connected_sequential_dfs"
-            colors = {}
-            order = []
+    # An empty graph does not hash or validate its strategy, nor invoke a
+    # strategy provider. Keep that boundary before any native admission.
+    if len(G) == 0:
+        return {}
+
+    from franken_networkx import coloring as _coloring
+
+    strategy_name = strategy
+    strategy = _coloring.STRATEGIES.get(strategy, strategy)
+    if not callable(strategy):
+        raise NetworkXError(
+            f"strategy must be callable or a valid string. {strategy} not valid."
+        )
+    if interchange:
+        # Local built-ins and explicitly supplied NetworkX counterparts have
+        # the same incompatible contracts. Use identity, never a callable's
+        # user-defined equality, when recognizing these strategies.
+        for name in ("independent_set", "saturation_largest_first"):
+            canonical = _coloring._FNX_STRATEGY_OVERRIDES[f"strategy_{name}"]
+            reference = getattr(_coloring._nxcl, f"strategy_{name}")
+            if strategy is canonical or strategy is reference:
+                raise NetworkXPointlessConcept(f"interchange cannot be used with {name}")
+
+    # The existing largest-first kernels are exact on ordinary native simple
+    # graphs. All other inputs stay on their public graph protocol: views,
+    # subclasses, assigned storage and degree providers must not be copied or
+    # bypassed. In particular, custom strategy callables always receive G.
+    native_graph = (
+        interchange is False
+        and type(strategy_name) is str
+        and _greedy_color_native_graph(G)
+    )
+    if (
+        native_graph
+        and strategy_name == "largest_first"
+        and strategy is _coloring._FNX_STRATEGY_OVERRIDES["strategy_largest_first"]
+    ):
+        if type(G) is DiGraph:
+            return _raw_greedy_color_directed(G)
+        return _raw_greedy_color(G, "largest_first")
+
+    colors = {}
+    if (
+        native_graph
+        and type(G) is Graph
+        and strategy_name in (
+            "connected_sequential", "connected_sequential_bfs", "connected_sequential_dfs"
+        )
+        and strategy is _coloring._FNX_STRATEGY_OVERRIDES[f"strategy_{strategy_name}"]
+    ):
+        # Retain the existing native component/traversal route on plain
+        # graphs. Walking a whole component from its first node needs no
+        # induced-view copy. Provider graphs use the public strategy below.
+        def connected_nodes():
             for component in connected_components(G):
                 source = next(iter(component))
-                order.append(source)
-                tree = (
-                    dfs_edges(G, source)
-                    if traversal_dfs
-                    else bfs_edges(G, source)
-                )
-                for _start, end in tree:
-                    order.append(end)
-            for u in order:
-                neighbor_colors = {
-                    colors[v] for v in G.neighbors(u) if v in colors
-                }
-                for color in _count():
-                    if color not in neighbor_colors:
-                        break
-                colors[u] = color
-            return colors
-        return _greedy_color_structural_nx(G, strategy, interchange)
-    return _greedy_color_structural_nx(G, strategy, interchange)
+                yield source
+                traverse = dfs_edges if strategy_name == "connected_sequential_dfs" else bfs_edges
+                for _, target in traverse(G, source):
+                    yield target
+
+        nodes = connected_nodes()
+    else:
+        nodes = strategy(G, colors)
+    if interchange:
+        # The strategy call can change G before interchange captures its
+        # working graph. A lazy strategy starts only after that snapshot.
+        return _coloring._greedy_coloring_with_interchange(G, nodes)
+    for node in nodes:
+        # Resume a generator strategy only after its previous node has been
+        # colored. DSATUR and user providers inspect this SAME result dict,
+        # and may change the next node's live adjacency before yielding it.
+        neighbor_colors = {colors[neighbor] for neighbor in G[node] if neighbor in colors}
+        color = 0
+        while color in neighbor_colors:
+            color += 1
+        colors[node] = color
+    return colors
 
 
 # Algorithm functions — condensation (wrapped to match NetworkX API)

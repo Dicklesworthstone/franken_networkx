@@ -141,6 +141,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "average_shortest_path_length",
         "quotient_graph",
         "greedy_modularity_communities",
+        "greedy_color",
         "eccentricity",
         "diameter",
         "radius",
@@ -236,6 +237,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
+        "greedy_color",
         "floyd_warshall", "floyd_warshall_predecessor_and_distance",
     }
 )
@@ -293,6 +295,8 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # The owned merge iterator reads live weight and resolution providers;
         # conversion would detach those reads from the caller's graph.
         return True
+    if name == "greedy_color":
+        return _coloring_dispatch_uses_live_providers(graph, arguments)
     if name == "pagerank":
         return _pagerank_dispatch_uses_live_providers(graph, arguments)
     if name in {"floyd_warshall", "floyd_warshall_predecessor_and_distance"}:
@@ -314,6 +318,112 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     return name in _SPECTRAL_INPUT_ALGORITHMS and _spectral_dispatch_uses_live_providers(
         name, graph, arguments
     )
+
+
+def _coloring_dispatch_uses_live_providers(graph, arguments):
+    """Keep coloring callbacks and observable graph providers on their source.
+
+    Canonical deterministic strategies can reuse a plain native conversion.
+    Callable strategies receive the original graph plus the result dictionary
+    as each color is assigned. Random and interchange paths retain their own
+    input boundary too. Admission must not consume any of these providers.
+    """
+    import networkx as nx
+
+    strategy = arguments.get("strategy", "largest_first")
+    strategies = fnx.coloring.STRATEGIES
+    if (
+        type(strategy) is not str
+        or strategy == "random_sequential"
+        or arguments.get("interchange", False) is not False
+        or type(strategies) is not dict
+        or any(type(key) is not str for key in strategies)
+    ):
+        return True
+    strategy_name = "strategy_saturation_largest_first" if strategy == "DSATUR" else f"strategy_{strategy}"
+    canonical = fnx.coloring._FNX_STRATEGY_OVERRIDES.get(strategy_name)
+    if canonical is None or strategies.get(strategy) is not canonical:
+        return True
+    if any(
+        getattr(fnx.coloring, name) is not function
+        for name, function in fnx.coloring._FNX_STRATEGY_OVERRIDES.items()
+        if name.startswith("strategy_")
+    ):
+        return True
+    if type(graph) not in (nx.Graph, nx.DiGraph):
+        return True
+    storage = vars(graph)
+    if "_graph" in storage or any(
+        name in storage for name in (
+            "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+            "nbunch_iter", "neighbors", "adjacency", "get_edge_data", "copy", "subgraph",
+            "__iter__", "__getitem__", "__len__", "__contains__",
+        )
+    ):
+        return True
+    nodes = storage.get("_node")
+    adjacency = storage.get("_adj")
+    directed = type(graph) is nx.DiGraph
+    predecessors = storage.get("_pred") if directed else adjacency
+    if (
+        type(nodes) is not dict
+        or type(adjacency) is not dict
+        or type(predecessors) is not dict
+        or type(graph.graph) is not dict
+        or (directed and storage.get("_succ") is not adjacency)
+        or any(type(node) not in (str, int, float, bool) for node in nodes)
+        or any(type(attrs) is not dict for attrs in nodes.values())
+    ):
+        return True
+    for rows in (adjacency, predecessors):
+        if any(type(node) not in (str, int, float, bool) for node in rows):
+            return True
+        if nodes.keys() != rows.keys():
+            return True
+        for row in rows.values():
+            if type(row) is not dict or any(
+                type(neighbor) not in (str, int, float, bool)
+                or neighbor not in nodes
+                or type(attrs) is not dict
+                for neighbor, attrs in row.items()
+            ):
+                return True
+    for node, row in adjacency.items():
+        if any(predecessors[neighbor].get(node) is not attrs for neighbor, attrs in row.items()):
+            return True
+    if directed and any(
+        adjacency[neighbor].get(node) is not attrs
+        for node, row in predecessors.items()
+        for neighbor, attrs in row.items()
+    ):
+        return True
+    for name, rows in (("adj", adjacency), ("succ", adjacency), ("pred", predecessors)):
+        if name in storage:
+            view = storage[name]
+            if type(view) is not nx.classes.coreviews.AdjacencyView or view._atlas is not rows:
+                return True
+    if "nodes" in storage:
+        view = storage["nodes"]
+        if type(view) is not nx.classes.reportviews.NodeView or view._nodes is not nodes:
+            return True
+    if "edges" in storage:
+        view = storage["edges"]
+        edge_type = nx.classes.reportviews.OutEdgeView if directed else nx.classes.reportviews.EdgeView
+        if type(view) is not edge_type or view._graph is not graph or view._adjdict is not adjacency:
+            return True
+    if "degree" in storage:
+        degree = storage["degree"]
+        degree_type = nx.classes.reportviews.DiDegreeView if directed else nx.classes.reportviews.DegreeView
+        if (
+            type(degree) is not degree_type
+            or degree._graph is not graph
+            or degree._succ is not adjacency
+            or degree._pred is not predecessors
+            or degree._nodes is not adjacency
+            or degree._weight is not None
+        ):
+            return True
+    return False
 
 
 def _pagerank_dispatch_uses_live_providers(graph, arguments):

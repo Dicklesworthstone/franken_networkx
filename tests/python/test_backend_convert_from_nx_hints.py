@@ -344,6 +344,184 @@ def _warm_live_input_cache(graph, monkeypatch):
     return convert_from_nx
 
 
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("call_style", ["keyword", "positional", "automatic"])
+def test_backend_greedy_color_preserves_strategy_graph_and_feedback(
+    cls_name, cached, call_style, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_nodes_from([2, 0, 1])
+        graph.add_edge(1, 0, label="original")
+        graph.graph["label"] = "caller"
+        graph.nodes[0]["priority"] = 7
+        edge = graph[1][0][0] if graph.is_multigraph() else graph[1][0]
+        trace = []
+        feedback = []
+        if cached and backend == "franken_networkx":
+            _warm_live_input_cache(graph, monkeypatch)
+
+        def strategy(current, colors):
+            assert current is graph
+            assert current.graph is graph.graph
+            assert current.nodes[0] is graph.nodes[0]
+            assert (current[1][0][0] if current.is_multigraph() else current[1][0]) is edge
+            feedback.append(colors)
+            trace.append(("start", current.graph["label"], current.nodes[0]["priority"]))
+            yield 0
+            trace.append(("first", list(colors.items())))
+            current.add_edges_from([(2, 0), (2, 1)])
+            yield 1
+            trace.append(("second", list(colors.items())))
+            yield 2
+            trace.append(("finished", list(colors.items())))
+
+        if call_style == "automatic" and backend == "franken_networkx":
+            monkeypatch.setattr(nx.config.backend_priority, "algos", [backend])
+            result = nx.greedy_color(graph, strategy=strategy)
+        elif call_style == "positional":
+            result = nx.greedy_color(graph, strategy, backend=backend)
+        else:
+            result = nx.greedy_color(graph, strategy=strategy, backend=backend)
+        assert result is feedback[0]
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return list(result.items()), trace, list(graph.edges())
+
+    expected = run("networkx")
+    assert expected[0] == [(0, 0), (1, 1), (2, 2)]
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_greedy_color_keeps_custom_degree_reads(cls_name, cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)([(0, 1), (1, 2), (2, 3), (3, 0)])
+        if cached and backend == "franken_networkx":
+            _warm_live_input_cache(graph, monkeypatch)
+        reads = []
+        priority = {0: 1, 1: 3, 2: 2, 3: 4}
+
+        def degree(node):
+            reads.append(node)
+            return priority[node]
+
+        graph.degree = degree
+        result = nx.greedy_color(graph, backend=backend)
+        return list(result.items()), reads
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_greedy_color_keeps_live_view_filters(cls_name, cached, monkeypatch):
+    graph = getattr(nx, cls_name)([(0, 1), (1, 2), (2, 3), (3, 0)])
+    visible = {0, 1, 2, 3}
+    view = nx.subgraph_view(graph, filter_node=visible.__contains__)
+    if cached:
+        _warm_live_input_cache(view, monkeypatch)
+    visible.remove(3)
+    expected = nx.greedy_color(view, backend="networkx")
+    assert list(nx.greedy_color(view, backend="franken_networkx").items()) == list(expected.items())
+    assert set(expected) == {0, 1, 2}
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_greedy_color_preserves_named_strategy_override(cached, monkeypatch):
+    graph = nx.Graph([(0, 1), (1, 2)])
+    graph.graph["order"] = [2, 1, 0]
+    seen = []
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+
+    def strategy(current, colors):
+        assert current is graph
+        seen.append(colors)
+        return current.graph["order"]
+
+    expected = nx.greedy_color(graph, strategy=strategy, backend="networkx")
+    monkeypatch.setitem(fnx.coloring.STRATEGIES, "largest_first", strategy)
+    actual = nx.greedy_color(graph, backend="franken_networkx")
+    assert list(actual.items()) == list(expected.items())
+    assert actual is seen[-1]
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_greedy_color_reuses_plain_native_default(cls_name, cached, monkeypatch):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = getattr(nx, cls_name)([(3, 1), (1, 4), (4, 2), (2, 3), (3, 4)])
+    expected = nx.greedy_color(graph, backend="networkx")
+    # Cached ordinary report views must not be mistaken for custom providers.
+    list(graph.degree)
+    list(graph.adj)
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    function = backend_module._SUPPORTED_ALGORITHMS["greedy_color"]
+    received = []
+
+    @wraps(function)
+    def record_input(*args, **kwargs):
+        received.append(args[0] if args else kwargs["G"])
+        return function(*args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "greedy_color", record_input)
+    for _ in range(2):
+        assert nx.greedy_color(graph, backend="franken_networkx") == expected
+    assert len(received) == 2
+    assert received[0] is received[1]
+    assert type(received[0]) is getattr(fnx, cls_name)
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_backend_greedy_color_keeps_independent_native_graph(cls_name, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = getattr(nx, cls_name)([(1, 0)])
+    nx.degree_centrality(graph, backend="franken_networkx")
+    converted = next(iter(graph.__networkx_cache__["backends"]["franken_networkx"].values()))
+    converted.add_edge(2, 1)
+
+    def strategy(current, colors):
+        assert current is converted
+        return [0, 1, 2]
+
+    result = nx.greedy_color(converted, strategy=strategy, backend="franken_networkx")
+    assert result == {0: 0, 1: 1, 2: 0}
+    assert list(graph) == [1, 0]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_greedy_color_discards_callback_conversions_on_error(cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = nx.Graph()
+    graph.add_edge(0, 1, weight=2)
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+
+    def strategy(current, colors):
+        assert current is graph
+        assert nx.dijkstra_path_length(current, 0, 1, backend="franken_networkx") == 2
+        assert current.__networkx_cache__["backends"]["franken_networkx"]
+        current[0][1]["weight"] = 9
+        raise RuntimeError("strategy stopped after a live write")
+
+    with pytest.raises(RuntimeError, match="strategy stopped after a live write"):
+        nx.greedy_color(graph, strategy=strategy, backend="franken_networkx")
+    assert not graph.__networkx_cache__.get("backends")
+    assert nx.dijkstra_path_length(graph, 0, 1, backend="franken_networkx") == 9
+
+
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize(
     "algorithm", ["closeness_centrality", "harmonic_centrality", "wiener_index", "closeness_vitality"]
