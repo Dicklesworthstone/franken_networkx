@@ -2228,3 +2228,29 @@ attributes afterward. Metadata providers run before the topology is copied.
 Minimum and maximum spanning trees retain that metadata; custom metadata
 providers are read before edge selection. Native GML admission rejects logical
 metadata aliases so plain integer-node graphs cannot silently lose metadata.
+
+## 81. Weighted Degree Connectivity and Backend Inputs
+
+`average_degree_connectivity` buckets results by unweighted source degree and
+uses unweighted target-degree coefficients. Weighted numerators and source
+strengths preserve Python numeric domains, including Decimal, Fraction and
+arbitrarily large integers. Empty degree buckets retain integer zero.
+
+Reductions follow per-row Python summation order. Undirected self-loops are
+added a second time after the complete row sum; directed outgoing and incoming
+strengths are summed separately. A directed `source="in"` walks predecessor
+insertion order, while `source="out"` and `source="in+out"` use successors for
+the numerator. Multigraph strengths flatten parallel-edge weights into those
+same directional reductions.
+
+Logical views retain their endpoint-specific weights. Node selectors preserve
+nbunch validation, scalar-node handling, duplicates and custom-provider
+identity. Neighbor selections are resolved before edge arithmetic, and later
+numeric callbacks are followed by fresh degree and row reads, retaining the
+reference failure behavior for graph mutations.
+
+Plain builtin Graph and DiGraph inputs retain bulk native extraction and
+cached backend conversion. Views and observable graph, degree, neighbor,
+mapping, selector or numeric providers execute on the original graph, even
+when another backend call already populated the conversion cache. Admission
+does not invoke custom providers or numeric protocols.

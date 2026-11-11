@@ -11,10 +11,12 @@ def average_degree_connectivity(
     **backend_kwargs,
 ):
     """Compute the average degree connectivity of graph."""
-    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "average_degree_connectivity", backend, backend_kwargs
     )
+    # A view may expose different weights at the two ends of an undirected
+    # edge. Keep its logical rows instead of materializing a simple graph.
+    native_access = _adc_has_native_graph_access(G)
     # br-r37-c1-jmjs7: simple-case fast path. Was 680x slower than nx
     # because the slow per-node _adc_weighted_degree walked AtlasView
     # for every neighbor of every source node — O(|V| · avg_deg²)
@@ -32,6 +34,7 @@ def average_degree_connectivity(
         and nodes is None
         and source == "in+out"
         and target == "in+out"
+        and native_access
         and _raw_neighbors_dispatch(G) is not None
     ):
         _raw_nbrs = _raw_neighbors_dispatch(G)
@@ -63,6 +66,7 @@ def average_degree_connectivity(
         and source == "in+out"
         and target == "in+out"
         and G.is_multigraph()
+        and native_access
     ):
         _proj = Graph()
         _proj.add_nodes_from(G.nodes())
@@ -84,16 +88,24 @@ def average_degree_connectivity(
             for k, avg in dsum.items()
         }
 
-    # br-r37-c1-wqhqr-adc: weighted undirected fast path. The fallback's
-    # per-node ``_adc_weighted_degree`` AtlasView walks (target degree per
-    # neighbour, weighted source degree per node) made undir weighted 0.038x
-    # vs nx. Snapshot the weighted adjacency ONCE (native
-    # ``_native_adjacency_dict`` -> {n: {nbr: {attrs}}}) and the unweighted
-    # degree map ONCE; derive the weighted source degree from the snapshot
-    # (avoiding the slow ``degree(weight=...)`` view) and the inner
-    # weighted-neighbour sum from dict lookups. Per-degree-bucket sums =>
-    # order-invariant; byte-identical to nx (self-loop weight doubles in the
-    # weighted degree, counted once in the inner sum).
+    weighted_rows = None
+    if (
+        weight is not None
+        and nodes is None
+        and (
+            (not G.is_directed() and source == target == "in+out")
+            or (
+                G.is_directed()
+                and source in ("in", "out", "in+out")
+                and target in ("in", "out", "in+out")
+            )
+        )
+    ):
+        weighted_rows = _adc_native_weight_rows(G, weight)
+
+    # Keep ordinary weighted graphs on the bulk adjacency route. Integer
+    # zeros and Python sum preserve exact integers and compensated float
+    # reduction; the self-loop is added after the complete row sum.
     if (
         not G.is_directed()
         and weight is not None
@@ -101,22 +113,18 @@ def average_degree_connectivity(
         and source == "in+out"
         and target == "in+out"
         and type(G) is Graph
-        and getattr(G, "_native_adjacency_dict", None) is not None
+        and weighted_rows is not None
     ):
-        adj = G._native_adjacency_dict()
+        adj = weighted_rows
         td = dict(G.degree())  # unweighted degree: bucket key AND target degree
-        dsum = _defaultdict(float)
-        dnorm = _defaultdict(float)
+        dsum = _defaultdict(int)
+        dnorm = _defaultdict(int)
         for n, nbrd in adj.items():
             k = td[n]
-            total = 0.0
-            sw = 0.0
-            for nbr, attrs in nbrd.items():
-                w = attrs.get(weight, 1)
-                total += w * td[nbr]
-                sw += w
-                if nbr == n:
-                    sw += w  # undirected self-loop doubles in the weighted degree
+            total = sum(attrs.get(weight, 1) * td[nbr] for nbr, attrs in nbrd.items())
+            sw = sum(attrs.get(weight, 1) for attrs in nbrd.values())
+            if n in nbrd:
+                sw += nbrd[n].get(weight, 1)
             dnorm[k] += sw
             dsum[k] += total
         return {k: avg if dnorm[k] == 0 else avg / dnorm[k] for k, avg in dsum.items()}
@@ -136,6 +144,7 @@ def average_degree_connectivity(
         and type(G) is DiGraph
         and source in ("in", "out", "in+out")
         and target in ("in", "out", "in+out")
+        and native_access
         and getattr(G, "_native_adjacency_keys", None) is not None
     ):
         _dir = {"out": G.out_degree, "in": G.in_degree, "in+out": G.degree}
@@ -160,11 +169,9 @@ def average_degree_connectivity(
             dnorm[k] += k
         return {k: avg if dnorm[k] == 0 else avg / dnorm[k] for k, avg in dsum.items()}
 
-    # br-r37-c1-wqhqr-adc: directed weighted fast path. Same lever: snapshot the
-    # weighted successor adjacency ONCE, invert it for predecessors (order
-    # irrelevant — per-bucket sums), take UNWEIGHTED degrees from the fast
-    # native views and derive WEIGHTED degrees from the snapshot (avoiding the
-    # slow ``degree(weight=...)`` view). Byte-identical to nx.
+    # Directed predecessor order is independent of successor/node order.
+    # Reuse bulk native predecessor keys instead of inverting successor rows:
+    # reordering finite floats can change overflow, cancellation and NaNs.
     if (
         G.is_directed()
         and weight is not None
@@ -172,19 +179,19 @@ def average_degree_connectivity(
         and type(G) is DiGraph
         and source in ("in", "out", "in+out")
         and target in ("in", "out", "in+out")
-        and getattr(G, "_native_adjacency_dict", None) is not None
+        and weighted_rows is not None
     ):
-        sadj = G._native_adjacency_dict()  # {n: {succ: attrs}}
+        sadj = weighted_rows
         # Predecessor inversion is only needed when the source side touches
         # in-edges (source "in" walks predecessors; "in"/"in+out" need weighted
         # in-degree). source="out" skips it entirely.
         need_pred = source in ("in", "in+out")
         padj = None
         if need_pred:
-            padj = {n: {} for n in sadj}  # inverted: {n: {pred: attrs}}
-            for _u, _nbrd in sadj.items():
-                for _v, _attrs in _nbrd.items():
-                    padj[_v][_u] = _attrs
+            padj = {
+                n: {pred: sadj[pred][n] for pred in predecessors}
+                for n, predecessors in G._native_predecessor_keys_bulk()
+            }
         und = {"out": dict(G.out_degree()), "in": dict(G.in_degree()), "in+out": dict(G.degree())}
         sk = und[source]   # unweighted source degree (bucket key)
         td = und[target]   # unweighted target degree
@@ -199,12 +206,10 @@ def average_degree_connectivity(
         # source="in" walks predecessors (weight w(nbr->n)); otherwise nx uses
         # G.successors / G.neighbors (== successors for a DiGraph), weight w(n->nbr).
         nbr_adj = padj if source == "in" else sadj
-        dsum = _defaultdict(float)
-        dnorm = _defaultdict(float)
+        dsum = _defaultdict(int)
+        dnorm = _defaultdict(int)
         for n, k in sk.items():
-            total = 0.0
-            for nbr, a in nbr_adj[n].items():
-                total += a.get(weight, 1) * td[nbr]
+            total = sum(a.get(weight, 1) * td[nbr] for nbr, a in nbr_adj[n].items())
             dnorm[k] += sw[n]
             dsum[k] += total
         return {k: avg if dnorm[k] == 0 else avg / dnorm[k] for k, avg in dsum.items()}
@@ -215,23 +220,9 @@ def average_degree_connectivity(
         if target not in ("in", "out", "in+out"):
             raise NetworkXError('target must be one of "in", "out", or "in+out"')
 
-        def source_degree(node, *, weighted):
-            return _adc_weighted_degree(
-                G,
-                node,
-                incoming=source in ("in", "in+out"),
-                outgoing=source in ("out", "in+out"),
-                weight=weight if weighted else None,
-            )
-
-        def target_degree(node):
-            return _adc_weighted_degree(
-                G,
-                node,
-                incoming=target in ("in", "in+out"),
-                outgoing=target in ("out", "in+out"),
-                weight=None,
-            )
+        directions = {"in": G.in_degree, "out": G.out_degree, "in+out": G.degree}
+        source_degree = directions[source]
+        target_degree = directions[target]
 
         if source == "in":
             neighbors = lambda node: G.predecessors(node)
@@ -246,53 +237,79 @@ def average_degree_connectivity(
                 "source and target arguments are only supported for directed graphs"
             )
 
-        def source_degree(node, *, weighted):
-            return _adc_weighted_degree(G, node, weight=weight if weighted else None)
-
-        def target_degree(node):
-            return _adc_weighted_degree(G, node)
+        source_degree = target_degree = G.degree
 
         neighbors = lambda node: G.neighbors(node)
         reverse = False
 
     dsum = _defaultdict(int)
     dnorm = _defaultdict(int)
-    source_nodes = _adc_iter_nodes(G, nodes)
+    own_degree_view = (
+        isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+        and type(source_degree).__module__ == __name__
+        and getattr(source_degree, "_graph", None) is G
+    )
+    own_target_view = (
+        isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+        and type(target_degree).__module__ == __name__
+        and getattr(target_degree, "_graph", None) is G
+    )
+    directed = G.is_directed()
+    source_in = directed and source in ("in", "in+out")
+    source_out = not directed or source in ("out", "in+out")
+    target_in = directed and target in ("in", "in+out")
+    target_out = not directed or target in ("out", "in+out")
+    if own_degree_view:
+        selected = iter(G) if nodes is None else _adc_iter_nodes(G, nodes)
+        source_items = (
+            (node, _adc_weighted_degree(G, node, incoming=source_in, outgoing=source_out))
+            for node in selected
+        )
+    else:
+        source_items = source_degree(nodes)
+        if nodes in G:
+            source_items = [(nodes, source_degree(nodes))]
 
-    # br-r37-c1-wqhqr-adc: nx recomputes ``target_degree(neighbor)`` for EVERY
-    # neighbor of every source node — O(E·avg_deg) AtlasView degree walks (the
-    # directed in+out and weighted cases measured 0.013x / 0.038x vs nx). Memoize
-    # it: each node's target degree is computed at most once and reused across
-    # all incident references, collapsing the inner cost to O(V·avg_deg). Values
-    # are byte-identical (same ``_adc_weighted_degree``); only redundant
-    # recomputation is removed. Lazy cache so a small ``nodes`` subset only pays
-    # for the neighbours it actually touches.
-    _td_cache: dict = {}
-    _missing = object()
-
-    def _tdeg(nbr):
-        v = _td_cache.get(nbr, _missing)
-        if v is _missing:
-            v = target_degree(nbr)
-            _td_cache[nbr] = v
-        return v
-
-    for node in source_nodes:
-        degree_key = source_degree(node, weighted=False)
+    # Observable providers run in reference order: source degree, each
+    # neighbor's target degree and weight, then the source's weighted degree.
+    # Do not memoize target degrees across numeric or mapping callbacks.
+    for node, degree_key in source_items:
+        if own_target_view:
+            neighbor_degrees = (
+                (
+                    neighbor,
+                    _adc_weighted_degree(
+                        G, neighbor, incoming=target_in, outgoing=target_out
+                    ),
+                )
+                for neighbor in _adc_iter_nodes(G, neighbors(node))
+            )
+        else:
+            neighbor_degrees = target_degree(neighbors(node))
         if weight is None:
-            total = sum(_tdeg(neighbor) for neighbor in neighbors(node))
+            total = sum(degree for _, degree in neighbor_degrees)
         else:
             if reverse:
                 total = sum(
-                    G[neighbor][node].get(weight, 1) * _tdeg(neighbor)
-                    for neighbor in neighbors(node)
+                    G[neighbor][node].get(weight, 1) * degree
+                    for neighbor, degree in neighbor_degrees
                 )
             else:
                 total = sum(
-                    G[node][neighbor].get(weight, 1) * _tdeg(neighbor)
-                    for neighbor in neighbors(node)
+                    G[node][neighbor].get(weight, 1) * degree
+                    for neighbor, degree in neighbor_degrees
                 )
-        dnorm[degree_key] += source_degree(node, weighted=True)
+        if own_degree_view:
+            weighted_degree = _adc_weighted_degree(
+                G,
+                node,
+                incoming=source_in,
+                outgoing=source_out,
+                weight=weight,
+            )
+        else:
+            weighted_degree = source_degree(node, weight=weight)
+        dnorm[degree_key] += weighted_degree
         dsum[degree_key] += total
 
     return {k: avg if dnorm[k] == 0 else avg / dnorm[k] for k, avg in dsum.items()}

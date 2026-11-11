@@ -1508,17 +1508,9 @@ def degree_histogram(G):
     return [counts.get(i, 0) for i in range(max(counts) + 1 if counts else 0)]
 
 def _adc_iter_nodes(G, nodes):
-    if nodes is None:
-        return list(G.nodes())
-    try:
-        if nodes in G:
-            return [nodes]
-    except TypeError:
-        pass
-    try:
-        return [node for node in nodes if node in G]
-    except TypeError:
-        return []
+    # The graph owns nbunch validation: missing iterable entries are ignored,
+    # but a missing scalar or an unhashable entry must retain its normal error.
+    return list(G.nbunch_iter(nodes))
 
 
 def _adc_weighted_degree(G, node, *, incoming=False, outgoing=False, weight=None):
@@ -1526,23 +1518,83 @@ def _adc_weighted_degree(G, node, *, incoming=False, outgoing=False, weight=None
         incoming = True
         outgoing = True
 
-    def edge_total(edge_data):
+    directed = G.is_directed()
+    multigraph = G.is_multigraph()
+
+    def row_total(row):
         if weight is None:
-            if G.is_multigraph():
-                return len(edge_data)
-            return 1
-        if G.is_multigraph():
-            return sum(attrs.get(weight, 1) for attrs in edge_data.values())
-        return edge_data.get(weight, 1)
+            return sum(len(data) for data in row.values()) if multigraph else len(row)
+        if multigraph:
+            return sum(
+                attrs.get(weight, 1)
+                for keydict in row.values()
+                for attrs in keydict.values()
+            )
+        return sum(attrs.get(weight, 1) for attrs in row.values())
 
     total = 0
     if outgoing:
-        for nbr, edge_data in G[node].items():
-            contribution = edge_total(edge_data)
-            if not G.is_directed() and nbr == node:
-                contribution *= 2
-            total += contribution
-    if incoming and G.is_directed():
-        for nbr in G.predecessors(node):
-            total += edge_total(G[nbr][node])
+        row = G[node]
+        total = row_total(row)
+        if not directed and node in row:
+            # Sum the row first, then count the self-loop a second time.
+            # Doubling it inside the row changes compensated float summation.
+            loop = row[node]
+            if weight is None:
+                total += len(loop) if multigraph else 1
+            elif multigraph:
+                total += sum(attrs.get(weight, 1) for attrs in loop.values())
+            else:
+                total += loop.get(weight, 1)
+    if incoming and directed:
+        incoming_total = row_total(G.pred[node])
+        return total + incoming_total if outgoing else incoming_total
     return total
+
+
+def _adc_has_native_graph_access(G):
+    """Admit ordinary graph storage without bypassing instance providers."""
+    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES or _has_networkx_private_storage(G):
+        return False
+    storage = G.__dict__
+    if any(name in storage for name in ("neighbors", "predecessors", "successors")):
+        return False
+    return all(
+        name not in storage or storage[name] is storage.get(f"_fnx_view_{name}")
+        for name in ("degree", "in_degree", "out_degree", "adj", "succ", "pred", "nodes")
+    )
+
+
+def _adc_native_weight_rows(G, weight):
+    """Snapshot only rows whose reads and arithmetic cannot call user code.
+
+    Builtin integers and floats retain the bulk adjacency route. Other numeric
+    domains and observable providers use the live, ordered public-row path.
+    Admission reads only builtin dictionary operations after checking the
+    dictionary class and keys; it never evaluates a custom numeric protocol.
+    """
+    if (
+        type(G) not in (Graph, DiGraph)
+        or type(weight) is not str
+        or not _adc_has_native_graph_access(G)
+    ):
+        return None
+    plain_keys = (str, int, float, bool, bytes, type(None))
+    if any(type(node) not in plain_keys for node in G):
+        return None
+    adjacency = G._native_adjacency_dict()
+    admitted_classes = {}
+    for row in adjacency.values():
+        for attrs in row.values():
+            cls = type(attrs)
+            if type(cls) is not type:
+                return None
+            if cls not in admitted_classes:
+                admitted_classes[cls] = _attr_dict_has_plain_reads(attrs)
+            if not admitted_classes[cls]:
+                return None
+            if any(type(key) not in plain_keys for key in attrs):
+                return None
+            if type(attrs.get(weight, 1)) not in (int, float, bool):
+                return None
+    return adjacency

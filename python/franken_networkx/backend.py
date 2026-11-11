@@ -147,6 +147,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "shortest_path_length",
         "all_shortest_paths",
         "average_shortest_path_length",
+        "average_degree_connectivity",
         "quotient_graph",
         "greedy_modularity_communities",
         "greedy_color",
@@ -251,6 +252,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "floyd_warshall", "floyd_warshall_predecessor_and_distance",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "average_shortest_path_length",
+        "average_degree_connectivity",
     }
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -263,6 +265,8 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "average_degree_connectivity":
+        return _degree_connectivity_dispatch_uses_live_providers(graph, arguments)
     if name in {"bellman_ford_predecessor_and_distance", "goldberg_radzik"}:
         # Their owned relaxations read live edge dictionaries, and Bellman-Ford
         # evaluates the heuristic protocol during relaxation. Preserve those
@@ -545,6 +549,94 @@ def _pagerank_dispatch_uses_live_providers(graph, arguments):
                 if type(attrs.get(weight, 1)) not in (int, float, bool):
                     return True
     return False
+
+
+def _degree_connectivity_dispatch_uses_live_providers(graph, arguments):
+    """Keep observable degree, selector and weight providers on their owner.
+
+    Ordinary Graph/DiGraph dictionaries and builtin selectors can retain the
+    cached native conversion. Check types before consuming an iterable or
+    reading a custom mapping: those actions belong to the algorithm itself.
+    """
+    import networkx as nx
+    from networkx.classes import coreviews, reportviews
+
+    plain_keys = (str, int, float, bool, bytes, type(None))
+    nodes = arguments.get("nodes")
+    if nodes is not None and type(nodes) not in plain_keys:
+        if type(nodes) is range:
+            pass
+        elif type(nodes) in (list, tuple, set, frozenset):
+            if any(type(node) not in plain_keys for node in nodes):
+                return True
+        else:
+            return True
+    if any(type(arguments.get(name, "in+out")) is not str for name in ("source", "target")):
+        return True
+    if type(graph) not in (nx.Graph, nx.DiGraph):
+        return True
+    storage = vars(graph)
+    if "_graph" in storage or any(name in storage for name in (
+        "is_directed", "is_multigraph", "neighbors", "predecessors", "successors",
+        "nbunch_iter", "__iter__", "__getitem__", "__len__", "number_of_nodes",
+    )):
+        return True
+
+    directed = type(graph) is nx.DiGraph
+    degree_types = {
+        "degree": reportviews.DiDegreeView if directed else reportviews.DegreeView,
+    }
+    if directed:
+        degree_types.update(in_degree=reportviews.InDegreeView, out_degree=reportviews.OutDegreeView)
+    for name, view_type in degree_types.items():
+        if name in storage and (
+            type(storage[name]) is not view_type or storage[name]._graph is not graph
+        ):
+            return True
+    if "nodes" in storage and (
+        type(storage["nodes"]) is not reportviews.NodeView
+        or storage["nodes"]._nodes is not graph._node
+    ):
+        return True
+    for name, rows in (("adj", graph._adj),) + (
+        (("succ", graph._succ), ("pred", graph._pred)) if directed else ()
+    ):
+        if name in storage and (
+            type(storage[name]) is not coreviews.AdjacencyView
+            or storage[name]._atlas is not rows
+        ):
+            return True
+
+    if type(graph._node) is not dict or type(graph._adj) is not dict:
+        return True
+    if any(type(node) not in plain_keys for node in graph._node):
+        return True
+    if any(type(node) not in plain_keys for node in graph._adj):
+        return True
+    if list(graph._adj) != list(graph._node):
+        return True
+    reverse = graph._pred if directed else graph._adj
+    if type(reverse) is not dict or any(type(node) not in plain_keys for node in reverse):
+        return True
+    if list(reverse) != list(graph._node):
+        return True
+    if any(type(row) is not dict for row in reverse.values()):
+        return True
+    for node, row in graph._adj.items():
+        if type(row) is not dict:
+            return True
+        for neighbor, attrs in row.items():
+            if type(neighbor) not in plain_keys or type(attrs) is not dict:
+                return True
+            if neighbor not in reverse or reverse[neighbor].get(node) is not attrs:
+                # Assigned asymmetric rows cannot be represented by a native
+                # graph with one shared edge dictionary or coherent pred/succ.
+                return True
+    if directed and sum(map(len, reverse.values())) != sum(map(len, graph._adj.values())):
+        return True
+
+    weight = arguments.get("weight")
+    return weight is not None and _johnson_dispatch_uses_live_providers(graph, weight)
 
 
 def _johnson_dispatch_uses_live_providers(graph, weight):
