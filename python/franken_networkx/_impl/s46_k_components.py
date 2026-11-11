@@ -1500,8 +1500,11 @@ def to_pandas_edgelist(
         # DiGraph avoids the per-edge EdgeView Python tax. to_edgelist_simple
         # returns (u, v, attr_dict) tuples (live Python attr dicts, read-only
         # here) in nx G.edges() order; None for multigraph / unsupported.
+        # Assigned mappings, including general deepcopy results, are the
+        # authoritative graph even when the concrete type is still Graph or
+        # DiGraph. The native materializer cannot read those logical rows.
         edgelist = None
-        if type(G) in (Graph, DiGraph):
+        if type(G) in (Graph, DiGraph) and not _has_networkx_private_storage(G):
             edgelist = _fnx.to_edgelist_simple(G)
         if edgelist is None:
             edgelist = list(G.edges(data=True))

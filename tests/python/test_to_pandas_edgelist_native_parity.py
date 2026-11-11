@@ -8,10 +8,12 @@ per-edge EdgeView. Multigraphs, an explicit nodelist, and subclasses / views
 fall back to `G.edges(data=True)`.
 """
 
+import copy
 import random
 
 import networkx as nx
 import pandas as pd
+import pytest
 
 import franken_networkx as fnx
 
@@ -105,3 +107,83 @@ def test_multigraph_falls_back():
         MGx.add_edge(u, v, **d)
         MGf.add_edge(u, v, **d)
     assert _eq(nx.to_pandas_edgelist(MGx), fnx.to_pandas_edgelist(MGf))
+
+
+def _replace_logical_storage(graph, logical):
+    graph._node = logical._node
+    graph._adj = logical._adj
+    if graph.is_directed():
+        graph._pred = logical._pred
+
+
+@pytest.mark.parametrize("class_name", ("Graph", "DiGraph"))
+@pytest.mark.parametrize("shape", ("different_edges", "different_attributes", "empty"))
+@pytest.mark.parametrize("module_route", (False, True), ids=("top_level", "convert_matrix"))
+def test_assigned_storage_exports_the_logical_graph(class_name, shape, module_route):
+    graphs = []
+    for module in (nx, fnx):
+        graph = getattr(module, class_name)()
+        graph.add_edge("old", "edge", weight=9, stale="native")
+        # Warm both the native materializer and the public edge view before
+        # replacing their backing storage.
+        module.to_pandas_edgelist(graph)
+        list(graph.edges(data=True))
+        logical = getattr(nx, class_name)()
+        if shape == "different_edges":
+            logical.add_edge("new", "row", weight=3, payload=[1, 2])
+            logical.add_edge("row", "tail", label="second")
+        elif shape == "different_attributes":
+            logical.add_edge("old", "edge", weight=3, payload=[1, 2])
+        _replace_logical_storage(graph, logical)
+        graphs.append(graph)
+
+    def export(module, graph):
+        owner = module.convert_matrix if module_route else module
+        return owner.to_pandas_edgelist(graph, source="from", target="to")
+
+    expected = export(nx, graphs[0])
+    actual = export(fnx, graphs[1])
+    pd.testing.assert_frame_equal(actual, expected)
+    assert "stale" not in actual.columns
+    if shape != "empty":
+        # A held logical row remains authoritative on the next export too;
+        # do not cache a reconstructed native snapshot of the replacement.
+        for graph in graphs:
+            first = next(iter(graph.edges(data=True)))[2]
+            first["weight"] = 17
+        pd.testing.assert_frame_equal(export(fnx, graphs[1]), export(nx, graphs[0]))
+
+
+@pytest.mark.parametrize("class_name", ("Graph", "DiGraph"))
+def test_deepcopied_python_attributes_survive_dataframe_export(class_name):
+    snapshots = []
+    for module in (nx, fnx):
+        graph = getattr(module, class_name)()
+        graph.add_edge("source", "target", weight=3, payload={"tags": ["saved"]})
+        graph.graph["self"] = graph
+        clone = copy.deepcopy(graph)
+        frame = module.to_pandas_edgelist(clone)
+        assert len(frame) == 1
+        assert frame.iloc[0]["payload"] is clone["source"]["target"]["payload"]
+        assert frame.iloc[0]["payload"] is not graph["source"]["target"]["payload"]
+        snapshots.append(frame)
+    pd.testing.assert_frame_equal(snapshots[0], snapshots[1])
+
+
+@pytest.mark.parametrize("class_name", ("Graph", "DiGraph"))
+def test_ordinary_graph_retains_native_export(class_name, monkeypatch):
+    graph = getattr(fnx, class_name)()
+    graph.add_edge("source", "target", weight=3)
+    native = fnx._fnx.to_edgelist_simple
+    calls = []
+
+    def recording_native(candidate):
+        calls.append(candidate)
+        return native(candidate)
+
+    monkeypatch.setattr(fnx._fnx, "to_edgelist_simple", recording_native)
+    actual = fnx.to_pandas_edgelist(graph)
+    assert calls == [graph]
+    assert actual.to_dict("records") == [
+        {"source": "source", "target": "target", "weight": 3}
+    ]

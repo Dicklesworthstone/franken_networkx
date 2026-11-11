@@ -2003,3 +2003,16 @@ Backend dispatch recognizes that provider route before additional weighted
 admission probes, so an early direction callback cannot mutate the graph
 before its intended edge snapshot. Both successful and failing provider calls
 invalidate conversion caches before subsequent ordinary queries.
+
+## 70. DataFrame Export from Authoritative Graph Storage
+
+`to_pandas_edgelist` exports the graph's visible edges and attribute dictionaries,
+including when a concrete Graph or DiGraph has assigned logical adjacency,
+shared storage, or storage installed by a general deep copy. A prior native
+export must not make its old edges or attributes authoritative after that
+replacement. Empty logical storage produces an empty edge table even if the
+native store still contains edges.
+
+Ordinary concrete graphs retain the native bulk exporter. Graphs with logical
+storage use their public edge view, preserving edge order, selected column
+names, nested attribute identity, and subsequent mutations of held rows.
