@@ -296,8 +296,13 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     if name in _FLOW_SOLVER_INPUT_ALGORITHMS:
         # Explicit solvers own validation and residual reuse. Their writes
         # must reach the caller, including when conversion is already cached.
-        # Extra solver kwargs also select the public in-process route.
-        return arguments.get("flow_func") is not None or bool(arguments.get("kwargs"))
+        # Default solvers also need original views and capacity providers;
+        # only ordinary concrete storage may use a converted native graph.
+        return (
+            arguments.get("flow_func") is not None
+            or bool(arguments.get("kwargs"))
+            or fnx._flow_uses_live_python_rows(graph, arguments.get("capacity", "capacity"))
+        )
     if name == "johnson":
         return _johnson_dispatch_uses_live_providers(graph, arguments.get("weight"))
     if name == "quotient_graph":

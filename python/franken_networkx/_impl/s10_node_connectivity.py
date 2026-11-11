@@ -1732,9 +1732,10 @@ def _flow_caps_summary(flowG, capacity):
       capacity makes it False even if that float has an integral value.
     """
     import math as _math
-    if not isinstance(capacity, str):
+    if type(capacity) is not str:
         # networkx accepts any hashable attribute key (``capacity=0``); the
-        # native kernels read capacity by string name only.
+        # native kernels read string names only. A str subclass may also
+        # expose observable hashing or equality during capacity lookup.
         return True, False
     all_int = True
     integer_capacity_sum = 0
@@ -1742,7 +1743,14 @@ def _flow_caps_summary(flowG, capacity):
     if not flowG.is_directed():
         integer_capacity_limit //= 2
     for _u, _v, attrs in flowG.edges(data=True):
-        cap = attrs.get(capacity, None) if isinstance(attrs, dict) else None
+        # Admission must not consume a capacity provider before the residual
+        # builder does. Even dict.get can invoke a custom key's equality on
+        # a hash collision, so inspect key types before reading the value.
+        if not _attr_dict_has_plain_reads(attrs) or any(
+            type(key) is not str for key in attrs
+        ):
+            return True, all_int
+        cap = attrs.get(capacity, None)
         tc = type(cap)
         if tc is int or tc is bool:
             if cap < 0:
@@ -1758,6 +1766,124 @@ def _flow_caps_summary(flowG, capacity):
             continue
         return True, all_int
     return False, all_int
+
+
+def _flow_uses_live_python_rows(flowG, capacity):
+    """Keep caller graph protocols intact before choosing a native route.
+
+    Views can carry stale materialization caches after an escaped edge dict
+    is changed through a builtin dict method. Foreign graphs, subclasses and
+    assigned private rows may expose capacity providers whose reads mutate
+    the input. The owned residual builder must observe those original rows;
+    converting them first silently replaces the providers with snapshots.
+    """
+    if type(capacity) is not str:
+        return True
+    if type(flowG) not in (Graph, DiGraph, _nx.Graph, _nx.DiGraph):
+        return True
+
+    # Inspect storage and descriptor identity without invoking public readers.
+    # A method or view supplied by the caller must reach the residual builder.
+    storage = vars(flowG)
+    if "_graph" in storage or any(
+        name in storage
+        for name in (
+            "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+            "nbunch_iter", "neighbors", "adjacency", "__iter__", "__getitem__",
+            "__len__", "__contains__",
+        )
+    ):
+        return True
+    if type(flowG) in (Graph, DiGraph):
+        if (
+            _has_networkx_private_storage(flowG)
+            or flowG.edge_attr_dict_factory is not dict
+        ):
+            return True
+        directed = type(flowG) is DiGraph
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS, ())
+        view_types = (
+            ("edges", _DiGraphEdgeView if directed else _fnx.EdgeView),
+            ("nodes", _fnx.DiNodeView if directed else _fnx.NodeView),
+            (
+                "adj",
+                _DIGRAPH_NATIVE_LEN_ADJ_VIEW if directed else _GRAPH_NATIVE_LEN_ADJ_VIEW,
+            ),
+        )
+        if directed:
+            view_types += (("succ", AdjacencyView), ("pred", AdjacencyView))
+        for name, view_type in view_types:
+            if name not in storage:
+                continue
+            view = storage[name]
+            if (
+                name not in cached
+                or type(view) is not view_type
+                or view is not storage.get("_fnx_view_" + name)
+            ):
+                return True
+            if name == "edges" and directed and view._graph is not flowG:
+                return True
+            if name in ("adj", "succ", "pred") and view._fnx_owner is not flowG:
+                return True
+        return False
+
+    # Ordinary NetworkX storage can still use the native kernel. Inspect types
+    # before values so this decision cannot invoke an attribute provider.
+    nodes = storage.get("_node")
+    adjacency = storage.get("_adj")
+    directed = type(flowG) is _nx.DiGraph
+    predecessors = storage.get("_pred") if directed else adjacency
+    if (
+        type(nodes) is not dict
+        or type(adjacency) is not dict
+        or type(predecessors) is not dict
+        or type(flowG.graph) is not dict
+        or (directed and storage.get("_succ") is not adjacency)
+        or any(type(node) not in (str, int, float, bool) for node in nodes)
+        or any(type(attrs) is not dict for attrs in nodes.values())
+    ):
+        return True
+    for rows in (adjacency, predecessors):
+        if any(type(node) not in (str, int, float, bool) for node in rows):
+            return True
+        for row in rows.values():
+            if type(row) is not dict:
+                return True
+            for neighbor, attrs in row.items():
+                if (
+                    type(neighbor) not in (str, int, float, bool)
+                    or neighbor not in nodes
+                    or type(attrs) is not dict
+                    or any(type(key) is not str for key in attrs)
+                    or type(attrs.get(capacity, None)) not in (int, float, bool, type(None))
+                ):
+                    return True
+    for name, rows in (("adj", adjacency), ("succ", adjacency), ("pred", predecessors)):
+        if name in storage:
+            view = storage[name]
+            if (
+                type(view) is not _nx.classes.coreviews.AdjacencyView
+                or view._atlas is not rows
+            ):
+                return True
+    if "nodes" in storage:
+        view = storage["nodes"]
+        if type(view) is not _nx.classes.reportviews.NodeView or view._nodes is not nodes:
+            return True
+    if "edges" in storage:
+        view = storage["edges"]
+        edge_type = (
+            _nx.classes.reportviews.OutEdgeView
+            if directed else _nx.classes.reportviews.EdgeView
+        )
+        if (
+            type(view) is not edge_type
+            or view._graph is not flowG
+            or view._adjdict is not adjacency
+        ):
+            return True
+    return False
 
 
 def _reject_multigraph_flow(flowG):
@@ -1846,7 +1972,11 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=
     # A supplied solver owns the graph contract, including validation and
     # live mutations. Coercing first snapshots NetworkX graphs and views,
     # and can substitute a shallow copy's owner for the caller's graph.
-    if flow_func is not None or kwargs:
+    if (
+        flow_func is not None
+        or kwargs
+        or _flow_uses_live_python_rows(flowG, capacity)
+    ):
         return _maximum_flow_inproc(
             flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
@@ -1871,7 +2001,11 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=
 def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=None, **kwargs):
     """Return just the max-flow value. nx-int parity when all caps int."""
     _validate_backend_dispatch_keywords("maximum_flow_value", backend, {})
-    if flow_func is not None or kwargs:
+    if (
+        flow_func is not None
+        or kwargs
+        or _flow_uses_live_python_rows(flowG, capacity)
+    ):
         return _maximum_flow_value_inproc(
             flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,

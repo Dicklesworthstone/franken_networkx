@@ -1007,3 +1007,165 @@ def test_flow_solver_keeps_live_public_edge_capacity_provider(algorithm):
         outcomes.append((result.graph["flow_value"], reads))
     assert outcomes[0] == outcomes[1]
     assert outcomes[0][0] == 5
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("kind", ["networkx", "subclass", "assigned"])
+def test_default_flow_keeps_live_capacity_provider(name, graph_class, kind):
+    outcomes = []
+    for module in (nx, fnx):
+        reads = []
+
+        class Capacity(dict):
+            def get(self, key, default=None):
+                reads.append(("get", key))
+                if key == "capacity":
+                    dict.__setitem__(self, key, 7)
+                return super().get(key, default)
+
+            def __getitem__(self, key):
+                reads.append(("getitem", key))
+                return super().__getitem__(key)
+
+        graph_module = nx if kind == "networkx" else module
+        base = getattr(graph_module, graph_class)
+        if kind == "subclass":
+            class InputGraph(base):
+                def edges(self, nbunch=None, data=False, default=None):
+                    if data:
+                        return [("s", "t", self.capacity_provider)]
+                    return [("s", "t")]
+
+            graph = InputGraph()
+            graph.add_edge("s", "t", capacity=1)
+            graph.capacity_provider = Capacity(capacity=1)
+        else:
+            graph = base()
+            attrs = Capacity(capacity=1)
+            graph._node = {"s": {}, "t": {}}
+            if graph_class == "DiGraph":
+                graph._succ = {"s": {"t": attrs}, "t": {}}
+                graph._pred = {"s": {}, "t": {"s": attrs}}
+            else:
+                graph._adj = {"s": {"t": attrs}, "t": {"s": attrs}}
+        reads.clear()
+        result = getattr(module, name)(graph, "s", "t")
+        value = result[0] if isinstance(result, tuple) else result
+        assert value == 7
+        outcomes.append((result, reads))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("prewarm", [False, True])
+def test_default_flow_keeps_assigned_public_edge_provider(name, graph_class, prewarm):
+    outcomes = []
+    for module in (nx, fnx):
+        graph = getattr(module, graph_class)()
+        graph.add_edge("s", "t", capacity=1)
+        if prewarm:
+            assert getattr(module, "maximum_flow_value")(graph, "s", "t") == 1
+            # Retain the descriptor's cached marker to exercise the identity
+            # check as well as ordinary attribute assignment detection.
+            graph.edges
+        reads = []
+        attrs = {"capacity": 7}
+
+        def edges(nbunch=None, data=False, default=None):
+            reads.append((nbunch, data, default))
+            if data:
+                return [("s", "t", attrs)]
+            return [("s", "t")]
+
+        vars(graph)["edges"] = edges
+        result = getattr(module, name)(graph, "s", "t")
+        value = result[0] if isinstance(result, tuple) else result
+        assert value == 7
+        outcomes.append((result, reads))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("kind", ["subgraph", "reverse", "shared_copy"])
+def test_default_flow_view_observes_builtin_dict_mutations(name, kind):
+    outcomes = []
+    for module in (nx, fnx):
+        graph = _custom_flow_input(module, kind)
+        attrs = graph["a"]["t"]
+        results = []
+        for capacity in (2, 4, 1):
+            # Bypass write-watched dict methods after the first query has
+            # warmed any materialized view and native conversion caches.
+            dict.__setitem__(attrs, "budget", capacity)
+            result = getattr(module, name)(graph, "s", "t", capacity="budget")
+            value = result[0] if isinstance(result, tuple) else result
+            assert value == capacity
+            results.append(result)
+        outcomes.append(results)
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("prewarm", [False, True])
+@pytest.mark.parametrize("keyword_arguments", [False, True])
+def test_backend_default_flow_keeps_live_capacity_provider(
+    name, prewarm, keyword_arguments
+):
+    outcomes = []
+    for backend in ("networkx", "franken_networkx"):
+        graph = nx.DiGraph()
+        graph.add_edge("s", "t", capacity=1)
+        if prewarm:
+            assert nx.maximum_flow_value(graph, "s", "t", backend=backend) == 1
+        reads = []
+
+        class Capacity(dict):
+            def get(self, key, default=None):
+                reads.append(("get", key))
+                if key == "capacity":
+                    dict.__setitem__(self, key, 7)
+                return super().get(key, default)
+
+        attrs = Capacity(capacity=1)
+        # Replacing an inner row deliberately leaves an existing backend
+        # conversion cache warm. The new provider still owns this query.
+        graph._succ["s"]["t"] = graph._pred["t"]["s"] = attrs
+        if keyword_arguments:
+            result = getattr(nx, name)(
+                flowG=graph, _s="s", _t="t", backend=backend
+            )
+        else:
+            result = getattr(nx, name)(graph, "s", "t", backend=backend)
+        value = result[0] if isinstance(result, tuple) else result
+        assert value == 7
+        assert dict.__getitem__(attrs, "capacity") == 7
+        outcomes.append((result, reads))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+def test_default_flow_plain_graph_retains_native_route(
+    monkeypatch, name, graph_module, graph_class
+):
+    graph = getattr(graph_module, graph_class)()
+    graph.add_edge("s", "t", capacity=3)
+    # Normal descriptor caches are admissible; inspecting a graph before a
+    # flow query must not disable native execution.
+    graph.edges
+    graph.nodes
+    graph.adj
+    if graph_class == "DiGraph":
+        graph.succ
+        graph.pred
+
+    def forbid_python_residual(*args, **kwargs):
+        raise AssertionError("ordinary concrete flow should retain its native route")
+
+    monkeypatch.setattr(fnx, "_flow_residual_inproc", forbid_python_residual)
+    result = getattr(fnx, name)(graph, "s", "t")
+    value = result[0] if isinstance(result, tuple) else result
+    assert value == 3

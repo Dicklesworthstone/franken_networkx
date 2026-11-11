@@ -1879,8 +1879,17 @@ partition extraction and later queries. Conversion caches are cleared
 around callbacks, including failure, so direct attribute writes cannot
 leave a stale capacity graph for subsequent native calls. An explicitly
 supplied native graph remains an independent input even if it originated
-from an earlier conversion. Default-solver calls without extra arguments
-retain the ordinary native conversion path.
+from an earlier conversion.
+
+Default-solver calls admit native conversion only after inspecting the
+original graph's storage and capacity-reader protocols. Views, assigned
+logical rows, custom attribute readers and observable capacity selectors
+retain the original graph through residual construction. Admission must not
+invoke a custom reader or attribute-key comparison before the solver would
+read it. A held edge dictionary changed through a base `dict` method must
+affect the next flow or cut query even if an earlier query cached a view's
+materialization. Ordinary concrete storage with builtin readers retains its
+native conversion and solver route.
 
 ## 64. Community Detection Through Backend Dispatch
 

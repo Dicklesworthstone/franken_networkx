@@ -23,7 +23,11 @@ def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, *, backend=N
     _validate_backend_dispatch_keywords("minimum_cut", backend, {})
     # Custom solvers must observe the original graph and control their own
     # validation. Only the built-in native route needs a materialized graph.
-    if flow_func is not None or kwargs:
+    if (
+        flow_func is not None
+        or kwargs
+        or _flow_uses_live_python_rows(flowG, capacity)
+    ):
         return _minimum_cut_inproc(
             flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
@@ -56,7 +60,11 @@ def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, *, bac
     ``flow_func`` (and raising when none is supplied).
     """
     _validate_backend_dispatch_keywords("minimum_cut_value", backend, {})
-    if flow_func is not None or kwargs:
+    if (
+        flow_func is not None
+        or kwargs
+        or _flow_uses_live_python_rows(flowG, capacity)
+    ):
         return _minimum_cut_value_inproc(
             flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
