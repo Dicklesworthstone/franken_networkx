@@ -2132,3 +2132,17 @@ The Dijkstra, Bellman-Ford and dictionary Floyd-Warshall routes retain Python
 numeric arithmetic through accumulation and the final division, including
 rational, decimal and large integer values. The NumPy matrix route retains
 the reference's numeric conversion behavior.
+
+## 77. Checked Group Betweenness Path Counts
+
+The native unweighted group-betweenness route checks every shortest-path
+multiplicity accumulation and its normalization product. A count outside the
+native integer domain produces an explicit unavailable result, never a wrapped
+count, a non-finite centrality, or a partially accumulated score.
+
+The public algorithm then recomputes the complete requested group result with
+its existing owned preprocessing and inclusion-exclusion implementation. This
+includes requests where an earlier group already completed natively. Normalized
+and unnormalized results retain the reference arithmetic and group semantics.
+Ordinary graphs with representable counts retain their native route regardless
+of node count; graph size alone is not an overflow criterion.

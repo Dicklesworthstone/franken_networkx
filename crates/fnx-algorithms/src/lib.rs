@@ -51616,10 +51616,14 @@ pub fn generate_edgelist(graph: &Graph, delimiter: &str) -> Vec<String> {
 
 /// Group betweenness centrality: fraction of shortest paths passing through
 /// at least one node in the group.
-pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
+///
+/// Returns `None` if a shortest-path count exceeds the native integer domain.
+/// Callers can then use a wider-count implementation without accepting a
+/// wrapped count, a zero denominator, or a partially accumulated score.
+pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> Option<f64> {
     let n = graph.node_count();
     if n < 2 {
-        return 0.0;
+        return Some(0.0);
     }
     let group_set: std::collections::HashSet<usize> = group
         .iter()
@@ -51628,7 +51632,7 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
 
     let c = group_set.len();
     if n <= c + 1 {
-        return 0.0;
+        return Some(0.0);
     }
 
     let mut gbc_sum = 0.0;
@@ -51659,9 +51663,9 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
                     queue.push_back(ni);
                 }
                 if dist[ni] == dist[v] + 1 {
-                    sigma[ni] += sigma[v];
+                    sigma[ni] = sigma[ni].checked_add(sigma[v])?;
                     if !group_set.contains(&v) {
-                        sigma_no_c[ni] += sigma_no_c[v];
+                        sigma_no_c[ni] = sigma_no_c[ni].checked_add(sigma_no_c[v])?;
                     }
                 }
             }
@@ -51677,8 +51681,8 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
     }
 
     let non_group = n - c;
-    let scale = 1.0 / ((non_group * (non_group - 1)) as f64);
-    gbc_sum * scale
+    let scale = 1.0 / (non_group.checked_mul(non_group - 1)? as f64);
+    Some(gbc_sum * scale)
 }
 
 // ---------------------------------------------------------------------------
@@ -88921,8 +88925,38 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
         let _ = g.add_edge("d", "e");
-        let gbc = group_betweenness_centrality(&g, &["c"]);
-        assert!(gbc > 0.0); // c is on many shortest paths
+        let gbc = group_betweenness_centrality(&g, &["c"])
+            .expect("a path graph has one shortest path between each pair");
+        assert!((gbc - 2.0 / 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_group_betweenness_path_count_overflow() {
+        // Every pair of consecutive two-node layers is fully connected.
+        // The endpoints have 2^BITS shortest paths, while all counts fit if
+        // both endpoints belong to the excluded centrality group.
+        let mut graph = Graph::strict();
+        let mut previous = vec!["source".to_owned()];
+        for layer in 0..usize::BITS {
+            let next = vec![format!("{layer}:a"), format!("{layer}:b")];
+            for source in &previous {
+                for target in &next {
+                    graph.add_edge(source.clone(), target.clone()).unwrap();
+                }
+            }
+            previous = next;
+        }
+        for source in previous {
+            graph.add_edge(source, "target").unwrap();
+        }
+
+        let middle = format!("{}:a", usize::BITS / 2);
+        assert_eq!(group_betweenness_centrality(&graph, &[&middle]), None);
+        assert!(
+            group_betweenness_centrality(&graph, &["source", "target"])
+                .expect("interior sources have fewer than 2^BITS shortest paths")
+                .is_finite()
+        );
     }
 
     #[test]

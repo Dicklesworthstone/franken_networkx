@@ -29470,13 +29470,13 @@ pub fn generate_edgelist_rust(
 // Group betweenness centrality
 // ---------------------------------------------------------------------------
 
-/// Group betweenness centrality.
+/// Group betweenness centrality, or `None` when native path counts overflow.
 #[pyfunction]
 pub fn group_betweenness_centrality_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     group: Vec<Bound<'_, PyAny>>,
-) -> PyResult<f64> {
+) -> PyResult<Option<f64>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let keys: Vec<String> = group

@@ -965,11 +965,18 @@ def group_betweenness_centrality(
             if normalized and remaining < 2:
                 raise ZeroDivisionError("division by zero")
             value = _fnx.group_betweenness_centrality_rust(G, list(group))
+            if value is None:
+                # Layered graphs can have more shortest paths than a native
+                # integer can hold even with only a few hundred vertices.
+                # Reuse the owned preprocessing below when checked counting
+                # reports overflow; never normalize a wrapped partial score.
+                break
             if normalized:
                 scores.append(value)
             else:
                 scores.append(value * remaining * (remaining - 1) / 2)
-        return scores if list_of_groups else scores[0]
+        else:
+            return scores if list_of_groups else scores[0]
 
     group_betweenness = []
     path_betweenness, sigma, distances = _group_preprocessing_local(

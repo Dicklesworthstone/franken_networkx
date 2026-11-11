@@ -1,17 +1,18 @@
-"""Parity for ``group_betweenness_centrality`` on groups of size >= 3.
+"""Parity for native and owned ``group_betweenness_centrality`` routes.
 
-Both the native fast path (undirected/unweighted) and the in-process
-slow path (directed/weighted) mishandled the inclusion-exclusion
-correction for shortest paths traversing three or more members of a
-group, undercounting the score. Size-1 and size-2 groups were already
-exact. The fix delegates any >=3-member group to nx.
+Large groups use the owned inclusion-exclusion implementation. Small groups
+retain the native unweighted route while its path counts fit, then use the
+same owned implementation if combinatorial path multiplicity exceeds that
+integer domain. Neither route delegates the centrality calculation upstream.
 
 br-r37-c1-ejuhf
 """
 
 from __future__ import annotations
 
+import math
 import random
+import struct
 
 import pytest
 import networkx as nx
@@ -103,3 +104,66 @@ def test_endpoints_and_weight_paths_match_networkx():
     assert fnx.group_betweenness_centrality(fg, group, endpoints=True) == pytest.approx(
         nx.group_betweenness_centrality(ng, group, endpoints=True)
     )
+
+
+def _layered_pair(width, levels):
+    layers = [["s"]]
+    layers.extend([[f"layer{i}:{j}" for j in range(width)] for i in range(levels)])
+    layers.append(["t"])
+    edges = [
+        (u, v)
+        for left, right in zip(layers, layers[1:])
+        for u in left
+        for v in right
+    ]
+    return fnx.Graph(edges), nx.Graph(edges), layers[len(layers) // 2]
+
+
+@pytest.mark.parametrize(("width", "levels"), [(2, 64), (3, 42)])
+@pytest.mark.parametrize("group_size", [1, 2])
+@pytest.mark.parametrize("normalized", [False, True])
+def test_combinatorial_path_counts_match_networkx(
+    width, levels, group_size, normalized, monkeypatch
+):
+    fg, ng, middle = _layered_pair(width, levels)
+    group = middle[:group_size]
+    expected = nx.group_betweenness_centrality(ng, group, normalized=normalized)
+    assert math.isfinite(expected)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("overflow recovery must use the owned centrality solver")
+
+    monkeypatch.setattr(nx, "group_betweenness_centrality", forbidden)
+    monkeypatch.setattr(nx.algorithms.centrality, "group_betweenness_centrality", forbidden)
+    actual = fnx.group_betweenness_centrality(fg, group, normalized=normalized)
+    assert math.isfinite(actual)
+    assert actual == pytest.approx(expected, rel=1e-13, abs=1e-13)
+
+
+@pytest.mark.parametrize("normalized", [False, True])
+def test_overflow_in_later_group_recomputes_complete_result(normalized):
+    fg, ng, middle = _layered_pair(2, 8 * struct.calcsize("P"))
+    groups = [["s", "t"], middle]
+    # Excluding both endpoints removes the only sources with overflowing
+    # counts. The second group must recover after one native score exists.
+    assert fnx._fnx.group_betweenness_centrality_rust(fg, groups[0]) is not None
+    assert fnx._fnx.group_betweenness_centrality_rust(fg, groups[1]) is None
+    expected = nx.group_betweenness_centrality(ng, groups, normalized=normalized)
+    assert fnx.group_betweenness_centrality(
+        fg, groups, normalized=normalized
+    ) == pytest.approx(expected, rel=1e-13, abs=1e-13)
+
+
+def test_large_sparse_graph_retains_native_counting(monkeypatch):
+    # Node count alone must not divert large graphs whose multiplicity is low.
+    nodes = [f"node{i}" for i in range(180)]
+    edges = list(zip(nodes, nodes[1:]))
+    fg, ng = fnx.Graph(edges), nx.Graph(edges)
+    groups = [[nodes[40]], [nodes[60], nodes[110]]]
+    expected = nx.group_betweenness_centrality(ng, groups)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("representable path counts should retain the native solver")
+
+    monkeypatch.setattr(fnx, "_group_preprocessing_local", forbidden)
+    assert fnx.group_betweenness_centrality(fg, groups) == pytest.approx(expected)
