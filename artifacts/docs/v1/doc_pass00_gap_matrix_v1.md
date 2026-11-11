@@ -1,10 +1,10 @@
 # DOC-PASS-00 Baseline Gap Matrix (V1)
 
-- generated_at_utc: 2026-02-19T06:23:59.751254+00:00
+- generated_at_utc: 2026-11-11T21:26:37.999893+00:00
 - baseline_comparator: legacy_networkx/main@python3.12
-- total_sections: 145
-- risk_split: high=109, medium=29, low=7
-- words_current_to_target: 12030 -> 62642
+- total_sections: 215
+- risk_split: high=153, medium=52, low=10
+- words_current_to_target: 26646 -> 141321
 
 ## Top Priority Sections
 
@@ -39,7 +39,7 @@
 | 27 | `EXISTING_NETWORKX_STRUCTURE.md` | `EXISTING_NETWORKX_STRUCTURE > 6. V1 Extraction Boundary` | high | 0.14 | 27 | 203 | 7.50 | behavioral_invariants, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
 | 28 | `EXHAUSTIVE_LEGACY_ANALYSIS.md` | `EXHAUSTIVE_LEGACY_ANALYSIS.md — FrankenNetworkX > 2. Quantitative Legacy Inventory (Measured)` | high | 0.14 | 28 | 210 | 7.50 | legacy_anchor_specificity, behavioral_invariants, strict_hardened_split, performance_evidence, durability_forensics, drop_in_parity_claims |
 | 29 | `EXHAUSTIVE_LEGACY_ANALYSIS.md` | `EXHAUSTIVE_LEGACY_ANALYSIS.md — FrankenNetworkX > 25. Pass-B Expansion: Source-Anchored Behavioral Contract and Risk Topology (DOC-PASS-11)` | high | 0.14 | 36 | 270 | 7.50 | legacy_anchor_specificity, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
-| 30 | `EXHAUSTIVE_LEGACY_ANALYSIS.md` | `EXHAUSTIVE_LEGACY_ANALYSIS.md — FrankenNetworkX > 28. DOC-PASS-16 Risk/Perf/Test Specialist Deep-Pass Log (`bd-315.24.17`) > 28.2 Missing mapping resolution (no orphan critical surfaces)` | high | 0.00 | 62 | 434 | 7.00 | legacy_anchor_specificity, behavioral_invariants, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
+| 30 | `EXISTING_NETWORKX_STRUCTURE.md` | `EXISTING_NETWORKX_STRUCTURE > 82. Core Decomposition Backend Availability` | high | 0.00 | 91 | 592 | 6.50 | legacy_anchor_specificity, behavioral_invariants, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
 
 ## Expansion Rule
 
