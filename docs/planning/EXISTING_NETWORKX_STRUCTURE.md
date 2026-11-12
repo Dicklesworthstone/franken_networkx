@@ -430,6 +430,16 @@ Rust parity contract for the current weighted slice (`fnx-algorithms::shortest_p
 - Unit tests in `crates/fnx-algorithms/src/lib.rs` assert weighted-vs-unweighted divergence and tie-break replay stability.
 - Differential fixture `crates/fnx-conformance/fixtures/generated/shortest_path_weighted_strict.json` asserts strict-mode expected path.
 
+Python's generic `shortest_path(..., method="bellman-ford")` applies the same
+exact-weight admission as the dedicated Bellman-Ford APIs before a source-only
+or target-only native projection. Path-only output still requires exact
+arithmetic: rounding can invent a tie or hide an integer negative cycle.
+Wide integer edges and sums, Fraction/Decimal values, and custom numeric
+protocols retain Python arithmetic; admitted ordinary finite weights,
+including negative weights, retain their native routes. Generic path/length
+parity across pair, source, target and all-pairs forms is covered in
+`tests/python/test_weighted_path_adversarial_parity.py`.
+
 ### 22.1 Python Dijkstra overflow reachability
 
 For `Graph`, `DiGraph`, `MultiGraph`, and `MultiDiGraph`, a sum of finite,

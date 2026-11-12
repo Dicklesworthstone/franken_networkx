@@ -1107,3 +1107,98 @@ def test_ordinary_weighted_rows_keep_native_shortest_path_route(
     monkeypatch.setattr(fnx, "_dijkstra_multisource_inproc", unexpected_python_traversal)
     expected = nx.single_source_dijkstra_path_length(_live_weight_graph(nx, graph_class, False), "s")
     assert fnx.single_source_dijkstra_path_length(graph, "s") == expected
+
+
+def _generic_bellman_result(module, name, graph, query):
+    result = getattr(module, name)(graph, method="bellman-ford", weight="cost", **query)
+    return _exact(list(result) if not query else result)
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("family", ["wide-edge", "wide-sum", "fraction", "decimal"])
+def test_generic_bellman_queries_preserve_exact_weight_ordering(graph_class, family):
+    from decimal import Decimal
+
+    if family == "wide-edge":
+        costly, cheaper, tail = 2**53 + 1, 2**53, 0
+    elif family == "wide-sum":
+        costly, cheaper, tail = 2**53, 2**53, 1
+    elif family == "fraction":
+        costly, cheaper, tail = Fraction(2**54 + 1, 2**54), Fraction(1), 0
+    else:
+        costly, cheaper, tail = Decimal("1.0000000000000001"), Decimal(1), 0
+    queries = ({"source": "s", "target": "t"}, {"source": "s"}, {"target": "t"}, {})
+    for input_library in (fnx, nx):
+        actual, expected = getattr(input_library, graph_class)(), getattr(nx, graph_class)()
+        for graph in (actual, expected):
+            graph.add_weighted_edges_from([
+                ("s", "a", costly), ("s", "b", cheaper),
+                ("a", "t", tail), ("b", "t", 0),
+            ], weight="cost")
+            graph.add_node("isolated")
+            if graph.is_multigraph():
+                # Choosing the minimum parallel edge must retain its exact cost.
+                graph.add_edge("s", "a", cost=costly + 7)
+        # Rounding makes the strictly dearer a route appear tied with b.
+        assert nx.shortest_path(
+            expected, "s", "t", weight="cost", method="bellman-ford"
+        ) == ["s", "b", "t"]
+        for query in queries:
+            for name in ("shortest_path", "shortest_path_length"):
+                assert _generic_bellman_result(fnx, name, actual, query) == (
+                    _generic_bellman_result(nx, name, expected, query)
+                ), (input_library.__name__, graph_class, family, name, query)
+
+
+@pytest.mark.parametrize("graph_class", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("query", [{"source": "s"}, {"target": "t"}], ids=["source", "target"])
+@pytest.mark.parametrize("last_weight", [-2, -1], ids=["negative-cycle", "zero-cycle"])
+def test_generic_bellman_queries_keep_exact_negative_cycle_detection(
+    graph_class, query, last_weight
+):
+    actual, expected = getattr(fnx, graph_class)(), getattr(nx, graph_class)()
+    for graph in (actual, expected):
+        graph.add_weighted_edges_from([
+            ("s", "a", 2**53 + 3), ("a", "b", -(2**53 + 2)),
+            ("b", "s", last_weight), ("b", "t", 0),
+        ], weight="cost")
+    for name in ("shortest_path", "shortest_path_length"):
+        if last_weight == -2:
+            # The exact cycle sums to -1; f64 rounding makes its sum zero.
+            with pytest.raises(nx.NetworkXUnbounded) as wanted:
+                _generic_bellman_result(nx, name, expected, query)
+            with pytest.raises(fnx.NetworkXUnbounded) as got:
+                _generic_bellman_result(fnx, name, actual, query)
+            assert got.value.args == wanted.value.args
+        else:
+            assert _generic_bellman_result(fnx, name, actual, query) == (
+                _generic_bellman_result(nx, name, expected, query)
+            )
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("query", [{"source": "s"}, {"target": "t"}], ids=["source", "target"])
+def test_generic_bellman_ordinary_weights_keep_native_path(graph_class, query, monkeypatch):
+    actual, expected = getattr(fnx, graph_class)(), getattr(nx, graph_class)()
+    # Finite negative weights remain admitted on this directed acyclic graph.
+    tail = -1 if actual.is_directed() else 1
+    for graph in (actual, expected):
+        graph.add_weighted_edges_from([
+            ("s", "a", 2), ("s", "b", 4), ("a", "t", tail), ("b", "t", 1),
+        ], weight="cost")
+    native = fnx._raw_shortest_path
+    calls = []
+
+    def record_native(*args, **kwargs):
+        calls.append(kwargs)
+        return native(*args, **kwargs)
+
+    def unexpected_owned_traversal(*args, **kwargs):
+        pytest.fail("ordinary Bellman-Ford weights left the native path")
+
+    monkeypatch.setattr(fnx, "_raw_shortest_path", record_native)
+    monkeypatch.setattr(fnx, "_single_source_bellman_ford_inproc", unexpected_owned_traversal)
+    assert _generic_bellman_result(fnx, "shortest_path", actual, query) == (
+        _generic_bellman_result(nx, "shortest_path", expected, query)
+    )
+    assert len(calls) == 1

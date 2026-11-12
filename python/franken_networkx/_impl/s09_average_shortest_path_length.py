@@ -1079,7 +1079,14 @@ def shortest_path(
                 paths = single_source_dijkstra_path(H, target, weight=weight)
                 return {u: list(reversed(p)) for u, p in paths.items()}
             return all_pairs_dijkstra_path(G, weight=weight)
-        if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight, G):
+        if method == "bellman-ford" and (
+            _should_delegate_bellman_ford_to_networkx(weight, G)
+            or _sp_weights_need_networkx_for_type_parity(G, weight)
+        ):
+            # Source-only and target-only queries otherwise reach the generic
+            # f64 kernel directly. Exact weights determine the chosen path,
+            # not just its length: rounding can invent a tie or hide a negative
+            # cycle. Share the dedicated Bellman-Ford APIs' admission gate.
             if source is not None and target is not None:
                 return bellman_ford_path(G, source, target, weight=weight)
             if source is not None and target is None:
