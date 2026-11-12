@@ -922,6 +922,20 @@ parent graph and subsequent traversals. Reading an edge earlier must not
 change whether later view writes persist. Simple directed graphs and native
 algorithm routes retain their existing access paths.
 
+Reverse `edges`, `in_edges`, and `out_edges` support mapping lookup by `(u, v)`
+for DiGraph and `(u, v, key)` for MultiDiGraph, including tuple-valued keys.
+The returned dictionary is the original opposite-direction edge's live
+attributes. Mapping `get`, `keys`, `items`, and `values` retain their live
+behavior as edges are added or removed, including filtered reverse views.
+
+Held reverse adjacency rows observe neighbor and parallel-key changes while
+their source row exists. Removing a node or clearing the parent detaches the
+held row; reusing that node label must not attach it to the new row. Likewise,
+a held parallel-key dictionary emptied by removing its final edge stays
+detached when a new edge is added for the same pair. These rules apply to
+node indexing, `adj`, `succ`, `pred`, and rows returned by `adjacency()`, using
+row-local access rather than materializing unrelated graph storage.
+
 
 ## 32. Live Weighted Shortest-Path Queries
 

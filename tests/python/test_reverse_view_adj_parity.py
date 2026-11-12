@@ -208,3 +208,136 @@ def test_lazy_reverse_multidigraph_weight_callback_changes_path_lengths(kind):
     assert expected["a"] == 1
     assert expected["t"] == 2
     assert distances(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_class", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("access", ["edges", "out_edges", "in_edges"])
+def test_reverse_edge_mapping_reads_writes_and_held_collections(graph_class, access):
+    def exercise(lib):
+        graph = getattr(lib, graph_class)()
+        multi = graph.is_multigraph()
+        edge_key = ("route", 2)
+        options = {"key": edge_key} if multi else {}
+        graph.add_edge("a", "s", weight=5, **options)
+        graph.add_edge("s", "a", weight=20, **options)
+        view = graph.reverse(copy=False)
+        edges = getattr(view, access)
+        edge = ("s", "a", edge_key) if multi else ("s", "a")
+        attrs = edges[edge]
+        original = graph.get_edge_data("a", "s", edge_key) if multi else graph.get_edge_data("a", "s")
+        assert attrs is original
+        attrs["weight"] = 7
+        assert original["weight"] == 7
+        assert dict(edges)[edge] is attrs
+
+        keys, items, values = edges.keys(), edges.items(), edges.values()
+        snapshots = []
+
+        def snapshot():
+            snapshots.append((
+                list(keys),
+                [(key, dict(data)) for key, data in items],
+                [dict(data) for data in values],
+            ))
+
+        snapshot()
+        graph.add_edge("b", "s", weight=11, **options)
+        snapshot()
+        if multi:
+            graph.add_edge("a", "s", key="parallel", weight=13)
+            snapshot()
+            graph.remove_edge("a", "s", edge_key)
+        else:
+            graph.remove_edge("a", "s")
+        snapshot()
+        missing = ("s", "missing", edge_key) if multi else ("s", "missing")
+        marker = object()
+        assert edges.get(missing, marker) is marker
+        return snapshots
+
+    assert exercise(fnx) == exercise(nx)
+
+
+@pytest.mark.parametrize("kind", _LAZY_REVERSE_KINDS)
+@pytest.mark.parametrize("access", ["edges", "out_edges", "in_edges"])
+def test_lazy_reverse_multidigraph_keyed_edge_lookup_writes_through(kind, access):
+    def exercise(lib):
+        graph, view = _lazy_multidigraph_reverse(lib, kind)
+        edges = getattr(view, access)
+        for edge in edges:
+            u, v, key = edge
+            attrs = edges[edge]
+            assert attrs is graph.get_edge_data(v, u, key)
+            attrs["visited"] = True
+            attrs["weight"] += 0.5
+        return [
+            (u, v, key, dict(attrs))
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        ]
+
+    assert exercise(fnx) == exercise(nx)
+
+
+def _held_reverse_row(view, access):
+    if access == "getitem":
+        return view["center"]
+    if access == "adjacency":
+        return dict(view.adjacency())["center"]
+    return getattr(view, access)["center"]
+
+
+@pytest.mark.parametrize("graph_class", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("access", ["getitem", "adj", "succ", "pred", "adjacency"])
+@pytest.mark.parametrize("detach", ["clear", "remove_node"])
+@pytest.mark.parametrize("read_before_mutation", [False, True])
+def test_reverse_held_neighbor_rows_follow_edges_then_detach(
+    graph_class, access, detach, read_before_mutation,
+):
+    def exercise(lib):
+        graph = getattr(lib, graph_class)()
+        multi = graph.is_multigraph()
+        options = {"key": ("route", 1)} if multi else {}
+
+        def endpoints(neighbor):
+            return ("center", neighbor) if access == "pred" else (neighbor, "center")
+
+        graph.add_edge(*endpoints("a"), weight=5, **options)
+        graph.add_edge(*endpoints("b"), weight=7, **options)
+        view = graph.reverse(copy=False)
+        row = _held_reverse_row(view, access)
+        collections = None
+        snapshots = []
+
+        def data_dict(data):
+            return {key: dict(attrs) for key, attrs in data.items()} if multi else dict(data)
+
+        def snapshot():
+            nonlocal collections
+            if collections is None:
+                collections = row.keys(), row.items(), row.values()
+            keys, items, values = collections
+            snapshots.append((
+                list(row), list(keys),
+                [(neighbor, data_dict(data)) for neighbor, data in items],
+                [data_dict(data) for data in values],
+            ))
+
+        if read_before_mutation:
+            snapshot()
+        graph.add_edge(*endpoints("c"), weight=11, **options)
+        snapshot()
+        graph.remove_edge(*endpoints("a"))
+        snapshot()
+        if multi:
+            graph.add_edge(*endpoints("b"), key="parallel", weight=13)
+            snapshot()
+        if detach == "clear":
+            graph.clear()
+        else:
+            graph.remove_node("center")
+        snapshot()
+        graph.add_edge(*endpoints("replacement"), weight=17, **options)
+        snapshot()
+        return snapshots, list(_held_reverse_row(view, access))
+
+    assert exercise(fnx) == exercise(nx)

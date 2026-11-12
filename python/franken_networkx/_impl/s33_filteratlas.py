@@ -40,13 +40,17 @@ class _ReverseEdgeView:
         return _nx_edge_view_contains(graph.pred, edge, "out", graph.is_multigraph())
 
     def __getitem__(self, edge):
+        if isinstance(edge, slice):
+            raise NetworkXError(
+                f"{type(self).__name__} does not support slicing, try "
+                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
+            )
+        graph = self._view._graph
+        if graph.is_multigraph():
+            u, v, key = edge
+            return graph.pred[u][v][key]
         u, v = edge
-        if u not in self._view._graph:
-            raise KeyError(edge)
-        pred_u = self._view._graph.pred[u]
-        if v not in pred_u:
-            raise KeyError(edge)
-        return pred_u[v]
+        return graph.pred[u][v]
 
     def data(self, data=True, default=None, nbunch=None, keys=False):
         return self(nbunch=nbunch, data=data, keys=keys, default=default)
@@ -117,7 +121,10 @@ class _ReverseEdgeView:
         return new_reverse.edges
 
     get = _adjacency_view_get
-    keys = _adjacency_view_keys
+
+    def keys(self):
+        return _KeysViewABC(self)
+
     items = _adjacency_view_items
     values = _adjacency_view_values
 

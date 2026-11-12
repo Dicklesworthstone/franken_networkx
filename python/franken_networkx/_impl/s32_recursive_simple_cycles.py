@@ -1231,6 +1231,34 @@ class _RevEdgeMethodViewBase:
         rows = graph.succ if kind == "in" else graph.pred
         return _nx_edge_view_contains(rows, item, kind, graph.is_multigraph())
 
+    def __getitem__(self, edge):
+        if isinstance(edge, slice):
+            raise NetworkXError(
+                f"{type(self).__name__} does not support slicing, try "
+                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
+            )
+        view = self._owner
+        multi = view.is_multigraph()
+        if multi:
+            u, v, key = edge
+        else:
+            u, v = edge
+        # Read the owner's rows so a filtered reverse view keeps its orientation
+        # and predicates. Reversing its parent again would read the wrong edge.
+        attrs = view.pred[v][u] if self._fnx_edge_kind == "in" else view.succ[u][v]
+        return attrs[key] if multi else attrs
+
+    get = _adjacency_view_get
+
+    def keys(self):
+        return _KeysViewABC(self)
+
+    def items(self):
+        return _ItemsViewABC(self)
+
+    def values(self):
+        return _ValuesViewABC(self)
+
     def __repr__(self):
         return f"{type(self).__name__}({list(self)!r})"
 
@@ -1360,27 +1388,18 @@ class _ReverseNeighborMap(_Mapping):
         self._view = view
         self._node = node
         self._reverse = reverse
+        # Capture the parent's live per-node view, not a plain dictionary of
+        # its current neighbors. In particular, _fast_*_row builds a snapshot
+        # of MultiDiGraph neighbor keys even though its edge dictionaries live
+        # on. The public row is already local to this node and tracks edge
+        # churn. Capturing it now also preserves a held row when its node is
+        # removed or the parent is cleared, rather than attaching to a new row
+        # if the same node is added again.
+        rows = view._graph.succ if reverse else view._graph.pred
+        self._fnx_row = rows[node]
 
     def _raw_neighbors(self):
-        # br-r37-c1-gchm1: native O(deg) PLAIN-dict rows (type-correct for
-        # the exposed .succ/.pred snapshot) instead of G.succ[node]/
-        # G.pred[node] which re-materialise the whole parent adjacency
-        # (O(N+E)) — MultiDiGraph reverse().degree() timed out >8s.
-        # reverse view succ (reverse=False) = parent PREDECESSORS;
-        # reverse view pred (reverse=True) = parent SUCCESSORS.
-        # br-r37-c1-r3gjb: memoise the built row on the (transient) instance —
-        # the native *_row_dict builds a fresh dict per call, and degree/edges
-        # hit _raw_neighbors once per iter PLUS once per __getitem__, so the
-        # row was rebuilt ~deg times per node (reverse degree ~54x). One build
-        # per neighbour-map instance instead.
-        cached = self.__dict__.get("_fnx_row")
-        if cached is None:
-            if self._reverse:
-                cached = _fast_succ_row(self._view._graph, self._node)
-            else:
-                cached = _fast_pred_row(self._view._graph, self._node)
-            self.__dict__["_fnx_row"] = cached
-        return cached
+        return self._fnx_row
 
     def __iter__(self):
         return iter(self._raw_neighbors())
@@ -1389,16 +1408,28 @@ class _ReverseNeighborMap(_Mapping):
         return len(self._raw_neighbors())
 
     def __getitem__(self, neighbor):
-        return self._raw_neighbors()[neighbor]
+        row = self._raw_neighbors()
+        owner = getattr(row, "_fnx_multi_edge_owner", None)
+        if type(owner) is MultiDiGraph and not _has_networkx_private_storage(owner):
+            if neighbor not in row:
+                raise KeyError(neighbor)
+            # The native keydict returned here detaches when the final parallel
+            # edge disappears. A public AtlasView cell re-resolves the pair and
+            # would attach a held keydict to replacement edges. On clear/node
+            # removal the parent's existing row-detach hook clears this owner;
+            # the fallback then reads that row's preserved attributes instead.
+            u, v = (self._node, neighbor) if self._reverse else (neighbor, self._node)
+            return owner.get_edge_data(u, v)
+        return row[neighbor]
 
     def items(self):
-        return self._raw_neighbors().items()
+        return _ItemsViewABC(self)
 
     def keys(self):
-        return self._raw_neighbors().keys()
+        return _KeysViewABC(self)
 
     def values(self):
-        return self._raw_neighbors().values()
+        return _ValuesViewABC(self)
 
 
 class _ReverseAdjacencyView(_Mapping):
