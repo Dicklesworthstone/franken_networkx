@@ -470,3 +470,161 @@ def test_deepcopy_complex_graph_still_runs_weighted_algorithms(fcls, ncls):
         _edge_attrs(copied)["weight"] = 1
         assert library.shortest_path_length(copied, 0, 2, weight="weight") == 3
         assert library.shortest_path_length(graph, 0, 2, weight="weight") == 6
+
+
+_SNAPSHOT_VIEW_CASES = [
+    (fcls, ncls, kind)
+    for fcls, ncls in _TYPES
+    for kind in ("subgraph", "edge_subgraph", "copy", "directed", "undirected", "nested")
+] + [(fcls, ncls, "reverse") for fcls, ncls in (_TYPES[1], _TYPES[3])]
+
+
+def _snapshot_view(graph, kind):
+    if kind == "subgraph":
+        return graph.subgraph(list(graph)[:3])
+    if kind == "edge_subgraph":
+        return graph.edge_subgraph(list(graph.edges)[:2])
+    if kind == "copy":
+        return graph.copy(as_view=True)
+    if kind == "directed":
+        return graph.to_directed(as_view=True)
+    if kind == "undirected":
+        return graph.to_undirected(as_view=True)
+    if kind == "nested":
+        return graph.subgraph(list(graph)[:3]).to_directed(as_view=True).reverse(copy=False)
+    return graph.reverse(copy=False)
+
+
+def _snapshot_view_attrs(view, layer):
+    if layer == "graph":
+        return view.graph
+    if layer == "node":
+        return view.nodes[next(iter(view))]
+    edge = next(iter(view.edges))
+    attrs = view[edge[0]][edge[1]]
+    return attrs[edge[2]] if view.is_multigraph() else attrs
+
+
+@pytest.mark.parametrize("fcls,ncls,kind", _SNAPSHOT_VIEW_CASES)
+@pytest.mark.parametrize("layer", ["graph", "node", "edge"])
+def test_deepcopy_view_memoizes_owner_before_recursive_attributes(fcls, ncls, kind, layer):
+    outcomes = []
+    for cls in (ncls, fcls):
+        graph = cls([(0, 1), (1, 2), (2, 0), (2, 3)])
+        view = _snapshot_view(graph, kind)
+        attrs = _snapshot_view_attrs(view, layer)
+        attrs.update(owner=view, payload={"items": [1]})
+        attrs["self"] = attrs
+        memo = {}
+        copied = copy.deepcopy(view, memo)
+        copied_attrs = _snapshot_view_attrs(copied, layer)
+        assert memo[id(view)] is copied
+        assert copied_attrs["owner"] is copied
+        assert copied_attrs["self"] is copied_attrs
+        assert copied_attrs is not attrs
+        attrs["payload"]["items"].append(2)
+        assert copied_attrs["payload"] == {"items": [1]}
+        outcomes.append((
+            list(copied), [(node, list(copied[node])) for node in copied],
+            copied.is_directed(), copied.is_multigraph(), copied.frozen,
+        ))
+        graph.add_edge(3, 4)
+        assert 4 not in copied
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("fcls,ncls,kind", _SNAPSHOT_VIEW_CASES)
+@pytest.mark.parametrize("view_first", [False, True])
+def test_deepcopy_view_retains_aliases_in_enclosing_container(fcls, ncls, kind, view_first):
+    for cls in (ncls, fcls):
+        graph = cls([(0, 1), (1, 2)])
+        view = _snapshot_view(graph, kind)
+        node_attrs = _snapshot_view_attrs(view, "node")
+        edge_attrs = _snapshot_view_attrs(view, "edge")
+        view.graph["node"] = node_attrs
+        node_attrs["edge"] = edge_attrs
+        edge_attrs["graph"] = view.graph
+        view.graph["owner"] = view
+        values = [view, node_attrs] if view_first else [node_attrs, view]
+        result = copy.deepcopy(values)
+        copied, copied_node = result if view_first else reversed(result)
+        assert copied.graph["owner"] is copied
+        assert copied.graph["node"] is copied_node
+        assert copied_node is _snapshot_view_attrs(copied, "node")
+        assert copied_node["edge"] is _snapshot_view_attrs(copied, "edge")
+        assert copied_node["edge"]["graph"] is copied.graph
+
+
+@pytest.mark.parametrize("fcls,ncls,kind", _SNAPSHOT_VIEW_CASES)
+def test_deepcopy_view_remaps_nodes_and_parallel_keys_once(fcls, ncls, kind):
+    for cls in (ncls, fcls):
+        graph = cls()
+        node, key = _CopyNode("node"), _CopyNode("key")
+        if graph.is_multigraph():
+            graph.add_edge(node, "target", key=key, identity=key)
+        else:
+            graph.add_edge(node, "target")
+        view = _snapshot_view(graph, kind)
+        view.graph.update(owner=view, node=node)
+        view.nodes[node]["node"] = node
+        # NetworkX's edge-subgraph filter closes over the original key objects.
+        # Deepcopy leaves that function unchanged, so it hides edges whose keys
+        # were copied by identity. Use its materialized graph as the oracle for
+        # the independent snapshot contract; fnx still copies the view directly.
+        oracle = (
+            view.copy()
+            if cls is ncls and kind == "edge_subgraph" and graph.is_multigraph()
+            else view
+        )
+        copied = copy.deepcopy(oracle)
+        if cls is fcls:
+            assert copied.graph["owner"] is copied
+        copied_node = next(n for n in copied if isinstance(n, _CopyNode))
+        assert copied_node is not node
+        assert copied.graph["node"] is copied_node
+        assert copied.nodes[copied_node]["node"] is copied_node
+        if graph.is_multigraph():
+            source, target, copied_key = next(iter(copied.edges))
+            assert copied_key is not key
+            assert copied[source][target][copied_key]["identity"] is copied_key
+
+
+@pytest.mark.parametrize("fcls,ncls", (_TYPES[1], _TYPES[3]))
+def test_deepcopy_undirected_view_preserves_distinct_reciprocal_rows(fcls, ncls):
+    outcomes = []
+    for cls in (ncls, fcls):
+        graph = cls()
+        graph.add_edge(0, 1, direction="forward", payload=[])
+        graph.add_edge(1, 0, direction="backward", payload=[])
+        view = graph.to_undirected(as_view=True)
+        view.graph["owner"] = view
+        copied = copy.deepcopy(view)
+        forward = copied[0][1][0] if copied.is_multigraph() else copied[0][1]
+        backward = copied[1][0][0] if copied.is_multigraph() else copied[1][0]
+        assert forward is not backward
+        assert forward["payload"] is not backward["payload"]
+        outcomes.append((forward["direction"], backward["direction"]))
+    assert outcomes[0] == outcomes[1] == ("forward", "backward")
+
+
+@pytest.mark.parametrize("fcls,ncls", (_TYPES[1], _TYPES[3]))
+def test_deepcopy_view_reverse_preserves_parent_subclass(fcls, ncls):
+    for cls in (ncls, fcls):
+        constructor_calls = []
+
+        class SubGraph(cls):
+            def __init__(self):
+                constructor_calls.append(True)
+                super().__init__()
+
+        graph = SubGraph()
+        graph.add_edge(0, 1, payload=[])
+        view = graph.reverse(copy=False)
+        view.graph["owner"] = view
+        calls_before_copy = len(constructor_calls)
+        copied = copy.deepcopy(view)
+        assert type(copied) is SubGraph
+        assert len(constructor_calls) == calls_before_copy
+        assert copied.graph["owner"] is copied
+        assert copied.frozen
+        assert list(copied.edges()) == [(1, 0)]

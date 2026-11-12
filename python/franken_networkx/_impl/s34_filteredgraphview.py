@@ -1190,15 +1190,7 @@ class _FilteredGraphView:
             return result
 
     def __deepcopy__(self, memo):
-        # br-r37-c1-fgvcopy: nx's ``copy._deepcopy`` of a subgraph
-        # also returns a frozen graph.  Freeze the deep-copied result.
-        copied = _deepcopy(self.copy(), memo)
-        memo[id(self)] = copied
-        try:
-            from networkx import freeze as _nx_freeze
-            return _nx_freeze(copied)
-        except Exception:
-            return copied
+        return _graph_deepcopy(self, memo, snapshot_class=self._copy_type())
 
 
 _PRIVATE_NODE_OVERRIDE = "_fnx_private_node_override"

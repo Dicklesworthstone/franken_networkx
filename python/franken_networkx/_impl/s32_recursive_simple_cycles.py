@@ -1067,15 +1067,9 @@ class _ReverseDirectedViewBase:
             return result
 
     def __deepcopy__(self, memo):
-        # br-r37-c1-revvcopy-outer: see __copy__ above. Freeze the
-        # deep-copied result for nx parity.
-        copied = _deepcopy(self.copy(), memo)
-        memo[id(self)] = copied
-        try:
-            from networkx import freeze as _nx_freeze
-            return _nx_freeze(copied)
-        except Exception:
-            return copied
+        copy_factory = getattr(self._graph, "_copy_type", None)
+        graph_class = copy_factory() if callable(copy_factory) else self._graph.__class__
+        return _graph_deepcopy(self, memo, snapshot_class=graph_class)
 
     def number_of_edges(self, u=None, v=None):
         if u is None:

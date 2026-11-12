@@ -89,7 +89,7 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
     _cls.name = property(_graph_name_get, _graph_name_set)
 
 
-def _graph_deepcopy(self, memo=None):
+def _graph_deepcopy(self, memo=None, *, snapshot_class=None):
     """Copy the complete object graph with one memo, including node identities."""
     from copy import _keep_alive, deepcopy as _dc
 
@@ -101,7 +101,7 @@ def _graph_deepcopy(self, memo=None):
     src_dict = vars(self)
     descriptor_cached = src_dict.get(_DESCRIPTOR_CACHED_VIEWS) or ()
     private_method_shadows = src_dict.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
-    instance_items = [
+    instance_items = [] if snapshot_class is not None else [
         (key, value)
         for key, value in src_dict.items()
         if not (isinstance(key, str) and key.startswith("_fnx_"))
@@ -110,7 +110,12 @@ def _graph_deepcopy(self, memo=None):
             key in private_method_shadows and value is private_method_shadows[key]
         )
     ]
-    private_overrides = _captured_private_overrides(self)
+    # Synthetic views expose their logical stores through mapping facades.
+    # Materialize those stores into a real graph, while memoizing the original
+    # view before any attribute or node copy hook can refer back to it.
+    private_overrides = (
+        {} if snapshot_class is not None else _captured_private_overrides(self)
+    )
 
     # The native clone preserves row order efficiently, but retains node/key
     # objects and cannot memoize the new graph before copying attributes. It is
@@ -131,9 +136,12 @@ def _graph_deepcopy(self, memo=None):
             for key, value in attrs.items()
         )
 
-    native = getattr(self, "_native_deepcopy", None)
+    native = (
+        None if snapshot_class is not None else getattr(self, "_native_deepcopy", None)
+    )
     use_native = (
-        not memo
+        snapshot_class is None
+        and not memo
         and type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
         and not private_overrides
         and _SHARED_STORAGE_SOURCE not in src_dict
@@ -218,7 +226,8 @@ def _graph_deepcopy(self, memo=None):
     else:
         # Allocate without rerunning a subclass's __init__, then register BEFORE
         # calling any user copy hook. Graphs can be their own nodes or attributes.
-        out = type(self).__new__(type(self))
+        output_class = type(self) if snapshot_class is None else snapshot_class
+        out = output_class.__new__(output_class)
         memo[id(self)] = out
         prepared = []
         prepared_ids = set()
@@ -228,11 +237,16 @@ def _graph_deepcopy(self, memo=None):
                 return
             target = {}
             memo[id(source)] = target
-            prepared.append((source, target))
+            # Synthetic adjacency facades can allocate a fresh row wrapper on
+            # every read. Keep the same children through preparation and fill;
+            # a second read would bypass their registered dictionary copies.
+            entries = list(source.items()) if snapshot_class is not None else None
+            prepared.append((source, target, entries))
             prepared_ids.add(id(source))
             _keep_alive(source, memo)
             if depth > 1:
-                for value in source.values():
+                values = source.values() if entries is None else (value for _, value in entries)
+                for value in values:
                     prepare_mapping(value, depth - 1, native=native)
 
         def alias_mapping(source, original, depth):
@@ -267,7 +281,9 @@ def _graph_deepcopy(self, memo=None):
             succ_source = self._succ
             pred_source = self._pred
             if native_adjacency:
-                alias_mapping(succ_source, adj_source, depth)
+                alias_mapping(
+                    succ_source, adj_source, 1 if snapshot_class is not None else depth
+                )
             else:
                 prepare_mapping(succ_source, depth)
             native_pred = "_pred" not in private_overrides and not isinstance(
@@ -293,8 +309,8 @@ def _graph_deepcopy(self, memo=None):
         memoize_views()
 
         setattr(out, _GRAPH_ATTR_OVERRIDE, _dc(self.graph, memo))
-        for source, target in prepared:
-            for key, value in source.items():
+        for source, target, entries in prepared:
+            for key, value in (source.items() if entries is None else entries):
                 target[_dc(key, memo)] = _dc(value, memo)
 
         stores = [
@@ -327,7 +343,7 @@ def _graph_deepcopy(self, memo=None):
     out_dict = vars(out)
     for key, value in instance_items:
         out_dict[_dc(key, memo)] = _dc(value, memo)
-    for cls in type(self).__mro__:
+    for cls in (() if snapshot_class is not None else type(self).__mro__):
         slots = vars(cls).get("__slots__", ())
         if isinstance(slots, str):
             slots = (slots,)

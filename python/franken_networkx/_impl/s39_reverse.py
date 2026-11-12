@@ -839,9 +839,7 @@ class _ConversionGraphViewBase:
         return (_reconstruct_filtered_view_as_copy, (self.copy(),))
 
     def __deepcopy__(self, memo):
-        copied = _deepcopy(self.copy(), memo)
-        memo[id(self)] = copied
-        return copied
+        return _graph_deepcopy(self, memo, snapshot_class=self._copy_type())
 
     def _copy_type(self):
         if self.is_directed():
