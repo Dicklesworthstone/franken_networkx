@@ -2147,19 +2147,9 @@ def is_k_regular(G, k):
 def simple_cycles(G, length_bound=None):
     """Yield simple cycles as lists of nodes.
 
-    Matches upstream's generator contract (franken_networkx-v1nwd) — the
-    Rust impl returns cycles in different iteration order than nx.
-
-    br-r37-c1-sccnv: simple_cycles is purely structural (node/edge attrs are
-    irrelevant), so the only cost of delegating to nx is the conversion. The full
-    ``_fnx_to_nx`` materializes every node/edge attr dict (~3x heavier than a
-    bare structure build, ~12.6ms vs ~4ms on 1500n/7000e). For the graph types
-    where a structure-only ``add_nodes_from``/``add_edges_from`` build reproduces
-    nx's exact node + adjacency order — DiGraph, Graph, MultiDiGraph (verified
-    0 mismatches over 1500+ random graphs per type incl. self-loops, parallels,
-    and every ``length_bound``) — build the bare nx graph and run nx's algorithm
-    directly. Undirected MultiGraph keeps the full conversion: its frozenset
-    edge-dedup order in ``_fnx_to_nx`` differs from ``add_edges_from``.
+    Self-loops and undirected parallel-edge cycles read the caller's graph
+    while the generator is suspended. Longer-cycle searches then operate on
+    an owned structural snapshot, independent of later source mutations.
     """
     yield from _simple_cycles_structure_only_via_networkx(G, length_bound)
 
@@ -2251,7 +2241,8 @@ def _bounded_cycle_search_fnx(G, path, length_bound):
 
 
 def _simple_cycles_structure_only_via_networkx(G, length_bound):
-    G = _coerce_arg_to_fnx_graph(G)
+    # Early yields precede the structural snapshot below. Converting here
+    # would detach NetworkX inputs and views before those yields can resume.
     if length_bound is not None:
         if length_bound == 0:
             return

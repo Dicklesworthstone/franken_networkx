@@ -2192,6 +2192,13 @@ snapshot point. Changes before first advancement remain visible, and failures
 inside iterator bodies retain their deferred timing. The owned edge-path
 iterator is available through explicit backend dispatch.
 
+`simple_cycles` keeps the original adjacency live through self-loop and
+undirected parallel-edge yields. Edge mutations and mutable filter changes
+between these yields remain visible before construction of the owned simple
+graph used for longer-cycle search. Once that structural copy exists, later
+source mutations do not alter its remaining cycles. Bound validation precedes
+graph access, and backend dispatch retains the same suspension boundaries.
+
 Bridge classification starts at first advancement. Unrestricted simple graphs
 retain a live edge walk after classification; a root-restricted component or
 multigraph projection retains its established snapshot behavior. Parallel-edge
