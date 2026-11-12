@@ -1,7 +1,0 @@
-{
-  "directed": false,
-  "multigraph": {},
-  "graph_attrs": {},
-  "nodes": ["a", "b"],
-  "edges": [{ "left": "a", "right": "b", "attrs": {} }]
-}

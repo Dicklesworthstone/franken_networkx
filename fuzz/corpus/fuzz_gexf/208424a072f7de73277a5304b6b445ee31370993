@@ -1,8 +1,0 @@
-<?xm8"?>
-<gexf version="1n2">
-  <graph mode="static" defaultedgetype="directed">
-    <attributes class="node"~
-      <attribuTe id="1" title="color" type="string"/>
-  >
-  </graph>
-</gexf>

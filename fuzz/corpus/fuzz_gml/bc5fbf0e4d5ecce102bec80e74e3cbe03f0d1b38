@@ -1,4 +1,0 @@
-graph [
-  lirected 
- , node [ id 0 labelu "a" ]
-]

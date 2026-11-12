@@ -1,4 +1,0 @@
-graph [
- read_json_ directed 0
-            t 0 ]
-]

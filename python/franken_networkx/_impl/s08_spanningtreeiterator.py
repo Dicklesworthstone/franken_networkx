@@ -958,12 +958,13 @@ class SpanningTreeIterator:
 class ArborescenceIterator:
     """Iterate over all spanning arborescences of a digraph in weight-sorted order.
 
-    Uses the incremental partition scheduler with native arborescence
-    selection on simple graphs, retaining only the current search frontier.
+    Uses an incremental partition scheduler with native arborescence
+    selection, retaining only the current search frontier. Parallel edges
+    are distinct alternatives and retain their original keys in each result.
 
     Parameters
     ----------
-    G : DiGraph
+    G : DiGraph or MultiDiGraph
         Directed graph.
     weight : str, default "weight"
         Edge attribute used as weight.
@@ -971,6 +972,8 @@ class ArborescenceIterator:
         If True, yield arborescences in increasing weight order.
     init_partition : tuple, optional
         ``(included_edges, excluded_edges)`` to constrain the enumeration.
+        For a multigraph, identify parallel edges by ``(u, v, key)``. A
+        two-item edge is accepted only when its key is unambiguous.
     """
 
     @_dataclass(order=True)
@@ -1001,40 +1004,59 @@ class ArborescenceIterator:
             from franken_networkx._fnx import NetworkXNotImplemented
 
             raise NetworkXNotImplemented("not implemented for undirected type")
-        if self.G.is_multigraph():
-            import networkx as _nx_local
-
-            # br-r37-c1-ho3db: nx supports MultiDiGraph in
-            # ArborescenceIterator; the Rust kernel is simple-only.
-            # Delegate to nx so MultiDiGraph callers keep working.
-            self._iterator = iter(
-                _nx_local.ArborescenceIterator(
-                    _networkx_graph_for_parity(self.G),
-                    weight=self.weight,
-                    minimum=self.minimum,
-                    init_partition=self.init_partition,
-                )
-            )
-            return self
         if self.G.number_of_nodes() == 0:
             raise NetworkXPointlessConcept("G has no nodes.")
         self._iterator = None
         self.partition_queue = []
         self.partition_key = "ArborescenceIterators super secret partition attribute name"
+        if self.G.is_multigraph():
+            self._partition_serial = 0
+            # Edmonds selectors assign new multigraph keys to their output.
+            # Carry the original key as edge data through selection, using
+            # names that cannot overwrite an input attribute or the weight.
+            occupied = {self.weight}
+            for _, _, attrs in self.G.edges(data=True):
+                occupied.update(attrs)
+            while self.partition_key in occupied:
+                self.partition_key += "_"
+            self._edge_key_attr = self.partition_key + " original edge key"
+            while self._edge_key_attr in occupied:
+                self._edge_key_attr += "_"
         self.method = (
             minimum_spanning_arborescence if self.minimum
             else maximum_spanning_arborescence
         )
         constraints = {}
         if self.init_partition is not None:
-            constraints.update(dict.fromkeys(self.init_partition[0], EdgePartition.INCLUDED))
-            constraints.update(dict.fromkeys(self.init_partition[1], EdgePartition.EXCLUDED))
+            for edges, state in zip(
+                self.init_partition, (EdgePartition.INCLUDED, EdgePartition.EXCLUDED)
+            ):
+                for edge in edges:
+                    if self.G.is_multigraph():
+                        edge = tuple(edge)
+                        if len(edge) == 2:
+                            keys = self.G.get_edge_data(*edge, default={})
+                            if len(keys) > 1:
+                                raise ValueError(
+                                    "Parallel edges in init_partition require "
+                                    "(u, v, key) triples."
+                                )
+                            if keys:
+                                edge = (*edge, next(iter(keys)))
+                        elif len(edge) != 3:
+                            raise ValueError(
+                                "MultiDiGraph init_partition edges must be "
+                                "(u, v, key) triples."
+                            )
+                    constraints[edge] = state
         # Validate the root now: an infeasible starting partition is an error,
         # whereas infeasible children are simply absent from the frontier.
         self._queue_partition(constraints, self._select_partition(constraints))
         return self
 
     def _select_partition(self, constraints):
+        if self.G.is_multigraph():
+            return self._select_multigraph_partition(constraints)
         for u, v, attrs in self.G.edges(data=True):
             attrs[self.partition_key] = constraints.get((u, v), EdgePartition.OPEN)
         for node in self.G:
@@ -1056,7 +1078,94 @@ class ArborescenceIterator:
             self.G, self.weight, partition=self.partition_key, preserve_attrs=True
         )
 
+    def _select_multigraph_partition(self, constraints):
+        kind = "minimum" if self.minimum else "maximum"
+        infeasible = f"No {kind} spanning arborescence in G."
+        parents = {}
+        for edge, state in constraints.items():
+            if state != EdgePartition.INCLUDED:
+                continue
+            if len(edge) != 3 or not self.G.has_edge(*edge) or edge[1] in parents:
+                raise NetworkXException(infeasible)
+            parents[edge[1]] = edge[0]
+        # An all-included cycle has no edge Edmonds may remove. Reject it
+        # before the selector rewrites weights or contracts that cycle.
+        resolved = set()
+        for node in parents:
+            path = set()
+            while node in parents and node not in resolved:
+                if node in path:
+                    raise NetworkXException(infeasible)
+                path.add(node)
+                node = parents[node]
+            resolved.update(path)
+        rows = list(self.G.edges(keys=True, data=True))
+        try:
+            for u, v, key, attrs in rows:
+                attrs[self.partition_key] = constraints.get(
+                    (u, v, key), EdgePartition.OPEN
+                )
+                attrs[self._edge_key_attr] = key
+            for node in self.G:
+                incoming = list(self.G.in_edges(node, keys=True, data=True))
+                if any(
+                    attrs[self.partition_key] == EdgePartition.INCLUDED
+                    for *_, attrs in incoming
+                ):
+                    for *_, attrs in incoming:
+                        if attrs[self.partition_key] != EdgePartition.INCLUDED:
+                            attrs[self.partition_key] = EdgePartition.EXCLUDED
+            cache = getattr(self.G, "__networkx_cache__", None)
+            if cache is not None:
+                cache.clear()
+            selected = self.method(
+                self.G, self.weight, partition=self.partition_key, preserve_attrs=True
+            )
+            tree = selected.__class__()
+            tree.graph.update(selected.graph)
+            tree.add_nodes_from(selected.nodes(data=True))
+            for u, v, attrs in selected.edges(data=True):
+                data = dict(attrs)
+                key = data.pop(self._edge_key_attr)
+                data.pop(self.partition_key, None)
+                tree.add_edge(u, v, key=key)
+                tree.edges[u, v, key].update(data)
+            # Check the result against edge identities, not the regenerated
+            # keys used internally by the branching selector.
+            selected_edges = set(tree.edges)
+            if any(
+                (state == EdgePartition.INCLUDED and edge not in selected_edges)
+                or (state == EdgePartition.EXCLUDED and edge in selected_edges)
+                for edge, state in constraints.items()
+            ):
+                raise NetworkXException(infeasible)
+            return tree
+        finally:
+            for *_, attrs in rows:
+                attrs.pop(self.partition_key, None)
+                attrs.pop(self._edge_key_attr, None)
+            cache = getattr(self.G, "__networkx_cache__", None)
+            if cache is not None:
+                cache.clear()
+
     def _queue_partition(self, constraints, tree):
+        if self.G.is_multigraph():
+            # Graph.size(weight) divides a degree sum by two and rounds large
+            # integers to float. Keep exact costs distinct in the frontier.
+            cost = sum(
+                attrs.get(self.weight, 1) for _, _, attrs in tree.edges(data=True)
+            )
+            self._partition_serial += 1
+            _heappush(
+                self.partition_queue,
+                (
+                    cost if self.minimum else -cost,
+                    self._partition_serial,
+                    tree,
+                    constraints.copy(),
+                ),
+            )
+            return
         cost = tree.size(weight=self.weight)
         _heappush(
             self.partition_queue,
@@ -1073,8 +1182,11 @@ class ArborescenceIterator:
                 return next(self._iterator)
             if not self.partition_queue:
                 raise StopIteration
-            constraints = _heappop(self.partition_queue).partition_dict
-            tree = self._select_partition(constraints)
+            if self.G.is_multigraph():
+                _, _, tree, constraints = _heappop(self.partition_queue)
+            else:
+                constraints = _heappop(self.partition_queue).partition_dict
+                tree = self._select_partition(constraints)
             prefix = constraints.copy()
             for edge in tree.edges:
                 if edge in constraints:

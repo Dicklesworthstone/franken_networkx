@@ -1,2 +1,0 @@
-PASS: rch exec -- python3 -m py_compile python/franken_networkx/__init__.py tests/python/test_subgraph_node_order_divergence.py bench.py parity_proof.py
-exit 0.

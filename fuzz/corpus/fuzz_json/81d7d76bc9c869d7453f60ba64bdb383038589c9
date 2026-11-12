@@ -1,1 +1,0 @@
-{"mode":"strict","directed":false,"graph_attrs":{"name":"dmo"},"nodes":["a","b"],"edges":[{"left":"a","right":"b","attr'":{"weight":1}}]}

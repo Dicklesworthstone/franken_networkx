@@ -1,1 +1,0 @@
-average_shortest_path_length	4.65893800389213197e0

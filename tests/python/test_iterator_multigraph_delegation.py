@@ -1,13 +1,13 @@
 """Streaming tree enumeration and multigraph routing contracts.
 
-Undirected graphs use owned tree selection with an incremental partition
-frontier, including keyed parallel edges. Directed multigraphs retain the
-reference arborescence scheduler.
+Both iterators use owned incremental partition frontiers, including keyed
+parallel edges. Directed multigraph coverage uses an independent exhaustive
+oracle because NetworkX 3.6.1 duplicates or loses parallel alternatives.
 """
 
 from __future__ import annotations
 
-from itertools import islice
+from itertools import combinations, islice
 
 import pytest
 
@@ -442,9 +442,10 @@ def test_directed_arborescence_prefix_uses_bounded_owned_selection(monkeypatch, 
 
 
 @needs_nx
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("shape", ["empty", "singleton", "disconnected", "infeasible_partition"])
-def test_directed_arborescence_initial_state_matches_reference(shape):
-    reference = nx.DiGraph()
+def test_directed_arborescence_initial_state_matches_reference(shape, graph_type):
+    reference = getattr(nx, graph_type)()
     initial = None
     if shape == "singleton":
         reference.add_node("only")
@@ -461,6 +462,199 @@ def test_directed_arborescence_initial_state_matches_reference(shape):
         except Exception as exc:
             return type(exc).__name__, str(exc)
 
-    assert consume(fnx.ArborescenceIterator, fnx.DiGraph(reference)) == consume(
+    assert consume(fnx.ArborescenceIterator, getattr(fnx, graph_type)(reference)) == consume(
         nx.ArborescenceIterator, reference
     )
+
+
+def _exhaustive_keyed_arborescences(graph, included=(), excluded=()):
+    """Small independent oracle, without any arborescence selector/scheduler."""
+    included, excluded = set(included), set(excluded)
+    result = {}
+    for edges in combinations(graph.edges(keys=True), len(graph) - 1):
+        signature = frozenset(edges)
+        if not included <= signature or excluded & signature:
+            continue
+        candidate = nx.MultiDiGraph()
+        candidate.add_nodes_from(graph)
+        candidate.add_edges_from(edges)
+        if nx.is_arborescence(candidate):
+            result[signature] = sum(graph.edges[edge].get("cost", 1) for edge in edges)
+    return result
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("weight_kind", ["int", "large_int", "fraction", "decimal", "float"])
+def test_multidigraph_arborescences_enumerate_every_keyed_choice(
+    monkeypatch, minimum, weight_kind
+):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    reference = nx.MultiDiGraph(description="keyed arborescences")
+    reference.add_nodes_from([("s", {"role": "source"}), (("via", 1), {}), (42, {})])
+    for u, v, key, value in [
+        ("s", ("via", 1), "fast", -1),
+        ("s", ("via", 1), ("slow", 2), 3),
+        (("via", 1), 42, "last", 2),
+        ("s", 42, 17, 4),
+        (42, "s", "back", 0),
+        (42, ("via", 1), "reverse", 1),
+        (("via", 1), "s", "return", 5),
+        ("s", "s", "loop", -10),
+    ]:
+        cost = (
+            2**60 + value if weight_kind == "large_int"
+            else Fraction(value, 3) if weight_kind == "fraction"
+            else Decimal(value) / 8 if weight_kind == "decimal"
+            else value / 4 if weight_kind == "float"
+            else value
+        )
+        reference.add_edge(u, v, key=key, cost=cost, payload={"key": key})
+    expected = _exhaustive_keyed_arborescences(reference)
+    graph = fnx.MultiDiGraph(reference)
+    original = [(u, v, key, dict(attrs)) for u, v, key, attrs in graph.edges(keys=True, data=True)]
+
+    def scheduler_forbidden(*args, **kwargs):
+        raise AssertionError("parallel arborescences must use the owned keyed frontier")
+
+    monkeypatch.setattr(nx, "ArborescenceIterator", scheduler_forbidden)
+    monkeypatch.setattr(nx.algorithms.tree.branchings, "ArborescenceIterator", scheduler_forbidden)
+    actual = list(fnx.ArborescenceIterator(graph, weight="cost", minimum=minimum))
+    signatures = [frozenset(tree.edges(keys=True)) for tree in actual]
+    assert len(actual) == len(set(signatures)) == len(expected)
+    assert set(signatures) == set(expected)
+    costs = [sum(attrs["cost"] for *_, attrs in tree.edges(data=True)) for tree in actual]
+    assert costs == sorted(expected.values(), reverse=not minimum)
+    for tree in actual:
+        assert type(tree) is fnx.MultiDiGraph
+        assert fnx.is_arborescence(tree)
+        # Branching selectors discard graph/node metadata but preserve edge
+        # attributes. Key restoration must keep precisely that same policy.
+        assert tree.graph == {}
+        assert dict(tree.nodes(data=True)) == dict.fromkeys(reference, {})
+        for u, v, key, attrs in tree.edges(keys=True, data=True):
+            assert dict(attrs) == reference.edges[u, v, key]
+            assert type(attrs["cost"]) is type(reference.edges[u, v, key]["cost"])
+    assert list(graph.edges(keys=True, data=True)) == original
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("case", ["include", "exclude", "overlap", "unique_pair"])
+def test_multidigraph_arborescence_initial_keyed_constraints(minimum, case):
+    reference = nx.MultiDiGraph()
+    for u, v, key, cost in [
+        (0, 1, "a", 1), (0, 1, "b", 2), (1, 2, "c", 3),
+        (0, 2, "d", 4), (2, 0, "e", 5), (2, 1, "f", 6),
+    ]:
+        reference.add_edge(u, v, key=key, cost=cost)
+    initial = {
+        "include": ([(0, 1, "b")], [(2, 1, "f")]),
+        "exclude": ([], [(0, 1, "a")]),
+        "overlap": ([(0, 1, "a")], [(0, 1, "a")]),
+        "unique_pair": ([(1, 2)], [(2, 0)]),
+    }[case]
+    included = set(initial[0]) - set(initial[1])
+    excluded = set(initial[1])
+    if case == "unique_pair":
+        included, excluded = {(1, 2, "c")}, {(2, 0, "e")}
+    expected = _exhaustive_keyed_arborescences(reference, included, excluded)
+    actual = list(fnx.ArborescenceIterator(
+        fnx.MultiDiGraph(reference), weight="cost", minimum=minimum,
+        init_partition=(iter(initial[0]), iter(initial[1])),
+    ))
+    signatures = [frozenset(tree.edges(keys=True)) for tree in actual]
+    assert len(signatures) == len(set(signatures)) == len(expected)
+    assert set(signatures) == set(expected)
+    assert [sum(d["cost"] for *_, d in tree.edges(data=True)) for tree in actual] == sorted(
+        expected.values(), reverse=not minimum
+    )
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("included", [True, False])
+def test_multidigraph_arborescence_parallel_initial_pairs_require_keys(minimum, included):
+    graph = fnx.MultiDiGraph()
+    graph.add_edge(0, 1, key="a")
+    graph.add_edge(0, 1, key="b")
+    initial = ([(0, 1)], []) if included else ([], [(0, 1)])
+    with pytest.raises(ValueError, match=r"require \(u, v, key\) triples"):
+        iter(fnx.ArborescenceIterator(graph, minimum=minimum, init_partition=initial))
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("included,excluded", [
+    ([(0, 1, "missing")], []),
+    ([(0, 1, "a"), (2, 1, "e")], []),
+    ([(0, 1, "a"), (1, 0, "d")], []),
+    ([], [(0, 1, "a"), (0, 1, "b"), (1, 0, "d"), (2, 1, "e")]),
+])
+def test_multidigraph_arborescence_infeasible_initial_keys(minimum, included, excluded):
+    graph = fnx.MultiDiGraph()
+    graph.add_edges_from([
+        (0, 1, "a"), (0, 1, "b"), (1, 2, "c"), (1, 0, "d"), (2, 1, "e"),
+    ])
+    with pytest.raises(fnx.NetworkXException, match="No .* spanning arborescence"):
+        iter(fnx.ArborescenceIterator(
+            graph, minimum=minimum, init_partition=(included, excluded)
+        ))
+
+
+@needs_nx
+@pytest.mark.parametrize("minimum", [True, False])
+def test_multidigraph_arborescence_prefix_keeps_bounded_owned_frontier(monkeypatch, minimum):
+    n = 7
+    graph = fnx.MultiDiGraph()
+    for u in range(n):
+        for v in range(n):
+            if u != v:
+                graph.add_edge(u, v, key="first", weight=1)
+                graph.add_edge(u, v, key="second", weight=2)
+    name = "minimum_spanning_arborescence" if minimum else "maximum_spanning_arborescence"
+    select = getattr(fnx, name)
+    calls = 0
+
+    def bounded_selection(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        assert calls <= 1 + 3 * (n - 1)
+        return select(*args, **kwargs)
+
+    def scheduler_forbidden(*args, **kwargs):
+        raise AssertionError("prefix enumeration must remain lazy and owned")
+
+    monkeypatch.setattr(fnx, name, bounded_selection)
+    monkeypatch.setattr(nx, "ArborescenceIterator", scheduler_forbidden)
+    monkeypatch.setattr(fnx._fnx, "arborescence_iterator_rust", scheduler_forbidden)
+    iterator = fnx.ArborescenceIterator(graph, minimum=minimum)
+    trees = list(islice(iterator, 3))
+    assert len({frozenset(tree.edges(keys=True)) for tree in trees}) == 3
+    assert all(type(tree) is fnx.MultiDiGraph and fnx.is_arborescence(tree) for tree in trees)
+    assert 1 <= calls <= 1 + 3 * (n - 1)
+    assert len(iterator.partition_queue) <= 1 + 3 * (n - 1)
+
+
+@needs_nx
+def test_multidigraph_arborescence_private_markers_do_not_replace_user_attributes():
+    marker = "ArborescenceIterators super secret partition attribute name"
+    graph = fnx.MultiDiGraph()
+    for key, cost in [("a", 1), (("b", 2), 2)]:
+        graph.add_edge(0, 1, key=key, cost=cost)
+        graph.edges[0, 1, key].update({
+            marker: "user partition data",
+            marker + "_ original edge key": "user edge identity",
+        })
+    iterator = iter(fnx.ArborescenceIterator(graph, weight="cost"))
+    first = next(iterator)
+    assert set(first.edges[0, 1, "a"]) == set(graph.edges[0, 1, "a"])
+    assert first.edges[0, 1, "a"] == graph.edges[0, 1, "a"]
+    # Reinitialization must not accumulate markers in the stored snapshot.
+    trees = list(iter(iterator))
+    assert [next(iter(tree.edges(keys=True)))[2] for tree in trees] == ["a", ("b", 2)]
+    for tree in trees:
+        for u, v, key, attrs in tree.edges(keys=True, data=True):
+            assert attrs == graph.edges[u, v, key]

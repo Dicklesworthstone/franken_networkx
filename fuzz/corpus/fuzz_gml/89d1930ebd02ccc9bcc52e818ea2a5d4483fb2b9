@@ -1,4 +1,0 @@
-graphode [ id 0 [
-  directed true
-  node [ id 0 label "a" ]
-]

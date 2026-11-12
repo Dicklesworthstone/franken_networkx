@@ -1,4 +1,0 @@
-Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --repeats 20
-  Time (mean ± σ):      2.991 s ±  0.225 s    [User: 6.777 s, System: 0.185 s]
-  Range (min … max):    2.811 s …  3.407 s    10 runs
- 

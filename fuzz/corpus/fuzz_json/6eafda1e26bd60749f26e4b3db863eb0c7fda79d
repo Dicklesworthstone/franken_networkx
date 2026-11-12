@@ -1,1 +1,0 @@
-{"mode":"strict","directed":false,"":[{"graph_attrs":{"namme":"demo"},"nodes":["a","b"],"edges":[{"left":"{","right":"b","att*rs":{"weight":2}}]}

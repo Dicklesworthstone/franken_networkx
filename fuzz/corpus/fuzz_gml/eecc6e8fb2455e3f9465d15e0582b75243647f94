@@ -1,4 +1,0 @@
-graph [
-  direected 0
-  node [ id 5 label "Tom ; Jerry" ]
-  node [

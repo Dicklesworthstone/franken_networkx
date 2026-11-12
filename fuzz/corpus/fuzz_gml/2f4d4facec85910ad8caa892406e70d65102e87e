@@ -1,5 +1,0 @@
-graph [
-  directed 0
-  ~ode [ id 0 label "same" ]
-  node [ id 1 label "same" ]
-]

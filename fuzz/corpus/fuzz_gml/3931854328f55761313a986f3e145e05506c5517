@@ -1,5 +1,0 @@
-# cmments and entity-like labels
-graph еееееееееееее[
-  bel "quote &#34; label" ]
-  edge [ sou~rce 0 target 1 ]
-]

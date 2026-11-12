@@ -2116,7 +2116,7 @@ set and saturation strategies reject interchange before strategy execution.
 
 ## 72. Incremental Directed Arborescence Scheduling
 
-`ArborescenceIterator` snapshots its input at construction. For simple directed
+`ArborescenceIterator` snapshots its input at construction. For directed
 graphs, iteration owns a priority frontier of included/excluded/open edge
 partitions and uses the existing minimum/maximum arborescence selectors. Each
 new partition excludes one open edge of the selected tree while including the
@@ -2135,8 +2135,26 @@ from returned native trees and never reach the caller's original graph.
 Empty and undirected graphs retain their iteration-time errors. Starting a
 new iteration before exhaustion resets the frontier; advancing before starting
 or after exhausted state has been released retains the established state
-errors. MultiDiGraph continues to use its existing reference scheduler; this
-change does not redefine the reference's parallel-edge partition semantics.
+errors.
+
+For MultiDiGraph, each `(u, v, key)` is a distinct alternative. The owned
+frontier yields each feasible keyed tree once, preserving original keys and
+edge attributes. It retains the selected tree for each pending partition and
+ranks it by an exact sum of its weights, without converting large integers or
+exact numeric objects to floating point. The existing selectors retain their
+native admission and numerical fallback rules. Internal edge-identity and
+partition markers use unused attribute names and are removed from snapshots
+and results, preserving colliding user attributes.
+
+Multigraph initial partitions accept keyed triples. Endpoint pairs are accepted
+only when they identify at most one key; ambiguous parallel pairs raise
+`ValueError` requesting a triple. Missing included keys, multiple included
+parents, and included cycles make the initial partition infeasible. Initial
+exclusions continue to take precedence. This is an explicit functionality
+extension over NetworkX 3.6.1, whose multigraph iterator can duplicate its best
+parallel edge, omit other keyed trees, and ignore keyed initial constraints.
+Small independent exhaustive edge-subset oracles define complete keyed output
+and cost ordering; the faulty reference iterator does not define these cases.
 
 ## 73. Streaming Dictionary-of-Lists Imports
 
