@@ -926,11 +926,19 @@ def test_hardened_graphml_node_type_keeps_recovery_warning_and_ledger(reader):
 def test_hardened_graphml_merging_node_type_keeps_attributes_and_recovery(directed, reader):
     payload = (
         '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
-        '<key id="d0" for="node" attr.name="z" attr.type="complex"/>'
-        '<key id="d1" for="node" attr.name="color" attr.type="string"/>'
+        '<key id="d0" for="node" attr.name="left" attr.type="complex"/>'
+        '<key id="d1" for="node" attr.name="shared" attr.type="string"/>'
+        '<key id="d2" for="node" attr.name="right" attr.type="string"/>'
+        '<key id="d3" for="edge" attr.name="weight" attr.type="int"/>'
+        '<key id="d4" for="graph" attr.name="title" attr.type="string"/>'
         f'<graph edgedefault="{"directed" if directed else "undirected"}">'
-        '<node id="01"><data key="d0">1+2j</data></node>'
-        '<node id="1"><data key="d1">red</data></node></graph></graphml>'
+        '<data key="d4">recovered merge</data>'
+        '<node id="01"><data key="d0">1+2j</data><data key="d1">old</data></node>'
+        '<node id="1"><data key="d2">R</data><data key="d1">new</data></node>'
+        '<node id="2"/><node id="3"/>'
+        '<edge source="01" target="2"><data key="d3">3</data></edge>'
+        '<edge source="1" target="3"><data key="d3">7</data></edge>'
+        '</graph></graphml>'
     ).encode()
     clean = payload.replace(b'attr.type="complex"', b'attr.type="string"')
     expected = nx.read_graphml(io.BytesIO(clean), node_type=int)
@@ -939,9 +947,10 @@ def test_hardened_graphml_merging_node_type_keeps_attributes_and_recovery(direct
             graph = reader(io.BytesIO(payload), node_type=int, mode="hardened")
         assert fnx.get_compatibility_mode() == "strict"
     assert graph.mode == "hardened"
-    assert graph.is_directed() == expected.is_directed()
-    assert list(graph.nodes(data=True)) == list(expected.nodes(data=True))
-    assert graph.graph == expected.graph
+    _assert_graphml_matches(graph, expected)
+    assert list(graph.nodes[1].items()) == [
+        ("left", "1+2j"), ("shared", "new"), ("right", "R"),
+    ]
     assert any(
         "unsupported attr.type `complex`" in record["rationale"]
         for record in graph.decision_records()
@@ -1139,3 +1148,56 @@ def test_hardened_parallel_recovery_cannot_lose_marker_during_large_reconstructi
     with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
         with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery"):
             reader(io.BytesIO(payload), mode="hardened")
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("topology", ["parallel-neighbors", "collapsed-self-loops"])
+@pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
+def test_hardened_graphml_node_merge_rejects_new_parallel_edges(
+    directed, topology, reader, monkeypatch
+):
+    edge_xml = (
+        '<edge source="01" target="2"/><edge source="1" target="2"/>'
+        if topology == "parallel-neighbors" else
+        '<edge source="01" target="1"/><edge source="01" target="01"/>'
+    )
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="z" for="node" attr.name="z" attr.type="complex"/>'
+        f'<graph edgedefault="{"directed" if directed else "undirected"}">'
+        '<node id="01"><data key="z">1+2j</data></node>'
+        '<node id="1"/><node id="2"/>'
+        + edge_xml + '</graph></graphml>'
+    ).encode()
+    clean = payload.replace(b'attr.type="complex"', b'attr.type="string"')
+    expected = nx.read_graphml(io.BytesIO(clean), node_type=int)
+    assert expected.is_multigraph()
+    assert expected.number_of_edges() == 2
+
+    validate = fnx._fnx.validate_graphml
+    validated = []
+
+    def capture_validation(*args, **kwargs):
+        graph = validate(*args, **kwargs)
+        validated.append((
+            graph,
+            [(node, dict(attrs)) for node, attrs in graph.nodes(data=True)],
+            [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)],
+            graph.decision_records(),
+        ))
+        return graph
+
+    monkeypatch.setattr(fnx._fnx, "validate_graphml", capture_validation)
+    with fnx.compatibility_mode("strict"):
+        with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+            with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery with parallel edges"):
+                reader(io.BytesIO(payload), node_type=int, mode="hardened")
+        assert fnx.get_compatibility_mode() == "strict"
+
+    # Rejection precedes clearing the parser's graph or rewriting its policy.
+    assert len(validated) == 1
+    graph, nodes, edges, records = validated[0]
+    assert graph.mode == "hardened"
+    assert list(graph.nodes(data=True)) == nodes
+    assert list(graph.edges(data=True)) == edges
+    assert graph.decision_records() == records

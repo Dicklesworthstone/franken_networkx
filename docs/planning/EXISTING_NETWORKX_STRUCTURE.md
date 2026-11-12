@@ -1546,6 +1546,14 @@ decisions and audit records, including existing unsupported-recovery errors.
 `tests/python/test_gml_graphml_attribute_roundtrip.py` cover these contracts,
 including planted failures if the full decoder delegates to NetworkX.
 
+Recovered GraphML node-type collisions merge attributes in source node order:
+earlier distinct keys survive, later values overwrite repeated keys without
+moving their positions, and the first converted node keeps its position.
+Reconstruction retains the parser's compatibility mode and recovery ledger.
+If node conversion introduces parallel edges into a recovered simple graph,
+the reader raises its unsupported-recovery error before replacing the policy
+carrier's data; it must not silently collapse those edges.
+
 ## 50. Connectivity Queries with Custom Flow Solvers and Cutoffs
 
 `edge_connectivity` owns local and global queries with a supplied solver or

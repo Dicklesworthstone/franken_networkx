@@ -353,11 +353,25 @@ def _graphml_from_mode_payload(
         if converted is not None:
             graph = converted
         else:
-            # Merging labels take the general relabel path. Reuse the
-            # original graph afterwards: a freshly constructed graph would
-            # lose recovery decisions (and could inherit the ambient mode).
+            # GraphML node conversion merges attributes in document order;
+            # relabel_nodes instead replaces a colliding node's attributes.
+            # Build the typed graph before touching the recovery-policy owner.
             with compatibility_mode(graph.mode):
-                converted = relabel_nodes(graph, mapping, copy=True)
+                converted = type(graph)()
+                converted.graph.update(dict(graph.graph))
+                converted.add_nodes_from(
+                    (mapping[node], attrs) for node, attrs in graph.nodes(data=True)
+                )
+                for source, target, attrs in graph.edges(data=True):
+                    source, target = mapping[source], mapping[target]
+                    if converted.has_edge(source, target):
+                        raise NetworkXNotImplemented(
+                            "GraphML recovery with parallel edges or non-default multigraph/key options "
+                            "is not supported"
+                        )
+                    converted.add_edges_from([(source, target, attrs)])
+            # Preserve the original mode and recovery ledger, including when
+            # the caller's ambient compatibility mode is different.
             graph.clear()
             _copy_graph_into(converted, graph)
     return graph
