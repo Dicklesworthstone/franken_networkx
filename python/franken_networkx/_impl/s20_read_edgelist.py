@@ -1167,6 +1167,18 @@ def create_empty_copy(G, with_data=True):
 
 def number_of_selfloops(G):
     """Return the number of self-loop edges in *G*."""
+    if (
+        isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+        and _has_networkx_private_storage(G)
+    ):
+        # Views and assigned mappings already expose the authoritative
+        # topology. Copying them merely to count loops can recurse through
+        # conversion-view edge counts, and discards their live filters.
+        if G.is_multigraph():
+            return sum(
+                len(row[node]) for node, row in G.adj.items() if node in row
+            )
+        return sum(node in row for node, row in G.adj.items())
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-61okz: O(|V|) via has_edge probe when bypass is safe.
     # Was 300x slower than nx because it materialized selfloop_edges

@@ -576,10 +576,11 @@ class _ConversionGraphViewBase:
         if (
             not self.is_directed()
             and not self.is_multigraph()
-            and getattr(src, "is_directed", None)
-            and src.is_directed()
-            and not src.is_multigraph()
+            and type(src) is DiGraph
+            and not _has_networkx_private_storage(src)
         ):
+            # A logical source inherits native-reader descriptors that copy
+            # the view on access. Keep its count on the public topology below.
             native = getattr(src, "_native_undirected_degree_counts", None)
             if native is not None:
                 return sum(native()) // 2
@@ -655,9 +656,8 @@ class _ConversionGraphViewBase:
         ):
             src = self._graph
             if (
-                getattr(src, "is_directed", None)
-                and src.is_directed()
-                and not src.is_multigraph()
+                type(src) is DiGraph
+                and not _has_networkx_private_storage(src)
             ):
                 native = getattr(src, "_native_undirected_degree_counts", None)
                 if native is not None:

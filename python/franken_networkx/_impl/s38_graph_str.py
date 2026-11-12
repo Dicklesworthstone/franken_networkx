@@ -283,10 +283,22 @@ class _ConversionEdgeView:
         )
 
     def __getitem__(self, edge):
+        if isinstance(edge, slice):
+            raise NetworkXError(
+                f"{type(self).__name__} does not support slicing, try "
+                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
+            )
+        # The converted adjacency resolves orientation, filters, and reciprocal
+        # key precedence. Return that exact edge dictionary so writes reach the
+        # source graph, including when only the opposite directed edge exists.
+        if self._view.is_multigraph():
+            u, v, key = edge
+            return self._view.adj[u][v][key]
         u, v = edge
-        if u not in self._view._graph or v not in self._view.adj[u]:
-            raise KeyError(edge)
-        return self._view.adj[u][v]
+        try:
+            return self._view.adj[u][v]
+        except KeyError as exc:
+            raise KeyError(f"The edge {edge} is not in the graph.") from exc
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
         return _view_edges_call(self, self._view, nbunch, data, keys, default)
@@ -377,7 +389,10 @@ class _ConversionEdgeView:
         return f"{type(self).__name__}({list(self)})"
 
     get = _adjacency_view_get
-    keys = _adjacency_view_keys
+
+    def keys(self):
+        return _KeysViewABC(self)
+
     items = _adjacency_view_items
     values = _adjacency_view_values
 

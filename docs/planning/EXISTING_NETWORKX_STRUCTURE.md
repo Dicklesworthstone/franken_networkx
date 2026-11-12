@@ -936,6 +936,22 @@ detached when a new edge is added for the same pair. These rules apply to
 node indexing, `adj`, `succ`, `pred`, and rows returned by `adjacency()`, using
 row-local access rather than materializing unrelated graph storage.
 
+Directed and undirected conversion edge views provide the same keyed mapping
+lookup and live key collections. Lookup resolves through the converted
+adjacency, preserving filters, original attribute identity, and reciprocal
+edge precedence. Multigraph lookup uses an explicit `(u, v, key)` triple;
+malformed indices and slices retain their public exception behavior.
+
+Self-loop counts on logical views and assigned private storage read visible
+adjacency directly. Each visible parallel self-loop counts separately, and
+later graph or filter changes affect the next query. Counts must not copy a
+view, coerce its topology, or inspect its attributes. Ordinary native graphs
+and foreign inputs retain their existing routing and error behavior.
+Conversion edge counts and full unweighted degree queries admit the native
+undirected-degree helper only for a concrete DiGraph with native storage;
+filtered, reverse, and private-storage sources use their visible topology,
+including when a collection asks for a length hint before iteration.
+
 
 ## 32. Live Weighted Shortest-Path Queries
 
