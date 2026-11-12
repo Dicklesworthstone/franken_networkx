@@ -2270,6 +2270,19 @@ and unnormalized results retain the reference arithmetic and group semantics.
 Ordinary graphs with representable counts retain their native route regardless
 of node count; graph size alone is not an overflow criterion.
 
+Small-group queries accept foreign NetworkX graphs and live graph views as
+well as native graphs. Admit concrete native storage only after validating the
+groups; custom graph and weight providers retain the original graph through
+the owned Brandes traversal. A weighted Brandes callback returning `None`
+raises its arithmetic error rather than silently hiding an edge.
+
+Group closeness validates membership against the caller's graph and retains
+live callable-weight dictionaries and their mutations. Directed inputs retain
+the reference's reverse-copy boundary. Its `weight=None` is a literal Dijkstra
+attribute selector, so an edge attribute keyed by `None` contributes its value.
+An empty source group on a nonempty graph raises `ValueError`, while an empty
+graph or a group containing every node has centrality zero.
+
 ## 78. Live Attribute Protocols During Graph Conversion
 
 Copy-producing `to_directed` and `to_undirected` operations for all four graph

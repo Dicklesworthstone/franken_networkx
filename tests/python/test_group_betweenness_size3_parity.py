@@ -19,6 +19,65 @@ import networkx as nx
 import franken_networkx as fnx
 
 
+def _group_query_graph(module, graph_type, variant):
+    graph = getattr(module, graph_type)()
+    graph.add_nodes_from(range(8))
+    graph.add_edges_from((node, (node + 1) % 8) for node in range(8))
+    graph.add_edges_from([(0, 3), (3, 6)])
+    if graph.is_directed():
+        graph.add_edges_from(((node + 1) % 8, node) for node in range(8))
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, key="parallel")
+    if variant == "subgraph":
+        return graph.subgraph(range(6))
+    if variant == "filtered":
+        if graph.is_multigraph():
+            return module.subgraph_view(
+                graph, filter_edge=lambda u, v, key: {u, v} != {0, 3}
+            )
+        return module.subgraph_view(
+            graph, filter_edge=lambda u, v: {u, v} != {0, 3}
+        )
+    if variant == "conversion":
+        return graph.to_directed().to_undirected(as_view=True)
+    return graph
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "fnx"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("variant", ["owned", "subgraph", "filtered", "conversion"])
+@pytest.mark.parametrize("normalized", [False, True])
+def test_group_betweenness_accepts_foreign_graphs_and_views(
+    owner, graph_type, variant, normalized
+):
+    reference = _group_query_graph(nx, graph_type, variant)
+    actual = _group_query_graph(owner, graph_type, variant)
+    for groups in ([1, 3], [[1], [3]]):
+        expected = nx.group_betweenness_centrality(
+            reference, groups, normalized=normalized
+        )
+        result = fnx.group_betweenness_centrality(
+            actual, groups, normalized=normalized
+        )
+        assert result == pytest.approx(expected, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "fnx"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_group_betweenness_none_cost_keeps_brandes_error(owner, graph_type):
+    expected_graph = _group_query_graph(nx, graph_type, "owned")
+    actual_graph = _group_query_graph(owner, graph_type, "owned")
+
+    def cost(u, v, data):
+        return None if {u, v} == {0, 1} else 1
+
+    with pytest.raises(TypeError) as expected:
+        nx.group_betweenness_centrality(expected_graph, [1, 3], weight=cost)
+    with pytest.raises(TypeError) as actual:
+        fnx.group_betweenness_centrality(actual_graph, [1, 3], weight=cost)
+    assert actual.value.args == expected.value.args
+
+
 def _connected(seed, directed=False, p=0.4):
     rng = random.Random(seed)
     n = rng.randint(6, 10)

@@ -957,14 +957,19 @@ def group_betweenness_centrality(
         and weight is None
         and not endpoints
         and all(len(set(group)) <= 2 for group in C)
+        and not _betweenness_uses_live_python_rows(G, weight)
     ):
+        # The native extractor accepts fnx storage, while the public API also
+        # accepts NetworkX graphs. Admit ordinary storage only after group
+        # validation; views and custom providers retain the owned traversal.
+        native_graph = _coerce_arg_to_fnx_graph(G)
         scores = []
         for group in C:
             group_size = len(set(group))
             remaining = len(G) - group_size
             if normalized and remaining < 2:
                 raise ZeroDivisionError("division by zero")
-            value = _fnx.group_betweenness_centrality_rust(G, list(group))
+            value = _fnx.group_betweenness_centrality_rust(native_graph, list(group))
             if value is None:
                 # Layered graphs can have more shortest paths than a native
                 # integer can hold even with only a few hundred vertices.
@@ -1070,7 +1075,6 @@ def group_betweenness_centrality(
 
 def group_closeness_centrality(G, S, weight=None, *, backend=None, **backend_kwargs):
     """Closeness centrality for a group of nodes S."""
-    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "group_closeness_centrality", backend, backend_kwargs
     )
@@ -1079,8 +1083,21 @@ def group_closeness_centrality(G, S, weight=None, *, backend=None, **backend_kwa
             raise NodeNotFound(f"Node {s} not found in graph")
     if not (set(G) - set(S)):
         return 0
-    if not G.is_directed() and weight is None:
-        return _fnx.group_closeness_centrality_rust(G, list(S))
+    if (
+        not G.is_directed()
+        and weight is None
+        and type(S) in (list, tuple, set, frozenset)
+        and S
+        and not _betweenness_uses_live_python_rows(G, weight)
+        and not _graph_has_edge_attribute(G, None)
+    ):
+        # Group closeness uses Dijkstra's literal attribute selector: None
+        # can name an actual edge weight. Only absent-key graphs are BFS
+        # queries. Keep callbacks, view rows, and group iterators on G so
+        # their later reads and mutations are not disconnected by a copy.
+        return _fnx.group_closeness_centrality_rust(
+            _coerce_arg_to_fnx_graph(G), list(S)
+        )
 
     if G.is_directed():
         G = G.reverse()

@@ -497,6 +497,75 @@ def test_group_closeness_centrality_directed_fallback_avoids_delegation(monkeypa
     assert math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-12)
 
 
+def _group_closeness_live_outcome(module, owner, graph_type, variant):
+    graph = getattr(owner, graph_type)()
+    graph.add_weighted_edges_from([
+        (0, 1, 1), (1, 2, 9), (2, 3, 1), (0, 3, 20), (3, 0, 7),
+    ])
+    if graph.is_multigraph():
+        graph.add_edge(1, 2, key="parallel", weight=15)
+    work = graph.subgraph(list(graph)) if variant == "filtered" else graph
+    trace = []
+
+    def distance(u, v, data):
+        later = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+        later["weight"] = 1
+        attributes = list(data.values()) if graph.is_multigraph() else [data]
+        for attrs in attributes:
+            attrs["reads"] = attrs.get("reads", 0) + 1
+        values = tuple(attrs["weight"] for attrs in attributes)
+        trace.append((u, v, values))
+        return min(values)
+
+    value = module.group_closeness_centrality(work, [0], weight=distance)
+    if graph.is_multigraph():
+        edges = [(u, v, k, dict(d)) for u, v, k, d in graph.edges(keys=True, data=True)]
+    else:
+        edges = [(u, v, dict(d)) for u, v, d in graph.edges(data=True)]
+    return value, trace, edges
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "fnx"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("variant", ["owned", "filtered"])
+def test_group_closeness_keeps_live_weight_callbacks(owner, graph_type, variant):
+    expected = _group_closeness_live_outcome(nx, nx, graph_type, variant)
+    actual = _group_closeness_live_outcome(fnx, owner, graph_type, variant)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "fnx"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, ("cost", 0)])
+def test_group_closeness_honors_literal_weight_keys(owner, graph_type, weight):
+    graphs = [getattr(module, graph_type)() for module in (nx, owner)]
+    for graph in graphs:
+        for u, v, value in [(0, 1, 1), (1, 2, 9), (2, 3, 1), (3, 0, 20)]:
+            if graph.is_multigraph():
+                key = graph.add_edge(u, v)
+                graph[u][v][key][weight] = value
+            else:
+                graph.add_edge(u, v)
+                graph[u][v][weight] = value
+    assert fnx.group_closeness_centrality(graphs[1], [0], weight=weight) == (
+        nx.group_closeness_centrality(graphs[0], [0], weight=weight)
+    )
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "fnx"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_group_closeness_empty_group_preserves_error(owner, graph_type):
+    reference = getattr(nx, graph_type)([(0, 1), (1, 2)])
+    actual = getattr(owner, graph_type)([(0, 1), (1, 2)])
+    with pytest.raises(ValueError) as expected:
+        nx.group_closeness_centrality(reference, [])
+    with pytest.raises(ValueError) as result:
+        fnx.group_closeness_centrality(actual, [])
+    assert result.value.args == expected.value.args
+    assert fnx.group_closeness_centrality(actual, list(actual)) == 0
+    assert fnx.group_closeness_centrality(getattr(owner, graph_type)(), []) == 0
+
+
 def test_group_betweenness_centrality_native_and_fallback_match_networkx():
     graph = fnx.path_graph(4)
     expected_graph = nx.path_graph(4)

@@ -689,7 +689,7 @@ def _group_preprocessing_local(G, group_nodes, weight):
             )
         else:
             stack, predecessors, sigma[source], distances[source] = (
-                _single_source_dijkstra_path_basic_local(G, source, weight)
+                _single_source_betweenness_dijkstra(G, source, weight)
             )
         betweenness, delta[source] = _accumulate_endpoints_local(
             betweenness,
