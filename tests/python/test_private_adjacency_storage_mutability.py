@@ -268,3 +268,201 @@ def test_public_adjacency_is_read_only_in_both(cls_name):
     for graph in (gnx, gfx):
         with pytest.raises(TypeError):
             graph.adj["a"]["zz"] = _cell(cls_name)
+
+
+MULTI_SIDES = [
+    ("MultiGraph", "_adj"),
+    ("MultiDiGraph", "_adj"),
+    ("MultiDiGraph", "_succ"),
+    ("MultiDiGraph", "_pred"),
+]
+ALL_SIDES = [
+    ("Graph", "_adj"),
+    ("DiGraph", "_adj"),
+    ("DiGraph", "_succ"),
+    ("DiGraph", "_pred"),
+    *MULTI_SIDES,
+]
+
+
+def _parallel_row(lib, cls_name, side, *, graph_type=None):
+    graph = (getattr(lib, cls_name) if graph_type is None else graph_type)()
+    for neighbor in ("b", "c", "a"):
+        u, v = (neighbor, "a") if side == "_pred" else ("a", neighbor)
+        graph.add_edge(u, v, key="first", weight=2)
+        graph.add_edge(u, v, key=("last", 9), weight=7)
+    return graph
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+def test_private_multigraph_row_replacement_clears_all_parallel_edges(cls_name, side):
+    for lib in (nx, fnx):
+        graph = _parallel_row(lib, cls_name, side)
+        getattr(graph, side)["a"] = {"c": {"replacement": {"weight": 11}}}
+        row = getattr(graph, side)["a"]
+        assert list(row) == ["c"]
+        assert dict(row["c"]) == {"replacement": {"weight": 11}}
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+@pytest.mark.parametrize("neighbor", ["b", "a"])
+def test_private_multigraph_neighbor_deletion_removes_the_complete_pair(cls_name, side, neighbor):
+    for lib in (nx, fnx):
+        graph = _parallel_row(lib, cls_name, side)
+        row = getattr(graph, side)["a"]
+        del row[neighbor]
+        assert neighbor not in row
+        assert list(row) == [node for node in ("b", "c", "a") if node != neighbor]
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+@pytest.mark.parametrize("level", ["row", "pair"])
+def test_private_multigraph_replacement_keeps_an_aliased_source(cls_name, side, level):
+    results = []
+    for lib in (nx, fnx):
+        graph = _parallel_row(lib, cls_name, side)
+        adjacency = getattr(graph, side)
+        before = {neighbor: {key: dict(attrs) for key, attrs in keys.items()}
+                  for neighbor, keys in adjacency["a"].items()}
+        if level == "row":
+            adjacency["a"] = adjacency["a"]
+        else:
+            adjacency["a"]["b"] = adjacency["a"]["b"]
+        after = {neighbor: {key: dict(attrs) for key, attrs in keys.items()}
+                 for neighbor, keys in getattr(graph, side)["a"].items()}
+        assert after == before
+        results.append(after)
+    assert results[1] == results[0]
+
+
+@pytest.mark.parametrize("cls_name,side", ALL_SIDES)
+def test_private_edge_assignment_accepts_arbitrary_attribute_keys(cls_name, side):
+    attribute_key = object()
+    payload = []
+    attrs = {
+        attribute_key: payload,
+        4: "numeric",
+        ("tuple", 2): "value",
+        "weight": 3,
+        "key": "metadata",
+        "u": "source-label",
+        "v": "target-label",
+    }
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls_name)()
+        graph.add_nodes_from(["a", "b"])
+        cell = {("edge", 5): attrs} if graph.is_multigraph() else attrs
+        getattr(graph, side)["a"]["b"] = cell
+        actual = getattr(graph, side)["a"]["b"]
+        if graph.is_multigraph():
+            actual = actual[("edge", 5)]
+        assert list(actual.items()) == list(attrs.items())
+        assert next(iter(actual)) is attribute_key
+        assert actual[attribute_key] is payload
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+def test_private_keydict_with_assigned_nodes_deletes_the_requested_key(cls_name, side):
+    results = []
+    for lib in (nx, fnx):
+        graph = _parallel_row(lib, cls_name, side)
+        graph._node = dict(graph.nodes(data=True))
+        keydict = getattr(graph, side)["a"]["b"]
+        del keydict["first"]
+        assert list(keydict) == [("last", 9)]
+        with pytest.raises(KeyError) as error:
+            del keydict["absent"]
+        assert error.value.args == ("absent",)
+        assert list(keydict) == [("last", 9)]
+        del keydict[("last", 9)]
+        # Dict-level key deletion leaves the neighbor's now-empty keydict;
+        # graph.remove_edge instead removes that pair and detaches the dict.
+        assert list(keydict) == []
+        assert "b" in getattr(graph, side)["a"]
+        keydict["restored"] = {"weight": 13}
+        results.append(dict(getattr(graph, side)["a"]["b"]))
+    assert results[1] == results[0] == {"restored": {"weight": 13}}
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+def test_private_keydict_with_assigned_nodes_preserves_self_assignment(cls_name, side):
+    for lib in (nx, fnx):
+        graph = _parallel_row(lib, cls_name, side)
+        graph._node = dict(graph.nodes(data=True))
+        keydict = getattr(graph, side)["a"]["b"]
+        attrs = keydict["first"]
+        keydict["first"] = attrs
+        assert attrs == keydict["first"] == {"weight": 2}
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+def test_private_keydict_keeps_a_falsey_native_owner_with_assigned_nodes(cls_name, side):
+    results = []
+    for lib in (nx, fnx):
+        class FalseyGraph(getattr(lib, cls_name)):
+            def __bool__(self):
+                return False
+
+        graph = _parallel_row(lib, cls_name, side, graph_type=FalseyGraph)
+        graph._node = {}
+        assert not graph
+        keydict = getattr(graph, side)["a"]["b"]
+        del keydict["first"]
+        keydict["extra"] = {"key": "metadata"}
+        results.append(dict(getattr(graph, side)["a"]["b"]))
+        assert list(graph) == []
+    assert results[1] == results[0] == {
+        ("last", 9): {"weight": 7}, "extra": {"key": "metadata"},
+    }
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+@pytest.mark.parametrize("assigned_nodes", [False, True])
+def test_private_new_key_accepts_arbitrary_attribute_names(cls_name, side, assigned_nodes):
+    attribute_key = object()
+    payload = []
+    attrs = {attribute_key: payload, "key": "metadata", "u": "source", "v": "target"}
+    for lib in (nx, fnx):
+        graph = _parallel_row(lib, cls_name, side)
+        if assigned_nodes:
+            graph._node = dict(graph.nodes(data=True))
+        keydict = getattr(graph, side)["a"]["b"]
+        keydict[("new", 3)] = attrs
+        actual = getattr(graph, side)["a"]["b"][("new", 3)]
+        assert list(actual.items()) == list(attrs.items())
+        assert actual[attribute_key] is payload
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+def test_private_keydict_with_assigned_nodes_detaches_after_graph_removal(cls_name, side):
+    for lib in (nx, fnx):
+        graph = _parallel_row(lib, cls_name, side)
+        graph._node = dict(graph.nodes(data=True))
+        held = getattr(graph, side)["a"]["b"]
+        u, v = ("b", "a") if side == "_pred" else ("a", "b")
+        for key in list(held):
+            graph.remove_edge(u, v, key)
+        graph.add_edge(u, v, key="new-pair", weight=17)
+        assert not held
+        held["detached"] = {"weight": 19}
+        assert dict(getattr(graph, side)["a"]["b"]) == {"new-pair": {"weight": 17}}
+
+
+@pytest.mark.parametrize("cls_name,side", MULTI_SIDES)
+@pytest.mark.parametrize("level", ["row", "pair"])
+def test_rejected_private_multigraph_replacement_preserves_existing_edges(cls_name, side, level):
+    # Unlike NetworkX's unrestricted dict, the native graph requires attribute
+    # mappings. Reject unsupported cells before destroying the valid old row.
+    graph = _parallel_row(fnx, cls_name, side)
+    adjacency = getattr(graph, side)
+    before = {neighbor: {key: dict(attrs) for key, attrs in keys.items()}
+              for neighbor, keys in adjacency["a"].items()}
+    invalid = {"valid": {"weight": 3}, "invalid": 5}
+    with pytest.raises(TypeError):
+        if level == "row":
+            adjacency["a"] = {"b": invalid}
+        else:
+            adjacency["a"]["b"] = invalid
+    after = {neighbor: {key: dict(attrs) for key, attrs in keys.items()}
+             for neighbor, keys in getattr(graph, side)["a"].items()}
+    assert after == before

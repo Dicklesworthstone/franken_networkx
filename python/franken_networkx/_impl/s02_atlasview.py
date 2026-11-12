@@ -1006,27 +1006,36 @@ class AdjacencyView(_Mapping):
                 getattr(self, "_fnx_multi_edge_owner", None) is not None
                 or (owner is not None and getattr(owner, "is_multigraph", lambda: False)())
             ):
-                multigraph_owner = (
-                    getattr(self, "_fnx_write_owner", None)
-                    or self._fnx_multi_edge_owner
-                    or owner
-                )
+                multigraph_owner = getattr(self, "_fnx_write_owner", None)
+                if multigraph_owner is None:
+                    multigraph_owner = self._fnx_multi_edge_owner
+                if multigraph_owner is None:
+                    multigraph_owner = owner
                 parent_node = getattr(self, "_fnx_write_node", None)
                 if parent_node is not None and not _has_networkx_private_storage(multigraph_owner):
                     if getattr(self, "_fnx_write_kind", "adj") == "pred":
                         return multigraph_owner.get_edge_data(node, parent_node)
                     return multigraph_owner.get_edge_data(parent_node, node)
-                if parent_node is not None and getattr(self, "_fnx_write_kind", "adj") == "pred":
+                if parent_node is not None:
                     storage = vars(multigraph_owner)
-                    if _PRIVATE_PRED_OVERRIDE not in storage:
-                        # Replacing other storage leaves this side native.
-                        # Public get_edge_data may read assigned forward
-                        # storage, so obtain this predecessor's actual live
-                        # keydict, including its post-removal detachment.
+                    predecessor = getattr(self, "_fnx_write_kind", "adj") == "pred"
+                    native_side = (
+                        _PRIVATE_PRED_OVERRIDE not in storage
+                        if predecessor
+                        else _PRIVATE_ADJ_OVERRIDE not in storage
+                        and _PRIVATE_SUCC_OVERRIDE not in storage
+                    )
+                    if native_side:
+                        # An independent node or opposite-direction override
+                        # leaves this adjacency side native. Keep its actual
+                        # writable keydict: deleting one key must not call
+                        # graph.remove_edge and lose the retained empty pair.
                         target = storage.get(_SHARED_STORAGE_SOURCE, multigraph_owner)
                         get_data = _private_native_method(target, _RAW_GET_EDGE_DATA_BY_CLASS)
                         if get_data is not None:
-                            return get_data(target, node, parent_node)
+                            if predecessor:
+                                return get_data(target, node, parent_node)
+                            return get_data(target, parent_node, node)
                 view = _private_writable_class(AtlasView)(
                     lambda: self._atlas()[node],
                     owner=owner,

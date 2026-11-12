@@ -1337,6 +1337,20 @@ Focused tests compare assigned-storage graphs, graph views, and copied graphs
 against NetworkX, with deliberately different native and logical contents.
 They also verify retained native routes on ordinary concrete graphs.
 
+Private adjacency writes through a native graph's writable facade replace or
+remove every existing key in a nonempty parallel-edge set, including self-loops.
+Replacing a row or key dictionary from an alias first captures its shallow
+contents, so removing old edges does not erase the replacement input. New
+attributes are applied as mappings and retain nonstring keys, parameter-name
+keys such as `key`, and nested value identity.
+
+An independently assigned node store or opposite directed row does not change
+the storage authority of a native adjacency side. Its edge-key dictionary
+retains requested-key deletion, an empty pair after deleting the final key,
+and detachment when the graph later removes the pair. These repairs retain
+the existing native facade's whole-edge write policy; they do not claim raw
+row-object aliasing or inconsistent half-edge storage parity.
+
 ## 43. Graph Pickle Persistence and Object Identity
 
 A pickle round trip allocates and memoizes each graph before restoring its
@@ -2276,12 +2290,15 @@ groups; custom graph and weight providers retain the original graph through
 the owned Brandes traversal. A weighted Brandes callback returning `None`
 raises its arithmetic error rather than silently hiding an edge.
 
-Group closeness validates membership against the caller's graph and retains
-live callable-weight dictionaries and their mutations. Directed inputs retain
-the reference's reverse-copy boundary. Its `weight=None` is a literal Dijkstra
-attribute selector, so an edge attribute keyed by `None` contributes its value.
-An empty source group on a nonempty graph raises `ValueError`, while an empty
-graph or a group containing every node has centrality zero.
+Group closeness first takes the directed reverse-copy boundary when required,
+captures the graph's node set, and consumes the group into a set once. It
+validates membership and then traverses from that group, retaining live weight
+dictionaries and their mutations on the selected graph. Its `weight=None` is
+a literal Dijkstra attribute selector, so an edge attribute keyed by `None`
+contributes its value. Empty source groups raise `ValueError`, including on an
+empty graph. A full group still performs traversal before returning zero, so
+weight callbacks and their errors remain visible. Distance accumulation starts
+from integer zero and preserves the arithmetic of exact numeric weight types.
 
 ## 78. Live Attribute Protocols During Graph Conversion
 

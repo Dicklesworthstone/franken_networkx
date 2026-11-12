@@ -1280,12 +1280,14 @@ def _private_keydict_setitem(self, owner, u, v, key, value):
             "attributes in a typed store with no representation for a "
             "non-mapping (br-r37-c1-rgmef)."
         )
+    attrs = dict(value)
     if owner.has_edge(u, v, key):
         existing = owner.adj[u][v][key]
         existing.clear()
-        existing.update(value)
+        existing.update(attrs)
         return
-    owner.add_edge(u, v, key, **dict(value))
+    inserted_key = owner.add_edge(u, v, key)
+    owner.adj[u][v][inserted_key].update(attrs)
 
 
 def _private_view_setitem(self, key, value):
@@ -1299,14 +1301,20 @@ def _private_view_setitem(self, key, value):
                 "fnx: an adjacency row must be a mapping; got "
                 f"{type(value).__name__} (br-r37-c1-rgmef)."
             )
+        # The supplied row may be this very native row. Preserve its cells
+        # before deleting edges; otherwise the source empties during the write.
+        if owner.is_multigraph():
+            replacement = [
+                (other, {edge_key: dict(attrs) for edge_key, attrs in cell.items()})
+                for other, cell in value.items()
+            ]
+        else:
+            replacement = [(other, dict(cell)) for other, cell in value.items()]
         owner.add_node(key)
-        reverse = getattr(self, "_fnx_write_kind", "adj") == "pred"
-        for other in list(self[key]):
-            a, b = (other, key) if reverse else (key, other)
-            if owner.has_edge(a, b):
-                owner.remove_edge(a, b)
         row = self[key]
-        for other, cell in value.items():
+        for other in list(row):
+            del row[other]
+        for other, cell in replacement:
             row[other] = cell
         return
 
@@ -1317,16 +1325,20 @@ def _private_view_setitem(self, key, value):
                 "fnx: a multigraph adjacency row maps a neighbour to a keydict; "
                 f"got {type(value).__name__} (br-r37-c1-rgmef)."
             )
-        if owner.has_edge(u, v):
-            for edge_key in list(owner.adj[u][v]):
-                owner.remove_edge(u, v, edge_key)
+        replacement = []
         for edge_key, edge_attrs in value.items():
             if not isinstance(edge_attrs, _Mapping):
                 raise TypeError(
                     "fnx: multigraph edge attributes must be a mapping; got "
                     f"{type(edge_attrs).__name__} (br-r37-c1-rgmef)."
                 )
-            owner.add_edge(u, v, edge_key, **dict(edge_attrs))
+            replacement.append((edge_key, dict(edge_attrs)))
+        if owner.has_edge(u, v):
+            for edge_key in list(owner.adj[u][v]):
+                owner.remove_edge(u, v, edge_key)
+        for edge_key, edge_attrs in replacement:
+            inserted_key = owner.add_edge(u, v, edge_key)
+            owner.adj[u][v][inserted_key].update(edge_attrs)
         return
 
     attrs = dict(value) if value else {}
@@ -1336,13 +1348,22 @@ def _private_view_setitem(self, key, value):
         existing.clear()
         existing.update(attrs)
         return
-    owner.add_edge(u, v, **attrs)
+    owner.add_edge(u, v)
+    owner.adj[u][v].update(attrs)
 
 
 def _private_view_delitem(self, key):
     owner, u, v = _private_write_target(self, key)
+    cell = self[key]  # Validate the mapping key before making any mutation.
     if u is None:
         owner.remove_node(key)
+        return
+    if getattr(self, "_fnx_write_kind", "adj") == "keydict":
+        del self._atlas()[key]
+        return
+    if owner.is_multigraph():
+        for edge_key in list(cell):
+            owner.remove_edge(u, v, edge_key)
         return
     owner.remove_edge(u, v)
 
