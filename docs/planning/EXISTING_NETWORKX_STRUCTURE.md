@@ -1556,9 +1556,20 @@ Recovered GraphML node-type collisions merge attributes in source node order:
 earlier distinct keys survive, later values overwrite repeated keys without
 moving their positions, and the first converted node keeps its position.
 Reconstruction retains the parser's compatibility mode and recovery ledger.
-If node conversion introduces parallel edges into a recovered simple graph,
-the reader raises its unsupported-recovery error before replacing the policy
-carrier's data; it must not silently collapse those edges.
+Missing, blank, or unsupported scalar key types can recover through the full
+owned decoder, retaining parallel edges, lexical edge IDs, defaults, typed
+node collisions, custom key conversion, and force-multigraph options. The
+original native validator remains the policy authority. Repair only scalar
+key declarations in a private XML tree, decline DOCTYPE, CDATA, unsupported
+encodings and non-scalar declarations, then require strict native validation
+of the entire repaired document before reconstructing it. This admission
+cannot infer safety from a truncated recovery ledger. Copy the original
+policy and decision records to the complete result after decoding.
+
+Other recoveries keep their existing restrictions. When those paths cannot
+represent parallel edges, including edges introduced by node conversion,
+raise the unsupported-recovery error before replacing the policy carrier's
+data; never silently collapse those edges.
 
 ## 50. Connectivity Queries with Custom Flow Solvers and Cutoffs
 

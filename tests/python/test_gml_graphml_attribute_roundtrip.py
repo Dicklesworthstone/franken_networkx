@@ -479,12 +479,20 @@ def test_parse_graphml_hardened_conversion_keeps_recovery_ledger(parser):
         and "unsupported attr.type `complex`" in record["rationale"]
         for record in actual.decision_records()
     )
-    # A requested multigraph recovery must fail before returning the lossy
-    # simple projection produced by native validation.
+    # The full decoder reconstructs a multigraph after scalar-key repairs,
+    # while the original native validation remains its policy authority.
     with fnx.compatibility_mode("hardened"):
         with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
-            with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery"):
-                parser(payload, node_type=int, force_multigraph=True)
+            multigraph = parser(payload, node_type=int, force_multigraph=True)
+    assert multigraph.is_multigraph()
+    assert list(multigraph.nodes(data=True)) == list(actual.nodes(data=True))
+    assert list(multigraph.edges(keys=True, data=True)) == [(1, 2, 0, {})]
+    assert multigraph.mode == "hardened"
+    assert any(
+        record["action"] == "full_validate"
+        and "unsupported attr.type `complex`" in record["rationale"]
+        for record in multigraph.decision_records()
+    )
 
 
 def _forbid_graphml_delegation(monkeypatch):
@@ -1128,8 +1136,7 @@ def test_namespace_default_graphml_keeps_full_numeric_and_encoding_surface(reade
 @pytest.mark.parametrize("directed", [False, True])
 def test_hardened_parallel_recovery_cannot_lose_marker_during_large_reconstruction(reader, directed):
     # More than the native ledger's 8192-record retention window. Internal
-    # node reconstruction must not retire the parser's parallel-edge marker
-    # and accidentally return the lossy simple projection after a recovery.
+    # reconstruction must keep the full multigraph and original parser ledger.
     direction = "directed" if directed else "undirected"
     payload = (
         '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
@@ -1146,14 +1153,20 @@ def test_hardened_parallel_recovery_cannot_lose_marker_during_large_reconstructi
     assert expected.number_of_nodes() == 9002
     assert expected.number_of_edges() == 2
     with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
-        with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery"):
-            reader(io.BytesIO(payload), mode="hardened")
+        actual = reader(io.BytesIO(payload), mode="hardened")
+    _assert_graphml_matches(actual, expected)
+    assert actual.mode == "hardened"
+    assert any(
+        record["action"] == "full_validate"
+        and "unsupported attr.type `complex`" in record["rationale"]
+        for record in actual.decision_records()
+    )
 
 
 @pytest.mark.parametrize("directed", [False, True])
 @pytest.mark.parametrize("topology", ["parallel-neighbors", "collapsed-self-loops"])
 @pytest.mark.parametrize("reader", GRAPHML_READERS, ids=GRAPHML_READER_IDS)
-def test_hardened_graphml_node_merge_rejects_new_parallel_edges(
+def test_hardened_graphml_node_merge_preserves_new_parallel_edges(
     directed, topology, reader, monkeypatch
 ):
     edge_xml = (
@@ -1190,14 +1203,239 @@ def test_hardened_graphml_node_merge_rejects_new_parallel_edges(
     monkeypatch.setattr(fnx._fnx, "validate_graphml", capture_validation)
     with fnx.compatibility_mode("strict"):
         with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
-            with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery with parallel edges"):
-                reader(io.BytesIO(payload), node_type=int, mode="hardened")
+            actual = reader(io.BytesIO(payload), node_type=int, mode="hardened")
         assert fnx.get_compatibility_mode() == "strict"
+    _assert_graphml_matches(actual, expected)
+    assert actual.mode == "hardened"
 
-    # Rejection precedes clearing the parser's graph or rewriting its policy.
-    assert len(validated) == 1
+    # Strict revalidation and reconstruction never mutate the policy owner.
+    assert len(validated) == 2
     graph, nodes, edges, records = validated[0]
     assert graph.mode == "hardened"
     assert list(graph.nodes(data=True)) == nodes
     assert list(graph.edges(data=True)) == edges
     assert graph.decision_records() == records
+    assert actual.decision_records() == records
+
+
+@pytest.mark.parametrize("entry", ["parse-text", "parse-bytes", "read-text", "read-bytes"])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("repair", ["unsupported", "missing", "blank"])
+@pytest.mark.parametrize("edge_key_type", [int, str])
+@pytest.mark.parametrize("force_multigraph", [False, True])
+def test_hardened_graphml_scalar_type_recovery_keeps_complete_graph(
+    entry, directed, repair, edge_key_type, force_multigraph, monkeypatch
+):
+    declaration = {
+        "unsupported": 'attr.type="complex"',
+        "missing": "",
+        "blank": 'attr.type=" "',
+    }[repair]
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        f'<key id="n" for="node" attr.name="label" {declaration}>'
+        '<default>node default</default></key>'
+        f'<key id="e" for="edge" attr.name="label" {declaration}>'
+        '<default>edge default</default></key>'
+        '<key id="w" for="edge" attr.name="weight" attr.type="int"/>'
+        '<key id="g" for="graph" attr.name="title" attr.type="string"/>'
+        f'<graph edgedefault="{"directed" if directed else "undirected"}">'
+        '<data key="g">multigraph recovery</data>'
+        '<node id="01"><data key="n">first</data></node>'
+        '<node id="1"><data key="n">merged</data></node><node id="2"/>'
+        '<edge source="01" target="2" id="007"><data key="e">A</data></edge>'
+        '<edge source="1" target="2" id="7"><data key="w">9</data></edge>'
+        '<edge source="01" target="2" id="other"><data key="e">B</data></edge>'
+        '<edge source="2" target="2" id="007"><data key="e">loop</data></edge>'
+        '</graph></graphml>'
+    )
+    clean = payload.replace(declaration, 'attr.type="string"') if declaration else (
+        payload.replace('attr.name="label" >', 'attr.name="label" attr.type="string">')
+    )
+    options = dict(node_type=int, edge_key_type=edge_key_type, force_multigraph=force_multigraph)
+    expected = nx.parse_graphml(clean, **options)
+    _forbid_graphml_delegation(monkeypatch)
+    original = payload if entry.endswith("text") else payload.encode()
+    with fnx.compatibility_mode("hardened"):
+        with pytest.warns(RuntimeWarning, match="graphml key"):
+            if entry.startswith("parse"):
+                actual = fnx.parse_graphml(original, **options)
+            else:
+                stream = io.StringIO(original) if isinstance(original, str) else io.BytesIO(original)
+                actual = fnx.read_graphml(stream, **options)
+                assert not stream.closed
+                assert stream.getvalue() == original
+    _assert_graphml_matches(actual, expected)
+    assert actual.mode == "hardened"
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("entry", ["parse", "read"])
+@pytest.mark.parametrize("converter_error", [None, ValueError, TypeError])
+def test_hardened_graphml_recovery_retains_converter_order_and_errors(
+    entry, converter_error, monkeypatch
+):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="z" for="node" attr.name="z" attr.type="complex"/>'
+        '<graph edgedefault="directed"><node id="01"><data key="z">1+2j</data>'
+        '</node><node id="1"/><node id="2"/>'
+        '<edge source="01" target="2" id="007"/>'
+        '<edge source="1" target="2" id="other"/></graph></graphml>'
+    )
+    clean = payload.replace('attr.type="complex"', 'attr.type="string"')
+
+    def invoke(module, content, events):
+        def node_type(value):
+            events.append(("node", value))
+            return int(value)
+
+        def edge_key_type(value):
+            events.append(("edge", value))
+            if converter_error is not None and value == "other":
+                raise converter_error("custom recovery key conversion")
+            return value
+
+        options = dict(node_type=node_type, edge_key_type=edge_key_type)
+        if entry == "read":
+            return module.read_graphml(io.BytesIO(content.encode()), **options)
+        return module.parse_graphml(content, **options)
+
+    expected_events, actual_events = [], []
+    if converter_error is TypeError:
+        with pytest.raises(TypeError) as expected_error:
+            invoke(nx, clean, expected_events)
+        _forbid_graphml_delegation(monkeypatch)
+        with fnx.compatibility_mode("hardened"):
+            with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+                with pytest.raises(TypeError) as actual_error:
+                    invoke(fnx, payload, actual_events)
+        assert str(actual_error.value) == str(expected_error.value)
+    else:
+        expected = invoke(nx, clean, expected_events)
+        _forbid_graphml_delegation(monkeypatch)
+        with fnx.compatibility_mode("hardened"):
+            with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+                actual = invoke(fnx, payload, actual_events)
+        _assert_graphml_matches(actual, expected)
+    assert actual_events == expected_events
+
+
+@pytest.mark.parametrize("entry", ["parse", "read"])
+@pytest.mark.parametrize("extra", [
+    '<node/>',
+    '<edge source="a" target="b"><data key="w">not-an-int</data></edge>',
+    '<edge source="a" target="b"><data key="z">wrong scope</data></edge>',
+    '<edge source="a" target="b" directed="true"/>',
+    '<hyperedge><endpoint node="a"/></hyperedge>',
+    '<node id="nested"><data key="z"><unsupported/></data></node>',
+])
+def test_hardened_graphml_type_repair_does_not_admit_other_recoveries(
+    entry, extra, monkeypatch
+):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="z" for="node" attr.name="z" attr.type="complex"/>'
+        '<key id="w" for="edge" attr.name="weight" attr.type="int"/>'
+        '<graph edgedefault="undirected"><node id="a"/><node id="b"/>'
+        '<edge source="a" target="b"/><edge source="a" target="b"/>'
+        + extra + '</graph></graphml>'
+    )
+    events = []
+
+    def node_type(value):
+        events.append(value)
+        return value
+
+    _forbid_graphml_delegation(monkeypatch)
+    with fnx.compatibility_mode("hardened"):
+        with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+            with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery"):
+                if entry == "read":
+                    fnx.read_graphml(io.BytesIO(payload.encode()), node_type=node_type)
+                else:
+                    fnx.parse_graphml(payload, node_type=node_type)
+    assert events == [], "Rejected recovery must not invoke user conversion callbacks"
+
+
+def test_hardened_graphml_repair_revalidates_beyond_retained_ledger(monkeypatch):
+    payload = (
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="w" for="edge" attr.name="weight" attr.type="int"/>'
+        '<graph edgedefault="undirected"><node id="a"/><node id="b"/>'
+        '<edge source="a" target="b"><data key="w">not-an-int</data></edge>'
+        + '<edge source="a" target="b"/>' * 8300
+        + '</graph><key id="late" for="node" attr.name="late" attr.type="complex"/>'
+        '</graphml>'
+    ).encode()
+    validate = fnx._fnx.validate_graphml
+    validated = []
+
+    def capture_validation(*args, **kwargs):
+        graph = validate(*args, **kwargs)
+        validated.append(graph)
+        return graph
+
+    monkeypatch.setattr(fnx._fnx, "validate_graphml", capture_validation)
+    with pytest.warns(RuntimeWarning, match="not-an-int"):
+        with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery"):
+            fnx.read_graphml(io.BytesIO(payload), mode="hardened")
+    assert len(validated) == 1, "Strict revalidation must reject the invalid earlier edge"
+    records = validated[0].decision_records()
+    assert not any("not-an-int" in record["rationale"] for record in records)
+    assert any("unsupported attr.type `complex`" in record["rationale"] for record in records)
+
+
+@pytest.mark.parametrize("entry", ["parse", "read"])
+@pytest.mark.parametrize("construct", ["internal-entity", "cdata"])
+def test_hardened_graphml_type_repair_cannot_normalize_other_xml_constructs(
+    entry, construct
+):
+    header, value = (
+        ('<!DOCTYPE graphml [<!ENTITY recovered "entity text">]>', '&recovered;')
+        if construct == "internal-entity" else
+        ("", '<![CDATA[cdata text]]>')
+    )
+    payload = (
+        header + '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="z" for="node" attr.name="z" attr.type="complex"/>'
+        '<graph edgedefault="undirected"><node id="a"><data key="z">'
+        + value + '</data></node><node id="b"/>'
+        '<edge source="a" target="b"/><edge source="a" target="b"/>'
+        '</graph></graphml>'
+    )
+    with fnx.compatibility_mode("hardened"):
+        with pytest.warns(RuntimeWarning, match="unsupported attr.type `complex`"):
+            with pytest.raises(fnx.NetworkXNotImplemented, match="GraphML recovery"):
+                if entry == "read":
+                    fnx.read_graphml(io.BytesIO(payload.encode()))
+                else:
+                    fnx.parse_graphml(payload)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16"])
+@pytest.mark.parametrize("construct", ["internal-entity", "cdata"])
+def test_graphml_type_repair_guard_recognizes_encoded_xml_constructs(encoding, construct):
+    header, value = (
+        ('<!DOCTYPE graphml [<!ENTITY recovered "entity text">]>', '&recovered;')
+        if construct == "internal-entity" else
+        ("", '<![CDATA[cdata text]]>')
+    )
+    payload = (
+        f'<?xml version="1.0" encoding="{encoding}"?>' + header
+        + '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="z" for="node" attr.name="z" attr.type="complex"/>'
+        '<graph edgedefault="undirected"><node id="a"><data key="z">'
+        + value + '</data></node></graph></graphml>'
+    ).encode(encoding)
+    assert fnx._graphml_repaired_type_payload(payload) is None
+
+
+def test_graphml_type_repair_declines_unknown_byte_encoding():
+    payload = (
+        '<?xml version="1.0" encoding="unknown-graphml-encoding"?>'
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">'
+        '<key id="z" for="node" attr.name="z" attr.type="complex"/>'
+        '<graph edgedefault="undirected"><node id="a"/></graph></graphml>'
+    ).encode()
+    assert fnx._graphml_repaired_type_payload(payload) is None

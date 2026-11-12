@@ -301,6 +301,53 @@ class _GraphMLBufferedInput:
         return seek
 
 
+def _graphml_repaired_type_payload(payload):
+    """Repair only scalar key declarations in a private, well-formed XML tree."""
+    from xml.parsers import expat
+    from xml.etree.ElementTree import ParseError, fromstring, tostring
+
+    class UnsupportedRepair(Exception):
+        pass
+
+    def reject_xml_rewrite(*args):
+        raise UnsupportedRepair
+
+    # ElementTree expands internal entities and turns CDATA into ordinary
+    # text. Those are not scalar-type repairs, so decline before either can
+    # be normalized away. Expat recognizes them even in UTF-16 byte input.
+    parser = expat.ParserCreate()
+    parser.StartDoctypeDeclHandler = reject_xml_rewrite
+    parser.StartCdataSectionHandler = reject_xml_rewrite
+    try:
+        parser.Parse(payload, True)
+        root = fromstring(payload)
+    except (expat.ExpatError, ParseError, LookupError, UnsupportedRepair):
+        return None
+    prefix = "{http://graphml.graphdrawing.org/xmlns}"
+    if root.tag != prefix + "graphml":
+        return None
+    declarations = root.findall(prefix + "key")
+    # Nested declarations are outside the complete reader's key registry.
+    # Do not let reserialization make an unrelated recovery look repaired.
+    if len(declarations) != sum(1 for _ in root.iter(prefix + "key")):
+        return None
+    scalar_types = {
+        "integer", "yfiles", "string", "int", "long", "float", "double", "boolean",
+    }
+    repaired = False
+    for declaration in declarations:
+        if (
+            not declaration.get("id")
+            or not declaration.get("attr.name")
+            or declaration.get("yfiles.type") is not None
+        ):
+            return None
+        if declaration.get("attr.type") not in scalar_types:
+            declaration.set("attr.type", "string")
+            repaired = True
+    return tostring(root, encoding="utf-8") if repaired else None
+
+
 def _graphml_from_mode_payload(
     payload, *, node_type=str, edge_key_type=int, force_multigraph=False,
     mode=None, parse_string=False,
@@ -310,6 +357,26 @@ def _graphml_from_mode_payload(
     graph = _fnx.validate_graphml(stream_type(payload), mode=mode)
     records = graph.decision_records()
     recovered = any(record["action"] == "full_validate" for record in records)
+    repaired_payload = _graphml_repaired_type_payload(payload) if recovered else None
+    if repaired_payload is not None:
+        try:
+            # Recheck the entire repaired document under the existing strict
+            # native policy. A truncated recovery ledger cannot prove that
+            # an unsupported key type was its only malformed feature.
+            checked = _fnx.validate_graphml(
+                _io.BytesIO(repaired_payload), mode="strict"
+            )
+        except OSError:
+            # Other recoveries keep their established policy path below.
+            pass
+        else:
+            if not any(
+                record["action"] == "full_validate"
+                for record in checked.decision_records()
+            ):
+                payload = repaired_payload
+                stream_type = _io.BytesIO
+                recovered = False
     if not recovered:
         # Native validation remains authoritative. A clean document still
         # needs the complete key/multigraph/type contract; the simple native
